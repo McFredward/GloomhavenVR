@@ -1,0 +1,7 @@
+ressources/
+decompiled/
+*.dll
+obj/
+bin/
+.vs/
+*.user
