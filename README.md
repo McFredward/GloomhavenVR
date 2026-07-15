@@ -2,14 +2,18 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phase 2 (hands & interaction primitives) code-complete, awaiting hardware validation.**
+> **Status: pre-alpha — Phase 3a (board touch targeting) code-complete, awaiting hardware validation.**
 > On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod now has tracked
 > hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
 > proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
 > game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
 > desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
-> Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`. Hardware checklists:
-> `docs/TESTING-P1.md`, `docs/TESTING-P2.md`. No card hand / board play / world UI yet.
+> **New in Phase 3a:** the board is playable by hand — hex/actor/door/chest picking by
+> fingertip touch (near) or laser ray (far), clicks committed through the game's own
+> click path (undo/MP-safe), AoE rotation on the thumbstick, hover haptics, enemy stat
+> panel on point/touch. Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`.
+> Hardware checklists: `docs/TESTING-P1.md`, `docs/TESTING-P2.md`, `docs/TESTING-P3A.md`.
+> No card hand / world-space UI yet (Phases 3b/3c).
 
 ## What / why
 
