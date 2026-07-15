@@ -2,14 +2,21 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phase 2 (hands & interaction primitives) code-complete, awaiting hardware validation.**
-> On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod now has tracked
+> **Status: pre-alpha — Phase 3c (world-space UI) code-complete, awaiting hardware validation.**
+> On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod has tracked
 > hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
 > proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
 > game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
 > desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
-> Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`. Hardware checklists:
-> `docs/TESTING-P1.md`, `docs/TESTING-P2.md`. No card hand / board play / world UI yet.
+> Phase 3c adds the physical interface: poke-able Ready/Undo/Skip buttons at the table
+> edge, the initiative track / element board / combat log / objectives as world panels,
+> confirmation dialogs as world modals, phase-banner HMD toasts, true world-space actor
+> HP bars above the miniatures, a wrist status HUD, world tooltips, a floating 2D screen
+> (+ virtual-mouse ray pointer) for menus/merchant/level-up, and a gamepad-mode guard —
+> every surface individually toggleable in `worldui.gloomhavenvr.cfg`, all conversions
+> fully reversible. Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`.
+> Hardware checklists: `docs/TESTING-P1.md`, `docs/TESTING-P2.md`, `docs/TESTING-P3C.md`.
+> No card hand / board play yet (Phases 3a/3b in flight on their own branches).
 
 ## What / why
 
