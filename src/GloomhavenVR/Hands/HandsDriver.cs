@@ -73,9 +73,14 @@ internal sealed class HandsDriver : MonoBehaviour
 
     private void ApplyMode(VRMode mode)
     {
-        Interactors mask = VRModeStateMachine.InteractorsFor(mode);
-        _left?.SetInteractorMask(mask);
-        _right?.SetInteractorMask(mask);
+        // P5 (MISSION A.4): the policy is per-hand — the dominant hand may keep the
+        // ray while the non-dominant hand owns the palm gate/fan (matrix in
+        // docs/INTERFACES-P2.md §4). Dominance follows [Hands] PrimaryHand.
+        bool leftIsDominant = VRHands.Primary == _left && _left != null;
+        _left?.SetInteractorMask(VRModeStateMachine.InteractorsFor(
+            mode, leftIsDominant ? HandRole.Dominant : HandRole.NonDominant));
+        _right?.SetInteractorMask(VRModeStateMachine.InteractorsFor(
+            mode, leftIsDominant ? HandRole.NonDominant : HandRole.Dominant));
     }
 
     // ---- build / teardown -------------------------------------------------------------

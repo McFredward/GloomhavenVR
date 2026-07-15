@@ -38,6 +38,16 @@ internal enum Interactors
     All = Poke | Ray | Grab | PalmGate
 }
 
+/// <summary>
+/// Which role a physical hand plays for the per-hand interactor policy (P5, MISSION A.4).
+/// Dominant = the <c>[Hands] PrimaryHand</c> config hand (default Right).
+/// </summary>
+internal enum HandRole
+{
+    Dominant,
+    NonDominant
+}
+
 /// <summary>Mode transition payload.</summary>
 internal readonly struct VRModeChange
 {
@@ -108,15 +118,40 @@ internal static class VRModeStateMachine
         Choreographer.ChoreographerStateType.WaitingForTileSelected,
     };
 
-    /// <summary>Per-mode interactor policy. Ray-always-on config is applied in <see cref="InteractorsFor"/>.</summary>
+    /// <summary>
+    /// Per-mode interactor policy (both hands, unless a <see cref="HandPolicy"/> override
+    /// exists for a role). Ray-always-on config is applied in <see cref="InteractorsFor(VRMode)"/>.
+    /// P5: Menu2D gained Poke (the in-VR settings panel is poke-driven and reachable from
+    /// the menu once the menu rig exists).
+    /// </summary>
     private static readonly Dictionary<VRMode, Interactors> InteractorPolicy = new()
     {
-        { VRMode.Menu2D, Interactors.Ray },
+        { VRMode.Menu2D, Interactors.Ray | Interactors.Poke },
         { VRMode.TableIdle, Interactors.Poke | Interactors.Grab | Interactors.PalmGate },
         { VRMode.CardSelection, Interactors.Poke | Interactors.Grab | Interactors.PalmGate },
         { VRMode.HalfSelection, Interactors.Poke | Interactors.Grab | Interactors.PalmGate },
         { VRMode.BoardTargeting, Interactors.Ray | Interactors.Poke },
         { VRMode.ModalUI, Interactors.Poke | Interactors.Ray },
+    };
+
+    /// <summary>
+    /// Per-hand overrides on top of <see cref="InteractorPolicy"/> (P5, MISSION A.4).
+    /// The FINAL per-mode/per-hand matrix is documented in docs/INTERFACES-P2.md §4.
+    ///
+    /// - CardSelection: the dominant hand keeps the far RAY (hero placement, board picks
+    ///   during selection — P3a wish) and drops the palm gate (the fan lives on the
+    ///   non-dominant palm); the non-dominant hand owns PalmGate/fan and shows NO laser,
+    ///   so the beam never blinds the card fan (P3b wish).
+    /// - BoardTargeting: only the dominant hand carries the ray/laser — the far pick
+    ///   (BoardPick) exclusively consumes VRHands.PrimaryPick anyway; the non-dominant
+    ///   hand keeps Poke for near-touch.
+    /// </summary>
+    private static readonly Dictionary<(VRMode, HandRole), Interactors> HandPolicy = new()
+    {
+        { (VRMode.CardSelection, HandRole.Dominant), Interactors.Poke | Interactors.Grab | Interactors.Ray },
+        { (VRMode.CardSelection, HandRole.NonDominant), Interactors.Poke | Interactors.Grab | Interactors.PalmGate },
+        { (VRMode.BoardTargeting, HandRole.Dominant), Interactors.Ray | Interactors.Poke },
+        { (VRMode.BoardTargeting, HandRole.NonDominant), Interactors.Poke },
     };
 
     // ---- composed state -------------------------------------------------------------
@@ -139,13 +174,31 @@ internal static class VRModeStateMachine
         else TargetingStates.Remove(state);
     }
 
-    /// <summary>Replace the interactor set for a mode (Phase-3/4 extension point).</summary>
+    /// <summary>Replace the interactor set for a mode (Phase-3/4 extension point). Applies to both hands unless a hand override exists.</summary>
     public static void SetInteractorPolicy(VRMode mode, Interactors set) => InteractorPolicy[mode] = set;
 
-    /// <summary>Effective interactor set for a mode (honors the RayAlwaysOn config override).</summary>
-    public static Interactors InteractorsFor(VRMode mode)
+    /// <summary>Set/replace a per-hand override for a mode (P5 extension point, MISSION A.4).</summary>
+    public static void SetHandInteractorPolicy(VRMode mode, HandRole role, Interactors set) =>
+        HandPolicy[(mode, role)] = set;
+
+    /// <summary>Remove a per-hand override (the mode-wide policy applies again).</summary>
+    public static void ClearHandInteractorPolicy(VRMode mode, HandRole role) =>
+        HandPolicy.Remove((mode, role));
+
+    /// <summary>
+    /// Effective interactor set for a mode, both-hands view (honors the RayAlwaysOn
+    /// config override). Where per-hand overrides exist this is their UNION — prefer
+    /// <see cref="InteractorsFor(VRMode, HandRole)"/> for anything hand-specific.
+    /// </summary>
+    public static Interactors InteractorsFor(VRMode mode) =>
+        InteractorsFor(mode, HandRole.Dominant) | InteractorsFor(mode, HandRole.NonDominant);
+
+    /// <summary>Effective interactor set for one hand role in a mode (P5). Honors RayAlwaysOn.</summary>
+    public static Interactors InteractorsFor(VRMode mode, HandRole role)
     {
-        Interactors set = InteractorPolicy.TryGetValue(mode, out Interactors s) ? s : Interactors.All;
+        Interactors set = HandPolicy.TryGetValue((mode, role), out Interactors overrideSet)
+            ? overrideSet
+            : InteractorPolicy.TryGetValue(mode, out Interactors s) ? s : Interactors.All;
         if (Plugin.RayAlwaysOn.Value)
             set |= Interactors.Ray;
         return set;
