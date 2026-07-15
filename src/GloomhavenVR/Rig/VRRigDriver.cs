@@ -38,15 +38,20 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>The head-tracked camera while the rig exists (the game's scenario camera).</summary>
     internal static Camera? HeadCamera { get; private set; }
 
+    /// <summary>
+    /// Base (unmultiplied) diorama scale resolved at rig build, 0 while no rig. Phase-4
+    /// comfort clamps pinch-scale relative to this ([Comfort] ScaleMin/ScaleMax).
+    /// </summary>
+    internal static float BaseWorldScale { get; private set; }
+
+    /// <summary>The live driver instance (for <see cref="RequestRecenter"/>), if any.</summary>
+    internal static VRRigDriver? Instance { get; private set; }
+
     /// <summary>Fallback diorama scale when auto-detection has no tile size yet.</summary>
     private const float FallbackWorldScale = 12f;
 
     /// <summary>Real-world size a hex tile should read as on the "table" (meters).</summary>
     private const float TargetHexSizeMeters = 0.15f;
-
-    /// <summary>Real-world eye offset from the board focus at recenter (meters).</summary>
-    private const float RecenterEyeHeight = 0.7f;
-    private const float RecenterEyeBack = 0.7f;
 
     private GameObject? _rigRoot;
     private Camera? _camera;
@@ -59,6 +64,8 @@ internal sealed class VRRigDriver : MonoBehaviour
     private Quaternion _originalLocalRot;
     private float _originalFov;
     private float _originalNearClip;
+
+    private void Awake() => Instance = this;
 
     private void Update()
     {
@@ -82,7 +89,12 @@ internal sealed class VRRigDriver : MonoBehaviour
         }
     }
 
-    private void OnDestroy() => TearDownRig();
+    private void OnDestroy()
+    {
+        TearDownRig();
+        if (Instance == this)
+            Instance = null;
+    }
 
     private void BuildRig(CameraController controller)
     {
@@ -100,7 +112,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         // (PATCH-TARGETS.md §1.3) — the Harmony skips are the real ownership switch.
         controller.m_IsCameraCodeControlDisabled = true;
 
-        float scale = ResolveWorldScale();
+        float baseScale = ResolveWorldScale();
+        // Re-apply the pinch-scale the player last reached ([Comfort] SavedScaleMultiplier).
+        float scale = baseScale * ComfortSettings.ClampedSavedMultiplier;
 
         _rigRoot = new GameObject("GloomhavenVR.VRRig");
         // Rig at the orbit focus, yaw taken from the current camera so the board is
@@ -126,18 +140,25 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         RigRoot = _rigRoot.transform;
         HeadCamera = cam;
+        BaseWorldScale = baseScale;
 
         _pendingRecenter = true;
 
         VRLog.Info("Rig", $"VR rig built at focus {controller.FocusPoint}, world scale {scale:F1} " +
-                          $"(config {Plugin.WorldScale.Value:F1}, tile size {UnityGameEditorRuntime.s_TileSize.x:F2}).");
+                          $"(base {baseScale:F1}, config {Plugin.WorldScale.Value:F1}, " +
+                          $"tile size {UnityGameEditorRuntime.s_TileSize.x:F2}).");
     }
 
+    /// <summary>Recenter the live rig, if any (Phase-4 comfort entry point — chord/panel/dev key).</summary>
+    internal static void RequestRecenter() => Instance?.Recenter();
+
     /// <summary>
-    /// Reposition the rig so the player's CURRENT head pose ends up at a comfortable
-    /// table-edge spot: eyes ~0.7 m (real) above the orbit focus plane and ~0.7 m back.
-    /// P1: called automatically on the first tracked pose; controller binding follows
-    /// with input work in Phase 2/4.
+    /// Reposition the rig so the player's CURRENT head pose ends up at the configured
+    /// table-edge spot: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real)
+    /// above the orbit focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/>
+    /// back (standing/seated presets + [Comfort] TableHeightOffset). Called automatically
+    /// on the first tracked pose; Phase 4 binds it to the B+Y hold chord (see
+    /// <see cref="Comfort"/>).
     /// </summary>
     internal void Recenter()
     {
@@ -150,12 +171,14 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         float scale = _rigRoot.transform.localScale.x;
         Vector3 desiredHeadWorld = controller.FocusPoint
-                                   + _rigRoot.transform.rotation * (Vector3.back * (RecenterEyeBack * scale))
-                                   + Vector3.up * (RecenterEyeHeight * scale);
+                                   + _rigRoot.transform.rotation * (Vector3.back * (ComfortSettings.EffectiveEyeBackMeters * scale))
+                                   + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
         Vector3 headOffsetWorld = _rigRoot.transform.rotation * (_camera.transform.localPosition * scale);
         _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
+        RigClamp.Apply(_rigRoot.transform);
 
-        VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position}.");
+        VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position} " +
+                          $"(seated {(ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value ? "yes" : "no")}).");
     }
 
     /// <summary>
@@ -181,6 +204,7 @@ internal sealed class VRRigDriver : MonoBehaviour
     {
         RigRoot = null;
         HeadCamera = null;
+        BaseWorldScale = 0f;
 
         if (_poseDriver != null)
         {
