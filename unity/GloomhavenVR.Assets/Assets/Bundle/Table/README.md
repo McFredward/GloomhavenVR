@@ -13,6 +13,32 @@ Intended assets (Phases 3b `feat/cards` and 3c `feat/world-ui` consume these):
 | `ScreenFrame.prefab` (optional) | Bezel for the floating 2D screen (16:9, ~1.4 m wide at scale 1). Child `ScreenAnchor` marks the RenderTexture quad position |
 | `LaserPointer.prefab` | Index-finger ray visual: thin tinted quad/cylinder (~2 mm wide, length scaled from code) + `Dot.prefab` end-point disc. Material must be a self-contained unlit shader (bundled), never built-in Standard |
 
+## P3b runtime contract (feat/cards — what the code actually probes)
+
+Asset paths loaded by `src/GloomhavenVR/Cards/VRCardFactory.cs` (procedural fallback
+kicks in when missing, so these are optional but strongly preferred):
+
+| Bundle path | Consumed by |
+|---|---|
+| `Assets/Bundle/Table/CardBacking.prefab` | instantiated under every `VRCard`'s `Visual` child |
+| `Assets/Bundle/Table/PlayTray.prefab` | tray visual; children looked up by name: `Slot1`, `Slot2`, `ShortRestToken`, `LongRestToken` (empty transforms) |
+
+Orientation convention used by the whole Cards module (must match in the prefabs):
+
+- Card/tray roots are oriented with **+Z pointing away from the player** — the HMD
+  is always on the **−Z side**. The live uGUI card face is placed at local
+  `z = -0.0012` with identity rotation (uGUI/TMP/Quad all render toward −Z).
+- `CardBacking.prefab`: pivot at card center, card plane = local XY, front face
+  area flush around `z ≈ 0..+0.001` (the mod's face canvas floats just in front on
+  −Z); the **card-back material faces +Z**. Size 63.5 × 88 mm at scale 1
+  (`[Cards] CardWidth` rescales the canvas, not the mesh — keep the asset at real
+  poker size).
+- `PlayTray.prefab`: `Slot1` = initiative slot (left from the player's view),
+  `Slot2` right; slot transforms mark the card CENTER at the card's resting `z = 0`
+  plane (tray board must sit at `z > 0` behind the cards). `ShortRestToken` /
+  `LongRestToken` anchors get pokeable token widgets attached at runtime; keep
+  ~5 cm clearance around them.
+
 Conventions:
 - 1 Unity unit = 1 m, real-world sizes; the diorama scaling happens on the rig,
   not on these assets.

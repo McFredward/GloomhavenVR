@@ -2,8 +2,8 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phases 2 (hands), 3a (board touch targeting), 3c (world-space UI)
-> and 4 (comfort & table manipulation) code-complete, awaiting hardware validation.**
+> **Status: pre-alpha — all feature phases (2 hands, 3a board, 3b card hand, 3c world UI,
+> 4 comfort) code-complete, awaiting hardware validation.**
 > On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod has tracked
 > hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
 > proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
@@ -28,10 +28,16 @@
 > seated/standing presets, an optional comfort vignette and the `ComfortSettings` API the
 > future in-VR settings panel binds to (`BepInEx/config/dev.gloomhavenvr.comfort.cfg`).
 >
+> **Phase 3b:** the Demeo card hand — the 2D hand is visually suppressed while VR runs;
+> your ability cards fan out above your non-dominant palm (live game card faces
+> re-parented onto 3D cards), you grab/inspect them and play them on a floating tray
+> (slot order = initiative, physical swap supported), short/long-rest tokens, and in-turn
+> top/bottom half selection by poking the played cards. Exercisable without a scenario via
+> `[Cards] DevFakeHand`.
+>
 > Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`; comfort surface:
 > `docs/INTERFACES-P4.md`. Hardware checklists: `docs/TESTING-P1.md`, `docs/TESTING-P2.md`,
-> `docs/TESTING-P3A.md`, `docs/TESTING-P3C.md`, `docs/TESTING-P4.md`.
-> No card hand yet (Phase 3b in flight on its own branch).
+> `docs/TESTING-P3A.md`, `docs/TESTING-P3B.md`, `docs/TESTING-P3C.md`, `docs/TESTING-P4.md`.
 
 ## What / why
 
