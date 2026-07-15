@@ -1,4 +1,5 @@
 using HarmonyLib;
+using UnityEngine;
 
 namespace GloomhavenVR.Core;
 
@@ -19,4 +20,11 @@ internal static class VRSession
 
     /// <summary>Name of the active OpenXR runtime (after successful init), for logs/UI.</summary>
     internal static string? RuntimeName { get; set; }
+
+    /// <summary>
+    /// MonoBehaviour that owns mod coroutines (the <see cref="Plugin"/> instance; set in
+    /// <c>Plugin.Awake</c>, cleared in <c>Plugin.OnDestroy</c> so hot reload kills them).
+    /// Used by <see cref="OpenXRBootstrap"/> for the display-running watchdog.
+    /// </summary>
+    internal static MonoBehaviour? CoroutineHost { get; set; }
 }

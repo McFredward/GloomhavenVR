@@ -26,6 +26,18 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<string> RuntimeOverride = null!;
 
     /// <summary>
+    /// Order in which OpenXR runtimes are attempted. "auto" (default) = system default
+    /// first, then VDXR when Virtual Desktop is streaming, then the rest (SteamVR last).
+    /// </summary>
+    internal static ConfigEntry<string> RuntimePriority = null!;
+
+    /// <summary>Escape hatch: single init attempt on the system default runtime, no XR_RUNTIME_JSON fiddling.</summary>
+    internal static ConfigEntry<bool> SkipRuntimeCandidates = null!;
+
+    /// <summary>Escape hatch: delay mod init (and thus VR init) by N rendered frames.</summary>
+    internal static ConfigEntry<int> InitDelayFrames = null!;
+
+    /// <summary>
     /// Diorama scale: game world units per real-world meter (the VR rig is scaled up
     /// by this factor so the board reads as a table).
     /// 0 = auto: derived from the hex tile size (UnityGameEditorRuntime.s_TileSize).
@@ -85,6 +97,23 @@ public class Plugin : BaseUnityPlugin
             "Optional path to an OpenXR runtime JSON file (e.g. SteamVR's steamxr_win64.json). " +
             "Sets XR_RUNTIME_JSON before XR init and is tried first. Leave empty to auto-detect " +
             "(active runtime from the registry, then all available runtimes, then well-known paths).");
+        RuntimePriority = Config.Bind(
+            "Core", "RuntimePriority", "auto",
+            "Order in which OpenXR runtimes are attempted. 'auto' = system default runtime first " +
+            "(what the OS/registry points at), then VDXR when the Virtual Desktop Streamer is " +
+            "running, then remaining installed runtimes with SteamVR last (attempting SteamVR " +
+            "boots its compositor). Or a comma-separated list of: default, vdxr, steamvr, oculus, " +
+            "or full paths to runtime JSON files — tried in exactly that order.");
+        SkipRuntimeCandidates = Config.Bind(
+            "Core", "SkipRuntimeCandidates", false,
+            "Escape hatch: make a single init attempt on the system default OpenXR runtime and " +
+            "never set XR_RUNTIME_JSON (no candidate failover). Use when the failover itself " +
+            "causes trouble (e.g. it keeps booting runtimes you don't use).");
+        InitDelayFrames = Config.Bind(
+            "Core", "InitDelayFrames", 0,
+            "Escape hatch: delay mod initialization (including OpenXR init) by this many rendered " +
+            "frames. Some runtime/GPU combos need the graphics device fully up before " +
+            "xrCreateSession works. 0 (default) = initialize immediately in plugin Awake.");
         WorldScale = Config.Bind(
             "Rig", "WorldScale", 0f,
             "Diorama scale: game world units per real-world meter (the rig is scaled by this, " +
@@ -142,13 +171,41 @@ public class Plugin : BaseUnityPlugin
         // Created up front so all modules/patch classes share one instance.
         _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
         VRSession.Harmony = _harmony;
+        VRSession.CoroutineHost = this;
 
         RegisterModules();
-        InitModules();
 
+        // [Core] InitDelayFrames escape hatch: module init (VR init included) can be
+        // deferred by N rendered frames — some runtime/GPU combos need the graphics
+        // device fully up before xrCreateSession works. The whole module chain is
+        // deferred (not just Core) because downstream modules gate their Init() on
+        // VRSession.IsRunning. Default 0 = synchronous in Awake, exactly as before.
+        int delayFrames = InitDelayFrames.Value;
+        if (delayFrames > 0)
+        {
+            VRLog.Info($"[Core] InitDelayFrames = {delayFrames} — deferring module init " +
+                       $"(VR init included) by {delayFrames} rendered frame(s).");
+            StartCoroutine(DelayedInit(delayFrames));
+        }
+        else
+        {
+            InitModules();
+            LogStartupSummary();
+        }
+    }
+
+    private System.Collections.IEnumerator DelayedInit(int frames)
+    {
+        for (int i = 0; i < frames; i++)
+            yield return null; // one rendered frame each
+
+        InitModules();
+        LogStartupSummary();
+    }
+
+    private void LogStartupSummary() =>
         VRLog.Info($"v{MyPluginInfo.PLUGIN_VERSION} loaded — {_modules.Count} modules initialized, " +
                    $"VR {(VRSession.IsRunning ? $"RUNNING on '{VRSession.RuntimeName}'" : "not running")}.");
-    }
 
     /// <summary>
     /// ScriptEngine (F6 hot reload) calls OnDestroy on the old instance before loading
@@ -158,6 +215,9 @@ public class Plugin : BaseUnityPlugin
     /// </summary>
     private void OnDestroy()
     {
+        StopAllCoroutines(); // pending DelayedInit / XR watchdog die with this instance
+        VRSession.CoroutineHost = null;
+
         for (int i = _modules.Count - 1; i >= 0; i--)
         {
             try

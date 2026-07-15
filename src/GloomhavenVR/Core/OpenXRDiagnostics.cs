@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
+using BepInEx;
 
 namespace GloomhavenVR.Core;
 
@@ -40,6 +42,33 @@ internal static class OpenXRDiagnostics
         catch (Exception e)
         {
             return $"(diagnostics report unavailable: {e.Message})";
+        }
+    }
+
+    /// <summary>Path of the persistent diagnostics file testers should attach to bug reports.</summary>
+    internal static string ReportFilePath => Path.Combine(Paths.BepInExRootPath, "openxr-diagnostics.log");
+
+    /// <summary>
+    /// Append the native OpenXR diagnostics report to <c>BepInEx/openxr-diagnostics.log</c>,
+    /// timestamped and labeled with the runtime candidate/outcome it belongs to. The report
+    /// contains the xrCreateInstance/xrGetSystem error codes the BepInEx log never sees
+    /// (the native plugin only logs those to Player.log). Never throws.
+    /// </summary>
+    internal static void AppendReportToFile(string label)
+    {
+        try
+        {
+            string report = GenerateReport();
+            if (string.IsNullOrEmpty(report))
+                report = "(native diagnostics report was empty — did the OpenXR loader library load at all?)";
+
+            File.AppendAllText(ReportFilePath,
+                $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss} — {label} ====={Environment.NewLine}" +
+                report + Environment.NewLine + Environment.NewLine);
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Core", $"Could not write OpenXR diagnostics file ({ReportFilePath}): {e.Message}");
         }
     }
 

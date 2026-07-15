@@ -42,7 +42,7 @@ internal sealed class CoreModule : IVRModule
         if (string.IsNullOrWhiteSpace(runtimeOverride))
             runtimeOverride = null;
 
-        if (!OpenXRBootstrap.Start(runtimeOverride))
+        if (!OpenXRBootstrap.Start(runtimeOverride, Plugin.RuntimePriority.Value, Plugin.SkipRuntimeCandidates.Value))
             VRLog.Warn(Name, "VR unavailable this session — game continues flat.");
     }
 

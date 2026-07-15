@@ -1,7 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.XR;
 using UnityEngine.XR.Management;
 using UnityEngine.XR.OpenXR;
@@ -21,7 +24,16 @@ namespace GloomhavenVR.Core;
 /// 2. Create XRGeneralSettings/XRManagerSettings/OpenXRLoader ScriptableObjects,
 ///    enable interaction profiles BEFORE session start, MultiPass, no depth submission.
 /// 3. InitXRSDK() + Start() (publicized privates), trying runtime candidates via
-///    XR_RUNTIME_JSON until an XRDisplaySubsystem is running.
+///    XR_RUNTIME_JSON until an XRDisplaySubsystem exists.
+///
+/// SUCCESS CRITERION (post-mortem of the first hardware test): a candidate succeeded
+/// when a display subsystem EXISTS (LCVR: <c>displays.Count > 0</c>) — NOT when it is
+/// already <c>running</c>. OpenXRLoaderBase.StartInternal() returns true while the
+/// session is still negotiating; the XrReady native event that actually starts the
+/// display subsystem arrives via the Application.onBeforeRender message pump a few
+/// rendered frames later. Requiring <c>running == true</c> synchronously made us tear
+/// down healthy sessions (booting SteamVR, then declaring failure). A watchdog
+/// coroutine now reports when rendering actually starts (or errors if it never does).
 ///
 /// IMPORTANT: this type references mod-shipped XR assemblies — it must only be
 /// JIT-compiled after <see cref="RuntimeDepsLoader.LoadAll"/> succeeded
@@ -36,24 +48,40 @@ internal static class OpenXRBootstrap
     /// <summary>Kept alive so hot-reload teardown can disable them.</summary>
     private static OpenXRFeature[] _features = [];
 
-    /// <summary>Init OpenXR + start subsystems. Returns true when an HMD is rendering.</summary>
-    internal static bool Start(string? runtimeOverridePath)
+    /// <summary>How many frames the watchdog waits for the display subsystem to start rendering.</summary>
+    private const int DisplayRunningWatchdogFrames = 900; // ~10-15 s
+
+    /// <summary>Init OpenXR + start subsystems. Returns true when an XR display subsystem exists.</summary>
+    internal static bool Start(string? runtimeOverridePath, string? runtimePriority, bool skipRuntimeCandidates)
     {
+        LogEnvironment();
+
         if (!PreFlightCheck())
             return false;
 
-        if (DisplayRunning())
+        if (DisplayExists())
         {
             // e.g. ScriptEngine hot reload without a clean shutdown — reuse the session.
-            VRLog.Warn("Core", "An XRDisplaySubsystem is already running — reusing the existing XR session.");
+            VRLog.Warn("Core", "An XRDisplaySubsystem already exists — reusing the existing XR session.");
             VRSession.IsRunning = true;
             return true;
         }
 
         CreateSettings();
 
-        List<OpenXRRuntimeRegistry.RuntimeEntry> candidates =
-            OpenXRRuntimeRegistry.GetCandidates(runtimeOverridePath);
+        List<OpenXRRuntimeRegistry.RuntimeEntry> candidates;
+        if (skipRuntimeCandidates)
+        {
+            // Escape hatch ([Core] SkipRuntimeCandidates): no XR_RUNTIME_JSON fiddling at
+            // all — one attempt on whatever the OS considers the active runtime.
+            VRLog.Info("Core", "SkipRuntimeCandidates = true — only trying the system default runtime.");
+            candidates = [OpenXRRuntimeRegistry.SystemDefaultOnly()];
+        }
+        else
+        {
+            candidates = OpenXRRuntimeRegistry.GetCandidates(runtimeOverridePath, runtimePriority);
+        }
+
         VRLog.Info("Core", $"OpenXR runtime candidates ({candidates.Count}): {string.Join(" | ", candidates)}");
 
         foreach (OpenXRRuntimeRegistry.RuntimeEntry candidate in candidates)
@@ -61,19 +89,51 @@ internal static class OpenXRBootstrap
             if (TryStartWith(candidate))
             {
                 VRSession.IsRunning = true;
-                LogDiagnostics(candidate);
+                LogSuccess(candidate);
                 return true;
             }
         }
 
         VRLog.Error("Core", "All OpenXR runtime candidates failed — VR unavailable. " +
                             "Is the headset connected and its runtime (Meta/SteamVR/VDXR) running? " +
-                            "See docs/TESTING-P1.md for triage.");
+                            $"Check {OpenXRDiagnostics.ReportFilePath} for per-candidate xrCreateInstance/xrGetSystem " +
+                            "errors and Player.log (see docs/TESTING-P1.md §4) for '[XR]' native errors.");
         return false;
     }
 
     /// <summary>
-    /// The engine registers subsystem descriptors from Gloomhaven_Data/UnitySubsystems/*
+    /// One-time environment fingerprint. Desktop OpenXR only supports D3D11 on this
+    /// Unity/plugin combo — when the game came up on another graphics API the native
+    /// session creation fails with errors that ONLY land in Player.log, so flag it
+    /// loudly here where testers actually look.
+    /// </summary>
+    private static void LogEnvironment()
+    {
+        string[] args;
+        try { args = Environment.GetCommandLineArgs(); }
+        catch { args = []; }
+        bool forceD3D11 = args.Any(a => string.Equals(a, "-force-d3d11", StringComparison.OrdinalIgnoreCase));
+
+        GraphicsDeviceType gfx = SystemInfo.graphicsDeviceType;
+        VRLog.Info("Core", $"VR init environment: Unity {Application.unityVersion}, graphics API {gfx} " +
+                           $"({SystemInfo.graphicsDeviceName}), -force-d3d11 {(forceD3D11 ? "present" : "absent")} " +
+                           $"in command line ({string.Join(" ", args)}).");
+
+        if (gfx != GraphicsDeviceType.Direct3D11)
+        {
+            VRLog.Error("Core",
+                "==================================================================\n" +
+                $"GRAPHICS API IS {gfx} — DESKTOP OPENXR NEEDS DIRECT3D 11.\n" +
+                "XR init will almost certainly fail (native errors go to Player.log only).\n" +
+                "FIX: add '-force-d3d11' to the game's Steam launch options\n" +
+                "(Library → Gloomhaven → Properties → Launch Options), or pass it on the\n" +
+                "command line when starting the game directly.\n" +
+                "==================================================================");
+        }
+    }
+
+    /// <summary>
+    /// The engine registers subsystem descriptors from &lt;Game&gt;_Data/UnitySubsystems/*
     /// at boot. If "OpenXR Display"/"OpenXR Input" are missing, the preloader install
     /// didn't take effect (wrong install, or natives/manifest missing) — XR init would
     /// silently do nothing, so abort with a precise message instead.
@@ -91,13 +151,15 @@ internal static class OpenXRBootstrap
             return true;
         }
 
+        // Application.dataPath ends in the real data folder name (Gloomhaven ships GH_Data).
+        string dataPath = Application.dataPath.Replace('/', System.IO.Path.DirectorySeparatorChar);
         VRLog.Error("Core",
             "Pre-flight FAILED: OpenXR subsystem descriptors not registered " +
             $"(display: {haveDisplay}, input: {haveInput}). The engine did not pick up " +
             "UnityOpenXR.dll / UnitySubsystemsManifest.json at boot. Check that the preloader ran " +
             "(look for 'GloomhavenVR.Preload' lines earlier in this log) and that " +
-            "Gloomhaven_Data/Plugins/x86_64/UnityOpenXR.dll and " +
-            "Gloomhaven_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json exist. VR unavailable.");
+            $"{dataPath}\\Plugins\\x86_64\\UnityOpenXR.dll and " +
+            $"{dataPath}\\UnitySubsystems\\UnityOpenXR\\UnitySubsystemsManifest.json exist. VR unavailable.");
         if (descriptors.Count > 0)
             VRLog.Debug("Core", "Registered subsystem descriptors: " + string.Join(", ", descriptors.Select(d => d.id)));
         return false;
@@ -115,8 +177,10 @@ internal static class OpenXRBootstrap
         _loader = ScriptableObject.CreateInstance<OpenXRLoader>();
 
         _generalSettings.Manager = _managerSettings;
-        // Publicized private backing list of activeLoaders (the public `loaders`
-        // property is obsolete in XR Management 4.5); registeredLoaders kept in sync.
+        // m_Loaders is the private backing list of the activeLoaders property — the same
+        // list LCVR mutates via `((List<XRLoader>)xrManagerSettings.activeLoaders)`
+        // (LCVR OpenXR.cs InitializeScripts). registeredLoaders kept in sync so
+        // TryAddLoader/TrySetLoaders semantics stay valid.
         _managerSettings.m_Loaders.Clear();
         _managerSettings.m_Loaders.Add(_loader);
         _managerSettings.registeredLoaders.Clear();
@@ -125,6 +189,8 @@ internal static class OpenXRBootstrap
         // Interaction profiles MUST be enabled before the session starts or there is no
         // controller input (TOOLCHAIN §5.4). Quest 3 aliases Touch Plus to the generic
         // Touch profile; Index + KHR Simple cover SteamVR sticks and everything else.
+        // (LCVR builds the same kind of array and assigns OpenXRSettings.Instance.features;
+        // OpenXRLoaderBase.InitializeInternal re-sorts it by priority/name on init.)
         var oculusTouch = ScriptableObject.CreateInstance<OculusTouchControllerProfile>();
         var valveIndex = ScriptableObject.CreateInstance<ValveIndexControllerProfile>();
         var khrSimple = ScriptableObject.CreateInstance<KHRSimpleControllerProfile>();
@@ -139,57 +205,162 @@ internal static class OpenXRBootstrap
         OpenXRSettings.Instance.depthSubmissionMode = OpenXRSettings.DepthSubmissionMode.None;
     }
 
+    /// <summary>
+    /// One init attempt against one runtime. Mirrors LCVR OpenXR.Loader.InitializeXR
+    /// (Runtime?) step by step, with a phase-by-phase log trail:
+    /// env set → InitXRSDK (loader Initialize) → Start (StartSubsystems) → display census.
+    /// </summary>
     private static bool TryStartWith(OpenXRRuntimeRegistry.RuntimeEntry candidate)
     {
         VRLog.Info("Core", $"Attempting OpenXR init on: {candidate}");
+
+        // LCVR parity: null path ⇒ clear XR_RUNTIME_JSON so the OpenXR loader resolves the
+        // registry ActiveRuntime itself (LCVR InitializeXR(null) does exactly this).
         Environment.SetEnvironmentVariable("XR_RUNTIME_JSON", candidate.JsonPath);
+        VRLog.Debug("Core", candidate.JsonPath != null
+            ? $"  phase 1/4: XR_RUNTIME_JSON = {candidate.JsonPath}"
+            : "  phase 1/4: XR_RUNTIME_JSON cleared (system default resolution)");
 
         try
         {
-            _generalSettings!.InitXRSDK();   // publicized private: InitializeLoaderSync via manager
-            _generalSettings.Start();        // publicized private: StartSubsystems
+            // InitXRSDK → XRManagerSettings.InitializeLoaderSync → OpenXRLoader.Initialize:
+            // loads openxr_loader, xrCreateInstance/xrGetSystem, creates the Display/Input
+            // subsystems. On failure the loader deinitializes itself and activeLoader stays
+            // null — no cleanup needed on our side (LCVR does none either).
+            _generalSettings!.InitXRSDK();   // publicized private
+            XRLoader? active = _managerSettings!.activeLoader;
+            VRLog.Info("Core", $"  phase 2/4: InitXRSDK done — activeLoader: " +
+                               (active != null ? active.GetType().Name : "null (loader Initialize failed)"));
 
-            if (DisplayRunning())
+            if (active == null)
+            {
+                // The native failure reason (xrCreateInstance/xrGetSystem error, D3D11
+                // mismatch, ...) went to Player.log; persist the diagnostics report so
+                // testers don't have to reproduce with debug logging on.
+                OpenXRDiagnostics.AppendReportToFile($"FAILED (loader Initialize) — candidate: {candidate}");
+                return false;
+            }
+
+            // Start → XRManagerSettings.StartSubsystems → OpenXRLoader.Start. NOTE: the
+            // display subsystem may not be 'running' yet — StartInternal() defers until the
+            // runtime reports XrReady (delivered via the onBeforeRender message pump).
+            _generalSettings.Start();        // publicized private
+            VRLog.Debug("Core", "  phase 3/4: Start (StartSubsystems) returned.");
+
+            var displays = new List<XRDisplaySubsystem>();
+            SubsystemManager.GetInstances(displays);
+            VRLog.Info("Core", $"  phase 4/4: display subsystems: {displays.Count} " +
+                               $"[{string.Join(", ", displays.Select(d => $"running={d.running}"))}]");
+
+            // LCVR/RepoXR success criterion: a display subsystem EXISTS. Do NOT require
+            // running — that flips a few frames later (see class doc). This was the P1
+            // hardware-test bug: healthy sessions were torn down as "failed".
+            if (displays.Count > 0)
                 return true;
 
-            // Failed attempt: unwind loader state so the next candidate starts clean.
+            // Loader initialized but no display subsystem — unwind so the next candidate
+            // starts from a clean manager (StopSubsystems + Deinitialize).
+            VRLog.Warn("Core", $"  Loader initialized on {candidate.Name} but no display subsystem was created — unwinding.");
+            OpenXRDiagnostics.AppendReportToFile($"FAILED (no display subsystem) — candidate: {candidate}");
             StopAndDeinitQuiet();
             return false;
         }
         catch (Exception e)
         {
-            VRLog.Warn("Core", $"OpenXR init attempt threw on {candidate.Name}: {e.Message}");
+            // Unwrap reflection/invocation wrappers so the log shows the real failure.
+            while (e is TargetInvocationException { InnerException: not null } tie)
+                e = tie.InnerException!;
+            VRLog.Error("Core", $"OpenXR init attempt threw on {candidate.Name}: {e}");
+            for (Exception? inner = e.InnerException; inner != null; inner = inner.InnerException)
+                VRLog.Error("Core", $"  inner exception: {inner.GetType().Name}: {inner.Message}");
+
+            OpenXRDiagnostics.AppendReportToFile($"FAILED (exception: {e.GetType().Name}: {e.Message}) — candidate: {candidate}");
             StopAndDeinitQuiet();
             return false;
         }
     }
 
-    private static bool DisplayRunning()
+    private static bool DisplayExists()
     {
         var displays = new List<XRDisplaySubsystem>();
         SubsystemManager.GetInstances(displays);
-        return displays.Count > 0 && displays.Any(d => d.running);
+        return displays.Count > 0;
     }
 
-    private static void LogDiagnostics(OpenXRRuntimeRegistry.RuntimeEntry candidate)
+    private static void LogSuccess(OpenXRRuntimeRegistry.RuntimeEntry candidate)
     {
-        string name = OpenXRDiagnostics.TryGetActiveRuntimeName(out string n) ? n : candidate.Name;
-        string version = OpenXRDiagnostics.TryGetActiveRuntimeVersion(out ushort maj, out ushort min, out ushort pat)
-            ? $"{maj}.{min}.{pat}"
-            : "unknown";
-        VRSession.RuntimeName = name;
-
-        VRLog.Info("Core", $"OpenXR session up — runtime: {name} {version}, " +
-                           $"render mode: {OpenXRSettings.Instance.renderMode}.");
-
-        string report = OpenXRDiagnostics.GenerateReport();
-        if (!string.IsNullOrEmpty(report))
+        // Managed API first (OpenXRRuntime wraps the same NativeConfig_* entry points),
+        // P/Invoke fallback second, candidate name as last resort.
+        string name = "", version = "", pluginVersion = "";
+        try
         {
-            VRLog.Debug("Core", "---- OpenXR diagnostics report ----");
-            foreach (string line in report.Split('\n'))
-                VRLog.Debug("Core", line.TrimEnd('\r'));
-            VRLog.Debug("Core", "---- end of diagnostics report ----");
+            name = OpenXRRuntime.name;
+            version = OpenXRRuntime.version;
+            pluginVersion = OpenXRRuntime.pluginVersion;
         }
+        catch (Exception e)
+        {
+            VRLog.Debug("Core", $"OpenXRRuntime managed API unavailable ({e.Message}) — using P/Invoke fallback.");
+        }
+        if (string.IsNullOrEmpty(name) && OpenXRDiagnostics.TryGetActiveRuntimeName(out string n))
+            name = n;
+        if (string.IsNullOrEmpty(version) &&
+            OpenXRDiagnostics.TryGetActiveRuntimeVersion(out ushort maj, out ushort min, out ushort pat))
+            version = $"{maj}.{min}.{pat}";
+        if (string.IsNullOrEmpty(name))
+            name = candidate.Name;
+
+        VRSession.RuntimeName = name;
+        VRLog.Info("Core", $"OpenXR session up — runtime: {name} {version} " +
+                           $"(OpenXR plugin {(string.IsNullOrEmpty(pluginVersion) ? "?" : pluginVersion)}), " +
+                           $"render mode: {OpenXRSettings.Instance.renderMode}, " +
+                           $"activeLoader: {DescribeActiveLoader()}.");
+
+        // Success report too — the file then contains the whole story of the run.
+        OpenXRDiagnostics.AppendReportToFile($"SUCCESS — runtime: {name} {version}, candidate: {candidate}");
+
+        // The display subsystem starts rendering only after the runtime reports XrReady
+        // (a few frames). Watch it so the log states clearly whether the HMD ever lit up.
+        if (VRSession.CoroutineHost != null)
+            VRSession.CoroutineHost.StartCoroutine(WatchDisplayRunning());
+        else
+            VRLog.Warn("Core", "No coroutine host — cannot watch for the display subsystem to start rendering.");
+    }
+
+    private static string DescribeActiveLoader()
+    {
+        XRLoader? loader = XRGeneralSettings.Instance != null && XRGeneralSettings.Instance.Manager != null
+            ? XRGeneralSettings.Instance.Manager.activeLoader
+            : null;
+        return loader != null ? loader.GetType().Name : "null";
+    }
+
+    /// <summary>
+    /// Post-init watchdog: logs the moment the display subsystem actually starts
+    /// rendering (XrReady processed), or an actionable error when it never does —
+    /// which is exactly the "SteamVR/VD starts but the HMD stays black" symptom.
+    /// </summary>
+    private static IEnumerator WatchDisplayRunning()
+    {
+        var displays = new List<XRDisplaySubsystem>();
+        for (int frame = 0; frame < DisplayRunningWatchdogFrames; frame++)
+        {
+            SubsystemManager.GetInstances(displays);
+            if (displays.Any(d => d.running))
+            {
+                VRLog.Info("Core", $"XR display subsystem is RUNNING (HMD rendering) after {frame} frame(s).");
+                yield break;
+            }
+            yield return null;
+        }
+
+        VRLog.Error("Core",
+            $"XR display subsystem did NOT start rendering within {DisplayRunningWatchdogFrames} frames — " +
+            "the runtime never reached the READY state (headset asleep/not connected? runtime waiting on " +
+            "graphics requirements — desktop OpenXR needs D3D11, see the environment line above / " +
+            "'-force-d3d11'). Check Player.log for '[XR]' native errors " +
+            "(docs/TESTING-P1.md §4) and attach it together with LogOutput.log and openxr-diagnostics.log.");
+        OpenXRDiagnostics.AppendReportToFile("WATCHDOG — display subsystem never reached running state");
     }
 
     /// <summary>
