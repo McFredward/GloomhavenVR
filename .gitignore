@@ -1,7 +1,20 @@
+# Game files & decompiled sources — never committed
 ressources/
 decompiled/
 *.dll
-obj/
+
+# .NET build artifacts
 bin/
+obj/
+artifacts/
+*.binlog
+*.nupkg
+
+# IDE
 .vs/
+.idea/
 *.user
+*.suo
+
+# Per-machine build overrides (see README — developer setup)
+Directory.Build.props.user

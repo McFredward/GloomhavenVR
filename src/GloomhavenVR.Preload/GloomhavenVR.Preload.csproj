@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>GloomhavenVR.Preload</AssemblyName>
+    <RootNamespace>GloomhavenVR.Preload</RootNamespace>
+    <Version>0.1.0</Version>
+    <Description>BepInEx preloader patcher for GloomhavenVR — installs OpenXR natives and the UnitySubsystems manifest before engine boot (Phase 1).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+    <!-- BepInEx.Core also pulls in Mono.Cecil (needed for the patcher entry point signature) -->
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3"
+                      PrivateAssets="all" Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'" />
+  </ItemGroup>
+</Project>

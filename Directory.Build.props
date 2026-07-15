@@ -1,0 +1,34 @@
+<Project>
+  <!--
+    Per-machine overrides live in Directory.Build.props.user (gitignored).
+    It is imported FIRST so any GamePath/GameManaged it sets wins over the
+    defaults below (which only apply when the property is still empty).
+
+    Example Directory.Build.props.user:
+      <Project>
+        <PropertyGroup>
+          <GameManaged>/path/to/Gloomhaven_Data/Managed</GameManaged>
+        </PropertyGroup>
+      </Project>
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.props.user"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.props.user')" />
+
+  <PropertyGroup>
+    <!-- Default: Steam install on Windows. Override per-machine via env var or Directory.Build.props.user. -->
+    <GamePath Condition="'$(GamePath)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Gloomhaven</GamePath>
+    <GameManaged Condition="'$(GameManaged)' == ''">$(GamePath)\Gloomhaven_Data\Managed</GameManaged>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- Embedded PDBs => readable stack traces in BepInEx/LogOutput.log -->
+    <DebugType>embedded</DebugType>
+    <!-- Belt & suspenders next to nuget.config: makes restore work even without it -->
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://nuget.bepinex.dev/v3/index.json
+    </RestoreAdditionalProjectSources>
+  </PropertyGroup>
+</Project>

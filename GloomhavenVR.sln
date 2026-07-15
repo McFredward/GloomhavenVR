@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E8517908-9B0C-4737-B0CE-23D963EBFD14}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GloomhavenVR.Preload", "src\GloomhavenVR.Preload\GloomhavenVR.Preload.csproj", "{7CBF1D42-CC0F-4CCC-BB13-8948680A943B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GloomhavenVR", "src\GloomhavenVR\GloomhavenVR.csproj", "{B3C2C87F-495E-4FF4-8257-6D71BE6C5D38}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7CBF1D42-CC0F-4CCC-BB13-8948680A943B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7CBF1D42-CC0F-4CCC-BB13-8948680A943B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7CBF1D42-CC0F-4CCC-BB13-8948680A943B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7CBF1D42-CC0F-4CCC-BB13-8948680A943B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3C2C87F-495E-4FF4-8257-6D71BE6C5D38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3C2C87F-495E-4FF4-8257-6D71BE6C5D38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3C2C87F-495E-4FF4-8257-6D71BE6C5D38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3C2C87F-495E-4FF4-8257-6D71BE6C5D38}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{7CBF1D42-CC0F-4CCC-BB13-8948680A943B} = {E8517908-9B0C-4737-B0CE-23D963EBFD14}
+		{B3C2C87F-495E-4FF4-8257-6D71BE6C5D38} = {E8517908-9B0C-4737-B0CE-23D963EBFD14}
+	EndGlobalSection
+EndGlobal
