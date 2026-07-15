@@ -18,3 +18,9 @@ artifacts/
 
 # Per-machine build overrides (see README — developer setup)
 Directory.Build.props.user
+
+# XR package sources fetched by scripts/build-runtimedeps.sh (Unity Companion License — never committed)
+tools/RuntimeDepsBuild/sources/
+
+# Generated per-build provenance record
+libs/RuntimeDeps/versions.json

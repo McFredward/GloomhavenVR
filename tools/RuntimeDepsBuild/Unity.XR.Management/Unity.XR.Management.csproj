@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageSourceVersion>4.5.0</PackageSourceVersion>
+  </PropertyGroup>
+  <Import Project="../Common.props" />
+
+  <PropertyGroup>
+    <AssemblyName>Unity.XR.Management</AssemblyName>
+    <RootNamespace>UnityEngine.XR.Management</RootNamespace>
+    <!-- asmdef: allowUnsafeCode false, versionDefines: UNITY_ANALYTICS (handled in Common.props) -->
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(SourcesRoot)/com.unity.xr.management/Runtime/**/*.cs" />
+  </ItemGroup>
+</Project>

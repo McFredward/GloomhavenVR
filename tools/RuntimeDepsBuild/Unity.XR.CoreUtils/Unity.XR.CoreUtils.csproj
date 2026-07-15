@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageSourceVersion>2.2.3</PackageSourceVersion>
+  </PropertyGroup>
+  <Import Project="../Common.props" />
+
+  <PropertyGroup>
+    <AssemblyName>Unity.XR.CoreUtils</AssemblyName>
+    <RootNamespace>Unity.XR.CoreUtils</RootNamespace>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!--
+      asmdef versionDefines evaluated against the game's shipped modules/packages:
+      INCLUDE_PHYSICS_MODULE (PhysicsModule present), INCLUDE_UGUI (UnityEngine.UI
+      present), INCLUDE_INPUT_SYSTEM (Unity.InputSystem 1.3.0 >= 1.0.0),
+      INCLUDE_LEGACY_INPUT_HELPERS (UnityEngine.XR.LegacyInputHelpers present).
+      HAS_SET_LOCAL_POSITION_AND_ROTATION / HAS_GET_POSITION_AND_ROTATION stay OFF
+      (need Unity >= 2021.3.11 / 2021.3.17; game is 2021.3.5f1).
+    -->
+    <DefineConstants>$(DefineConstants);INCLUDE_PHYSICS_MODULE;INCLUDE_UGUI;INCLUDE_INPUT_SYSTEM;INCLUDE_LEGACY_INPUT_HELPERS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(SourcesRoot)/com.unity.xr.core-utils/Runtime/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- asmdef references: Unity.InputSystem, UnityEngine.SpatialTracking (+ uGUI via INCLUDE_UGUI) — from the game install -->
+    <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)/Unity.InputSystem.dll" Private="false" />
+    <Reference Include="UnityEngine.SpatialTracking" HintPath="$(GameManaged)/UnityEngine.SpatialTracking.dll" Private="false" />
+    <Reference Include="UnityEngine.UI" HintPath="$(GameManaged)/UnityEngine.UI.dll" Private="false" />
+  </ItemGroup>
+</Project>

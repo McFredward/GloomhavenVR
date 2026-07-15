@@ -1,0 +1,76 @@
+<Project>
+  <!--
+    Shared settings for the PROVISIONAL RuntimeDeps compile (see README.md here).
+
+    These projects compile the Runtime/ portion of Unity XR packages from
+    needle-mirror source (pinned tags, fetched by scripts/build-runtimedeps.sh
+    into tools/RuntimeDepsBuild/sources/). The goal is byte-compatible-enough
+    assemblies for the mod to COMPILE against now; the runtime-blessed set is
+    harvested later from a real Unity 2021.3.5f1 editor build (unity/HARVESTING.md)
+    and simply replaces these files in libs/RuntimeDeps/.
+
+    Define constants replicate what Unity 2021.3.5f1 sets for a Windows
+    Standalone Mono PLAYER build of this game (its module/package set):
+
+    - Version ladder UNITY_*_OR_NEWER up to 2021.3 + UNITY_2021_3/UNITY_2021,
+      UNITY_STANDALONE, UNITY_STANDALONE_WIN, NET_4_6 (".NET Framework" API level).
+    - ENABLE_VR / ENABLE_XR_MODULE / ENABLE_INPUT_SYSTEM: VRModule, XRModule and
+      InputSystem are all present/active in the shipped game.
+    - UNITY_ANALYTICS (asmdef versionDefine on com.unity.modules.unityanalytics —
+      game ships UnityEngine.UnityAnalyticsModule.dll) and
+      ENABLE_CLOUD_SERVICES_ANALYTICS (engine define accompanying that module).
+    - Per-package versionDefines evaluated against the GAME's package versions:
+      see each csproj.
+
+    Deliberately NOT defined (documented in README.md):
+    - UNITY_EDITOR* (player build), UNITY_INCLUDE_TESTS / *TEST_SUPPORT / PACKAGE_DOCS_GENERATION
+    - INPUT_SYSTEM_POSE_VALID (needs com.unity.inputsystem >= 1.4.2; game ships 1.3.0)
+    - INPUT_SYSTEM_BINDING_VALIDATOR (needs >= 1.6.3)
+    - USE_INPUT_SYSTEM_POSE_CONTROL (implied by the above; OpenXR falls back to
+      its own UnityEngine.XR.OpenXR.Input.PoseControl)
+    - HAS_SET_LOCAL_POSITION_AND_ROTATION (Unity [2021.3.11,...); game is 2021.3.5)
+    - HAS_GET_POSITION_AND_ROTATION (Unity [2021.3.17,...))
+    - USE_STICK_CONTROL_THUMBSTICKS (opt-in scripting define added by OpenXR
+      project validation, not a default; thumbsticks compile as Vector2Control)
+  -->
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <!-- Unity 2021 compiles packages with C# 9 -->
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <!-- Package sources are compiled as-is; do not fail the provisional build on warnings -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS0649;CS1591;CS0618;CS0414</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!--
+      Unity asmdef-compiled assemblies carry AssemblyVersion 0.0.0.0 unless the
+      source has an explicit [AssemblyVersion] (none of these three do — verified
+      against the game's own asmdef-built DLLs, e.g. Unity.TextMeshPro = 0.0.0.0).
+      Package version goes into FileVersion/InformationalVersion for provenance.
+    -->
+    <AssemblyVersion>0.0.0.0</AssemblyVersion>
+    <FileVersion>$(PackageSourceVersion)</FileVersion>
+    <InformationalVersion>$(PackageSourceVersion)-provisional-nonunity</InformationalVersion>
+    <DebugType>embedded</DebugType>
+    <SourcesRoot>$(MSBuildThisFileDirectory)sources</SourcesRoot>
+    <DefineConstants>$(DefineConstants);UNITY_5_3_OR_NEWER;UNITY_5_4_OR_NEWER;UNITY_5_5_OR_NEWER;UNITY_5_6_OR_NEWER</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_2017_1_OR_NEWER;UNITY_2017_2_OR_NEWER;UNITY_2017_3_OR_NEWER;UNITY_2017_4_OR_NEWER</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_2018_1_OR_NEWER;UNITY_2018_2_OR_NEWER;UNITY_2018_3_OR_NEWER;UNITY_2018_4_OR_NEWER</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_2019_1_OR_NEWER;UNITY_2019_2_OR_NEWER;UNITY_2019_3_OR_NEWER;UNITY_2019_4_OR_NEWER</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_2020_1_OR_NEWER;UNITY_2020_2_OR_NEWER;UNITY_2020_3_OR_NEWER</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_2021_1_OR_NEWER;UNITY_2021_2_OR_NEWER;UNITY_2021_3_OR_NEWER</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_2021;UNITY_2021_3;UNITY_2021_3_5</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_STANDALONE;UNITY_STANDALONE_WIN;PLATFORM_STANDALONE;PLATFORM_STANDALONE_WIN</DefineConstants>
+    <DefineConstants>$(DefineConstants);NET_4_6;NET_STANDARD_2_0;ENABLE_MONO</DefineConstants>
+    <DefineConstants>$(DefineConstants);ENABLE_VR;ENABLE_XR_MODULE;ENABLE_INPUT_SYSTEM</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_ANALYTICS;ENABLE_CLOUD_SERVICES_ANALYTICS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UnityEngine reference assemblies, exact game engine version -->
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.5" IncludeAssets="compile" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3"
+                      PrivateAssets="all" Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'" />
+  </ItemGroup>
+</Project>
