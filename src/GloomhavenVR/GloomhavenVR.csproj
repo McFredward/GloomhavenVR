@@ -34,6 +34,10 @@
     <Reference Include="ScenarioRuleLibrary" HintPath="$(GameManaged)\ScenarioRuleLibrary.dll" Publicize="true" Private="false" />
     <Reference Include="MapRuleLibrary" HintPath="$(GameManaged)\MapRuleLibrary.dll" Publicize="true" Private="false" />
     <Reference Include="InControl" HintPath="$(GameManaged)\InControl.dll" Publicize="true" Private="false" />
+    <!-- Utilities.dll: VirtualMouseUtilities / InputSystemUtilities (PATCH-TARGETS §2 — separate assembly!) -->
+    <Reference Include="Utilities" HintPath="$(GameManaged)\Utilities.dll" Publicize="true" Private="false" />
+    <!-- uGUI: GraphicRaycaster + UnityEngine.EventSystems (ExecuteEvents) live here in 2021.3 -->
+    <Reference Include="UnityEngine.UI" HintPath="$(GameManaged)\UnityEngine.UI.dll" Private="false" />
     <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)\Unity.InputSystem.dll" Private="false" />
     <Reference Include="Unity.Addressables" HintPath="$(GameManaged)\Unity.Addressables.dll" Private="false" />
     <Reference Include="Unity.ResourceManager" HintPath="$(GameManaged)\Unity.ResourceManager.dll" Private="false" />
