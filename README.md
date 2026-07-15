@@ -2,8 +2,11 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha scaffolding.** Nothing VR-related works yet — this is the project
-> skeleton (build system, plugin/patcher stubs, module layout). Watch the releases.
+> **Status: pre-alpha — Phase 1 (VR bootstrap) code-complete, awaiting hardware validation.**
+> The OpenXR bootstrap (preloader install, runtime failover, MultiPass stereo), the
+> head-tracked diorama camera rig and the PPv2 kill-switches are implemented and compile;
+> they have not yet been validated on a Windows machine with a headset
+> (checklist: `docs/TESTING-P1.md`). No hands/controllers/VR-UI yet. Watch the releases.
 
 ## What / why
 
@@ -33,11 +36,23 @@ Nothing useful to install yet (pre-alpha). Once there are releases:
 1. Install **[BepInEx 5.4.23.5](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5)**
    (`BepInEx_win_x64_5.4.23.5.zip`) — extract into the Gloomhaven install folder
    (the one containing `GH.exe`), run the game once, verify `BepInEx/LogOutput.log` exists.
-2. From the mod release zip:
-   - `GloomhavenVR.dll` → `<Gloomhaven>/BepInEx/plugins/GloomhavenVR/`
-   - `GloomhavenVR.Preload.dll` → `<Gloomhaven>/BepInEx/patchers/`
-3. Start the game. Config appears at `BepInEx/config/dev.gloomhavenvr.cfg`
+2. From the mod release zip, into the Gloomhaven folder:
+
+   ```
+   BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
+   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll        (Unity XR assemblies)
+   BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
+   BepInEx/patchers/GloomhavenVR/Natives/*.dll           (UnityOpenXR + openxr_loader)
+   ```
+
+3. Start the game. At boot the preloader copies the OpenXR natives into
+   `Gloomhaven_Data/Plugins/x86_64/` and writes
+   `Gloomhaven_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json`
+   (idempotent; these are the only files placed outside `BepInEx/`).
+   Config appears at `BepInEx/config/dev.gloomhavenvr.cfg`
    (`[General] Enabled = false` returns the game to 100% vanilla).
+4. If the headset shows nothing, launch with `-force-d3d11` (desktop OpenXR
+   requires D3D11) and see the triage table in `docs/TESTING-P1.md`.
 
 ## Developer setup
 
@@ -59,11 +74,18 @@ needed at build time; game DLLs are never committed).
    Without this file the default Steam path above is assumed (you can also set the
    `GamePath`/`GameManaged` environment variables instead).
 
-2. Build:
+2. Fetch/build the XR dependencies once, then build:
 
    ```
+   scripts/fetch-natives.sh          # OpenXR natives -> libs/Natives (SHA256-pinned)
+   scripts/build-runtimedeps.sh      # Unity.XR.* assemblies -> libs/RuntimeDeps (provisional)
    dotnet build GloomhavenVR.sln -c Release      # or: scripts/build.sh
    ```
+
+   The plugin compiles against `libs/RuntimeDeps` (publicized). The provisional
+   RuntimeDeps are compiled from needle-mirror package source outside Unity
+   (`tools/RuntimeDepsBuild/README.md`); an editor-harvested set
+   (`unity/HARVESTING.md`) replaces them 1:1 when available.
 
    Works on Windows and Linux/macOS (net472 via Microsoft.NETFramework.ReferenceAssemblies).
    NuGet packages come from nuget.org + [nuget.bepinex.dev](https://nuget.bepinex.dev)
@@ -102,7 +124,11 @@ GloomhavenVR.sln
 │   ├── Board/                  hex touch/ray picking, AoE rotation
 │   ├── WorldUI/                canvas conversion, physical buttons, HUD, 2D fallback
 │   └── Compat/                 stereo/PPv2 fixes, scene variants, performance
-├── scripts/                    build.sh (POSIX), deploy.ps1 (copy into game install)
+├── libs/                       Natives/ (fetched OpenXR natives) + RuntimeDeps/ (Unity XR
+│                               assemblies) — populated by scripts, never committed
+├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
+├── scripts/                    build.sh, fetch-natives.sh, build-runtimedeps.sh, deploy.ps1
+├── docs/                       TESTING-P1.md (Windows validation checklist & triage)
 └── .planning/                  roadmap, architecture, research notes
 ```
 

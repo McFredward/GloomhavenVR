@@ -30,5 +30,7 @@ echo "Artifacts:"
 echo "  plugin   : src/GloomhavenVR/bin/$CONFIG/net472/GloomhavenVR.dll"
 echo "  preloader: src/GloomhavenVR.Preload/bin/$CONFIG/net472/GloomhavenVR.Preload.dll"
 echo
-echo "Install into a game dir: plugin -> BepInEx/plugins/GloomhavenVR/, preloader -> BepInEx/patchers/"
+echo "Install into a game dir (full layout in docs/TESTING-P1.md):"
+echo "  plugin + libs/RuntimeDeps -> BepInEx/plugins/GloomhavenVR/{,RuntimeDeps/}"
+echo "  preloader + libs/Natives  -> BepInEx/patchers/GloomhavenVR/{,Natives/}"
 echo "(Windows: scripts/deploy.ps1 -GamePath 'C:\\...\\Gloomhaven' does the copy.)"
