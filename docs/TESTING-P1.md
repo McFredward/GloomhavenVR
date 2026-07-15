@@ -63,6 +63,9 @@ game still fully mouse-playable in parallel.*
 | Plugin summary | `v0.1.0 loaded — 7 modules initialized, VR RUNNING on '<runtime>'.` |
 | Rig armed | `[Rig] Rig driver installed — waiting for a scenario camera.` |
 | Compat | `[Compat] Kill-switches armed for: PostProcessLayer, PostProcessVolume, VolumetricFog.` |
+| Intro (pre-menu) | `[WorldUI] Starting indicator shown (pre-menu scene, FlatScreen gated).` — intro plays vanilla on the desktop, HMD shows a grey void + "starting…" label |
+| Menu scene up | `[Rig] Menu rig built around camera '<name>' (… clear <orig> → SolidColor …)`, `[WorldUI] FlatScreen shown …`, `[WorldUI] FlatScreen quad placed: …`, `[WorldUI] Desktop mirror active — FlatScreen RT …`, `[WorldUI] UICamera '<name>' excluded from XR rendering …` |
+| Per menu scene load | `[WorldUI] Camera inventory after scene '<name>' (N active):` + one line per camera (tag/depth/clear/mask/stereo/target) — **quote these in every menu-rendering report** |
 | In scenario | `[Rig] VR rig built at focus (...), world scale <s> ...` then `[Rig] Recentered — ...` |
 
 With `[General] Enabled = false`: only two lines — preloader skip notice + plugin
@@ -86,7 +89,9 @@ With `[General] Enabled = false`: only two lines — preloader skip notice + plu
 
 ### 4.0 What to collect for EVERY XR failure report
 
-Attach **all three** logs into `.planning/debug/` (create a dated subfolder):
+Attach **all three** logs into `.planning/debug/` (create a dated subfolder).
+**Reminder: hardware report #2 (menu blackscreen) was missing the Player.log — it is
+still wanted for every report, including successful ones after a failure.**
 
 1. `<game>/BepInEx/LogOutput.log` — the mod's own log (candidate attempts, phase logs).
 2. `%USERPROFILE%\AppData\LocalLow\FlamingFowlStudios\Gloomhaven\Player.log` — the Unity
@@ -110,6 +115,8 @@ The BepInEx log's `VR init environment:` line states Unity version, graphics API
 | `VR init environment:` reports a graphics API **other than Direct3D11** | Desktop OpenXR needs **D3D11** — session creation fails natively (errors in Player.log only) | Add `-force-d3d11` to Steam launch options; verify the game didn't launch under `-force-glcore`/D3D12 |
 | `OpenXR session up` logged but **HMD never lights up** and `display subsystem did NOT start rendering` follows | Runtime never reached READY (headset asleep, streamer disconnected, or graphics requirements unmet) | Wake the headset / (re)connect Virtual Desktop or Link **before** launching; check Player.log `[XR]` lines; try `[Core] InitDelayFrames = 120` |
 | **SteamVR boots although you play via Virtual Desktop/Link** | A runtime candidate attempt reached SteamVR before the right runtime | Should not happen anymore ("auto" tries the system default first and SteamVR last). If it does: set `[Core] RuntimePriority = vdxr` (or `oculus`), or `[Core] SkipRuntimeCandidates = true`, and report the candidate list line |
+| **Desktop black in the menus** (intro audible, nothing visible) | Pre-`fix/menu-blackscreen` builds: FlatScreen quad died with a Single scene load while the UICamera stayed redirected into its RenderTexture | Update the mod. On current builds the desktop is fed by the end-of-frame RT blit (`Desktop mirror active` line); if still black, grep the `Camera inventory` lines and check the UICamera's `target=` column (see `docs/TESTING-P3C.md` §10) |
+| **HMD black in the menus** (XR RUNNING logged) | Menu rig camera not rendering, or the flat-screen quad invisible (shader/layer/placement) | HMD grey = rig camera fine, content missing → check `FlatScreen quad placed:` (shader `NULL`? layer moved?). HMD pitch black = rig camera not reaching the HMD → quote `Menu rig built …` + `Camera inventory` lines |
 | Stereo up but **world not table-scaled** / camera inside geometry | WorldScale heuristic off (s_TileSize not initialized at rig build) | Set `[Rig] WorldScale` explicitly; re-enter scenario |
 | Stereo up but **camera fights/jumps** with game camera moves | A camera writer not covered by the LateUpdate skip (SmartFocus/timeline) | Expected P1 edge; note the trigger (cutscene? door reveal?) for the Phase-4 comfort pass |
 | Broken/one-eye post effects | A PPv2/fog effect slipped through | Ensure `[Compat] DisablePostProcessing`/`DisableVolumetricFog` are true; add offender type name to `DisableComponents` |
