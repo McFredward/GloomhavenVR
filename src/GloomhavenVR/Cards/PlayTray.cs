@@ -76,6 +76,8 @@ internal sealed class PlayTray
 
         BuildBadge();
         BuildReadyLamp();
+        // Mod layer (render-only — badge swap zone & tokens poke via registries).
+        Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
     }
 

@@ -325,6 +325,8 @@ internal sealed class SettingsPanel
         var note = Row(22f);
         Label(note, "* applies on next VR start", 12f, flexible: true);
 
+        // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
+        VRLayers.Apply(_root);
         _root.SetActive(false);
     }
 
@@ -531,6 +533,7 @@ internal sealed class SettingsPanel
             collider.center = new Vector3(0f, 0.015f, 0f);
             collider.size = new Vector3(0.055f, 0.03f, 0.055f);
             VRInteractables.RegisterPokeable(gear, collider);
+            VRLayers.Apply(gear._root); // pokes are registry-driven; layer is render-only
             return gear;
         }
 

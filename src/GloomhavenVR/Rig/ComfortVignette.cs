@@ -98,7 +98,9 @@ internal sealed class ComfortVignette : MonoBehaviour
         _ring = new GameObject("GloomhavenVR.ComfortVignette")
         {
             hideFlags = HideFlags.HideAndDontSave,
-            layer = head.gameObject.layer
+            // Mod layer: guaranteed in the head camera's mask (the head GO's own layer
+            // is not necessarily in its own culling mask — menu cameras cull 0x20/0x0).
+            layer = Core.VRLayers.ModLayer
         };
         _ring.transform.SetParent(head.transform, worldPositionStays: false);
         _ring.transform.localPosition = new Vector3(0f, 0f, LocalDistance);

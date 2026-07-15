@@ -5,7 +5,6 @@ using GloomhavenVR.Hands.Interact;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.XR;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -39,11 +38,11 @@ namespace GloomhavenVR.WorldUI;
 /// vanilla — and engages on the first real menu scene. While gated, the HMD shows
 /// the menu rig's grey void plus a small "starting…" indicator.
 ///
-/// XR EXCLUSION: with the XR display running, any camera without a targetTexture
-/// renders to the HMD (stereoTargetEye defaults to Both). Outside scenarios the
-/// UICamera is therefore forced to <see cref="StereoTargetEyeMask.None"/> (renders
-/// to the main display only) + <see cref="XRDevice.DisableAutoXRCameraTracking"/>,
-/// restored when leaving Menu2D / on hide / shutdown / config-off.
+/// XR EXCLUSION: owned centrally by <see cref="Core.VRCameraPolicy"/> (pumped by the
+/// rig driver) — in VR only the rig head camera renders stereo; the UICamera and any
+/// other camera are forced to StereoTargetEyeMask.None there, and restored on VR-off.
+/// The per-UICamera guard this class used to run was removed (one owner, one policy;
+/// docs/CAMERA-POLICY.md §1).
 ///
 /// Pointer: the primary hand ray (Phase-2 <see cref="RayInteractor"/> pick pose) is
 /// intersected with the screen plane in code (no physics collider — keeps clear of
@@ -72,11 +71,6 @@ internal sealed class FlatScreen
     private bool _pressing;
     private bool _mirrorLogged;
 
-    // XR exclusion bookkeeping (restore-on-release).
-    private Camera? _guardedCamera;
-    private StereoTargetEyeMask _guardedOriginalEye;
-    private int _resolveCooldown;
-
     // Placement anchors: re-place instantly when the head camera or the rig moves
     // (menu rig rebuild / recenter), instead of waiting for the lazy 45° follow.
     private Camera? _placedHead;
@@ -98,14 +92,12 @@ internal sealed class FlatScreen
         if (_uiCamera != null && _uiCamera.targetTexture == _rt)
             _uiCamera.targetTexture = null;
         _uiCamera = null;
-        _resolveCooldown = 0;
     }
 
     public void Tick()
     {
         bool preMenu = IsPreMenuScene();
 
-        TickUiCameraGuard(preMenu);
         TickStartingIndicator(preMenu);
 
         // The quad can be destroyed behind our back (a Single-mode scene load before
@@ -168,7 +160,6 @@ internal sealed class FlatScreen
     {
         Core.Events.VREvents.SceneLoaded -= OnSceneLoaded;
         Hide();
-        ReleaseUiCameraGuard();
         DestroyIndicator();
     }
 
@@ -208,66 +199,6 @@ internal sealed class FlatScreen
         Singleton<UIConfirmationBoxManager>.IsInitialized
         && Singleton<UIConfirmationBoxManager>.Instance.IsOpen;
 
-    // ---- UICamera XR exclusion ------------------------------------------------------------
-
-    /// <summary>
-    /// While VR runs and no scenario is up, the UICamera must not render into the HMD:
-    /// with the XR display active a camera without targetTexture renders to both eyes
-    /// by default, which (a) splatters screen-space UI across the stereo view and
-    /// (b) steals the desktop backbuffer (the window falls back to the XR mirror).
-    /// StereoTargetEyeMask.None = "render to the main (desktop) display only".
-    /// Fully vanilla when [WorldUI] FlatScreen or Master is off.
-    /// </summary>
-    private void TickUiCameraGuard(bool preMenu)
-    {
-        bool guardWanted = VRSession.IsRunning
-                           && WorldUIConfig.FlatScreen.Value
-                           && WorldUIConfig.Master.Value
-                           && (preMenu || VRModeStateMachine.CurrentMode == VRMode.Menu2D);
-
-        if (!guardWanted)
-        {
-            ReleaseUiCameraGuard();
-            return;
-        }
-
-        if (_uiCamera == null)
-        {
-            // Throttled re-resolve (Camera.allCameras allocates) — a scene load resets
-            // the cooldown so the guard reacquires promptly after CanvasManager rewires.
-            if (_resolveCooldown-- > 0)
-                return;
-            _resolveCooldown = 30;
-            ResolveUiCamera();
-            if (_uiCamera == null)
-                return;
-        }
-
-        if (_guardedCamera == _uiCamera)
-            return;
-
-        ReleaseUiCameraGuard();
-        _guardedCamera = _uiCamera;
-        _guardedOriginalEye = _uiCamera.stereoTargetEye;
-        _uiCamera.stereoTargetEye = StereoTargetEyeMask.None;
-        XRDevice.DisableAutoXRCameraTracking(_uiCamera, true);
-        VRLog.Info("WorldUI", $"UICamera '{_uiCamera.name}' excluded from XR rendering " +
-                              $"(stereoTargetEye {_guardedOriginalEye} → None, auto XR tracking off) — " +
-                              "the desktop keeps its 2D UI.");
-    }
-
-    private void ReleaseUiCameraGuard()
-    {
-        Camera? cam = _guardedCamera;
-        _guardedCamera = null;
-        if (cam == null) // also true when the camera died with a scene unload
-            return;
-        cam.stereoTargetEye = _guardedOriginalEye;
-        XRDevice.DisableAutoXRCameraTracking(cam, false);
-        VRLog.Info("WorldUI", $"UICamera '{cam.name}' restored to vanilla XR behavior " +
-                              $"(stereoTargetEye {_guardedOriginalEye}).");
-    }
-
     // ---- pre-menu indicator -----------------------------------------------------------------
 
     /// <summary>
@@ -304,6 +235,7 @@ internal sealed class FlatScreen
             text.color = new Color(0.75f, 0.75f, 0.78f, 1f);
             var rect = (RectTransform)_indicator.transform;
             rect.sizeDelta = new Vector2(3f, 1f);
+            VRLayers.Apply(_indicator); // head camera masks include the mod layer (CAMERA-POLICY §2)
             VRLog.Info("WorldUI", "Starting indicator shown (pre-menu scene, FlatScreen gated).");
         }
 
@@ -312,7 +244,6 @@ internal sealed class FlatScreen
         _indicator.transform.SetPositionAndRotation(
             h.position + fwd * 1.5f,
             Quaternion.LookRotation(fwd, Vector3.up)); // TMP front faces -Z → toward the head
-        EnsureLayerVisible(_indicator, head);
     }
 
     private void DestroyIndicator()
@@ -366,6 +297,10 @@ internal sealed class FlatScreen
                 WorldUIAssets.CreateFlatMaterial(new Color(1f, 0.9f, 0.3f, 0.9f));
             _reticle = reticleGo.transform;
             _reticle.gameObject.SetActive(false);
+
+            // Screen + reticle live on the dedicated mod layer — only the rig head
+            // camera renders it (its mask ORs the mod bit, never 0; CAMERA-POLICY §2).
+            VRLayers.Apply(_quad);
         }
 
         _quad.SetActive(true);
@@ -478,8 +413,6 @@ internal sealed class FlatScreen
         }
         t.localScale = size;
 
-        EnsureLayerVisible(_quad, head);
-
         if (instant)
         {
             _placedHead = head;
@@ -505,44 +438,6 @@ internal sealed class FlatScreen
             $"RT={( _rt != null ? $"{_rt.width}x{_rt.height}" : "NULL")} | " +
             $"head '{head.name}' pos={head.transform.position}, mask=0x{head.cullingMask:X8}, " +
             $"clear={head.clearFlags}, stereo={head.stereoTargetEye}.");
-    }
-
-    /// <summary>
-    /// Make sure <paramref name="go"/> (and children) sit on a layer the camera
-    /// actually renders — prefer keeping the current layer, else Default (0), else
-    /// the lowest bit set in the camera's culling mask.
-    /// </summary>
-    private static void EnsureLayerVisible(GameObject go, Camera camera)
-    {
-        int mask = camera.cullingMask;
-        if ((mask & (1 << go.layer)) != 0)
-            return;
-
-        int layer = (mask & 1) != 0 ? 0 : -1;
-        if (layer < 0)
-        {
-            for (int i = 0; i < 32; i++)
-            {
-                if ((mask & (1 << i)) != 0)
-                {
-                    layer = i;
-                    break;
-                }
-            }
-        }
-        if (layer < 0)
-            return; // camera renders nothing — logged via LogPlacement's mask
-
-        VRLog.Info("WorldUI", $"'{go.name}' layer {go.layer} not in camera '{camera.name}' mask " +
-                              $"0x{mask:X8} — moving to layer {layer}.");
-        SetLayerRecursive(go.transform, layer);
-    }
-
-    private static void SetLayerRecursive(Transform t, int layer)
-    {
-        t.gameObject.layer = layer;
-        for (int i = 0; i < t.childCount; i++)
-            SetLayerRecursive(t.GetChild(i), layer);
     }
 
     private void FollowHead()

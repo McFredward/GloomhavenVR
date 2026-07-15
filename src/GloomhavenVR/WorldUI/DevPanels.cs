@@ -107,6 +107,8 @@ internal sealed class DevPanels
         buttonRect.sizeDelta = new Vector2(160f, 52f);
 
         UguiPokeSurfaces.Register(canvas);
+        // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
+        VRLayers.Apply(go);
         return go;
     }
 

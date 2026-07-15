@@ -182,6 +182,7 @@ internal sealed class HalfSelection
             new Vector3(w * 0.78f, h * 0.27f, 0f), new Vector2(w * 0.42f, h * 0.16f), "ATK 2", this);
         set.DefaultMove = HalfZone.Create(set.Root.transform, card, CBaseCard.ActionType.DefaultMoveAction,
             new Vector3(w * 0.78f, -h * 0.27f, 0f), new Vector2(w * 0.42f, h * 0.16f), "MOV 2", this);
+        Core.VRLayers.Apply(set.Root); // mod layer (render-only; zones poke via registries)
 
         _zones[card] = set;
         RegisterCanvas(card, set);

@@ -237,6 +237,10 @@ internal sealed class RayInteractor : IPickProvider
         _reticle = reticleGo.transform;
         _reticle.gameObject.SetActive(false);
 
+        // Lazily created AFTER HandsDriver's tree-wide VRLayers.Apply — layer them here.
+        Core.VRLayers.Apply(laserGo);
+        Core.VRLayers.Apply(reticleGo);
+
         UpdateVisualActive();
     }
 
