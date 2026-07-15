@@ -16,6 +16,14 @@ namespace GloomhavenVR.Hands;
 /// hold G = grip via InputSystem's Keyboard) so every consumer of the hand API can be
 /// exercised flat.
 ///
+/// RIG-REBUILD CHAIN (hardware test #3, root cause #4): this driver POLLS
+/// <see cref="VRRigDriver.RigRoot"/> every frame — when the rig driver tears down and
+/// rebuilds (head camera died/disabled/scene swap), the old hands root is destroyed
+/// with the old rig root (it is a child) and <see cref="Build"/> re-creates the hands
+/// under the new root the same/next frame. The chain is rig-state-driven, never
+/// scene-driven: no scene event is needed for hands to re-home. The MainMenu failure
+/// was upstream (the rig itself never rebuilt), not here.
+///
 /// Applies the <see cref="VRModeStateMachine"/> interactor policy on every mode change.
 /// </summary>
 internal sealed class HandsDriver : MonoBehaviour
@@ -95,6 +103,11 @@ internal sealed class HandsDriver : MonoBehaviour
         _left = CreateHand(HandSide.Left);
         _right = CreateHand(HandSide.Right);
         VRHands.Set(_left, _right);
+
+        // Whole hand tree (palms, fingers, anchors) on the mod layer so the head
+        // camera renders it regardless of the game camera's mask (CAMERA-POLICY §2).
+        // No-op in desktop simulation (VRLayers.Apply gates on VRSession.IsRunning).
+        VRLayers.Apply(_handsRoot);
 
         ApplyMode(VRModeStateMachine.CurrentMode);
         VRLog.Info("Hands", $"Hands built under '{parent.name}'{(simulate ? " (SIMULATED)" : string.Empty)}.");

@@ -135,6 +135,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
         // with identity rotation.
         _canvasRect.localPosition = new Vector3(0f, 0f, -0.0012f);
 
+        // Mod-owned card shell (backing, canvas, colliders) on the mod layer. The live
+        // game face (FullAbilityCard) re-parented in LATER keeps its own game layer —
+        // game objects are never re-layered (CAMERA-POLICY §2 reversibility rule).
+        Core.VRLayers.Apply(gameObject);
+
         UpdateCanvasCamera();
     }
 

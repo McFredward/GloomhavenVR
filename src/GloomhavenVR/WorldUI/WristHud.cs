@@ -156,6 +156,8 @@ internal sealed class WristHud
 
         _lastText = string.Empty;
         _nextRefresh = 0f;
+        // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
+        VRLayers.Apply(_root);
         VRLog.Info("WorldUI", $"WristHud built on {hand.Side} wrist.");
     }
 

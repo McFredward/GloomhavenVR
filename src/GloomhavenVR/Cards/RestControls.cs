@@ -108,6 +108,7 @@ internal sealed class RestControls
             token._onPoke = onPoke;
             token._material = material;
             token._baseColor = color;
+            Core.VRLayers.Apply(go); // mod layer (render-only; poke via registry)
             return token;
         }
 

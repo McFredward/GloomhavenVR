@@ -33,6 +33,7 @@ internal sealed class CardFan
         if (_root == null)
         {
             _root = new GameObject("GloomhavenVR.CardFan").transform;
+            Core.VRLayers.Apply(_root.gameObject); // cards Apply themselves in VRCard.Build
         }
         _root.SetParent(hand.Rig.PalmCenter, worldPositionStays: false);
         _root.gameObject.SetActive(true);

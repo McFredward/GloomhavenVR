@@ -140,6 +140,8 @@ internal sealed class ButtonCluster
         _skip = PhysicalButton.Create(_root.transform, "Skip", new Vector3(0.11f, 0f, 0f), 0.038f,
             new Color(0.35f, 0.55f, 0.8f), ClickSkip);
 
+        // Mod layer (render-only — pokes go through the VRInteractables registry).
+        VRLayers.Apply(_root);
         VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip).");
     }
 
