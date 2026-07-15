@@ -3,11 +3,20 @@
     Copies built GloomhavenVR artifacts into a Gloomhaven install (BepInEx 5 required).
 
 .DESCRIPTION
-    Plugin DLL  -> <GamePath>\BepInEx\plugins\GloomhavenVR\
-    Preloader   -> <GamePath>\BepInEx\patchers\
+    Deploy layout (docs/TESTING-P1.md documents the full picture):
 
-    Builds are NOT triggered here; run `dotnet build GloomhavenVR.sln -c Release`
-    (or scripts/build.sh) first.
+      Plugin       -> <GamePath>\BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
+      RuntimeDeps  -> <GamePath>\BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
+      Preloader    -> <GamePath>\BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
+      Natives      -> <GamePath>\BepInEx\patchers\GloomhavenVR\Natives\*.dll
+
+    The preloader itself installs the natives + UnitySubsystems manifest into
+    Gloomhaven_Data\ at game boot — nothing under Gloomhaven_Data is touched here.
+
+    Builds are NOT triggered here; run first:
+      dotnet build GloomhavenVR.sln -c Release      (or scripts/build.sh)
+      scripts/fetch-natives.sh                       (once, populates libs/Natives)
+      scripts/build-runtimedeps.sh                   (populates libs/RuntimeDeps)
 
 .EXAMPLE
     .\scripts\deploy.ps1 -GamePath "C:\Program Files (x86)\Steam\steamapps\common\Gloomhaven"
@@ -39,15 +48,39 @@ foreach ($artifact in @($plugin, $preloader)) {
     }
 }
 
-$pluginDir  = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
-$patcherDir = Join-Path $GamePath "BepInEx\patchers"
+$natives     = Get-ChildItem (Join-Path $root "libs\Natives\*.dll") -ErrorAction SilentlyContinue
+$runtimeDeps = Get-ChildItem (Join-Path $root "libs\RuntimeDeps\*.dll") -ErrorAction SilentlyContinue
 
-New-Item -ItemType Directory -Force -Path $pluginDir  | Out-Null
-New-Item -ItemType Directory -Force -Path $patcherDir | Out-Null
+if (-not $natives) {
+    Write-Error "libs\Natives is empty. Run scripts/fetch-natives.sh first (see libs/Natives/README.md)."
+}
+if (-not $runtimeDeps) {
+    Write-Error "libs\RuntimeDeps is empty. Run scripts/build-runtimedeps.sh first (see libs/RuntimeDeps/README.md)."
+}
+
+$pluginDir      = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
+$runtimeDepsDir = Join-Path $pluginDir "RuntimeDeps"
+$patcherDir     = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"
+$nativesDir     = Join-Path $patcherDir "Natives"
+
+foreach ($dir in @($pluginDir, $runtimeDepsDir, $patcherDir, $nativesDir)) {
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+}
 
 Copy-Item $plugin    -Destination $pluginDir  -Force
 Copy-Item $preloader -Destination $patcherDir -Force
+$runtimeDeps | Copy-Item -Destination $runtimeDepsDir -Force
+$natives     | Copy-Item -Destination $nativesDir     -Force
+
+# Clean up the Phase-0 flat-preloader location if present (moved into a subfolder).
+$legacyPreloader = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dll"
+if (Test-Path $legacyPreloader) {
+    Remove-Item $legacyPreloader -Force
+    Write-Host "Removed legacy preloader at BepInEx\patchers\GloomhavenVR.Preload.dll"
+}
 
 Write-Host "Deployed:"
 Write-Host "  $pluginDir\GloomhavenVR.dll"
+Write-Host "  $runtimeDepsDir\  ($(@($runtimeDeps).Count) RuntimeDeps DLLs)"
 Write-Host "  $patcherDir\GloomhavenVR.Preload.dll"
+Write-Host "  $nativesDir\  ($(@($natives).Count) native DLLs)"

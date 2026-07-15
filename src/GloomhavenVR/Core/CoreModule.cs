@@ -1,25 +1,51 @@
+using System.Runtime.CompilerServices;
+
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// XR bootstrap, runtime-dependency loading, config plumbing, diagnostics.
-/// Phase 1 (feat/xr-bootstrap) implements: RuntimeDeps Assembly.LoadFile,
-/// OpenXR pre-flight check, XR Management init, runtime failover.
+/// XR bootstrap: runtime-dependency loading, OpenXR init (pre-flight, runtime
+/// failover, diagnostics) and clean teardown. Sets <see cref="VRSession.IsRunning"/>
+/// which every other module keys off.
 /// </summary>
 internal sealed class CoreModule : IVRModule
 {
     public string Name => "Core";
 
-    /// <summary>
-    /// Compile-time proof that the publicized game references resolved:
-    /// <c>InitiativeOption</c> is an <c>internal class</c> in GH.Runtime and
-    /// <c>initiativeIncrease</c> is one of its <c>private</c> fields — both are only
-    /// visible because BepInEx.AssemblyPublicizer rewrote the reference assembly.
-    /// nameof() is compile-time only, so this adds no runtime dependency.
-    /// </summary>
-    private const string PublicizerProbe = nameof(InitiativeOption) + "." + nameof(InitiativeOption.initiativeIncrease);
+    /// <summary>True once RuntimeDeps are loaded — gate for JITing XR-typed methods.</summary>
+    private static bool _depsLoaded;
 
     public void Init()
     {
-        VRLog.Debug(Name, $"stub initialized (Phase 1 implements XR bootstrap); publicizer probe OK: {PublicizerProbe}");
+        // Order matters: nothing referencing Unity.XR.* types may be JIT-compiled
+        // before LoadAll() has put those assemblies into the AppDomain. Init() itself
+        // only *calls* the (non-inlined) methods that use them.
+        if (!RuntimeDepsLoader.LoadAll())
+        {
+            VRLog.Warn(Name, "VR unavailable this session (RuntimeDeps missing) — game continues flat.");
+            return;
+        }
+
+        _depsLoaded = true;
+        StartVR();
     }
+
+    public void Shutdown()
+    {
+        if (_depsLoaded)
+            StopVR();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void StartVR()
+    {
+        string? runtimeOverride = Plugin.RuntimeOverride.Value;
+        if (string.IsNullOrWhiteSpace(runtimeOverride))
+            runtimeOverride = null;
+
+        if (!OpenXRBootstrap.Start(runtimeOverride))
+            VRLog.Warn(Name, "VR unavailable this session — game continues flat.");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void StopVR() => OpenXRBootstrap.Stop();
 }

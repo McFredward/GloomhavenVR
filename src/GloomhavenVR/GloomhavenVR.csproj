@@ -38,5 +38,25 @@
     <Reference Include="Unity.Addressables" HintPath="$(GameManaged)\Unity.Addressables.dll" Private="false" />
     <Reference Include="Unity.ResourceManager" HintPath="$(GameManaged)\Unity.ResourceManager.dll" Private="false" />
     <Reference Include="Unity.TextMeshPro" HintPath="$(GameManaged)\Unity.TextMeshPro.dll" Private="false" />
+    <!-- Game-shipped TrackedPoseDriver (com.unity.xr.legacyinputhelpers runtime) — drives the P1 head pose -->
+    <Reference Include="UnityEngine.SpatialTracking" HintPath="$(GameManaged)\UnityEngine.SpatialTracking.dll" Private="false" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Mod-shipped XR assemblies (libs/RuntimeDeps — produced by scripts/build-runtimedeps.sh,
+      later replaced by the editor harvest). Publicized: the OpenXR bootstrap uses internal
+      members (XRGeneralSettings.InitXRSDK/Start, OpenXRSettings.features, ...) directly.
+      Private=false: they are deployed separately to BepInEx/plugins/GloomhavenVR/RuntimeDeps/
+      and loaded via Assembly.LoadFile (never next to the plugin DLL itself).
+    -->
+    <Reference Include="Unity.XR.Management" HintPath="$(RepoRoot)libs\RuntimeDeps\Unity.XR.Management.dll" Publicize="true" Private="false" />
+    <Reference Include="Unity.XR.CoreUtils" HintPath="$(RepoRoot)libs\RuntimeDeps\Unity.XR.CoreUtils.dll" Publicize="true" Private="false" />
+    <Reference Include="Unity.XR.OpenXR" HintPath="$(RepoRoot)libs\RuntimeDeps\Unity.XR.OpenXR.dll" Publicize="true" Private="false" />
+  </ItemGroup>
+
+  <Target Name="CheckRuntimeDeps" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(RepoRoot)libs\RuntimeDeps\Unity.XR.OpenXR.dll')"
+           Text="libs/RuntimeDeps is not populated — run scripts/build-runtimedeps.sh first (see libs/RuntimeDeps/README.md)." />
+  </Target>
 </Project>

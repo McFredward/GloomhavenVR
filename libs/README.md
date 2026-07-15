@@ -1,29 +1,22 @@
-# libs/ — harvested XR binaries (NOT committed)
+# libs/ — shipped XR binaries (NOT committed)
 
-This directory is populated by the harvest step of the companion Unity project
-(`unity/GloomhavenVR.Assets`, script `Assets/Editor/HarvestRuntimeDeps.cs`) —
-see `unity/HARVESTING.md`. The repo-root `.gitignore` excludes `*.dll`, so only
-the JSON manifests and this README are ever tracked.
+Two independently populated directories (only READMEs/.gitkeep are tracked;
+the repo-root `.gitignore` excludes `*.dll` and the generated `versions.json`):
 
-Expected layout after a harvest:
+| Dir | Contents | Populated by |
+|---|---|---|
+| `Natives/` | `UnityOpenXR.dll`, `openxr_loader.dll` (Windows x64, prebuilt in the OpenXR package) | `scripts/fetch-natives.sh` (SHA256-pinned download) |
+| `RuntimeDeps/` | `Unity.XR.Management.dll` 4.5.0, `Unity.XR.CoreUtils.dll` 2.2.3, `Unity.XR.OpenXR.dll` 1.10.0 | `scripts/build-runtimedeps.sh` (provisional, from needle-mirror source) — or the Unity editor harvest (`unity/HARVESTING.md`), which replaces the provisional set 1:1 |
+
+See the README inside each directory for details (hashes, defines, provenance,
+replacement rules). Deploy targets (via `scripts/deploy.ps1`):
 
 ```
-libs/
-├── RuntimeDeps/                  # managed DLLs, Assembly.LoadFile'd by the plugin
-│   ├── Unity.XR.Management.dll         (4.5.0)
-│   ├── Unity.XR.OpenXR.dll             (1.10.0)
-│   ├── Unity.XR.CoreUtils.dll          (2.2.3)
-│   ├── Unity.XR.Interaction.Toolkit.dll (2.6.5)
-│   ├── Unity.InputSystem.dll           (1.7.0 — newer than the game's 1.3.0)
-│   ├── UnityEngine.SpatialTracking.dll (optional)
-│   └── harvest-manifest.json           # exact versions + build date (committed-able)
-└── Natives/
-    ├── Plugins/x86_64/
-    │   ├── UnityOpenXR.dll
-    │   └── openxr_loader.dll
-    └── UnitySubsystems/UnityOpenXR/
-        └── UnitySubsystemsManifest.json  # version-matched to the OpenXR package
+libs/RuntimeDeps/*.dll -> <Game>/BepInEx/plugins/GloomhavenVR/RuntimeDeps/
+libs/Natives/*.dll     -> <Game>/BepInEx/patchers/GloomhavenVR/Natives/
 ```
 
-All files in one harvest form ONE coherent set (TOOLCHAIN.md risk R5) — never
-mix DLLs from different harvests or Unity versions.
+All shipped XR files must form ONE coherent OpenXR package set (managed 1.10.0 +
+natives 1.10.0 + manifest version 1.10.0) — TOOLCHAIN.md risk R5. Never mix
+versions; bump everything together (fetch pin, RuntimeDeps pin, preloader
+`OpenXRPackageVersion` const).

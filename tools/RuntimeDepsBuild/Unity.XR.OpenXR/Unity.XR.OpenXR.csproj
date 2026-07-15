@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageSourceVersion>1.10.0</PackageSourceVersion>
+  </PropertyGroup>
+  <Import Project="../Common.props" />
+
+  <PropertyGroup>
+    <AssemblyName>Unity.XR.OpenXR</AssemblyName>
+    <RootNamespace>UnityEngine.XR.OpenXR</RootNamespace>
+    <!-- asmdef: allowUnsafeCode true -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      asmdef versionDefines vs the game's package set:
+      - UNITY_ANALYTICS: on (Common.props; game ships UnityAnalyticsModule)
+      - MICROSOFT_OPENXR_PACKAGE: off (not installed)
+      - INPUT_SYSTEM_POSE_VALID: off (needs inputsystem >= 1.4.2; game has 1.3.0)
+      - INPUT_SYSTEM_BINDING_VALIDATOR: off (needs >= 1.6.3)
+      NOTE: the interaction profile classes (OculusTouchControllerProfile,
+      ValveIndexControllerProfile, KHRSimpleControllerProfile, ...) live in THIS
+      assembly (Runtime/Features/Interactions/) — no Features.* subassembly needed.
+      MockRuntime/MetaQuest/OculusQuest/RuntimeDebugger/ConformanceAutomation are
+      separate top-level asmdefs, intentionally not built.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(SourcesRoot)/com.unity.xr.openxr/Runtime/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- asmdef references: Unity.XR.Management, Unity.InputSystem, Unity.XR.CoreUtils -->
+    <ProjectReference Include="../Unity.XR.Management/Unity.XR.Management.csproj" Private="false" />
+    <ProjectReference Include="../Unity.XR.CoreUtils/Unity.XR.CoreUtils.csproj" Private="false" />
+    <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)/Unity.InputSystem.dll" Private="false" />
+  </ItemGroup>
+</Project>
