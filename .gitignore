@@ -28,3 +28,6 @@ libs/RuntimeDeps/versions.json
 # Release packaging output (scripts/package-release.sh)
 dist/
 *.zip
+
+# local debug drops (never push)
+.planning/debug/
