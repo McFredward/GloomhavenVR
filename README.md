@@ -2,42 +2,58 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — all feature phases (2 hands, 3a board, 3b card hand, 3c world UI,
-> 4 comfort) code-complete, awaiting hardware validation.**
-> On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod has tracked
-> hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
-> proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
-> game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
-> desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
->
-> **Phase 3a:** the board is playable by hand — hex/actor/door/chest picking by
-> fingertip touch (near) or laser ray (far), clicks committed through the game's own
-> click path (undo/MP-safe), AoE rotation on the thumbstick, hover haptics, enemy stat
-> panel on point/touch.
->
-> **Phase 3c:** the physical interface — poke-able Ready/Undo/Skip buttons at the table
-> edge, the initiative track / element board / combat log / objectives as world panels,
-> confirmation dialogs as world modals, phase-banner HMD toasts, true world-space actor
-> HP bars above the miniatures, a wrist status HUD, world tooltips, a floating 2D screen
-> (+ virtual-mouse ray pointer) for menus/merchant/level-up, and a gamepad-mode guard —
-> every surface individually toggleable in `worldui.gloomhavenvr.cfg`, all conversions
-> fully reversible.
->
-> **Phase 4:** Demeo-style table manipulation (one grip drags the table, two grips rotate
-> and pinch-scale it, with haptic detents), snap/smooth turn, recenter (hold B+Y) with
-> seated/standing presets, an optional comfort vignette and the `ComfortSettings` API the
-> future in-VR settings panel binds to (`BepInEx/config/dev.gloomhavenvr.comfort.cfg`).
->
-> **Phase 3b:** the Demeo card hand — the 2D hand is visually suppressed while VR runs;
-> your ability cards fan out above your non-dominant palm (live game card faces
-> re-parented onto 3D cards), you grab/inspect them and play them on a floating tray
-> (slot order = initiative, physical swap supported), short/long-rest tokens, and in-turn
-> top/bottom half selection by poking the played cards. Exercisable without a scenario via
-> `[Cards] DevFakeHand`.
->
-> Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`; comfort surface:
-> `docs/INTERFACES-P4.md`. Hardware checklists: `docs/TESTING-P1.md`, `docs/TESTING-P2.md`,
-> `docs/TESTING-P3A.md`, `docs/TESTING-P3B.md`, `docs/TESTING-P3C.md`, `docs/TESTING-P4.md`.
+> **Status: v0.1 pre-alpha — feature-complete and integrated (phases 0–5), awaiting
+> the full-loop hardware pass** (`docs/TESTING-FULL-LOOP.md`). Release zips are
+> produced by `scripts/package-release.sh`; install guide: [INSTALL.md](INSTALL.md).
+
+## Features (v0.1)
+
+- **VR bootstrap** — OpenXR (Quest Link / Virtual Desktop / Steam Link / SteamVR)
+  installed at boot by a BepInEx preloader, with pre-flight checks, runtime failover
+  and MultiPass stereo; the game stays 100% vanilla when disabled or when VR is
+  unavailable.
+- **Diorama rig** — scenarios render as a head-tracked table-scale miniature world;
+  the main menu / guildmaster map show on a floating screen with a head-tracked
+  menu camera.
+- **Hands** — tracked hands with articulated fingers (bundle gloves or procedural
+  fallback), poke / laser-ray / proximity-grab / palm-gate interaction primitives,
+  haptics, and a per-mode/per-hand interactor policy (dominant hand points, the
+  other holds the cards).
+- **The Demeo card hand** — palm-up fans your live ability cards out as 3D cards
+  (real game card faces); grab to inspect, drop on the play tray to play
+  (slot order = initiative, physical swap), short/long-rest tokens, in-turn
+  top/bottom half selection by poking the played cards.
+- **Touch the board** — hex/actor/door/chest picking by fingertip touch (near) or
+  laser (far, reticle snaps to hex centers), clicks committed through the game's
+  own click path (undo/MP-safe), AoE rotation on the thumbstick, hover haptics,
+  poke a miniature for its stat panel.
+- **Physical interface** — poke-able Ready/Undo/Skip buttons at the table edge,
+  initiative track / element board / combat log / objectives as world panels,
+  world-modal confirmation dialogs, phase-banner toasts, true world-space actor HP
+  bars, a wrist status HUD, world tooltips, and a floating 2D screen (+ ray pointer
+  via the game's own virtual mouse) for menus/merchant/level-up. Every surface is
+  toggleable; every conversion is fully reversible.
+- **Comfort** — Demeo-style world grab (one grip drags, two grips rotate/pinch-scale),
+  snap/smooth turn, recenter chord (B+Y both hands) with seated/standing presets,
+  optional vignette, head-under-table guard.
+- **In-VR settings panel** — poke the SET gear at the table edge (or hold the
+  non-dominant A/X): world scale, turning, seated mode, vignette, grab toggles,
+  dominant hand, module switches — live and persistent.
+- **Dev harness** — `[Dev] Enabled` runs the event bus, mode machine, simulated
+  hands, cards and panels on a flat desktop without an HMD (F6 hot reload via
+  ScriptEngine supported; everything cleans up after itself).
+
+## Documentation index
+
+| Doc | Contents |
+|---|---|
+| [INSTALL.md](INSTALL.md) | end-user install, OpenXR runtime selection, config files, troubleshooting |
+| [docs/TESTING-FULL-LOOP.md](docs/TESTING-FULL-LOOP.md) | the M4/v0.1 end-to-end hardware session script |
+| [docs/TESTING-P1.md](docs/TESTING-P1.md) … [TESTING-P4.md](docs/TESTING-P4.md) | per-phase hardware checklists + the P1 failure-triage table |
+| [docs/INTERFACES-P2.md](docs/INTERFACES-P2.md) | shared module API: hands, interactors, event bus, mode matrix, module-config pattern |
+| [docs/INTERFACES-P4.md](docs/INTERFACES-P4.md) | comfort/rig surface (`ComfortSettings`, world grab, menu rig) |
+| [docs/PATCH-INVENTORY.md](docs/PATCH-INVENTORY.md) | every Harmony patch (method → module → type) + contention rules |
+| [.planning/](/.planning/) | architecture, roadmap, verified game-API research |
 
 ## What / why
 
@@ -62,28 +78,15 @@ scope for v1.
 
 ## Install (users)
 
-Nothing useful to install yet (pre-alpha). Once there are releases:
+See **[INSTALL.md](INSTALL.md)**. Short version: install
+[BepInEx 5.4.23.5 (x64)](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5)
+into the Gloomhaven folder, extract the release zip over it, pick your OpenXR
+runtime, start the game. `[General] Enabled = false` in
+`BepInEx/config/dev.gloomhavenvr.cfg` returns the game to 100% vanilla; if the
+headset shows nothing, launch with `-force-d3d11`.
 
-1. Install **[BepInEx 5.4.23.5](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5)**
-   (`BepInEx_win_x64_5.4.23.5.zip`) — extract into the Gloomhaven install folder
-   (the one containing `GH.exe`), run the game once, verify `BepInEx/LogOutput.log` exists.
-2. From the mod release zip, into the Gloomhaven folder:
-
-   ```
-   BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
-   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll        (Unity XR assemblies)
-   BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
-   BepInEx/patchers/GloomhavenVR/Natives/*.dll           (UnityOpenXR + openxr_loader)
-   ```
-
-3. Start the game. At boot the preloader copies the OpenXR natives into
-   `Gloomhaven_Data/Plugins/x86_64/` and writes
-   `Gloomhaven_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json`
-   (idempotent; these are the only files placed outside `BepInEx/`).
-   Config appears at `BepInEx/config/dev.gloomhavenvr.cfg`
-   (`[General] Enabled = false` returns the game to 100% vanilla).
-4. If the headset shows nothing, launch with `-force-d3d11` (desktop OpenXR
-   requires D3D11) and see the triage table in `docs/TESTING-P1.md`.
+Release zips are built with `scripts/package-release.sh` (plugin + RuntimeDeps +
+preloader + natives + INSTALL.txt; refuses to package incomplete artifact sets).
 
 ## Developer setup
 
@@ -158,18 +161,29 @@ GloomhavenVR.sln
 ├── libs/                       Natives/ (fetched OpenXR natives) + RuntimeDeps/ (Unity XR
 │                               assemblies) — populated by scripts, never committed
 ├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
-├── scripts/                    build.sh, fetch-natives.sh, build-runtimedeps.sh, deploy.ps1
-├── docs/                       TESTING-P1/P2.md (Windows validation checklists),
-│                               INTERFACES-P2.md (frozen Phase-2 API for feature workers)
+├── scripts/                    build.sh, fetch-natives.sh, build-runtimedeps.sh,
+│                               deploy.ps1, package-release.sh, build-bundles.sh
+├── docs/                       testing checklists, interface contracts, patch inventory
 └── .planning/                  roadmap, architecture, research notes
 ```
 
+## Credits
+
+- **[LCVR](https://github.com/DaXcess/LCVR)** and **[RepoXR](https://github.com/DaXcess/RepoXR)**
+  by DaXcess (GPL-3.0) — the OpenXR preloader/bootstrap pattern, runtime failover and
+  finger-curling approach this mod adapts.
+- **[UUVR](https://github.com/Raicuparta/uuvr)** by Raicuparta (GPL-3.0) — the
+  screen-mirror ("flat screen in VR") pattern for non-physicalized UI.
+- **[SteamVR Unity Plugin](https://github.com/ValveSoftware/steamvr_unity_plugin)**
+  by Valve (BSD-3-Clause) — hand model assets used by the optional asset bundle.
+- **Demeo** (Resolution Games) — the interaction model this mod chases; no assets
+  or code from it are used.
+
 ## License
 
-**GPL-3.0** (see [LICENSE](LICENSE)) — this project adapts patterns and code from the
-GPL-3.0 VR mods [LCVR](https://github.com/DaXcess/LCVR),
-[RepoXR](https://github.com/DaXcess/RepoXR) and
-[UUVR](https://github.com/Raicuparta/uuvr).
-The mod distributes **only its own code and self-authored assets** — never game files,
-game assets, or decompiled sources. Not affiliated with Flaming Fowl Studios,
-Twin Sails Interactive, or Cephalofair Games.
+**GPL-3.0** (see [LICENSE](LICENSE)) — required and embraced: this project adapts
+patterns and code from the GPL-3.0 mods credited above. SteamVR hand assets remain
+under BSD-3-Clause (compatible; license text ships with the asset bundle sources).
+The mod distributes **only its own code and self-authored/licensed assets** — never
+game files, game assets, or decompiled sources. Not affiliated with Flaming Fowl
+Studios, Twin Sails Interactive, or Cephalofair Games.

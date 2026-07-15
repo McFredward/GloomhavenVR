@@ -24,3 +24,7 @@ tools/RuntimeDepsBuild/sources/
 
 # Generated per-build provenance record
 libs/RuntimeDeps/versions.json
+
+# Release packaging output (scripts/package-release.sh)
+dist/
+*.zip
