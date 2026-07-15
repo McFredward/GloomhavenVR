@@ -76,7 +76,7 @@ internal static class UguiPokeSurfaces
             foreach (KeyValuePair<Canvas, PokeSurfaceTuning> pair in Tunings)
             {
                 if (pair.Key == null)
-                    (dead ??= new List<Canvas>()).Add(pair.Key);
+                    (dead ??= new List<Canvas>()).Add(pair.Key!); // Unity-null: reference still hashes
             }
             if (dead != null)
             {

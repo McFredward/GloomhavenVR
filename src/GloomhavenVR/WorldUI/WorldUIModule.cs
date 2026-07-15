@@ -89,6 +89,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly StatPanelSurface _statPanels = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
+        private readonly SettingsPanel _settingsPanel = new();
         private readonly WorldTooltips _tooltips = new();
         private readonly DevPanels _devPanels = new();
 
@@ -105,6 +106,7 @@ internal sealed class WorldUIModule : IVRModule
             _statPanels.Tick();
             _wristHud.Tick();
             _flatScreen.Tick();
+            _settingsPanel.Tick();
             _devPanels.Tick();
 
             CanvasConversion.Tick();
@@ -127,6 +129,7 @@ internal sealed class WorldUIModule : IVRModule
             _statPanels.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
+            _settingsPanel.Shutdown();
             _tooltips.Shutdown();
             _devPanels.Shutdown();
             ActorBars.ReleaseAll();

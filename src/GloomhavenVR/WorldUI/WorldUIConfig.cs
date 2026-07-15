@@ -46,6 +46,13 @@ internal static class WorldUIConfig
     /// <summary>Flat-screen width in real-world meters.</summary>
     internal static ConfigEntry<float> FlatScreenWidth = null!;
 
+    // ---- settings panel (MISSION B) ------------------------------------------------------
+    /// <summary>Show the small gear pokeable next to the button cluster (scenario only).</summary>
+    internal static ConfigEntry<bool> SettingsGearButton = null!;
+
+    /// <summary>Hold the non-dominant A/X this long to toggle the settings panel (0 = off).</summary>
+    internal static ConfigEntry<float> SettingsChordHoldSeconds = null!;
+
     // ---- dev ---------------------------------------------------------------------------
     /// <summary>Spawn the world-panel layout with dummy content on the desktop.</summary>
     internal static ConfigEntry<bool> DevShowAllPanels = null!;
@@ -98,6 +105,14 @@ internal static class WorldUIConfig
             "and hide it in scenario modes.");
         FlatScreenWidth = _file.Bind("WorldUI", "FlatScreenWidth", 1.4f,
             "Width of the floating 2D screen in real-world meters.");
+
+        SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
+            "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +
+            "that opens the in-VR settings panel.");
+        SettingsChordHoldSeconds = _file.Bind("SettingsPanel", "ChordHoldSeconds", 0.6f,
+            "Hold the NON-dominant lower face button (A or X) this many seconds to toggle the " +
+            "in-VR settings panel — works in the menu too. 0 disables the chord. " +
+            "(Recenter stays on B+Y held on BOTH hands.)");
 
         DevShowAllPanels = _file.Bind("WorldUI", "DevShowAllPanels", false,
             "DEV: spawn the world-panel layout with dummy content on the desktop (no HMD needed).");
