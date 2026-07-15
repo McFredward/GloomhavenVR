@@ -18,7 +18,7 @@
 
 - [ ] Log shows, in order: `OpenXR runtime assets ready (package 1.10.0)` →
       `Loaded 3 runtime dependencies` → `VR RUNNING on '<runtime>'`.
-- [ ] `Gloomhaven_Data/Plugins/x86_64/{UnityOpenXR,openxr_loader}.dll` and the
+- [ ] `GH_Data/Plugins/x86_64/{UnityOpenXR,openxr_loader}.dll` and the
       `UnitySubsystems` manifest were created; `install-state.json` next to the
       preloader lists their hashes.
 - [ ] All config files created under `BepInEx/config/` (`dev.gloomhavenvr*.cfg`, 5 files).

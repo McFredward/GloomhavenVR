@@ -30,27 +30,36 @@ game still fully mouse-playable in parallel.*
    BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll
    ```
 
-   The preloader then self-installs at every boot (idempotent, hash-compared):
+   The preloader then self-installs at every boot (idempotent, hash-compared).
+   NOTE: the game's data folder is **`GH_Data`** (the executable is `GH.exe`), not
+   `Gloomhaven_Data` — the preloader derives the real name from BepInEx's ManagedPath:
 
    ```
-   Gloomhaven_Data/Plugins/x86_64/UnityOpenXR.dll
-   Gloomhaven_Data/Plugins/x86_64/openxr_loader.dll
-   Gloomhaven_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json   (version 1.10.0)
-   BepInEx/patchers/GloomhavenVR/install-state.json                          (diagnostic marker)
+   GH_Data/Plugins/x86_64/UnityOpenXR.dll
+   GH_Data/Plugins/x86_64/openxr_loader.dll
+   GH_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json   (version 1.10.0)
+   BepInEx/patchers/GloomhavenVR/install-state.json                   (diagnostic marker)
    ```
 
-4. Headset ready: Quest 3 via **Quest Link** (Meta OpenXR runtime) for the first run;
-   repeat via **Steam Link** (SteamVR runtime) for the second.
+4. Headset ready — connect **before** launching the game. Quest 3 paths and the OpenXR
+   runtime each uses: **Virtual Desktop → VDXR** (primary test rig), **Quest Link /
+   Air Link → Meta runtime**, **Steam Link → SteamVR**. The mod tries the machine's
+   default runtime first, prefers VDXR while the Virtual Desktop Streamer is running,
+   and only falls back to SteamVR last ([Core] RuntimePriority = auto).
 
 ## 2. Expected log lines per stage (`BepInEx/LogOutput.log`)
 
 | Stage | Expected line (prefix `[Info :GloomhavenVR.Preload]` / `[Info :GloomhavenVR]`) |
 |---|---|
 | Preloader ran | `Installed native: ...\Gloomhaven_Data\Plugins\x86_64\UnityOpenXR.dll` (first boot) or `Native up to date` (debug level); `OpenXR runtime assets ready (package 1.10.0).` |
-| RuntimeDeps loaded | `[Core] Loaded 3 runtime dependencies: Unity.XR.CoreUtils, Unity.XR.Management, Unity.XR.OpenXR` |
+| RuntimeDeps loaded | `[Core] Loaded 3 runtime dependencies: Unity.XR.CoreUtils, Unity.XR.Management, Unity.XR.OpenXR` then `[Core] RuntimeDeps declare 2 [RuntimeInitializeOnLoadMethod] hook(s) ...` + one `RuntimeInitializeOnLoad invoked: ... — OK` line each |
+| Environment | `[Core] VR init environment: Unity 2021.3.5f1, graphics API Direct3D11 (...), -force-d3d11 ...` — **graphics API must be Direct3D11** |
 | Pre-flight | `[Core] Pre-flight OK: OpenXR Display/Input subsystem descriptors are registered.` |
-| Runtime enumeration | `[Core] OpenXR runtime candidates (N): Oculus (C:\...\oculus_openxr_64.json) \| ...` |
-| Init success | `[Core] OpenXR session up — runtime: <name> <version>, render mode: MultiPass.` |
+| Default runtime | `[Core] Registry ActiveRuntime: <name> (C:\...\*.json)` |
+| Runtime enumeration | `[Core] OpenXR runtime candidates (N): system default → <name> \| ...` |
+| Per attempt | `[Core] Attempting OpenXR init on: ...` then `phase 2/4: InitXRSDK done — activeLoader: OpenXRLoader` and `phase 4/4: display subsystems: 1 [running=False]` (running=False here is normal) |
+| Init success | `[Core] OpenXR session up — runtime: <name> <version> (OpenXR plugin 1.10.0), render mode: MultiPass, activeLoader: OpenXRLoader.` |
+| HMD rendering | `[Core] XR display subsystem is RUNNING (HMD rendering) after N frame(s).` — this is the line that means the headset actually displays the game |
 | Plugin summary | `v0.1.0 loaded — 7 modules initialized, VR RUNNING on '<runtime>'.` |
 | Rig armed | `[Rig] Rig driver installed — waiting for a scenario camera.` |
 | Compat | `[Compat] Kill-switches armed for: PostProcessLayer, PostProcessVolume, VolumetricFog.` |
@@ -75,11 +84,32 @@ With `[General] Enabled = false`: only two lines — preloader skip notice + plu
 
 ## 4. Failure triage
 
+### 4.0 What to collect for EVERY XR failure report
+
+Attach **all three** logs into `.planning/debug/` (create a dated subfolder):
+
+1. `<game>/BepInEx/LogOutput.log` — the mod's own log (candidate attempts, phase logs).
+2. `%USERPROFILE%\AppData\LocalLow\FlamingFowlStudios\Gloomhaven\Player.log` — the Unity
+   player log. **Unity XR native errors (lines starting with `[XR]`, `xrCreateInstance`
+   failures, graphics-requirement errors) land ONLY here**, never in the BepInEx log.
+   (`Player-prev.log` next to it holds the previous run.)
+3. `<game>/BepInEx/openxr-diagnostics.log` — the mod appends the native OpenXR
+   diagnostics report here per failed candidate attempt (timestamped + labeled), plus a
+   success report. This contains the per-attempt OpenXR error codes.
+
+The BepInEx log's `VR init environment:` line states Unity version, graphics API
+(**must be Direct3D11**), and whether `-force-d3d11` was passed. The
+`Registry ActiveRuntime:` line states what the machine's default OpenXR runtime is.
+
+### 4.1 Symptom table
+
 | Symptom (log evidence) | Diagnosis | Fix |
 |---|---|---|
-| Pre-flight FAILED: **no descriptors** (`display: False, input: False`) | Engine didn't pick up manifest/natives at boot | Check preloader lines earlier in the log; verify the three files under `Gloomhaven_Data/` (§1.3); verify `BepInEx/patchers/GloomhavenVR/Natives/*.dll` exist (fetch-natives + deploy); check `install-state.json` hashes vs `libs/Natives/README.md` |
-| Descriptors OK but **no display subsystem** after all candidates (`All OpenXR runtime candidates failed`) | OpenXR loader can't reach a runtime | Headset connected & runtime running? Check `[Core] OpenXR runtime candidates` list — empty registry means no runtime installed; try `RuntimeOverride` with an explicit runtime JSON; check the OpenXR diagnostics report (debug log level) for `xrCreateInstance`/`xrGetSystem` errors |
-| Display subsystem up but **black screen in headset** | Graphics API mismatch — desktop OpenXR needs **D3D11** | Add `-force-d3d11` to Steam launch options; verify the game didn't launch under `-force-glcore`/D3D12 |
+| Pre-flight FAILED: **no descriptors** (`display: False, input: False`) | Engine didn't pick up manifest/natives at boot | Check preloader lines earlier in the log; verify the three files under `GH_Data/` (§1.3); verify `BepInEx/patchers/GloomhavenVR/Natives/*.dll` exist (fetch-natives + deploy); check `install-state.json` hashes vs `libs/Natives/README.md` |
+| Descriptors OK but **no display subsystem** after all candidates (`All OpenXR runtime candidates failed`) | OpenXR loader can't reach a runtime | Headset connected & runtime running? Check `[Core] OpenXR runtime candidates` list and the per-candidate `phase 2/4: InitXRSDK done — activeLoader: null` lines; read `openxr-diagnostics.log` + Player.log `[XR]` lines for the native error; try `RuntimeOverride` with an explicit runtime JSON |
+| `VR init environment:` reports a graphics API **other than Direct3D11** | Desktop OpenXR needs **D3D11** — session creation fails natively (errors in Player.log only) | Add `-force-d3d11` to Steam launch options; verify the game didn't launch under `-force-glcore`/D3D12 |
+| `OpenXR session up` logged but **HMD never lights up** and `display subsystem did NOT start rendering` follows | Runtime never reached READY (headset asleep, streamer disconnected, or graphics requirements unmet) | Wake the headset / (re)connect Virtual Desktop or Link **before** launching; check Player.log `[XR]` lines; try `[Core] InitDelayFrames = 120` |
+| **SteamVR boots although you play via Virtual Desktop/Link** | A runtime candidate attempt reached SteamVR before the right runtime | Should not happen anymore ("auto" tries the system default first and SteamVR last). If it does: set `[Core] RuntimePriority = vdxr` (or `oculus`), or `[Core] SkipRuntimeCandidates = true`, and report the candidate list line |
 | Stereo up but **world not table-scaled** / camera inside geometry | WorldScale heuristic off (s_TileSize not initialized at rig build) | Set `[Rig] WorldScale` explicitly; re-enter scenario |
 | Stereo up but **camera fights/jumps** with game camera moves | A camera writer not covered by the LateUpdate skip (SmartFocus/timeline) | Expected P1 edge; note the trigger (cutscene? door reveal?) for the Phase-4 comfort pass |
 | Broken/one-eye post effects | A PPv2/fog effect slipped through | Ensure `[Compat] DisablePostProcessing`/`DisableVolumetricFog` are true; add offender type name to `DisableComponents` |
