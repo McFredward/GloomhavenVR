@@ -93,10 +93,29 @@ internal sealed class WorldUIModule : IVRModule
         private readonly WorldTooltips _tooltips = new();
         private readonly DevPanels _devPanels = new();
 
+        private void Start()
+        {
+            CameraInventory.Attach();
+            // End-of-frame loop for the FlatScreen desktop mirror: runs AFTER Unity's
+            // XR mirror-view blit, so the RT copy is what the monitor actually shows.
+            StartCoroutine(EndOfFrameLoop());
+        }
+
+        private System.Collections.IEnumerator EndOfFrameLoop()
+        {
+            var wait = new WaitForEndOfFrame();
+            while (true)
+            {
+                yield return wait;
+                _flatScreen.OnEndOfFrame();
+            }
+        }
+
         private void Update()
         {
             VirtualMouse.Tick();
             InputModeGuard.Tick();
+            CameraInventory.Tick();
 
             _buttons.Tick();
             for (int i = 0; i < _slotSurfaces.Length; i++)
@@ -121,6 +140,7 @@ internal sealed class WorldUIModule : IVRModule
 
         private void OnDestroy()
         {
+            CameraInventory.Detach();
             _buttons.Shutdown();
             for (int i = 0; i < _slotSurfaces.Length; i++)
                 _slotSurfaces[i].Shutdown();
