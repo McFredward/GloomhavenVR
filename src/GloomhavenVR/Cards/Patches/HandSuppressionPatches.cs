@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using HarmonyLib;
 using ScenarioRuleLibrary;
 using UnityEngine;
@@ -60,7 +61,7 @@ internal static class CardsHandManager_ShowList_Patch
     private static void Postfix(CPlayerActor playerActor, CardHandMode mode)
     {
         HandSuppression.Arm();
-        CardsSignals.RaiseHandShown(playerActor, mode);
+        VREvents.Raise(new HandShownEvent(playerActor, mode));
     }
 }
 
@@ -79,7 +80,7 @@ internal static class CardsHandManager_ShowAll_Patch
     private static void Postfix(CardHandMode mode)
     {
         HandSuppression.Arm();
-        CardsSignals.RaiseHandShown(null, mode);
+        VREvents.Raise(new HandShownEvent(null, mode));
     }
 }
 
@@ -94,7 +95,7 @@ internal static class CardsHandManager_ShowHands_Patch
     private static void Postfix(CardsHandManager __instance)
     {
         HandSuppression.Arm();
-        CardsSignals.RaiseHandShown(__instance.ActivePlayer, __instance.m_PushPopCardHandMode);
+        VREvents.Raise(new HandShownEvent(__instance.ActivePlayer, __instance.m_PushPopCardHandMode));
     }
 }
 
@@ -196,29 +197,19 @@ internal static class HandSuppression
     }
 }
 
-/// <summary>Module-internal signals raised by the patches (main thread).</summary>
+/// <summary>
+/// Module-internal signals raised by the patches (main thread). P5: <c>HandShown</c>
+/// moved to the shared bus (<see cref="VREvents.HandShown"/>, MISSION A.3) so other
+/// modules can observe hand presentation; the pool-safety signals below stay
+/// module-local (their payloads are Cards-implementation details).
+/// </summary>
 internal static class CardsSignals
 {
-    /// <summary>The game (re)presented a hand: (player — null for the all-hands overload, mode).</summary>
-    internal static event Action<CPlayerActor?, CardHandMode>? HandShown;
-
     /// <summary>A CardsHandUI is being destroyed — restore adopted faces NOW (before pool recycle).</summary>
     internal static event Action<CardsHandUI>? HandDestroying;
 
     /// <summary>A single card widget is about to be recycled.</summary>
     internal static event Action<AbilityCardUI>? CardRecycling;
-
-    internal static void RaiseHandShown(CPlayerActor? player, CardHandMode mode)
-    {
-        try
-        {
-            HandShown?.Invoke(player, mode);
-        }
-        catch (Exception ex)
-        {
-            VRLog.Error("Cards", $"HandShown subscriber threw: {ex}");
-        }
-    }
 
     internal static void RaiseHandDestroying(CardsHandUI hand)
     {
@@ -246,7 +237,6 @@ internal static class CardsSignals
 
     internal static void Clear()
     {
-        HandShown = null;
         HandDestroying = null;
         CardRecycling = null;
     }
