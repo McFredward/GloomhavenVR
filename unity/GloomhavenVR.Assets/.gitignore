@@ -1,0 +1,33 @@
+# Unity companion project — only Assets/, Packages/manifest.json and
+# ProjectSettings/ are tracked. Everything below is generated locally.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]serSettings/
+/[Mm]emoryCaptures/
+/Packages/packages-lock.json
+
+# IDE / OS noise
+.vs/
+.idea/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.svd
+*.userprefs
+.DS_Store
+
+# Unity crash/report artifacts
+sysinfo.txt
+crashlytics-build.properties
+
+# NOTE: .meta files are intentionally NOT ignored — commit them once Unity
+# generates them, so asset GUIDs stay stable across machines.
+
+# The parent repo ignores *.dll globally; nothing binary should land inside
+# this project folder anyway (harvest output goes to <repo>/libs/).
