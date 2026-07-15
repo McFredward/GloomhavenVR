@@ -1,29 +1,34 @@
 # GSD State
 
 - **Milestone:** v0.1 (first playable VR release)
-- **Position:** P0, P0b, P1, P2 merged to main (all builds green). P3a/P3b/P3c/P4 running in parallel on feat/board, feat/cards, feat/world-ui, feat/comfort.
+- **Position:** **Code-complete.** All phases P0–P5 merged to main, release zip builds and verifies. Next: human hardware pass (Windows + Quest 3).
 - **Last update:** 2026-07-15
 
 ## Done
-- 5 research reports + PATCH-TARGETS.md (real-DLL audit: 60 ✅ / 8 corrections / 0 missing; mangled-names risk retired)
-- `PROJECT.md`, `ARCHITECTURE.md`, `ROADMAP.md`
-- P0 skeleton (sln, net472, publicized refs, preloader+plugin stubs) — merged
-- P0b asset pipeline (unity companion project, HARVESTING.md, HANDS.md: SteamVR gloves BSD-3 OK, no 2021.3 donor set exists, natives prebuilt in needle-mirror package) — merged
-- P1 XR bootstrap (fetch-natives.sh SHA256-pinned, provisional RuntimeDeps compiled from needle-mirror source with zero exclusions, preloader install, OpenXR init + failover, camera takeover via CameraController.LateUpdate+RefreshFocusPosition prefix-skips, diorama rig) — merged, M1 code-complete
-- P2 hands & primitives (VRHands/FingerCurler via InputDevices, IPokeable/IGrabbable/PokeInteractor/RayInteractor/ProximityGrabber/PalmGate, VREvents bus, VRModeStateMachine, VirtualMouse bridge, dev harness F8/F9/F10) — merged, API frozen in docs/INTERFACES-P2.md
+- Research (5 reports + PATCH-TARGETS real-DLL audit) → ARCHITECTURE → ROADMAP
+- P0 skeleton, P0b asset pipeline, P1 XR bootstrap (M1), P2 hands & primitives (M2),
+  P3a board touch, P3b Demeo card hand (M3), P3c world-space UI (M4), P4 comfort,
+  P5 integration + in-VR settings panel + packaging
+- All builds green at every merge; Harmony inventory: 17 patched methods, zero cross-module
+  duplicates (`docs/PATCH-INVENTORY.md`)
+- `dist/GloomhavenVR-0.1.0.zip` (17 entries, layout-verified against runtime path constants)
 
-## In flight (parallel workers)
-- `feat/board` (P3a): picking patch, click commit, AoE stick rotation
-- `feat/cards` (P3b): palm fan, play tray, rests, half selection
-- `feat/world-ui` (P3c): button cluster, canvas conversion, actor bars, flat screen
-- `feat/comfort` (P4): world grab/rotate/scale, snap turn, recenter (settings panel deferred to post-P3c)
+## Human hardware steps (in order)
+1. Windows-PC: Gloomhaven + BepInEx 5.4.23.5 + release zip per `INSTALL.md`; chainload smoke test (log lines per `docs/TESTING-P1.md`)
+2. Quest 3 session: full-loop script `docs/TESTING-FULL-LOOP.md` (covers P1–P4 checklists)
+3. Unity 2021.3 editor harvest (`unity/HARVESTING.md`) — replaces provisional RuntimeDeps 1:1; only needed if XR misbehaves or before public release
+4. SteamVR glove import + bundle build (`unity/HANDS.md`) — replaces procedural hands/props
+5. Report tuning values flagged in TESTING docs (world scale, fan arc, panel poses, poke tuning, laser cone)
 
-## Next
-1. Merge P3a/P3b/P3c/P4 (watch: Cards/Board/WorldUI stubs untouched rule; settings panel follow-up)
-2. P5 integration + human hardware steps: Unity editor harvest (unity/HARVESTING.md), SteamVR gloves import (unity/HANDS.md), Windows+Quest3 runtime validation (docs/TESTING-P1/P2/P3A/P3B/P3C/P4.md)
+## Known gaps (accepted for v0.1 pre-alpha)
+- Runtime behavior entirely unvalidated on hardware (all code paths compile-verified + desktop-dev-harness only)
+- Asset bundle absent → procedural visuals ship
+- Item/ability/augment bars + party HUD not physicalized (flat screen fallback)
+- Menu rig assumes a usable Camera.main in menu scenes (config off-switch exists)
+- Multiplayer untested by design (v1 single-player scope)
 
 ## Standing decisions
-- BepInEx 5.4.23.5, HarmonyX, net472, publicized refs
-- OpenXR 1.10.0 + XR Management 4.5.0 (harvested from dummy 2021.3.5f1 build), MultiPass first
-- Never patch ScenarioRuleLibrary/Bolt; commit through UI seams only (s_Callback, Proxy* card APIs, OnClickInternal)
-- Mod license GPL-3.0 (LCVR/RepoXR pattern reuse)
+- BepInEx 5.4.23.5, HarmonyX, net472, publicized refs; OpenXR 1.10.0 + XR Management 4.5.0; MultiPass default
+- Never patch ScenarioRuleLibrary/Bolt; commit through UI seams only
+- License GPL-3.0 (LCVR/RepoXR pattern reuse, credited); SteamVR hands BSD-3
+- Module config: `dev.gloomhavenvr.<module>.cfg` via `ModuleConfig.Create`
