@@ -65,7 +65,11 @@ internal sealed class ConvertedPanel
 /// </summary>
 internal static class CanvasConversion
 {
-    private const int UiLayer = 5; // built-in "UI"
+    // Built-in "UI". Converted panels host GAME-owned uGUI trees, which are never
+    // re-layered (reversibility) — so the hosts stay on the game's UI layer and this
+    // class owns the head camera's UI culling bit. Mod-owned visuals use the separate
+    // dedicated mod layer instead (Core.VRLayers; docs/CAMERA-POLICY.md §2).
+    private const int UiLayer = 5;
 
     private static readonly List<ConvertedPanel> Active = new(16);
     private static readonly HashSet<object> SoftLocks = new();

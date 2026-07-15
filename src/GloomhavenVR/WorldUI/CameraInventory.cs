@@ -67,17 +67,29 @@ internal static class CameraInventory
         if (VRModeStateMachine.CurrentMode != VRMode.Menu2D)
             return;
 
-        Camera[] all = Camera.allCameras;
+        int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] all);
         Camera? head = Rig.VRRigDriver.HeadCamera;
-        VRLog.Info("WorldUI", $"Camera inventory after scene '{_sceneName}' ({all.Length} active):");
-        for (int i = 0; i < all.Length; i++)
+        VRLog.Info("WorldUI", $"Camera inventory after scene '{_sceneName}' ({count} active):");
+        for (int i = 0; i < count; i++)
         {
             Camera cam = all[i];
+            if (cam == null)
+                continue;
             string target = cam.targetTexture != null ? cam.targetTexture.name : "backbuffer";
             VRLog.Info("WorldUI",
                 $"  '{cam.name}' tag={cam.tag} enabled={cam.enabled} depth={cam.depth:F1} " +
                 $"clear={cam.clearFlags} mask=0x{cam.cullingMask:X8} stereo={cam.stereoTargetEye} " +
                 $"target={target}{(cam == head ? " [VR head]" : "")}");
         }
+
+        // Applied policy summary (CAMERA-POLICY): which layer the mod owns and how
+        // many foreign cameras are stereo-excluded right now.
+        VRLog.Info("WorldUI", $"  Policy: mod layer={VRLayers.ModLayer} (mask 0x{VRLayers.ModLayerMask:X8}), " +
+                              $"{VRCameraPolicy.Describe()}.");
+
+        // The hardware-test-#3 failure signature: VR runs but no live rig head camera.
+        if (VRSession.IsRunning && (head == null || !head.isActiveAndEnabled))
+            VRLog.Warn("WorldUI", "No live [VR head] camera in the inventory while VR is running — " +
+                                  "the rig driver should rebuild within a frame; if this repeats, it can't.");
     }
 }
