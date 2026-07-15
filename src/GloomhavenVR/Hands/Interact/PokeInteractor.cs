@@ -22,14 +22,11 @@ namespace GloomhavenVR.Hands.Interact;
 /// </summary>
 internal sealed class PokeInteractor
 {
-    // Distances in meters (scale 1).
+    // Distances in meters (scale 1). Canvas distances are per-canvas since P5
+    // (UguiPokeSurfaces.Register(canvas, PokeSurfaceTuning) — MISSION A.10).
     private const float FingertipRadius = 0.008f;
     private const float HoverRange = 0.035f;
     private const float ReleaseRange = 0.02f;
-    private const float CanvasHoverRange = 0.06f;
-    private const float CanvasReleaseDepth = 0.012f;
-    /// <summary>How far the fingertip may sink THROUGH the canvas before the press is cancelled.</summary>
-    private const float CanvasPressThrough = 0.05f;
 
     private readonly VRHand _hand;
     private readonly UguiPointer _pointer;
@@ -197,7 +194,7 @@ internal sealed class PokeInteractor
             // dot(tip - canvas, forward) < 0. Fingers physically sink through the
             // plane on a press, so tolerate some press-through before dropping it.
             float signed = Vector3.Dot(tip - t.position, t.forward);
-            if (signed > CanvasPressThrough * scale)
+            if (signed > UguiPokeSurfaces.TuningFor(canvas).PressThrough * scale)
                 continue; // far behind the canvas — ignore
 
             // Inside the canvas rect?
@@ -229,7 +226,9 @@ internal sealed class PokeInteractor
         if (_activeCanvas == null)
             return;
 
-        if (bestAbs > CanvasHoverRange * scale && !_canvasPressed)
+        PokeSurfaceTuning tuning = UguiPokeSurfaces.TuningFor(_activeCanvas);
+
+        if (bestAbs > tuning.HoverRange * scale && !_canvasPressed)
         {
             _pointer.SetHovered(null);
             return;
@@ -254,7 +253,7 @@ internal sealed class PokeInteractor
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
-        else if (_canvasPressed && bestSigned < -CanvasReleaseDepth * scale)
+        else if (_canvasPressed && bestSigned < -tuning.ReleaseDepth * scale)
         {
             _canvasPressed = false;
             _pointer.Release(screenPos);

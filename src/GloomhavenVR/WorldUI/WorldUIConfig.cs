@@ -1,19 +1,23 @@
-using System.IO;
-using BepInEx;
 using BepInEx.Configuration;
+using GloomhavenVR.Core;
 
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Phase-3c configuration, bound into its own file
-/// (<c>BepInEx/config/worldui.gloomhavenvr.cfg</c>) so the WorldUI worker does not
-/// touch the frozen <see cref="Plugin"/> surface. Every physicalized surface is
-/// individually toggleable (ARCHITECTURE §7); all entries are read live, so flipping
-/// them in the config manager takes effect on the next relevant rebuild.
+/// Phase-3c configuration, bound into the module's own file. P5 (MISSION A.9): now
+/// created through the canonical <see cref="ModuleConfig.Create"/> helper —
+/// <c>BepInEx/config/dev.gloomhavenvr.worldui.cfg</c> (renamed from the pre-P5
+/// <c>worldui.gloomhavenvr.cfg</c>). Every physicalized surface is individually
+/// toggleable (ARCHITECTURE §7) plus a <see cref="Master"/> switch over all of them;
+/// entries are read live, so flips take effect on the next relevant rebuild.
 /// </summary>
 internal static class WorldUIConfig
 {
     private static ConfigFile? _file;
+
+    // ---- master ------------------------------------------------------------------------
+    /// <summary>Master switch over ALL WorldUI surfaces (in-VR settings panel binds this).</summary>
+    internal static ConfigEntry<bool> Master = null!;
 
     // ---- surfaces (each individually toggleable) ---------------------------------------
     internal static ConfigEntry<bool> ButtonCluster = null!;
@@ -42,6 +46,13 @@ internal static class WorldUIConfig
     /// <summary>Flat-screen width in real-world meters.</summary>
     internal static ConfigEntry<float> FlatScreenWidth = null!;
 
+    // ---- settings panel (MISSION B) ------------------------------------------------------
+    /// <summary>Show the small gear pokeable next to the button cluster (scenario only).</summary>
+    internal static ConfigEntry<bool> SettingsGearButton = null!;
+
+    /// <summary>Hold the non-dominant A/X this long to toggle the settings panel (0 = off).</summary>
+    internal static ConfigEntry<float> SettingsChordHoldSeconds = null!;
+
     // ---- dev ---------------------------------------------------------------------------
     /// <summary>Spawn the world-panel layout with dummy content on the desktop.</summary>
     internal static ConfigEntry<bool> DevShowAllPanels = null!;
@@ -54,8 +65,11 @@ internal static class WorldUIConfig
         if (_file != null)
             return;
 
-        _file = new ConfigFile(Path.Combine(Paths.ConfigPath, "worldui.gloomhavenvr.cfg"), true);
+        _file = ModuleConfig.Create("worldui");
 
+        Master = _file.Bind("WorldUI", "Master", true,
+            "Master switch for the whole physicalized interface (all surfaces below AND the " +
+            "floating 2D screen). Off = the game's own 2D screen-space UI stays untouched.");
         ButtonCluster = _file.Bind("WorldUI", "ButtonCluster", true,
             "Physical Ready/Undo/Skip buttons at the table edge.");
         InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", true,
@@ -92,6 +106,14 @@ internal static class WorldUIConfig
         FlatScreenWidth = _file.Bind("WorldUI", "FlatScreenWidth", 1.4f,
             "Width of the floating 2D screen in real-world meters.");
 
+        SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
+            "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +
+            "that opens the in-VR settings panel.");
+        SettingsChordHoldSeconds = _file.Bind("SettingsPanel", "ChordHoldSeconds", 0.6f,
+            "Hold the NON-dominant lower face button (A or X) this many seconds to toggle the " +
+            "in-VR settings panel — works in the menu too. 0 disables the chord. " +
+            "(Recenter stays on B+Y held on BOTH hands.)");
+
         DevShowAllPanels = _file.Bind("WorldUI", "DevShowAllPanels", false,
             "DEV: spawn the world-panel layout with dummy content on the desktop (no HMD needed).");
         DevForceConvert = _file.Bind("WorldUI", "DevForceConvert", false,
@@ -101,5 +123,5 @@ internal static class WorldUIConfig
 
     /// <summary>True while WorldUI physicalization should be applied to live game UI.</summary>
     internal static bool ConversionActive =>
-        Core.VRSession.IsRunning || (Plugin.DevMode.Value && DevForceConvert.Value);
+        Master.Value && (VRSession.IsRunning || (Plugin.DevMode.Value && DevForceConvert.Value));
 }

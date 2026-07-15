@@ -1,6 +1,7 @@
 using System;
 using Code.State;
 using ScenarioRuleLibrary;
+using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Core.Events;
 
@@ -101,6 +102,50 @@ internal readonly struct UiLockEvent
     public UiLockEvent(bool locked) => Locked = locked;
 }
 
+/// <summary>A Unity scene finished loading (SceneManager.sceneLoaded relay). P5 addition.</summary>
+internal readonly struct SceneLoadedEvent
+{
+    public readonly Scene Scene;
+    public readonly LoadSceneMode Mode;
+
+    public SceneLoadedEvent(Scene scene, LoadSceneMode mode)
+    {
+        Scene = scene;
+        Mode = mode;
+    }
+}
+
+/// <summary>
+/// The game (re)presented a card hand (CardsHandManager.Show/ShowHands postfixes,
+/// published by the Cards module). P5 addition — replaces the module-local
+/// <c>CardsSignals.HandShown</c> so other modules can observe hand presentation.
+/// </summary>
+internal readonly struct HandShownEvent
+{
+    /// <summary>The presented hand's owner; null for the all-hands Show overload.</summary>
+    public readonly CPlayerActor? Player;
+
+    /// <summary>The hand mode the game switched to (CardsSelection, ActionSelection, LoseCard, …).</summary>
+    public readonly CardHandMode Mode;
+
+    public HandShownEvent(CPlayerActor? player, CardHandMode mode)
+    {
+        Player = player;
+        Mode = mode;
+    }
+}
+
+/// <summary>
+/// A hand poked/near-touched an actor miniature on the board (published by the Board
+/// module's pick path). P5 addition — WorldUI shows the actor stat panel on this.
+/// </summary>
+internal readonly struct MiniaturePokedEvent
+{
+    public readonly CActor Actor;
+
+    public MiniaturePokedEvent(CActor actor) => Actor = actor;
+}
+
 /// <summary>
 /// Static VR event bus (FROZEN Phase-2 API). Feature modules subscribe here instead
 /// of patching game code themselves.
@@ -140,6 +185,15 @@ internal static class VREvents
     /// <summary>UIManager.ToggleLockUI observed (true = UI locked/modal).</summary>
     public static event Action<UiLockEvent>? UiLockChanged;
 
+    /// <summary>SceneManager.sceneLoaded relayed (subscribed by VREventsModule — no patch). P5.</summary>
+    public static event Action<SceneLoadedEvent>? SceneLoaded;
+
+    /// <summary>A card hand was (re)presented (Cards module publishes). P5.</summary>
+    public static event Action<HandShownEvent>? HandShown;
+
+    /// <summary>An actor miniature was poked on the board (Board module publishes). P5.</summary>
+    public static event Action<MiniaturePokedEvent>? MiniaturePoked;
+
     // -- publishers (called by the bridge/patches; not part of the frozen surface) --
 
     internal static void Raise(in ChoreoMessageEvent e) => Invoke(ChoreographerMessage, e, nameof(ChoreographerMessage));
@@ -150,6 +204,9 @@ internal static class VREvents
     internal static void Raise(in FullCardHoverEvent e) => Invoke(FullCardHoverChanged, e, nameof(FullCardHoverChanged));
     internal static void Raise(in ShortRestEvent e) => Invoke(ShortRestSelected, e, nameof(ShortRestSelected));
     internal static void Raise(in UiLockEvent e) => Invoke(UiLockChanged, e, nameof(UiLockChanged));
+    internal static void Raise(in SceneLoadedEvent e) => Invoke(SceneLoaded, e, nameof(SceneLoaded));
+    internal static void Raise(in HandShownEvent e) => Invoke(HandShown, e, nameof(HandShown));
+    internal static void Raise(in MiniaturePokedEvent e) => Invoke(MiniaturePoked, e, nameof(MiniaturePoked));
 
     /// <summary>
     /// Invoke guard: a subscriber exception must never propagate into the game's

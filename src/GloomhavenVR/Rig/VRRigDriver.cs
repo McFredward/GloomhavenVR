@@ -53,10 +53,24 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>Real-world size a hex tile should read as on the "table" (meters).</summary>
     private const float TargetHexSizeMeters = 0.15f;
 
+    /// <summary>What the current rig is built around (P5: menu rig added, MISSION A.7).</summary>
+    private enum RigKind
+    {
+        None,
+        Scenario,
+        Menu
+    }
+
     private GameObject? _rigRoot;
+    private RigKind _kind;
     private Camera? _camera;
     private TrackedPoseDriver? _poseDriver;
     private bool _pendingRecenter;
+
+    // Menu rig anchor: where the menu camera stood when we took it over — recenter
+    // puts the player's head back there (real 1:1 scale, no table math).
+    private Vector3 _menuAnchorPos;
+    private Quaternion _menuAnchorYaw;
 
     // Original camera state for restoration on teardown.
     private Transform? _originalParent;
@@ -70,15 +84,27 @@ internal sealed class VRRigDriver : MonoBehaviour
     private void Update()
     {
         CameraController controller = CameraController.s_CameraController;
-        bool gameCameraAlive = controller != null && controller.m_Camera != null;
+        bool scenarioCameraAlive = controller != null && controller.m_Camera != null;
 
-        if (_rigRoot == null && gameCameraAlive && VRSession.IsRunning)
-        {
-            BuildRig(controller!);
-        }
-        else if (_rigRoot != null && (!gameCameraAlive || !VRSession.IsRunning))
-        {
+        // P5 (MISSION A.7): outside a scenario the rig falls back to the menu camera
+        // (Camera.main) so the HMD view is head-tracked in the main menu / guildmaster
+        // map and the WorldUI flat screen + hands have a tracked anchor.
+        RigKind desired =
+            !VRSession.IsRunning ? RigKind.None :
+            scenarioCameraAlive ? RigKind.Scenario :
+            Plugin.MenuRig.Value ? RigKind.Menu :
+            RigKind.None;
+
+        // Tear down on kind change or when the owned camera died (menu scene swap).
+        if (_rigRoot != null && (desired != _kind || _camera == null))
             TearDownRig();
+
+        if (_rigRoot == null)
+        {
+            if (desired == RigKind.Scenario)
+                BuildRig(controller!);
+            else if (desired == RigKind.Menu)
+                BuildMenuRig();
         }
 
         // Recenter once tracking delivers the first real pose (localPosition leaves zero).
@@ -141,12 +167,83 @@ internal sealed class VRRigDriver : MonoBehaviour
         RigRoot = _rigRoot.transform;
         HeadCamera = cam;
         BaseWorldScale = baseScale;
+        _kind = RigKind.Scenario;
 
         _pendingRecenter = true;
 
         VRLog.Info("Rig", $"VR rig built at focus {controller.FocusPoint}, world scale {scale:F1} " +
                           $"(base {baseScale:F1}, config {Plugin.WorldScale.Value:F1}, " +
                           $"tile size {UnityGameEditorRuntime.s_TileSize.x:F2}).");
+    }
+
+    /// <summary>
+    /// P5 (MISSION A.7): head-track the MENU camera at real 1:1 scale so Menu2D is not
+    /// a frozen viewpoint — the WorldUI flat screen (and the hands driving its pointer)
+    /// anchor to a tracked camera in the main menu / guildmaster screens. Torn down as
+    /// soon as a scenario camera appears (the scenario rig takes over).
+    /// </summary>
+    private void BuildMenuRig()
+    {
+        Camera? cam = ResolveMenuCamera();
+        if (cam == null)
+            return;
+        _camera = cam;
+
+        _originalParent = cam.transform.parent;
+        _originalLocalPos = cam.transform.localPosition;
+        _originalLocalRot = cam.transform.localRotation;
+        _originalFov = cam.fieldOfView;
+        _originalNearClip = cam.nearClipPlane;
+
+        // Anchor: the camera's authored vantage — recenter puts the head back here.
+        _menuAnchorPos = cam.transform.position;
+        _menuAnchorYaw = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
+
+        _rigRoot = new GameObject("GloomhavenVR.VRRig");
+        _rigRoot.transform.position = _menuAnchorPos;
+        _rigRoot.transform.rotation = _menuAnchorYaw;
+        _rigRoot.transform.localScale = Vector3.one;
+
+        cam.transform.SetParent(_rigRoot.transform, worldPositionStays: false);
+        cam.transform.localPosition = Vector3.zero;
+        cam.transform.localRotation = Quaternion.identity;
+        cam.nearClipPlane = 0.05f;
+
+        XRDevice.DisableAutoXRCameraTracking(cam, true);
+        _poseDriver = cam.gameObject.AddComponent<TrackedPoseDriver>();
+        _poseDriver.SetPoseSource(TrackedPoseDriver.DeviceType.GenericXRDevice, TrackedPoseDriver.TrackedPose.Center);
+        _poseDriver.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
+        _poseDriver.updateType = TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;
+
+        RigRoot = _rigRoot.transform;
+        HeadCamera = cam;
+        BaseWorldScale = 1f;
+        _kind = RigKind.Menu;
+
+        _pendingRecenter = true;
+
+        VRLog.Info("Rig", $"Menu rig built around camera '{cam.name}' (1:1 scale, head-tracked menu view).");
+    }
+
+    /// <summary>
+    /// The camera to head-track outside scenarios: Camera.main (tag MainCamera), else
+    /// the first enabled non-UICamera camera rendering to the backbuffer. Null when the
+    /// menu scene has no world camera (the rig then waits; the flat screen is hidden
+    /// anyway because it needs a world camera too).
+    /// </summary>
+    private static Camera? ResolveMenuCamera()
+    {
+        Camera? cam = Camera.main;
+        if (cam != null)
+            return cam;
+
+        Camera[] all = Camera.allCameras; // only on the (cheap) no-rig path
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i].enabled && all[i].targetTexture == null && !all[i].CompareTag("UICamera"))
+                return all[i];
+        }
+        return null;
     }
 
     /// <summary>Recenter the live rig, if any (Phase-4 comfort entry point — chord/panel/dev key).</summary>
@@ -165,6 +262,12 @@ internal sealed class VRRigDriver : MonoBehaviour
         if (_rigRoot == null || _camera == null)
             return;
 
+        if (_kind == RigKind.Menu)
+        {
+            RecenterMenu();
+            return;
+        }
+
         CameraController controller = CameraController.s_CameraController;
         if (controller == null)
             return;
@@ -179,6 +282,18 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position} " +
                           $"(seated {(ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value ? "yes" : "no")}).");
+    }
+
+    /// <summary>Menu recenter: put the head back at the menu camera's authored vantage (1:1).</summary>
+    private void RecenterMenu()
+    {
+        if (_rigRoot == null || _camera == null)
+            return;
+        _rigRoot.transform.rotation = _menuAnchorYaw;
+        // Offset with the NEW yaw applied (rig scale is 1 in the menu).
+        Vector3 headOffsetWorld = _menuAnchorYaw * _camera.transform.localPosition;
+        _rigRoot.transform.position = _menuAnchorPos - headOffsetWorld;
+        VRLog.Info("Rig", "Menu rig recentered at the menu camera vantage.");
     }
 
     /// <summary>
@@ -202,6 +317,8 @@ internal sealed class VRRigDriver : MonoBehaviour
 
     private void TearDownRig()
     {
+        bool wasMenu = _kind == RigKind.Menu;
+        _kind = RigKind.None;
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
@@ -231,7 +348,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         {
             Destroy(_rigRoot);
             _rigRoot = null;
-            VRLog.Info("Rig", "VR rig torn down — game camera restored.");
+            VRLog.Info("Rig", wasMenu
+                ? "Menu rig torn down — menu camera restored."
+                : "VR rig torn down — game camera restored.");
         }
 
         _pendingRecenter = false;

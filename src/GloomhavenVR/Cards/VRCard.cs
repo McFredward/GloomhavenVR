@@ -247,13 +247,18 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
 
     // -------------------------------------------------------------- interaction --
 
+    /// <summary>
+    /// P5 (MISSION A.6): the inspect pose is declared through the base hook instead of
+    /// re-writing the transform after <c>base.OnGrab</c>. GrabAnchor +Z ~ fingers; the
+    /// card rolls up to face the player and scales to natural inspection size.
+    /// </summary>
+    protected override HeldPose GetHeldPose(VRHand hand) =>
+        new(new Vector3(0f, 0.02f, 0.02f), Quaternion.Euler(-40f, 0f, 0f),
+            CardsConfig.InspectScale.Value);
+
     public override void OnGrab(VRHand hand)
     {
-        base.OnGrab(hand); // snap to GrabAnchor (P2 GrabbableBehaviour)
-        transform.localScale = Vector3.one * CardsConfig.InspectScale.Value;
-        // Face the player while inspecting: GrabAnchor +Z ~ fingers; roll the card up.
-        transform.localRotation = Quaternion.Euler(-40f, 0f, 0f);
-        transform.localPosition = new Vector3(0f, 0.02f, 0.02f);
+        base.OnGrab(hand); // snap to GrabAnchor at GetHeldPose (P2/P5 GrabbableBehaviour)
         try
         {
             Grabbed?.Invoke(this, hand);

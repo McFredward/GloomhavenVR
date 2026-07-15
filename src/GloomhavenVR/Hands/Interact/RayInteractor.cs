@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using GloomhavenVR.Core.Events;
 using UnityEngine;
 
 namespace GloomhavenVR.Hands.Interact;
@@ -29,6 +31,46 @@ internal sealed class RayInteractor : IPickProvider
     /// <summary>Layers the pick ray tests. Phase-3a sets the game's selection mask here.</summary>
     public LayerMask Mask = Physics.DefaultRaycastLayers;
 
+    /// <summary>
+    /// P5 (MISSION A.1): world position that overrides the VISIBLE reticle/laser end
+    /// while the ray has a hit — Board sets this to the hovered hex center
+    /// ([Board] SnapToHexCenter) so the reticle snaps like the game cursor does.
+    /// Consumers set it per frame; it is cleared automatically when the ray misses,
+    /// is disabled, or nobody re-sets it (one-frame latch). Pick data is unaffected.
+    /// </summary>
+    public Vector3? ReticleOverride
+    {
+        get => _reticleOverride;
+        set
+        {
+            _reticleOverride = value;
+            _reticleOverrideFrame = Time.frameCount;
+        }
+    }
+
+    private Vector3? _reticleOverride;
+    private int _reticleOverrideFrame = -1;
+
+    // ---- P5 (MISSION A.5): ModalUI visual constraint --------------------------------------
+    // In ModalUI the ray stays ACTIVE (flat-screen pointer, dialogs) but its visuals only
+    // show while it points near a known UI surface, so the laser doesn't sweep the room
+    // while a dialog is up. UI surfaces = every registered UguiPokeSurfaces canvas plus
+    // explicitly registered extra targets (the WorldUI flat screen registers its quad).
+
+    private static readonly List<Transform> UiTargets = new(4);
+
+    /// <summary>Register a world transform the ModalUI-constrained ray may point at (e.g. the flat screen quad).</summary>
+    public static void RegisterUiTarget(Transform target)
+    {
+        if (target != null && !UiTargets.Contains(target))
+            UiTargets.Add(target);
+    }
+
+    public static void UnregisterUiTarget(Transform target) => UiTargets.Remove(target);
+
+    /// <summary>Hot-reload hygiene (HandsModule.Shutdown).</summary>
+    internal static void ClearUiTargets() => UiTargets.Clear();
+
     internal RayInteractor(VRHand hand) => _hand = hand;
 
     /// <summary>Latest pick (updated once per frame while enabled).</summary>
@@ -58,6 +100,7 @@ internal sealed class RayInteractor : IPickProvider
         if (!_enabled || !_hand.HasPose)
         {
             _current.HasHit = false;
+            _reticleOverride = null;
             return;
         }
 
@@ -82,7 +125,54 @@ internal sealed class RayInteractor : IPickProvider
             _current.HitCollider = null;
         }
 
+        // One-frame latch: consumers (Board) re-set the override every frame they want it.
+        if (_reticleOverride.HasValue && Time.frameCount > _reticleOverrideFrame + 1)
+            _reticleOverride = null;
+
         UpdateVisuals(origin, direction, maxDistance, scale);
+    }
+
+    /// <summary>
+    /// ModalUI visual gate (MISSION A.5): true when the ray visuals should show.
+    /// Outside ModalUI (or with [Hands] RayAlwaysOn / a zero cone) always true;
+    /// in ModalUI only while pointing within [Hands] ModalRayConeDegrees of a
+    /// registered UI surface (poke canvases + extra targets like the flat screen).
+    /// </summary>
+    private bool VisualsAllowed(Vector3 origin, Vector3 direction)
+    {
+        if (VRModeStateMachine.CurrentMode != VRMode.ModalUI || Plugin.RayAlwaysOn.Value)
+            return true;
+        float cone = Plugin.ModalRayConeDegrees.Value;
+        if (cone <= 0f)
+            return true;
+
+        var canvases = UguiPokeSurfaces.Surfaces;
+        for (int i = 0; i < canvases.Count; i++)
+        {
+            Canvas canvas = canvases[i];
+            if (canvas == null || !canvas.isActiveAndEnabled)
+                continue;
+            if (WithinCone(origin, direction, canvas.transform.position, cone))
+                return true;
+        }
+        for (int i = UiTargets.Count - 1; i >= 0; i--)
+        {
+            Transform target = UiTargets[i];
+            if (target == null)
+            {
+                UiTargets.RemoveAt(i);
+                continue;
+            }
+            if (target.gameObject.activeInHierarchy && WithinCone(origin, direction, target.position, cone))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool WithinCone(Vector3 origin, Vector3 direction, Vector3 target, float coneDegrees)
+    {
+        Vector3 to = target - origin;
+        return to.sqrMagnitude > 1e-8f && Vector3.Angle(direction, to) <= coneDegrees;
     }
 
     // ---- visuals -----------------------------------------------------------------------
@@ -92,9 +182,24 @@ internal sealed class RayInteractor : IPickProvider
         if (_laser == null)
             CreateVisuals();
 
-        Vector3 end = _current.HasHit ? _current.HitPoint : origin + direction * (maxDistance * 0.25f);
+        // ModalUI constraint: keep the pick alive but hide the beam unless it points
+        // at a UI surface (MISSION A.5).
+        bool show = VisualsAllowed(origin, direction);
+        if (_laser!.gameObject.activeSelf != show)
+            _laser.gameObject.SetActive(show);
+        if (!show)
+        {
+            if (_reticle!.gameObject.activeSelf)
+                _reticle.gameObject.SetActive(false);
+            return;
+        }
 
-        _laser!.widthMultiplier = 0.0018f * scale;
+        // Reticle snap (MISSION A.1): Board substitutes the hovered hex center.
+        Vector3 end = _current.HasHit
+            ? (_reticleOverride ?? _current.HitPoint)
+            : origin + direction * (maxDistance * 0.25f);
+
+        _laser.widthMultiplier = 0.0018f * scale;
         _laser.SetPosition(0, origin + direction * (0.03f * scale));
         _laser.SetPosition(1, end);
 

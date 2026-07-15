@@ -1,11 +1,13 @@
 using BepInEx.Configuration;
+using GloomhavenVR.Core;
 
 namespace GloomhavenVR.Board;
 
 /// <summary>
-/// [Board] config section (Phase 3a). Bound by <see cref="BoardModule.Init"/> against the
-/// plugin's own <see cref="ConfigFile"/> (per the module-owned-config rule: the shared
-/// Plugin.cs is frozen, so the Board section is bound from inside the module).
+/// [Board] config section (Phase 3a). P5 (MISSION A.9): bound against the module's OWN
+/// config file (<c>BepInEx/config/dev.gloomhavenvr.board.cfg</c>, via
+/// <see cref="ModuleConfig.Create"/>) — the canonical module-config pattern; the
+/// pre-P5 <c>FindObjectOfType&lt;Plugin&gt;().Config</c> lookup is retired.
 /// </summary>
 internal static class BoardConfig
 {
@@ -27,13 +29,13 @@ internal static class BoardConfig
     /// <summary>Seconds between AoE rotation steps while the stick is held past the threshold.</summary>
     public static ConfigEntry<float> AoeRepeatInterval = null!;
 
-    private static bool _bound;
+    private static ConfigFile? _file;
 
-    public static void Bind(ConfigFile config)
+    public static void Bind()
     {
-        if (_bound)
+        if (_file != null)
             return;
-        _bound = true;
+        ConfigFile config = _file = ModuleConfig.Create("board");
 
         ForceFarMode = config.Bind(
             "Board", "ForceFarMode", false,
@@ -61,7 +63,4 @@ internal static class BoardConfig
             "0.3 fight the game's own direction latch in RotateAOEClockwise (it ignores " +
             "direction changes within 0.3 s).");
     }
-
-    /// <summary>Hot-reload hygiene: allow a fresh plugin instance to rebind.</summary>
-    public static void Reset() => _bound = false;
 }

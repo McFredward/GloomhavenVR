@@ -1,4 +1,3 @@
-using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -38,17 +37,9 @@ internal sealed class BoardModule : IVRModule
 
     public void Init()
     {
-        // Bind [Board] config against the plugin's ConfigFile (BaseUnityPlugin.Config
-        // is public in BepInEx 5; the instance is findable during Plugin.Awake because
-        // AddComponent registers the component before Awake runs). Bound even when the
-        // module stays dormant, so the section always shows up in the cfg file.
-        ConfigFile? config = ResolvePluginConfig();
-        if (config == null)
-        {
-            VRLog.Warn(Name, "Plugin ConfigFile not reachable — [Board] config not bound, module disabled.");
-            return;
-        }
-        BoardConfig.Bind(config);
+        // P5 (MISSION A.9): module-owned config file (dev.gloomhavenvr.board.cfg).
+        // Bound even when the module stays dormant, so the section always exists.
+        BoardConfig.Bind();
 
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {
@@ -87,22 +78,6 @@ internal sealed class BoardModule : IVRModule
             AoeControl.Reset();
             TargetingUx.Reset();
         }
-        BoardConfig.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
-    }
-
-    private static ConfigFile? ResolvePluginConfig()
-    {
-        Plugin? plugin = Object.FindObjectOfType<Plugin>();
-        if (plugin != null)
-            return plugin.Config;
-
-        // Fallback (e.g. exotic hot-reload host): the chainloader registry.
-        if (BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue(MyPluginInfo.PLUGIN_GUID, out var info)
-            && info.Instance is Plugin registered)
-        {
-            return registered.Config;
-        }
-        return null;
     }
 }

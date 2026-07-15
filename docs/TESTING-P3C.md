@@ -2,7 +2,7 @@
 
 > Prereqs: Phases 1–2 pass (`docs/TESTING-P1.md`, `docs/TESTING-P2.md`). Quest 3 (Link,
 > Virtual Desktop or Steam Link) or any OpenXR HMD. Config lives in
-> `BepInEx/config/worldui.gloomhavenvr.cfg` (created on first run); every surface has
+> `BepInEx/config/dev.gloomhavenvr.worldui.cfg` (created on first run; renamed from `worldui.gloomhavenvr.cfg` in P5); every surface has
 > its own toggle so a misbehaving one can be disabled without losing the rest.
 > Grep the log for `[WorldUI]` lines.
 

@@ -1,9 +1,10 @@
 # Phase 4 — Comfort & table-manipulation surface (`GloomhavenVR.Rig`)
 
-> Owned by the Rig module (feat/comfort). The P2 surface in `INTERFACES-P2.md` stays
-> frozen and is only *consumed* here. This document is the contract the deferred P3c
-> **in-VR settings panel** binds to — everything config/logic-side already exists; the
-> panel is pure presentation on top of `ComfortSettings` + the runtime ops below.
+> Owned by the Rig module (feat/comfort), updated by the Phase-5 integration pass
+> (markers: **P5**). The **in-VR settings panel exists since P5**
+> (`WorldUI/SettingsPanel.cs`) and binds exactly to `ComfortSettings` + the runtime
+> ops below (open: 'SET' gear at the table edge, or hold the non-dominant A/X for
+> `[SettingsPanel] ChordHoldSeconds`).
 
 ## 1. Design rules (read before integrating)
 
@@ -22,7 +23,15 @@
   leaving targeting can't fire a stale flick). Turning is also off in `ModalUI` and
   `Menu2D`. If a future mode needs the stick, extend the mode check in
   `Rig/SnapTurn.cs` — do not read the stick concurrently.
-- **World grab availability** (ARCHITECTURE §8): every scenario mode except `ModalUI`.
+- **World grab availability** (ARCHITECTURE §8): every scenario mode except `ModalUI`
+  — and **P5: also disabled in `Menu2D`** (the menu rig gives Menu2D a rig root; the
+  dev proxy stays exempt so grab math is testable flat).
+- **P5 — menu rig:** while VR runs and NO scenario camera exists, `VRRigDriver` head-
+  tracks the menu camera (`Camera.main`, `[Rig] MenuRig`, default true) at 1:1 scale.
+  `RigRoot`/`HeadCamera` are non-null in `Menu2D` too; `BaseWorldScale` reads 1.
+  Recenter (chord/panel/`RequestRecenter`) returns the head to the menu camera's
+  authored vantage. Anything gating on "rig exists ⇒ scenario" must gate on
+  `Choreographer.s_Choreographer`/mode instead (WorldGrab and SnapTurn already do).
 - **Comfort guard:** after every rig manipulation `RigClamp.Apply` lifts the rig so the
   eyes keep ≥ 0.10 real m clearance above the table plane (orbit-focus plane) — scale
   or drag can never put the head under/inside the table.

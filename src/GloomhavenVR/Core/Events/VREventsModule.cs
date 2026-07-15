@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Core.Events;
 
@@ -36,6 +37,7 @@ internal sealed class VREventsModule : IVRModule
 
         GameEventBridge.Subscribe();
         VRModeStateMachine.Attach();
+        SceneManager.sceneLoaded += OnSceneLoaded;
 
         _driverGo = new GameObject("GloomhavenVR.Events");
         Object.DontDestroyOnLoad(_driverGo);
@@ -57,10 +59,15 @@ internal sealed class VREventsModule : IVRModule
             _driverGo = null;
         }
 
+        SceneManager.sceneLoaded -= OnSceneLoaded;
         VRModeStateMachine.Detach();
         GameEventBridge.Unsubscribe();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }
+
+    /// <summary>SceneManager.sceneLoaded → bus relay (plain C# event, no patch needed).</summary>
+    private static void OnSceneLoaded(Scene scene, LoadSceneMode mode) =>
+        VREvents.Raise(new SceneLoadedEvent(scene, mode));
 
     /// <summary>Per-frame pump for the mode state machine's scenario-presence poll.</summary>
     private sealed class VREventsDriver : MonoBehaviour

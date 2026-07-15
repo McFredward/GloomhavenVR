@@ -44,7 +44,7 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
-        CardsSignals.HandShown += OnHandShown;
+        VREvents.HandShown += OnHandShown;
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
@@ -61,7 +61,7 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
-        CardsSignals.HandShown -= OnHandShown;
+        VREvents.HandShown -= OnHandShown;
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
@@ -89,7 +89,7 @@ internal sealed class CardsDriver : MonoBehaviour
         }
     }
 
-    private void OnHandShown(CPlayerActor? player, CardHandMode mode) => _dirty = true;
+    private void OnHandShown(HandShownEvent e) => _dirty = true;
 
     private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
 
