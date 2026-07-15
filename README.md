@@ -2,14 +2,21 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phase 2 (hands & interaction primitives) code-complete, awaiting hardware validation.**
+> **Status: pre-alpha — Phase 3b (physical card hand) code-complete, awaiting hardware validation.**
 > On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod now has tracked
 > hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
 > proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
 > game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
 > desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
+> **New (P3b, `feat/cards`):** the Demeo card hand — the 2D hand is visually suppressed
+> while VR runs; your ability cards fan out above your non-dominant palm (live game card
+> faces re-parented onto 3D cards), you grab/inspect them and play them on a floating tray
+> (slot order = initiative, physical swap supported), short/long-rest tokens, and in-turn
+> top/bottom half selection by poking the played cards. Exercisable without a scenario via
+> `[Cards] DevFakeHand`.
 > Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`. Hardware checklists:
-> `docs/TESTING-P1.md`, `docs/TESTING-P2.md`. No card hand / board play / world UI yet.
+> `docs/TESTING-P1.md`, `docs/TESTING-P2.md`, `docs/TESTING-P3B.md`.
+> No board play (P3a) / world UI (P3c) yet.
 
 ## What / why
 
