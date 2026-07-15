@@ -70,8 +70,9 @@ Do **NOT** import (SteamVR-script-dependent, not needed):
    goes into release zips).
 4. FBX import settings: Rig → **Generic** (no humanoid mapping needed),
    Read/Write off, no animation import for the slim gloves.
-5. Build our own `HandLeft.prefab` / `HandRight.prefab` on top: glove mesh +
-   bone hierarchy exposed. Finger animation is **direct bone rotation**
+5. Build our own `VRHand_L.prefab` / `VRHand_R.prefab` on top (canonical names the
+   mod probes — see `Assets/Bundle/Hands/README.md` for the full loader contract):
+   glove mesh + bone hierarchy exposed. Finger animation is **direct bone rotation**
    (LCVR `FingerCurler` pattern — 2 bones per finger, trigger→index,
    grip→middle/ring/pinky, thumb-touch→thumb; VR-PRIOR-ART.md §4). No Animator
    required; the SteamVR skeleton bone naming

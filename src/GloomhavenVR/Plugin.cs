@@ -41,6 +41,24 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Extra comma-separated component type full names to disable while VR runs.</summary>
     internal static ConfigEntry<string> DisableComponents = null!;
 
+    /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
+    internal static ConfigEntry<string> PrimaryHand = null!;
+
+    /// <summary>Force the ray interactor on in every VR mode (accessibility/preference).</summary>
+    internal static ConfigEntry<bool> RayAlwaysOn = null!;
+
+    /// <summary>Master dev switch: event bus + hands run without an HMD, dev console installed.</summary>
+    internal static ConfigEntry<bool> DevMode = null!;
+
+    /// <summary>Show the dev overlay on startup (toggle at runtime with F10).</summary>
+    internal static ConfigEntry<bool> DevOverlay = null!;
+
+    /// <summary>Animate fake hands on the desktop (toggle at runtime with F8).</summary>
+    internal static ConfigEntry<bool> SimulateHands = null!;
+
+    /// <summary>Dump UnityEngine.XR.InputDevices every N seconds (0 = off).</summary>
+    internal static ConfigEntry<float> InputDeviceDumpInterval = null!;
+
     private Harmony? _harmony;
 
     /// <summary>
@@ -76,6 +94,28 @@ public class Plugin : BaseUnityPlugin
             "Compat", "DisableComponents", "",
             "Extra comma-separated component type full names (optionally 'FullName, Assembly') " +
             "to disable while VR is active, e.g. 'BeautifyEffect.Beautify'.");
+        PrimaryHand = Config.Bind(
+            "Hands", "PrimaryHand", "Right",
+            "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
+            "for board targeting.");
+        RayAlwaysOn = Config.Bind(
+            "Hands", "RayAlwaysOn", false,
+            "Keep the laser/ray interactor enabled in every VR mode instead of only in " +
+            "far-interaction contexts.");
+        DevMode = Config.Bind(
+            "Dev", "Enabled", false,
+            "Developer mode: wires the VR event bus and hand simulation even without an HMD " +
+            "and installs the dev console (F8 sim hands, F9 poke Ready, F10 overlay).");
+        DevOverlay = Config.Bind(
+            "Dev", "Overlay", true,
+            "Show the dev overlay on startup when dev mode is enabled (F10 toggles at runtime).");
+        SimulateHands = Config.Bind(
+            "Dev", "SimulateHands", false,
+            "Animate fake hand transforms on the desktop (no HMD needed). Hold T = trigger, " +
+            "G = grip. Toggle at runtime with F8. Ignored while real VR is running.");
+        InputDeviceDumpInterval = Config.Bind(
+            "Dev", "InputDeviceDumpInterval", 0f,
+            "Log all UnityEngine.XR.InputDevices every N seconds (0 = off).");
 
         if (!Enabled.Value)
         {
@@ -123,12 +163,14 @@ public class Plugin : BaseUnityPlugin
     private void RegisterModules()
     {
         _modules.Add(new Core.CoreModule());
+        _modules.Add(new Core.Events.VREventsModule());
         _modules.Add(new Rig.RigModule());
         _modules.Add(new Hands.HandsModule());
         _modules.Add(new Cards.CardsModule());
         _modules.Add(new Board.BoardModule());
         _modules.Add(new WorldUI.WorldUIModule());
         _modules.Add(new Compat.CompatModule());
+        _modules.Add(new Core.DevModule());
     }
 
     private void InitModules()
