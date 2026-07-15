@@ -95,8 +95,13 @@ internal sealed class WorldGrab : MonoBehaviour
     private void Update()
     {
         Transform? rig = RigTarget.Current;
+        VRMode mode = VRModeStateMachine.CurrentMode;
+        // P5: Menu2D is excluded too — the menu rig (VRRigDriver menu fallback) exists
+        // there since P5, but there is no table to manipulate; grabbing air must not
+        // drag the menu view. The dev proxy stays exempt so grab math is testable flat.
         if (rig == null || !ComfortSettings.IsBound || !ComfortSettings.WorldGrabEnabled.Value
-            || VRModeStateMachine.CurrentMode == VRMode.ModalUI)
+            || mode == VRMode.ModalUI
+            || (mode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             Disengage(rig);
             return;
