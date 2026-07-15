@@ -2,11 +2,14 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phase 1 (VR bootstrap) code-complete, awaiting hardware validation.**
-> The OpenXR bootstrap (preloader install, runtime failover, MultiPass stereo), the
-> head-tracked diorama camera rig and the PPv2 kill-switches are implemented and compile;
-> they have not yet been validated on a Windows machine with a headset
-> (checklist: `docs/TESTING-P1.md`). No hands/controllers/VR-UI yet. Watch the releases.
+> **Status: pre-alpha — Phase 2 (hands & interaction primitives) code-complete, awaiting hardware validation.**
+> On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod now has tracked
+> hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
+> proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
+> game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
+> desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
+> Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`. Hardware checklists:
+> `docs/TESTING-P1.md`, `docs/TESTING-P2.md`. No card hand / board play / world UI yet.
 
 ## What / why
 
@@ -128,7 +131,8 @@ GloomhavenVR.sln
 │                               assemblies) — populated by scripts, never committed
 ├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
 ├── scripts/                    build.sh, fetch-natives.sh, build-runtimedeps.sh, deploy.ps1
-├── docs/                       TESTING-P1.md (Windows validation checklist & triage)
+├── docs/                       TESTING-P1/P2.md (Windows validation checklists),
+│                               INTERFACES-P2.md (frozen Phase-2 API for feature workers)
 └── .planning/                  roadmap, architecture, research notes
 ```
 
