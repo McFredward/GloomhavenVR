@@ -1,20 +1,48 @@
 using GloomhavenVR.Core;
+using UnityEngine;
 
 namespace GloomhavenVR.Rig;
 
 /// <summary>
-/// VR camera rig: head-tracked camera, diorama/table scale, world grab/rotate/zoom,
-/// comfort options. Phase 1 (feat/xr-bootstrap) + Phase 4 (feat/comfort).
-/// Key seams: CameraController.LateUpdate prefix-skip, VROrigin + TrackedPoseDriver.
+/// VR camera rig: head-tracked camera over the game's scenario camera, diorama/table
+/// scale, recenter. Phase 1 (feat/xr-bootstrap); world grab/comfort follow in Phase 4.
+/// Key seams: <see cref="CameraController_LateUpdate_Patch"/> (prefix-skip) +
+/// <see cref="VRRigDriver"/> (rig lifecycle).
 /// </summary>
 internal sealed class RigModule : IVRModule
 {
     public string Name => "Rig";
 
-    public void Init() => VRLog.Debug(Name, "stub initialized (Phase 1/4 implement camera rig & comfort).");
+    private GameObject? _driverGo;
+
+    public void Init()
+    {
+        if (!VRSession.IsRunning)
+        {
+            VRLog.Debug(Name, "VR not running — rig not installed.");
+            return;
+        }
+
+        // The patch is a no-op (prefix returns true) whenever VRSession.IsRunning is
+        // false, so applying it here is safe even if VR later shuts down.
+        VRSession.Harmony?.PatchAll(typeof(CameraController_LateUpdate_Patch));
+
+        _driverGo = new GameObject("GloomhavenVR.RigDriver");
+        Object.DontDestroyOnLoad(_driverGo);
+        _driverGo.hideFlags = HideFlags.HideAndDontSave;
+        _driverGo.AddComponent<VRRigDriver>();
+
+        VRLog.Info(Name, "Rig driver installed — waiting for a scenario camera.");
+    }
 
     public void Shutdown()
     {
-        // Stub — nothing to undo yet.
+        // VRRigDriver.OnDestroy restores the game camera. Harmony patches are removed
+        // collectively by Plugin.OnDestroy (UnpatchSelf).
+        if (_driverGo != null)
+        {
+            Object.Destroy(_driverGo);
+            _driverGo = null;
+        }
     }
 }
