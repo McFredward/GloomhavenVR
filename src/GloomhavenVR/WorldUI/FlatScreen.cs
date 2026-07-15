@@ -45,6 +45,21 @@ internal sealed class FlatScreen
     private bool _visible;
     private bool _pressing;
 
+    public FlatScreen()
+    {
+        // P5 (MISSION A.2): scene loads re-wire the game's UI cameras (CanvasManager.
+        // OnSceneLoaded re-binds worldCamera) — drop our reference on the bus event and
+        // re-resolve/re-target next Tick instead of waiting for the old camera to die.
+        Core.Events.VREvents.SceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e)
+    {
+        if (_uiCamera != null && _uiCamera.targetTexture == _rt)
+            _uiCamera.targetTexture = null;
+        _uiCamera = null;
+    }
+
     public void Tick()
     {
         bool want = WantVisible();
@@ -69,7 +84,11 @@ internal sealed class FlatScreen
         TickPointer();
     }
 
-    public void Shutdown() => Hide();
+    public void Shutdown()
+    {
+        Core.Events.VREvents.SceneLoaded -= OnSceneLoaded;
+        Hide();
+    }
 
     // ---- policy ------------------------------------------------------------------------
 
@@ -133,6 +152,9 @@ internal sealed class FlatScreen
         if (_uiCamera != null)
             _uiCamera.targetTexture = _rt;
 
+        // P5 (MISSION A.5): the ModalUI-constrained laser may point at the screen.
+        RayInteractor.RegisterUiTarget(_quad.transform);
+
         PlaceScreen(instant: true);
         _visible = true;
         VRLog.Info("WorldUI", "FlatScreen shown (UICamera → RenderTexture).");
@@ -150,7 +172,10 @@ internal sealed class FlatScreen
         _uiCamera = null;
 
         if (_quad != null)
+        {
+            RayInteractor.UnregisterUiTarget(_quad.transform);
             _quad.SetActive(false);
+        }
         if (_rt != null)
         {
             _rt.Release();

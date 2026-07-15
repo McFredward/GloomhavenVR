@@ -1,4 +1,5 @@
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -45,6 +46,23 @@ internal sealed class StatPanelSurface
         _actorPanel.OnHidden = () => Release(_actorPanel);
         _enemyTurnPanel.OnShown = () => _enemyTurnPanel.PendingShow = true;
         _enemyTurnPanel.OnHidden = () => Release(_enemyTurnPanel);
+
+        // P5 (MISSION A.8): Board announces miniature pokes on the bus; opening the
+        // game's own ActorStatPanel window here triggers the conversion above via its
+        // UIWindow onShown — the presentation pipeline is unchanged.
+        VREvents.MiniaturePoked += OnMiniaturePoked;
+    }
+
+    private static void OnMiniaturePoked(MiniaturePokedEvent e)
+    {
+        if (!WorldUIConfig.StatPanels.Value || !WorldUIConfig.ConversionActive)
+            return;
+        if (CanvasConversion.IsLockedNow)
+            return; // modality: no popups while the game locked its UI
+        if (!Singleton<ActorStatPanel>.IsInitialized || e.Actor == null)
+            return;
+        // Verified via ilspycmd (GH.Runtime.dll): public void Show(CActor actor).
+        ActorStatPanel.Instance.Show(e.Actor);
     }
 
     public void Tick()
@@ -163,6 +181,7 @@ internal sealed class StatPanelSurface
 
     public void Shutdown()
     {
+        VREvents.MiniaturePoked -= OnMiniaturePoked;
         DetachWatch(_actorPanel);
         DetachWatch(_enemyTurnPanel);
     }
