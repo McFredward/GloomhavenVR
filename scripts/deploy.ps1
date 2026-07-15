@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Copies built GloomhavenVR artifacts into a Gloomhaven install (BepInEx 5 required).
 
@@ -11,7 +11,7 @@
       Natives      -> <GamePath>\BepInEx\patchers\GloomhavenVR\Natives\*.dll
 
     The preloader itself installs the natives + UnitySubsystems manifest into
-    Gloomhaven_Data\ at game boot — nothing under Gloomhaven_Data is touched here.
+    Gloomhaven_Data\ at game boot - nothing under Gloomhaven_Data is touched here.
 
     Builds are NOT triggered here; run first:
       dotnet build GloomhavenVR.sln -c Release      (or scripts/build.sh)
@@ -36,7 +36,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 if (-not (Test-Path (Join-Path $GamePath "BepInEx"))) {
-    Write-Error "No BepInEx folder found in '$GamePath'. Install BepInEx 5.4.23.5 (x64) first — see README."
+    Write-Error "No BepInEx folder found in '$GamePath'. Install BepInEx 5.4.23.5 (x64) first - see README."
 }
 
 $plugin    = Join-Path $root "src\GloomhavenVR\bin\$Configuration\net472\GloomhavenVR.dll"

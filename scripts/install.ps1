@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     One-shot Windows install: fetches XR deps, compiles the mod from source and
     deploys the fresh DLLs into your Gloomhaven install (overwriting old ones).
@@ -15,7 +15,7 @@
       6. dotnet build -c Release
       7. copies plugin + RuntimeDeps + preloader + natives into BepInEx
 
-    Safe to re-run any time — every step is idempotent and only rebuilds/copies
+    Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
     folder (see INSTALL.md).
 
@@ -140,7 +140,7 @@ if ($depsMissing) {
     foreach ($p in $packages) {
         $dir = Join-Path $sources $p.Pkg
         $pkgJson = Join-Path $dir "package.json"
-        # NOTE: fetch refs/tags/<tag> explicitly — needle-mirror repos have
+        # NOTE: fetch refs/tags/<tag> explicitly - needle-mirror repos have
         # version-named BRANCHES pointing at different snapshots.
         $haveRight = (Test-Path $pkgJson) -and ((Get-Content $pkgJson -Raw) -match """version"":\s*""$([regex]::Escape($p.Tag))""")
         if (-not $haveRight) {
@@ -163,7 +163,7 @@ if ($depsMissing) {
         Copy-Item (Join-Path $root "tools\RuntimeDepsBuild\$($p.Proj)\bin\Release\net472\$($p.Proj).dll") $runtimeDepsDir -Force
     }
 } else {
-    Write-Host "    ok (all 3 assemblies present — delete libs\RuntimeDeps to force rebuild)"
+    Write-Host "    ok (all 3 assemblies present - delete libs\RuntimeDeps to force rebuild)"
 }
 
 # --- 6. build the mod -------------------------------------------------------
