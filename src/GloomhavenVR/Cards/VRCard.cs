@@ -1,0 +1,367 @@
+using System;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
+using GloomhavenVR.Rig;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace GloomhavenVR.Cards;
+
+/// <summary>
+/// One physical card: 3D backing + world-space canvas hosting the game's live card
+/// face (<see cref="CardFace"/>), proximity-grabbable (P2 <see cref="GrabbableBehaviour"/>,
+/// snap-to-hand). Owned/pooled by <see cref="VRCardFactory"/>; laid out by
+/// <see cref="CardFan"/>, <see cref="PlayTray"/> or <see cref="HalfSelection"/> via
+/// the home-pose API. No per-frame allocations in <see cref="Update"/>.
+/// </summary>
+internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
+{
+    private CardFace _face = new();
+    private RectTransform? _canvasRect;
+    private Canvas? _canvas;
+    private Transform? _visualRoot;
+
+    // Home pose (local space of the current parent).
+    private Vector3 _homePos;
+    private Quaternion _homeRot = Quaternion.identity;
+    private float _homeScale = 1f;
+    private bool _instantNext;
+
+    private bool _popped;
+    private float _pop; // smoothed 0..1
+
+    /// <summary>The game widget this card mirrors (null for dev placeholder cards).</summary>
+    internal AbilityCardUI? GameCard { get; private set; }
+
+    /// <summary>Shortcut: the adopted full card (null for placeholders).</summary>
+    internal FullAbilityCard? FullCard => GameCard != null ? GameCard.fullAbilityCard : null;
+
+    /// <summary>
+    /// True when the face was yielded to a game dialog (see CardFace.Maintain) and
+    /// should be re-adopted on the next rebuild.
+    /// </summary>
+    internal bool NeedsFace => GameCard != null && !_face.IsAdopted;
+
+    /// <summary>Layout owners toggle this; combined with base "not already held".</summary>
+    internal bool Grabbable { get; set; } = true;
+
+    /// <summary>Raised on grip-release with palm velocity — CardsDriver routes fan/tray drops.</summary>
+    internal event Action<VRCard, VRHand, Vector3>? Released;
+
+    /// <summary>Raised when a hand closes on this card.</summary>
+    internal event Action<VRCard, VRHand>? Grabbed;
+
+    /// <summary>
+    /// Poke-to-select (LoseCard/Recover* modes where the 2D UI is click-to-select).
+    /// The card registers as a pokeable ONLY while enabled — the P2 PokeInteractor
+    /// targets the single nearest pokeable, and a permanently registered card
+    /// collider would swallow the half-selection zone pokes.
+    /// </summary>
+    internal bool PokeSelectEnabled
+    {
+        get => _pokeSelectEnabled;
+        set
+        {
+            if (_pokeSelectEnabled == value)
+                return;
+            _pokeSelectEnabled = value;
+            if (!isActiveAndEnabled)
+                return;
+            if (value)
+            {
+                Collider? collider = GetComponent<Collider>();
+                if (collider != null)
+                    VRInteractables.RegisterPokeable(this, collider);
+            }
+            else
+            {
+                VRInteractables.UnregisterPokeable(this);
+            }
+        }
+    }
+
+    private bool _pokeSelectEnabled;
+
+    /// <summary>Raised on fingertip poke while <see cref="PokeSelectEnabled"/>.</summary>
+    internal event Action<VRCard, VRHand>? Poked;
+
+    internal bool IsHeld => Holder != null;
+
+    public override bool CanGrab => base.CanGrab && Grabbable;
+
+    // ------------------------------------------------------------------ build --
+
+    /// <summary>Create geometry (called once by the factory right after AddComponent).</summary>
+    internal void Build(GameObject? backingPrefab)
+    {
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+
+        _visualRoot = new GameObject("Visual").transform;
+        _visualRoot.SetParent(transform, worldPositionStays: false);
+
+        // Grab collider (trigger: never interacts with game physics; the P2 grabber
+        // only uses Collider.ClosestPoint on registered colliders).
+        var box = gameObject.GetComponent<BoxCollider>();
+        if (box == null)
+            box = gameObject.AddComponent<BoxCollider>();
+        box.size = new Vector3(w, h, 0.02f);
+        box.isTrigger = true;
+
+        if (backingPrefab != null)
+        {
+            GameObject backing = Instantiate(backingPrefab, _visualRoot, false);
+            backing.name = "Backing";
+        }
+        else
+        {
+            BuildProceduralBacking(_visualRoot, w, h);
+        }
+
+        // World-space canvas hosting the live face. Sized in "face pixels", scaled
+        // down to the physical card width. Registered with UguiPokeSurfaces so the
+        // fingertip can poke the REAL uGUI buttons on the face (consume buttons,
+        // default-action buttons) via the P2 synthesized-pointer path.
+        var canvasGo = new GameObject("FaceCanvas");
+        canvasGo.transform.SetParent(transform, worldPositionStays: false);
+        _canvas = canvasGo.AddComponent<Canvas>();
+        _canvas.renderMode = RenderMode.WorldSpace;
+        canvasGo.AddComponent<GraphicRaycaster>();
+        _canvasRect = (RectTransform)canvasGo.transform;
+        SetCanvasSize(new Vector2(270f, 400f), w, h);
+        // Face plane sits a hair in front of the backing. Convention everywhere in
+        // this module: layouts orient roots with +Z pointing AWAY from the HMD, so
+        // the viewer is on the -Z side — exactly the side uGUI/TMP/Quad render to
+        // with identity rotation.
+        _canvasRect.localPosition = new Vector3(0f, 0f, -0.0012f);
+
+        UpdateCanvasCamera();
+    }
+
+    private void SetCanvasSize(Vector2 facePixels, float w, float h)
+    {
+        if (_canvasRect == null)
+            return;
+        _canvasRect.sizeDelta = facePixels;
+        float fit = Mathf.Min(w / facePixels.x, h / facePixels.y);
+        _canvasRect.localScale = new Vector3(fit, fit, fit);
+    }
+
+    private static void BuildProceduralBacking(Transform parent, float w, float h)
+    {
+        var backing = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        backing.name = "Backing";
+        Destroy(backing.GetComponent<Collider>());
+        backing.transform.SetParent(parent, worldPositionStays: false);
+        backing.transform.localScale = new Vector3(w * 1.04f, h * 1.03f, 0.0015f);
+        var renderer = backing.GetComponent<MeshRenderer>();
+        Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+        if (shader != null)
+        {
+            var material = new Material(shader) { color = new Color(0.13f, 0.11f, 0.09f) };
+            renderer.sharedMaterial = material;
+        }
+    }
+
+    private void UpdateCanvasCamera()
+    {
+        if (_canvas == null)
+            return;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head != null && _canvas.worldCamera != head)
+            _canvas.worldCamera = head;
+    }
+
+    // ------------------------------------------------------------------ face --
+
+    /// <summary>Adopt the live face of a game card widget.</summary>
+    internal bool AttachGameCard(AbilityCardUI card)
+    {
+        if (_canvasRect == null)
+            return false;
+        DetachGameCard();
+        if (!_face.Adopt(card, _canvasRect))
+            return false;
+        GameCard = card;
+        SetCanvasSize(_face.FaceSize, CardsConfig.CardWidth.Value, CardsConfig.CardHeight);
+        name = $"VRCard_{CardsGameApi.CardName(card)}";
+        return true;
+    }
+
+    /// <summary>Give the face back to the game (pool-safe). Idempotent.</summary>
+    internal void DetachGameCard()
+    {
+        if (_face.IsAdopted)
+            _face.Restore();
+        GameCard = null;
+    }
+
+    /// <summary>Dev placeholder face (no game card): colored quad + big index label.</summary>
+    internal void BuildPlaceholderFace(int index)
+    {
+        if (_canvasRect == null)
+            return;
+        var img = new GameObject("Placeholder");
+        img.transform.SetParent(_canvasRect, worldPositionStays: false);
+        var rect = img.AddComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+        var image = img.AddComponent<Image>();
+        image.color = Color.HSVToRGB((index * 0.13f) % 1f, 0.45f, 0.85f);
+
+        var textGo = new GameObject("Label");
+        textGo.transform.SetParent(rect, worldPositionStays: false);
+        var textRect = textGo.AddComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+        var tmp = textGo.AddComponent<TMPro.TextMeshProUGUI>();
+        tmp.text = (index + 1).ToString();
+        tmp.fontSize = 160f;
+        tmp.alignment = TMPro.TextAlignmentOptions.Center;
+        tmp.color = new Color(0.1f, 0.1f, 0.1f);
+        name = $"VRCard_Fake{index + 1}";
+    }
+
+    // ------------------------------------------------------------------ layout --
+
+    /// <summary>
+    /// Set the animated home pose in the local space of <paramref name="parent"/>.
+    /// Re-parents without moving the world pose, then Update() flies the card home.
+    /// </summary>
+    internal void SetHome(Transform parent, Vector3 localPos, Quaternion localRot, float scale, bool instant = false)
+    {
+        if (transform.parent != parent)
+            transform.SetParent(parent, worldPositionStays: !instant);
+        _homePos = localPos;
+        _homeRot = localRot;
+        _homeScale = scale;
+        _instantNext = instant;
+    }
+
+    /// <summary>Extra forward pop + scale for the hovered card (set by layouts each frame is fine — plain field).</summary>
+    internal void SetPopped(bool popped) => _popped = popped;
+
+    // -------------------------------------------------------------- interaction --
+
+    public override void OnGrab(VRHand hand)
+    {
+        base.OnGrab(hand); // snap to GrabAnchor (P2 GrabbableBehaviour)
+        transform.localScale = Vector3.one * CardsConfig.InspectScale.Value;
+        // Face the player while inspecting: GrabAnchor +Z ~ fingers; roll the card up.
+        transform.localRotation = Quaternion.Euler(-40f, 0f, 0f);
+        transform.localPosition = new Vector3(0f, 0.02f, 0.02f);
+        try
+        {
+            Grabbed?.Invoke(this, hand);
+        }
+        catch (Exception ex)
+        {
+            Core.VRLog.Error("Cards", $"VRCard.Grabbed subscriber threw: {ex}");
+        }
+    }
+
+    public override void OnRelease(VRHand hand, Vector3 velocity)
+    {
+        base.OnRelease(hand, velocity); // restore pre-grab parent
+        transform.localScale = Vector3.one * _homeScale;
+        try
+        {
+            Released?.Invoke(this, hand, velocity);
+        }
+        catch (Exception ex)
+        {
+            Core.VRLog.Error("Cards", $"VRCard.Released subscriber threw: {ex}");
+        }
+    }
+
+    public void OnGrabHighlight(VRHand hand, bool highlighted) => _popped = highlighted;
+
+    protected override void OnEnable()
+    {
+        base.OnEnable(); // grab registration (P2 GrabbableBehaviour)
+        if (_pokeSelectEnabled)
+        {
+            Collider? collider = GetComponent<Collider>();
+            if (collider != null)
+                VRInteractables.RegisterPokeable(this, collider);
+        }
+    }
+
+    public void OnPokeEnter(VRHand hand)
+    {
+        if (PokeSelectEnabled)
+        {
+            _popped = true;
+            hand.SendHaptic(HapticPreset.HoverTick);
+        }
+    }
+
+    public void OnPokeExit(VRHand hand)
+    {
+        if (PokeSelectEnabled)
+            _popped = false;
+    }
+
+    public void OnPoke(VRHand hand)
+    {
+        if (!PokeSelectEnabled)
+            return;
+        hand.SendHaptic(HapticPreset.ClickPulse);
+        try
+        {
+            Poked?.Invoke(this, hand);
+        }
+        catch (Exception ex)
+        {
+            Core.VRLog.Error("Cards", $"VRCard.Poked subscriber threw: {ex}");
+        }
+    }
+
+    // ------------------------------------------------------------------ update --
+
+    private void Update()
+    {
+        UpdateCanvasCamera();
+        _face.Maintain();
+
+        if (IsHeld)
+            return;
+
+        float dt = Time.deltaTime;
+        float speed = CardsConfig.CardLerpSpeed.Value;
+        float popTarget = _popped ? 1f : 0f;
+        _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
+
+        // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up.
+        Vector3 target = _homePos + _homeRot * new Vector3(0f, 0.012f * _pop, -0.035f * _pop);
+        float scale = _homeScale * (1f + 0.18f * _pop);
+
+        if (_instantNext)
+        {
+            _instantNext = false;
+            transform.localPosition = target;
+            transform.localRotation = _homeRot;
+            transform.localScale = Vector3.one * scale;
+            return;
+        }
+
+        float t = 1f - Mathf.Exp(-speed * dt);
+        transform.localPosition = Vector3.Lerp(transform.localPosition, target, t);
+        transform.localRotation = Quaternion.Slerp(transform.localRotation, _homeRot, t);
+        transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * scale, t);
+    }
+
+    protected override void OnDisable()
+    {
+        base.OnDisable(); // unregister grabbable + detach from hand if held
+        VRInteractables.UnregisterPokeable(this);
+        _popped = false;
+        _pop = 0f;
+    }
+
+    private void OnDestroy() => DetachGameCard();
+}
