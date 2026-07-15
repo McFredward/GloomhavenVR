@@ -91,7 +91,8 @@ internal static class CanvasConversion
     /// <see cref="ConvertedPanel.HostTransform"/> in the world and owns its lifetime
     /// via <see cref="Release"/>. Returns null when the target is gone.
     /// </summary>
-    internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true)
+    internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
+        PokeSurfaceTuning? pokeTuning = null)
     {
         if (target == null)
         {
@@ -153,7 +154,7 @@ internal static class CanvasConversion
         panel.HostRect = hostRect;
 
         if (pokeable)
-            UguiPokeSurfaces.Register(hostCanvas);
+            UguiPokeSurfaces.Register(hostCanvas, pokeTuning); // P5: per-canvas press feel (A.10)
 
         Active.Add(panel);
         EnsureCameraMask();

@@ -79,7 +79,9 @@ internal sealed class DialogSurface
         if (box == null)
             return;
 
-        _panel = CanvasConversion.Convert(box.transform as RectTransform, Name);
+        // P5 (A.10): small close-range dialog — tighter hover halo / shallower press.
+        _panel = CanvasConversion.Convert(box.transform as RectTransform, Name,
+            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog);
         if (_panel == null)
             return;
 
