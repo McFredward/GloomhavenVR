@@ -89,10 +89,31 @@
 
 ## 6. Floating 2D screen
 
+Boot phases (menu-blackscreen fix, `fix/menu-blackscreen`):
+
+1. **Intro/splash** (scene 0 + `Intro`): FlatScreen is gated OFF — the intro renders
+   vanilla on the desktop. The HMD shows the menu rig's **dark-grey void** plus a
+   small "GloomhavenVR starting…" label. Log: `Starting indicator shown (pre-menu
+   scene, FlatScreen gated).`
+2. **Main menu** (`Gloomhaven_unified` and later menu scenes): the screen engages.
+   Log sequence: `FlatScreen shown (…)`, `FlatScreen: UICamera '<name>' →
+   RenderTexture.`, `FlatScreen quad placed: pos=… shader=… | head '<name>' …`,
+   `Desktop mirror active — FlatScreen RT (WxH) blits to the backbuffer …`,
+   `UICamera '<name>' excluded from XR rendering (stereoTargetEye … → None …)`.
+3. **Scenario**: screen hides, UICamera restored (`FlatScreen hidden — UICamera
+   restored to the backbuffer.` + `UICamera '<name>' restored to vanilla XR
+   behavior`).
+
+Checklist:
+
+- [ ] During the intro: desktop shows the intro video/logos normally; HMD shows the
+      grey void + "starting…" label (NOT pitch black — pitch black means the rig
+      camera is not rendering; grep the `Camera inventory` lines).
 - [ ] In the main menu (no scenario): a large virtual screen floats in front of you
-      showing the full 2D menu. NOTE the Phase-1 rig only exists in scenarios — if the
-      menu view is not head-tracked the screen still anchors to the active camera;
-      report how this feels (open HMD question).
+      showing the full 2D menu, head-tracked via the menu rig ([Rig] MenuRig).
+- [ ] **The desktop monitor shows the same menu at the same time** (RT mirror blit)
+      and stays fully mouse-operable in parallel — this is the guaranteed fallback;
+      the desktop must never be black.
 - [ ] Primary-hand ray + trigger clicks menu buttons (virtual mouse warp; watch the
       yellow reticle dot on the screen). Drags (sliders, scroll lists) work via
       hold-trigger.
@@ -104,6 +125,24 @@
       confirmation dialogs do NOT trigger it.
 - [ ] On hide, the desktop mirror gets its 2D UI back (UICamera targetTexture
       restored).
+- [ ] After a recenter (B+Y chord) or scene change the screen snaps back directly in
+      front of you (`FlatScreen quad placed:` logged again).
+
+### 6b. Config behavior matrix (`[WorldUI] FlatScreen` × `[Rig] MenuRig`)
+
+The two switches are independent; all four combinations are defined:
+
+| FlatScreen | MenuRig | HMD in menus | Desktop in menus |
+|---|---|---|---|
+| true (default) | true (default) | grey void + head-tracked floating screen | 2D UI via RT mirror blit (mouse works) |
+| true | false | floating screen anchored to the static menu camera (no head tracking; the game cameras render stereo but do not follow your head) | 2D UI via RT mirror blit (mouse works) |
+| false | true | head-tracked menu camera view (grey void if the scene has no 3D content); screen-space UI renders wherever vanilla XR puts it | vanilla (XR mirror; UI untouched) |
+| false | false | **fully vanilla** under XR: no rig, no redirect, UICamera untouched | vanilla (XR mirror) |
+
+`[WorldUI] FlatScreen = false` is the **vanilla-menu fallback**: the mod never
+touches the UICamera (no RenderTexture redirect, no stereo exclusion, no desktop
+blit). Use it to bisect menu rendering problems. `[WorldUI] Master = false`
+disables the whole surface set including the FlatScreen and its UICamera handling.
 
 ## 7. Tooltips
 
@@ -132,11 +171,30 @@
 - [ ] 30 min play session: frametime stable (no per-frame GC growth from WorldUI —
       profile with the overlay or UnityExplorer if suspicious).
 
+## 10. Menu-blackscreen triage (new log lines)
+
+For any "black desktop / black HMD in the menus" report, grep the BepInEx log for:
+
+| Line | Meaning |
+|---|---|
+| `Camera inventory after scene '<name>' (N active):` + per-camera lines | Full disposition of every active camera (tag, depth, clear, cullingMask, stereoTargetEye, render target, `[VR head]` marker), logged 2 frames after each scene load while in Menu2D. **Attach these lines to every report.** |
+| `FlatScreen quad placed: … shader='…' … head '…' mask=…` | Quad pose + shader + head camera state at each instant placement. `shader='NULL'` = no usable shader shipped (report immediately). |
+| `Desktop mirror active — FlatScreen RT …` | The end-of-frame RT→backbuffer blit engaged. If the desktop is still black WITH this line present, the RT itself is black (UICamera not rendering into it — check the inventory for `target=GloomhavenVR.FlatScreenRT`). |
+| `UICamera '…' excluded from XR rendering …` / `… restored to vanilla XR behavior` | Hypothesis-B guard (screen-space UI kept out of the HMD / desktop backbuffer kept). |
+| `FlatScreen quad was destroyed externally — rebuilding.` | A scene swap killed the quad; it self-heals. Frequent repeats = report. |
+| `Starting indicator shown (pre-menu scene, FlatScreen gated).` | Intro gate active — FlatScreen deliberately idle during scene 0/`Intro`. |
+| `Menu rig built around camera '…' (… clear X → Y …)` | Menu rig camera + clear-color override. HMD **grey** = camera renders, content missing; HMD **black** = camera not reaching the HMD at all. |
+
+**Player.log is still wanted**: the previous report did not include it. Attach
+`%USERPROFILE%\AppData\LocalLow\FlamingFowlStudios\Gloomhaven\Player.log` (and
+`Player-prev.log`) together with `BepInEx/LogOutput.log` into a dated subfolder of
+`.planning/debug/` — Unity-native XR/rendering errors land only there.
+
 ## Known limitations (expected, not failures)
 
 - The phase banner no longer blocks 2D input full-screen while converted (its
   fullscreen block image travels with the toast); VR-side input is soft-locked
   instead. Desktop-parallel play during a banner is mildly less protected.
-- Menu2D without a scenario has no VR rig (Phase-1 scope): the flat screen anchors to
-  whatever camera is live; comfort feedback wanted.
+- The intro/splash is desktop-only by design (FlatScreen gate); the HMD shows the
+  grey void + "starting…" label until the main menu scene loads.
 - Keyboard text entry on the flat screen requires the physical keyboard.

@@ -78,6 +78,15 @@ internal sealed class VRRigDriver : MonoBehaviour
     private Quaternion _originalLocalRot;
     private float _originalFov;
     private float _originalNearClip;
+    private CameraClearFlags _originalClearFlags;
+    private Color _originalBackground;
+
+    /// <summary>
+    /// Menu rig clear color (menu-blackscreen fix): NOT black, so an HMD report can
+    /// distinguish "camera renders, content missing" (grey void) from "camera dead /
+    /// not rendering" (pitch black).
+    /// </summary>
+    private static readonly Color MenuVoidColor = new(0.12f, 0.13f, 0.15f, 1f);
 
     private void Awake() => Instance = this;
 
@@ -132,6 +141,8 @@ internal sealed class VRRigDriver : MonoBehaviour
         _originalLocalRot = cam.transform.localRotation;
         _originalFov = cam.fieldOfView;
         _originalNearClip = cam.nearClipPlane;
+        _originalClearFlags = cam.clearFlags;
+        _originalBackground = cam.backgroundColor;
 
         // Belt & braces on top of the LateUpdate/RefreshFocusPosition prefix-skips.
         // NOT durable on its own: MoveToLook and scripted flows re-toggle this flag
@@ -194,6 +205,19 @@ internal sealed class VRRigDriver : MonoBehaviour
         _originalLocalRot = cam.transform.localRotation;
         _originalFov = cam.fieldOfView;
         _originalNearClip = cam.nearClipPlane;
+        _originalClearFlags = cam.clearFlags;
+        _originalBackground = cam.backgroundColor;
+
+        // Menu-blackscreen fix: menu scenes may give the head camera nothing to render
+        // (UI lives on the separate UICamera). A black clear then looks identical to a
+        // dead camera. Force a dark-grey solid clear so "renders but empty" is visibly
+        // distinct — but keep a Skybox untouched (it IS visible content). Restored on
+        // teardown along with the rest of the camera state.
+        if (cam.clearFlags != CameraClearFlags.Skybox)
+        {
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = MenuVoidColor;
+        }
 
         // Anchor: the camera's authored vantage — recenter puts the head back here.
         _menuAnchorPos = cam.transform.position;
@@ -222,7 +246,9 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         _pendingRecenter = true;
 
-        VRLog.Info("Rig", $"Menu rig built around camera '{cam.name}' (1:1 scale, head-tracked menu view).");
+        VRLog.Info("Rig", $"Menu rig built around camera '{cam.name}' (1:1 scale, head-tracked menu view; " +
+                          $"clear {_originalClearFlags} → {cam.clearFlags} '{cam.backgroundColor}', " +
+                          $"mask=0x{cam.cullingMask:X8}).");
     }
 
     /// <summary>
@@ -337,6 +363,8 @@ internal sealed class VRRigDriver : MonoBehaviour
             _camera.transform.localRotation = _originalLocalRot;
             _camera.fieldOfView = _originalFov;
             _camera.nearClipPlane = _originalNearClip;
+            _camera.clearFlags = _originalClearFlags;
+            _camera.backgroundColor = _originalBackground;
             _camera = null;
         }
 
