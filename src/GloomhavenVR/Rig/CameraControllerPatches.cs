@@ -28,3 +28,21 @@ internal static class CameraController_LateUpdate_Patch
 {
     private static bool Prefix() => !VRSession.IsRunning;
 }
+
+/// <summary>
+/// Second durable camera writer, reached from scripted flows (SmartFocus/MoveToLook/
+/// ZoomTo coroutines, message-profile camera moves) that bypass LateUpdate and also
+/// re-toggle <c>m_IsCameraCodeControlDisabled</c> themselves — so skipping LateUpdate
+/// alone is not durable (.planning/research/PATCH-TARGETS.md §1.3).
+///
+/// Verified against the REAL GH.Runtime.dll with ilspycmd (2026-07-15):
+/// <code>
+///   private void RefreshFocusPosition(float? y = null)   // ONE overload, 163 B IL
+///   // writes m_Camera.transform.position + LookAt(m_FocalPoint + up * m_FocusPointHeight)
+/// </code>
+/// </summary>
+[HarmonyPatch(typeof(CameraController), "RefreshFocusPosition")]
+internal static class CameraController_RefreshFocusPosition_Patch
+{
+    private static bool Prefix() => !VRSession.IsRunning;
+}

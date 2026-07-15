@@ -85,8 +85,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         _originalFov = cam.fieldOfView;
         _originalNearClip = cam.nearClipPlane;
 
-        // Freeze the orbit-camera code paths not covered by the LateUpdate prefix-skip
-        // (SmartFocus/ZoomTo coroutines check this flag too).
+        // Belt & braces on top of the LateUpdate/RefreshFocusPosition prefix-skips.
+        // NOT durable on its own: MoveToLook and scripted flows re-toggle this flag
+        // (PATCH-TARGETS.md §1.3) — the Harmony skips are the real ownership switch.
         controller.m_IsCameraCodeControlDisabled = true;
 
         float scale = ResolveWorldScale();

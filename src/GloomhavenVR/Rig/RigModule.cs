@@ -23,9 +23,10 @@ internal sealed class RigModule : IVRModule
             return;
         }
 
-        // The patch is a no-op (prefix returns true) whenever VRSession.IsRunning is
-        // false, so applying it here is safe even if VR later shuts down.
+        // The patches are no-ops (prefix returns true) whenever VRSession.IsRunning is
+        // false, so applying them here is safe even if VR later shuts down.
         VRSession.Harmony?.PatchAll(typeof(CameraController_LateUpdate_Patch));
+        VRSession.Harmony?.PatchAll(typeof(CameraController_RefreshFocusPosition_Patch));
 
         _driverGo = new GameObject("GloomhavenVR.RigDriver");
         Object.DontDestroyOnLoad(_driverGo);
