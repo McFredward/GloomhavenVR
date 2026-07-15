@@ -28,6 +28,16 @@ namespace GloomhavenVR.Rig;
 /// </summary>
 internal sealed class VRRigDriver : MonoBehaviour
 {
+    /// <summary>
+    /// Tracking-space root of the VR rig while it exists, else null. XR device poses
+    /// (head, hands) are local to this transform; its lossyScale is the diorama scale.
+    /// Phase-2 consumers (Hands) parent their tracked objects under this.
+    /// </summary>
+    internal static Transform? RigRoot { get; private set; }
+
+    /// <summary>The head-tracked camera while the rig exists (the game's scenario camera).</summary>
+    internal static Camera? HeadCamera { get; private set; }
+
     /// <summary>Fallback diorama scale when auto-detection has no tile size yet.</summary>
     private const float FallbackWorldScale = 12f;
 
@@ -114,6 +124,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         _poseDriver.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
         _poseDriver.updateType = TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;
 
+        RigRoot = _rigRoot.transform;
+        HeadCamera = cam;
+
         _pendingRecenter = true;
 
         VRLog.Info("Rig", $"VR rig built at focus {controller.FocusPoint}, world scale {scale:F1} " +
@@ -166,6 +179,9 @@ internal sealed class VRRigDriver : MonoBehaviour
 
     private void TearDownRig()
     {
+        RigRoot = null;
+        HeadCamera = null;
+
         if (_poseDriver != null)
         {
             Destroy(_poseDriver);
