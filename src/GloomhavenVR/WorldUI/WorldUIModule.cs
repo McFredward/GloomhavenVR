@@ -12,4 +12,9 @@ internal sealed class WorldUIModule : IVRModule
     public string Name => "WorldUI";
 
     public void Init() => VRLog.Debug(Name, "stub initialized (Phase 3c implements world-space UI).");
+
+    public void Shutdown()
+    {
+        // Stub — nothing to undo yet.
+    }
 }

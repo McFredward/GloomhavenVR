@@ -12,4 +12,9 @@ internal sealed class CompatModule : IVRModule
     public string Name => "Compat";
 
     public void Init() => VRLog.Debug(Name, "stub initialized (Phases 1/5 implement compat fixups).");
+
+    public void Shutdown()
+    {
+        // Stub — nothing to undo yet.
+    }
 }

@@ -12,4 +12,9 @@ internal sealed class CardsModule : IVRModule
     public string Name => "Cards";
 
     public void Init() => VRLog.Debug(Name, "stub initialized (Phase 3b implements the physical card hand).");
+
+    public void Shutdown()
+    {
+        // Stub — nothing to undo yet.
+    }
 }

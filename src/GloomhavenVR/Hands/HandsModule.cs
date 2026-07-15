@@ -12,4 +12,9 @@ internal sealed class HandsModule : IVRModule
     public string Name => "Hands";
 
     public void Init() => VRLog.Debug(Name, "stub initialized (Phase 2 implements hands & interaction primitives).");
+
+    public void Shutdown()
+    {
+        // Stub — nothing to undo yet.
+    }
 }

@@ -12,4 +12,9 @@ internal sealed class BoardModule : IVRModule
     public string Name => "Board";
 
     public void Init() => VRLog.Debug(Name, "stub initialized (Phase 3a implements board targeting).");
+
+    public void Shutdown()
+    {
+        // Stub — nothing to undo yet.
+    }
 }
