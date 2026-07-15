@@ -152,6 +152,19 @@ internal static class BoardPick
         return true;
     }
 
+    /// <summary>
+    /// P5 (MISSION A.1): the world-space cursor point of the current pick — the hit
+    /// point, snapped to the hovered hex center when <c>[Board] SnapToHexCenter</c> is
+    /// on. False while the pick is inactive or missing. BoardDriver feeds this into
+    /// the hand ray's <c>ReticleOverride</c> so the visible reticle snaps too.
+    /// </summary>
+    public static bool TryGetCursorWorld(out Vector3 world)
+    {
+        EnsureFresh();
+        world = _cursorWorld;
+        return _source != PickSource.None && _hasHit;
+    }
+
     /// <summary>Hot-reload hygiene (module Shutdown).</summary>
     public static void Reset()
     {

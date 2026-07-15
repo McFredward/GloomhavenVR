@@ -1,6 +1,8 @@
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using HarmonyLib;
+using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Board;
 
@@ -107,6 +109,17 @@ internal static class BoardClickDriver
             {
                 armed = false;
                 RequestClick(hand, "near touch");
+
+                // P5 (MISSION A.8): poking an actor miniature additionally announces
+                // the actor on the bus — WorldUI opens its world-space stat panel.
+                // Verified (ilspycmd, GH.Runtime.dll): CInteractableActor.m_Actor
+                // (private CActor, publicized), set in Start from CharacterManager.
+                CInteractableActor? interactable = BoardPick.HitCollider != null
+                    ? BoardPick.HitCollider.GetComponentInParent<CInteractableActor>()
+                    : null;
+                CActor? actor = interactable != null ? interactable.m_Actor : null;
+                if (actor != null)
+                    VREvents.Raise(new MiniaturePokedEvent(actor));
             }
         }
         else if (surface > ReleaseDepth * scale)
