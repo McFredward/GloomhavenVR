@@ -126,5 +126,13 @@ internal sealed class DevPanels
         VRLog.Info("WorldUI", "DevShowAllPanels: dummy panels removed.");
     }
 
-    public void Shutdown() => Despawn();
+    public void Shutdown()
+    {
+        // Only tear down what was actually spawned — Despawn() logs and touches the
+        // panel list, and Shutdown() runs unconditionally on every driver teardown
+        // (hot reload / quit), which used to emit a misleading "dummy panels removed"
+        // line even though [WorldUI] DevShowAllPanels was never enabled.
+        if (_spawned)
+            Despawn();
+    }
 }
