@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>GloomhavenVR</AssemblyName>
+    <RootNamespace>GloomhavenVR</RootNamespace>
+    <Version>0.1.0</Version>
+    <Description>Demeo-style room-scale VR mod for Gloomhaven (digital).</Description>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Consumed by BepInEx.PluginInfoProps -> MyPluginInfo -->
+    <BepInExPluginGuid>dev.gloomhavenvr</BepInExPluginGuid>
+    <BepInExPluginName>GloomhavenVR</BepInExPluginName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.5" IncludeAssets="compile" />
+    <!-- ExcludeAssets=runtime keeps the publicizer's tooling DLLs (AsmResolver.*) out of bin/ -->
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3"
+                      PrivateAssets="all" Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Game assemblies: referenced from the local install ($(GameManaged), see
+      Directory.Build.props), publicized at build time (internals usable without
+      reflection), never copied to the output (Private=false).
+    -->
+    <Reference Include="GH.Runtime" HintPath="$(GameManaged)\GH.Runtime.dll" Publicize="true" Private="false" />
+    <Reference Include="GH.Runtime.FirstPass" HintPath="$(GameManaged)\GH.Runtime.FirstPass.dll" Publicize="true" Private="false" />
+    <Reference Include="GH.Shared" HintPath="$(GameManaged)\GH.Shared.dll" Publicize="true" Private="false" />
+    <Reference Include="ScenarioRuleLibrary" HintPath="$(GameManaged)\ScenarioRuleLibrary.dll" Publicize="true" Private="false" />
+    <Reference Include="MapRuleLibrary" HintPath="$(GameManaged)\MapRuleLibrary.dll" Publicize="true" Private="false" />
+    <Reference Include="InControl" HintPath="$(GameManaged)\InControl.dll" Publicize="true" Private="false" />
+    <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)\Unity.InputSystem.dll" Private="false" />
+    <Reference Include="Unity.Addressables" HintPath="$(GameManaged)\Unity.Addressables.dll" Private="false" />
+    <Reference Include="Unity.ResourceManager" HintPath="$(GameManaged)\Unity.ResourceManager.dll" Private="false" />
+    <Reference Include="Unity.TextMeshPro" HintPath="$(GameManaged)\Unity.TextMeshPro.dll" Private="false" />
+  </ItemGroup>
+</Project>
