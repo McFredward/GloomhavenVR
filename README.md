@@ -2,25 +2,36 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phases 2 (hands), 3a (board touch targeting) and 4 (comfort &
-> table manipulation) code-complete, awaiting hardware validation.**
-> On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod now has tracked
+> **Status: pre-alpha — Phases 2 (hands), 3a (board touch targeting), 3c (world-space UI)
+> and 4 (comfort & table manipulation) code-complete, awaiting hardware validation.**
+> On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod has tracked
 > hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
 > proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
 > game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
 > desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
-> **New in Phase 3a:** the board is playable by hand — hex/actor/door/chest picking by
+>
+> **Phase 3a:** the board is playable by hand — hex/actor/door/chest picking by
 > fingertip touch (near) or laser ray (far), clicks committed through the game's own
 > click path (undo/MP-safe), AoE rotation on the thumbstick, hover haptics, enemy stat
 > panel on point/touch.
 >
-> Phase 4 adds Demeo-style table manipulation (one grip drags the table, two grips rotate
+> **Phase 3c:** the physical interface — poke-able Ready/Undo/Skip buttons at the table
+> edge, the initiative track / element board / combat log / objectives as world panels,
+> confirmation dialogs as world modals, phase-banner HMD toasts, true world-space actor
+> HP bars above the miniatures, a wrist status HUD, world tooltips, a floating 2D screen
+> (+ virtual-mouse ray pointer) for menus/merchant/level-up, and a gamepad-mode guard —
+> every surface individually toggleable in `worldui.gloomhavenvr.cfg`, all conversions
+> fully reversible.
+>
+> **Phase 4:** Demeo-style table manipulation (one grip drags the table, two grips rotate
 > and pinch-scale it, with haptic detents), snap/smooth turn, recenter (hold B+Y) with
 > seated/standing presets, an optional comfort vignette and the `ComfortSettings` API the
 > future in-VR settings panel binds to (`BepInEx/config/dev.gloomhavenvr.comfort.cfg`).
+>
 > Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`; comfort surface:
 > `docs/INTERFACES-P4.md`. Hardware checklists: `docs/TESTING-P1.md`, `docs/TESTING-P2.md`,
-> `docs/TESTING-P3A.md`, `docs/TESTING-P4.md`. No card hand / world-space UI yet (Phases 3b/3c).
+> `docs/TESTING-P3A.md`, `docs/TESTING-P3C.md`, `docs/TESTING-P4.md`.
+> No card hand yet (Phase 3b in flight on its own branch).
 
 ## What / why
 
