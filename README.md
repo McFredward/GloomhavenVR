@@ -2,20 +2,25 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: pre-alpha — Phase 2 (hands & interaction primitives) and Phase 4 (comfort &
+> **Status: pre-alpha — Phases 2 (hands), 3a (board touch targeting) and 4 (comfort &
 > table manipulation) code-complete, awaiting hardware validation.**
 > On top of the Phase-1 OpenXR bootstrap and diorama camera rig, the mod now has tracked
 > hands with articulated fingers (bundle gloves or procedural fallback), the poke / ray /
 > proximity-grab / palm-gate interaction primitives, haptics, a typed VR event bus over the
 > game's message pump, the VR mode state machine and the virtual-mouse bridge — plus a
 > desktop dev harness (`[Dev] Enabled`) that exercises all of it without an HMD.
+> **New in Phase 3a:** the board is playable by hand — hex/actor/door/chest picking by
+> fingertip touch (near) or laser ray (far), clicks committed through the game's own
+> click path (undo/MP-safe), AoE rotation on the thumbstick, hover haptics, enemy stat
+> panel on point/touch.
+>
 > Phase 4 adds Demeo-style table manipulation (one grip drags the table, two grips rotate
 > and pinch-scale it, with haptic detents), snap/smooth turn, recenter (hold B+Y) with
 > seated/standing presets, an optional comfort vignette and the `ComfortSettings` API the
 > future in-VR settings panel binds to (`BepInEx/config/dev.gloomhavenvr.comfort.cfg`).
 > Frozen API for the Phase-3 feature workers: `docs/INTERFACES-P2.md`; comfort surface:
 > `docs/INTERFACES-P4.md`. Hardware checklists: `docs/TESTING-P1.md`, `docs/TESTING-P2.md`,
-> `docs/TESTING-P4.md`. No card hand / board play / world UI yet.
+> `docs/TESTING-P3A.md`, `docs/TESTING-P4.md`. No card hand / world-space UI yet (Phases 3b/3c).
 
 ## What / why
 
