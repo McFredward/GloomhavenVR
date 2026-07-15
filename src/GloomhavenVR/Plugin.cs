@@ -47,6 +47,9 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Force the ray interactor on in every VR mode (accessibility/preference).</summary>
     internal static ConfigEntry<bool> RayAlwaysOn = null!;
 
+    /// <summary>ModalUI: ray visuals only show within this cone of a UI surface (0 = always show). P5.</summary>
+    internal static ConfigEntry<float> ModalRayConeDegrees = null!;
+
     /// <summary>Master dev switch: event bus + hands run without an HMD, dev console installed.</summary>
     internal static ConfigEntry<bool> DevMode = null!;
 
@@ -102,6 +105,11 @@ public class Plugin : BaseUnityPlugin
             "Hands", "RayAlwaysOn", false,
             "Keep the laser/ray interactor enabled in every VR mode instead of only in " +
             "far-interaction contexts.");
+        ModalRayConeDegrees = Config.Bind(
+            "Hands", "ModalRayConeDegrees", 25f,
+            "While a modal dialog is up (ModalUI mode) the ray stays usable but its laser " +
+            "only shows when pointing within this many degrees of a UI surface (world dialog, " +
+            "flat screen). 0 = always show the laser in ModalUI.");
         DevMode = Config.Bind(
             "Dev", "Enabled", false,
             "Developer mode: wires the VR event bus and hand simulation even without an HMD " +

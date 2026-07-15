@@ -132,10 +132,37 @@ internal abstract class PokeableBehaviour : MonoBehaviour, IPokeable
 }
 
 /// <summary>
+/// The pose a <see cref="GrabbableBehaviour"/> takes relative to the hand's GrabAnchor
+/// while held (P5, MISSION A.6). <see cref="Default"/> reproduces the Phase-2 snap
+/// (anchor origin, identity rotation, scale untouched).
+/// </summary>
+internal readonly struct HeldPose
+{
+    /// <summary>Local position relative to the GrabAnchor.</summary>
+    public readonly Vector3 LocalPosition;
+
+    /// <summary>Local rotation relative to the GrabAnchor.</summary>
+    public readonly Quaternion LocalRotation;
+
+    /// <summary>Uniform local scale while held; null = leave the current scale untouched.</summary>
+    public readonly float? LocalScale;
+
+    public HeldPose(Vector3 localPosition, Quaternion localRotation, float? localScale = null)
+    {
+        LocalPosition = localPosition;
+        LocalRotation = localRotation;
+        LocalScale = localScale;
+    }
+
+    /// <summary>Anchor origin, identity rotation, scale untouched — the Phase-2 behavior.</summary>
+    public static HeldPose Default { get; } = new(Vector3.zero, Quaternion.identity);
+}
+
+/// <summary>
 /// Convenience base: implement <see cref="IGrabbable"/>, get registration and
-/// (optional) snap-to-hand parenting for free. FROZEN Phase-2 API.
-/// Set <see cref="snapToHand"/> = true to have the object parented to the hand's
-/// GrabAnchor while held and restored on release.
+/// (optional) snap-to-hand parenting for free. FROZEN Phase-2 API (P5 addition:
+/// <see cref="GetHeldPose"/>). Set <see cref="snapToHand"/> = true to have the object
+/// parented to the hand's GrabAnchor while held and restored on release.
 /// </summary>
 internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
 {
@@ -145,6 +172,8 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
     private Transform? _originalParent;
     private Vector3 _originalLocalPos;
     private Quaternion _originalLocalRot;
+    private Vector3 _originalLocalScale;
+    private bool _scaleOverridden;
     private bool _attached;
 
     /// <summary>The hand currently holding this object, if any.</summary>
@@ -184,6 +213,14 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
         Holder = null;
     }
 
+    /// <summary>
+    /// P5 (MISSION A.6): the pose this object takes relative to the GrabAnchor while
+    /// held. Override instead of re-writing the transform after <c>base.OnGrab</c> —
+    /// the base snap applies exactly this pose, so derived classes never fight it.
+    /// Called once at grab time (per grab).
+    /// </summary>
+    protected virtual HeldPose GetHeldPose(VRHand hand) => HeldPose.Default;
+
     /// <summary>Snap to the hand's grab anchor (stores the original parent/pose).</summary>
     protected void AttachToHand(VRHand hand)
     {
@@ -192,13 +229,19 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
         _originalParent = transform.parent;
         _originalLocalPos = transform.localPosition;
         _originalLocalRot = transform.localRotation;
+        _originalLocalScale = transform.localScale;
+
+        HeldPose pose = GetHeldPose(hand);
         transform.SetParent(hand.Rig.GrabAnchor, worldPositionStays: false);
-        transform.localPosition = Vector3.zero;
-        transform.localRotation = Quaternion.identity;
+        transform.localPosition = pose.LocalPosition;
+        transform.localRotation = pose.LocalRotation;
+        _scaleOverridden = pose.LocalScale.HasValue;
+        if (pose.LocalScale.HasValue)
+            transform.localScale = Vector3.one * pose.LocalScale.Value;
         _attached = true;
     }
 
-    /// <summary>Restore the pre-grab parent and local pose.</summary>
+    /// <summary>Restore the pre-grab parent and local pose (and scale, if the held pose changed it).</summary>
     protected void DetachFromHand()
     {
         if (!_attached)
@@ -206,6 +249,11 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
         transform.SetParent(_originalParent, worldPositionStays: false);
         transform.localPosition = _originalLocalPos;
         transform.localRotation = _originalLocalRot;
+        if (_scaleOverridden)
+        {
+            transform.localScale = _originalLocalScale;
+            _scaleOverridden = false;
+        }
         _attached = false;
     }
 }

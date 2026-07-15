@@ -45,6 +45,7 @@ internal sealed class HandsModule : IVRModule
         // Hot-reload hygiene: registries and the asset bundle are static.
         VRInteractables.Clear();
         UguiPokeSurfaces.Clear();
+        RayInteractor.ClearUiTargets();
         HandVisuals.UnloadBundle();
     }
 }
