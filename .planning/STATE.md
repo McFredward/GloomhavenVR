@@ -1,8 +1,8 @@
 # GSD State
 
 - **Milestone:** v0.1 (first playable VR release)
-- **Position:** **Code-complete.** All phases P0–P5 merged to main, release zip builds and verifies. Next: human hardware pass (Windows + Quest 3).
-- **Last update:** 2026-07-15
+- **Position:** **Hardware iteration loop.** 10 on-device test rounds done; menu + campaign map + scenario entry + clicking + card fan + board targeting all working in VR. Current round: map visuals, story-lock fallback, free movement, roll-only card reveal, 3D cards in hand, control-board redesign (all merged, awaiting test #11).
+- **Last update:** 2026-07-17
 
 ## Done
 - Research (5 reports + PATCH-TARGETS real-DLL audit) → ARCHITECTURE → ROADMAP
