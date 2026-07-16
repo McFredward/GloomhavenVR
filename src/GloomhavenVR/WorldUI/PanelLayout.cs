@@ -17,13 +17,26 @@ internal enum PanelSlot
 /// <summary>
 /// Curved arrangement helper: computes world poses for panel slots around the
 /// diorama table. The layout anchor is the camera orbit focus (the table center
-/// the Phase-1 rig recenters against), yawed like the VR rig so panels face the
-/// seat the player recentered at. All slot offsets are REAL-WORLD meters
-/// (multiplied by the diorama scale), so panels keep their physical size and
-/// placement regardless of the table's game-unit scale.
+/// the Phase-1 rig recenters against), yawed toward the seat the player last
+/// recentered at. All slot offsets are REAL-WORLD meters (multiplied by the
+/// diorama scale), so panels keep their physical size and placement regardless
+/// of the table's game-unit scale.
+///
+/// WORLD-ANCHORED since P6 (test #8, "fix in der Welt platziert"): the seat yaw
+/// is CACHED per <see cref="Rig.VRRigDriver.RigPoseVersion"/> — i.e. re-derived
+/// only when the rig is (re)built or deliberately recentered — instead of read
+/// from the live rig every frame. Snap turns and world-grab therefore leave the
+/// panels standing at the table like physical objects (they still move/scale
+/// with the diorama itself, because they are placed in world space at the table
+/// anchor). `[WorldUI] PanelsFollowView = true` restores the legacy per-frame
+/// rig-yaw follow.
 /// </summary>
 internal static class PanelLayout
 {
+    // Cached seat yaw (world anchoring): valid for one (rig instance, pose version).
+    private static int _cachedPoseVersion = -1;
+    private static Transform? _cachedRig;
+    private static Quaternion _cachedYaw = Quaternion.identity;
     private struct Slot
     {
         public float AzimuthDeg;  // 0 = straight ahead of the player, + = right
@@ -55,9 +68,10 @@ internal static class PanelLayout
     }
 
     /// <summary>
-    /// Layout anchor: position at the orbit focus (table center), yaw of the VR rig
-    /// (player looks +Z). Falls back to 1.5 m in front of the main camera when no
-    /// scenario/rig exists (dev layout preview).
+    /// Layout anchor: position at the orbit focus (table center, live — panels follow
+    /// a genuine table move), yaw of the seat the player last recentered at (cached —
+    /// see class doc; live rig yaw only with [WorldUI] PanelsFollowView). Falls back
+    /// to 1.5 m in front of the main camera when no scenario/rig exists (dev preview).
     /// </summary>
     internal static bool TryGetAnchor(out Vector3 position, out Quaternion yaw)
     {
@@ -66,7 +80,24 @@ internal static class PanelLayout
         if (rig != null && controller != null)
         {
             position = controller.FocusPoint;
-            yaw = Quaternion.Euler(0f, rig.eulerAngles.y, 0f);
+
+            if (WorldUIConfig.PanelsFollowView.Value)
+            {
+                // Legacy: follow the live rig yaw (panels swing with snap turns).
+                yaw = Quaternion.Euler(0f, rig.eulerAngles.y, 0f);
+                return true;
+            }
+
+            // World anchoring: re-derive the seat yaw only when the rig was rebuilt
+            // or recentered (RigPoseVersion bumps there and nowhere else).
+            int version = Rig.VRRigDriver.RigPoseVersion;
+            if (version != _cachedPoseVersion || !ReferenceEquals(rig, _cachedRig))
+            {
+                _cachedPoseVersion = version;
+                _cachedRig = rig;
+                _cachedYaw = Quaternion.Euler(0f, rig.eulerAngles.y, 0f);
+            }
+            yaw = _cachedYaw;
             return true;
         }
 
