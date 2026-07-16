@@ -318,7 +318,7 @@ internal static class CardsGameApi
         if (b.canvasGroup == null || b.canvasGroup.alpha <= 0f)
             return false;
         return b.ButtonComponent != null && b.ButtonComponent.enabled
-               && b.warningMask != null && !b.warningMask.gameObject.activeSelf
+               && (b.warningMask == null || !b.warningMask.gameObject.activeSelf)
                && b.IsInteractable;
     }
 
