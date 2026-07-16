@@ -1,4 +1,4 @@
-# Camera & Layer Policy (fix/rig-camera-ownership + fix/menu-freeze-visuals)
+# Camera & Layer Policy (fix/rig-camera-ownership + fix/menu-freeze-visuals + fix/menu-stack-input)
 
 Outcome of hardware tests #3/#4 (Quest 3 + Virtual Desktop, 2026-07). Test #3 fixed
 stereo hijacking, layer masks and rig lifetime. Test #4 proved the remaining
@@ -116,6 +116,40 @@ DontDestroyOnLoad + HideAndDontSave roots (`GloomhavenVR.Core`, `.RigDriver`,
 host) rides the BepInEx manager GO — INSTALL.md recommends
 `HideManagerGameObject = true`.
 
+## §6 FlatScreen RT stack capture — owner: `WorldUI.FlatScreen`
+
+Hardware test #5: redirecting ONLY the UICamera into the FlatScreen RT loses every
+other backbuffer camera's content — 'Main Camera' (menu backdrop/slideshow,
+clear=Depth) and the late-created 'MainMenuVideo' still rendered to the backbuffer,
+which the desktop-mirror Blit overwrites at end of frame → black background on the
+quad AND the desktop.
+
+While the FlatScreen is visible (Menu2D auto-show / ModalUI fallback), **every game
+camera that renders to the backbuffer is captured into `GloomhavenVR.FlatScreenRT`**:
+
+- **Excluded:** the rig's own head camera (§3) and cameras already targeting another
+  RT ('GUI 3D Camera' → character-assembly RT).
+- **Ordering:** Unity renders cameras targeting the same RT in ascending `depth`
+  order — the captured stack composes inside the RT exactly like it did on the
+  backbuffer. Nothing is reordered.
+- **Clear flags:** only the stack's lowest-depth camera gets an OPAQUE SolidColor
+  clear forced (fresh RT color/alpha are undefined — test #4); all others keep their
+  own clear flags (Depth etc.) so compositing matches the game's intent. Depth ties
+  ('Main Camera' and 'UI Camera' both ship depth 1.0): the UICamera-tagged camera
+  never wins the base pick — it composites last per game intent.
+- **Pump:** per-tick capture sweep (shared no-alloc scan buffer) — late-created
+  cameras (MainMenuVideo) are captured the frame they appear; redirects and the base
+  clear are re-asserted every tick against game-side rewrites.
+- **Reversibility:** `targetTexture` and the base camera's clear flags are restored
+  on FlatScreen hide, scene change (bus event → release, re-capture next tick), VR
+  off and hot reload.
+- **No fight with §1:** `VRCameraPolicy` owns exactly `stereoTargetEye`/XR tracking;
+  the FlatScreen owns exactly `targetTexture`/clear of captured cameras. Stereo-None
+  + RT target are complementary properties of the same camera.
+- **Log lines:** `FlatScreen stack capture: '<cam>' → RenderTexture (depth …)` per
+  camera, `FlatScreen stack base: '<cam>' … clears the RT`, and the camera inventory
+  marks captured cameras with `[RT stack]` plus a stack summary line.
+
 ## Expected log shape on a healthy run
 
 ```
@@ -124,7 +158,9 @@ host) rides the BepInEx manager GO — INSTALL.md recommends
 [Core] Stereo policy: 'Main Camera' forced to StereoTargetEyeMask.None (menu rig built; head 'GloomhavenVR.HeadCamera' keeps the HMD).
 [Core] Stereo policy sweep (menu rig built): forced None on 3 camera(s), …
 [Hands] Hands built under 'GloomhavenVR.VRRig'.
-[WorldUI] FlatScreen: UICamera 'UI Camera' → RenderTexture (clear Depth → SolidColor opaque black while redirected).
+[WorldUI] FlatScreen stack capture: 'Main Camera' → RenderTexture (depth 1.0, clear Depth kept unless base).
+[WorldUI] FlatScreen stack capture: 'UI Camera' → RenderTexture (depth 1.0, clear Depth kept unless base).
+[WorldUI] FlatScreen stack base: 'Main Camera' (depth 1.0) clears the RT (clear Depth → SolidColor opaque black).
 [WorldUI] FlatScreen quad placed: pos=…, … | head 'GloomhavenVR.HeadCamera' pos=…, fwd=…, mask=…, clear=SolidColor, stereo=Both.
 [Core] Heartbeat #1: frames+600 | rigDriver=ok head=ok … | display=running input=running devices=5 hmd=tracked L=tracked R=tracked
 ```
