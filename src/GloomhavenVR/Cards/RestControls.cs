@@ -30,11 +30,19 @@ internal sealed class RestControls
     internal void EnsureBuilt(PlayTray tray)
     {
         if (_shortToken == null && tray.ShortRestAnchor != null)
+        {
             _shortToken = RestToken.Create(tray.ShortRestAnchor, "ZZZ", new Color(0.85f, 0.75f, 0.35f),
+                CardsGameApi.Localize("GUI_SHORT_REST", "Short rest"),
                 () => ShortRestRequested?.Invoke());
+            tray.RegisterLaserTarget(_shortToken.GetComponent<Collider>(), _shortToken);
+        }
         if (_longToken == null && tray.LongRestAnchor != null)
+        {
             _longToken = RestToken.Create(tray.LongRestAnchor, "99", new Color(0.5f, 0.65f, 0.9f),
+                CardsGameApi.Localize("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke());
+            tray.RegisterLaserTarget(_longToken.GetComponent<Collider>(), _longToken);
+        }
     }
 
     internal void Destroy()
@@ -70,9 +78,10 @@ internal sealed class RestControls
         private Color _baseColor;
         private bool _enabled0 = true;
 
-        internal static RestToken Create(Transform anchor, string label, Color color, System.Action onPoke)
+        internal static RestToken Create(Transform anchor, string label, Color color,
+            string caption, System.Action onPoke)
         {
-            var go = new GameObject("RestToken");
+            var go = new GameObject($"RestToken_{caption}");
             go.transform.SetParent(anchor, worldPositionStays: false);
 
             var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -99,6 +108,18 @@ internal sealed class RestControls
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.black;
             ((RectTransform)textGo.transform).sizeDelta = new Vector2(0.05f, 0.03f);
+
+            // Readable caption under the token (localized where the game has a key).
+            var captionGo = new GameObject("Caption");
+            captionGo.transform.SetParent(go.transform, worldPositionStays: false);
+            captionGo.transform.localPosition = new Vector3(0f, -0.028f, -0.004f);
+            var captionTmp = captionGo.AddComponent<TextMeshPro>();
+            captionTmp.text = caption;
+            captionTmp.fontSize = 0.35f;
+            captionTmp.alignment = TextAlignmentOptions.Center;
+            captionTmp.color = new Color(0.85f, 0.8f, 0.7f);
+            captionTmp.enableWordWrapping = false;
+            ((RectTransform)captionGo.transform).sizeDelta = new Vector2(0.1f, 0.02f);
 
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(0.04f, 0.04f, 0.015f);
@@ -129,6 +150,7 @@ internal sealed class RestControls
             if (!_enabled0)
                 return;
             hand.SendHaptic(HapticPreset.ClickPulse);
+            Core.VRLog.Info("Cards", $"Board: {name} pressed ({hand.Side}).");
             _onPoke?.Invoke();
         }
 
