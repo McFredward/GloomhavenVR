@@ -34,6 +34,7 @@ internal sealed class VREventsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Choreographer_ProcessMessage_Patch));
         VRSession.Harmony?.PatchAll(typeof(Choreographer_SetChoreographerState_Patch));
         VRSession.Harmony?.PatchAll(typeof(UIManager_ToggleLockUI_Patch));
+        VRSession.Harmony?.PatchAll(typeof(UIWindow_Transition_Patch));
 
         GameEventBridge.Subscribe();
         VRModeStateMachine.Attach();

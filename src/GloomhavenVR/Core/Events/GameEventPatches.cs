@@ -76,3 +76,32 @@ internal static class UIManager_ToggleLockUI_Patch
         VREvents.Raise(new UiLockEvent(active));
     }
 }
+
+/// <summary>
+/// Observes EVERY game window's visibility transition (P6 — catch-all modal fallback,
+/// hardware test #8: in-scenario dialogs the player cannot see in VR deadlock the game).
+///
+/// Verified against decompiled GH.Runtime (2026-07-16):
+/// <code>
+///   // GH.Runtime/UnityEngine.UI/UIWindow.cs:15 — the game's ONLY window primitive
+///   [RequireComponent(typeof(CanvasGroup))] public class UIWindow : MonoBehaviour, ...
+///   // UIWindow.cs:539 — the single choke point every visibility change funnels through:
+///   protected virtual void EvaluateAndTransitionToVisualState(VisualState state, bool instant)
+/// </code>
+/// `Show(bool)` (:474), `Hide(bool)` (:524), `HideOrUpdateStartingState`,
+/// `ShowOrUpdateStartingState` and the `Start()` starting-state path ALL call it, and a
+/// repo-wide grep found NO subclass overriding it (`UIWindowManager` keeps no open-set of
+/// its own — it only owns the escapable list), so this postfix sees every open/close.
+/// Body size is far above Mono's inline threshold (tween + event invokes). Fires only on
+/// actual transitions (Show/Hide early-out on the current state), so the postfix is
+/// edge-triggered and cheap.
+/// </summary>
+[HarmonyPatch(typeof(UnityEngine.UI.UIWindow), "EvaluateAndTransitionToVisualState")]
+internal static class UIWindow_Transition_Patch
+{
+    private static void Postfix(UnityEngine.UI.UIWindow __instance, UnityEngine.UI.UIWindow.VisualState state)
+    {
+        VREvents.Raise(new WindowVisibilityEvent(
+            __instance, state == UnityEngine.UI.UIWindow.VisualState.Shown));
+    }
+}
