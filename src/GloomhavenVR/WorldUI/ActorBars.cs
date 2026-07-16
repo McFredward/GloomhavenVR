@@ -38,11 +38,21 @@ internal static class ActorBars
     {
         public WorldspacePanelUIController Controller = null!;
         public ConvertedPanel Panel = null!;
+
+        /// <summary>
+        /// BOARD-SPACE (world-unit) anchor height above the TRACK point, cached at
+        /// adopt (P6 fix #4): derived from the miniature's renderer bounds, so the
+        /// bar clears the mini at EVERY diorama zoom — a real-meter offset (the old
+        /// 0.045 × worldScale) shrank in board units when the player pinch-zoomed
+        /// the table larger and sank the bars into the miniatures.
+        /// </summary>
+        public float AnchorOffsetWU;
     }
 
     private static readonly HashSet<WorldspaceDisplayPanelBase> Owned = new();
     private static readonly Dictionary<WorldspacePanelUIController, Adopted> Adoptions = new();
     private static readonly List<WorldspacePanelUIController> Scratch = new(32);
+    private static readonly List<Renderer> RendererScratch = new(16);
 
     /// <summary>Patch gate: true when the game must NOT drive this panel's transform.</summary>
     internal static bool Owns(WorldspaceDisplayPanelBase panel) => Owned.Contains(panel);
@@ -108,21 +118,13 @@ internal static class ActorBars
             if (controller == null || panel.HostGo == null)
                 continue;
 
-            // Track point: same logic the game uses (head bone / base + offset;
-            // publicized private fields of WorldspaceDisplayPanelBase).
-            Vector3 track;
-            Transform headBone = controller.m_HeadBonePoint;
-            Transform basePoint = controller.m_BasePoint;
-            if (controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.HeadBone && headBone != null)
-                track = headBone.position;
-            else if (basePoint != null)
-                track = controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.Base
-                    ? basePoint.position
-                    : basePoint.position + controller.m_HeadBaseOffset;
-            else
+            if (!TryGetTrackPoint(controller, out Vector3 track))
                 continue;
 
-            Vector3 pos = track + Vector3.up * (0.045f * worldScale);
+            // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
+            // scales with the diorama by construction — zooming the table keeps the
+            // bar exactly above the miniature instead of inside it.
+            Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
 
             // Billboard: uGUI front faces -forward → +Z away from the viewer.
             Vector3 fromHead = pos - headPos;
@@ -130,8 +132,10 @@ internal static class ActorBars
                 continue;
             Quaternion rot = Quaternion.LookRotation(fromHead.normalized, Vector3.up);
 
-            // Distance clamp: real size up close, gently growing when far so bars
-            // stay readable across the table (clamped ×2.5).
+            // Distance clamp in HMD-RELATIVE REAL meters: world distance ÷ diorama
+            // scale (rig lossyScale incl. the live pinch multiplier) — real size up
+            // close, gently growing when far so bars stay readable across the table
+            // (clamped ×2.5). The panel scale is world units = real meters × scale.
             float realDistance = fromHead.magnitude / worldScale;
             float grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
 
@@ -141,6 +145,73 @@ internal static class ActorBars
         }
     }
 
+    /// <summary>
+    /// Track point: same selection the game's own <c>TrackCharacter</c> uses (head
+    /// bone / base / base + head offset; decompiled WorldspaceDisplayPanelBase.cs:185
+    /// — publicized private fields).
+    /// </summary>
+    private static bool TryGetTrackPoint(WorldspacePanelUIController controller, out Vector3 track)
+    {
+        Transform headBone = controller.m_HeadBonePoint;
+        Transform basePoint = controller.m_BasePoint;
+        if (controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.HeadBone && headBone != null)
+        {
+            track = headBone.position;
+            return true;
+        }
+        if (basePoint != null)
+        {
+            track = controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.Base
+                ? basePoint.position
+                : basePoint.position + controller.m_HeadBaseOffset;
+            return true;
+        }
+        track = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Board-space anchor height above the track point, from the miniature's renderer
+    /// bounds (world-space AABB — already in board units). Vanilla equivalent: the game
+    /// adds <c>m_WorldspaceOffsetY</c> (world units, from <c>Init(..., float height =
+    /// 1.8f)</c>) before projecting to the screen (decompiled WorldspaceDisplayPanel
+    /// Base.cs:186, WorldspacePanelUIController.cs:94); we anchor at the actual bounds
+    /// top (tighter than the fixed 1.8) with the vanilla offset as the fallback.
+    /// Called once per adoption — the GetComponentsInChildren allocation is a rare,
+    /// per-actor-spawn event, not per-frame.
+    /// </summary>
+    private static float ComputeAnchorOffsetWU(WorldspacePanelUIController controller)
+    {
+        float fallback = Mathf.Max(controller.m_WorldspaceOffsetY, 0.2f);
+
+        GameObject tracked = controller.m_ObjectToTrack;
+        if (tracked == null || !TryGetTrackPoint(controller, out Vector3 track))
+            return fallback;
+
+        RendererScratch.Clear();
+        tracked.GetComponentsInChildren(includeInactive: false, RendererScratch);
+        if (RendererScratch.Count == 0)
+            return fallback;
+
+        float maxY = float.MinValue;
+        float minY = float.MaxValue;
+        for (int i = 0; i < RendererScratch.Count; i++)
+        {
+            Bounds b = RendererScratch[i].bounds;
+            if (b.max.y > maxY) maxY = b.max.y;
+            if (b.min.y < minY) minY = b.min.y;
+        }
+        RendererScratch.Clear();
+
+        float height = maxY - minY;
+        if (height <= 0.01f)
+            return fallback; // degenerate bounds (still spawning) — vanilla height
+
+        // Clear the top of the mini by ~12% of its own height, everything in board units.
+        float offset = (maxY - track.y) + 0.12f * height;
+        return Mathf.Clamp(offset, 0.05f, fallback + height);
+    }
+
     private static void Adopt(WorldspacePanelUIController controller)
     {
         ConvertedPanel? panel = CanvasConversion.Convert(
@@ -148,7 +219,12 @@ internal static class ActorBars
         if (panel == null)
             return;
 
-        Adoptions[controller] = new Adopted { Controller = controller, Panel = panel };
+        Adoptions[controller] = new Adopted
+        {
+            Controller = controller,
+            Panel = panel,
+            AnchorOffsetWU = ComputeAnchorOffsetWU(controller),
+        };
         Owned.Add(controller);
     }
 
