@@ -21,8 +21,9 @@ namespace GloomhavenVR.WorldUI;
 /// - a small "gear" pokeable at the table edge (next to the P3c button cluster),
 ///   scenario-only ([SettingsPanel] GearButton), and
 /// - a controller chord anywhere hands exist: hold the NON-dominant lower face button
-///   (A/X — free for features, the recenter chord uses B+Y on both hands) for
-///   [SettingsPanel] ChordHoldSeconds.
+///   (A/X — free for features, the recenter chord uses B+Y on both hands) for at least
+///   [SettingsPanel] ChordHoldSeconds and RELEASE (P6: fires on release, because the
+///   same button held longer is the manual flat-screen chord — see NonDominantHold).
 ///
 /// Interaction: the panel canvas registers with <see cref="UguiPokeSurfaces"/>
 /// (SmallDialog tuning — MISSION A.10) so the Phase-2 fingertip poke drives real uGUI
@@ -43,8 +44,6 @@ internal sealed class SettingsPanel
     private Canvas? _canvas;
     private GearButton? _gear;
     private bool _open;
-    private float _chordHeld;
-    private bool _chordFired;
     private float _nextRefresh;
     private readonly List<Action> _refreshers = new(16);
 
@@ -159,26 +158,21 @@ internal sealed class SettingsPanel
 
     // ---- chord ---------------------------------------------------------------------------
 
+    /// <summary>
+    /// P6: fires on RELEASE via the shared <see cref="NonDominantHold"/> tracker —
+    /// the same button carries the LONG-hold manual flat-screen chord (FlatScreen,
+    /// fires at its threshold while held and marks the press Consumed). A short hold
+    /// (≥ ChordHoldSeconds, released before the screen chord fired) toggles the
+    /// settings panel; a consumed long hold does nothing extra here.
+    /// </summary>
     private void TickChord()
     {
         float hold = WorldUIConfig.SettingsChordHoldSeconds.Value;
-        VRHand? primary = VRHands.Primary;
-        VRHand? hand = primary == null ? null
-            : VRHands.Get(primary.Side == HandSide.Left ? HandSide.Right : HandSide.Left);
-
-        bool down = hold > 0f && hand != null && hand.HasPose && hand.PrimaryButton;
-        if (!down)
-        {
-            _chordHeld = 0f;
-            _chordFired = false;
+        if (hold <= 0f || !NonDominantHold.ReleasedThisFrame || NonDominantHold.Consumed)
             return;
-        }
-
-        _chordHeld += Time.deltaTime;
-        if (_chordFired || _chordHeld < hold)
+        if (NonDominantHold.ReleasedAfterSeconds < hold)
             return;
-        _chordFired = true;
-        hand!.SendHaptic(HapticPreset.ClickPulse);
+        NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
         Toggle();
     }
 

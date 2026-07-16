@@ -90,9 +90,13 @@ namespace GloomhavenVR.WorldUI;
 /// NON-dominant trigger switches dominance to that hand (persisted config, haptic
 /// confirm) — cards/fan/wrist HUD follow the same setting automatically.
 ///
-/// Show policy: auto-appears in <see cref="VRMode.Menu2D"/> (config), hides in
-/// scenario modes; in <see cref="VRMode.ModalUI"/> it appears when no converted
-/// dialog owns the modal (fallback for unconverted windows).
+/// Show policy (P6): auto-appears in <see cref="VRMode.Menu2D"/> (config) — which
+/// since test #8 covers EVERYTHING pre-scenario including the campaign/world map —
+/// hides in scenario modes; in <see cref="VRMode.ModalUI"/> it appears when a
+/// <see cref="ModalFallback"/> window is open or no converted dialog owns the modal.
+/// MANUAL CHORD (test #8 self-rescue): holding the non-dominant A/X for
+/// [WorldUI] ManualScreenChordSeconds during a scenario toggles the screen in ANY
+/// scenario mode, overriding the policy — the player can always reach the 2D UI.
 /// </summary>
 internal sealed class FlatScreen
 {
@@ -179,6 +183,10 @@ internal sealed class FlatScreen
     // Pre-menu "starting…" indicator (HMD-side sign of life while the intro plays flat).
     private GameObject? _indicator;
 
+    // Manual screen chord (P6 self-rescue): forced-visible latch + per-press fire guard.
+    private bool _manualShow;
+    private bool _chordFired;
+
     public FlatScreen()
     {
         // P5 (MISSION A.2): scene loads re-wire the game's UI cameras (CanvasManager.
@@ -206,6 +214,8 @@ internal sealed class FlatScreen
             VRLog.Warn("WorldUI", "FlatScreen quad was destroyed externally — rebuilding.");
             _visible = false;
         }
+
+        TickManualChord();
 
         bool want = !preMenu && WantVisible();
         if (want && !_visible)
@@ -399,12 +409,56 @@ internal sealed class FlatScreen
         if (mode == VRMode.Menu2D)
             return WorldUIConfig.FlatScreenAutoShow.Value;
 
-        // Fallback for unconverted modal windows (merchant, level-up, ESC menu...):
-        // the confirmation-box surface owns plain dialogs; everything else 2D.
+        // P6 self-rescue: the manual chord forces the screen in ANY scenario mode.
+        if (_manualShow)
+            return true;
+
+        // Catch-all fallback for unconverted windows that expect interaction during
+        // a scenario (events, tutorials, take-damage, ESC menu, rewards, ...): the
+        // ModalFallback tracker asserted ModalUI and wants the full 2D composite.
+        // Otherwise, in a plain UI-lock modal, the world-space confirmation surface
+        // owns simple dialogs; everything else falls back 2D too.
         if (mode == VRMode.ModalUI)
-            return !WorldUIConfig.Dialogs.Value || !IsConfirmationBoxOpen();
+            return ModalFallback.ScreenWanted
+                   || !WorldUIConfig.Dialogs.Value
+                   || !IsConfirmationBoxOpen();
 
         return false;
+    }
+
+    /// <summary>
+    /// Manual screen chord (P6): fires AT the hold threshold while the non-dominant
+    /// A/X is still held (the settings-panel chord fires on release BELOW it — the
+    /// shared <see cref="NonDominantHold"/> tracker arbitrates via Consumed). Active
+    /// only while an actual scenario board exists: pre-scenario Menu2D auto-shows
+    /// the screen anyway, and the latch resets on scenario exit.
+    /// </summary>
+    private void TickManualChord()
+    {
+        if (!Core.Events.VRModeStateMachine.ScenarioBoardExists)
+        {
+            _manualShow = false;
+            _chordFired = false;
+            return;
+        }
+        if (!WorldUIConfig.ManualScreenChord.Value)
+            return;
+
+        if (NonDominantHold.HeldSeconds <= 0f)
+        {
+            _chordFired = false;
+            return;
+        }
+        float threshold = Mathf.Max(0.5f, WorldUIConfig.ManualScreenChordSeconds.Value);
+        if (_chordFired || NonDominantHold.HeldSeconds < threshold)
+            return;
+
+        _chordFired = true;
+        NonDominantHold.Consumed = true; // the release must not also toggle the settings panel
+        _manualShow = !_manualShow;
+        NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
+        VRLog.Info("WorldUI", $"MANUAL SCREEN CHORD: flat screen toggled {(_manualShow ? "ON" : "OFF")} " +
+                              $"(non-dominant A/X held {threshold:F1}s in scenario).");
     }
 
     private static bool IsConfirmationBoxOpen() =>
