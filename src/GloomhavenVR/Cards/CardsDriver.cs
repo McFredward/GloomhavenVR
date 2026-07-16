@@ -3,6 +3,7 @@ using GloomhavenVR.Cards.Patches;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -69,6 +70,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnDestroy()
     {
+        ClearLaserHover();
         _fan.Destroy();
         _half.Destroy();
         _rest.Destroy();
@@ -119,6 +121,8 @@ internal sealed class CardsDriver : MonoBehaviour
         VRCard? card = _factory.Find(widget);
         if (card != null)
         {
+            if (ReferenceEquals(card, _laserHover))
+                ClearLaserHover();
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _tray.RemoveCard(card);
@@ -152,6 +156,7 @@ internal sealed class CardsDriver : MonoBehaviour
         }
 
         UpdatePalmGate();
+        UpdateFanLaser();
         _fan.Tick();
         _half.Tick();
 
@@ -183,7 +188,8 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void UpdatePalmGate()
     {
-        // Fan trigger: palm-up gate on the NON-dominant hand.
+        // Fan trigger: palm gate on the NON-dominant hand (Demeo: the off hand holds
+        // the deck, the dominant hand interacts).
         VRHand? gateHand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
         if (gateHand != _gateHand)
             _gateHand = gateHand;
@@ -191,15 +197,85 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             if (_fan.IsOpen)
                 _fan.Close();
+            ClearLaserHover();
             return;
         }
 
+        // Live-tunable gate feel (P6): forgiving Demeo cone on the raw device pose —
+        // the visual rig's grip-pitch offset demanded ~60° extra supination (test #8).
+        PalmGate gate = _gateHand.PalmGate;
+        gate.EnterThreshold = CardsConfig.TiltThreshold.Value;
+        gate.ExitThreshold = CardsConfig.TiltExitThreshold;
+        gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
+
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
-        bool shouldOpen = allowFan && _gateHand.PalmGate.IsOpen && _gateHand.PalmGate.Enabled;
+        // RevealMode=always: no gesture at all while a card phase is live (gate.Enabled
+        // is the mode policy). Tilt mode additionally HOLDS the fan open while the
+        // dominant laser is on it — plucking must never collapse the fan mid-reach.
+        bool revealed = CardsConfig.RevealAlways
+            ? gate.Enabled
+            : gate.Enabled && (gate.IsOpen || _laserHover != null);
+        bool shouldOpen = allowFan && revealed;
         if (shouldOpen && !_fan.IsOpen)
             _fan.Open(_gateHand);
         else if (!shouldOpen && _fan.IsOpen)
             _fan.Close();
+    }
+
+    // ------------------------------------------------------------------ fan laser --
+
+    private VRCard? _laserHover;
+
+    /// <summary>
+    /// Demeo pluck (P6): the dominant hand's laser highlights fan cards (pop + one
+    /// haptic tick per card change) and TriggerDown pulls the pointed card into the
+    /// dominant hand (released on TriggerUp). Proximity grab keeps working unchanged.
+    /// </summary>
+    private void UpdateFanLaser()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (!_fan.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
+            || !dom.Ray.Enabled || dom.Grabber.Held != null)
+        {
+            ClearLaserHover();
+            return;
+        }
+
+        PickPose pick = dom.Ray.Current;
+        if (!_fan.TryRaycast(pick.Origin, pick.Direction, out VRCard? card, out Vector3 point, out float dist)
+            || card == null
+            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        {
+            ClearLaserHover();
+            return;
+        }
+
+        if (!ReferenceEquals(card, _laserHover))
+        {
+            ClearLaserHover();
+            _laserHover = card;
+            card.SetLaserHover(true);
+            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
+        }
+
+        // Clamp the visible beam to the card — also raises Ray.HasFreshUiHit, which
+        // suppresses the board far-click for this trigger press.
+        dom.Ray.UiHitOverride = point;
+
+        if (dom.TriggerDown && card.CanGrab)
+        {
+            VRCard grab = card;
+            ClearLaserHover();
+            dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
+        }
+    }
+
+    private void ClearLaserHover()
+    {
+        if (_laserHover == null)
+            return;
+        _laserHover.SetLaserHover(false);
+        _laserHover = null;
     }
 
     // ------------------------------------------------------------------ rebuild --
@@ -300,6 +376,8 @@ internal sealed class CardsDriver : MonoBehaviour
 
             card.PokeSelectEnabled = inFan && pokeSelect;
             card.Grabbable = (inFan && grabbable) || (inTray && grabbable);
+            if (!inFan)
+                card.ResetColliderRegion(); // fan strips only apply while fanned
 
             if (!inFan && !inHalf && !inTray)
                 _factory.Park(card);
@@ -369,7 +447,7 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         if (_fakeActive)
         {
-            RouteFakeRelease(card);
+            RouteFakeRelease(card, hand);
             return;
         }
 
@@ -380,7 +458,11 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
+        // The inspect pose floats the card toward the face — test the HAND's position
+        // too, so "put my hand over the slot and let go" always drops (P6).
         int slot = _tray.SlotAt(card.transform.position);
+        if (slot < 0)
+            slot = _tray.SlotAt(hand.Rig.PalmCenter.position);
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
@@ -579,9 +661,11 @@ internal sealed class CardsDriver : MonoBehaviour
         _fan.SetCards(_fanBuffer);
     }
 
-    private void RouteFakeRelease(VRCard card)
+    private void RouteFakeRelease(VRCard card, VRHand hand)
     {
         int slot = _tray.SlotAt(card.transform.position);
+        if (slot < 0)
+            slot = _tray.SlotAt(hand.Rig.PalmCenter.position);
         if (slot >= 0 && _tray.Occupant(slot) != null && _tray.Occupant(slot) != card)
         {
             int other = 1 - slot;

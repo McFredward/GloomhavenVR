@@ -110,6 +110,11 @@ internal sealed class CardFan
 
     // ------------------------------------------------------------------ layout --
 
+    // Z distance between neighboring cards (meters, scale 1). Several times the
+    // backing thickness so fanned cards can never interpenetrate visually — the
+    // overlap is pure render order, like a real hand of cards (test #8 fix).
+    private const float ZStagger = 0.004f;
+
     private void Relayout(bool instant)
     {
         if (_root == null)
@@ -121,9 +126,17 @@ internal sealed class CardFan
 
         float radius = CardsConfig.FanRadius.Value;
         float maxArc = CardsConfig.FanArcDegrees.Value;
+        float w = CardsConfig.CardWidth.Value;
         // Slight overlap: per-card step shrinks as the hand grows, capped by maxArc.
         float step = n > 1 ? Mathf.Min(11f, maxArc / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
+
+        // Exposed strip of each card = chord between neighboring card centers. The
+        // right neighbor draws IN FRONT (more negative z), covering this card's right
+        // side — so each card's grab collider shrinks to its visible LEFT strip and
+        // neighboring colliders no longer overlap (constant-haptic-buzz fix).
+        float chord = n > 1 ? 2f * radius * Mathf.Sin(step * 0.5f * Mathf.Deg2Rad) : w;
+        float strip = Mathf.Clamp(chord, w * 0.25f, w);
 
         for (int i = 0; i < n; i++)
         {
@@ -135,13 +148,67 @@ internal sealed class CardFan
 
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
-            // Arc bends around a pivot below the fan root; small z-stagger keeps the
+            // Arc bends around a pivot below the fan root; z-stagger keeps the
             // draw order stable (later cards nearer the viewer = -Z).
             var pos = new Vector3(Mathf.Sin(rad) * radius,
                                   (Mathf.Cos(rad) - 1f) * radius * 0.55f,
-                                  -0.0018f * i);
+                                  -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
             card.SetHome(_root, pos, rot, 1f, instant);
+
+            if (i == n - 1)
+                card.ResetColliderRegion(); // fully exposed
+            else
+                card.SetColliderRegion(strip, -(w - strip) * 0.5f);
         }
+    }
+
+    // ------------------------------------------------------------------ laser pick --
+
+    /// <summary>
+    /// Demeo pluck (P6): intersect the dominant hand's aim ray with the fanned cards
+    /// GEOMETRICALLY (per-card plane + rect — no physics, works regardless of the
+    /// shrunken grab colliders). The nearest hit along the ray is the topmost card by
+    /// construction (z-stagger/pop move upper cards toward the viewer). No allocations.
+    /// </summary>
+    internal bool TryRaycast(Vector3 origin, Vector3 direction, out VRCard? card,
+        out Vector3 point, out float distance)
+    {
+        card = null;
+        point = default;
+        distance = float.PositiveInfinity;
+
+        if (!IsOpen || _root == null)
+            return false;
+
+        float halfW = CardsConfig.CardWidth.Value * 0.5f;
+        float halfH = CardsConfig.CardHeight * 0.5f;
+
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard c = _cards[i];
+            if (c == null || c.IsHeld || !c.gameObject.activeInHierarchy)
+                continue;
+
+            Transform t = c.transform;
+            // Cards face the viewer with -Z; a ray from the viewer travels along +Z.
+            float denom = Vector3.Dot(direction, t.forward);
+            if (denom < 1e-5f)
+                continue;
+            float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+            if (dist <= 0f || dist >= distance)
+                continue;
+
+            Vector3 hit = origin + direction * dist;
+            Vector3 local = t.InverseTransformPoint(hit); // scale-aware (pop growth included)
+            if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
+                continue;
+
+            card = c;
+            point = hit;
+            distance = dist;
+        }
+
+        return card != null;
     }
 }
