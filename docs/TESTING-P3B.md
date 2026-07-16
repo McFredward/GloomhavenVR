@@ -27,17 +27,33 @@
 - [ ] Quit to menu and back: suppression re-arms in the next scenario.
 - [ ] Disable the mod (`[General] Enabled = false`): 2D hand is fully vanilla again.
 
-## 2. Palm fan
+## 2. Palm fan (P6: Demeo reveal + laser pluck — see .planning/research/DEMEO-CARDS.md)
 
-- [ ] Round start (card-selection phase): turn the non-dominant palm toward your
-      face → the hand pile fans out above the palm, cards face the HMD, slight
-      overlap, readable at arm's length.
+- [ ] Round start (card-selection phase): CASUALLY tilt the non-dominant palm toward
+      your face (a relaxed Demeo wrist-flip — NO forced supination; the gate now reads
+      the raw controller pose, `[Cards] TiltThreshold` = 0.35) → the hand pile fans
+      out above the palm, cards face the HMD, readable at arm's length.
+- [ ] Rotate the palm well away → fan hides late (wide hysteresis, no flicker); while
+      the dominant laser is on the fan it must NOT hide at all.
+- [ ] `[Cards] RevealMode = always`: the fan is out for the whole selection phase with
+      no gesture; `tilt` restores the flip.
 - [ ] Card faces are the game's REAL card renders (art, initiative number, XP icons,
       enhancements) — not screenshots; text stays crisp when leaning in.
-- [ ] Rotate the palm away → fan hides (hysteresis: no flicker at the boundary).
-- [ ] Move the hand near a fan card → it pops forward and scales up (haptic tick).
-- [ ] Grip → the card snaps to the hand at inspect scale; readable; release in the
-      void → it animates back into its fan gap (gap closes while it is out).
+- [ ] NO black border: the card backing hugs the face art exactly (< 1 mm rim).
+- [ ] Fanned cards overlap like a real hand — no visual interpenetration, no
+      z-fighting; hovering a card gives ONE haptic tick per card change (sweep the
+      hand across the fan: discrete ticks, never a continuous buzz).
+- [ ] **Laser pluck (dominant hand)**: point the laser at a fan card → it pops
+      forward + scales (single tick), the beam clamps to the card (no pass-through);
+      pull the TRIGGER → the card flies into the dominant hand.
+- [ ] **Proximity pluck** still works: reach into the fan with either hand, grip →
+      same grab.
+- [ ] **Inspect pose**: the held card floats above/in front of the holding hand,
+      FACES you, right-side-up, fully readable — the hand model never covers it
+      (`[Cards] InspectForward/InspectUp/InspectScale` tune it).
+- [ ] Release (trigger-up for a laser pluck, grip-up for a proximity grab) in the
+      void → the card animates back into its fan gap; release over a tray slot (card
+      or hand above the slot) → it parks there.
 
 ## 3. Play tray, initiative, swap
 
@@ -88,6 +104,18 @@
 - [ ] Undo (2D button for now): after undo the halves re-arm correctly
       (`CardsActionControlller` phase restored — VR overlays follow).
 - [ ] Long-rest turn: no half layout; the burn pick from §4 shows instead.
+
+## 5b. Laser vs. world panels / board (P6)
+
+- [ ] Reticle keeps a CONSTANT apparent size while zooming the diorama in/out (it
+      used to balloon when zoomed out); same for the beam thickness.
+- [ ] Open the settings panel (physical SET button): the dominant laser clamps to the
+      panel, hovering widgets highlights them, TRIGGER clicks them — no more
+      pass-through. Same for converted world dialogs.
+- [ ] While the beam is clamped to a panel or fan card, the trigger must NOT also
+      fire a board click behind it (nearest UI wins).
+- [ ] A fan card or miniature physically in front of a panel blocks the panel hover
+      (no clicking through objects).
 
 ## 6. Consistency / stability
 

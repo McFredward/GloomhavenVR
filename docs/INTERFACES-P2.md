@@ -160,6 +160,39 @@ struct PickPose { Vector3 Origin, Direction; bool HasHit; Vector3 HitPoint; floa
   surface — any registered `UguiPokeSurfaces` canvas or an extra target registered
   via static `RayInteractor.RegisterUiTarget(Transform)` / `UnregisterUiTarget`
   (the WorldUI flat screen registers its quad). The pick itself stays active.
+- **P5/P6** `hand.Ray.UiHitOverride` (`Vector3?`) — world point where the ray hits a
+  code-intersected UI surface (flat screen, world panels via `RayUguiDriver`, fan
+  cards). While fresh, the visible beam is CLAMPED to it and the reticle sits exactly
+  there. One-frame latch like `ReticleOverride`; pick data unaffected.
+  `hand.Ray.HasFreshUiHit` (bool, P6) tells far-click consumers the trigger currently
+  belongs to a UI surface — `BoardClickDriver` skips its trigger click on it.
+- **P6** constant ANGULAR visual size: reticle (≈0.45°) and beam width (≈0.06°) are
+  sized from the HMD-to-endpoint distance, clamped, independent of the rig scale —
+  zooming the diorama no longer grows the dot (test #8).
+
+### Ray uGUI (`RayUguiDriver`) — P6
+
+`hand.RayUgui` (one per hand, ticked right after `hand.Ray`; inert unless the hand is
+dominant and its Ray interactor is enabled). Gives the laser the same click power on
+**world-space panels** that the fingertip poke already has:
+
+- Intersects the aim ray with every `UguiPokeSurfaces`-registered canvas (front side,
+  rect bounds); the **nearest** hit wins. A nearer physics hit on the same ray blocks
+  it (no clicking through cards/miniatures).
+- Drives a dedicated `UguiPointer` (pointer IDs -111/-112, distinct from the poke
+  pointer): hover enter/exit with a single haptic tick per target change, trigger =
+  press/release/click via `ExecuteEvents`. Modality respected by construction (only
+  enabled `GraphicRaycaster`s produce hits — locked UI stays locked).
+- Feeds the hit into `Ray.UiHitOverride`, so the beam clamps to the panel and
+  `Ray.HasFreshUiHit` suppresses the board far-click for that press.
+- The pressed canvas is latched until trigger release (FlatScreen pattern): the plane
+  hit is clamped into the canvas rect every frame, so drift during the pull cannot
+  orphan the press.
+- The 2D flat screen keeps its own virtual-mouse path (screen-space canvas — never
+  registered in `UguiPokeSurfaces`).
+
+Consumers: `hand.RayUgui.HasHit`, `.HitDistance`, `.Hovered` (Cards uses the distance
+to give a nearer panel priority over the fan pluck).
 
 ### Grab (`IGrabbable` + `ProximityGrabber`)
 
@@ -185,12 +218,22 @@ Flow: nearest `CanGrab` within palm reach (~13 cm) highlights → grip press gra
 grip release calls `OnRelease` with measured velocity. The grabber never reparents —
 the grabbable decides what "held" means. Per hand: `hand.Grabber.Highlighted`,
 `hand.Grabber.Held`, `hand.Grabber.HighlightChanged`.
+**P6:** `hand.Grabber.ForceGrab(target, releaseOnTriggerUp)` — programmatic grab for
+the Demeo laser-pluck (Cards pulls a laser-pointed fan card into the dominant hand on
+TriggerDown; with `releaseOnTriggerUp` the hold button is the trigger, not the grip).
+The highlight is also STICKY now: a rival candidate must be ≥1 cm (scaled) closer to
+steal it — overlapping colliders can no longer flap the highlight/haptics per frame.
 
 ### Palm gate (`PalmGate`) — Phase-3b's card-fan trigger
 
 `hand.PalmGate.IsOpen`, `hand.PalmGate.CurrentDot`,
-`event Action<VRHand,bool> Changed`. Opens at dot(palmNormal, toHMD) > 0.6, closes
-below 0.35 (hysteresis).
+`event Action<VRHand,bool> Changed`. Opens at dot(palmNormal, toHMD) >
+`EnterThreshold`, closes below `ExitThreshold` (hysteresis; defaults 0.6/0.35 = the
+P2 constants). **P6:** thresholds are public fields (Cards sets them per frame from
+`[Cards] TiltThreshold`), and `UseDevicePalmNormal` (default true) evaluates the RAW
+grip-pose palm (-Y of the device rotation) instead of the visual rig — the rig's
+`[Hands] GripPitchOffsetDegrees` (default -60°) used to demand ~60° of extra wrist
+supination to open the fan (test #8). Simulated hands keep the rig normal.
 
 ## 3. Event bus — `GloomhavenVR.Core.Events.VREvents`
 
