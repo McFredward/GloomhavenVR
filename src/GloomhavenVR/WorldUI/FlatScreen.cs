@@ -113,6 +113,7 @@ internal sealed class FlatScreen
     /// <summary>True while the held press is frozen at its press pixel (click, not drag).</summary>
     private bool _latched;
     private Vector2 _latchedLocal;     // quad-local x/y of the press (reticle while latched)
+    private Vector2 _latchedPixel;     // RT pixel of the press (re-warped while latched)
     private Vector3 _pressDirection;   // world ray direction at press time
     private float _dragOverSince = -1f;
 
@@ -129,6 +130,7 @@ internal sealed class FlatScreen
     private VRHand? _pokeHand;
     private bool _pokeLatched;
     private Vector3 _pokePressPoint; // world, on the screen plane
+    private Vector2 _pokePressPixel; // RT pixel of the poke press (re-warped while latched)
 
     /// <summary>One captured backbuffer camera + everything needed to restore it.</summary>
     private sealed class CapturedCamera
@@ -783,9 +785,11 @@ internal sealed class FlatScreen
             }
         }
 
+        // While frozen, keep re-warping to the SAME latched pixel: identical uGUI
+        // position (no drag delta), but the per-tick write keeps pointer currency
+        // reclaimed and the queued-event stream alive during a held press.
         bool frozen = _pressing && _latched;
-        if (!frozen)
-            VirtualMouse.WarpTo(pixel);
+        VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
 
         if (_reticle != null)
         {
@@ -808,6 +812,7 @@ internal sealed class FlatScreen
             _pressing = true;
             _latched = WorldUIConfig.ClickLatch.Value;
             _latchedLocal = new Vector2(local.x, local.y);
+            _latchedPixel = pixel;
             _pressDirection = pose.Direction;
             _dragOverSince = -1f;
             VirtualMouse.WarpTo(pixel); // press lands exactly on the frozen pixel
@@ -920,7 +925,12 @@ internal sealed class FlatScreen
                 VRLog.Info("WorldUI", "FlatScreen poke: latch OPENED → drag (fingertip slid " +
                                       $">{PokeDragUnlockMeters * 1000f:F0} mm laterally).");
             }
-            if (!_pokeLatched)
+            if (_pokeLatched)
+            {
+                // Same-pixel re-warp (see the trigger path): keeps currency reclaimed.
+                VirtualMouse.WarpTo(_pokePressPixel);
+            }
+            else
             {
                 float px = (Mathf.Clamp(local.x, -0.5f, 0.5f) + 0.5f) * _rt.width;
                 float py = (Mathf.Clamp(local.y, -0.5f, 0.5f) + 0.5f) * _rt.height;
@@ -959,6 +969,7 @@ internal sealed class FlatScreen
         _pokeHand = hand;
         _pokeLatched = WorldUIConfig.ClickLatch.Value;
         _pokePressPoint = tip - t.forward * signed;
+        _pokePressPixel = pixel;
         VirtualMouse.WarpTo(pixel);
         VirtualMouse.Press();
         hand.SendHaptic(HapticPreset.ClickPulse);
