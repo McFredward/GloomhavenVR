@@ -59,6 +59,9 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
 
+    /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down).</summary>
+    internal static ConfigEntry<float> GripPitchOffsetDegrees = null!;
+
     /// <summary>Force the ray interactor on in every VR mode (accessibility/preference).</summary>
     internal static ConfigEntry<bool> RayAlwaysOn = null!;
 
@@ -138,6 +141,15 @@ public class Plugin : BaseUnityPlugin
             "Hands", "PrimaryHand", "Right",
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
             "for board targeting.");
+        GripPitchOffsetDegrees = Config.Bind(
+            "Hands", "GripPitchOffsetDegrees", -60f,
+            "Pitch offset (degrees) between the tracked OpenXR grip pose and the visual hand " +
+            "model, around the controller's X axis. NEGATIVE tilts the fingertips DOWN from " +
+            "the grip-pose forward. The OpenXR grip pose points up along the controller " +
+            "handle, not where a relaxed hand points — most controllers want roughly -40 to " +
+            "-80 (LCVR uses an 80° down-pitch for its controller-relative interact/ray " +
+            "origins). Hot-reloadable: edit while the game runs and the hands re-pose on the " +
+            "next frame. Tuning guide: docs/TESTING-P2.md.");
         RayAlwaysOn = Config.Bind(
             "Hands", "RayAlwaysOn", false,
             "Keep the laser/ray interactor enabled in every VR mode instead of only in " +

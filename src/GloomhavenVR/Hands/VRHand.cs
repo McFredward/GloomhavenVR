@@ -56,16 +56,39 @@ internal sealed class VRHand : MonoBehaviour
     private const float HoverHapticMinInterval = 0.05f;
 
     /// <summary>
-    /// Static visual/rig offset between the OpenXR device (grip) pose and the hand
-    /// frame (wrist, +Z fingers, +Y back of hand). Controller grip poses point the
-    /// device's -Z roughly along the thumb; tune on hardware (docs/TESTING-P2.md).
+    /// Static positional offset between the OpenXR device (grip) pose and the hand
+    /// frame (wrist, +Z fingers, +Y back of hand). The ROTATION half is configurable
+    /// ([Hands] GripPitchOffsetDegrees, applied in <see cref="SyncVisualOffset"/>):
+    /// the grip pose points up along the controller handle, not where the hand
+    /// points — hardware test #4 showed the old fixed -40° pitched the hands wrong.
+    /// Reference: LCVR (DaXcess/LCVR, Source/Player/VRPlayer.cs) rotates its
+    /// controller-relative interact/ray origins by Quaternion.Euler(80, 0, 0) —
+    /// i.e. ~80° DOWN from the tracked controller pose in Unity's convention
+    /// (+X pitch = forward tilts down); its hand-model IK targets use model-space
+    /// compound offsets Euler(0, 90, 168)/(0, 270, 192). Default here: -60
+    /// (config negative = fingers down), tune on hardware (docs/TESTING-P2.md).
     /// </summary>
     private static readonly Vector3 VisualOffsetPosition = new(0f, -0.02f, -0.06f);
-    private static readonly Quaternion VisualOffsetRotation = Quaternion.Euler(-40f, 0f, 0f);
+
+    /// <summary>
+    /// OpenXR aim ("pointer") pose feature usages. Verified against the RuntimeDeps
+    /// Unity.XR.OpenXR 1.10.0 source (tools/RuntimeDepsBuild/sources): every
+    /// controller interaction profile registers a Pose-type ActionConfig named
+    /// "pointer" bound to ".../input/aim/pose" with usages = { "Pointer" }
+    /// (e.g. OculusTouchControllerProfile.cs "Pointer Pose" block), and
+    /// OpenXRInteractionFeature.ActionConfig.usages documents that these strings
+    /// "will be tagged onto UnityEngine.XR.InputDevice features" for
+    /// TryGetFeatureValue. Pose usages expand to &lt;Usage&gt;Position/&lt;Usage&gt;Rotation —
+    /// the same mapping that makes usage "Device" appear as CommonUsages.devicePosition
+    /// ("DevicePosition"). Probed per device; grip pose is the fallback.
+    /// </summary>
+    private static readonly InputFeatureUsage<Vector3> PointerPositionUsage = new("PointerPosition");
+    private static readonly InputFeatureUsage<Quaternion> PointerRotationUsage = new("PointerRotation");
 
     private InputDevice _device;
     private FingerCurler _curler = null!;
     private Transform _handRoot = null!;
+    private float _appliedGripPitch = float.NaN;
 
     // Velocity ring buffer (palm position, world) — fixed size, no allocations.
     private const int VelocitySamples = 8;
@@ -142,6 +165,19 @@ internal sealed class VRHand : MonoBehaviour
     /// <summary>Coarse pose classification (point / open palm / fist).</summary>
     public HandPose Pose { get; private set; }
 
+    /// <summary>
+    /// True while the device delivers the OpenXR aim ("pointer") pose. The laser ray
+    /// should originate there (P1, hardware test #4) — the aim pose is the runtime's
+    /// authored "where this controller points", independent of the grip-pose tilt.
+    /// </summary>
+    public bool HasPointerPose { get; private set; }
+
+    /// <summary>World-space aim-pose origin (valid while <see cref="HasPointerPose"/>).</summary>
+    public Vector3 PointerOrigin { get; private set; }
+
+    /// <summary>World-space aim-pose forward (valid while <see cref="HasPointerPose"/>).</summary>
+    public Vector3 PointerDirection { get; private set; }
+
     /// <summary>Palm velocity, world units/s (already diorama-scaled). For throw/release.</summary>
     public Vector3 PalmVelocity { get; private set; }
 
@@ -185,11 +221,11 @@ internal sealed class VRHand : MonoBehaviour
         Side = side;
 
         // Device pose lands on THIS transform; the hand frame hangs below with a
-        // static offset so art/rig tuning never touches tracking code.
+        // configurable offset so art/rig tuning never touches tracking code.
         _handRoot = new GameObject("HandRoot").transform;
         _handRoot.SetParent(transform, worldPositionStays: false);
         _handRoot.localPosition = VisualOffsetPosition;
-        _handRoot.localRotation = VisualOffsetRotation;
+        SyncVisualOffset();
 
         Rig = HandVisuals.Build(_handRoot, side);
         _curler = new FingerCurler(Rig);
@@ -238,9 +274,25 @@ internal sealed class VRHand : MonoBehaviour
 
     // ---- per-frame -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Apply [Hands] GripPitchOffsetDegrees between the tracked (grip) pose and the
+    /// HandRig root. Config semantics: NEGATIVE = fingertips tilt DOWN from the
+    /// grip-pose forward; Unity pitches down with POSITIVE X Euler, hence the sign
+    /// flip. Re-checked per frame (float compare only) so the value is live-tunable.
+    /// </summary>
+    private void SyncVisualOffset()
+    {
+        float pitch = Plugin.GripPitchOffsetDegrees.Value;
+        if (pitch == _appliedGripPitch)
+            return;
+        _appliedGripPitch = pitch;
+        _handRoot.localRotation = Quaternion.Euler(-pitch, 0f, 0f);
+    }
+
     private void Update()
     {
         WorldScale = transform.lossyScale.x;
+        SyncVisualOffset();
 
         if (_simulated)
             ReadSimulated();
@@ -280,6 +332,27 @@ internal sealed class VRHand : MonoBehaviour
         if (_device.TryGetFeatureValue(CommonUsages.deviceRotation, out Quaternion rotation))
             transform.localRotation = rotation;
 
+        // OpenXR aim pose (see PointerPositionUsage doc). Delivered in the same
+        // tracking space as the grip pose — convert through our parent (the hands
+        // root under the rig) into world space for ray consumers.
+        bool hadPointer = HasPointerPose;
+        if (_device.TryGetFeatureValue(PointerPositionUsage, out Vector3 pointerPos)
+            && _device.TryGetFeatureValue(PointerRotationUsage, out Quaternion pointerRot))
+        {
+            Transform space = transform.parent != null ? transform.parent : transform;
+            PointerOrigin = space.TransformPoint(pointerPos);
+            PointerDirection = (space.rotation * (pointerRot * Vector3.forward)).normalized;
+            HasPointerPose = true;
+        }
+        else
+        {
+            HasPointerPose = false;
+        }
+        if (HasPointerPose != hadPointer)
+            VRLog.Info("Hands", HasPointerPose
+                ? $"{Side} controller delivers the OpenXR aim pose (PointerPosition/PointerRotation) — laser uses it."
+                : $"{Side} controller lost the aim pose — laser falls back to the grip-pose hand frame.");
+
         _device.TryGetFeatureValue(CommonUsages.trigger, out float trigger);
         _device.TryGetFeatureValue(CommonUsages.grip, out float grip);
         ApplyAnalog(trigger, grip);
@@ -305,6 +378,7 @@ internal sealed class VRHand : MonoBehaviour
     private void ReadSimulated()
     {
         SetTracked(true);
+        HasPointerPose = false; // sim rays use the hand frame
         ApplyAnalog(_simTrigger, _simGrip);
         ThumbTouch = _simGrip > 0.5f;
         Thumbstick = Vector2.zero;
@@ -335,6 +409,7 @@ internal sealed class VRHand : MonoBehaviour
         PrimaryButton = SecondaryButton = PrimaryDown = SecondaryDown = false;
         ThumbTouch = false;
         Thumbstick = Vector2.zero;
+        HasPointerPose = false;
     }
 
     private void SetTracked(bool tracked)

@@ -8,10 +8,13 @@ namespace GloomhavenVR.Hands.Interact;
 /// Index-finger ray for far interaction (FROZEN Phase-2 API). Implements
 /// <see cref="IPickProvider"/> — Phase-3a consumes the pick for board targeting.
 ///
-/// Ray pose: origin at the index knuckle, direction = hand forward (+Z, along the
-/// fingers) — stable regardless of finger curl. Visual: a subtle LineRenderer laser
-/// plus a reticle dot at the hit point, shown only while the interactor is enabled
-/// (far-interaction modes / RayAlwaysOn config).
+/// Ray pose (P1, hardware test #4): the OpenXR AIM ("pointer") pose when the device
+/// delivers it (<see cref="VRHand.HasPointerPose"/>) — the runtime's authored
+/// "where this controller points", unaffected by grip-pose tilt or the visual hand
+/// offset. Fallback (simulated hands / no aim pose): origin at the index knuckle,
+/// direction = hand forward (+Z, along the fingers). Visual: a subtle LineRenderer
+/// laser plus a reticle dot at the hit point, shown only while the interactor is
+/// enabled (far-interaction modes / RayAlwaysOn config).
 ///
 /// Physics only — uGUI far pointing goes through the virtual mouse bridge instead
 /// (GloomhavenVR.WorldUI.VirtualMouse), matching UI-ARCH §4.4 strategy 1.
@@ -105,8 +108,19 @@ internal sealed class RayInteractor : IPickProvider
         }
 
         float scale = _hand.WorldScale;
-        Vector3 origin = _hand.Rig.GetFinger(Finger.Index).Root.position;
-        Vector3 direction = _hand.Rig.Root.forward;
+        Vector3 origin;
+        Vector3 direction;
+        if (_hand.HasPointerPose)
+        {
+            // OpenXR aim pose — see class doc.
+            origin = _hand.PointerOrigin;
+            direction = _hand.PointerDirection;
+        }
+        else
+        {
+            origin = _hand.Rig.GetFinger(Finger.Index).Root.position;
+            direction = _hand.Rig.Root.forward;
+        }
         float maxDistance = MaxDistanceMeters * scale;
 
         _current.Origin = origin;
