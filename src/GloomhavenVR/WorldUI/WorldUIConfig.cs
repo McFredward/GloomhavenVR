@@ -64,6 +64,15 @@ internal static class WorldUIConfig
     /// <summary>Click delivery: "execute" (ExecuteEvents, default) | "virtualmouse" | "both".</summary>
     internal static ConfigEntry<string> ClickMode = null!;
 
+    /// <summary>Legacy: world panels re-orient with the rig yaw per frame (HUD-like). Default false (P6).</summary>
+    internal static ConfigEntry<bool> PanelsFollowView = null!;
+
+    /// <summary>Self-rescue: hold the non-dominant A/X in a scenario to toggle the flat screen.</summary>
+    internal static ConfigEntry<bool> ManualScreenChord = null!;
+
+    /// <summary>Hold duration (seconds) for <see cref="ManualScreenChord"/>.</summary>
+    internal static ConfigEntry<float> ManualScreenChordSeconds = null!;
+
     /// <summary>True when clicks go through ExecuteEvents (ClickMode execute/both).</summary>
     internal static bool ExecuteClicks =>
         !string.Equals(ClickMode.Value, "virtualmouse", System.StringComparison.OrdinalIgnoreCase);
@@ -159,6 +168,22 @@ internal static class WorldUIConfig
             "'virtualmouse': press/release through the virtual mouse device only. " +
             "'both': both paths (may double-fire — diagnostic use only). Deliberate drags " +
             "always go through the virtual mouse regardless of mode.");
+
+        PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", false,
+            "LEGACY (pre-test-#8) behavior: the world panels (initiative track, element " +
+            "board, combat log, objectives, button cluster) re-derive their placement from " +
+            "the live rig yaw every frame, so they swing around the table with every snap " +
+            "turn / world grab — perceived as a floating HUD. Default false: panels are " +
+            "FIXED IN THE WORLD at the table and re-anchor only on rig rebuild or recenter.");
+        ManualScreenChord = _file.Bind("WorldUI", "ManualScreenChord", true,
+            "Self-rescue chord: HOLD the NON-dominant lower face button (A or X) for " +
+            "ManualScreenChordSeconds during a scenario to toggle the floating 2D screen " +
+            "(full desktop UI + pointer) — always available when a 2D window is open that " +
+            "VR does not show. Short holds still toggle the settings panel; that chord " +
+            "fires on RELEASE (before the screen threshold) so the two never collide.");
+        ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", 2f,
+            "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
+            "toggle. Must be longer than [SettingsPanel] ChordHoldSeconds.");
 
         SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
             "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +

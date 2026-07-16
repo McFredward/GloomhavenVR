@@ -47,6 +47,9 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Head-track the menu camera outside scenarios (menu rig, P5). Off = static menu view.</summary>
     internal static ConfigEntry<bool> MenuRig = null!;
 
+    /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.</summary>
+    internal static ConfigEntry<bool> Experimental3DMap = null!;
+
     /// <summary>Disable PPv2 (PostProcessLayer/PostProcessVolume) while VR runs (P1 default: on).</summary>
     internal static ConfigEntry<bool> DisablePostProcessing = null!;
 
@@ -145,6 +148,15 @@ public class Plugin : BaseUnityPlugin
             "Head-track the game's menu camera while no scenario runs (main menu, guildmaster " +
             "map) so the floating 2D screen and the hands work outside scenarios. Off = the " +
             "menu renders from a static viewpoint.");
+        Experimental3DMap = Config.Bind(
+            "Rig", "Experimental3DMap", false,
+            "RESERVED — CURRENTLY UNIMPLEMENTED placeholder for a future feature: explore the " +
+            "campaign/world map as a head-tracked 3D diorama instead of the flat 2D screen. " +
+            "Today this switch has NO effect: everything before an actual combat scenario " +
+            "(campaign map, guildmaster, merchant, level-up) deliberately stays in Menu2D on " +
+            "the floating screen, because the map scene was never authored for a free VR " +
+            "camera (test #8: giant map below the player, black flat window). The wish is " +
+            "saved here so it survives into a later phase.");
         DisablePostProcessing = Config.Bind(
             "Compat", "DisablePostProcessing", true,
             "Disable PostProcessing v2 (PostProcessLayer/PostProcessVolume) while VR is active. " +

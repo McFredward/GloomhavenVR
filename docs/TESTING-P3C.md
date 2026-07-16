@@ -229,3 +229,81 @@ For any "black desktop / black HMD in the menus" report, grep the BepInEx log fo
 - The intro/splash is desktop-only by design (FlatScreen gate); the HMD shows the
   void ([Rig] VoidColor) + "starting…" label until the main menu scene loads.
 - Keyboard text entry on the flat screen requires the physical keyboard.
+
+---
+
+## 11. P6 (test-#8 follow-up) — UI-shell fixes
+
+Config: `[Rig] Experimental3DMap` (placeholder, no effect), `[WorldUI] PanelsFollowView`,
+`[WorldUI] ManualScreenChord` / `ManualScreenChordSeconds`, `[SettingsPanel] ChordHoldSeconds`
+(chord now fires on RELEASE). Grep for `[Rig]`, `[WorldUI]`, `MODAL FALLBACK`,
+`MANUAL SCREEN CHORD`, `Mode`.
+
+### 11.1 Campaign/world map stays flat (Menu2D)
+
+- [ ] Start guildmaster / campaign, land on the WORLD MAP: the HMD shows the floating
+      2D screen with the **complete map + UI composite** (no giant 3D map below you,
+      no black hole where the map should be). Log: `Menu rig built at vantage of
+      camera '…'` — and NO `VR rig built at focus …` line before an actual scenario.
+- [ ] The flat desktop window mirrors the same complete composite (map visible).
+- [ ] Map camera appears in the capture log: `FlatScreen stack capture: '…' → RenderTexture`.
+- [ ] Enter a combat scenario: `VR rig built at focus …` appears only now (diorama +
+      panels + bars come up as in §1–§7). Mode log: `Menu2D -> …`.
+- [ ] Leave the scenario back to the map: rig tears down (`rig kind change Scenario →
+      Menu`), the flat screen returns with the map visible.
+- [ ] `[Rig] Experimental3DMap = true` changes NOTHING (placeholder; documented in the
+      config description).
+
+### 11.2 Catch-all modal fallback (in-scenario dialogs)
+
+- [ ] Play a scenario with tutorials enabled (or any scenario intro text): the moment
+      a 2D window opens that VR does not convert, the flat screen appears with the
+      full UI and the laser pointer works on it. Log: `MODAL FALLBACK: window '…'
+      (ID …) opened in scenario …` (or the level-message/dialog-popup variant) and a
+      mode change `… -> ModalUI`.
+- [ ] Dismiss the dialog on the screen: the screen hides, mode returns to the previous
+      flow mode. Log: `Modal fallback: window '…' closed — screen released.`
+- [ ] The events that ARE converted do NOT trigger the screen: plain confirmation
+      boxes (world-space dialog), actor stat panels, phase banners, combat log.
+- [ ] ESC (desktop keyboard) mid-scenario: ESC menu triggers the fallback screen too.
+- [ ] End-of-scenario rewards/results panels show up on the screen (IDs RewardsPanel /
+      ResultsPanel in the fallback log) — no deadlock at scenario end.
+
+### 11.3 Manual screen chord (self-rescue)
+
+- [ ] In a scenario, hold the NON-dominant lower face button (A or X) for ~2 s:
+      double-check haptic pulse, the flat screen toggles ON in any mode. Log:
+      `MANUAL SCREEN CHORD: flat screen toggled ON …`. Hold again ~2 s → OFF.
+- [ ] A SHORT hold (~0.6–1.5 s, release before 2 s) still toggles the **settings
+      panel** on release — the two chords never fire together (a long hold consumes
+      the press; no settings panel after a screen toggle).
+- [ ] The manual latch resets when the scenario ends (screen policy returns to
+      Menu2D auto-show).
+
+### 11.4 World-fixed panels
+
+- [ ] In a scenario, note where the initiative track / element board / combat log /
+      objectives stand at the table. SNAP TURN several times: the panels stay put in
+      the world (you turn past them) — they do NOT swing around to stay in front.
+- [ ] World-grab move/rotate/scale the diorama: panels move/scale coherently with the
+      table (fixed relative to the world, like the minis).
+- [ ] Recenter (B+Y chord or settings panel): panels re-anchor once to face your new
+      seat, then stay fixed again.
+- [ ] `[WorldUI] PanelsFollowView = true` restores the old per-frame follow.
+
+### 11.5 Zoom-stable actor bars
+
+- [ ] In a scenario, pinch-zoom the diorama considerably LARGER (world bigger): HP
+      bars stay just above the miniatures' heads — never inside the minis.
+- [ ] Zoom far OUT: bars stay just above the minis (and gently grow with distance for
+      readability, ×2.5 max).
+- [ ] Boss/large monsters: bar clears the taller model (bounds-derived anchor).
+- [ ] Summons spawned mid-fight get correctly anchored bars (bounds cached at adopt).
+
+### Converted vs fallback window sets (P6 reference)
+
+| Set | Windows |
+|---|---|
+| **Converted / passive — never trigger the screen** | ConfirmationBox (world dialog, while `[WorldUI] Dialogs` on), ActorStatPanel, EnemyCurrentTurnStatPanel (stat surfaces), CombatLog, CardHolder (Cards module), QuestTracker, MapObjectiveManager, TrapInfoPanel, DoorInfoPanel, MapNodeInfoPanel (hover popups), phase banner (custom-ID toast) |
+| **Fallback → ModalUI + flat screen (in-scenario)** | EventsPanel, Message, HelpBox, TextInfoPanel, IntroductionScreen, RewardsPanel, ResultsPanel, TakeDamagePanel, DurabilityPanel, QuestPopup, UnlockQuestPopup, AdventureCompletionPanel, HeroLevelUpPanel, ESCMenu, Options(+Submenu/Vice), DifficultyPanel, CompendiumPanel, PartyPanel, EquipmentItemsPanel, Mutiplayer*/Character/MainMenu confirmation boxes, multiplayer panels; ConfirmationBox too when `[WorldUI] Dialogs = false` |
+| **Live-polled (scene-serialized IDs)** | LevelMessageUILayoutGroup (tutorial/story level messages), UIManager.dialogPopup (choice dialogs) |

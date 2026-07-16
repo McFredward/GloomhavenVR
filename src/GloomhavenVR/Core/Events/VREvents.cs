@@ -147,6 +147,31 @@ internal readonly struct MiniaturePokedEvent
 }
 
 /// <summary>
+/// A game <c>UIWindow</c> transitioned shown/hidden (P6 addition — catch-all modal
+/// fallback). Raised from the single visibility choke point
+/// (<c>UIWindow.EvaluateAndTransitionToVisualState</c>, see
+/// <see cref="UIWindow_Transition_Patch"/>), so EVERY window — events, tutorials,
+/// rewards, ESC menu, unconverted confirmations — announces itself here.
+/// The Window reference is a live scene object; consumers must Unity-null-check.
+/// </summary>
+internal readonly struct WindowVisibilityEvent
+{
+    public readonly UnityEngine.UI.UIWindow Window;
+
+    /// <summary>The window's serialized <c>UIWindowID</c> (may be None for scene-custom windows).</summary>
+    public readonly UIWindowID Id;
+
+    public readonly bool Shown;
+
+    public WindowVisibilityEvent(UnityEngine.UI.UIWindow window, bool shown)
+    {
+        Window = window;
+        Id = window.ID;
+        Shown = shown;
+    }
+}
+
+/// <summary>
 /// Static VR event bus (FROZEN Phase-2 API). Feature modules subscribe here instead
 /// of patching game code themselves.
 ///
@@ -194,6 +219,9 @@ internal static class VREvents
     /// <summary>An actor miniature was poked on the board (Board module publishes). P5.</summary>
     public static event Action<MiniaturePokedEvent>? MiniaturePoked;
 
+    /// <summary>A game UIWindow was shown/hidden (UIWindow transition choke point). P6.</summary>
+    public static event Action<WindowVisibilityEvent>? WindowVisibility;
+
     // -- publishers (called by the bridge/patches; not part of the frozen surface) --
 
     internal static void Raise(in ChoreoMessageEvent e) => Invoke(ChoreographerMessage, e, nameof(ChoreographerMessage));
@@ -207,6 +235,7 @@ internal static class VREvents
     internal static void Raise(in SceneLoadedEvent e) => Invoke(SceneLoaded, e, nameof(SceneLoaded));
     internal static void Raise(in HandShownEvent e) => Invoke(HandShown, e, nameof(HandShown));
     internal static void Raise(in MiniaturePokedEvent e) => Invoke(MiniaturePoked, e, nameof(MiniaturePoked));
+    internal static void Raise(in WindowVisibilityEvent e) => Invoke(WindowVisibility, e, nameof(WindowVisibility));
 
     /// <summary>
     /// Invoke guard: a subscriber exception must never propagate into the game's

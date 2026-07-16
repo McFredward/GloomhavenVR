@@ -223,11 +223,22 @@ VRModeStateMachine.CurrentMode
 VRModeStateMachine.ModeChanged        // event Action<VRModeChange { From, To }>
 VRModeStateMachine.InteractorsFor(VRMode)            // both-hands union incl. RayAlwaysOn
 VRModeStateMachine.InteractorsFor(VRMode, HandRole)  // P5: effective per-hand policy
+VRModeStateMachine.ScenarioBoardExists // P6: THE canonical "a scenario board exists" signal
 ```
 
-Composition (priority): no scenario → `Menu2D`; UI locked → `ModalUI`; Choreographer
-in a targeting wait-state → `BoardTargeting`; else the flow mode from the message map
-(`TableIdle` / `CardSelection` / `HalfSelection`).
+Composition (priority): no scenario → `Menu2D`; UI locked **or aux-modal asserted
+(P6)** → `ModalUI`; Choreographer in a targeting wait-state → `BoardTargeting`; else
+the flow mode from the message map (`TableIdle` / `CardSelection` / `HalfSelection`).
+
+**`Menu2D` covers EVERYTHING before an actual combat scenario** (P6, test #8): main
+menu, campaign/world map, guildmaster, merchant, level-up — "in scenario" means the
+scenario `Choreographer` scene object is alive (`ScenarioBoardExists`), NOT that the
+orbit `CameraController` exists (the map has one too — decompiled
+`ClickTrackerMap.cs:78`), and NOT `EGameState.Scenario` (a MapState phase flag that
+flips during travel/loading — `GlobalData.cs:563`). The rig follows the same signal:
+menu rig + flat screen pre-scenario, diorama rig only on a real board.
+(`[Rig] Experimental3DMap` is a reserved, unimplemented placeholder for a future 3D
+map view.)
 
 **Extension points (data, not patches)** — call from your module `Init()`:
 
@@ -237,6 +248,10 @@ VRModeStateMachine.SetTargetingState(Choreographer.ChoreographerStateType.X, tru
 VRModeStateMachine.SetInteractorPolicy(VRMode.X, Interactors.Poke | ...);     // both-hands policy for a mode
 VRModeStateMachine.SetHandInteractorPolicy(VRMode.X, HandRole.Dominant, ...);  // P5: per-hand override
 VRModeStateMachine.ClearHandInteractorPolicy(VRMode.X, HandRole.Dominant);
+VRModeStateMachine.SetAuxModal(bool);  // P6: OR-input into ModalUI — WorldUI's catch-all
+                                       // fallback asserts it while an unconverted window
+                                       // that expects interaction is open in a scenario
+                                       // (auto-cleared on scenario exit)
 ```
 
 ### Final per-mode / per-hand interactor matrix (P5, MISSION A.4/A.11)
@@ -248,7 +263,7 @@ VRModeStateMachine.ClearHandInteractorPolicy(VRMode.X, HandRole.Dominant);
 | `CardSelection` | Poke + Grab + **Ray** | Poke + Grab + PalmGate | Dominant ray = hero placement / board picks during selection (P3a wish); non-dominant owns the fan, and having **no laser on the fan hand** keeps the beam out of the cards (P3b wish). |
 | `HalfSelection` | Poke + Grab + PalmGate | Poke + Grab + PalmGate | Played-card halves are poked; targeting has its own mode. |
 | `BoardTargeting` | Ray + Poke | Poke | The far pick consumes `VRHands.PrimaryPick` exclusively — a second laser was noise. Near-touch works with either hand. |
-| `ModalUI` | Poke + Ray† | Poke + Ray† | † Ray stays ACTIVE but its laser only shows within `[Hands] ModalRayConeDegrees` (default 25°) of a UI surface — see §2 Ray. |
+| `ModalUI` | Poke + Ray† | Poke + Ray† | † Ray stays ACTIVE but its laser only shows within `[Hands] ModalRayConeDegrees` (default 25°) of a UI surface — see §2 Ray. P6: ModalUI is also entered by the WorldUI catch-all fallback (`SetAuxModal`) whenever an unconverted game window opens mid-scenario — the flat screen shows the full 2D composite so the window is always visible and clickable (window sets: `docs/TESTING-P3C.md` §11). The self-rescue chord (hold non-dominant A/X ~2 s, `[WorldUI] ManualScreenChord`) forces the screen in any scenario mode. |
 
 `[Hands] RayAlwaysOn = true` ORs Ray into every cell. The `HandsDriver` applies the
 matrix to both hands on every mode change; you normally only *read* `CurrentMode`
@@ -287,8 +302,10 @@ InputSystem device is the right default.
 ## 6. Rig access (from Phase 1, unchanged plus two statics)
 
 ```csharp
-GloomhavenVR.Rig.VRRigDriver.RigRoot      // Transform? — tracking-space root, lossyScale = diorama scale
-GloomhavenVR.Rig.VRRigDriver.HeadCamera   // Camera? — the head-tracked scenario camera
+GloomhavenVR.Rig.VRRigDriver.RigRoot         // Transform? — tracking-space root, lossyScale = diorama scale
+GloomhavenVR.Rig.VRRigDriver.HeadCamera      // Camera? — the head-tracked scenario camera
+GloomhavenVR.Rig.VRRigDriver.RigPoseVersion  // int — bumps on rig build + recenter ONLY (P6):
+                                             // cache rig-derived poses against it (world-anchored panels)
 ```
 
 Null while no scenario/VR. Parent world-anchored VR objects to `RigRoot` only if they

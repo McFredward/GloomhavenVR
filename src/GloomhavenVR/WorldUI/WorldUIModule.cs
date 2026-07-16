@@ -40,6 +40,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
 
         VREvents.UiLockChanged += OnUiLock;
+        ModalFallback.Attach(); // catch-all modal fallback (P6): UIWindow visibility → ModalUI + screen
 
         _driverGo = new GameObject("GloomhavenVR.WorldUIDriver");
         Object.DontDestroyOnLoad(_driverGo);
@@ -53,6 +54,8 @@ internal sealed class WorldUIModule : IVRModule
     public void Shutdown()
     {
         VREvents.UiLockChanged -= OnUiLock;
+        ModalFallback.Detach();
+        NonDominantHold.Reset();
 
         if (_driverGo != null)
         {
@@ -116,6 +119,8 @@ internal sealed class WorldUIModule : IVRModule
             VirtualMouse.Tick();
             InputModeGuard.Tick();
             CameraInventory.Tick();
+            NonDominantHold.Tick();  // before its consumers (settings panel, flat screen)
+            ModalFallback.Tick();    // before the flat screen reads ScreenWanted
 
             _buttons.Tick();
             for (int i = 0; i < _slotSurfaces.Length; i++)

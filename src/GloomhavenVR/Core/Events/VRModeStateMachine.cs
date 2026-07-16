@@ -69,10 +69,16 @@ internal readonly struct VRModeChange
 /// Composition model — three independent inputs produce the effective mode:
 /// <code>
 ///   inScenario  (Choreographer.s_Choreographer alive)        false → Menu2D
-///   modal       (UIManager.ToggleLockUI observed)            true  → ModalUI
+///   modal       (UIManager.ToggleLockUI observed, OR the     true  → ModalUI
+///                P6 aux input: SetAuxModal — WorldUI's
+///                catch-all fallback for unconverted windows)
 ///   targeting   (ChoreographerStateType ∈ TargetingStates)   true  → BoardTargeting
 ///   otherwise   → flow mode (TableIdle / CardSelection / HalfSelection from message map)
 /// </code>
+///
+/// Menu2D therefore covers EVERYTHING before an actual combat scenario — main menu,
+/// campaign/world map, guildmaster, merchant, level-up — because only the scenario
+/// scene owns a Choreographer (see <see cref="ScenarioBoardExists"/>).
 /// Priority: Menu2D &gt; ModalUI &gt; BoardTargeting &gt; flow.
 ///
 /// EXTENSION (Phase-3 workers): the mapping tables are data — call
@@ -87,6 +93,20 @@ internal static class VRModeStateMachine
 
     /// <summary>Fired on every effective-mode change (main thread, after CurrentMode updated).</summary>
     public static event Action<VRModeChange>? ModeChanged;
+
+    /// <summary>
+    /// THE canonical "an actual scenario board exists right now" signal (P6): the
+    /// scenario Choreographer scene object is alive. Set in its Awake, nulled in its
+    /// OnDestroy (decompiled GH.Runtime/Choreographer.cs:659,715); it only ever exists
+    /// in the 'Game'/'Game_gamepad' scenario scenes (BOARD-INPUT.md §scenes).
+    /// Deliberately NOT <c>CameraController.s_CameraController</c> — the orbit camera
+    /// ALSO exists on the campaign/world map (decompiled ClickTrackerMap.cs:78 raycasts
+    /// map locations through it), which was the test-#8 giant-map bug — and NOT
+    /// <c>SaveData…CurrentGameState == EGameState.Scenario</c>, which derives from the
+    /// adventure MapState phase (GlobalData.cs:563) and flips during loading/travel
+    /// before any board exists. Rig, WorldUI and the mode machine all read THIS.
+    /// </summary>
+    public static bool ScenarioBoardExists => Choreographer.s_Choreographer != null;
 
     // ---- data-driven mapping tables -------------------------------------------------
 
@@ -160,6 +180,7 @@ internal static class VRModeStateMachine
     private static bool _inScenario;
     private static bool _targeting;
     private static bool _modal;
+    private static bool _auxModal;
     private static bool _attached;
 
     // ---- frozen query/extension surface ----------------------------------------------
@@ -184,6 +205,22 @@ internal static class VRModeStateMachine
     /// <summary>Remove a per-hand override (the mode-wide policy applies again).</summary>
     public static void ClearHandInteractorPolicy(VRMode mode, HandRole role) =>
         HandPolicy.Remove((mode, role));
+
+    /// <summary>
+    /// P6 extension point (catch-all modal fallback): a second, module-driven input into
+    /// the modal composition, OR'd with the observed <c>UIManager.ToggleLockUI</c> state.
+    /// WorldUI asserts it while an unconverted game window that expects interaction is
+    /// open during a scenario (the window may not lock the UI at all — tutorials/events —
+    /// yet the player must see and click it). Cleared automatically on scenario exit.
+    /// Idempotent; safe to call every frame.
+    /// </summary>
+    public static void SetAuxModal(bool on)
+    {
+        if (_auxModal == on)
+            return;
+        _auxModal = on;
+        Recompute();
+    }
 
     /// <summary>
     /// Effective interactor set for a mode, both-hands view (honors the RayAlwaysOn
@@ -229,6 +266,7 @@ internal static class VRModeStateMachine
         _inScenario = false;
         _targeting = false;
         _modal = false;
+        _auxModal = false;
         Recompute();
     }
 
@@ -239,7 +277,7 @@ internal static class VRModeStateMachine
     internal static void Tick()
     {
         // Unity-null check: destroyed MonoBehaviours compare equal to null.
-        bool inScenario = Choreographer.s_Choreographer != null;
+        bool inScenario = ScenarioBoardExists;
         if (inScenario == _inScenario)
             return;
 
@@ -250,6 +288,7 @@ internal static class VRModeStateMachine
             _flowMode = VRMode.TableIdle;
             _targeting = false;
             _modal = false;
+            _auxModal = false;
         }
         Recompute();
     }
@@ -288,7 +327,7 @@ internal static class VRModeStateMachine
     {
         VRMode effective =
             !_inScenario ? VRMode.Menu2D :
-            _modal ? VRMode.ModalUI :
+            _modal || _auxModal ? VRMode.ModalUI :
             _targeting ? VRMode.BoardTargeting :
             _flowMode;
 
