@@ -1,11 +1,14 @@
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace GloomhavenVR.Core;
 
 /// <summary>
 /// XR bootstrap: runtime-dependency loading, OpenXR init (pre-flight, runtime
 /// failover, diagnostics) and clean teardown. Sets <see cref="VRSession.IsRunning"/>
-/// which every other module keys off.
+/// which every other module keys off. While VR runs it also hosts the
+/// <see cref="VRHeartbeat"/> on the mod's own hardened root GO (freeze diagnosis
+/// net — hardware test #4).
 /// </summary>
 internal sealed class CoreModule : IVRModule
 {
@@ -13,6 +16,8 @@ internal sealed class CoreModule : IVRModule
 
     /// <summary>True once RuntimeDeps are loaded — gate for JITing XR-typed methods.</summary>
     private static bool _depsLoaded;
+
+    private GameObject? _hostGo;
 
     public void Init()
     {
@@ -27,10 +32,27 @@ internal sealed class CoreModule : IVRModule
 
         _depsLoaded = true;
         StartVR();
+
+        if (VRSession.IsRunning)
+        {
+            // Own hardened root (same pattern as every other driver host): the
+            // heartbeat must outlive scene sweeps and never ride a game-visible GO.
+            _hostGo = new GameObject("GloomhavenVR.Core");
+            Object.DontDestroyOnLoad(_hostGo);
+            _hostGo.hideFlags = HideFlags.HideAndDontSave;
+            _hostGo.AddComponent<VRHeartbeat>();
+            VRLog.Info(Name, "Heartbeat installed — one [Core] status line every 10 s " +
+                             "(frames, rig driver, head pose, display/input subsystems, tracking).");
+        }
     }
 
     public void Shutdown()
     {
+        if (_hostGo != null)
+        {
+            Object.Destroy(_hostGo);
+            _hostGo = null;
+        }
         if (_depsLoaded)
             StopVR();
     }

@@ -43,8 +43,30 @@ Config: `[Dev] Enabled = true` recommended for the overlay on the desktop mirror
       the Phase-1 rig; there are no hands in the main menu — expected in P2).
 - [ ] Hand size reads correctly against the diorama (they inherit the world scale).
 - [ ] Orientation: fingers point along the controller "forward", palms face each
-      other in a natural rest pose. If systematically twisted/offset, note the
-      correction — `VRHand.VisualOffsetPosition/Rotation` are the tuning constants.
+      other in a natural rest pose. If systematically twisted/offset, tune it live —
+      see "Tuning the hand pitch" below.
+
+#### Tuning the hand pitch (`[Hands] GripPitchOffsetDegrees`)
+
+The hand VISUAL is posed from the OpenXR **grip** pose, which points up along the
+controller handle — not where a relaxed hand points (hardware test #4: hands did not
+match the controller pitch). The correction is a config value, hot-reloadable while
+the game runs:
+
+1. Open `BepInEx/config/GloomhavenVR.cfg` → `[Hands] GripPitchOffsetDegrees`
+   (default **-60**; LCVR uses an 80° down-pitch for its controller-relative ray
+   origins, so -40…-80 is the expected band).
+2. **Negative tilts the fingertips DOWN** relative to the grip forward; positive
+   tilts them up. Save the file — the hands re-pose on the next frame (no restart).
+3. Hold the controller like a relaxed pointing hand; adjust in 10° steps until the
+   virtual fingers extend where your real index finger points, then refine in 2–5°
+   steps. Report the final value + runtime (VD/Link/Steam Link) per controller type.
+4. The LASER is independent of this: it uses the OpenXR **aim ("pointer") pose**
+   when the runtime delivers `PointerPosition`/`PointerRotation` (check the log for
+   `controller delivers the OpenXR aim pose`) and only falls back to the hand frame
+   without it. If the laser direction feels wrong but the hands look right, report
+   whether that log line appeared.
+   `VRHand.VisualOffsetPosition` stays a code constant (positional, rarely wrong).
 - [ ] Trigger curls the index; grip curls middle/ring/pinky; resting the thumb on a
       button/stick curls the thumb.
 - [ ] Poses: grip only → index stays straight (Point); everything released → flat
@@ -67,8 +89,9 @@ P2 has no world-space game canvases yet, so validate the pipeline in two halves:
 
 ### Ray
 
-- [ ] In BoardTargeting (start a move/attack) the laser appears from the index
-      knuckle along the hand; reticle dot sits on the board where it hits.
+- [ ] In BoardTargeting (start a move/attack) the laser appears from the controller
+      along the OpenXR aim pose (fallback: index knuckle along the hand); reticle
+      dot sits on the board where it hits.
 - [ ] `[Hands] RayAlwaysOn = true` keeps the laser in every mode.
 - [ ] Laser width/reticle size look sane at diorama scale (constants are
       world-scaled; report if not).
@@ -108,9 +131,10 @@ P2 has no world-space game canvases yet, so validate the pipeline in two halves:
 
 ## 2. Open runtime questions for this pass (report back)
 
-1. Controller grip-pose vs hand-frame offset: are `VisualOffsetPosition = (0, -0.02, -0.06)`,
-   `VisualOffsetRotation = Euler(-40, 0, 0)` right on Quest 3 Touch Plus? Note per-runtime
-   deltas (Link vs VD vs Steam Link).
+1. Controller grip-pose vs hand-frame offset: is `VisualOffsetPosition = (0, -0.02, -0.06)`
+   plus `[Hands] GripPitchOffsetDegrees = -60` right on Quest 3 Touch Plus (tuning
+   guide in §1 above)? Note per-runtime deltas (Link vs VD vs Steam Link), and
+   whether the aim pose (`PointerPosition`/`PointerRotation`) is delivered.
 2. Does `CommonUsages.primaryTouch/secondaryTouch/primary2DAxisTouch` deliver on the
    Quest 3 via the generic Touch profile, or does the thumb never curl?
 3. Haptic amplitudes: are the three presets distinguishable on Touch controllers?

@@ -1,43 +1,51 @@
-# Camera & Layer Policy (fix/rig-camera-ownership)
+# Camera & Layer Policy (fix/rig-camera-ownership + fix/menu-freeze-visuals)
 
-Outcome of hardware test #3 (Quest 3 + Virtual Desktop, 2026-07): after the intro the
-HMD went permanently grey. Three ownership gaps compounded — this document defines the
-policies that close them and names the SINGLE owner of each.
+Outcome of hardware tests #3/#4 (Quest 3 + Virtual Desktop, 2026-07). Test #3 fixed
+stereo hijacking, layer masks and rig lifetime. Test #4 proved the remaining
+structural flaw: the rig head-tracked a GAME-owned camera, and the HMD froze with no
+exceptions, a FOCUSED session and a silent log — game code can interfere with a
+camera it owns in ways no health check observes. This document defines the policies
+that close all of it and names the SINGLE owner of each.
 
-## Root causes (from BepInEx log + Player.log)
+## The owned-camera architecture (test #4 redesign)
 
-1. **Rig didn't survive the menu scene swap.** The menu rig was built around
-   Gloomhaven_unified's 'Camera'. The MainMenu load *disabled* (not destroyed) that
-   camera — the old `_camera == null` check never fired, so the rig froze around a
-   dead camera and no rebuild was ever logged. (The odd "head y=-1.09" in the quad
-   placement log was the stale TrackedPoseDriver of that disabled camera; the menu
-   recenter math itself is correct: rig = anchor − yaw·headLocal ⇒ head lands on the
-   anchor, with the rig root legitimately ~eye-height below it.)
-2. **Foreign cameras hijacked the HMD.** MainMenu's 'Main Camera' arrived with
-   stereo=Both + backbuffer and rendered into the headset next to/instead of the rig.
-3. **Culling-mask inheritance was broken.** The rig copied the game camera's mask —
-   'Camera' shipped mask 0x00000000 (renders NOTHING) and menu cameras cull 0x20
-   (UI layer only), so layer-0 mod objects (hands, lasers, quad) were invisible; the
-   old per-object "move to layer 5" hack fought the masks instead of owning a layer.
-4. **Hands hung under the dead rig** — downstream of (1); see §4.
+**The rig owns its own head camera. Game cameras never render stereo. Period.**
+
+```
+GloomhavenVR.VRRig            (root: DontDestroyOnLoad+hidden; at orbit focus /
+│                              menu vantage; yaw-aligned; scaled by WorldScale)
+└── GloomhavenVR.HeadCamera   (OUR camera + TrackedPoseDriver — the ONE stereo
+                               renderer; settings seeded from the anchor camera)
+```
+
+- The game camera (scenario camera / menu 'Main Camera') is only an **anchor
+  reference**: vantage + yaw at build time, culling-mask source (re-read every
+  frame), far plane. It is never reparented, retargeted or pose-driven — game
+  camera writers, component toggles and VideoPlayer interactions can no longer
+  break HMD pose application, whatever the exact trigger.
+- Applies to BOTH rig kinds (menu and scenario) — one owned stereo camera
+  everywhere, game cameras always desktop-only.
+- Restoration on VR-off/hot reload: destroy our objects; nothing on the anchor to
+  restore. (Two exceptions, both scenario-only and restored on teardown/unpatch:
+  `m_IsCameraCodeControlDisabled` + the CameraController prefix-skips, kept solely
+  so `FocusPoint` — the rig/panel/recenter anchor — stays parked.)
 
 ## §1 Stereo exclusion — owner: `Core.VRCameraPolicy`
 
-While VR runs and a rig head camera exists, **only the rig head camera renders
-stereo**. Every other active camera — including RenderTexture cameras such as
-'GUI 3D Camera', where stereo=Both is wasted double rendering — is forced to
-`StereoTargetEyeMask.None` (renders to the main/desktop display only) with
-`XRDevice.DisableAutoXRCameraTracking(cam, true)`.
+While VR runs, **every game camera is forced to `StereoTargetEyeMask.None`**
+(desktop-only) with `XRDevice.DisableAutoXRCameraTracking(cam, true)` — menu
+cameras, the UICamera, RT cameras ('GUI 3D Camera'), late arrivals
+('MainMenuVideo'). The only exemption is `VRCameraPolicy.AllowedHead`, which is
+always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
+`Reclaim` promotion path (game camera → rig head) is gone.
 
 - **Pump:** `VRRigDriver` sweeps on every scene load, after every rig (re)build, and
   every 30 frames (catches cameras created mid-scene). Idempotent; no per-frame
   allocations (`Camera.GetAllCameras` into a reused buffer).
-- **Stand-down:** with no rig head (e.g. `[Rig] MenuRig=false`), the sweep does
-  nothing — a vanilla stereo camera beats a void HMD.
+- **No stand-down:** even with no rig head (e.g. `[Rig] MenuRig=false`), game
+  cameras stay stereo-None. Game cameras never render stereo, period.
 - **Reversibility:** originals are recorded per camera and restored by
   `VRCameraPolicy.RestoreAll()` on VR-off / hot reload (`VRRigDriver.OnDestroy`).
-  `Reclaim(cam)` hands a camera back to the rig when it is promoted to head.
-- The old FlatScreen-owned UICamera guard was **removed** — one owner, one policy.
 - **Log lines:** `Stereo policy: '<cam>' forced to StereoTargetEyeMask.None (…)` per
   camera, plus a per-sweep summary; the camera inventory prints
   `Policy: mod layer=N (…), stereo forced None on N camera(s), head='…'`.
@@ -60,20 +68,24 @@ stereo**. Every other active camera — including RenderTexture cameras such as
   picking uses the game's own selection masks — moving mod visuals off Default cannot
   break interaction (it *removes* them from stray physics rays).
 
-## §3 Head camera mask & lifetime — owner: `Rig.VRRigDriver`
+## §3 Owned head camera — owner: `Rig.VRRigDriver`
 
-- **Mask:** head camera cullingMask = tracked game camera's mask OR
-  `VRLayers.ModLayerMask`, **never 0** (a zero source mask falls back to
-  Default | mod). Re-asserted every frame (game code / CanvasConversion may rewrite
-  the mask); the original mask is restored on teardown. Applies to menu AND scenario
-  rigs.
-- **Stereo:** the head is set to `Both` on adoption (via `VRCameraPolicy.Reclaim`),
-  restored on teardown.
+- **Creation:** `GloomhavenVR.HeadCamera` GO under the rig root, seeded from the
+  anchor game camera: mask = anchor mask | mod layer (never 0 — a zero source mask
+  falls back to Default | mod), depth = anchor + 1, far plane from the anchor,
+  clear = solid dark grey `HeadVoidColor` (a Skybox anchor keeps Skybox — that IS
+  content), stereo = Both, implicit XR tracking off, pose via `TrackedPoseDriver`
+  (center eye, UpdateAndBeforeRender).
+- **Mask upkeep:** re-composed **every frame** from the live anchor mask (game code
+  may toggle scene layers); once the anchor dies, our last mask is re-asserted.
+- **Rig root:** `DontDestroyOnLoad` + `HideAndDontSave` — scene swaps cannot destroy
+  our camera mid-flight anymore; rebuilds are policy decisions, not accidents.
 - **Lifetime health check (every `Update`):** tear down + rebuild when
   - the desired rig kind changed (scenario camera appeared/vanished, VR off),
-  - the head camera was **destroyed**,
-  - the head camera was **disabled/deactivated** (the test-#3 killer),
-  - the rig root was destroyed externally,
+  - OUR camera or rig root was destroyed externally (paranoia — nothing game-side
+    should reach them),
+  - the ANCHOR camera was destroyed, or (menu) disabled/deactivated → re-anchor to
+    the next best camera,
   - a scene load revealed a **better menu camera** (priority: tag MainCamera →
     `Camera.main` → highest-depth enabled backbuffer camera that isn't the UICamera).
 - Every teardown and rebuild is logged **with its trigger reason**.
@@ -82,17 +94,37 @@ stereo**. Every other active camera — including RenderTexture cameras such as
 
 `HandsDriver.Update` polls `VRRigDriver.RigRoot` every frame: the old hands root dies
 with the old rig root (child), and `Build` re-creates the hands under the new root the
-frame it appears. Rig-state-driven, never scene-driven — no event subscription needed;
-the test-#3 hang was purely the upstream rig never rebuilding.
+frame it appears. Rig-state-driven, never scene-driven.
+
+## §5 Heartbeat — owner: `Core.VRHeartbeat`
+
+Test #4's freeze left a silent log — and our logs are change-driven, so silence
+proved nothing. `VRHeartbeat` (on the mod-owned `GloomhavenVR.Core` root,
+DontDestroyOnLoad + HideAndDontSave) logs one `[Core]` line every 10 s,
+allocation-free between beats:
+
+```
+[Core] Heartbeat #N: frames+600 | rigDriver=ok head=ok pos(…) eul(…) moved=Y | display=running input=running devices=5 hmd=tracked L=tracked R=tracked
+```
+
+Reading a freeze: **no heartbeat lines** → our driver loop is dead (host GO
+destroyed/disabled). `moved=N` while wearing the HMD → pose application dead.
+`display=STOPPED` → compositor/runtime-side death. `devices=0` / `UNTRACKED` →
+input-subsystem or tracking loss. All driver MonoBehaviours live on mod-owned
+DontDestroyOnLoad + HideAndDontSave roots (`GloomhavenVR.Core`, `.RigDriver`,
+`.HandsDriver`, `.WorldUIDriver`, `.Events`); only the `Plugin` itself (coroutine
+host) rides the BepInEx manager GO — INSTALL.md recommends
+`HideManagerGameObject = true`.
 
 ## Expected log shape on a healthy run
 
 ```
-[Core] Mod layer resolved: 31 (…)
-[Rig] Menu rig built around camera 'Main Camera' (… mask 0x00000020 → 0x80000021 …) — trigger: initial.
-[Core] Stereo policy sweep (menu rig built): forced None on 2 camera(s), …
-[Rig] Menu rig torn down (head camera 'Camera' disabled/deactivated) — menu camera restored.
-[Rig] Menu rig built around camera 'Main Camera' (…) — trigger: head camera 'Camera' disabled/deactivated.
+[Core] Mod layer resolved: 27 (…)
+[Rig] Menu rig built at vantage of camera 'Main Camera' (1:1 scale, owned head camera 'GloomhavenVR.HeadCamera': …) — trigger: initial.
+[Core] Stereo policy: 'Main Camera' forced to StereoTargetEyeMask.None (menu rig built; head 'GloomhavenVR.HeadCamera' keeps the HMD).
+[Core] Stereo policy sweep (menu rig built): forced None on 3 camera(s), …
 [Hands] Hands built under 'GloomhavenVR.VRRig'.
-[WorldUI]   Policy: mod layer=31 (mask 0x80000000), stereo forced None on 2 camera(s), head='Main Camera'.
+[WorldUI] FlatScreen: UICamera 'UI Camera' → RenderTexture (clear Depth → SolidColor opaque black while redirected).
+[WorldUI] FlatScreen quad placed: pos=…, … | head 'GloomhavenVR.HeadCamera' pos=…, fwd=…, mask=…, clear=SolidColor, stereo=Both.
+[Core] Heartbeat #1: frames+600 | rigDriver=ok head=ok … | display=running input=running devices=5 hmd=tracked L=tracked R=tracked
 ```

@@ -12,36 +12,42 @@ namespace GloomhavenVR.Rig;
 /// created per scenario scene) and builds/tears down the rig accordingly:
 ///
 /// <code>
-/// GloomhavenVR.VRRig (rig root: at orbit focus, yaw-aligned, scaled by WorldScale)
-/// └── [game scenario camera] + TrackedPoseDriver (head pose, center eye)
+/// GloomhavenVR.VRRig (rig root: at orbit focus / menu vantage, yaw-aligned, scaled)
+/// └── GloomhavenVR.HeadCamera (OUR camera + TrackedPoseDriver, the ONE stereo renderer)
 /// </code>
+///
+/// OWNED HEAD CAMERA (hardware test #4 root cause, P2 freeze): the rig previously
+/// head-tracked the GAME's camera directly (menu 'Main Camera' / scenario camera).
+/// That hands the whole pose-application chain to objects the game owns — menu
+/// camera animation writers, component toggles that don't trip isActiveAndEnabled,
+/// VideoPlayer interactions — any of which can silently stop the HMD updating with
+/// zero exceptions and zero health-check triggers (exactly the test-#4 freeze: HMD
+/// image static, desktop fine, session FOCUSED, no teardown logged). The rig now
+/// creates its OWN camera under its own DontDestroyOnLoad root; the game camera is
+/// used ONLY as an anchor reference (vantage/yaw, culling-mask source, far plane)
+/// and, like every other game camera, never renders stereo
+/// (<see cref="VRCameraPolicy"/> — the tracked-head special-case is gone).
 ///
 /// Diorama scale (ARCHITECTURE §3): the rig root is scaled by WorldScale (game units
 /// per real meter) so head motion maps 1 m → WorldScale units and the board reads
-/// as a table. Camera strategy: the game camera itself becomes the head camera —
-/// stereo rendering starts automatically once the XR display runs; implicit head
-/// pose driving is disabled (<see cref="XRDevice.DisableAutoXRCameraTracking"/>)
-/// in favor of the game-shipped <see cref="TrackedPoseDriver"/>.
+/// as a table. Head pose via the game-shipped <see cref="TrackedPoseDriver"/> on OUR
+/// camera; implicit XR camera tracking is disabled
+/// (<see cref="XRDevice.DisableAutoXRCameraTracking"/>).
 ///
-/// RIG LIFETIME (hardware test #3 root cause #1): menu scene swaps can DISABLE the
-/// camera the menu rig was built around without destroying it (Gloomhaven_unified →
-/// MainMenu left 'Camera' fake-alive but deactivated — a destroyed-only check never
-/// fired, the HMD froze grey). The health check in <see cref="Update"/> therefore
-/// tears down and rebuilds when the head camera is destroyed OR disabled on ANY
-/// frame, when the rig root is destroyed externally, and — on scene load — when a
-/// better menu camera appeared (tag MainCamera &gt; Camera.main &gt; highest-depth
-/// enabled backbuffer camera that isn't the UICamera). Every teardown/rebuild is
-/// logged with its trigger reason. Hands re-home automatically: HandsDriver polls
-/// <see cref="RigRoot"/> every frame and rebuilds under the new root the frame it
-/// changes (event-free but per-frame — never scene-driven).
+/// RIG LIFETIME: the health check in <see cref="Update"/> tears down and rebuilds
+/// when the ANCHOR camera is destroyed OR disabled on any frame (re-anchors to the
+/// next best camera; our own camera keeps rendering meanwhile), when our camera or
+/// rig root is destroyed externally, and — on scene load — when a better menu
+/// camera appeared. Every teardown/rebuild is logged with its trigger reason.
+/// Hands re-home automatically: HandsDriver polls <see cref="RigRoot"/> every frame.
 ///
-/// CAMERA OWNERSHIP (root causes #2/#3): this driver is the pump for
-/// <see cref="VRCameraPolicy"/> (only the rig head renders stereo — swept on scene
-/// load, rig rebuild and periodically) and owns the head culling-mask policy: the
-/// head camera renders the tracked game camera's mask OR'd with
-/// <see cref="VRLayers.ModLayerMask"/>, never 0 (a zero source mask — MainMenu's
-/// 'Camera' shipped 0x00000000 — falls back to Default | mod layer). Re-asserted
-/// every frame; original mask/stereo restored on teardown.
+/// CAMERA OWNERSHIP: this driver is the pump for <see cref="VRCameraPolicy"/>
+/// (game cameras never stereo — swept on scene load, rig rebuild and periodically)
+/// and owns the head culling-mask policy: our camera renders the anchor camera's
+/// mask OR'd with <see cref="VRLayers.ModLayerMask"/>, never 0. Re-asserted every
+/// frame. Nothing on the anchor camera needs restoring — it is never modified
+/// (the scenario CameraController freeze flag is the one exception, restored on
+/// teardown).
 /// </summary>
 internal sealed class VRRigDriver : MonoBehaviour
 {
@@ -52,7 +58,7 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// </summary>
     internal static Transform? RigRoot { get; private set; }
 
-    /// <summary>The head-tracked camera while the rig exists (the game's scenario camera).</summary>
+    /// <summary>The rig's OWN head-tracked camera while the rig exists (never a game camera).</summary>
     internal static Camera? HeadCamera { get; private set; }
 
     /// <summary>
@@ -83,36 +89,33 @@ internal sealed class VRRigDriver : MonoBehaviour
 
     private GameObject? _rigRoot;
     private RigKind _kind;
+
+    /// <summary>The GAME camera the rig is anchored to — reference only, never modified.</summary>
+    private Camera? _anchor;
+
+    /// <summary>OUR head camera (child of the rig root).</summary>
     private Camera? _camera;
+    private GameObject? _cameraGo;
+
     private TrackedPoseDriver? _poseDriver;
     private bool _pendingRecenter;
     private int _sweepCountdown;
     private bool _sceneRecheck;
     private string _sceneRecheckName = "";
     private string _rebuildTrigger = "initial";
+    private bool _frozeGameCameraControl;
 
-    // Menu rig anchor: where the menu camera stood when we took it over — recenter
+    // Menu rig anchor: where the menu camera stood when we took its vantage — recenter
     // puts the player's head back there (real 1:1 scale, no table math).
     private Vector3 _menuAnchorPos;
     private Quaternion _menuAnchorYaw;
 
-    // Original camera state for restoration on teardown.
-    private Transform? _originalParent;
-    private Vector3 _originalLocalPos;
-    private Quaternion _originalLocalRot;
-    private float _originalFov;
-    private float _originalNearClip;
-    private CameraClearFlags _originalClearFlags;
-    private Color _originalBackground;
-    private int _originalCullingMask;
-    private StereoTargetEyeMask _originalStereo;
-
     /// <summary>
-    /// Menu rig clear color (menu-blackscreen fix): NOT black, so an HMD report can
+    /// Head camera clear color (menu-blackscreen fix): NOT black, so an HMD report can
     /// distinguish "camera renders, content missing" (grey void) from "camera dead /
     /// not rendering" (pitch black).
     /// </summary>
-    private static readonly Color MenuVoidColor = new(0.12f, 0.13f, 0.15f, 1f);
+    private static readonly Color HeadVoidColor = new(0.12f, 0.13f, 0.15f, 1f);
 
     private void Awake()
     {
@@ -144,23 +147,25 @@ internal sealed class VRRigDriver : MonoBehaviour
         _sceneRecheck = false;
 
         // Health check — tear down (and rebuild below) the frame anything breaks.
-        // Order matters: kind change > camera destroyed > camera disabled > root
-        // destroyed > a better camera appeared with a scene load.
+        // Order matters: kind change > our camera/root destroyed > anchor destroyed >
+        // anchor disabled > a better camera appeared with a scene load.
         string? teardownReason = null;
         if (_kind != RigKind.None)
         {
             if (desired != _kind)
                 teardownReason = $"rig kind change {_kind} → {desired}";
             else if (_camera == null)
-                teardownReason = "head camera destroyed";
-            else if (!_camera.isActiveAndEnabled)
-                teardownReason = $"head camera '{_camera.name}' disabled/deactivated";
+                teardownReason = "owned head camera destroyed externally";
             else if (_rigRoot == null)
                 teardownReason = "rig root destroyed externally";
+            else if (_anchor == null)
+                teardownReason = "anchor camera destroyed";
+            else if (!_anchor.isActiveAndEnabled && _kind == RigKind.Menu)
+                teardownReason = $"anchor camera '{_anchor.name}' disabled/deactivated";
             else if (sceneRecheck && _kind == RigKind.Menu)
             {
                 Camera? best = ResolveMenuCamera();
-                if (best != null && best != _camera)
+                if (best != null && best != _anchor)
                     teardownReason = $"scene '{_sceneRecheckName}' brought a better menu camera '{best.name}'";
             }
         }
@@ -202,9 +207,10 @@ internal sealed class VRRigDriver : MonoBehaviour
     // ---- camera ownership policies (docs/CAMERA-POLICY.md) --------------------------------
 
     /// <summary>
-    /// Head culling mask policy: tracked game camera's mask OR the mod layer bit,
-    /// never 0. Cheap per-frame re-assert — game code and CanvasConversion may
-    /// rewrite the mask; the mod bit (and non-zero-ness) must survive.
+    /// Head culling mask policy: anchor game camera's mask OR the mod layer bit,
+    /// never 0. Cheap per-frame re-assert — the game may rewrite the anchor's mask
+    /// (and CanvasConversion requests UI bits on our camera); the mod bit (and
+    /// non-zero-ness) must survive.
     /// </summary>
     private static int ComposeHeadMask(int sourceMask) =>
         (sourceMask == 0 ? 1 : sourceMask) | VRLayers.ModLayerMask;
@@ -213,9 +219,11 @@ internal sealed class VRRigDriver : MonoBehaviour
     {
         if (_kind == RigKind.None || _camera == null)
             return;
-        int mask = _camera.cullingMask;
-        int wanted = ComposeHeadMask(mask);
-        if (mask != wanted)
+        // Follow the live anchor mask while the anchor exists (the game may toggle
+        // layers scene-side); once the anchor died, keep re-asserting our own.
+        int source = _anchor != null ? _anchor.cullingMask : _camera.cullingMask;
+        int wanted = ComposeHeadMask(source);
+        if (_camera.cullingMask != wanted)
             _camera.cullingMask = wanted;
     }
 
@@ -241,75 +249,93 @@ internal sealed class VRRigDriver : MonoBehaviour
         VRCameraPolicy.Sweep("periodic");
     }
 
-    /// <summary>Common head-camera takeover: snapshot originals, apply mask/stereo/tracking policy.</summary>
-    private void AdoptHeadCamera(Camera cam)
+    // ---- owned head camera -----------------------------------------------------------------
+
+    /// <summary>
+    /// Create OUR head camera under the rig root, seeded from the anchor game camera:
+    /// culling mask = anchor mask | mod layer (never 0), depth = anchor + 1, far plane
+    /// from the anchor, clear = solid dark grey (Skybox kept when the anchor has one —
+    /// that IS visible content). The game camera itself is never modified; stereo on
+    /// it (and every other game camera) is owned by <see cref="VRCameraPolicy"/>.
+    /// </summary>
+    private void CreateHeadCamera(Camera anchor, float nearClip)
     {
-        _camera = cam;
+        _cameraGo = new GameObject("GloomhavenVR.HeadCamera");
+        _cameraGo.transform.SetParent(_rigRoot!.transform, worldPositionStays: false);
+        _cameraGo.transform.localPosition = Vector3.zero;
+        _cameraGo.transform.localRotation = Quaternion.identity;
 
-        _originalParent = cam.transform.parent;
-        _originalLocalPos = cam.transform.localPosition;
-        _originalLocalRot = cam.transform.localRotation;
-        _originalFov = cam.fieldOfView;
-        _originalNearClip = cam.nearClipPlane;
-        _originalClearFlags = cam.clearFlags;
-        _originalBackground = cam.backgroundColor;
-        _originalCullingMask = cam.cullingMask;
-
-        // Stereo: this camera is the ONE stereo renderer. Reclaim returns the stereo
-        // mask from before any policy sweep touched it (for teardown restore).
-        _originalStereo = VRCameraPolicy.Reclaim(cam);
-        cam.stereoTargetEye = StereoTargetEyeMask.Both;
-        VRCameraPolicy.AllowedHead = cam;
-
-        // Culling: never 0, always includes the mod layer (hands/lasers/screen).
-        cam.cullingMask = ComposeHeadMask(_originalCullingMask);
+        _camera = _cameraGo.AddComponent<Camera>();
+        _camera.cullingMask = ComposeHeadMask(anchor.cullingMask);
+        _camera.depth = anchor.depth + 1f;
+        _camera.nearClipPlane = nearClip;
+        _camera.farClipPlane = Mathf.Max(anchor.farClipPlane, 100f);
+        _camera.allowHDR = anchor.allowHDR;
+        _camera.allowMSAA = anchor.allowMSAA;
+        _camera.useOcclusionCulling = anchor.useOcclusionCulling;
+        if (anchor.clearFlags == CameraClearFlags.Skybox)
+        {
+            _camera.clearFlags = CameraClearFlags.Skybox;
+        }
+        else
+        {
+            _camera.clearFlags = CameraClearFlags.SolidColor;
+            _camera.backgroundColor = HeadVoidColor;
+        }
+        // FOV is owned by the XR display (per-eye projection) — no need to copy.
+        _camera.stereoTargetEye = StereoTargetEyeMask.Both;
 
         // We drive the pose via TrackedPoseDriver — switch off the implicit XR camera
         // tracking the display subsystem would otherwise apply on top.
-        XRDevice.DisableAutoXRCameraTracking(cam, true);
-    }
+        XRDevice.DisableAutoXRCameraTracking(_camera, true);
 
-    private void AttachPoseDriver(Camera cam)
-    {
-        _poseDriver = cam.gameObject.AddComponent<TrackedPoseDriver>();
+        _poseDriver = _cameraGo.AddComponent<TrackedPoseDriver>();
         _poseDriver.SetPoseSource(TrackedPoseDriver.DeviceType.GenericXRDevice, TrackedPoseDriver.TrackedPose.Center);
         _poseDriver.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
         _poseDriver.updateType = TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;
+
+        VRCameraPolicy.AllowedHead = _camera;
+    }
+
+    /// <summary>Rig root: DontDestroyOnLoad (scene swaps must not kill our camera) + hidden.</summary>
+    private GameObject CreateRigRoot()
+    {
+        var root = new GameObject("GloomhavenVR.VRRig");
+        Object.DontDestroyOnLoad(root);
+        root.hideFlags = HideFlags.HideAndDontSave;
+        return root;
     }
 
     // ---- build ---------------------------------------------------------------------------
 
     private void BuildRig(CameraController controller)
     {
-        Camera cam = controller.m_Camera;
-        AdoptHeadCamera(cam);
+        Camera anchor = controller.m_Camera;
+        _anchor = anchor;
 
-        // Belt & braces on top of the LateUpdate/RefreshFocusPosition prefix-skips.
-        // NOT durable on its own: MoveToLook and scripted flows re-toggle this flag
-        // (PATCH-TARGETS.md §1.3) — the Harmony skips are the real ownership switch.
+        // Freeze the game's orbit-camera writers so the FocusPoint anchor (rig/panel/
+        // recenter reference) stays parked while VR owns the view. This flag is the
+        // ONLY game-side state the rig touches (restored on teardown); the Harmony
+        // prefix-skips in CameraControllerPatches are the durable half.
         controller.m_IsCameraCodeControlDisabled = true;
+        _frozeGameCameraControl = true;
 
         float baseScale = ResolveWorldScale();
         // Re-apply the pinch-scale the player last reached ([Comfort] SavedScaleMultiplier).
         float scale = baseScale * ComfortSettings.ClampedSavedMultiplier;
 
-        _rigRoot = new GameObject("GloomhavenVR.VRRig");
+        _rigRoot = CreateRigRoot();
         // Rig at the orbit focus, yaw taken from the current camera so the board is
         // oriented the way the player last saw it flat.
         _rigRoot.transform.position = controller.FocusPoint;
-        _rigRoot.transform.rotation = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
+        _rigRoot.transform.rotation = Quaternion.Euler(0f, anchor.transform.eulerAngles.y, 0f);
         _rigRoot.transform.localScale = Vector3.one * scale;
 
-        cam.transform.SetParent(_rigRoot.transform, worldPositionStays: false);
-        cam.transform.localPosition = Vector3.zero;
-        cam.transform.localRotation = Quaternion.identity;
         // Near plane in world units so ~5 real cm in front of the eyes still renders.
-        cam.nearClipPlane = 0.05f * scale;
-
-        AttachPoseDriver(cam);
+        CreateHeadCamera(anchor, 0.05f * scale);
 
         RigRoot = _rigRoot.transform;
-        HeadCamera = cam;
+        HeadCamera = _camera;
         BaseWorldScale = baseScale;
         _kind = RigKind.Scenario;
 
@@ -317,67 +343,52 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         VRLog.Info("Rig", $"VR rig built at focus {controller.FocusPoint}, world scale {scale:F1} " +
                           $"(base {baseScale:F1}, config {Plugin.WorldScale.Value:F1}, " +
-                          $"tile size {UnityGameEditorRuntime.s_TileSize.x:F2}; " +
-                          $"mask 0x{_originalCullingMask:X8} → 0x{cam.cullingMask:X8}) — trigger: {_rebuildTrigger}.");
+                          $"tile size {UnityGameEditorRuntime.s_TileSize.x:F2}); owned head camera " +
+                          $"'GloomhavenVR.HeadCamera' (anchor '{anchor.name}' mask 0x{anchor.cullingMask:X8} → " +
+                          $"head 0x{_camera!.cullingMask:X8}) — trigger: {_rebuildTrigger}.");
         VRCameraPolicy.Sweep("scenario rig built");
     }
 
     /// <summary>
-    /// P5 (MISSION A.7): head-track the MENU camera at real 1:1 scale so Menu2D is not
-    /// a frozen viewpoint — the WorldUI flat screen (and the hands driving its pointer)
-    /// anchor to a tracked camera in the main menu / guildmaster screens. Torn down as
-    /// soon as a scenario camera appears (the scenario rig takes over).
+    /// P5 (MISSION A.7): anchor the rig at the MENU camera's vantage at real 1:1 scale
+    /// so Menu2D is not a frozen viewpoint — the WorldUI flat screen (and the hands
+    /// driving its pointer) anchor to a tracked head in the main menu / guildmaster
+    /// screens. Torn down as soon as a scenario camera appears.
     /// </summary>
     private void BuildMenuRig()
     {
-        Camera? cam = ResolveMenuCamera();
-        if (cam == null)
+        Camera? anchor = ResolveMenuCamera();
+        if (anchor == null)
             return;
-        AdoptHeadCamera(cam);
-
-        // Menu-blackscreen fix: menu scenes may give the head camera nothing to render
-        // (UI lives on the separate UICamera). A black clear then looks identical to a
-        // dead camera. Force a dark-grey solid clear so "renders but empty" is visibly
-        // distinct — but keep a Skybox untouched (it IS visible content). Restored on
-        // teardown along with the rest of the camera state.
-        if (cam.clearFlags != CameraClearFlags.Skybox)
-        {
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = MenuVoidColor;
-        }
+        _anchor = anchor;
 
         // Anchor: the camera's authored vantage — recenter puts the head back here.
-        _menuAnchorPos = cam.transform.position;
-        _menuAnchorYaw = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
+        _menuAnchorPos = anchor.transform.position;
+        _menuAnchorYaw = Quaternion.Euler(0f, anchor.transform.eulerAngles.y, 0f);
 
-        _rigRoot = new GameObject("GloomhavenVR.VRRig");
+        _rigRoot = CreateRigRoot();
         _rigRoot.transform.position = _menuAnchorPos;
         _rigRoot.transform.rotation = _menuAnchorYaw;
         _rigRoot.transform.localScale = Vector3.one;
 
-        cam.transform.SetParent(_rigRoot.transform, worldPositionStays: false);
-        cam.transform.localPosition = Vector3.zero;
-        cam.transform.localRotation = Quaternion.identity;
-        cam.nearClipPlane = 0.05f;
-
-        AttachPoseDriver(cam);
+        CreateHeadCamera(anchor, 0.05f);
 
         RigRoot = _rigRoot.transform;
-        HeadCamera = cam;
+        HeadCamera = _camera;
         BaseWorldScale = 1f;
         _kind = RigKind.Menu;
 
         _pendingRecenter = true;
 
-        VRLog.Info("Rig", $"Menu rig built around camera '{cam.name}' (1:1 scale, head-tracked menu view; " +
-                          $"clear {_originalClearFlags} → {cam.clearFlags} '{cam.backgroundColor}', " +
-                          $"mask 0x{_originalCullingMask:X8} → 0x{cam.cullingMask:X8}, " +
-                          $"stereo {_originalStereo} → Both) — trigger: {_rebuildTrigger}.");
+        VRLog.Info("Rig", $"Menu rig built at vantage of camera '{anchor.name}' (1:1 scale, owned head camera " +
+                          $"'GloomhavenVR.HeadCamera': clear {_camera!.clearFlags} '{_camera.backgroundColor}', " +
+                          $"mask 0x{anchor.cullingMask:X8} → 0x{_camera.cullingMask:X8}, depth {_camera.depth:F1}, " +
+                          $"stereo Both; anchor stays desktop-only) — trigger: {_rebuildTrigger}.");
         VRCameraPolicy.Sweep("menu rig built");
     }
 
     /// <summary>
-    /// The camera to head-track outside scenarios, best first: Camera.main (tag
+    /// The camera to anchor to outside scenarios, best first: Camera.main (tag
     /// MainCamera) → highest-depth enabled backbuffer camera that isn't the UICamera.
     /// Null when the menu scene has no world camera (the rig then waits; the flat
     /// screen is hidden anyway because it needs a world camera too).
@@ -395,7 +406,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         {
             Camera candidate = all[i];
             if (candidate == null || !candidate.enabled || candidate.targetTexture != null
-                || candidate.CompareTag("UICamera"))
+                || candidate.CompareTag("UICamera") || candidate == HeadCamera)
                 continue;
             if (best == null || candidate.depth > best.depth)
                 best = candidate;
@@ -446,9 +457,7 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// Sign convention (verified against hardware test #3 logs): rig = anchor − yaw·headLocal
     /// puts head world = rig + yaw·headLocal = anchor exactly. With floor-origin
     /// tracking headLocal.y ≈ eye height, so the rig root legitimately sits ~1.1–1.7 m
-    /// BELOW the anchor (the test's rig y=−1.09 with anchor y=0 was correct; the odd
-    /// "head at −1.09" later was the disabled camera's pose driver going stale — fixed
-    /// by the Update health check, not by this math).
+    /// BELOW the anchor.
     /// </summary>
     private void RecenterMenu()
     {
@@ -491,44 +500,41 @@ internal sealed class VRRigDriver : MonoBehaviour
         BaseWorldScale = 0f;
         VRCameraPolicy.AllowedHead = null;
 
+        // Everything we destroy here is OURS — the anchor game camera was never
+        // reparented or modified, so there is nothing to restore on it.
         if (_poseDriver != null)
         {
             Destroy(_poseDriver);
             _poseDriver = null;
         }
-
-        if (_camera != null) // Unity-alive: restore even when merely disabled
+        if (_cameraGo != null)
         {
-            XRDevice.DisableAutoXRCameraTracking(_camera, false);
-            _camera.transform.SetParent(_originalParent, worldPositionStays: true);
-            _camera.transform.localPosition = _originalLocalPos;
-            _camera.transform.localRotation = _originalLocalRot;
-            _camera.fieldOfView = _originalFov;
-            _camera.nearClipPlane = _originalNearClip;
-            _camera.clearFlags = _originalClearFlags;
-            _camera.backgroundColor = _originalBackground;
-            _camera.cullingMask = _originalCullingMask;
-            _camera.stereoTargetEye = _originalStereo;
-            _camera = null;
+            Destroy(_cameraGo);
         }
-        _camera = null; // clear the fake-null reference too
-
-        CameraController controller = CameraController.s_CameraController;
-        if (controller != null)
-            controller.m_IsCameraCodeControlDisabled = false;
+        _cameraGo = null;
+        _camera = null;
 
         if (_rigRoot != null)
         {
             Destroy(_rigRoot);
-            _rigRoot = null;
         }
         _rigRoot = null;
+        _anchor = null;
+
+        // Scenario only: un-freeze the game's orbit camera control.
+        if (_frozeGameCameraControl)
+        {
+            CameraController controller = CameraController.s_CameraController;
+            if (controller != null)
+                controller.m_IsCameraCodeControlDisabled = false;
+            _frozeGameCameraControl = false;
+        }
 
         if (hadRig)
         {
             VRLog.Info("Rig", wasMenu
-                ? $"Menu rig torn down ({reason}) — menu camera restored."
-                : $"VR rig torn down ({reason}) — game camera restored.");
+                ? $"Menu rig torn down ({reason}) — owned head camera destroyed, anchor untouched."
+                : $"VR rig torn down ({reason}) — owned head camera destroyed, game camera control restored.");
         }
 
         _pendingRecenter = false;

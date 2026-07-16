@@ -20,8 +20,12 @@ namespace GloomhavenVR.Rig;
 /// </code>
 /// <c>LateUpdate</c> writes <c>m_Camera.transform.position</c>/<c>LookAt</c> and
 /// <c>fieldOfView</c> (zoom) every frame (BOARD-INPUT §6) — prefix-skip while VR is
-/// active so the <see cref="VRRigDriver"/>-owned TrackedPoseDriver owns the transform.
-/// While VR is NOT running the prefix returns true and the game is 100% vanilla.
+/// active. Since the owned-head-camera redesign (docs/CAMERA-POLICY.md §3) the game
+/// scenario camera no longer renders into the HMD at all — these skips exist to keep
+/// the scenario camera and <c>FocusPoint</c> PARKED: the focus is the rig/panel/
+/// recenter anchor, and edge-scroll/zoom driven by the virtual mouse must not drag
+/// it around under the diorama. While VR is NOT running the prefix returns true and
+/// the game is 100% vanilla.
 /// </summary>
 [HarmonyPatch(typeof(CameraController), "LateUpdate")]
 internal static class CameraController_LateUpdate_Patch

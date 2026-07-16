@@ -7,28 +7,28 @@ namespace GloomhavenVR.Core;
 /// <summary>
 /// SINGLE OWNER of the stereo-exclusion policy (docs/CAMERA-POLICY.md §1).
 ///
-/// Problem this solves (hardware test #3): with the XR display running, ANY enabled
-/// camera without a stereo restriction renders into the HMD (stereoTargetEye defaults
-/// to Both) — the MainMenu scene's 'Main Camera' (stereo=Both, backbuffer) hijacked
-/// the headset next to/instead of the VR rig. Per-feature exclusions (the old
-/// FlatScreen UICamera guard) only ever covered one camera.
+/// Policy (hardened after hardware test #4): while VR runs, GAME CAMERAS NEVER
+/// RENDER STEREO — period. The only camera allowed to render into the HMD is the
+/// rig's OWN head camera (<c>GloomhavenVR.HeadCamera</c>, created and registered by
+/// <c>VRRigDriver</c> via <see cref="AllowedHead"/>). Every other camera — menu
+/// cameras, the UICamera, RenderTexture cameras like 'GUI 3D Camera', late-created
+/// ones like 'MainMenuVideo' — is forced to <see cref="StereoTargetEyeMask.None"/>
+/// (desktop-only) with implicit XR head tracking disabled.
 ///
-/// Policy: while VR runs and a rig head camera exists, ONLY that camera may render
-/// stereo. Every other camera — including RenderTexture cameras like 'GUI 3D Camera',
-/// where stereo=Both is just wasted double rendering — is forced to
-/// <see cref="StereoTargetEyeMask.None"/> (renders to the main/desktop display only)
-/// with implicit XR head tracking disabled. Idempotent; originals are recorded and
-/// restored on VR-off / hot reload (<see cref="RestoreAll"/>) or when a camera is
-/// promoted to rig head (<see cref="Reclaim"/>).
+/// History: test #3 showed ANY enabled camera with stereo=Both hijacks the HMD next
+/// to/instead of the rig. The first fix promoted ONE game camera to rig head
+/// (Reclaim) — test #4 showed that head-tracking a GAME-owned camera lets game code
+/// (menu camera writers, component toggles, VideoPlayer interactions) break pose
+/// application invisibly. The rig now owns a dedicated head camera, so the
+/// tracked-head special-case is gone: there is no game camera to exempt, ever.
 ///
-/// Pump: <c>VRRigDriver</c> sweeps on every scene load, after every rig (re)build,
-/// and periodically (covers newly created cameras). While no rig head exists
-/// (e.g. [Rig] MenuRig=false) the sweep stands down — a vanilla stereo camera is
-/// better than a void HMD.
-///
-/// No per-frame allocations: cameras are enumerated via
+/// Idempotent; originals are recorded and restored on VR-off / hot reload
+/// (<see cref="RestoreAll"/>). No per-frame allocations: cameras are enumerated via
 /// <see cref="Camera.GetAllCameras"/> into a reused buffer; the originals map only
 /// allocates when a NEW camera is first forced.
+///
+/// Pump: <c>VRRigDriver</c> sweeps on every scene load, after every rig (re)build,
+/// and periodically (covers newly created cameras).
 /// </summary>
 internal static class VRCameraPolicy
 {
@@ -36,7 +36,11 @@ internal static class VRCameraPolicy
     private static readonly Dictionary<Camera, StereoTargetEyeMask> Originals = new();
     private static readonly List<Camera> Scratch = new(8);
 
-    /// <summary>The rig head camera — the ONLY camera allowed to render stereo. Set by VRRigDriver.</summary>
+    /// <summary>
+    /// The rig's OWN head camera — the only camera allowed to render stereo. Set by
+    /// VRRigDriver when it builds its owned camera; null while no rig exists (then
+    /// EVERY camera is forced to None — game cameras never stereo, period).
+    /// </summary>
     internal static Camera? AllowedHead { get; set; }
 
     /// <summary>
@@ -63,15 +67,13 @@ internal static class VRCameraPolicy
         if (!VRSession.IsRunning)
             return;
         Camera? head = AllowedHead;
-        if (head == null)
-            return; // no rig head — stand down (vanilla stereo beats a void HMD)
 
         int count = GetAllCamerasNonAlloc(out Camera[] cams);
         int forced = 0;
         for (int i = 0; i < count; i++)
         {
             Camera cam = cams[i];
-            if (cam == null || cam == head)
+            if (cam == null || (head != null && cam == head))
                 continue;
             if (cam.stereoTargetEye == StereoTargetEyeMask.None)
                 continue;
@@ -82,27 +84,12 @@ internal static class VRCameraPolicy
             XRDevice.DisableAutoXRCameraTracking(cam, true);
             forced++;
             VRLog.Info("Core", $"Stereo policy: '{cam.name}' forced to StereoTargetEyeMask.None ({reason}; " +
-                               $"head '{head.name}' keeps the HMD).");
+                               $"{(head != null ? $"head '{head.name}' keeps the HMD" : "no rig head — game cameras never stereo")}).");
         }
 
         if (forced > 0)
             VRLog.Info("Core", $"Stereo policy sweep ({reason}): forced None on {forced} camera(s), " +
-                               $"{Originals.Count} tracked total, head='{head.name}'.");
-    }
-
-    /// <summary>
-    /// Promote <paramref name="cam"/> to rig head: forget the policy's claim on it and
-    /// return the stereo mask it had BEFORE the policy touched it (current value when
-    /// it was never swept). The rig records that for teardown restore.
-    /// </summary>
-    internal static StereoTargetEyeMask Reclaim(Camera cam)
-    {
-        if (Originals.TryGetValue(cam, out StereoTargetEyeMask original))
-        {
-            Originals.Remove(cam);
-            return original;
-        }
-        return cam.stereoTargetEye;
+                               $"{Originals.Count} tracked total, head={(head != null ? $"'{head.name}'" : "NONE")}.");
     }
 
     /// <summary>Drop bookkeeping for cameras destroyed by scene unloads (called on scene-load sweeps).</summary>
