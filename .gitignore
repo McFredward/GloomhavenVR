@@ -31,3 +31,6 @@ dist/
 
 # local debug drops (never push)
 .planning/debug/
+
+# harness worktrees/session data
+.claude/
