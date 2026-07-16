@@ -7,12 +7,13 @@ namespace GloomhavenVR.Rig;
 /// <summary>
 /// Demeo-style world grab (ARCHITECTURE §3): grip the air to manipulate the diorama.
 ///
-/// - One grip held (away from any <c>IGrabbable</c>) → drag the table on the horizontal
-///   plane (vertical opt-in via <c>[Comfort] VerticalDrag</c>).
+/// - One grip held (away from any <c>IGrabbable</c>) → drag the table freely in ALL
+///   directions (test #10, <c>[Comfort] FreeMovement</c> default ON; with it off the
+///   drag is horizontal-only unless <c>[Comfort] VerticalDrag</c>).
 /// - Both grips held → rotate the table around the point between the hands (yaw only)
-///   and pinch-scale it (spread hands = board grows), clamped to
-///   <c>[Comfort] ScaleMin/ScaleMax</c> × base WorldScale, with haptic detents at every
-///   25% scale step.
+///   and pinch-scale it (spread hands = board grows), clamped to the EFFECTIVE scale
+///   limits (at least 0.1×–12× of base WorldScale while FreeMovement; otherwise
+///   <c>[Comfort] ScaleMin/ScaleMax</c>), with haptic detents at every 25% scale step.
 ///
 /// All motion is applied INVERSELY to the rig root — game objects are never moved
 /// (game camera code is already prefix-skipped by the P1 patches, so nothing fights us).
@@ -221,7 +222,9 @@ internal sealed class WorldGrab : MonoBehaviour
 
         Vector3 w = rig.TransformPoint(TrackingPos(hand));
         Vector3 delta = _anchorWorld - w; // move the rig so the world returns under the hand
-        if (!ComfortSettings.VerticalDrag.Value)
+        // Test #10: vertical drag is always on while [Comfort] FreeMovement (default);
+        // the legacy horizontal-only behavior needs FreeMovement=false AND VerticalDrag=false.
+        if (!ComfortSettings.EffectiveVerticalDrag)
             delta.y = 0f;
 
         float scale = rig.localScale.x;
@@ -270,9 +273,10 @@ internal sealed class WorldGrab : MonoBehaviour
                 _scaleLive = true;
             if (_scaleLive)
             {
+                // Effective limits (test #10): at least 0.1×–12× while FreeMovement.
                 float target = Mathf.Clamp(_s0 * (_d0 / d),
-                    baseScale * ComfortSettings.ScaleMin.Value,
-                    baseScale * ComfortSettings.ScaleMax.Value);
+                    baseScale * ComfortSettings.EffectiveScaleMin,
+                    baseScale * ComfortSettings.EffectiveScaleMax);
                 s = Mathf.Lerp(s, target, k);
             }
         }

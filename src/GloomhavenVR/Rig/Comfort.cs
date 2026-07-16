@@ -57,7 +57,7 @@ internal sealed class Comfort : MonoBehaviour
             return;
 
         float baseScale = RigTarget.BaseScale;
-        float s = Mathf.Clamp(multiplier, ComfortSettings.ScaleMin.Value, ComfortSettings.ScaleMax.Value)
+        float s = Mathf.Clamp(multiplier, ComfortSettings.EffectiveScaleMin, ComfortSettings.EffectiveScaleMax)
                   * baseScale;
         float current = rig.localScale.x;
         if (Mathf.Approximately(s, current))
@@ -155,6 +155,11 @@ internal sealed class Comfort : MonoBehaviour
 /// the head must never end up inside/under the table. Enforces a minimum real-world
 /// eye clearance above the table plane (the orbit-focus ground plane) by lifting the
 /// rig back up — pure rig-space correction, game objects untouched.
+///
+/// TEST #10: fully disabled while <c>[Comfort] FreeMovement</c> (default ON) — the
+/// player may dive below the table or float above it without limits; the recenter
+/// chord (B+Y hold) is the deterministic way back from anywhere. Setting
+/// FreeMovement=false restores this clamp.
 /// </summary>
 internal static class RigClamp
 {
@@ -167,6 +172,9 @@ internal static class RigClamp
     internal static void Apply(Transform rig)
     {
         LastClampActive = false;
+
+        if (ComfortSettings.PositionalClampsDisabled)
+            return; // [Comfort] FreeMovement: no positional limits at all (test #10)
 
         Camera? head = VRRigDriver.HeadCamera;
         CameraController controller = CameraController.s_CameraController;

@@ -80,9 +80,11 @@ internal static class CameraInventory
             bool inStack = FlatScreen.IsCaptured(cam);
             if (inStack)
                 captured++;
+            Rect r = cam.rect;
             VRLog.Info("WorldUI",
                 $"  '{cam.name}' tag={cam.tag} enabled={cam.enabled} depth={cam.depth:F1} " +
-                $"clear={cam.clearFlags} mask=0x{cam.cullingMask:X8} stereo={cam.stereoTargetEye} " +
+                $"clear={cam.clearFlags} rect=({r.x:F2},{r.y:F2},{r.width:F2},{r.height:F2}) " +
+                $"mask=0x{cam.cullingMask:X8} stereo={cam.stereoTargetEye} " +
                 $"target={target}{(cam == head ? " [VR head]" : "")}{(inStack ? " [RT stack]" : "")}");
         }
         VRLog.Info("WorldUI", $"  FlatScreen stack: {captured} camera(s) captured into the RT " +

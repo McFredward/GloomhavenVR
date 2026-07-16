@@ -71,13 +71,25 @@ always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
 ## §3 Owned head camera — owner: `Rig.VRRigDriver`
 
 - **Creation:** `GloomhavenVR.HeadCamera` GO under the rig root, seeded from the
-  anchor game camera: mask = anchor mask | mod layer (never 0 — a zero source mask
-  falls back to Default | mod), depth = anchor + 1, far plane from the anchor,
-  clear = solid dark grey `HeadVoidColor` (a Skybox anchor keeps Skybox — that IS
-  content), stereo = Both, implicit XR tracking off, pose via `TrackedPoseDriver`
-  (center eye, UpdateAndBeforeRender).
-- **Mask upkeep:** re-composed **every frame** from the live anchor mask (game code
-  may toggle scene layers); once the anchor dies, our last mask is re-asserted.
+  anchor game camera: depth = anchor + 1, far plane from the anchor, stereo = Both,
+  implicit XR tracking off, pose via `TrackedPoseDriver` (center eye,
+  UpdateAndBeforeRender). Mask + clear depend on the RIG KIND (see below).
+- **SCENARIO rig mask:** anchor mask | mod layer (never 0 — a zero source mask falls
+  back to Default | mod); clear = solid `[Rig] VoidColor` (a Skybox anchor keeps
+  Skybox — that IS content).
+- **Menu2D (MENU rig) mask — test #10 rule:** the **MOD LAYER ONLY**, always. The
+  HMD in Menu2D contains exactly: void + FlatScreen quad + hands + starting
+  indicator. The anchor mask is **never** copied — on the campaign map the anchor
+  ('MapCamera') culls the whole 3D world (0xF00FFE37); copying it rendered the giant
+  map 1:1 below the player while the flat screen floated inside it. Menu2D shows the
+  world exclusively through the FlatScreen RT composite (§6). Clear is always forced
+  SolidColor `[Rig] VoidColor` (no Skybox exception). Everything that must be
+  visible in Menu2D therefore MUST be on the mod layer (`VRLayers.Apply`).
+- **Mask upkeep:** re-asserted **every frame** — scenario: re-composed from the live
+  anchor mask (game code may toggle scene layers; once the anchor dies, our last
+  mask is re-asserted); menu: pinned to the mod-layer mask (foreign writes, e.g.
+  CanvasConversion's UI bit, are stripped — menu-visible mod UI lives on the mod
+  layer, not the UI layer).
 - **Rig root:** `DontDestroyOnLoad` + `HideAndDontSave` — scene swaps cannot destroy
   our camera mid-flight anymore; rebuilds are policy decisions, not accidents.
 - **Lifetime health check (every `Update`):** tear down + rebuild when
@@ -137,6 +149,19 @@ camera that renders to the backbuffer is captured into `GloomhavenVR.FlatScreenR
   own clear flags (Depth etc.) so compositing matches the game's intent. Depth ties
   ('Main Camera' and 'UI Camera' both ship depth 1.0): the UICamera-tagged camera
   never wins the base pick — it composites last per game intent.
+- **Overlay SolidColor demotion (test #10, `[WorldUI] DemoteOverlaySolidClears`,
+  default on):** a NON-base captured camera with a FULLSCREEN viewport and a
+  SolidColor clear (the campaign map's depth-5 'Video Camera' — decompiled
+  GH.Runtime/VideoCamera.cs: enabled only around `PlayFullscreenVideo`, renderMode
+  CameraNearPlane, its clear is merely the black backdrop behind fullscreen videos)
+  gets its clear demoted to Depth while captured. Rendering last into the RT, the
+  vanilla clear wipes the whole composite black whenever the near-plane video blit
+  doesn't land in the redirected RT (test #10: black map + black encounter
+  backgrounds). Demotion never hides content — the video frame still draws on top —
+  and diverges from vanilla only in letterbox backdrops. Sub-rect SolidColor cameras
+  keep their clear (`camera.rect` respected: a viewport-limited background IS
+  content). Original flags restored on release; every demotion and every captured
+  camera's enable/disable flip is logged.
 - **Pump:** per-tick capture sweep (shared no-alloc scan buffer) — late-created
   cameras (MainMenuVideo) are captured the frame they appear; redirects and the base
   clear are re-asserted every tick against game-side rewrites.

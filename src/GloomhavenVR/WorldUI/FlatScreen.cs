@@ -143,6 +143,10 @@ internal sealed class FlatScreen
         public Camera Camera = null!;
         public CameraClearFlags OriginalClearFlags;
         public Color OriginalBackground;
+        /// <summary>Last observed enabled state (transition diagnostics, test #10).</summary>
+        public bool WasEnabled;
+        /// <summary>True while we demote this camera's fullscreen SolidColor clear to Depth (see <see cref="TickStackClears"/>).</summary>
+        public bool Demoted;
     }
 
     // Captured camera stack (I1, hardware test #5). The list is reused across
@@ -186,6 +190,7 @@ internal sealed class FlatScreen
     // Manual screen chord (P6 self-rescue): forced-visible latch + per-press fire guard.
     private bool _manualShow;
     private bool _chordFired;
+    private bool _chordArmingLogged;
 
     public FlatScreen()
     {
@@ -271,12 +276,18 @@ internal sealed class FlatScreen
                 Camera = cam,
                 OriginalClearFlags = cam.clearFlags,
                 OriginalBackground = cam.backgroundColor,
+                WasEnabled = true, // Camera.allCameras only lists enabled cameras
             };
             _captured.Add(record);
             CapturedSet.Add(cam);
             cam.targetTexture = _rt;
+            // Full disposition line (test #10): rect + clear + depth + mask make the RT
+            // composite reconstructable from the log alone.
+            Rect r = cam.rect;
             VRLog.Info("WorldUI", $"FlatScreen stack capture: '{cam.name}' → RenderTexture " +
-                                  $"(depth {cam.depth:F1}, clear {record.OriginalClearFlags} kept unless base).");
+                                  $"(depth {cam.depth:F1}, clear {record.OriginalClearFlags} " +
+                                  $"'{record.OriginalBackground}', rect ({r.x:F2},{r.y:F2},{r.width:F2},{r.height:F2}), " +
+                                  $"mask 0x{cam.cullingMask:X8}).");
         }
 
         // 2. Compact dead entries (scene unloads destroy cameras behind our back).
@@ -324,13 +335,92 @@ internal sealed class FlatScreen
                                       $"clears the RT (clear {_base.OriginalClearFlags} → SolidColor opaque black).");
         }
 
-        // Re-assert the base clear every tick (game code may rewrite it).
-        if (_base != null && _base.Camera != null)
+        TickStackClears();
+    }
+
+    /// <summary>
+    /// Per-tick clear-flag policy + enabled-transition diagnostics for the captured
+    /// stack (test #10).
+    ///
+    /// BASE: the stack's lowest-depth camera keeps its forced OPAQUE SolidColor clear
+    /// (fresh RTs have undefined color — see field comment).
+    ///
+    /// NON-BASE FULLSCREEN SolidColor DEMOTION ([WorldUI] DemoteOverlaySolidClears):
+    /// the campaign map's 'Video Camera' (decompiled GH.Runtime/VideoCamera.cs) is a
+    /// depth-5 fullscreen-video surface: enabled ONLY between PlayFullscreenVideo
+    /// (VideoCamera.cs:96) and EndReached/Stop/error (VideoCamera.cs:146,164,190,
+    /// re-enable path :84/:127), renderMode CameraNearPlane (VideoCamera.cs:97), and
+    /// its SolidColor clear exists purely as the black BACKDROP behind/between
+    /// fullscreen videos. Rendering last into our RT, that clear wipes the whole
+    /// composite (map + UI) whenever the near-plane video blit does not land in the
+    /// redirected RT — hardware test #10 saw exactly that (black map, black encounter
+    /// backgrounds, 'Video Camera' captured at depth 5.0 clear SolidColor). Demoting
+    /// the clear to Depth for NON-BASE fullscreen SolidColor cameras diverges from
+    /// vanilla only in the backdrop (letterbox bars would show the scene instead of
+    /// black while a video plays) and never hides content: the video frame itself, when
+    /// it renders, is drawn on top either way. Sub-rect SolidColor cameras keep their
+    /// clear — a viewport-limited background IS legitimate visible content
+    /// (camera.rect respected). Original flags are restored on release.
+    ///
+    /// ENABLED TRANSITIONS: Camera.allCameras only lists enabled cameras, so captured
+    /// cameras that get disabled (video ended) vanish silently — log every flip so the
+    /// next hardware report shows exactly when 'Video Camera' rendered into the RT.
+    /// </summary>
+    private void TickStackClears()
+    {
+        bool demote = WorldUIConfig.DemoteOverlaySolidClears.Value;
+        for (int i = 0; i < _captured.Count; i++)
         {
-            if (_base.Camera.clearFlags != CameraClearFlags.SolidColor)
-                _base.Camera.clearFlags = CameraClearFlags.SolidColor;
-            if (_base.Camera.backgroundColor != OpaqueBlack)
-                _base.Camera.backgroundColor = OpaqueBlack;
+            CapturedCamera c = _captured[i];
+            Camera cam = c.Camera;
+            if (cam == null)
+                continue;
+
+            // Enabled-state transition diagnostics.
+            bool enabled = cam.isActiveAndEnabled;
+            if (enabled != c.WasEnabled)
+            {
+                c.WasEnabled = enabled;
+                Rect r = cam.rect;
+                VRLog.Info("WorldUI", $"FlatScreen stack member '{cam.name}' {(enabled ? "ENABLED" : "DISABLED")} " +
+                                      $"(depth {cam.depth:F1}, clear {cam.clearFlags}, " +
+                                      $"rect ({r.x:F2},{r.y:F2},{r.width:F2},{r.height:F2})) — " +
+                                      $"{(enabled ? "now renders into" : "no longer renders into")} the RT.");
+            }
+
+            if (c == _base)
+            {
+                // Re-assert the base clear every tick (game code may rewrite it).
+                if (cam.clearFlags != CameraClearFlags.SolidColor)
+                    cam.clearFlags = CameraClearFlags.SolidColor;
+                if (cam.backgroundColor != OpaqueBlack)
+                    cam.backgroundColor = OpaqueBlack;
+                continue;
+            }
+
+            bool fullscreen = cam.rect.width >= 0.99f && cam.rect.height >= 0.99f;
+            bool wantDemote = demote && fullscreen && c.OriginalClearFlags == CameraClearFlags.SolidColor;
+            if (wantDemote)
+            {
+                if (!c.Demoted)
+                {
+                    c.Demoted = true;
+                    VRLog.Info("WorldUI", $"FlatScreen stack: non-base '{cam.name}' (depth {cam.depth:F1}) " +
+                                          "fullscreen SolidColor clear DEMOTED to Depth — its clear is a video " +
+                                          "backdrop (VideoCamera.cs:96-97) and must not wipe the RT composite.");
+                }
+                if (cam.clearFlags == CameraClearFlags.SolidColor)
+                    cam.clearFlags = CameraClearFlags.Depth;
+            }
+            else if (c.Demoted)
+            {
+                c.Demoted = false;
+                if (cam.clearFlags == CameraClearFlags.Depth)
+                    cam.clearFlags = c.OriginalClearFlags;
+                cam.backgroundColor = c.OriginalBackground;
+                VRLog.Info("WorldUI", $"FlatScreen stack: '{cam.name}' clear demotion lifted " +
+                                      $"(restored {c.OriginalClearFlags}).");
+            }
         }
     }
 
@@ -344,9 +434,10 @@ internal sealed class FlatScreen
                 continue;
             if (cam.targetTexture == _rt)
                 cam.targetTexture = null;
-            // Only the base had its clear forced — leave the others' flags alone
-            // (they may have been legitimately changed by game code meanwhile).
-            if (_captured[i] == _base)
+            // Only the base (forced clear) and demoted overlays (SolidColor → Depth)
+            // had their flags touched — leave everyone else alone (their flags may
+            // have been legitimately changed by game code meanwhile).
+            if (_captured[i] == _base || _captured[i].Demoted)
             {
                 cam.clearFlags = _captured[i].OriginalClearFlags;
                 cam.backgroundColor = _captured[i].OriginalBackground;
@@ -447,9 +538,19 @@ internal sealed class FlatScreen
         if (NonDominantHold.HeldSeconds <= 0f)
         {
             _chordFired = false;
+            _chordArmingLogged = false;
             return;
         }
         float threshold = Mathf.Max(0.5f, WorldUIConfig.ManualScreenChordSeconds.Value);
+        // Arming diagnostic (test #10): proves in the log that the hardware press
+        // reaches the chord tracker even when the player releases before the threshold.
+        if (!_chordArmingLogged && !_chordFired && NonDominantHold.HeldSeconds >= threshold * 0.5f)
+        {
+            _chordArmingLogged = true;
+            VRLog.Info("WorldUI", $"Manual screen chord ARMING: non-dominant A/X held " +
+                                  $"{NonDominantHold.HeldSeconds:F1}s — keep holding to " +
+                                  $"{threshold:F1}s to toggle the 2D screen.");
+        }
         if (_chordFired || NonDominantHold.HeldSeconds < threshold)
             return;
 

@@ -38,20 +38,47 @@
 - [ ] Recenter chord (B+Y both hands, 1 s) re-centers the menu view.
 - [ ] Navigate: Guildmaster → party/roster screens all usable on the flat screen.
 
+## 1b. Campaign / world map (Menu2D mask + RT composite) — test #10 fixes
+
+- [ ] On the campaign map the HMD shows **ONLY void + flat screen + hands** — NO
+      giant 3D map below/around you. Log: `Menu rig built at vantage of camera
+      'MapCamera' (… mask MOD-ONLY 0x… (anchor 0x… NOT copied — test #10) …)`.
+- [ ] The flat screen shows the **full map render** (terrain visible, not black)
+      plus the map UI on top.
+- [ ] Campaign intro video / encounter ("Begegnung") backgrounds: ambient art or
+      video visible behind story boxes — not a black field. Log around it:
+      `FlatScreen stack capture: 'Video Camera' → RenderTexture (… rect … mask …)`,
+      `… fullscreen SolidColor clear DEMOTED to Depth …`, and later
+      `FlatScreen stack member 'Video Camera' DISABLED …` when the video ends.
+- [ ] Story boxes ('UI Story Box') page through and confirm via laser clicks.
+
 ## 2. Scenario start & hero placement — P1/P3a
 
 Start any early scenario (e.g. Black Barrow (campaign) or a guildmaster job).
 
 - [ ] Log: `Menu rig torn down` → `VR rig built at focus ...` → `Hands built`.
+- [ ] **Scenario-start story/subtitle box (test #10 lock):** when the quest-intro
+      story box ("Untertitel und Geschichte bestätigen" / narration pages) opens,
+      the flat screen **rises automatically** and the box is clickable. Log:
+      `MODAL FALLBACK poll: story box (StoryController.IsVisible) OPEN` →
+      `MODAL FALLBACK ASSERTED …` and, after confirming, `… RELEASED`.
+- [ ] **Universal rescue chord:** hold the NON-dominant lower face button (A or X)
+      for 2 s at any point in a scenario → flat screen toggles on regardless of
+      detection (log: `Manual screen chord ARMING …` then `MANUAL SCREEN CHORD:
+      flat screen toggled ON`). Hold again to hide.
 - [ ] The board reads as a table diorama (a hex ≈ 15 cm); first recenter placed you
       at the table edge (standing preset, or seated if configured).
 - [ ] **Hero placement (CardSelection-mode ray, P5 matrix):** the dominant hand has
       a laser during placement; point at a spawn hex → game highlight follows; with
       `[Board] SnapToHexCenter = true` the reticle snaps to hex centers; trigger
       places the hero. Near-touch placement (finger to the hex) also works.
-- [ ] World grab: one grip drags the table, two grips rotate/pinch-scale with
-      haptic detents; head can't be forced under the table (clamp). `TESTING-P4.md`
-      has the deep pass.
+- [ ] World grab (test #10 free movement, `[Comfort] FreeMovement` default ON): one
+      grip drags the table **in every direction — including straight up and down,
+      past your head, below your feet; no clamps**; two grips rotate/pinch-scale
+      with haptic detents across the widened 0.1×–12× range. Recenter chord (B+Y,
+      1 s) returns you to the table edge from ANY position/scale. With
+      `FreeMovement = false` the old clamps return (horizontal drag, head above
+      table). `TESTING-P4.md` has the deep pass.
 
 ## 3. Round 1 — card selection (P3b) + movement (P3a)
 

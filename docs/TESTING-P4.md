@@ -19,16 +19,23 @@
 
 ## 1. One-grip drag (in scenario, HMD)
 
-- [ ] Grip in empty air, move hand: table follows the hand horizontally, direction
-      correct (pull left → board comes left), no vertical motion with
+> Test #10: `[Comfort] FreeMovement` (default **true**) removes ALL positional
+> clamps — the checks below marked *(legacy)* apply only with `FreeMovement = false`.
+
+- [ ] Default (`FreeMovement = true`): grip in empty air, move hand — table follows
+      in **every direction**, including straight up past your head and down below
+      your feet; no clamp ever engages; recenter chord (B+Y, 1 s) returns you to the
+      table edge from anywhere.
+- [ ] *(legacy)* `FreeMovement = false`: table follows the hand horizontally,
+      direction correct (pull left → board comes left), no vertical motion with
       `VerticalDrag = false`.
 - [ ] Micro-jitter while holding grip still: board does NOT swim (1.5 cm deadzone
       before the gesture goes live, smoothing after).
 - [ ] Grip **near a fanned card / grabbable object**: the card grab wins, the table
       does not move (gizmos hand shows `object`, not `WORLD`).
-- [ ] `VerticalDrag = true`: vertical drag works; dragging the table up past your
-      head stops — eyes always keep ~10 real cm above the table plane
-      (gizmos `clamp ACTIVE` blinks while you push the limit).
+- [ ] *(legacy)* `FreeMovement = false`, `VerticalDrag = true`: vertical drag works;
+      dragging the table up past your head stops — eyes always keep ~10 real cm
+      above the table plane (gizmos `clamp ACTIVE` blinks while you push the limit).
 - [ ] Release feels clean: no post-release drift.
 
 ## 2. Two-grip rotate + scale
@@ -36,8 +43,9 @@
 - [ ] Both grips in empty air, spread hands: board grows; together: shrinks.
       Feels anchored between the hands (the point between your fists stays put).
 - [ ] Haptic detent (`ClickPulse`, both hands) every 25% scale step.
-- [ ] Clamps: cannot shrink below 0.5× / grow above 4× of base (gizmos multiplier
-      pegs at the limit).
+- [ ] Scale limits: with `FreeMovement = true` (default) the effective range is at
+      least 0.1×–12× of base; with `FreeMovement = false` the configured
+      `ScaleMin`/`ScaleMax` apply (gizmos multiplier pegs at the limit).
 - [ ] Swing hands around each other: board yaws around the midpoint; no pitch/roll
       ever. `RotateEnabled = false` disables only rotation, scale still works.
 - [ ] Release, then re-grip: no jump on re-engage (fresh anchors).

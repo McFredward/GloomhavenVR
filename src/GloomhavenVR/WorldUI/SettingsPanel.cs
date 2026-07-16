@@ -281,6 +281,10 @@ internal sealed class SettingsPanel
                     Mathf.Clamp(ComfortSettings.VignetteStrength.Value + delta * 0.1f, 0.2f, 1f);
             });
 
+        Toggle("Free movement",
+            () => ComfortSettings.IsBound && ComfortSettings.FreeMovement.Value,
+            v => { if (ComfortSettings.IsBound) ComfortSettings.FreeMovement.Value = v; });
+
         var grabRow = Row();
         Label(grabRow, "World grab", 16f, flexible: true);
         ToggleButton(grabRow,
