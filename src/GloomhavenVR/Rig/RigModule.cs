@@ -4,7 +4,8 @@ using UnityEngine;
 namespace GloomhavenVR.Rig;
 
 /// <summary>
-/// VR camera rig: head-tracked camera over the game's scenario camera, diorama/table
+/// VR camera rig: rig-OWNED head camera anchored at the game camera's vantage
+/// (game cameras never render stereo — docs/CAMERA-POLICY.md §3), diorama/table
 /// scale, recenter (Phase 1, feat/xr-bootstrap) + Demeo-style world grab, snap turn,
 /// height/recenter comfort and the <see cref="ComfortSettings"/> API (Phase 4,
 /// feat/comfort — the in-VR settings *panel* is deferred to the P3c panel framework).
