@@ -32,10 +32,36 @@ namespace GloomhavenVR.WorldUI;
 /// but NOT the InControl uGUI module (BOARD-INPUT §5 caveat). This bridge drives the
 /// InputSystem device, which feeds both paths — the right default.
 ///
+/// POINTER CURRENCY (I3 root cause, hardware test #5 — hover/click died mid-session
+/// while the game stayed healthy): every game-side pointer consumer reads
+/// <c>Mouse.current</c>, not a specific device —
+/// <code>
+///   // decompiled/InControl/InControl/UnityMouseProvider.cs:40-52 (Update reads
+///   //   Mouse.current for position/buttons → InControlInputModule.MouseHasMoved)
+///   // decompiled/Utilities/Utilities/InputSystemUtilities.cs:174-187
+///   //   (GetMousePosition → Mouse.current.position) and :96-146 (buttons)
+///   // decompiled/InControl/InControl/PointerInputModuleExtended.cs:269-307
+///   //   (GetMousePointerEventData → InputSystemUtilities.GetMousePosition)
+/// </code>
+/// and `Mouse.current` is ONLY re-assigned when a queued hardware state EVENT is
+/// processed or a device is added/removed —
+/// <code>
+///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem/InputManager.cs:2321
+///   //   (state-event processing → inputDevice.MakeCurrent()), :1127 (device add),
+///   //   :1246 (device removal promotes another device of the same type)
+///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem.LowLevel/InputState.cs:80-95
+///   //   (InputState.Change → InputManager.UpdateState DIRECT write — no MakeCurrent)
+/// </code>
+/// This bridge writes the virtual device via <c>InputState.Change</c>, which never
+/// (re)claims currency. One physical-mouse jitter therefore made the HARDWARE mouse
+/// current, and every warp/press on the virtual device became invisible to the game
+/// — hover dead, no freeze, exactly the test-#5 symptom. Fix: <see cref="WarpTo"/> /
+/// <see cref="SetLeftButton"/> re-claim currency via <c>MakeCurrent()</c> whenever
+/// another device holds it (keep-alive; least invasive — no game patch). While the
+/// VR ray is OFF the screen we deliberately do not re-claim, so the physical mouse
+/// keeps working as the desktop fallback.
+///
 /// Runtime caveats to validate on HMD/Windows (docs/TESTING-P2.md):
-/// - A real hardware mouse also feeds the same pointer state; while the player moves
-///   the physical mouse, the two fight for `Mouse.current`. Acceptable in VR (the
-///   physical mouse is idle); Phase 3c can call InputManager.DisableAllMouses if not.
 /// - Click() holds the press for ≥2 InputSystem updates so InControl's WasPressed
 ///   polling can't miss the edge; needs the WorldUI driver's Tick() running.
 /// </summary>
@@ -43,6 +69,23 @@ internal static class VirtualMouse
 {
     private static Mouse? _mouse;
     private static int _pendingReleaseFrame = -1;
+
+    // ---- I3 diagnostics + watchdog state ------------------------------------------------
+
+    /// <summary>Force-release a held left button after this long without pointer movement.</summary>
+    private const float StuckPressSeconds = 5f;
+
+    /// <summary>Minimum pixel movement (squared) that counts as pointer activity.</summary>
+    private const float ActivityEpsilonSq = 1f;
+
+    private static bool _leftPressed;
+    private static float _lastActivityTime;
+    private static Vector2 _lastWarpPos;
+    private static Mouse? _lastCurrentSeen;
+    private static int _currencyReclaims;
+    private static float _lastReclaimLog = float.NegativeInfinity;
+    private static bool _lastGamepadMode;
+    private static bool _gamepadModeKnown;
 
     /// <summary>True once the virtual mouse device exists and is usable.</summary>
     public static bool IsAvailable => _mouse != null && _mouse.added;
@@ -55,6 +98,15 @@ internal static class VirtualMouse
     {
         if (IsAvailable)
             return true;
+
+        if (_mouse != null && !_mouse.added)
+        {
+            // The game never removes its virtual mouse itself (verified: no
+            // RemoveDevice call in decompiled GH.Runtime InputManager), but be loud
+            // if anything else does — CreateVirtualMouse re-adds it below.
+            VRLog.Warn("WorldUI", "VirtualMouse device was removed from the InputSystem — recreating.");
+            _mouse = null;
+        }
 
         InputManager? manager = Singleton<InputManager>.Instance;
         if (manager == null)
@@ -82,8 +134,38 @@ internal static class VirtualMouse
     {
         if (!EnsureCreated())
             return;
+        ReclaimCurrency();
+        if ((screenPos - _lastWarpPos).sqrMagnitude > ActivityEpsilonSq)
+        {
+            _lastWarpPos = screenPos;
+            _lastActivityTime = Time.unscaledTime;
+        }
         _mouse!.WarpCursorPosition(screenPos);
         InputState.Change(_mouse.position, screenPos);
+    }
+
+    /// <summary>
+    /// Keep-alive for pointer ownership (I3 — see class doc): if another mouse device
+    /// stole <c>Mouse.current</c> (hardware jitter processes a state event →
+    /// MakeCurrent, decompiled Unity.InputSystem InputManager.cs:2321), take it back.
+    /// Called only while we actively drive the pointer, so an intentionally used
+    /// physical mouse still works whenever the VR ray is off the screen.
+    /// Reference compare per call — no allocations; logging rate-limited.
+    /// </summary>
+    private static void ReclaimCurrency()
+    {
+        if (Mouse.current == _mouse)
+            return;
+        Mouse? thief = Mouse.current;
+        _mouse!.MakeCurrent();
+        _currencyReclaims++;
+        if (Time.unscaledTime - _lastReclaimLog >= 5f)
+        {
+            _lastReclaimLog = Time.unscaledTime;
+            VRLog.Info("WorldUI", $"VirtualMouse: pointer currency was held by " +
+                                  $"'{(thief != null ? thief.name : "none")}' — reclaimed via MakeCurrent " +
+                                  $"({_currencyReclaims} reclaim(s) this session).");
+        }
     }
 
     /// <summary>Press the left button (state persists until <see cref="Release"/>).</summary>
@@ -118,7 +200,10 @@ internal static class VirtualMouse
         Release();
     }
 
-    /// <summary>Deferred click release. Called every frame by the WorldUI driver.</summary>
+    /// <summary>
+    /// Per-frame service (WorldUI driver): deferred click release, the stuck-press
+    /// watchdog and the I3 attribution diagnostics. Allocation-free between events.
+    /// </summary>
     internal static void Tick()
     {
         if (_pendingReleaseFrame >= 0 && Time.frameCount >= _pendingReleaseFrame)
@@ -126,23 +211,72 @@ internal static class VirtualMouse
             _pendingReleaseFrame = -1;
             Release();
         }
+
+        // Stuck-press watchdog (I3 hardening): if OUR synthesized left button has
+        // been held without any pointer movement for too long, force the release —
+        // a press without its matching release keeps uGUI in drag state and kills
+        // hover globally (PointerInputModuleExtended.ProcessDrag suppresses enter/
+        // exit while dragging). Legit drags always move the pointer.
+        if (_leftPressed && Time.unscaledTime - _lastActivityTime > StuckPressSeconds)
+        {
+            VRLog.Warn("WorldUI", $"VirtualMouse watchdog: left button held >{StuckPressSeconds:F0}s " +
+                                  "without pointer movement — forcing release (stuck synthesized press).");
+            Release();
+        }
+
+        // Attribution diagnostics: log pointer-ownership changes and the game's
+        // input-mode flips so a recurrence of test-#5 input death is explainable
+        // from the BepInEx log alone. Reference/bool compares only.
+        if (_mouse != null)
+        {
+            Mouse? current = Mouse.current;
+            if (current != _lastCurrentSeen)
+            {
+                _lastCurrentSeen = current;
+                VRLog.Info("WorldUI", $"Pointer device changed: Mouse.current is now " +
+                                      $"'{(current != null ? current.name : "none")}'" +
+                                      $"{(current == _mouse ? " (our virtual mouse)" : " (NOT our virtual mouse — game reads this one)")}.");
+            }
+
+            bool gamepadMode = InputManager.GamePadInUse;
+            if (!_gamepadModeKnown || gamepadMode != _lastGamepadMode)
+            {
+                _gamepadModeKnown = true;
+                _lastGamepadMode = gamepadMode;
+                VRLog.Info("WorldUI", $"Game input mode: GamePadInUse={gamepadMode}.");
+            }
+        }
     }
 
     /// <summary>Drop our device reference (module shutdown; the game owns the device itself).</summary>
     internal static void Reset()
     {
-        if (_pendingReleaseFrame >= 0)
+        if (_pendingReleaseFrame >= 0 || _leftPressed)
         {
             _pendingReleaseFrame = -1;
             Release();
         }
         _mouse = null;
+        _lastCurrentSeen = null;
+        _leftPressed = false;
+        _gamepadModeKnown = false;
+        _currencyReclaims = 0;
+        _lastReclaimLog = float.NegativeInfinity;
     }
 
     private static void SetLeftButton(bool pressed)
     {
         if (!EnsureCreated())
             return;
+        ReclaimCurrency();
+        if (pressed != _leftPressed)
+        {
+            _leftPressed = pressed;
+            if (pressed)
+                _lastActivityTime = Time.unscaledTime; // arm the stuck-press watchdog
+            VRLog.Debug("WorldUI", pressed ? "VirtualMouse: left button pressed."
+                                           : "VirtualMouse: left button released.");
+        }
         _mouse!.CopyState(out MouseState state);
         InputState.Change(_mouse, state.WithButton(MouseButton.Left, pressed));
     }
