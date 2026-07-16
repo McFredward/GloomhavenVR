@@ -37,9 +37,26 @@ internal sealed class HandsDriver : MonoBehaviour
     private float _simTrigger;
     private float _simGrip;
 
-    private void OnEnable() => VRModeStateMachine.ModeChanged += OnModeChanged;
+    private void OnEnable()
+    {
+        VRModeStateMachine.ModeChanged += OnModeChanged;
+        // Dominance is live-switchable (Menu2D trigger switch / settings panel toggle
+        // both write [Hands] PrimaryHand) — reapply the per-hand masks on change.
+        Plugin.PrimaryHand.SettingChanged += OnPrimaryHandChanged;
+    }
 
-    private void OnDisable() => VRModeStateMachine.ModeChanged -= OnModeChanged;
+    private void OnDisable()
+    {
+        VRModeStateMachine.ModeChanged -= OnModeChanged;
+        Plugin.PrimaryHand.SettingChanged -= OnPrimaryHandChanged;
+    }
+
+    private void OnPrimaryHandChanged(object sender, System.EventArgs e)
+    {
+        ApplyMode(VRModeStateMachine.CurrentMode);
+        VRLog.Info("Hands", $"[Hands] PrimaryHand is now '{Plugin.PrimaryHand.Value}' — " +
+                            "per-hand interactor masks reapplied.");
+    }
 
     private void Update()
     {
