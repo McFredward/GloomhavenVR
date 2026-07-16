@@ -122,12 +122,12 @@ internal static class CardMesh
         for (int i = 0; i < n; i++)
         {
             int next = (i + 1) % n;
-            // Front face: CCW outline seen from -Z; Unity front faces are clockwise
-            // when viewed against the normal direction — wind center → next → i so
-            // the triangle is visible from -Z.
+            // Front face: the outline is CCW in the XY plane; a viewer on the -Z
+            // side (Unity left-handed: sees +X right, +Y up) needs CLOCKWISE
+            // winding — center → next → i.
             frontRim[t++] = frontBase + n;
-            frontRim[t++] = frontBase + i;
             frontRim[t++] = frontBase + next;
+            frontRim[t++] = frontBase + i;
         }
         for (int i = 0; i < n; i++)
         {
@@ -142,9 +142,11 @@ internal static class CardMesh
         for (int i = 0; i < n; i++)
         {
             int next = (i + 1) % n;
+            // Back face: viewed from +Z the x-axis appears mirrored, so the
+            // CCW-in-XY order center → i → next reads clockwise there.
             back[i * 3] = backBase + n;
-            back[i * 3 + 1] = backBase + next;
-            back[i * 3 + 2] = backBase + i;
+            back[i * 3 + 1] = backBase + i;
+            back[i * 3 + 2] = backBase + next;
         }
 
         var mesh = new Mesh { name = "GloomhavenVR.CardBody" };
