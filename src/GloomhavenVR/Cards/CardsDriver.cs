@@ -148,6 +148,8 @@ internal sealed class CardsDriver : MonoBehaviour
             // Hands (and rig) are down — nothing physical can exist.
             if (_fan.IsOpen)
                 _fan.Close();
+            ClearLaserHover();
+            ClearBoardHover();
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
