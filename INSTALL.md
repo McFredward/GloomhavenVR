@@ -32,6 +32,11 @@ End-user install for the release zip (`GloomhavenVR-<version>.zip`, built by
    (Steam: right-click the game → Manage → Browse local files).
 3. Run the game once flat, quit. Verify `BepInEx/LogOutput.log` now exists —
    that proves the loader chainloads.
+4. Recommended: in `BepInEx/config/BepInEx.cfg` set
+   `[Chainloader] HideManagerGameObject = true`. The mod's own drivers run on
+   hidden `DontDestroyOnLoad` objects, but the plugin entry point (and its XR
+   watchdog coroutines) lives on the BepInEx manager GameObject — hiding it keeps
+   game code that sweeps/disables scene objects away from it.
 
 ## 2. Install the mod
 
