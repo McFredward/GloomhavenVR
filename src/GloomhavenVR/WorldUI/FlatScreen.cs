@@ -103,7 +103,8 @@ internal sealed class FlatScreen
 
     private GameObject? _quad;
     private Renderer? _quadRenderer;
-    private Transform? _reticle;
+    /// <summary>True while the virtual mouse left button is held by us (drag or virtualmouse mode).</summary>
+    private bool _vmPressed;
     private RenderTexture? _rt;
     private bool _visible;
     private bool _pressing;
@@ -510,17 +511,11 @@ internal sealed class FlatScreen
                              ?? Shader.Find("UI/Default");
             _quadRenderer.sharedMaterial = new Material(shader) { mainTexture = _rt };
 
-            GameObject reticleGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            reticleGo.name = "Reticle";
-            Object.Destroy(reticleGo.GetComponent<Collider>());
-            reticleGo.transform.SetParent(_quad.transform, worldPositionStays: false);
-            reticleGo.GetComponent<Renderer>().sharedMaterial =
-                WorldUIAssets.CreateFlatMaterial(new Color(1f, 0.9f, 0.3f, 0.9f));
-            _reticle = reticleGo.transform;
-            _reticle.gameObject.SetActive(false);
+            // No FlatScreen-owned reticle: the RayInteractor's beam + dot clamp to
+            // the screen hit via UiHitOverride (test #7 — one convergent visual).
 
-            // Screen + reticle live on the dedicated mod layer — only the rig head
-            // camera renders it (its mask ORs the mod bit, never 0; CAMERA-POLICY §2).
+            // The screen lives on the dedicated mod layer — only the rig head camera
+            // renders it (its mask ORs the mod bit, never 0; CAMERA-POLICY §2).
             VRLayers.Apply(_quad);
         }
 
@@ -563,7 +558,6 @@ internal sealed class FlatScreen
                 Object.Destroy(_quad);
                 _quad = null;
                 _quadRenderer = null;
-                _reticle = null;
             }
         }
         if (_visible)
@@ -774,6 +768,15 @@ internal sealed class FlatScreen
                 else if (Time.unscaledTime - _dragOverSince >= WorldUIConfig.DragUnlockSeconds.Value)
                 {
                     _latched = false;
+                    // Drags always run through the virtual mouse; in execute mode the
+                    // button wasn't pressed yet — press it now at the latched pixel so
+                    // the drag starts where the press landed.
+                    if (!_vmPressed)
+                    {
+                        VirtualMouse.WarpTo(_latchedPixel);
+                        VirtualMouse.Press();
+                        _vmPressed = true;
+                    }
                     VRLog.Info("WorldUI", $"FlatScreen pointer: click latch OPENED → drag " +
                                           $"(ray {angle:F1}° off the press direction for " +
                                           $">{WorldUIConfig.DragUnlockSeconds.Value:F2}s).");
@@ -791,16 +794,15 @@ internal sealed class FlatScreen
         bool frozen = _pressing && _latched;
         VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
 
-        if (_reticle != null)
-        {
-            if (!_reticle.gameObject.activeSelf)
-                _reticle.gameObject.SetActive(true);
-            // While latched, show WHERE the click will land, not the trembling ray.
-            _reticle.localPosition = frozen
-                ? new Vector3(_latchedLocal.x, _latchedLocal.y, -0.005f)
-                : new Vector3(local.x, local.y, -0.005f);
-            _reticle.localScale = new Vector3(0.008f, 0.008f * ScreenAspect, 0.008f);
-        }
+        // Single convergent visual (test #7): the beam is CLAMPED to this exact world
+        // point and the RayInteractor's reticle shows there — no separate FlatScreen
+        // dot, no beam passing through the screen, no beam/dot parallax. While
+        // latched, the point is the frozen click position, so the beam visibly
+        // sticks to where the click will land.
+        Vector3 uiWorldPoint = frozen
+            ? t.TransformPoint(new Vector3(_latchedLocal.x, _latchedLocal.y, 0f))
+            : hit;
+        hand.Ray.UiHitOverride = uiWorldPoint;
 
         // Trigger = left mouse button (press/release so drags work). The release
         // condition is the trigger STATE, not the TriggerUp edge: a hands rebuild
@@ -816,17 +818,29 @@ internal sealed class FlatScreen
             _pressDirection = pose.Direction;
             _dragOverSince = -1f;
             VirtualMouse.WarpTo(pixel); // press lands exactly on the frozen pixel
-            VirtualMouse.Press();
+            if (WorldUIConfig.VirtualMouseButtons)
+            {
+                VirtualMouse.Press();
+                _vmPressed = true;
+            }
+            LogUnderPointer(pixel); // diagnostic: what the click will actually hit
             VRLog.Info("WorldUI", $"FlatScreen pointer: trigger PRESS at RT pixel " +
-                                  $"({pixel.x:F0},{pixel.y:F0}), latch={_latched}.");
+                                  $"({pixel.x:F0},{pixel.y:F0}), latch={_latched}, " +
+                                  $"mode={WorldUIConfig.ClickMode.Value}.");
         }
         else if (_pressing && !hand.TriggerPressed)
         {
             _pressing = false;
             if (!hand.TriggerUp)
                 VRLog.Warn("WorldUI", "FlatScreen pointer: trigger release edge was missed " +
-                                      "(hands rebuilt mid-press?) — forced VirtualMouse release.");
-            VirtualMouse.Release();
+                                      "(hands rebuilt mid-press?) — forced release.");
+            if (_vmPressed)
+            {
+                VirtualMouse.Release();
+                _vmPressed = false;
+            }
+            if (_latched && WorldUIConfig.ExecuteClicks)
+                DirectClick(_latchedPixel);
             VRLog.Info("WorldUI", $"FlatScreen pointer: trigger RELEASE at RT pixel " +
                                   $"({pixel.x:F0},{pixel.y:F0}) — " +
                                   $"{(_latched ? "CLICK (latched)" : "drag end")}.");
@@ -922,6 +936,12 @@ internal sealed class FlatScreen
                    > PokeDragUnlockMeters * PokeDragUnlockMeters * scale * scale)
             {
                 _pokeLatched = false;
+                if (!_vmPressed) // execute mode: start the VM drag at the press pixel
+                {
+                    VirtualMouse.WarpTo(_pokePressPixel);
+                    VirtualMouse.Press();
+                    _vmPressed = true;
+                }
                 VRLog.Info("WorldUI", "FlatScreen poke: latch OPENED → drag (fingertip slid " +
                                       $">{PokeDragUnlockMeters * 1000f:F0} mm laterally).");
             }
@@ -971,8 +991,13 @@ internal sealed class FlatScreen
         _pokePressPoint = tip - t.forward * signed;
         _pokePressPixel = pixel;
         VirtualMouse.WarpTo(pixel);
-        VirtualMouse.Press();
+        if (WorldUIConfig.VirtualMouseButtons)
+        {
+            VirtualMouse.Press();
+            _vmPressed = true;
+        }
         hand.SendHaptic(HapticPreset.ClickPulse);
+        LogUnderPointer(pixel);
         VRLog.Info("WorldUI", $"FlatScreen poke: {hand.Side} fingertip PRESS at RT pixel " +
                               $"({pixel.x:F0},{pixel.y:F0}), latch={_pokeLatched}.");
     }
@@ -981,7 +1006,15 @@ internal sealed class FlatScreen
     {
         _pokePressing = false;
         _pokeHand = null;
-        VirtualMouse.Release();
+        if (_vmPressed)
+        {
+            VirtualMouse.Release();
+            _vmPressed = false;
+        }
+        // reason == null is the normal withdraw → deliver the click; any named reason
+        // (hand lost, poke disabled) is an abort.
+        if (_pokeLatched && reason == null && WorldUIConfig.ExecuteClicks)
+            DirectClick(_pokePressPixel);
         VRLog.Info("WorldUI", $"FlatScreen poke: fingertip RELEASE — " +
                               $"{reason ?? (_pokeLatched ? "CLICK (latched)" : "drag end")}.");
         _pokeLatched = false;
@@ -989,14 +1022,113 @@ internal sealed class FlatScreen
 
     private void HideReticle()
     {
-        if (_reticle != null && _reticle.gameObject.activeSelf)
-            _reticle.gameObject.SetActive(false);
         if (_pressing)
         {
             _pressing = false;
             _latched = false;
-            VirtualMouse.Release();
+            if (_vmPressed)
+            {
+                VirtualMouse.Release();
+                _vmPressed = false;
+            }
             VRLog.Info("WorldUI", "FlatScreen pointer: press released (ray left the screen / pose lost).");
         }
+    }
+
+    // ---- direct click delivery (test #7) ----------------------------------------------------
+
+    private static readonly System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>
+        s_raycastResults = new(16);
+
+    /// <summary>
+    /// Delivers a latched click directly through uGUI ExecuteEvents at the given RT
+    /// pixel — the exact mechanism the game itself uses for programmatic clicks
+    /// (BaseButtons.clickButton, UI-ARCH §5). Bypasses the input module entirely, so
+    /// no frame-edge/pointer-currency quirk can swallow it. Modality is respected by
+    /// construction: EventSystem.RaycastAll only returns hits from ENABLED
+    /// GraphicRaycasters (UIManager.ToggleLockUI disables them to lock the UI).
+    /// </summary>
+    private void DirectClick(Vector2 pixel)
+    {
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+        {
+            VRLog.Warn("WorldUI", "DirectClick: no EventSystem — click dropped.");
+            return;
+        }
+
+        var data = new UnityEngine.EventSystems.PointerEventData(es)
+        {
+            position = pixel,
+            button = UnityEngine.EventSystems.PointerEventData.InputButton.Left,
+            clickCount = 1,
+            clickTime = Time.unscaledTime,
+            eligibleForClick = true,
+        };
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+        {
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): nothing under the pointer.");
+            return;
+        }
+
+        UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
+        data.pointerCurrentRaycast = data.pointerPressRaycast = top;
+
+        GameObject? pressTarget = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+            top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.pointerDownHandler);
+        GameObject? clickTarget = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler
+            <UnityEngine.EventSystems.IPointerClickHandler>(top.gameObject);
+        data.pointerPress = pressTarget ?? clickTarget;
+
+        if (data.pointerPress != null)
+            UnityEngine.EventSystems.ExecuteEvents.Execute(
+                data.pointerPress, data, UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
+
+        if (clickTarget != null)
+        {
+            UnityEngine.EventSystems.ExecuteEvents.Execute(
+                clickTarget, data, UnityEngine.EventSystems.ExecuteEvents.pointerClickHandler);
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}) → clicked '{clickTarget.name}'.");
+        }
+        else
+        {
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): top hit " +
+                                  $"'{top.gameObject.name}' has no IPointerClickHandler.");
+        }
+    }
+
+    /// <summary>
+    /// Press-time diagnostic (all click modes): logs the top uGUI raycast hits under
+    /// the press pixel, so a click that lands on the wrong element (or on nothing) is
+    /// attributable from the log alone.
+    /// </summary>
+    private static void LogUnderPointer(Vector2 pixel)
+    {
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+            return;
+        var data = new UnityEngine.EventSystems.PointerEventData(es) { position = pixel };
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+        {
+            VRLog.Info("WorldUI", $"Under pointer ({pixel.x:F0},{pixel.y:F0}): nothing.");
+            return;
+        }
+        int n = Mathf.Min(3, s_raycastResults.Count);
+        var sb = new System.Text.StringBuilder(128);
+        sb.Append($"Under pointer ({pixel.x:F0},{pixel.y:F0}): ");
+        for (int i = 0; i < n; i++)
+        {
+            if (i > 0) sb.Append(" | ");
+            GameObject go = s_raycastResults[i].gameObject;
+            Canvas? root = go.GetComponentInParent<Canvas>();
+            sb.Append($"'{go.name}'");
+            if (root != null)
+                sb.Append($" (canvas '{root.rootCanvas.name}')");
+        }
+        VRLog.Info("WorldUI", sb.ToString());
     }
 }

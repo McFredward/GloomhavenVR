@@ -67,6 +67,16 @@ public class Plugin : BaseUnityPlugin
 
     /// <summary>Fine-tune: beam start offset (meters, along the beam) from the index fingertip.</summary>
     internal static ConfigEntry<float> LaserFingerOffsetMeters = null!;
+    internal static ConfigEntry<string> HandColor = null!;
+
+    /// <summary>[Hands] HandColor hex → Color; falls back to the default on parse failure.</summary>
+    internal static UnityEngine.Color ParseHandColor()
+    {
+        string hex = HandColor?.Value?.Trim().TrimStart('#') ?? "D9C9B5";
+        if (UnityEngine.ColorUtility.TryParseHtmlString("#" + hex, out UnityEngine.Color c))
+            return c;
+        return new UnityEngine.Color(0.85f, 0.79f, 0.71f);
+    }
 
     /// <summary>Clear color of the owned head camera (the void around menus). Default black.</summary>
     internal static ConfigEntry<UnityEngine.Color> VoidColor = null!;
@@ -169,6 +179,12 @@ public class Plugin : BaseUnityPlugin
             "Hands", "LaserFingerOffsetMeters", 0.02f,
             "Fine-tune for LaserFingerOrigin: how far (meters, along the beam) in front of " +
             "the index fingertip the visible beam starts.");
+        HandColor = Config.Bind(
+            "Hands", "HandColor", "D9C9B5",
+            "Base color of the procedural hands as RRGGBB hex (no '#'). Must stay light " +
+            "enough to read against the black void — the hand shader is unlit (the void " +
+            "has no lights; lit shaders render black there). The left hand gets a slight " +
+            "cool tint automatically so the sides stay distinguishable.");
         VoidColor = Config.Bind(
             "Rig", "VoidColor", UnityEngine.Color.black,
             "Clear color of the mod's head camera — the void around the floating menu screen " +

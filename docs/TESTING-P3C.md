@@ -116,16 +116,22 @@ Checklist:
 - [ ] **The desktop monitor shows the same menu at the same time** (RT mirror blit)
       and stays fully mouse-operable in parallel — this is the guaranteed fallback;
       the desktop must never be black.
-- [ ] **Trigger click (test #6 fix)**: point the DOMINANT hand's laser at a menu
-      button (beam starts at the index fingertip; only the dominant hand has a beam)
-      and pull the trigger. The button must actually CLICK, not just hover. Log
-      sequence per click:
-      `FlatScreen pointer: trigger PRESS at RT pixel (x,y), latch=True` →
-      `VirtualMouse: left button PRESSED at (x,y)` → on release
-      `VirtualMouse: left button RELEASED at (x,y)` +
-      `FlatScreen pointer: trigger RELEASE at RT pixel (x,y) — CLICK (latched)`.
+- [ ] **Trigger click (test #7 fix — ExecuteEvents delivery)**: point the DOMINANT
+      hand's laser at a menu button (beam starts at the index KNUCKLE — curl-proof —
+      and ENDS exactly at the reticle on the screen, never passing through) and pull
+      the trigger. The button must actually CLICK. Log sequence per click
+      ([WorldUI] ClickMode = execute, the default):
+      `Under pointer (x,y): 'ButtonName' (canvas '…')` →
+      `FlatScreen pointer: trigger PRESS at RT pixel (x,y), latch=True, mode=execute`
+      → on release `DirectClick at (x,y) → clicked 'ButtonName'` +
+      `FlatScreen pointer: trigger RELEASE … — CLICK (latched)`.
+      If `Under pointer` names the WRONG element (or `nothing`), the pixel mapping is
+      off — report that log line; if it names the right button but nothing happens,
+      try `ClickMode = virtualmouse` and report both.
       The click latch freezes the pointer at the press pixel so hand tremor cannot
       turn the click into a no-op drag ([WorldUI] ClickLatch).
+- [ ] **Hands visible on the black void**: both hands render in a light tone
+      ([Hands] HandColor, unlit — lit shaders go black in the lightless void).
 - [ ] **Drag still works**: press and deliberately sweep the ray (> ~2° for ~0.15 s):
       log `FlatScreen pointer: click latch OPENED → drag (…)`, then scroll lists /
       sliders follow the ray until release (`… — drag end`).
