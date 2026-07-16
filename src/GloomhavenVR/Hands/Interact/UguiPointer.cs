@@ -28,6 +28,11 @@ internal sealed class UguiPointer
     private const int LeftHandPointerId = -101;
     private const int RightHandPointerId = -102;
 
+    // P6: the far-ray pointer (RayUguiDriver) coexists with the fingertip pointer on
+    // the same hand — distinct IDs so uGUI never sees one pointer teleporting.
+    private const int LeftHandRayPointerId = -111;
+    private const int RightHandRayPointerId = -112;
+
     private readonly int _pointerId;
     private readonly List<RaycastResult> _hits = new(16);
 
@@ -36,9 +41,11 @@ internal sealed class UguiPointer
     private GameObject? _pressed;
     private GameObject? _pressedClickHandler;
 
-    internal UguiPointer(HandSide side)
+    internal UguiPointer(HandSide side, bool farRay = false)
     {
-        _pointerId = side == HandSide.Left ? LeftHandPointerId : RightHandPointerId;
+        _pointerId = farRay
+            ? (side == HandSide.Left ? LeftHandRayPointerId : RightHandRayPointerId)
+            : (side == HandSide.Left ? LeftHandPointerId : RightHandPointerId);
     }
 
     /// <summary>Currently hovered uGUI object (topmost raycast hit), if any.</summary>

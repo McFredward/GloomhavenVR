@@ -190,6 +190,12 @@ internal sealed class VRHand : MonoBehaviour
     /// <summary>Far-interaction ray (implements IPickProvider).</summary>
     public RayInteractor Ray { get; private set; } = null!;
 
+    /// <summary>
+    /// Far-ray uGUI pointing on registered world canvases (P6 additive; inert unless
+    /// this is the dominant hand and <see cref="Ray"/> is enabled).
+    /// </summary>
+    public RayUguiDriver RayUgui { get; private set; } = null!;
+
     /// <summary>Proximity grab interactor.</summary>
     public ProximityGrabber Grabber { get; private set; } = null!;
 
@@ -232,6 +238,7 @@ internal sealed class VRHand : MonoBehaviour
 
         Poke = new PokeInteractor(this);
         Ray = new RayInteractor(this);
+        RayUgui = new RayUguiDriver(this);
         Grabber = new ProximityGrabber(this);
         PalmGate = new PalmGate(this);
 
@@ -268,6 +275,7 @@ internal sealed class VRHand : MonoBehaviour
     private void OnDestroy()
     {
         Ray?.DestroyVisuals();
+        RayUgui?.Cancel();
         Poke?.CancelAll();
         Grabber?.CancelAll();
     }
@@ -304,9 +312,11 @@ internal sealed class VRHand : MonoBehaviour
         UpdateCurlTargets();
         _curler.Tick(Time.deltaTime);
 
-        // Interactors see the fresh pose; deterministic order.
+        // Interactors see the fresh pose; deterministic order (RayUgui consumes the
+        // ray's pick of THIS frame, so it ticks right after the ray).
         Poke.Tick();
         Ray.Tick();
+        RayUgui.Tick();
         Grabber.Tick();
         PalmGate.Tick();
     }
@@ -428,6 +438,7 @@ internal sealed class VRHand : MonoBehaviour
         if (!tracked)
         {
             Poke.CancelAll();
+            RayUgui.Cancel();
             Grabber.CancelAll();
         }
     }
