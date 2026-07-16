@@ -20,6 +20,19 @@ internal sealed class HandsModule : IVRModule
 
     public void Init()
     {
+        // Menu2D per-hand policy (hardware test #6, requirement 4): only the DOMINANT
+        // hand carries the laser — it is the flat-screen pointer/click hand; the
+        // non-dominant hand keeps Poke (settings panel, flat-screen poke-click) and
+        // its TRIGGER switches dominance (FlatScreen.TickHandednessSwitch). Matches
+        // the BoardTargeting dominant-only-laser rule (docs/INTERFACES-P2.md §4).
+        // Registered via the state machine's extension API — never patch the matrix.
+        Core.Events.VRModeStateMachine.SetHandInteractorPolicy(
+            Core.Events.VRMode.Menu2D, Core.Events.HandRole.Dominant,
+            Core.Events.Interactors.Ray | Core.Events.Interactors.Poke);
+        Core.Events.VRModeStateMachine.SetHandInteractorPolicy(
+            Core.Events.VRMode.Menu2D, Core.Events.HandRole.NonDominant,
+            Core.Events.Interactors.Poke);
+
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {
             VRLog.Debug(Name, "VR not running and dev mode off — hands not installed.");
@@ -36,6 +49,13 @@ internal sealed class HandsModule : IVRModule
 
     public void Shutdown()
     {
+        // Hot-reload hygiene: drop our per-hand overrides (statics survive Shutdown
+        // within one assembly load; symmetric with Init).
+        Core.Events.VRModeStateMachine.ClearHandInteractorPolicy(
+            Core.Events.VRMode.Menu2D, Core.Events.HandRole.Dominant);
+        Core.Events.VRModeStateMachine.ClearHandInteractorPolicy(
+            Core.Events.VRMode.Menu2D, Core.Events.HandRole.NonDominant);
+
         if (_driverGo != null)
         {
             Object.Destroy(_driverGo);

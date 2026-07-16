@@ -62,6 +62,15 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down).</summary>
     internal static ConfigEntry<float> GripPitchOffsetDegrees = null!;
 
+    /// <summary>Visible laser starts at the index fingertip instead of the aim pose (test #6).</summary>
+    internal static ConfigEntry<bool> LaserFingerOrigin = null!;
+
+    /// <summary>Fine-tune: beam start offset (meters, along the beam) from the index fingertip.</summary>
+    internal static ConfigEntry<float> LaserFingerOffsetMeters = null!;
+
+    /// <summary>Clear color of the owned head camera (the void around menus). Default black.</summary>
+    internal static ConfigEntry<UnityEngine.Color> VoidColor = null!;
+
     /// <summary>Force the ray interactor on in every VR mode (accessibility/preference).</summary>
     internal static ConfigEntry<bool> RayAlwaysOn = null!;
 
@@ -150,6 +159,22 @@ public class Plugin : BaseUnityPlugin
             "-80 (LCVR uses an 80° down-pitch for its controller-relative interact/ray " +
             "origins). Hot-reloadable: edit while the game runs and the hands re-pose on the " +
             "next frame. Tuning guide: docs/TESTING-P2.md.");
+        LaserFingerOrigin = Config.Bind(
+            "Hands", "LaserFingerOrigin", true,
+            "Start the VISIBLE laser beam at the hand rig's index fingertip (converging on " +
+            "the aim-pose ray's end point) so it reads as leaving the pointing finger. The " +
+            "pick ray itself always uses the OpenXR aim pose. Off = beam starts at the aim " +
+            "pose origin (controller).");
+        LaserFingerOffsetMeters = Config.Bind(
+            "Hands", "LaserFingerOffsetMeters", 0.02f,
+            "Fine-tune for LaserFingerOrigin: how far (meters, along the beam) in front of " +
+            "the index fingertip the visible beam starts.");
+        VoidColor = Config.Bind(
+            "Rig", "VoidColor", UnityEngine.Color.black,
+            "Clear color of the mod's head camera — the void around the floating menu screen " +
+            "and outside the diorama. Default pure black. For DEBUGGING set a dark grey " +
+            "(e.g. 1F2126FF): grey distinguishes 'camera renders but content missing' from " +
+            "'camera dead / not rendering' (pitch black), which is invaluable in HMD reports.");
         RayAlwaysOn = Config.Bind(
             "Hands", "RayAlwaysOn", false,
             "Keep the laser/ray interactor enabled in every VR mode instead of only in " +

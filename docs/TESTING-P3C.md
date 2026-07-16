@@ -92,7 +92,7 @@
 Boot phases (menu-blackscreen fix, `fix/menu-blackscreen`):
 
 1. **Intro/splash** (scene 0 + `Intro`): FlatScreen is gated OFF — the intro renders
-   vanilla on the desktop. The HMD shows the menu rig's **dark-grey void** plus a
+   vanilla on the desktop. The HMD shows the menu rig's **void** ([Rig] VoidColor, default black) plus a
    small "GloomhavenVR starting…" label. Log: `Starting indicator shown (pre-menu
    scene, FlatScreen gated).`
 2. **Main menu** (`Gloomhaven_unified` and later menu scenes): the screen engages.
@@ -107,16 +107,41 @@ Boot phases (menu-blackscreen fix, `fix/menu-blackscreen`):
 Checklist:
 
 - [ ] During the intro: desktop shows the intro video/logos normally; HMD shows the
-      grey void + "starting…" label (NOT pitch black — pitch black means the rig
-      camera is not rendering; grep the `Camera inventory` lines).
+      void ([Rig] VoidColor, default black since test #6) + the "starting…" label.
+      The LABEL is the sign of life now — no label AND no menu later means the rig
+      camera is not rendering (grep the `Camera inventory` lines, or set VoidColor
+      to a grey like 1F2126FF to tell "renders but empty" from "camera dead").
 - [ ] In the main menu (no scenario): a large virtual screen floats in front of you
       showing the full 2D menu, head-tracked via the menu rig ([Rig] MenuRig).
 - [ ] **The desktop monitor shows the same menu at the same time** (RT mirror blit)
       and stays fully mouse-operable in parallel — this is the guaranteed fallback;
       the desktop must never be black.
-- [ ] Primary-hand ray + trigger clicks menu buttons (virtual mouse warp; watch the
-      yellow reticle dot on the screen). Drags (sliders, scroll lists) work via
-      hold-trigger.
+- [ ] **Trigger click (test #6 fix)**: point the DOMINANT hand's laser at a menu
+      button (beam starts at the index fingertip; only the dominant hand has a beam)
+      and pull the trigger. The button must actually CLICK, not just hover. Log
+      sequence per click:
+      `FlatScreen pointer: trigger PRESS at RT pixel (x,y), latch=True` →
+      `VirtualMouse: left button PRESSED at (x,y)` → on release
+      `VirtualMouse: left button RELEASED at (x,y)` +
+      `FlatScreen pointer: trigger RELEASE at RT pixel (x,y) — CLICK (latched)`.
+      The click latch freezes the pointer at the press pixel so hand tremor cannot
+      turn the click into a no-op drag ([WorldUI] ClickLatch).
+- [ ] **Drag still works**: press and deliberately sweep the ray (> ~2° for ~0.15 s):
+      log `FlatScreen pointer: click latch OPENED → drag (…)`, then scroll lists /
+      sliders follow the ray until release (`… — drag end`).
+- [ ] **Poke click**: lean/step toward the screen (or lower [WorldUI] ScreenDistance)
+      and touch a button with the index fingertip: click at the poked position with
+      a haptic pulse (`FlatScreen poke: <side> fingertip PRESS at RT pixel (x,y) …`,
+      release on withdraw). Works with either hand.
+- [ ] **Handedness switch**: in the menu, pull the NON-dominant trigger — the laser
+      (and click hand) moves to that hand with a haptic confirm
+      (`Handedness switch: … dominant hand is now …`); pulling the other trigger
+      switches back. The choice persists ([Hands] PrimaryHand) and the card fan /
+      wrist HUD side follows in scenarios.
+- [ ] Screen size/distance feel OK (defaults: [WorldUI] ScreenWidth = 2.2 m at
+      ScreenDistance = 1.6 m; both live-tunable).
+- [ ] The void around the screen is pure black ([Rig] VoidColor — set a dark grey
+      like 1F2126FF only when debugging camera issues).
 - [ ] **Text input caveat**: clicking a text field focuses it, but typing requires the
       physical keyboard — expected limitation, document anything worse.
 - [ ] Guildmaster/merchant/level-up screens are usable end-to-end on the screen.
@@ -134,9 +159,9 @@ The two switches are independent; all four combinations are defined:
 
 | FlatScreen | MenuRig | HMD in menus | Desktop in menus |
 |---|---|---|---|
-| true (default) | true (default) | grey void + head-tracked floating screen | 2D UI via RT mirror blit (mouse works) |
+| true (default) | true (default) | VoidColor void + head-tracked floating screen | 2D UI via RT mirror blit (mouse works) |
 | true | false | floating screen anchored to the static menu camera (no head tracking; the game cameras render stereo but do not follow your head) | 2D UI via RT mirror blit (mouse works) |
-| false | true | head-tracked menu camera view (grey void if the scene has no 3D content); screen-space UI renders wherever vanilla XR puts it | vanilla (XR mirror; UI untouched) |
+| false | true | head-tracked menu camera view (VoidColor void if the scene has no 3D content); screen-space UI renders wherever vanilla XR puts it | vanilla (XR mirror; UI untouched) |
 | false | false | **fully vanilla** under XR: no rig, no redirect, UICamera untouched | vanilla (XR mirror) |
 
 `[WorldUI] FlatScreen = false` is the **vanilla-menu fallback**: the mod never
@@ -196,5 +221,5 @@ For any "black desktop / black HMD in the menus" report, grep the BepInEx log fo
   fullscreen block image travels with the toast); VR-side input is soft-locked
   instead. Desktop-parallel play during a banner is mildly less protected.
 - The intro/splash is desktop-only by design (FlatScreen gate); the HMD shows the
-  grey void + "starting…" label until the main menu scene loads.
+  void ([Rig] VoidColor) + "starting…" label until the main menu scene loads.
 - Keyboard text entry on the flat screen requires the physical keyboard.

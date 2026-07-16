@@ -243,7 +243,7 @@ VRModeStateMachine.ClearHandInteractorPolicy(VRMode.X, HandRole.Dominant);
 
 | Mode | Dominant hand | Non-dominant hand | Rationale |
 |---|---|---|---|
-| `Menu2D` | Ray + Poke | Ray + Poke | Ray drives the flat-screen pointer (primary only feeds the virtual mouse); Poke serves the settings panel. No Grab/PalmGate — nothing physical exists in the menu. |
+| `Menu2D` | Ray + Poke | Poke | **Only the dominant hand has a laser** (test #6): it is the flat-screen pointer/click hand. The NON-dominant **trigger switches dominance** to that hand (persisted to `[Hands] PrimaryHand`, haptic confirm — `FlatScreen.TickHandednessSwitch`). Poke on both hands serves the settings panel and the flat-screen poke-click. No Grab/PalmGate — nothing physical exists in the menu. |
 | `TableIdle` | Poke + Grab + PalmGate | Poke + Grab + PalmGate | Spectate/manipulate; palm-up shows the fan on the non-dominant hand (Cards only reads that hand's gate). |
 | `CardSelection` | Poke + Grab + **Ray** | Poke + Grab + PalmGate | Dominant ray = hero placement / board picks during selection (P3a wish); non-dominant owns the fan, and having **no laser on the fan hand** keeps the beam out of the cards (P3b wish). |
 | `HalfSelection` | Poke + Grab + PalmGate | Poke + Grab + PalmGate | Played-card halves are poked; targeting has its own mode. |
@@ -270,8 +270,15 @@ VirtualMouse.BeginDrag(screenPos) / EndDrag(screenPos)
 ```
 
 Phase-3c: ray hits the floating 2D screen → hit UV × screen resolution → `WarpTo` +
-`Click`. Known caveats: a moving hardware mouse fights for `Mouse.current` (idle in
-VR — acceptable; `InputManager.DisableAllMouses` exists if not); the deferred click
+`Click`. Since test #6 every write is BOTH applied immediately (`InputState.Change`)
+and queued as a real state event (`InputSystem.QueueStateEvent`) — the game's uGUI
+module polls single-frame `wasPressedThisFrame` edges, which a mid-frame direct write
+only makes visible to code running after it in the same frame; the queued event lands
+at the next frame's input update, before every `Update`, like hardware input.
+Known caveats: a moving hardware mouse fights for `Mouse.current` (idle in
+VR — acceptable; `InputManager.DisableAllMouses` exists if not; the bridge re-claims
+currency while it drives the pointer, and processed state events re-claim it for
+free); the deferred click
 release needs the WorldUI driver alive (it is, whenever VR or dev mode runs).
 `Utilities.VirtualMouseUtilities` (Utilities.dll) is referenced too, but it only
 reroutes `InputManager.CursorPosition`, not the InControl uGUI module — the

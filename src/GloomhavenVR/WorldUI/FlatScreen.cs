@@ -52,7 +52,7 @@ namespace GloomhavenVR.WorldUI;
 /// all Single-mode loads (verified via decompiled GH.Runtime Bootstrap.ShowSplash).
 /// The screen stays fully hands-off in scene 0 / "Intro" — the intro renders
 /// vanilla — and engages on the first real menu scene. While gated, the HMD shows
-/// the menu rig's grey void plus a small "starting…" indicator.
+/// the menu rig's void ([Rig] VoidColor) plus a small "starting…" indicator.
 ///
 /// XR EXCLUSION: owned centrally by <see cref="Core.VRCameraPolicy"/> (pumped by the
 /// rig driver) — in VR only the rig head camera renders stereo; the UICamera and any
@@ -60,12 +60,35 @@ namespace GloomhavenVR.WorldUI;
 /// The per-UICamera guard this class used to run was removed (one owner, one policy;
 /// docs/CAMERA-POLICY.md §1).
 ///
-/// Pointer: the primary hand ray (Phase-2 <see cref="RayInteractor"/> pick pose) is
+/// Pointer: the DOMINANT hand ray (Phase-2 <see cref="RayInteractor"/> pick pose) is
 /// intersected with the screen plane in code (no physics collider — keeps clear of
 /// Phase-3a's selection ray masks), hit UV × RT resolution → the P2
 /// <see cref="VirtualMouse"/> bridge (<c>WarpTo</c>; trigger press/release →
-/// <c>Press</c>/<c>Release</c> so drags work). Everything downstream (InControl
-/// module, ClickTracker, IsPointerOverUI, tooltips) works untouched.
+/// <c>Press</c>/<c>Release</c>). Everything downstream (InControl module,
+/// ClickTracker, IsPointerOverUI, tooltips) works untouched.
+///
+/// CLICK LATCH (hardware test #6, requirement 1): at 1.6 m quad distance on a
+/// 2560×1440 RT, sub-degree hand tremor moves the projected pixel by dozens of px
+/// between press and release. The game's uGUI release path only clicks when the
+/// release raycast still hits the SAME IPointerClickHandler as the press
+/// (decompiled/InControl/InControl/InControlInputModule.cs:506-512), and any
+/// IDragHandler ancestor (scroll lists) starts a drag past
+/// EventSystem.pixelDragThreshold, which cancels the pending click
+/// (decompiled/InControl/InControl/PointerInputModuleExtended.cs:336-347:
+/// ProcessDrag → pointerUp + eligibleForClick = false). So while the trigger is
+/// held the warp position is FROZEN at the press pixel; deliberate ray movement
+/// (>[WorldUI] DragUnlockDegrees for DragUnlockSeconds) opens the latch into a
+/// real drag. Press/release/click-vs-drag decisions are logged at Info.
+///
+/// POKE CLICK (requirement 2): the index fingertip crossing the quad plane clicks
+/// at the poked RT position — quad-local hit → RT pixel → latched warp+press,
+/// release on withdraw. The quad is an RT surface, not a canvas, so the mapping
+/// lives here (PokeInteractor only serves colliders + registered canvases).
+///
+/// HANDEDNESS (requirement 4): only the dominant hand ([Hands] PrimaryHand) has a
+/// beam and clicks (Menu2D per-hand policy, HandsModule). In Menu2D the
+/// NON-dominant trigger switches dominance to that hand (persisted config, haptic
+/// confirm) — cards/fan/wrist HUD follow the same setting automatically.
 ///
 /// Show policy: auto-appears in <see cref="VRMode.Menu2D"/> (config), hides in
 /// scenario modes; in <see cref="VRMode.ModalUI"/> it appears when no converted
@@ -85,6 +108,29 @@ internal sealed class FlatScreen
     private bool _visible;
     private bool _pressing;
     private bool _mirrorLogged;
+
+    // ---- click latch (test #6, requirement 1) --------------------------------------------
+    /// <summary>True while the held press is frozen at its press pixel (click, not drag).</summary>
+    private bool _latched;
+    private Vector2 _latchedLocal;     // quad-local x/y of the press (reticle while latched)
+    private Vector2 _latchedPixel;     // RT pixel of the press (re-warped while latched)
+    private Vector3 _pressDirection;   // world ray direction at press time
+    private float _dragOverSince = -1f;
+
+    // ---- poke click (requirement 2) --------------------------------------------------------
+    // Meters at scale 1 (multiplied by the poking hand's WorldScale). Contact/release
+    // hysteresis mirrors PokeInteractor's canvas path (press at plane contact, release
+    // ~2 cm in front, drop when far behind).
+    private const float PokeContactMeters = 0.01f;
+    private const float PokeReleaseMeters = 0.03f;
+    private const float PokeThroughMeters = 0.08f;
+    private const float PokeDragUnlockMeters = 0.015f;
+
+    private bool _pokePressing;
+    private VRHand? _pokeHand;
+    private bool _pokeLatched;
+    private Vector3 _pokePressPoint; // world, on the screen plane
+    private Vector2 _pokePressPixel; // RT pixel of the poke press (re-warped while latched)
 
     /// <summary>One captured backbuffer camera + everything needed to restore it.</summary>
     private sealed class CapturedCamera
@@ -368,7 +414,7 @@ internal sealed class FlatScreen
 
     /// <summary>
     /// While the intro plays flat (pre-menu gate) the HMD would show only the menu
-    /// rig's grey void — float a small "starting…" label in front of the head so the
+    /// rig's empty void — float a small "starting…" label in front of the head so the
     /// player knows the mod is alive and the menu is coming.
     /// </summary>
     private void TickStartingIndicator(bool preMenu)
@@ -496,7 +542,10 @@ internal sealed class FlatScreen
         {
             VirtualMouse.Release();
             _pressing = false;
+            _latched = false;
         }
+        if (_pokePressing)
+            EndPoke("screen hidden");
         ReleaseStack();
 
         if (_quad != null)
@@ -544,11 +593,11 @@ internal sealed class FlatScreen
             fwd = Vector3.forward;
         fwd.Normalize();
 
-        Vector3 target = h.position + fwd * (1.6f * scale);
+        Vector3 target = h.position + fwd * (WorldUIConfig.ScreenDistance.Value * scale);
         // Quad primitive faces -Z (visible from -forward side): +Z away from viewer.
         Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
 
-        float width = WorldUIConfig.FlatScreenWidth.Value * scale;
+        float width = WorldUIConfig.ScreenWidth.Value * scale;
         Vector3 size = new(width, width / ScreenAspect, 1f);
 
         Transform t = _quad.transform;
@@ -605,7 +654,11 @@ internal sealed class FlatScreen
         // wasn't facing.
         Transform? rig = Rig.VRRigDriver.RigRoot;
         Vector3 rigPos = rig != null ? rig.position : Vector3.zero;
-        if (head != _placedHead || (rigPos - _placedRigPos).sqrMagnitude > 1e-4f)
+        // Live-tunable size/distance ([WorldUI] ScreenWidth/ScreenDistance): re-place
+        // when the configured width no longer matches the quad (cheap float compare).
+        float wantedWidth = WorldUIConfig.ScreenWidth.Value * PanelLayout.WorldScale;
+        if (head != _placedHead || (rigPos - _placedRigPos).sqrMagnitude > 1e-4f
+            || Mathf.Abs(_quad.transform.localScale.x - wantedWidth) > 0.001f)
         {
             PlaceScreen(instant: true);
             _offGazeSince = -1f;
@@ -651,10 +704,26 @@ internal sealed class FlatScreen
         if (_quad == null || _rt == null)
             return;
 
+        // Handedness switch first: it may change which hand is "primary" below.
+        if (TickHandednessSwitch())
+        {
+            HideReticle();
+            return; // masks re-apply this frame; pointer resumes next frame
+        }
+
+        TickPoke();
+
         VRHand? hand = VRHands.Primary;
         IPickProvider? pick = VRHands.PrimaryPick;
         if (pick == null || hand == null || !pick.TryGetPick(out PickPose pose))
         {
+            HideReticle();
+            return;
+        }
+
+        if (_pokePressing)
+        {
+            // The fingertip owns the virtual mouse; the ray resumes after withdraw.
             HideReticle();
             return;
         }
@@ -677,21 +746,59 @@ internal sealed class FlatScreen
 
         Vector3 hit = pose.Origin + pose.Direction * dist;
         Vector3 local = t.InverseTransformPoint(hit); // quad local: x/y in [-0.5, 0.5]
-        if (Mathf.Abs(local.x) > 0.5f || Mathf.Abs(local.y) > 0.5f)
+        bool onQuad = Mathf.Abs(local.x) <= 0.5f && Mathf.Abs(local.y) <= 0.5f;
+        if (!onQuad && !_pressing)
         {
             HideReticle();
             return;
         }
+        // While pressed, edge tremor must not cancel the press — clamp instead of drop.
+        local.x = Mathf.Clamp(local.x, -0.5f, 0.5f);
+        local.y = Mathf.Clamp(local.y, -0.5f, 0.5f);
 
         // UV → virtual mouse pixels.
         var pixel = new Vector2((local.x + 0.5f) * _rt.width, (local.y + 0.5f) * _rt.height);
-        VirtualMouse.WarpTo(pixel);
+
+        // Click latch (requirement 1, class doc): while pressed and latched the warp
+        // position stays frozen at the press pixel; deliberate sustained ray movement
+        // opens the latch into a real drag.
+        if (_pressing && _latched)
+        {
+            float angle = Vector3.Angle(_pressDirection, pose.Direction);
+            if (angle > WorldUIConfig.DragUnlockDegrees.Value)
+            {
+                if (_dragOverSince < 0f)
+                {
+                    _dragOverSince = Time.unscaledTime;
+                }
+                else if (Time.unscaledTime - _dragOverSince >= WorldUIConfig.DragUnlockSeconds.Value)
+                {
+                    _latched = false;
+                    VRLog.Info("WorldUI", $"FlatScreen pointer: click latch OPENED → drag " +
+                                          $"(ray {angle:F1}° off the press direction for " +
+                                          $">{WorldUIConfig.DragUnlockSeconds.Value:F2}s).");
+                }
+            }
+            else
+            {
+                _dragOverSince = -1f;
+            }
+        }
+
+        // While frozen, keep re-warping to the SAME latched pixel: identical uGUI
+        // position (no drag delta), but the per-tick write keeps pointer currency
+        // reclaimed and the queued-event stream alive during a held press.
+        bool frozen = _pressing && _latched;
+        VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
 
         if (_reticle != null)
         {
             if (!_reticle.gameObject.activeSelf)
                 _reticle.gameObject.SetActive(true);
-            _reticle.localPosition = new Vector3(local.x, local.y, -0.005f);
+            // While latched, show WHERE the click will land, not the trembling ray.
+            _reticle.localPosition = frozen
+                ? new Vector3(_latchedLocal.x, _latchedLocal.y, -0.005f)
+                : new Vector3(local.x, local.y, -0.005f);
             _reticle.localScale = new Vector3(0.008f, 0.008f * ScreenAspect, 0.008f);
         }
 
@@ -703,7 +810,15 @@ internal sealed class FlatScreen
         if (hand.TriggerDown && !_pressing)
         {
             _pressing = true;
+            _latched = WorldUIConfig.ClickLatch.Value;
+            _latchedLocal = new Vector2(local.x, local.y);
+            _latchedPixel = pixel;
+            _pressDirection = pose.Direction;
+            _dragOverSince = -1f;
+            VirtualMouse.WarpTo(pixel); // press lands exactly on the frozen pixel
             VirtualMouse.Press();
+            VRLog.Info("WorldUI", $"FlatScreen pointer: trigger PRESS at RT pixel " +
+                                  $"({pixel.x:F0},{pixel.y:F0}), latch={_latched}.");
         }
         else if (_pressing && !hand.TriggerPressed)
         {
@@ -712,7 +827,164 @@ internal sealed class FlatScreen
                 VRLog.Warn("WorldUI", "FlatScreen pointer: trigger release edge was missed " +
                                       "(hands rebuilt mid-press?) — forced VirtualMouse release.");
             VirtualMouse.Release();
+            VRLog.Info("WorldUI", $"FlatScreen pointer: trigger RELEASE at RT pixel " +
+                                  $"({pixel.x:F0},{pixel.y:F0}) — " +
+                                  $"{(_latched ? "CLICK (latched)" : "drag end")}.");
+            _latched = false;
         }
+    }
+
+    /// <summary>
+    /// Requirement 4: in Menu2D the NON-dominant trigger switches dominance to that
+    /// hand — only the dominant hand has a beam and clicks (per-hand Menu2D policy,
+    /// HandsModule). Writes <c>[Hands] PrimaryHand</c> (BepInEx persists on set;
+    /// HandsDriver reapplies the interactor masks via SettingChanged), so the card
+    /// fan / wrist HUD side stays consistent. Returns true when a switch happened —
+    /// the caller skips this frame so the freshly dominant hand's TriggerDown edge
+    /// cannot fire an immediate accidental click.
+    /// </summary>
+    private bool TickHandednessSwitch()
+    {
+        if (VRModeStateMachine.CurrentMode != VRMode.Menu2D)
+            return false;
+
+        VRHand? primary = VRHands.Primary;
+        VRHand? other = primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+        if (primary == null || other == null || !other.HasPose || !other.TriggerDown)
+            return false;
+        // Dev harness drives BOTH triggers from one key — a switch would flip-flop.
+        if (other.IsSimulated)
+            return false;
+
+        if (_pressing)
+        {
+            _pressing = false;
+            _latched = false;
+            VirtualMouse.Release();
+        }
+
+        string side = other.Side == HandSide.Left ? "Left" : "Right";
+        Plugin.PrimaryHand.Value = side; // persisted (SaveOnConfigSet default true)
+        other.SendHaptic(HapticPreset.ClickPulse);
+        VRLog.Info("WorldUI", $"Handedness switch: {side} trigger pressed in Menu2D — dominant " +
+                              $"hand is now {side} (laser + click move; fan/HUD follow on the other hand).");
+        return true;
+    }
+
+    // ---- poke click (requirement 2) --------------------------------------------------------
+
+    /// <summary>
+    /// Fingertip poke on the flat screen = click at the poked RT position: quad-local
+    /// hit → RT pixel → latched VirtualMouse warp+press on plane contact, release on
+    /// withdraw. Both hands may poke (Menu2D grants Poke to both); the trigger-ray
+    /// press and the poke press are mutually exclusive.
+    /// </summary>
+    private void TickPoke()
+    {
+        if (_quad == null || _rt == null)
+            return;
+
+        if (!WorldUIConfig.PokeClick.Value)
+        {
+            if (_pokePressing)
+                EndPoke("poke click disabled");
+            return;
+        }
+
+        Transform t = _quad.transform;
+
+        if (_pokePressing)
+        {
+            VRHand? hand = _pokeHand;
+            if (hand == null || !hand.HasPose)
+            {
+                EndPoke("hand lost");
+                return;
+            }
+
+            float scale = hand.WorldScale;
+            Vector3 tip = hand.Rig.IndexTip.position;
+            float signed = Vector3.Dot(tip - t.position, t.forward); // viewer side < 0
+            Vector3 local = t.InverseTransformPoint(tip);
+            bool inRect = Mathf.Abs(local.x) <= 0.55f && Mathf.Abs(local.y) <= 0.55f;
+
+            if (signed < -PokeReleaseMeters * scale || signed > PokeThroughMeters * scale || !inRect)
+            {
+                EndPoke(null); // normal withdraw (or slid off) → release = click/drag end
+                return;
+            }
+
+            // Latch (same rationale as the trigger path): frozen at the press pixel
+            // until the fingertip deliberately slides sideways.
+            Vector3 onPlane = tip - t.forward * signed;
+            if (_pokeLatched
+                && (onPlane - _pokePressPoint).sqrMagnitude
+                   > PokeDragUnlockMeters * PokeDragUnlockMeters * scale * scale)
+            {
+                _pokeLatched = false;
+                VRLog.Info("WorldUI", "FlatScreen poke: latch OPENED → drag (fingertip slid " +
+                                      $">{PokeDragUnlockMeters * 1000f:F0} mm laterally).");
+            }
+            if (_pokeLatched)
+            {
+                // Same-pixel re-warp (see the trigger path): keeps currency reclaimed.
+                VirtualMouse.WarpTo(_pokePressPixel);
+            }
+            else
+            {
+                float px = (Mathf.Clamp(local.x, -0.5f, 0.5f) + 0.5f) * _rt.width;
+                float py = (Mathf.Clamp(local.y, -0.5f, 0.5f) + 0.5f) * _rt.height;
+                VirtualMouse.WarpTo(new Vector2(px, py));
+            }
+            return;
+        }
+
+        if (_pressing)
+            return; // trigger-ray press owns the pointer
+
+        TryBeginPoke(VRHands.Left, t);
+        if (!_pokePressing)
+            TryBeginPoke(VRHands.Right, t);
+    }
+
+    private void TryBeginPoke(VRHand? hand, Transform t)
+    {
+        // Respect the per-mode interactor matrix: only hands whose Poke interactor
+        // is enabled may poke the screen.
+        if (hand == null || !hand.HasPose || !hand.Poke.Enabled)
+            return;
+
+        float scale = hand.WorldScale;
+        Vector3 tip = hand.Rig.IndexTip.position;
+        float signed = Vector3.Dot(tip - t.position, t.forward); // viewer side < 0
+        if (signed < -PokeContactMeters * scale || signed > PokeThroughMeters * scale)
+            return; // not touching the plane / far behind it
+
+        Vector3 local = t.InverseTransformPoint(tip);
+        if (Mathf.Abs(local.x) > 0.5f || Mathf.Abs(local.y) > 0.5f)
+            return;
+
+        var pixel = new Vector2((local.x + 0.5f) * _rt!.width, (local.y + 0.5f) * _rt.height);
+        _pokePressing = true;
+        _pokeHand = hand;
+        _pokeLatched = WorldUIConfig.ClickLatch.Value;
+        _pokePressPoint = tip - t.forward * signed;
+        _pokePressPixel = pixel;
+        VirtualMouse.WarpTo(pixel);
+        VirtualMouse.Press();
+        hand.SendHaptic(HapticPreset.ClickPulse);
+        VRLog.Info("WorldUI", $"FlatScreen poke: {hand.Side} fingertip PRESS at RT pixel " +
+                              $"({pixel.x:F0},{pixel.y:F0}), latch={_pokeLatched}.");
+    }
+
+    private void EndPoke(string? reason)
+    {
+        _pokePressing = false;
+        _pokeHand = null;
+        VirtualMouse.Release();
+        VRLog.Info("WorldUI", $"FlatScreen poke: fingertip RELEASE — " +
+                              $"{reason ?? (_pokeLatched ? "CLICK (latched)" : "drag end")}.");
+        _pokeLatched = false;
     }
 
     private void HideReticle()
@@ -722,7 +994,9 @@ internal sealed class FlatScreen
         if (_pressing)
         {
             _pressing = false;
+            _latched = false;
             VirtualMouse.Release();
+            VRLog.Info("WorldUI", "FlatScreen pointer: press released (ray left the screen / pose lost).");
         }
     }
 }

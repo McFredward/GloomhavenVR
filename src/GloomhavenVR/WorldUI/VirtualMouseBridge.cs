@@ -61,6 +61,45 @@ namespace GloomhavenVR.WorldUI;
 /// VR ray is OFF the screen we deliberately do not re-claim, so the physical mouse
 /// keeps working as the desktop fallback.
 ///
+/// FRAME-EDGE DELIVERY (I4 — hardware test #6 root cause: hover alive, warps alive,
+/// ZERO clicks). The game's uGUI click path polls single-frame press EDGES on
+/// <c>Mouse.current</c>:
+/// <code>
+///   // decompiled/InControl/InControl/PointerInputModuleExtended.cs:244-262
+///   //   StateForMouseButton → InputSystemUtilities.GetMouseButtionDown/Up
+///   // decompiled/Utilities/Utilities/InputSystemUtilities.cs:96-118 (Down) /
+///   //   :122-144 (Up): Mouse.current.leftButton.wasPressedThisFrame /
+///   //   wasReleasedThisFrame — NOT the persistent isPressed
+///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem.Controls/ButtonControl.cs:29-51
+///   //   wasPressedThisFrame == device.wasUpdatedThisFrame
+///   //     && pressed(now) && !pressed(previous update step)
+///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem/InputDevice.cs:113
+///   //   wasUpdatedThisFrame == (m_CurrentUpdateStepCount == InputUpdate.s_UpdateStepCount)
+/// </code>
+/// A press written mid-frame via <c>InputState.Change</c> (our Update) only satisfies
+/// those three conditions for code running AFTER the write in the SAME frame:
+/// <code>
+///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem/InputManager.cs:2549 +
+///   //   :2570-2579 — UpdateState flips the device's front/back state buffers lazily
+///   //   on its FIRST write per update step and only then stamps
+///   //   m_CurrentUpdateStepCount = InputUpdate.s_UpdateStepCount.
+/// </code>
+/// If the game's EventSystem polls BEFORE our Update in frame N, it sees the stale
+/// step count (wasUpdatedThisFrame == false → edge invisible); in frame N+1 our first
+/// write flips the buffers so "previous frame" already contains the pressed state
+/// (edge gone). Same-order MonoBehaviour Update order is unspecified in Unity, and on
+/// the test-#6 rig the EventSystem won: presses/releases were PERMANENTLY invisible
+/// to uGUI while position (persistent state, no edge needed) kept hover alive —
+/// exactly the observed symptom. Fix: every write is ALSO queued as a real state
+/// EVENT (<c>InputSystem.QueueStateEvent</c>, decompiled InputSystem.cs:714), which
+/// the next frame's InputSystem update processes BEFORE any MonoBehaviour Update —
+/// hardware-identical semantics: the edge is visible to every consumer for that whole
+/// frame regardless of script order, and state-event processing re-claims pointer
+/// currency for free (InputManager.cs:2312-2322 → inputDevice.MakeCurrent()). The
+/// immediate InputState.Change write is kept so favorable orderings see zero latency;
+/// the queued event re-asserting the same state one frame later produces no second
+/// edge (previous-frame state is already equal).
+///
 /// Runtime caveats to validate on HMD/Windows (docs/TESTING-P2.md):
 /// - Click() holds the press for ≥2 InputSystem updates so InControl's WasPressed
 ///   polling can't miss the edge; needs the WorldUI driver's Tick() running.
@@ -69,6 +108,14 @@ internal static class VirtualMouse
 {
     private static Mouse? _mouse;
     private static int _pendingReleaseFrame = -1;
+
+    /// <summary>
+    /// Shadow of the state we last queued (I4): queued events are only processed at
+    /// the NEXT frame's input update, so <c>CopyState</c> from the live device could
+    /// miss a button we queued this frame — the shadow is the single source of truth
+    /// for what we told the InputSystem. Struct field: no allocations.
+    /// </summary>
+    private static MouseState _shadow;
 
     // ---- I3 diagnostics + watchdog state ------------------------------------------------
 
@@ -140,8 +187,12 @@ internal static class VirtualMouse
             _lastWarpPos = screenPos;
             _lastActivityTime = Time.unscaledTime;
         }
+        _shadow.position = screenPos;
         _mouse!.WarpCursorPosition(screenPos);
+        // Same-frame half (pollers that run after us) + next-frame half (queued state
+        // event, edge-safe for pollers that run before us — I4, see class doc).
         InputState.Change(_mouse.position, screenPos);
+        InputSystem.QueueStateEvent(_mouse, _shadow);
     }
 
     /// <summary>
@@ -259,6 +310,7 @@ internal static class VirtualMouse
         _mouse = null;
         _lastCurrentSeen = null;
         _leftPressed = false;
+        _shadow = default;
         _gamepadModeKnown = false;
         _currencyReclaims = 0;
         _lastReclaimLog = float.NegativeInfinity;
@@ -274,10 +326,16 @@ internal static class VirtualMouse
             _leftPressed = pressed;
             if (pressed)
                 _lastActivityTime = Time.unscaledTime; // arm the stuck-press watchdog
-            VRLog.Debug("WorldUI", pressed ? "VirtualMouse: left button pressed."
-                                           : "VirtualMouse: left button released.");
+            // Info (not Debug — BepInEx filters Debug from the disk log by default,
+            // which made test #6 look like presses never fired): one line per edge,
+            // with the screen position the edge lands on.
+            VRLog.Info("WorldUI", $"VirtualMouse: left button {(pressed ? "PRESSED" : "RELEASED")} " +
+                                  $"at ({_shadow.position.x:F0},{_shadow.position.y:F0}).");
         }
+        _shadow = _shadow.WithButton(MouseButton.Left, pressed);
+        // Same-frame half + next-frame half (queued state event) — I4, see class doc.
         _mouse!.CopyState(out MouseState state);
         InputState.Change(_mouse, state.WithButton(MouseButton.Left, pressed));
+        InputSystem.QueueStateEvent(_mouse, _shadow);
     }
 }

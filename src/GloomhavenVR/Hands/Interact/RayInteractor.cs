@@ -213,8 +213,25 @@ internal sealed class RayInteractor : IPickProvider
             ? (_reticleOverride ?? _current.HitPoint)
             : origin + direction * (maxDistance * 0.25f);
 
+        // Visual origin at the index fingertip (test #6, requirement 3): the PICK ray
+        // keeps the OpenXR aim pose (origin/direction above), but the visible beam
+        // starts at the hand rig's index tip and converges on the aim ray's end point,
+        // so it reads as leaving the pointing finger instead of the controller/palm
+        // center. [Hands] LaserFingerOffsetMeters nudges the start along the beam.
+        Vector3 start = origin + direction * (0.03f * scale);
+        if (Plugin.LaserFingerOrigin.Value)
+        {
+            Transform tip = _hand.Rig.IndexTip;
+            if (tip != null)
+            {
+                Vector3 toEnd = end - tip.position;
+                if (toEnd.sqrMagnitude > 1e-8f)
+                    start = tip.position + toEnd.normalized * (Plugin.LaserFingerOffsetMeters.Value * scale);
+            }
+        }
+
         _laser.widthMultiplier = 0.0018f * scale;
-        _laser.SetPosition(0, origin + direction * (0.03f * scale));
+        _laser.SetPosition(0, start);
         _laser.SetPosition(1, end);
 
         if (_current.HasHit)
