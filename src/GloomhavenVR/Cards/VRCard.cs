@@ -21,6 +21,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
     private Canvas? _canvas;
     private Transform? _visualRoot;
 
+    // Backing/collider fit (P6): the backing and grab collider follow the LIVE face
+    // canvas size exactly — no dead black margin around the card art.
+    private Transform? _backing;
+    private Vector3 _backingBaseScale;
+    private Vector2 _backingBaseSize; // design size the base scale was authored for
+    private BoxCollider? _box;
+    private Vector3 _fullColliderSize;
+
     // Home pose (local space of the current parent).
     private Vector3 _homePos;
     private Quaternion _homeRot = Quaternion.identity;
@@ -102,21 +110,28 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
 
         // Grab collider (trigger: never interacts with game physics; the P2 grabber
         // only uses Collider.ClosestPoint on registered colliders).
-        var box = gameObject.GetComponent<BoxCollider>();
-        if (box == null)
-            box = gameObject.AddComponent<BoxCollider>();
-        box.size = new Vector3(w, h, 0.02f);
-        box.isTrigger = true;
+        _box = gameObject.GetComponent<BoxCollider>();
+        if (_box == null)
+            _box = gameObject.AddComponent<BoxCollider>();
+        _box.size = new Vector3(w, h, 0.02f);
+        _box.isTrigger = true;
+        _fullColliderSize = _box.size;
 
         if (backingPrefab != null)
         {
             GameObject backing = Instantiate(backingPrefab, _visualRoot, false);
             backing.name = "Backing";
+            _backing = backing.transform;
         }
         else
         {
-            BuildProceduralBacking(_visualRoot, w, h);
+            _backing = BuildProceduralBacking(_visualRoot, w, h);
         }
+        // Asset contract (unity/.../Table/README.md): the backing is authored at the
+        // configured card size — remember it so the backing can be re-fit to the
+        // face canvas once the real face pixels are known (no visible dead margin).
+        _backingBaseScale = _backing.localScale;
+        _backingBaseSize = new Vector2(w, h);
 
         // World-space canvas hosting the live face. Sized in "face pixels", scaled
         // down to the physical card width. Registered with UguiPokeSurfaces so the
@@ -150,15 +165,36 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
         _canvasRect.sizeDelta = facePixels;
         float fit = Mathf.Min(w / facePixels.x, h / facePixels.y);
         _canvasRect.localScale = new Vector3(fit, fit, fit);
+
+        // P6 (hardware test #8): the face rarely matches the card's 63.5:88 aspect —
+        // the letterboxed backing showed as a fat black border. Fit backing AND grab
+        // collider exactly to the visible face rect instead.
+        float faceW = facePixels.x * fit;
+        float faceH = facePixels.y * fit;
+        if (_backing != null && _backingBaseSize.x > 1e-5f && _backingBaseSize.y > 1e-5f)
+        {
+            _backing.localScale = new Vector3(
+                _backingBaseScale.x * (faceW / _backingBaseSize.x),
+                _backingBaseScale.y * (faceH / _backingBaseSize.y),
+                _backingBaseScale.z);
+        }
+        if (_box != null)
+        {
+            _fullColliderSize = new Vector3(faceW, faceH, 0.02f);
+            _box.size = _fullColliderSize;
+            _box.center = Vector3.zero;
+        }
     }
 
-    private static void BuildProceduralBacking(Transform parent, float w, float h)
+    private static Transform BuildProceduralBacking(Transform parent, float w, float h)
     {
         var backing = GameObject.CreatePrimitive(PrimitiveType.Cube);
         backing.name = "Backing";
         Destroy(backing.GetComponent<Collider>());
         backing.transform.SetParent(parent, worldPositionStays: false);
-        backing.transform.localScale = new Vector3(w * 1.04f, h * 1.03f, 0.0015f);
+        // Hairline margin only (0.5%) — thin slab so fanned neighbors cannot
+        // interpenetrate visually (z-stagger in CardFan is several times thicker).
+        backing.transform.localScale = new Vector3(w * 1.005f, h * 1.005f, 0.001f);
         var renderer = backing.GetComponent<MeshRenderer>();
         Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
         if (shader != null)
@@ -166,6 +202,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
             var material = new Material(shader) { color = new Color(0.13f, 0.11f, 0.09f) };
             renderer.sharedMaterial = material;
         }
+        return backing.transform;
     }
 
     private void UpdateCanvasCamera()
@@ -250,20 +287,60 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
     /// <summary>Extra forward pop + scale for the hovered card (set by layouts each frame is fine — plain field).</summary>
     internal void SetPopped(bool popped) => _popped = popped;
 
+    /// <summary>
+    /// Laser hover (P6, Demeo pluck): separate flag so the dominant hand's ray and the
+    /// proximity highlight never stomp each other — the card pops while EITHER is set.
+    /// </summary>
+    internal void SetLaserHover(bool hovered) => _laserPopped = hovered;
+
+    private bool _laserPopped;
+
+    /// <summary>
+    /// P6 fan-collider strip: while fanned, each card's grab collider shrinks to its
+    /// VISIBLE (un-overlapped) strip so neighboring colliders never fight for the
+    /// hover — the source of the constant haptic buzz in test #8. The full collider
+    /// comes back via <see cref="ResetColliderRegion"/> (grab, tray, half layout).
+    /// </summary>
+    internal void SetColliderRegion(float width, float offsetX)
+    {
+        if (_box == null)
+            return;
+        _box.size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y, _fullColliderSize.z);
+        _box.center = new Vector3(offsetX, 0f, 0f);
+    }
+
+    /// <summary>Restore the full-card grab collider (see <see cref="SetColliderRegion"/>).</summary>
+    internal void ResetColliderRegion()
+    {
+        if (_box == null)
+            return;
+        _box.size = _fullColliderSize;
+        _box.center = Vector3.zero;
+    }
+
     // -------------------------------------------------------------- interaction --
 
     /// <summary>
-    /// P5 (MISSION A.6): the inspect pose is declared through the base hook instead of
-    /// re-writing the transform after <c>base.OnGrab</c>. GrabAnchor +Z ~ fingers; the
-    /// card rolls up to face the player and scales to natural inspection size.
+    /// P5/P6 (MISSION A.6 + hardware test #8): the base hook only supplies the initial
+    /// snap (near the anchor, inspect scale) — the ACTUAL inspect pose is re-computed
+    /// every frame in <see cref="TickHeldPose"/>: above/in front of the holding hand,
+    /// facing the HMD, right-side-up. A static anchor-relative pose could never do
+    /// that (it flips with the wrist and buries the card in the hand model).
     /// </summary>
     protected override HeldPose GetHeldPose(VRHand hand) =>
-        new(new Vector3(0f, 0.02f, 0.02f), Quaternion.Euler(-40f, 0f, 0f),
-            CardsConfig.InspectScale.Value);
+        new(new Vector3(0f, 0.04f, 0.02f), Quaternion.identity, CardsConfig.InspectScale.Value);
 
     public override void OnGrab(VRHand hand)
     {
+        // Keep the world pose across the re-parent — TickHeldPose flies the card from
+        // its fan slot to the inspect pose instead of teleporting it.
+        Vector3 worldPos = transform.position;
+        Quaternion worldRot = transform.rotation;
         base.OnGrab(hand); // snap to GrabAnchor at GetHeldPose (P2/P5 GrabbableBehaviour)
+        transform.position = worldPos;
+        transform.rotation = worldRot;
+        ResetColliderRegion(); // full card again (fan strips, see SetColliderRegion)
+        _laserPopped = false;
         try
         {
             Grabbed?.Invoke(this, hand);
@@ -272,6 +349,43 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
         {
             Core.VRLog.Error("Cards", $"VRCard.Grabbed subscriber threw: {ex}");
         }
+    }
+
+    /// <summary>
+    /// Demeo-style inspect (P6): the held card floats toward the face, above the
+    /// holding hand, always readable — the hand model stays behind/below it and
+    /// cannot occlude it. Runs every frame while held (no allocations).
+    /// </summary>
+    private void TickHeldPose()
+    {
+        VRHand? hand = Holder;
+        if (hand == null)
+            return;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return;
+
+        float scale = hand.WorldScale;
+        Vector3 anchor = hand.Rig.GrabAnchor.position;
+        Vector3 headPos = head.transform.position;
+        Vector3 toHead = headPos - anchor;
+        if (toHead.sqrMagnitude < 1e-8f)
+            return;
+        toHead.Normalize();
+
+        Vector3 target = anchor
+                         + toHead * (CardsConfig.InspectForward.Value * scale)
+                         + Vector3.up * (CardsConfig.InspectUp.Value * scale);
+        // Card +Z points AWAY from the viewer (module convention) — look away from
+        // the head, world up keeps it right-side-up.
+        Vector3 away = target - headPos;
+        Quaternion targetRot = away.sqrMagnitude > 1e-8f
+            ? Quaternion.LookRotation(away.normalized, Vector3.up)
+            : transform.rotation;
+
+        float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
+        transform.position = Vector3.Lerp(transform.position, target, t);
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, t);
     }
 
     public override void OnRelease(VRHand hand, Vector3 velocity)
@@ -339,11 +453,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
         _face.Maintain();
 
         if (IsHeld)
+        {
+            TickHeldPose();
             return;
+        }
 
         float dt = Time.deltaTime;
         float speed = CardsConfig.CardLerpSpeed.Value;
-        float popTarget = _popped ? 1f : 0f;
+        float popTarget = _popped || _laserPopped ? 1f : 0f;
         _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
 
         // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up.
@@ -370,6 +487,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
         base.OnDisable(); // unregister grabbable + detach from hand if held
         VRInteractables.UnregisterPokeable(this);
         _popped = false;
+        _laserPopped = false;
         _pop = 0f;
     }
 

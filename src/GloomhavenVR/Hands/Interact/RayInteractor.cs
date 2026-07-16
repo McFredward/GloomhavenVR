@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core.Events;
+using GloomhavenVR.Rig;
 using UnityEngine;
 
 namespace GloomhavenVR.Hands.Interact;
@@ -75,6 +76,26 @@ internal sealed class RayInteractor : IPickProvider
 
     private Vector3? _uiHitOverride;
     private int _uiHitOverrideFrame = -1;
+
+    /// <summary>
+    /// True while <see cref="UiHitOverride"/> is fresh (set this frame or the last) —
+    /// i.e. the beam is clamped to a code-intersected UI surface (world panel, fan
+    /// card, flat screen). Far-click consumers (BoardClickDriver) skip the trigger
+    /// while this is set so a UI point-and-click never doubles as a board click.
+    /// </summary>
+    public bool HasFreshUiHit => _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
+
+    // Constant ANGULAR size for the ray visuals (P6, hardware test #8): the reticle
+    // used to scale with the rig's WorldScale — zooming the diorama out grew the dot
+    // enormously (and doubly so: localScale under an already rig-scaled parent).
+    // Angular sizing keeps it a fixed apparent size from the HMD regardless of rig
+    // scale or distance. tan(0.45°) ≈ 0.00785, tan(0.06°) ≈ 0.00105.
+    private const float ReticleAngularFactor = 0.00785f;
+    private const float BeamWidthAngularFactor = 0.00105f;
+    private const float ReticleMinMeters = 0.003f;
+    private const float ReticleMaxMeters = 0.25f;
+    private const float BeamWidthMinMeters = 0.0008f;
+    private const float BeamWidthMaxMeters = 0.03f;
 
     // ---- P5 (MISSION A.5): ModalUI visual constraint --------------------------------------
     // In ModalUI the ray stays ACTIVE (flat-screen pointer, dialogs) but its visuals only
@@ -257,7 +278,12 @@ internal sealed class RayInteractor : IPickProvider
             }
         }
 
-        _laser.widthMultiplier = 0.0018f * scale;
+        // Head-to-end distance drives BOTH the beam width and the reticle size —
+        // constant angular size, independent of rig scale (see const block above).
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        float headDist = head != null ? Vector3.Distance(head.transform.position, end) : 1f;
+
+        _laser.widthMultiplier = Mathf.Clamp(headDist * BeamWidthAngularFactor, BeamWidthMinMeters, BeamWidthMaxMeters);
         _laser.SetPosition(0, start);
         _laser.SetPosition(1, end);
 
@@ -266,7 +292,11 @@ internal sealed class RayInteractor : IPickProvider
             if (!_reticle!.gameObject.activeSelf)
                 _reticle.gameObject.SetActive(true);
             _reticle.position = end;
-            _reticle.localScale = Vector3.one * (0.008f * scale);
+            // localScale sits under the rig-scaled hand — divide the world-space
+            // target size by the parent's lossy scale.
+            float worldSize = Mathf.Clamp(headDist * ReticleAngularFactor, ReticleMinMeters, ReticleMaxMeters);
+            float parentScale = Mathf.Max(1e-4f, _hand.transform.lossyScale.x);
+            _reticle.localScale = Vector3.one * (worldSize / parentScale);
         }
         else if (_reticle!.gameObject.activeSelf)
         {

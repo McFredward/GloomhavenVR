@@ -16,8 +16,16 @@ internal sealed class ProximityGrabber
     /// <summary>Palm reach in meters (scale 1).</summary>
     private const float ReachMeters = 0.13f;
 
+    /// <summary>
+    /// Candidate stickiness (P6, hardware test #8): a rival must be closer than the
+    /// current highlight by this margin (meters, scale 1) to steal it — overlapping
+    /// fan cards used to flap the highlight every frame, buzzing the controller.
+    /// </summary>
+    private const float SwitchMarginMeters = 0.01f;
+
     private readonly VRHand _hand;
     private bool _enabled = true;
+    private bool _releaseOnTriggerUp;
 
     internal ProximityGrabber(VRHand hand) => _hand = hand;
 
@@ -51,11 +59,14 @@ internal sealed class ProximityGrabber
 
         if (Held != null)
         {
-            // Grip released (or the object vanished) → release with palm velocity.
-            if (!_hand.GripPressed)
+            // Hold button released (grip — or trigger for laser-plucked objects,
+            // see ForceGrab) → release with palm velocity.
+            bool stillHeld = _releaseOnTriggerUp ? _hand.TriggerPressed : _hand.GripPressed;
+            if (!stillHeld)
             {
                 IGrabbable released = Held;
                 Held = null;
+                _releaseOnTriggerUp = false;
                 released.OnRelease(_hand, _hand.PalmVelocity);
             }
             return;
@@ -66,10 +77,30 @@ internal sealed class ProximityGrabber
         if (_hand.GripDown && Highlighted != null)
         {
             Held = Highlighted;
+            _releaseOnTriggerUp = false;
             SetHighlighted(null);
             Held.OnGrab(_hand);
             _hand.SendHaptic(HapticPreset.GrabPulse);
         }
+    }
+
+    /// <summary>
+    /// P6: programmatic grab for the Demeo laser-pluck — the Cards driver pulls a
+    /// laser-pointed fan card into this hand on TriggerDown. With
+    /// <paramref name="releaseOnTriggerUp"/> the hold button becomes the trigger
+    /// instead of the grip (so the pluck gesture is press-point-release).
+    /// Returns false when this hand already holds something or the target refuses.
+    /// </summary>
+    public bool ForceGrab(IGrabbable target, bool releaseOnTriggerUp = false)
+    {
+        if (!_enabled || !_hand.HasPose || Held != null || target == null || !target.CanGrab)
+            return false;
+        SetHighlighted(null);
+        Held = target;
+        _releaseOnTriggerUp = releaseOnTriggerUp;
+        Held.OnGrab(_hand);
+        _hand.SendHaptic(HapticPreset.GrabPulse);
+        return true;
     }
 
     internal void CancelAll()
@@ -78,6 +109,7 @@ internal sealed class ProximityGrabber
         {
             IGrabbable released = Held;
             Held = null;
+            _releaseOnTriggerUp = false;
             released.OnRelease(_hand, Vector3.zero);
         }
         SetHighlighted(null);
@@ -91,6 +123,7 @@ internal sealed class ProximityGrabber
 
         IGrabbable? nearest = null;
         float nearestDist = float.MaxValue;
+        float currentDist = float.MaxValue; // distance to the CURRENT highlight, if still valid
         bool sawDead = false;
 
         for (int i = 0; i < entries.Count; i++)
@@ -109,6 +142,8 @@ internal sealed class ProximityGrabber
                 continue;
 
             float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            if (ReferenceEquals(target, Highlighted))
+                currentDist = dist;
             if (dist <= reach && dist < nearestDist)
             {
                 nearestDist = dist;
@@ -118,6 +153,14 @@ internal sealed class ProximityGrabber
 
         if (sawDead)
             VRInteractables.Prune();
+
+        // Sticky candidate: keep the current highlight while it is still in reach and
+        // the rival is not decisively closer (haptic-buzz fix, see SwitchMarginMeters).
+        if (nearest != null && Highlighted != null && !ReferenceEquals(nearest, Highlighted)
+            && currentDist <= reach && nearestDist > currentDist - SwitchMarginMeters * _hand.WorldScale)
+        {
+            return;
+        }
 
         if (!ReferenceEquals(nearest, Highlighted))
         {

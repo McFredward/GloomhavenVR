@@ -134,7 +134,11 @@ internal static class BoardClickDriver
         if (hand.TriggerDown
             && BoardPick.HasHit
             && hand.Grabber.Held == null
-            && hand.Poke.HoveredUi == null)
+            && hand.Poke.HoveredUi == null
+            // P6: while the beam is clamped to a UI surface (world panel via
+            // RayUguiDriver, fan card, flat screen) the trigger belongs to that
+            // surface — nearest UI hit wins over the board pick.
+            && !hand.Ray.HasFreshUiHit)
         {
             RequestClick(hand, "trigger");
         }
