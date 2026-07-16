@@ -43,8 +43,23 @@ internal static class WorldUIConfig
     /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
     internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
-    /// <summary>Flat-screen width in real-world meters.</summary>
-    internal static ConfigEntry<float> FlatScreenWidth = null!;
+    /// <summary>Flat-screen width in real-world meters (test #6: 2.2 m default).</summary>
+    internal static ConfigEntry<float> ScreenWidth = null!;
+
+    /// <summary>Flat-screen distance from the head in real-world meters.</summary>
+    internal static ConfigEntry<float> ScreenDistance = null!;
+
+    /// <summary>Freeze the pointer from trigger-press to release so uGUI sees a CLICK, not a tremor drag.</summary>
+    internal static ConfigEntry<bool> ClickLatch = null!;
+
+    /// <summary>Ray movement (degrees off the press direction) that opens the click latch into a drag.</summary>
+    internal static ConfigEntry<float> DragUnlockDegrees = null!;
+
+    /// <summary>The ray must stay beyond <see cref="DragUnlockDegrees"/> this long before the latch opens.</summary>
+    internal static ConfigEntry<float> DragUnlockSeconds = null!;
+
+    /// <summary>Fingertip poke on the flat screen clicks at the poked position.</summary>
+    internal static ConfigEntry<bool> PokeClick = null!;
 
     // ---- settings panel (MISSION B) ------------------------------------------------------
     /// <summary>Show the small gear pokeable next to the button cluster (scenario only).</summary>
@@ -103,8 +118,28 @@ internal static class WorldUIConfig
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
-        FlatScreenWidth = _file.Bind("WorldUI", "FlatScreenWidth", 1.4f,
-            "Width of the floating 2D screen in real-world meters.");
+        ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", 2.2f,
+            "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
+            "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m).");
+        ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", 1.6f,
+            "Distance from the head to the floating 2D screen in real-world meters.");
+        ClickLatch = _file.Bind("WorldUI", "ClickLatch", true,
+            "Freeze the virtual-mouse position from trigger-press (or fingertip contact) until " +
+            "release, so press and release land on the SAME pixel and uGUI registers a click — " +
+            "sub-degree hand tremor otherwise moves the projected pixel dozens of px and turns " +
+            "every click into a no-op drag. Deliberate movement past DragUnlockDegrees for " +
+            "DragUnlockSeconds opens the latch into a real drag (scroll lists keep working).");
+        DragUnlockDegrees = _file.Bind("WorldUI", "DragUnlockDegrees", 2.0f,
+            "How far (degrees) the ray must move off its press direction to open the click " +
+            "latch into a drag.");
+        DragUnlockSeconds = _file.Bind("WorldUI", "DragUnlockSeconds", 0.15f,
+            "How long (seconds) the ray must stay beyond DragUnlockDegrees before the latch " +
+            "opens (filters single-frame tremor spikes).");
+        PokeClick = _file.Bind("WorldUI", "PokeClick", true,
+            "Poking the floating 2D screen with the index fingertip clicks at the poked " +
+            "position (press on plane contact, release on withdraw; latch rules as above). " +
+            "The screen may be out of arm's reach at the default distance — lean/step in, " +
+            "or reduce [WorldUI] ScreenDistance.");
 
         SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
             "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +
