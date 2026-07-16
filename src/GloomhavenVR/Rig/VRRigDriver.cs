@@ -70,6 +70,15 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>The live driver instance (for <see cref="RequestRecenter"/>), if any.</summary>
     internal static VRRigDriver? Instance { get; private set; }
 
+    /// <summary>
+    /// Monotonic counter bumped whenever the rig is (re)built or deliberately
+    /// recentered (P6). Consumers that cache rig-derived poses (PanelLayout's
+    /// world-anchored panel yaw) re-derive on change. Snap turns and world-grab do
+    /// NOT bump it — that is the point: panels must stay fixed in the world while
+    /// the player merely turns.
+    /// </summary>
+    internal static int RigPoseVersion { get; private set; }
+
     /// <summary>Fallback diorama scale when auto-detection has no tile size yet.</summary>
     private const float FallbackWorldScale = 12f;
 
@@ -132,12 +141,28 @@ internal sealed class VRRigDriver : MonoBehaviour
         CameraController controller = CameraController.s_CameraController;
         bool scenarioCameraAlive = controller != null && controller.m_Camera != null;
 
+        // P6 (test #8 giant-map fix): the ORBIT CAMERA ALONE IS NOT A SCENARIO.
+        // CameraController.s_CameraController also exists on the campaign/world map
+        // (verified: decompiled GH.Runtime/ClickTrackerMap.cs:78 raycasts MapLocations
+        // through it on the map scenes), so anchoring the diorama rig to it put the
+        // guildmaster map HUGE below the player while the flat window lost the map.
+        // The scenario diorama additionally requires an actual scenario board —
+        // Choreographer alive, the same canonical signal the mode machine uses
+        // (VRModeStateMachine.ScenarioBoardExists; decompiled Choreographer.cs:659,715).
+        // Everything pre-scenario (campaign map, guildmaster, merchant, level-up)
+        // stays on the MENU rig: head-tracked void + the WorldUI flat screen showing
+        // the full backbuffer composite (the map camera is a normal capture there).
+        // A head-tracked 3D map diorama is a deliberate FUTURE feature — the
+        // [Rig] Experimental3DMap placeholder is bound but UNIMPLEMENTED (it must
+        // never silently re-enable the broken orbit-camera anchoring).
+        bool scenarioBoardExists = VRModeStateMachine.ScenarioBoardExists;
+
         // P5 (MISSION A.7): outside a scenario the rig falls back to the menu camera
         // so the HMD view is head-tracked in the main menu / guildmaster map and the
         // WorldUI flat screen + hands have a tracked anchor.
         RigKind desired =
             !VRSession.IsRunning ? RigKind.None :
-            scenarioCameraAlive ? RigKind.Scenario :
+            scenarioCameraAlive && scenarioBoardExists ? RigKind.Scenario :
             Plugin.MenuRig.Value ? RigKind.Menu :
             RigKind.None;
 
@@ -350,6 +375,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         HeadCamera = _camera;
         BaseWorldScale = baseScale;
         _kind = RigKind.Scenario;
+        RigPoseVersion++;
 
         _pendingRecenter = true;
 
@@ -389,6 +415,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         HeadCamera = _camera;
         BaseWorldScale = 1f;
         _kind = RigKind.Menu;
+        RigPoseVersion++;
 
         _pendingRecenter = true;
 
@@ -459,6 +486,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         Vector3 headOffsetWorld = _rigRoot.transform.rotation * (_camera.transform.localPosition * scale);
         _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
         RigClamp.Apply(_rigRoot.transform);
+        RigPoseVersion++; // P6: world-anchored panels re-derive their seat yaw on recenter
 
         VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position} " +
                           $"(seated {(ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value ? "yes" : "no")}).");
@@ -479,6 +507,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         // Offset with the NEW yaw applied (rig scale is 1 in the menu).
         Vector3 headOffsetWorld = _menuAnchorYaw * _camera.transform.localPosition;
         _rigRoot.transform.position = _menuAnchorPos - headOffsetWorld;
+        RigPoseVersion++;
         VRLog.Info("Rig", $"Menu rig recentered at the menu camera vantage (anchor {_menuAnchorPos}, " +
                           $"head local {_camera.transform.localPosition}, rig root {_rigRoot.transform.position}).");
     }
