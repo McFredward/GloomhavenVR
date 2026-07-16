@@ -43,9 +43,10 @@ namespace GloomhavenVR.Rig;
 ///
 /// CAMERA OWNERSHIP: this driver is the pump for <see cref="VRCameraPolicy"/>
 /// (game cameras never stereo — swept on scene load, rig rebuild and periodically)
-/// and owns the head culling-mask policy: our camera renders the anchor camera's
-/// mask OR'd with <see cref="VRLayers.ModLayerMask"/>, never 0. Re-asserted every
-/// frame. Nothing on the anchor camera needs restoring — it is never modified
+/// and owns the head culling-mask policy: SCENARIO rig = anchor camera's mask OR'd
+/// with <see cref="VRLayers.ModLayerMask"/>, never 0; MENU rig = the mod layer ONLY
+/// (test #10 — Menu2D shows the world through the FlatScreen RT, never directly).
+/// Re-asserted every frame. Nothing on the anchor camera needs restoring — it is never modified
 /// (the scenario CameraController freeze flag is the one exception, restored on
 /// teardown).
 /// </summary>
@@ -231,10 +232,19 @@ internal sealed class VRRigDriver : MonoBehaviour
     // ---- camera ownership policies (docs/CAMERA-POLICY.md) --------------------------------
 
     /// <summary>
-    /// Head culling mask policy: anchor game camera's mask OR the mod layer bit,
-    /// never 0. Cheap per-frame re-assert — the game may rewrite the anchor's mask
-    /// (and CanvasConversion requests UI bits on our camera); the mod bit (and
-    /// non-zero-ness) must survive.
+    /// Head culling mask policy (docs/CAMERA-POLICY.md §2):
+    ///
+    /// - SCENARIO rig: anchor game camera's mask OR the mod layer bit, never 0 — the
+    ///   head camera renders the diorama world plus mod visuals.
+    /// - MENU rig (hardware test #10 fix): the MOD LAYER ONLY — nothing else, ever.
+    ///   Menu2D shows the world exclusively THROUGH the FlatScreen RT composite; the
+    ///   anchor mask on the campaign map (0xF00FFE37, the whole 3D world) rendered the
+    ///   giant map 1:1 below the player while the quad showed on top of it. The HMD in
+    ///   Menu2D must contain exactly: void + screen quad + hands + indicator.
+    ///
+    /// Cheap per-frame re-assert — the game may rewrite the anchor's mask (and
+    /// CanvasConversion may OR UI bits onto our camera in scenario); the policy must
+    /// survive every foreign write.
     /// </summary>
     private static int ComposeHeadMask(int sourceMask) =>
         (sourceMask == 0 ? 1 : sourceMask) | VRLayers.ModLayerMask;
@@ -243,10 +253,19 @@ internal sealed class VRRigDriver : MonoBehaviour
     {
         if (_kind == RigKind.None || _camera == null)
             return;
-        // Follow the live anchor mask while the anchor exists (the game may toggle
-        // layers scene-side); once the anchor died, keep re-asserting our own.
-        int source = _anchor != null ? _anchor.cullingMask : _camera.cullingMask;
-        int wanted = ComposeHeadMask(source);
+        int wanted;
+        if (_kind == RigKind.Menu)
+        {
+            // Mod layer only — never follow the anchor in Menu2D (test #10).
+            wanted = VRLayers.ModLayerMask;
+        }
+        else
+        {
+            // Follow the live anchor mask while the anchor exists (the game may toggle
+            // layers scene-side); once the anchor died, keep re-asserting our own.
+            int source = _anchor != null ? _anchor.cullingMask : _camera.cullingMask;
+            wanted = ComposeHeadMask(source);
+        }
         if (_camera.cullingMask != wanted)
             _camera.cullingMask = wanted;
     }
@@ -290,12 +309,16 @@ internal sealed class VRRigDriver : MonoBehaviour
 
     /// <summary>
     /// Create OUR head camera under the rig root, seeded from the anchor game camera:
-    /// culling mask = anchor mask | mod layer (never 0), depth = anchor + 1, far plane
-    /// from the anchor, clear = solid [Rig] VoidColor (Skybox kept when the anchor has
-    /// one — that IS visible content). The game camera itself is never modified; stereo on
-    /// it (and every other game camera) is owned by <see cref="VRCameraPolicy"/>.
+    /// depth = anchor + 1, far plane from the anchor. Mask policy (CAMERA-POLICY §2):
+    /// scenario = anchor mask | mod layer (never 0); menu (<paramref name="modLayerOnly"/>,
+    /// test #10) = the mod layer ONLY, with a forced SolidColor [Rig] VoidColor clear —
+    /// Menu2D shows the world exclusively through the FlatScreen RT, so the HMD renders
+    /// void + quad + hands and nothing of the 3D scene. Scenario keeps the anchor's
+    /// Skybox clear when it has one (that IS visible content). The game camera itself is
+    /// never modified; stereo on it (and every other game camera) is owned by
+    /// <see cref="VRCameraPolicy"/>.
     /// </summary>
-    private void CreateHeadCamera(Camera anchor, float nearClip)
+    private void CreateHeadCamera(Camera anchor, float nearClip, bool modLayerOnly = false)
     {
         _cameraGo = new GameObject("GloomhavenVR.HeadCamera");
         _cameraGo.transform.SetParent(_rigRoot!.transform, worldPositionStays: false);
@@ -303,14 +326,14 @@ internal sealed class VRRigDriver : MonoBehaviour
         _cameraGo.transform.localRotation = Quaternion.identity;
 
         _camera = _cameraGo.AddComponent<Camera>();
-        _camera.cullingMask = ComposeHeadMask(anchor.cullingMask);
+        _camera.cullingMask = modLayerOnly ? VRLayers.ModLayerMask : ComposeHeadMask(anchor.cullingMask);
         _camera.depth = anchor.depth + 1f;
         _camera.nearClipPlane = nearClip;
         _camera.farClipPlane = Mathf.Max(anchor.farClipPlane, 100f);
         _camera.allowHDR = anchor.allowHDR;
         _camera.allowMSAA = anchor.allowMSAA;
         _camera.useOcclusionCulling = anchor.useOcclusionCulling;
-        if (anchor.clearFlags == CameraClearFlags.Skybox)
+        if (!modLayerOnly && anchor.clearFlags == CameraClearFlags.Skybox)
         {
             _camera.clearFlags = CameraClearFlags.Skybox;
         }
@@ -409,7 +432,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         _rigRoot.transform.rotation = _menuAnchorYaw;
         _rigRoot.transform.localScale = Vector3.one;
 
-        CreateHeadCamera(anchor, 0.05f);
+        CreateHeadCamera(anchor, 0.05f, modLayerOnly: true);
 
         RigRoot = _rigRoot.transform;
         HeadCamera = _camera;
@@ -421,8 +444,9 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         VRLog.Info("Rig", $"Menu rig built at vantage of camera '{anchor.name}' (1:1 scale, owned head camera " +
                           $"'GloomhavenVR.HeadCamera': clear {_camera!.clearFlags} '{_camera.backgroundColor}', " +
-                          $"mask 0x{anchor.cullingMask:X8} → 0x{_camera.cullingMask:X8}, depth {_camera.depth:F1}, " +
-                          $"stereo Both; anchor stays desktop-only) — trigger: {_rebuildTrigger}.");
+                          $"mask MOD-ONLY 0x{_camera.cullingMask:X8} (anchor 0x{anchor.cullingMask:X8} NOT copied — " +
+                          $"test #10), depth {_camera.depth:F1}, stereo Both; anchor stays desktop-only) " +
+                          $"— trigger: {_rebuildTrigger}.");
         VRCameraPolicy.Sweep("menu rig built");
     }
 
