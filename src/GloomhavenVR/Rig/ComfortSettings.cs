@@ -126,7 +126,16 @@ internal static class ComfortSettings
     /// <summary>Master switch for grip-based world grab (drag/rotate/scale).</summary>
     public static ComfortSetting<bool> WorldGrabEnabled { get; private set; } = null!;
 
-    /// <summary>Allow one-grip drag to move the table vertically (default: horizontal plane only).</summary>
+    /// <summary>
+    /// Fully free diorama movement (test #10, default ON): no positional clamps at all —
+    /// drag the table in any direction including up/down past the head plane; only the
+    /// (generously widened) scale limits remain. Off restores the pre-test-#10 comfort
+    /// clamps (horizontal-only drag unless <see cref="VerticalDrag"/>, head-above-table
+    /// <see cref="RigClamp"/>, configured scale range).
+    /// </summary>
+    public static ComfortSetting<bool> FreeMovement { get; private set; } = null!;
+
+    /// <summary>Allow one-grip drag to move the table vertically (always on while <see cref="FreeMovement"/>).</summary>
     public static ComfortSetting<bool> VerticalDrag { get; private set; } = null!;
 
     /// <summary>Two-grip yaw rotation of the table.</summary>
@@ -176,6 +185,31 @@ internal static class ComfortSettings
 
     // ---- derived helpers -----------------------------------------------------------------
 
+    /// <summary>Guaranteed scale floor/ceiling while <see cref="FreeMovement"/> is on (test #10).</summary>
+    internal const float FreeScaleMinMultiplier = 0.1f;
+    internal const float FreeScaleMaxMultiplier = 12f;
+
+    /// <summary>Vertical drag policy: always allowed while <see cref="FreeMovement"/> (test #10).</summary>
+    internal static bool EffectiveVerticalDrag =>
+        IsBound && (FreeMovement.Value || VerticalDrag.Value);
+
+    /// <summary>True while ALL positional clamps are disabled (test #10 free movement).</summary>
+    internal static bool PositionalClampsDisabled =>
+        IsBound && FreeMovement.Value;
+
+    /// <summary>
+    /// Effective lower scale clamp (multiplier of base WorldScale). While FreeMovement is
+    /// on the range is AT LEAST 0.1×–12× regardless of the persisted ScaleMin/ScaleMax
+    /// values (existing configs keep their old numbers on disk — the guarantee must not
+    /// depend on them).
+    /// </summary>
+    internal static float EffectiveScaleMin =>
+        !IsBound ? 1f : FreeMovement.Value ? Mathf.Min(ScaleMin.Value, FreeScaleMinMultiplier) : ScaleMin.Value;
+
+    /// <summary>Effective upper scale clamp (multiplier of base WorldScale). See <see cref="EffectiveScaleMin"/>.</summary>
+    internal static float EffectiveScaleMax =>
+        !IsBound ? 1f : FreeMovement.Value ? Mathf.Max(ScaleMax.Value, FreeScaleMaxMultiplier) : ScaleMax.Value;
+
     /// <summary>Recenter eye height above the table plane, real meters (preset + offset).</summary>
     internal static float EffectiveEyeHeightMeters =>
         !IsBound
@@ -188,16 +222,16 @@ internal static class ComfortSettings
             ? StandingEyeBackMeters
             : SeatedMode.Value ? SeatedEyeBackMeters : StandingEyeBackMeters;
 
-    /// <summary>Persisted scale multiplier, clamped into the configured limits.</summary>
+    /// <summary>Persisted scale multiplier, clamped into the effective limits.</summary>
     internal static float ClampedSavedMultiplier =>
-        !IsBound ? 1f : Mathf.Clamp(SavedScaleMultiplier.Value, ScaleMin.Value, ScaleMax.Value);
+        !IsBound ? 1f : Mathf.Clamp(SavedScaleMultiplier.Value, EffectiveScaleMin, EffectiveScaleMax);
 
     /// <summary>Persist the scale multiplier after a gesture (no-op for sub-1% changes).</summary>
     internal static void PersistScaleMultiplier(float multiplier)
     {
         if (!IsBound)
             return;
-        multiplier = Mathf.Clamp(multiplier, ScaleMin.Value, ScaleMax.Value);
+        multiplier = Mathf.Clamp(multiplier, EffectiveScaleMin, EffectiveScaleMax);
         if (Mathf.Abs(multiplier - SavedScaleMultiplier.Value) > 0.01f)
             SavedScaleMultiplier.Value = multiplier;
     }
@@ -217,18 +251,28 @@ internal static class ComfortSettings
         WorldGrabEnabled = Bind("WorldGrabEnabled", true,
             "Grip-based table manipulation: one grip (away from grabbable objects) drags the " +
             "table, two grips rotate and pinch-scale it. Moves only the VR rig, never the game world.");
-        VerticalDrag = Bind("VerticalDrag", false,
-            "Allow the one-grip drag to also move the table vertically. Off = horizontal plane only.");
+        FreeMovement = Bind("FreeMovement", true,
+            "Fully free diorama movement: the one-grip drag moves the table in ANY direction " +
+            "(including straight up/down, no head-above-table clamp, no positional limits at " +
+            "all) and the pinch-scale range is at least 0.1x-12x of the base scale. Disable to " +
+            "restore the old comfort clamps (horizontal drag unless VerticalDrag, head kept " +
+            "above the table, configured ScaleMin/ScaleMax). Recenter (B+Y hold) always " +
+            "returns to the table edge from anywhere.");
+        VerticalDrag = Bind("VerticalDrag", true,
+            "Allow the one-grip drag to also move the table vertically. Off = horizontal plane " +
+            "only. Ignored (always on) while FreeMovement is enabled.");
         RotateEnabled = Bind("RotateEnabled", true,
             "Two-grip gesture rotates the table around the point between your hands (yaw only).");
         ScaleEnabled = Bind("ScaleEnabled", true,
             "Two-grip pinch scales the table (spread hands = board grows).");
-        ScaleMin = Bind("ScaleMin", 0.5f,
-            "Lower pinch-scale clamp as a multiplier of the base WorldScale.",
-            new AcceptableValueRange<float>(0.1f, 1f));
-        ScaleMax = Bind("ScaleMax", 4f,
-            "Upper pinch-scale clamp as a multiplier of the base WorldScale.",
-            new AcceptableValueRange<float>(1f, 10f));
+        ScaleMin = Bind("ScaleMin", 0.1f,
+            "Lower pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
+            "is on, the effective floor is at most 0.1x regardless of this value.",
+            new AcceptableValueRange<float>(0.02f, 1f));
+        ScaleMax = Bind("ScaleMax", 12f,
+            "Upper pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
+            "is on, the effective ceiling is at least 12x regardless of this value.",
+            new AcceptableValueRange<float>(1f, 20f));
         Turn = Bind("TurnMode", TurnMode.Snap,
             "Thumbstick turning: Snap = discrete steps, Smooth = continuous, Off = disabled. " +
             "Never active in board-targeting mode (the stick rotates AoE patterns there).");
@@ -282,6 +326,7 @@ internal static class ComfortSettings
 
         WorldScaleBase.Detach();
         WorldGrabEnabled.Detach();
+        FreeMovement.Detach();
         VerticalDrag.Detach();
         RotateEnabled.Detach();
         ScaleEnabled.Detach();
