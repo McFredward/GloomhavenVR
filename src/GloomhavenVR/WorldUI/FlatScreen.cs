@@ -9,20 +9,36 @@ using UnityEngine.SceneManagement;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Floating 2D screen (ROADMAP P3c #6): a world-space quad showing the UICamera's
-/// output for everything that is not physicalized — main menu, guildmaster map,
-/// merchant, level-up, and any unconverted window.
+/// Floating 2D screen (ROADMAP P3c #6): a world-space quad showing the flat game's
+/// full desktop composite for everything that is not physicalized — main menu,
+/// guildmaster map, merchant, level-up, and any unconverted window.
 ///
-/// Rendering: while the screen is visible the "UICamera"-tagged camera is retargeted
-/// onto a RenderTexture shown on the quad (UUVR screen-mirror pattern; UI-ARCH §2.1
-/// consequence (a)). The camera reference is re-resolved after every scene load —
-/// this coordinates with the game's own re-wiring, verified via ilspycmd
-/// (GH.Runtime.dll, CanvasManager): <c>private void OnSceneLoaded(Scene scene,
-/// LoadSceneMode mode)</c> re-binds <c>persistentUICanvas.worldCamera</c> /
-/// <c>tooltipCanvas.worldCamera</c> to the first camera tagged "UICamera" (IL 70 B,
-/// PATCH-TARGETS §1.7 ✅) — Screen-Space-Camera canvases follow their worldCamera
-/// into our RenderTexture automatically. <c>targetTexture</c> is restored on hide,
-/// shutdown and camera change.
+/// Rendering (STACK CAPTURE, hardware test #5): while the screen is visible EVERY
+/// game camera that renders to the backbuffer is retargeted onto one shared
+/// RenderTexture shown on the quad (UUVR screen-mirror pattern; UI-ARCH §2.1
+/// consequence (a)). Test #5 proved a UICamera-only redirect loses the menu's
+/// ambient slideshow/video: 'Main Camera' (clear=Depth, mask 0x20) and the
+/// late-created 'MainMenuVideo' camera kept rendering to the backbuffer, which our
+/// end-of-frame Blit overwrites — their content reached neither the quad nor the
+/// desktop (black background). Unity orders cameras by depth per render target, so
+/// the captured cameras compose inside the RT exactly like they did on the
+/// backbuffer; only the FIRST camera of the stack gets an opaque SolidColor clear
+/// forced (fresh RTs have undefined color; see field comment), all others keep
+/// their own clear flags (Depth etc.) so compositing matches the game's intent.
+/// The per-tick capture sweep also catches cameras created later (MainMenuVideo
+/// appears seconds after the menu scene). Cameras already targeting another RT
+/// ('GUI 3D Camera' → character assembly RT) and our own rig head camera are left
+/// alone. Everything (targetTexture, clear flags) is restored on hide, scene
+/// change, VR off and hot reload. Screen-Space-Camera canvases follow their
+/// worldCamera into the RT automatically — verified via ilspycmd (GH.Runtime.dll,
+/// CanvasManager): <c>private void OnSceneLoaded(Scene scene, LoadSceneMode mode)</c>
+/// re-binds <c>persistentUICanvas.worldCamera</c> / <c>tooltipCanvas.worldCamera</c>
+/// to the first camera tagged "UICamera" (PATCH-TARGETS §1.7 ✅).
+///
+/// Coordination with <see cref="Core.VRCameraPolicy"/>: complementary, no fight —
+/// the policy owns exactly <c>stereoTargetEye</c>/XR tracking, this class owns
+/// exactly <c>targetTexture</c>/clear flags of captured cameras. A camera can be
+/// stereo-None AND render into our RT.
 ///
 /// DESKTOP MIRROR (menu-blackscreen fix): while the RT redirect is active nothing
 /// would reach the desktop backbuffer (the XR mirror shows an HMD eye, which shows
@@ -66,20 +82,38 @@ internal sealed class FlatScreen
     private Renderer? _quadRenderer;
     private Transform? _reticle;
     private RenderTexture? _rt;
-    private Camera? _uiCamera;
     private bool _visible;
     private bool _pressing;
     private bool _mirrorLogged;
 
-    // UICamera state we modify while it targets our RT (restored on release).
-    // Hardware test #4 (P3b): 'UI Camera' ships clearFlags=Depth — rendering that
-    // into a fresh RT leaves the COLOR buffer (incl. alpha ≈ 0) undefined, so an
-    // alpha-blended quad shows nothing in the HMD while the desktop Blit (which
-    // ignores alpha) looks perfect. While redirected we force an OPAQUE SolidColor
-    // clear (also fixes RT garbage).
-    private CameraClearFlags _uiOriginalClearFlags;
-    private Color _uiOriginalBackground;
-    private bool _uiCameraModified;
+    /// <summary>One captured backbuffer camera + everything needed to restore it.</summary>
+    private sealed class CapturedCamera
+    {
+        public Camera Camera = null!;
+        public CameraClearFlags OriginalClearFlags;
+        public Color OriginalBackground;
+    }
+
+    // Captured camera stack (I1, hardware test #5). The list is reused across
+    // frames; a CapturedCamera record only allocates when a NEW camera is first
+    // captured (rare event — scene load / MainMenuVideo appearing).
+    private readonly System.Collections.Generic.List<CapturedCamera> _captured = new(8);
+
+    /// <summary>The stack's base (lowest-depth) camera — the only one whose clear we force.</summary>
+    private CapturedCamera? _base;
+
+    /// <summary>Cameras currently captured into the RT (camera-inventory diagnostics).</summary>
+    private static readonly System.Collections.Generic.HashSet<Camera> CapturedSet = new();
+
+    /// <summary>True while the FlatScreen has redirected this camera into its RT.</summary>
+    internal static bool IsCaptured(Camera cam) => CapturedSet.Contains(cam);
+
+    // Base-clear rationale (hardware test #4, P3b): the game's menu cameras ship
+    // clearFlags=Depth — rendering that into a fresh RT leaves the COLOR buffer
+    // (incl. alpha ≈ 0) undefined, so an alpha-blended quad shows nothing in the
+    // HMD while the desktop Blit (which ignores alpha) looks perfect. The stack's
+    // lowest-depth camera therefore gets an OPAQUE SolidColor clear forced (also
+    // fixes RT garbage); every other camera keeps its own clear flags.
     private static readonly Color OpaqueBlack = new(0f, 0f, 0f, 1f);
 
     // Placement anchors: re-place instantly when the head camera or the rig moves
@@ -101,12 +135,13 @@ internal sealed class FlatScreen
     public FlatScreen()
     {
         // P5 (MISSION A.2): scene loads re-wire the game's UI cameras (CanvasManager.
-        // OnSceneLoaded re-binds worldCamera) — drop our reference on the bus event and
-        // re-resolve/re-target next Tick instead of waiting for the old camera to die.
+        // OnSceneLoaded re-binds worldCamera) — release the whole captured stack on
+        // the bus event and re-capture next Tick instead of waiting for old cameras
+        // to die.
         Core.Events.VREvents.SceneLoaded += OnSceneLoaded;
     }
 
-    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e) => ReleaseUiCamera();
+    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e) => ReleaseStack();
 
     public void Tick()
     {
@@ -134,62 +169,137 @@ internal sealed class FlatScreen
         if (!_visible)
             return;
 
-        // Camera may die/change with scene loads.
-        if (_uiCamera == null)
-        {
-            ResolveUiCamera();
-            if (_uiCamera == null)
-                return;
-        }
-        RetargetUiCamera();
+        CaptureStack();
 
         FollowHead();
         TickPointer();
     }
 
     /// <summary>
-    /// Point the UICamera at our RT and force an OPAQUE SolidColor clear while it is
-    /// redirected (P3b — see field comment). Cheap per-tick re-assert: game code may
-    /// rewrite targetTexture/clearFlags at any time. Originals are captured on first
-    /// modification and restored by <see cref="ReleaseUiCamera"/>.
+    /// Redirect every backbuffer game camera into our RT (I1, hardware test #5) and
+    /// keep the stack's lowest-depth camera on an OPAQUE SolidColor clear (P3b — see
+    /// field comment). Cheap per-tick re-assert: game code may rewrite targetTexture
+    /// or clearFlags at any time, and new cameras (MainMenuVideo) appear mid-scene.
+    /// Excluded: our rig head camera and cameras already targeting a different RT
+    /// ('GUI 3D Camera' → character-assembly RT, per the test-#5 camera inventory).
+    /// Originals are recorded on first capture and restored by <see cref="ReleaseStack"/>.
+    /// No per-frame allocations: shared scan buffer + reused list; records allocate
+    /// only when a new camera is first captured.
     /// </summary>
-    private void RetargetUiCamera()
+    private void CaptureStack()
     {
-        if (_uiCamera == null || _rt == null)
+        if (_rt == null)
             return;
-        if (_uiCamera.targetTexture != _rt)
+
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+
+        // 1. Capture new backbuffer cameras / re-assert the redirect on known ones.
+        int count = Core.VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] cams);
+        for (int i = 0; i < count; i++)
         {
-            if (!_uiCameraModified)
+            Camera cam = cams[i];
+            if (cam == null || (head != null && cam == head))
+                continue;
+            if (CapturedSet.Contains(cam))
             {
-                _uiOriginalClearFlags = _uiCamera.clearFlags;
-                _uiOriginalBackground = _uiCamera.backgroundColor;
-                _uiCameraModified = true;
+                if (cam.targetTexture != _rt) // game code rewrote it — re-assert
+                    cam.targetTexture = _rt;
+                continue;
             }
-            _uiCamera.targetTexture = _rt;
-            VRLog.Info("WorldUI", $"FlatScreen: UICamera '{_uiCamera.name}' → RenderTexture " +
-                                  $"(clear {_uiCamera.clearFlags} → SolidColor opaque black while redirected).");
+            if (cam.targetTexture != null)
+                continue; // renders to its own RT (e.g. 'GUI 3D Camera') — not ours
+
+            var record = new CapturedCamera
+            {
+                Camera = cam,
+                OriginalClearFlags = cam.clearFlags,
+                OriginalBackground = cam.backgroundColor,
+            };
+            _captured.Add(record);
+            CapturedSet.Add(cam);
+            cam.targetTexture = _rt;
+            VRLog.Info("WorldUI", $"FlatScreen stack capture: '{cam.name}' → RenderTexture " +
+                                  $"(depth {cam.depth:F1}, clear {record.OriginalClearFlags} kept unless base).");
         }
-        if (_uiCamera.clearFlags != CameraClearFlags.SolidColor)
-            _uiCamera.clearFlags = CameraClearFlags.SolidColor;
-        if (_uiCamera.backgroundColor != OpaqueBlack)
-            _uiCamera.backgroundColor = OpaqueBlack;
+
+        // 2. Compact dead entries (scene unloads destroy cameras behind our back).
+        for (int i = _captured.Count - 1; i >= 0; i--)
+        {
+            if (_captured[i].Camera == null)
+            {
+                if (_captured[i] == _base)
+                    _base = null;
+                CapturedSet.Remove(_captured[i].Camera);
+                _captured.RemoveAt(i);
+            }
+        }
+
+        // 3. The stack's FIRST camera gets the forced opaque clear. Unity renders
+        //    cameras targeting the same RT in ascending depth order, so pick the
+        //    lowest depth. Depth ties exist (test-#5 inventory: 'Main Camera' and
+        //    'UI Camera' both at depth 1.0) — the UICamera-tagged camera always
+        //    composites LAST per game intent (CanvasManager binds all overlay
+        //    canvases to it), so on a tie it must NOT be the base or its forced
+        //    clear would erase the other cameras' output.
+        CapturedCamera? newBase = null;
+        for (int i = 0; i < _captured.Count; i++)
+        {
+            CapturedCamera c = _captured[i];
+            if (newBase == null
+                || c.Camera.depth < newBase.Camera.depth
+                || (c.Camera.depth == newBase.Camera.depth && newBase.Camera.CompareTag("UICamera")))
+            {
+                newBase = c;
+            }
+        }
+
+        if (newBase != _base)
+        {
+            // The previous base (still captured) returns to its own clear flags.
+            if (_base != null && _base.Camera != null)
+            {
+                _base.Camera.clearFlags = _base.OriginalClearFlags;
+                _base.Camera.backgroundColor = _base.OriginalBackground;
+            }
+            _base = newBase;
+            if (_base != null)
+                VRLog.Info("WorldUI", $"FlatScreen stack base: '{_base.Camera.name}' (depth {_base.Camera.depth:F1}) " +
+                                      $"clears the RT (clear {_base.OriginalClearFlags} → SolidColor opaque black).");
+        }
+
+        // Re-assert the base clear every tick (game code may rewrite it).
+        if (_base != null && _base.Camera != null)
+        {
+            if (_base.Camera.clearFlags != CameraClearFlags.SolidColor)
+                _base.Camera.clearFlags = CameraClearFlags.SolidColor;
+            if (_base.Camera.backgroundColor != OpaqueBlack)
+                _base.Camera.backgroundColor = OpaqueBlack;
+        }
     }
 
-    /// <summary>Undo everything <see cref="RetargetUiCamera"/> did and drop the reference.</summary>
-    private void ReleaseUiCamera()
+    /// <summary>Undo everything <see cref="CaptureStack"/> did and drop all references.</summary>
+    private void ReleaseStack()
     {
-        if (_uiCamera != null)
+        for (int i = 0; i < _captured.Count; i++)
         {
-            if (_uiCamera.targetTexture == _rt)
-                _uiCamera.targetTexture = null;
-            if (_uiCameraModified)
+            Camera cam = _captured[i].Camera;
+            if (cam == null)
+                continue;
+            if (cam.targetTexture == _rt)
+                cam.targetTexture = null;
+            // Only the base had its clear forced — leave the others' flags alone
+            // (they may have been legitimately changed by game code meanwhile).
+            if (_captured[i] == _base)
             {
-                _uiCamera.clearFlags = _uiOriginalClearFlags;
-                _uiCamera.backgroundColor = _uiOriginalBackground;
+                cam.clearFlags = _captured[i].OriginalClearFlags;
+                cam.backgroundColor = _captured[i].OriginalBackground;
             }
         }
-        _uiCameraModified = false;
-        _uiCamera = null;
+        if (_captured.Count > 0)
+            VRLog.Info("WorldUI", $"FlatScreen stack released — {_captured.Count} camera(s) restored to the backbuffer.");
+        _captured.Clear();
+        CapturedSet.Clear();
+        _base = null;
     }
 
     /// <summary>
@@ -314,8 +424,6 @@ internal sealed class FlatScreen
 
     private void Show()
     {
-        ResolveUiCamera();
-
         if (_rt == null)
         {
             _rt = new RenderTexture(Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24)
@@ -371,14 +479,15 @@ internal sealed class FlatScreen
         }
 
         _quad.SetActive(true);
-        RetargetUiCamera();
+        CaptureStack();
 
         // P5 (MISSION A.5): the ModalUI-constrained laser may point at the screen.
         RayInteractor.RegisterUiTarget(_quad.transform);
 
         PlaceScreen(instant: true);
         _visible = true;
-        VRLog.Info("WorldUI", "FlatScreen shown (UICamera → RenderTexture; desktop mirror engages at end of frame).");
+        VRLog.Info("WorldUI", "FlatScreen shown (backbuffer camera stack → RenderTexture; " +
+                              "desktop mirror engages at end of frame).");
     }
 
     private void Hide()
@@ -388,7 +497,7 @@ internal sealed class FlatScreen
             VirtualMouse.Release();
             _pressing = false;
         }
-        ReleaseUiCamera();
+        ReleaseStack();
 
         if (_quad != null)
         {
@@ -409,34 +518,12 @@ internal sealed class FlatScreen
             }
         }
         if (_visible)
-            VRLog.Info("WorldUI", "FlatScreen hidden — UICamera restored to the backbuffer.");
+            VRLog.Info("WorldUI", "FlatScreen hidden — captured cameras restored to the backbuffer.");
         _visible = false;
         _mirrorLogged = false;
         _placedHead = null;
         _offGazeSince = -1f;
         _gliding = false;
-    }
-
-    private void ResolveUiCamera()
-    {
-        // Prefer the scenario UIManager's serialized camera; otherwise scan by tag
-        // (only on show/scene change — Camera.allCameras allocates).
-        UIManager manager = UIManager.Instance;
-        if (manager != null && manager.UICamera != null)
-        {
-            _uiCamera = manager.UICamera;
-            return;
-        }
-        Camera[] all = Camera.allCameras;
-        for (int i = 0; i < all.Length; i++)
-        {
-            if (all[i].CompareTag("UICamera"))
-            {
-                _uiCamera = all[i];
-                return;
-            }
-        }
-        _uiCamera = null;
     }
 
     // ---- placement -----------------------------------------------------------------------
@@ -608,15 +695,22 @@ internal sealed class FlatScreen
             _reticle.localScale = new Vector3(0.008f, 0.008f * ScreenAspect, 0.008f);
         }
 
-        // Trigger = left mouse button (press/release so drags work).
+        // Trigger = left mouse button (press/release so drags work). The release
+        // condition is the trigger STATE, not the TriggerUp edge: a hands rebuild
+        // mid-press (HandsDriver re-creates VRHand instances on rig changes) would
+        // swallow the edge forever and leave uGUI in drag state — hover would die
+        // globally (I3 hardening; VirtualMouse has a second, time-based watchdog).
         if (hand.TriggerDown && !_pressing)
         {
             _pressing = true;
             VirtualMouse.Press();
         }
-        else if (_pressing && hand.TriggerUp)
+        else if (_pressing && !hand.TriggerPressed)
         {
             _pressing = false;
+            if (!hand.TriggerUp)
+                VRLog.Warn("WorldUI", "FlatScreen pointer: trigger release edge was missed " +
+                                      "(hands rebuilt mid-press?) — forced VirtualMouse release.");
             VirtualMouse.Release();
         }
     }

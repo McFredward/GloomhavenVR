@@ -69,6 +69,7 @@ internal static class CameraInventory
 
         int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] all);
         Camera? head = Rig.VRRigDriver.HeadCamera;
+        int captured = 0;
         VRLog.Info("WorldUI", $"Camera inventory after scene '{_sceneName}' ({count} active):");
         for (int i = 0; i < count; i++)
         {
@@ -76,11 +77,16 @@ internal static class CameraInventory
             if (cam == null)
                 continue;
             string target = cam.targetTexture != null ? cam.targetTexture.name : "backbuffer";
+            bool inStack = FlatScreen.IsCaptured(cam);
+            if (inStack)
+                captured++;
             VRLog.Info("WorldUI",
                 $"  '{cam.name}' tag={cam.tag} enabled={cam.enabled} depth={cam.depth:F1} " +
                 $"clear={cam.clearFlags} mask=0x{cam.cullingMask:X8} stereo={cam.stereoTargetEye} " +
-                $"target={target}{(cam == head ? " [VR head]" : "")}");
+                $"target={target}{(cam == head ? " [VR head]" : "")}{(inStack ? " [RT stack]" : "")}");
         }
+        VRLog.Info("WorldUI", $"  FlatScreen stack: {captured} camera(s) captured into the RT " +
+                              "(every backbuffer game camera belongs there while the screen shows).");
 
         // Applied policy summary (CAMERA-POLICY): which layer the mod owns and how
         // many foreign cameras are stereo-excluded right now.
