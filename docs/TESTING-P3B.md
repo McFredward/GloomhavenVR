@@ -27,55 +27,84 @@
 - [ ] Quit to menu and back: suppression re-arms in the next scenario.
 - [ ] Disable the mod (`[General] Enabled = false`): 2D hand is fully vanilla again.
 
-## 2. Palm fan (P6: Demeo reveal + laser pluck — see .planning/research/DEMEO-CARDS.md)
+## 2. Palm fan (P7: roll-axis reveal, fan-hand exclusion, 3D cards, in-hand hold)
 
-- [ ] Round start (card-selection phase): CASUALLY tilt the non-dominant palm toward
-      your face (a relaxed Demeo wrist-flip — NO forced supination; the gate now reads
-      the raw controller pose, `[Cards] TiltThreshold` = 0.35) → the hand pile fans
-      out above the palm, cards face the HMD, readable at arm's length.
-- [ ] Rotate the palm well away → fan hides late (wide hysteresis, no flicker); while
-      the dominant laser is on the fan it must NOT hide at all.
+- [ ] Round start (card-selection phase): ROLL the non-dominant wrist so the palm
+      turns up / toward you (supination only — `[Cards] SupinationThreshold` = 0.2)
+      → the hand pile fans out above the palm.
+- [ ] **Roll axis only (test #10 fix)**: pitching the arm up/down or pointing it at
+      your face with the palm still sideways must NOT open the fan; conversely,
+      once the palm is rolled up the fan must stay open at ANY arm pitch (point the
+      supinated hand down/forward/up — the fan stays).
+- [ ] Roll the palm back down past vertical → fan hides late (wide hysteresis, no
+      flicker); while the dominant laser is on the fan it must NOT hide at all.
 - [ ] `[Cards] RevealMode = always`: the fan is out for the whole selection phase with
-      no gesture; `tilt` restores the flip.
-- [ ] Card faces are the game's REAL card renders (art, initiative number, XP icons,
-      enhancements) — not screenshots; text stays crisp when leaning in.
-- [ ] NO black border: the card backing hugs the face art exactly (< 1 mm rim).
-- [ ] Fanned cards overlap like a real hand — no visual interpenetration, no
-      z-fighting; hovering a card gives ONE haptic tick per card change (sweep the
-      hand across the fan: discrete ticks, never a continuous buzz).
+      no gesture; `tilt` restores the roll gesture.
+- [ ] **No self-highlight (test #10 fix)**: hold the fan open and keep the fan hand
+      still, dominant hand far away → NO card highlights, NO pops, NO haptics — ever.
+      The fan-owning hand can never highlight/grab/poke a card; two cards must never
+      alternate highlights on their own.
+- [ ] Sweep the DOMINANT hand across the fan: highlight moves in discrete steps with
+      one tick per change; the current card keeps its highlight until a neighbor is
+      clearly better (2.5 cm margin) — no oscillation even between two touching cards.
+- [ ] **Real 3D cards (test #10 fix)**: cards have visible thickness (~1.5 mm),
+      rounded corners, a dark thin edge, and an OPAQUE decorative back — look at the
+      fan from the far side: you see card backs, not mirrored faces or see-through
+      quads.
+- [ ] Card faces are the game's REAL card renders; the live face fills the front
+      almost edge-to-edge (thin dark rim only, no fat black border).
 - [ ] **Laser pluck (dominant hand)**: point the laser at a fan card → it pops
       forward + scales (single tick), the beam clamps to the card (no pass-through);
-      pull the TRIGGER → the card flies into the dominant hand.
-- [ ] **Proximity pluck** still works: reach into the fan with either hand, grip →
-      same grab.
-- [ ] **Inspect pose**: the held card floats above/in front of the holding hand,
-      FACES you, right-side-up, fully readable — the hand model never covers it
-      (`[Cards] InspectForward/InspectUp/InspectScale` tune it).
+      the hover is sticky — small aim wobble on the card must not flip the pop to a
+      neighbor; pull the TRIGGER → the card flies into the dominant hand.
+- [ ] **Proximity pluck** with the dominant hand still works: reach in, grip → grab.
+- [ ] **In-hand hold (test #10 fix)**: the grabbed card sits IN the hand like a real
+      card — pinched above the palm, top past the fingertips, enlarged
+      (`[Cards] InspectScale`). It rotates 1:1 with the wrist: twist the wrist → the
+      card twists with it, NO auto-facing, no floating in front of the hand. Turning
+      the palm toward you presents the card readable (gentle fixed tilt,
+      `[Cards] HeldTiltDegrees/HeldForward/HeldOffPalm`).
 - [ ] Release (trigger-up for a laser pluck, grip-up for a proximity grab) in the
-      void → the card animates back into its fan gap; release over a tray slot (card
+      void → the card animates back into its fan gap; release over a board slot (card
       or hand above the slot) → it parks there.
 
-## 3. Play tray, initiative, swap
+## 3. Control board (P7 redesign — see .planning/research/CONTROLBOARD.md)
 
-- [ ] Entering card selection places the tray in front of you at waist height
-      (`[Cards] TrayForward/TrayDown/TrayRight/TrayTilt` adjust the pose).
-- [ ] Drop a fan card onto slot 1 (left): the card parks; the initiative badge over
-      slot 1 shows the card's initiative number; the (suppressed) game state gets
-      the selection — verify via initiative track avatar showing that number.
+- [ ] Entering card selection places the CONTROL BOARD in front of you at chest
+      height, tilted toward you like a card-table edge / lectern
+      (`[Cards] TrayTilt` = 30° from horizontal; `TrayForward/TrayDown/TrayRight`
+      adjust). It reads as a desk, NOT a floating vertical panel.
+- [ ] Board layout is self-explanatory: REST zone (left, labeled, two captioned
+      tokens) | two large framed card slots, left one captioned INITIATIVE with a
+      gold number badge above it | CONFIRM + UNDO buttons (right).
+- [ ] Labels are localized (game language ≠ English → CONFIRM/UNDO/LONG REST texts
+      follow the game where keys exist).
+- [ ] Drop a fan card onto slot 1 (left): the card parks; the badge shows its
+      initiative number; the game state gets the selection (initiative track avatar
+      shows that number). Free re-arranging: grab back / move between slots at will
+      until confirm.
 - [ ] Drop a second card onto slot 2: badge keeps slot-1's initiative.
 - [ ] **Order rule**: drop into slot 2 FIRST, then slot 1 → the badge/track must
       show the slot-1 card's initiative (driver auto-reconciles with the game's
       "first pick leads" rule using the game's own SwapInitiative).
 - [ ] Physically swap: grab the slot-1 card, drop it on slot 2 → both cards trade
       places and the initiative track updates (check the number changes).
-- [ ] Poke the initiative badge → same swap.
-- [ ] Pull a card off the tray and release it away from the tray → it returns to
-      the fan and the game deselects it (Ready button un-arms if <2 cards).
-- [ ] Ready lamp (left of tray) turns green exactly when the game would allow
-      confirm (2 cards or rest selected). Confirm itself is still the 2D Ready
-      button / F9 (physical button is P3c).
+- [ ] Poke the initiative badge → same swap. Laser + trigger on the badge → same.
+- [ ] Pull a card off the board and release it away → it returns to the fan and the
+      game deselects it; laser + trigger on a slotted card also plucks it back.
+- [ ] **CONFIRM button**: dark while <2 cards; green exactly when the game would
+      allow confirm (2 cards or rest selected); its label mirrors the game's Ready
+      button ("End selection" etc., localized). POKE it → cap presses in, click
+      haptic, the round commits exactly like the 2D Ready button. Next selection
+      phase: LASER + trigger on it → same.
+- [ ] **UNDO button**: lit only when the game's own Undo is available; poke/laser
+      → same effect as the 2D Undo.
+- [ ] Every board press writes a log line (`Board: … pressed`), and confirm/undo
+      log whether the game accepted them.
 - [ ] Selecting an invalid card (e.g. an Active card) bounces back to the fan with
       a log line `Select rejected …`.
+- [ ] While the laser points at any board element the beam clamps to it and the
+      trigger must NOT also click the game board behind it.
 
 ## 4. Rests
 
@@ -131,13 +160,16 @@
 - [ ] 30 min play: no per-frame GC spikes from the Cards module (Unity profiler,
       `CardsDriver.Update` / `VRCard.Update` alloc-free).
 
-## Known limits (by design in P3b)
+## Known limits (by design in P3b/P7)
 
 - Confirmations (short-rest yes/no, burn/redraw, lose-card) are the game's 2D
   dialogs — world-space versions are P3c.
-- Ready/Undo/Skip remain 2D (physical cluster is P3c). The tray only READS the
-  ready state (lamp).
+- CONFIRM and UNDO are physical on the board now; SKIP and the in-turn item/bonus
+  bars remain 2D (the board only shows during card selection — an in-turn board
+  revision is a P3c candidate, see CONTROLBOARD.md §5-§8).
 - Extra-turn card selection and multi-hand (multi-merc tab) flows fall back to the
   active hand only; switching mercs mid-selection uses the 2D tabs for now.
-- Text sizes/poses of badge, chips and tokens are first-pass values — tune the
-  `[Cards]` config and report back.
+- Text sizes/poses of badge, captions, buttons and tokens are first-pass values —
+  tune the `[Cards]` config and report back.
+- The procedural card back is a placeholder pattern; drop-in bundle assets and
+  their licenses are listed in `unity/CARD-ASSETS.md`.

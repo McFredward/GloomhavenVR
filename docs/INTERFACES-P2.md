@@ -221,8 +221,11 @@ the grabbable decides what "held" means. Per hand: `hand.Grabber.Highlighted`,
 **P6:** `hand.Grabber.ForceGrab(target, releaseOnTriggerUp)` — programmatic grab for
 the Demeo laser-pluck (Cards pulls a laser-pointed fan card into the dominant hand on
 TriggerDown; with `releaseOnTriggerUp` the hold button is the trigger, not the grip).
-The highlight is also STICKY now: a rival candidate must be ≥1 cm (scaled) closer to
-steal it — overlapping colliders can no longer flap the highlight/haptics per frame.
+The highlight is also STICKY now: a rival candidate must be ≥2.5 cm (scaled, P7)
+closer to steal it — overlapping colliders can no longer flap the highlight/haptics
+per frame. **P7:** targets may implement `IGrabbableHandFilter.AllowsHand(hand)` to be
+invisible to specific hands (the card fan excludes the fan-owning hand entirely —
+test #10's self-triggered highlight loop).
 
 ### Palm gate (`PalmGate`) — Phase-3b's card-fan trigger
 
@@ -230,10 +233,14 @@ steal it — overlapping colliders can no longer flap the highlight/haptics per 
 `event Action<VRHand,bool> Changed`. Opens at dot(palmNormal, toHMD) >
 `EnterThreshold`, closes below `ExitThreshold` (hysteresis; defaults 0.6/0.35 = the
 P2 constants). **P6:** thresholds are public fields (Cards sets them per frame from
-`[Cards] TiltThreshold`), and `UseDevicePalmNormal` (default true) evaluates the RAW
-grip-pose palm (-Y of the device rotation) instead of the visual rig — the rig's
+`[Cards] SupinationThreshold`), and `UseDevicePalmNormal` (default true) evaluates the
+RAW grip-pose palm (-Y of the device rotation) instead of the visual rig — the rig's
 `[Hands] GripPitchOffsetDegrees` (default -60°) used to demand ~60° of extra wrist
 supination to open the fan (test #8). Simulated hands keep the rig normal.
+**P7:** `RollAxisOnly` (Cards sets it true) measures pure SUPINATION — the roll of the
+palm normal around the forearm/controller axis, with world-up and to-head references
+projected into the roll plane, so arm pitch/yaw cannot open or close the gate
+(test #10). `CurrentDot` then reads -1 palm-down … +1 palm-up/toward-face.
 
 ## 3. Event bus — `GloomhavenVR.Core.Events.VREvents`
 

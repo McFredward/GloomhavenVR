@@ -51,6 +51,8 @@ internal sealed class CardsDriver : MonoBehaviour
         VRHands.HandsChanged += OnHandsChanged;
 
         _tray.SwapRequested += OnSwapRequested;
+        _tray.ConfirmRequested += OnConfirmRequested;
+        _tray.UndoRequested += OnUndoRequested;
         _rest.ShortRestRequested += OnShortRestRequested;
         _rest.LongRestRequested += OnLongRestRequested;
         _half.PlayRequested += OnPlayRequested;
@@ -71,6 +73,8 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnDestroy()
     {
         ClearLaserHover();
+        ClearBoardHover();
+        VRCard.InteractionBlockedHand = null;
         _fan.Destroy();
         _half.Destroy();
         _rest.Destroy();
@@ -144,6 +148,8 @@ internal sealed class CardsDriver : MonoBehaviour
             // Hands (and rig) are down — nothing physical can exist.
             if (_fan.IsOpen)
                 _fan.Close();
+            ClearLaserHover();
+            ClearBoardHover();
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
@@ -157,6 +163,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
         UpdatePalmGate();
         UpdateFanLaser();
+        UpdateBoardLaser();
         _fan.Tick();
         _half.Tick();
 
@@ -193,6 +200,11 @@ internal sealed class CardsDriver : MonoBehaviour
         VRHand? gateHand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
         if (gateHand != _gateHand)
             _gateHand = gateHand;
+        // P7 (test #10): the fan-owning hand is COMPLETELY excluded from card
+        // hover/highlight/grab/poke — its palm sits inside the fan and its own
+        // proximity hover made two cards flip-flop highlights forever. Only the
+        // free (dominant) hand interacts with cards, by laser or proximity.
+        VRCard.InteractionBlockedHand = _gateHand;
         if (_gateHand == null)
         {
             if (_fan.IsOpen)
@@ -201,11 +213,12 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // Live-tunable gate feel (P6): forgiving Demeo cone on the raw device pose —
-        // the visual rig's grip-pitch offset demanded ~60° extra supination (test #8).
+        // Live-tunable gate feel (P7): pure supination (roll-axis) measure on the raw
+        // device pose — pitching/pointing the arm no longer factors in (test #10).
         PalmGate gate = _gateHand.PalmGate;
-        gate.EnterThreshold = CardsConfig.TiltThreshold.Value;
-        gate.ExitThreshold = CardsConfig.TiltExitThreshold;
+        gate.EnterThreshold = CardsConfig.SupinationThreshold.Value;
+        gate.ExitThreshold = CardsConfig.SupinationExitThreshold;
+        gate.RollAxisOnly = true;
         gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
 
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
@@ -242,7 +255,7 @@ internal sealed class CardsDriver : MonoBehaviour
         }
 
         PickPose pick = dom.Ray.Current;
-        if (!_fan.TryRaycast(pick.Origin, pick.Direction, out VRCard? card, out Vector3 point, out float dist)
+        if (!_fan.TryRaycast(pick.Origin, pick.Direction, _laserHover, out VRCard? card, out Vector3 point, out float dist)
             || card == null
             || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
         {
@@ -276,6 +289,124 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         _laserHover.SetLaserHover(false);
         _laserHover = null;
+    }
+
+    // ------------------------------------------------------------------ board laser --
+
+    private IPokeable? _boardHover;
+    private VRHand? _boardHoverHand;
+    private VRCard? _trayCardHover;
+
+    /// <summary>
+    /// P7 (test #10): laser support for every control-board element — the dominant
+    /// hand's ray is tested geometrically against the tray's registered pokeables
+    /// (Collider.Raycast works on triggers, no physics-layer coupling) and against
+    /// the two slotted cards. Hover clamps the beam (UiHitOverride, which also
+    /// suppresses the board far-click); TriggerDown pokes the element or plucks the
+    /// card into the hand. Fan laser wins when both apply. No allocations.
+    /// </summary>
+    private void UpdateBoardLaser()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (!_tray.IsVisible || dom == null || dom == _gateHand || !dom.HasPose
+            || !dom.Ray.Enabled || dom.Grabber.Held != null || _laserHover != null)
+        {
+            ClearBoardHover();
+            return;
+        }
+
+        PickPose pick = dom.Ray.Current;
+        var ray = new Ray(pick.Origin, pick.Direction);
+        float maxDist = 3f * dom.WorldScale;
+
+        IPokeable? best = null;
+        Vector3 bestPoint = default;
+        float bestDist = maxDist;
+        var targets = _tray.LaserTargets;
+        for (int i = 0; i < targets.Count; i++)
+        {
+            Collider col = targets[i].Collider;
+            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy)
+                continue;
+            if (col.Raycast(ray, out RaycastHit hit, bestDist))
+            {
+                best = targets[i].Target;
+                bestPoint = hit.point;
+                bestDist = hit.distance;
+            }
+        }
+
+        // Slotted cards: pluck them back with the laser, like fan cards.
+        bool cardWins = _tray.TryRaycastCards(pick.Origin, pick.Direction,
+            out VRCard? card, out Vector3 cardPoint, out float cardDist) && cardDist < bestDist;
+
+        // The game's own UI (RayUgui) closer than everything → neither hovers.
+        float nearest = cardWins ? cardDist : best != null ? bestDist : float.PositiveInfinity;
+        if (float.IsPositiveInfinity(nearest) || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < nearest))
+        {
+            ClearBoardHover();
+            return;
+        }
+
+        if (cardWins)
+        {
+            ClearBoardPokeHover();
+            if (!ReferenceEquals(card, _trayCardHover))
+            {
+                ClearTrayCardHover();
+                _trayCardHover = card;
+                card!.SetLaserHover(true);
+                dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on change
+            }
+            dom.Ray.UiHitOverride = cardPoint;
+            if (dom.TriggerDown && card!.CanGrab)
+            {
+                VRCard grab = card;
+                ClearTrayCardHover();
+                VRLog.Info("Cards", "Board: slotted card laser-plucked.");
+                dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
+            }
+            return;
+        }
+
+        ClearTrayCardHover();
+        if (!ReferenceEquals(best, _boardHover))
+        {
+            ClearBoardPokeHover();
+            _boardHover = best;
+            _boardHoverHand = dom;
+            best!.OnPokeEnter(dom); // elements do their own hover haptic/tint
+        }
+        dom.Ray.UiHitOverride = bestPoint;
+        if (dom.TriggerDown)
+        {
+            VRLog.Info("Cards", "Board: laser click.");
+            best!.OnPoke(dom);
+        }
+    }
+
+    private void ClearBoardHover()
+    {
+        ClearBoardPokeHover();
+        ClearTrayCardHover();
+    }
+
+    private void ClearBoardPokeHover()
+    {
+        if (_boardHover == null)
+            return;
+        if (_boardHoverHand != null)
+            _boardHover.OnPokeExit(_boardHoverHand);
+        _boardHover = null;
+        _boardHoverHand = null;
+    }
+
+    private void ClearTrayCardHover()
+    {
+        if (_trayCardHover == null)
+            return;
+        _trayCardHover.SetLaserHover(false);
+        _trayCardHover = null;
     }
 
     // ------------------------------------------------------------------ rebuild --
@@ -577,6 +708,31 @@ internal sealed class CardsDriver : MonoBehaviour
                 _tray.SyncFromGameState(handRef, _factory);
                 _dirty = true;
             });
+    }
+
+    private void OnConfirmRequested()
+    {
+        // ClickReady runs the ReadyButton dispatch (Pass/StepComplete — no spin-wait,
+        // ScenarioRuleClient.Pass only messages the SRL), but queue it anyway so it
+        // serializes behind pending card selects.
+        CardActionQueue.Enqueue(
+            () =>
+            {
+                bool fired = CardsGameApi.ClickReady();
+                VRLog.Info("Cards", $"Board: CONFIRM → ReadyButton {(fired ? "clicked" : "rejected (not interactable)")}.");
+            },
+            () => _dirty = true);
+    }
+
+    private void OnUndoRequested()
+    {
+        CardActionQueue.Enqueue(
+            () =>
+            {
+                bool fired = CardsGameApi.ClickUndo();
+                VRLog.Info("Cards", $"Board: UNDO → UndoButton {(fired ? "clicked" : "rejected (not interactable)")}.");
+            },
+            () => _dirty = true);
     }
 
     private void OnShortRestRequested()

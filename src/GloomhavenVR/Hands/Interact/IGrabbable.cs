@@ -37,3 +37,16 @@ internal interface IGrabHighlight
 {
     void OnGrabHighlight(VRHand hand, bool highlighted);
 }
+
+/// <summary>
+/// Optional companion to <see cref="IGrabbable"/> (P7 additive, hardware test #10):
+/// per-hand gate. The <see cref="ProximityGrabber"/> skips this target entirely
+/// (no highlight, no grab, no haptic) for hands the filter rejects. The card fan uses
+/// this to exclude the fan-owning hand — its palm sits INSIDE the fan, and its own
+/// proximity hover made two cards flip-flop highlights forever without user input.
+/// </summary>
+internal interface IGrabbableHandFilter
+{
+    /// <summary>Return false to make this target invisible to <paramref name="hand"/>.</summary>
+    bool AllowsHand(VRHand hand);
+}

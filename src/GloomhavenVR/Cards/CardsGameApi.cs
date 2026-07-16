@@ -281,6 +281,141 @@ internal static class CardsGameApi
         second = controller.bottomCard != null ? controller.bottomCard : null;
     }
 
+    // ------------------------------------------------------------- confirm / undo --
+
+    /// <summary>
+    /// The game's Ready button — the single confirm entry for the whole scenario loop
+    /// (its 16 <c>EButtonState</c> values cover end-selection/end-turn/pass/confirm-
+    /// targets/-movement/-item/open-door/recover-card, see
+    /// .planning/research/CONTROLBOARD.md §1). Verified:
+    /// <c>public ReadyButton readyButton</c> (Choreographer.cs:150).
+    /// </summary>
+    private static ReadyButton? Ready()
+    {
+        Choreographer c = Choreographer.s_Choreographer;
+        return c != null && c.readyButton != null ? c.readyButton : null;
+    }
+
+    /// <summary>Verified: <c>public UndoButton m_UndoButton</c> (Choreographer.cs:187).</summary>
+    private static UndoButton? Undo()
+    {
+        Choreographer c = Choreographer.s_Choreographer;
+        return c != null && c.m_UndoButton != null ? c.m_UndoButton : null;
+    }
+
+    /// <summary>
+    /// Can the Ready/confirm path fire right now? Mirrors the guard at the top of
+    /// <c>ReadyButton.OnClick</c> (ReadyButton.cs:190): ButtonComponent.enabled +
+    /// no warning mask + interactable — plus visibility (canvasGroup.alpha, the
+    /// game's own <c>IsVisibility</c>, ReadyButton.cs:93; canvasGroup assigned in
+    /// Start, ReadyButton.cs:115, publicized protected field).
+    /// </summary>
+    internal static bool CanConfirm()
+    {
+        ReadyButton? b = Ready();
+        if (b == null || !b.gameObject.activeInHierarchy)
+            return false;
+        if (b.canvasGroup == null || b.canvasGroup.alpha <= 0f)
+            return false;
+        return b.ButtonComponent != null && b.ButtonComponent.enabled
+               && (b.warningMask == null || !b.warningMask.gameObject.activeSelf)
+               && b.IsInteractable;
+    }
+
+    /// <summary>
+    /// Fire the exact click path of the 2D Ready button. We call
+    /// <c>OnClickInternal</c> (ReadyButton.cs:245) after replicating OnClick's guard
+    /// rather than <c>OnClick</c> (ReadyButton.cs:187) — OnClick branches into the
+    /// gamepad long-press handler when <c>InputManager.GamePadInUse</c>, which
+    /// expects a held-button release we cannot deliver. OnClickInternal runs the
+    /// full dispatch: online <c>Synchronizer.SendGameAction(ConfirmAction…)</c>,
+    /// queued alternative actions, then <c>ScenarioRuleClient.StepComplete()</c>
+    /// (state ≥ CONTINUE) or <c>Choreographer.Pass()</c> → <c>ScenarioRuleClient.
+    /// Pass()</c> (END-SELECTION/END-TURN/PASS) — ReadyButton.cs:317-332.
+    /// </summary>
+    internal static bool ClickReady()
+    {
+        if (!CanConfirm())
+            return false;
+        Ready()!.OnClickInternal();
+        return true;
+    }
+
+    /// <summary>
+    /// Live localized label of the Ready button (phase-correct: "End selection",
+    /// "Confirm", …). Verified: <c>private TextMeshProUGUI buttonText</c>
+    /// (ReadyButton.cs:41, publicized).
+    /// </summary>
+    internal static string ConfirmLabel()
+    {
+        ReadyButton? b = Ready();
+        if (b != null && b.buttonText != null && !string.IsNullOrEmpty(b.buttonText.text))
+            return b.buttonText.text;
+        return Localize("GUI_CONFIRM", "Confirm");
+    }
+
+    /// <summary>
+    /// Undo availability — mirrors the guards of <c>UndoButton.OnClick</c>
+    /// (UndoButton.cs:94, <c>m_UndoButton.interactable</c>) plus visibility
+    /// (canvasGroup, assigned UndoButton.cs:66). Fields publicized.
+    /// </summary>
+    internal static bool CanUndo()
+    {
+        UndoButton? u = Undo();
+        if (u == null || !u.gameObject.activeInHierarchy)
+            return false;
+        if (u.canvasGroup == null || u.canvasGroup.alpha <= 0f)
+            return false;
+        return u.m_UndoButton != null && u.m_UndoButton.interactable;
+    }
+
+    /// <summary>
+    /// Fire the 2D Undo button's own click path. Verified: <c>public void
+    /// OnClick(bool networkActionIfOnline = true)</c> (UndoButton.cs:94) — self-
+    /// guarded on interactability, routes to <c>ScenarioRuleClient.Undo(...)</c> or
+    /// <c>ClearTargets()</c> (UndoButton.cs:108ff) and networks UndoAction online.
+    /// </summary>
+    internal static bool ClickUndo()
+    {
+        UndoButton? u = Undo();
+        if (u == null || !CanUndo())
+            return false;
+        u.OnClick();
+        return true;
+    }
+
+    /// <summary>Verified: <c>private TextMeshProUGUI m_ButtonText</c> (UndoButton.cs:39, publicized).</summary>
+    internal static string UndoLabel()
+    {
+        UndoButton? u = Undo();
+        if (u != null && u.m_ButtonText != null && !string.IsNullOrEmpty(u.m_ButtonText.text))
+            return u.m_ButtonText.text;
+        return Localize("GUI_UNDO", "Undo");
+    }
+
+    // --------------------------------------------------------------- localization --
+
+    /// <summary>
+    /// Localize a game term with an English fallback for keys that may not exist.
+    /// Verified: <c>public static bool GLOOM.LocalizationManager.TryGetTranslation(
+    /// string Term, out string Translation, …)</c> (GLOOM/LocalizationManager.cs:47)
+    /// wrapping I2 Loc; terms are matched case-insensitively.
+    /// </summary>
+    internal static string Localize(string key, string fallback)
+    {
+        try
+        {
+            if (GLOOM.LocalizationManager.TryGetTranslation(key, out string translation)
+                && !string.IsNullOrEmpty(translation))
+                return translation;
+        }
+        catch (System.Exception)
+        {
+            // I2 source not loaded yet (main menu bootstrap) — fallback below.
+        }
+        return fallback;
+    }
+
     // ---------------------------------------------------------------------- misc --
 
     /// <summary>Verified: <c>public static Choreographer s_Choreographer</c> — alive only inside a scenario.</summary>

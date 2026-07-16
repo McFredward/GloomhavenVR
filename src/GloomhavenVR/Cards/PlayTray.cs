@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -8,15 +9,23 @@ using UnityEngine;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// The floating play tray: two card slots (slot 0 = initiative) plus rest-token
-/// anchors. Anchored in rig space (moves with the table), placed relative to the HMD
-/// when card selection starts; config offsets tune the pose ([Cards] Tray*).
-/// Slot order == initiative order: <see cref="SyncFromGameState"/> mirrors
-/// <c>CCharacterClass.RoundAbilityCards/InitiativeAbilityCard</c> into the slots, and
-/// physically swapping the two cards (or poking the initiative badge) drives the
-/// game's own <c>AbilityCardUI.SwapInitiative()</c> (via <see cref="CardsGameApi"/>).
-/// Bundle asset <c>PlayTray.prefab</c> (children <c>Slot1/Slot2/ShortRestToken/LongRestToken</c>,
-/// see unity/.../Table/README.md) with a full procedural fallback.
+/// The control board (P7 redesign, hardware test #10): a desk-like tray in front of
+/// the player, tilted toward them like a card-table edge (~30° from horizontal,
+/// [Cards] TrayTilt), chest height, anchored in rig space (world-stable, moves with
+/// the diorama). Zones, left to right:
+/// - REST zone: short/long-rest tokens (built by <see cref="RestControls"/> onto the
+///   anchors) under a labeled backdrop,
+/// - two large card slots (slot 0 = initiative, marked by the numbered badge above
+///   it; drop to place, grab to take back, physical swap = initiative swap),
+/// - CONFIRM (drives the game's own Ready button path) and UNDO buttons.
+/// Poke AND laser work on every element: pokes via the P2 registry, laser via
+/// <see cref="LaserTargets"/> which CardsDriver ray-tests geometrically each frame.
+/// Every interaction is logged. Slot order == initiative order:
+/// <see cref="SyncFromGameState"/> mirrors
+/// <c>CCharacterClass.RoundAbilityCards/InitiativeAbilityCard</c> into the slots.
+/// Bundle asset <c>PlayTray.prefab</c> (children <c>Slot1/Slot2/ShortRestToken/
+/// LongRestToken/ConfirmButton/UndoButton</c>, see unity/.../Table/README.md) with a
+/// full procedural fallback.
 /// </summary>
 internal sealed class PlayTray
 {
@@ -30,8 +39,8 @@ internal sealed class PlayTray
 
     private TextMeshPro? _badge;
     private InitiativeBadgeZone? _badgeZone;
-    private MeshRenderer? _readyLamp;
-    private Material? _readyMaterial;
+    private BoardButton? _confirm;
+    private BoardButton? _undo;
     private bool _placed;
 
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
@@ -42,6 +51,38 @@ internal sealed class PlayTray
 
     /// <summary>Raised when the initiative badge is poked (CardsDriver queues the swap).</summary>
     internal System.Action? SwapRequested;
+
+    /// <summary>Raised by the CONFIRM button (CardsDriver queues the game's Ready click).</summary>
+    internal System.Action? ConfirmRequested;
+
+    /// <summary>Raised by the UNDO button (CardsDriver queues the game's Undo click).</summary>
+    internal System.Action? UndoRequested;
+
+    // ------------------------------------------------------------------ laser targets --
+
+    internal readonly struct LaserTarget
+    {
+        public readonly Collider Collider;
+        public readonly IPokeable Target;
+
+        public LaserTarget(Collider collider, IPokeable target)
+        {
+            Collider = collider;
+            Target = target;
+        }
+    }
+
+    /// <summary>
+    /// Every pokeable board element, for the dominant hand's laser (CardsDriver
+    /// ray-tests these each frame — poke AND laser work on all elements, test #10).
+    /// </summary>
+    internal readonly List<LaserTarget> LaserTargets = new(8);
+
+    internal void RegisterLaserTarget(Collider collider, IPokeable target)
+    {
+        if (collider != null && target != null)
+            LaserTargets.Add(new LaserTarget(collider, target));
+    }
 
     // ------------------------------------------------------------------ lifecycle --
 
@@ -60,6 +101,8 @@ internal sealed class PlayTray
         _root = new GameObject("GloomhavenVR.PlayTray").transform;
         _root.SetParent(anchorParent, worldPositionStays: false);
 
+        Transform? confirmAnchor = null;
+        Transform? undoAnchor = null;
         GameObject? prefab = factory.GetTrayPrefab();
         if (prefab != null)
         {
@@ -69,14 +112,17 @@ internal sealed class PlayTray
             _slots[1] = FindDeep(visual.transform, "Slot2");
             _shortRestAnchor = FindDeep(visual.transform, "ShortRestToken");
             _longRestAnchor = FindDeep(visual.transform, "LongRestToken");
+            confirmAnchor = FindDeep(visual.transform, "ConfirmButton");
+            undoAnchor = FindDeep(visual.transform, "UndoButton");
         }
 
         if (_slots[0] == null || _slots[1] == null)
-            BuildProceduralTray();
+            BuildProceduralBoard();
 
+        BuildSlotLabels();
         BuildBadge();
-        BuildReadyLamp();
-        // Mod layer (render-only — badge swap zone & tokens poke via registries).
+        BuildButtons(confirmAnchor, undoAnchor);
+        // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
     }
@@ -84,6 +130,7 @@ internal sealed class PlayTray
     internal void Destroy()
     {
         _occupants[0] = _occupants[1] = null;
+        LaserTargets.Clear();
         if (_root != null)
         {
             Object.DestroyImmediate(_root.gameObject);
@@ -92,7 +139,8 @@ internal sealed class PlayTray
         _slots = new Transform?[2];
         _badge = null;
         _badgeZone = null;
-        _readyLamp = null;
+        _confirm = null;
+        _undo = null;
         _placed = false;
     }
 
@@ -106,7 +154,12 @@ internal sealed class PlayTray
             PlaceAtHead();
     }
 
-    /// <summary>Position the tray in rig space from the current head pose + config offsets.</summary>
+    /// <summary>
+    /// Position the board in rig space from the current head pose + config offsets.
+    /// [Cards] TrayTilt is degrees FROM HORIZONTAL: 0 = flat desk, 90 = upright
+    /// panel; default 30 reads like a lectern / card-table edge (test #10). The
+    /// board's -Z (element side) faces up toward the player.
+    /// </summary>
     internal void PlaceAtHead()
     {
         if (_root == null)
@@ -132,9 +185,9 @@ internal sealed class PlayTray
 
         _root.position = pos;
         _root.rotation = Quaternion.LookRotation(flatForward, Vector3.up)
-                         * Quaternion.Euler(-CardsConfig.TrayTilt.Value, 0f, 0f);
+                         * Quaternion.Euler(90f - CardsConfig.TrayTilt.Value, 0f, 0f);
         _placed = true;
-        VRLog.Debug("Cards", "Play tray placed at head-relative pose.");
+        VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}° from horizontal).");
     }
 
     /// <summary>Force re-placement next time the tray shows (mode re-entry).</summary>
@@ -191,13 +244,17 @@ internal sealed class PlayTray
         _occupants[slot] = card;
         card.gameObject.SetActive(true);
         card.SetHome(_slots[slot]!, Vector3.zero, Quaternion.identity, 1f, instant);
+        VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
     }
 
     internal void RemoveCard(VRCard card)
     {
         int slot = SlotOf(card);
         if (slot >= 0)
+        {
             _occupants[slot] = null;
+            VRLog.Info("Cards", $"Board: card taken back from slot {slot + 1}.");
+        }
     }
 
     internal void ClearSlots()
@@ -255,9 +312,47 @@ internal sealed class PlayTray
         return null;
     }
 
-    // ------------------------------------------------------------------ badge/lamp --
+    /// <summary>
+    /// Laser pluck for slotted cards (P7): geometric rect test against the two
+    /// occupants — same math as CardFan.TryRaycast. No allocations.
+    /// </summary>
+    internal bool TryRaycastCards(Vector3 origin, Vector3 direction, out VRCard? card,
+        out Vector3 point, out float distance)
+    {
+        card = null;
+        point = default;
+        distance = float.PositiveInfinity;
+        if (!IsVisible)
+            return false;
 
-    /// <summary>Update the initiative badge + ready lamp (call each frame while visible; cheap).</summary>
+        float halfW = CardsConfig.CardWidth.Value * 0.5f;
+        float halfH = CardsConfig.CardHeight * 0.5f;
+        for (int i = 0; i < 2; i++)
+        {
+            VRCard? c = _occupants[i];
+            if (c == null || c.IsHeld || !c.gameObject.activeInHierarchy)
+                continue;
+            Transform t = c.transform;
+            float denom = Vector3.Dot(direction, t.forward);
+            if (denom < 1e-5f)
+                continue;
+            float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+            if (dist <= 0f || dist >= distance)
+                continue;
+            Vector3 hit = origin + direction * dist;
+            Vector3 local = t.InverseTransformPoint(hit);
+            if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
+                continue;
+            card = c;
+            point = hit;
+            distance = dist;
+        }
+        return card != null;
+    }
+
+    // ------------------------------------------------------------------ status --
+
+    /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
         if (_badge == null)
@@ -286,17 +381,31 @@ internal sealed class PlayTray
             _badge.text = text;
         if (_badgeZone != null)
             _badgeZone.SwapEnabled = canSwap;
-        if (_readyMaterial != null)
+
+        if (_confirm != null)
         {
-            Color color = ready ? new Color(0.25f, 0.85f, 0.3f) : new Color(0.35f, 0.33f, 0.3f);
-            if (_readyMaterial.color != color)
-                _readyMaterial.color = color;
+            bool canConfirm = hand != null && CardsGameApi.CanConfirm();
+            _confirm.SetState(canConfirm, accent: ready && canConfirm);
+            _confirm.SetLabel(hand != null ? CardsGameApi.ConfirmLabel() : "-");
+        }
+        if (_undo != null)
+        {
+            bool canUndo = hand != null && CardsGameApi.CanUndo();
+            _undo.SetState(canUndo, accent: false);
+            _undo.SetLabel(hand != null ? CardsGameApi.UndoLabel() : "-");
         }
     }
 
     // ------------------------------------------------------------------ build --
 
-    private void BuildProceduralTray()
+    // Board layout constants (local meters; -Z = element/viewer side).
+    private const float BoardW = 0.64f;
+    private const float BoardH = 0.32f;
+    private const float SlotSpacing = 0.155f; // between slot centers
+    private const float RestZoneX = -0.245f;
+    private const float ButtonZoneX = 0.235f;
+
+    private void BuildProceduralBoard()
     {
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
@@ -305,33 +414,75 @@ internal sealed class PlayTray
         board.name = "TrayBoard";
         Object.Destroy(board.GetComponent<Collider>());
         board.transform.SetParent(_root, worldPositionStays: false);
-        board.transform.localScale = new Vector3(w * 3.6f, h * 1.35f, 0.008f);
-        board.transform.localPosition = new Vector3(0f, 0f, 0.006f);
+        board.transform.localScale = new Vector3(BoardW, BoardH, 0.012f);
+        board.transform.localPosition = new Vector3(0f, 0f, 0.010f);
         Tint(board, new Color(0.16f, 0.13f, 0.10f));
+
+        // Subtle raised edge so the board reads as a desk/tray, not a floating slab.
+        var lip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        lip.name = "TrayLip";
+        Object.Destroy(lip.GetComponent<Collider>());
+        lip.transform.SetParent(_root, worldPositionStays: false);
+        lip.transform.localScale = new Vector3(BoardW + 0.015f, 0.02f, 0.018f);
+        lip.transform.localPosition = new Vector3(0f, -BoardH * 0.5f - 0.002f, 0.008f);
+        Tint(lip, new Color(0.11f, 0.09f, 0.07f));
 
         for (int i = 0; i < 2; i++)
         {
             var slot = new GameObject($"Slot{i + 1}").transform;
             slot.SetParent(_root, worldPositionStays: false);
-            slot.localPosition = new Vector3((i == 0 ? -0.62f : 0.62f) * w, 0f, 0f);
+            slot.localPosition = new Vector3((i == 0 ? -0.5f : 0.5f) * SlotSpacing, 0.015f, 0f);
             _slots[i] = slot;
 
             var frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
             frame.name = "Frame";
             Object.Destroy(frame.GetComponent<Collider>());
             frame.transform.SetParent(slot, worldPositionStays: false);
-            frame.transform.localScale = new Vector3(w * 1.06f, h * 1.06f, 1f);
-            frame.transform.localPosition = new Vector3(0f, 0f, 0.004f); // behind the card, in front of the board
-            Tint(frame, i == 0 ? new Color(0.45f, 0.38f, 0.2f) : new Color(0.28f, 0.27f, 0.25f));
+            frame.transform.localScale = new Vector3(w * 1.12f, h * 1.12f, 1f);
+            frame.transform.localPosition = new Vector3(0f, 0f, 0.003f); // behind the card, in front of the board
+            Tint(frame, i == 0 ? new Color(0.55f, 0.45f, 0.22f) : new Color(0.30f, 0.29f, 0.27f));
+
+            var inner = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            inner.name = "FrameInner";
+            Object.Destroy(inner.GetComponent<Collider>());
+            inner.transform.SetParent(slot, worldPositionStays: false);
+            inner.transform.localScale = new Vector3(w * 1.04f, h * 1.04f, 1f);
+            inner.transform.localPosition = new Vector3(0f, 0f, 0.0025f);
+            Tint(inner, new Color(0.12f, 0.10f, 0.08f));
         }
+
+        // Rest zone: backdrop + anchors (RestControls builds the tokens).
+        var restBack = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        restBack.name = "RestZone";
+        Object.Destroy(restBack.GetComponent<Collider>());
+        restBack.transform.SetParent(_root, worldPositionStays: false);
+        restBack.transform.localScale = new Vector3(0.105f, 0.24f, 1f);
+        restBack.transform.localPosition = new Vector3(RestZoneX, -0.01f, 0.003f);
+        Tint(restBack, new Color(0.12f, 0.11f, 0.10f));
+
+        AddCaption(_root!, new Vector3(RestZoneX, 0.105f, -0.004f),
+            CardsGameApi.Localize("GUI_SHORT_REST", "REST"), 0.55f, new Color(0.85f, 0.8f, 0.7f), maxUpper: true);
 
         _shortRestAnchor = new GameObject("ShortRestToken").transform;
         _shortRestAnchor.SetParent(_root, worldPositionStays: false);
-        _shortRestAnchor.localPosition = new Vector3(w * 1.55f, h * 0.28f, -0.01f);
+        _shortRestAnchor.localPosition = new Vector3(RestZoneX, 0.035f, -0.010f);
 
         _longRestAnchor = new GameObject("LongRestToken").transform;
         _longRestAnchor.SetParent(_root, worldPositionStays: false);
-        _longRestAnchor.localPosition = new Vector3(w * 1.55f, -h * 0.28f, -0.01f);
+        _longRestAnchor.localPosition = new Vector3(RestZoneX, -0.055f, -0.010f);
+    }
+
+    private void BuildSlotLabels()
+    {
+        if (_root == null || _slots[0] == null || _slots[1] == null)
+            return;
+        float h = CardsConfig.CardHeight;
+        // Slot 0 is ALWAYS the initiative slot (CardsDriver reconciles the game state
+        // to the physical order) — label it so the marking is unambiguous.
+        AddCaption(_slots[0]!, new Vector3(0f, -h * 0.62f, -0.004f),
+            CardsGameApi.Localize("GUI_INITIATIVE", "INITIATIVE"), 0.45f, new Color(1f, 0.9f, 0.6f), maxUpper: true);
+        AddCaption(_slots[1]!, new Vector3(0f, -h * 0.62f, -0.004f),
+            "2", 0.45f, new Color(0.75f, 0.73f, 0.7f), maxUpper: true);
     }
 
     private void BuildBadge()
@@ -342,43 +493,77 @@ internal sealed class PlayTray
 
         var badgeGo = new GameObject("InitiativeBadge");
         badgeGo.transform.SetParent(_slots[0], worldPositionStays: false);
-        badgeGo.transform.localPosition = new Vector3(0f, h * 0.62f, 0f); // TMP reads from -Z (viewer side)
+        badgeGo.transform.localPosition = new Vector3(0f, h * 0.68f, -0.004f); // TMP reads from -Z (viewer side)
+
+        // Gold disc so the number reads as a marker, not floating text.
+        var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        disc.name = "BadgeDisc";
+        Object.Destroy(disc.GetComponent<Collider>());
+        disc.transform.SetParent(badgeGo.transform, worldPositionStays: false);
+        disc.transform.localScale = new Vector3(0.042f, 0.003f, 0.042f);
+        disc.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        disc.transform.localPosition = new Vector3(0f, 0f, 0.003f);
+        Tint(disc, new Color(0.5f, 0.42f, 0.2f));
 
         _badge = badgeGo.AddComponent<TextMeshPro>();
         _badge.text = "-";
-        _badge.fontSize = 1.1f;
+        _badge.fontSize = 1.2f;
         _badge.alignment = TextAlignmentOptions.Center;
-        _badge.color = new Color(1f, 0.9f, 0.6f);
+        _badge.color = new Color(1f, 0.95f, 0.8f);
         var rect = (RectTransform)badgeGo.transform;
-        rect.sizeDelta = new Vector2(0.09f, 0.035f);
+        rect.sizeDelta = new Vector2(0.09f, 0.04f);
 
-        // Poke the badge to swap initiative (same as the 2D badge click).
+        // Poke/laser the badge to swap initiative (same as the 2D badge click).
         var zoneGo = new GameObject("SwapZone");
         zoneGo.transform.SetParent(badgeGo.transform, worldPositionStays: false);
         var box = zoneGo.AddComponent<BoxCollider>();
-        box.size = new Vector3(0.08f, 0.035f, 0.02f);
+        box.size = new Vector3(0.08f, 0.045f, 0.02f);
         box.isTrigger = true;
         _badgeZone = zoneGo.AddComponent<InitiativeBadgeZone>();
         _badgeZone.Owner = this;
+        RegisterLaserTarget(box, _badgeZone);
     }
 
-    private void BuildReadyLamp()
+    private void BuildButtons(Transform? confirmAnchor, Transform? undoAnchor)
     {
         if (_root == null)
             return;
-        var lamp = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        lamp.name = "ReadyLamp";
-        Object.Destroy(lamp.GetComponent<Collider>());
-        lamp.transform.SetParent(_root, worldPositionStays: false);
-        lamp.transform.localScale = Vector3.one * 0.018f;
-        lamp.transform.localPosition = new Vector3(-CardsConfig.CardWidth.Value * 1.55f, 0f, -0.01f);
-        _readyLamp = lamp.GetComponent<MeshRenderer>();
-        Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
-        if (shader != null)
-        {
-            _readyMaterial = new Material(shader) { color = new Color(0.35f, 0.33f, 0.3f) };
-            _readyLamp.sharedMaterial = _readyMaterial;
-        }
+
+        Transform confirmParent = confirmAnchor != null ? confirmAnchor : NewAnchor("ConfirmButton", new Vector3(ButtonZoneX, 0.045f, -0.006f));
+        Transform undoParent = undoAnchor != null ? undoAnchor : NewAnchor("UndoButton", new Vector3(ButtonZoneX, -0.06f, -0.006f));
+
+        _confirm = BoardButton.Create(confirmParent, new Vector2(0.115f, 0.06f),
+            new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
+            () => ConfirmRequested?.Invoke());
+        RegisterLaserTarget(_confirm.Collider!, _confirm);
+
+        _undo = BoardButton.Create(undoParent, new Vector2(0.09f, 0.042f),
+            new Color(0.45f, 0.32f, 0.2f), "UNDO",
+            () => UndoRequested?.Invoke());
+        RegisterLaserTarget(_undo.Collider!, _undo);
+    }
+
+    private Transform NewAnchor(string name, Vector3 localPos)
+    {
+        var t = new GameObject(name).transform;
+        t.SetParent(_root, worldPositionStays: false);
+        t.localPosition = localPos;
+        return t;
+    }
+
+    private static void AddCaption(Transform parent, Vector3 localPos, string text,
+        float fontSize, Color color, bool maxUpper)
+    {
+        var go = new GameObject("Caption");
+        go.transform.SetParent(parent, worldPositionStays: false);
+        go.transform.localPosition = localPos;
+        var tmp = go.AddComponent<TextMeshPro>();
+        tmp.text = maxUpper ? text.ToUpperInvariant() : text;
+        tmp.fontSize = fontSize;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = color;
+        tmp.enableWordWrapping = false;
+        ((RectTransform)go.transform).sizeDelta = new Vector2(0.14f, 0.03f);
     }
 
     private static void Tint(GameObject go, Color color)
@@ -402,7 +587,7 @@ internal sealed class PlayTray
         return null;
     }
 
-    /// <summary>Poke target on the initiative badge → initiative swap.</summary>
+    /// <summary>Poke/laser target on the initiative badge → initiative swap.</summary>
     private sealed class InitiativeBadgeZone : PokeableBehaviour
     {
         internal PlayTray? Owner;
@@ -413,12 +598,143 @@ internal sealed class PlayTray
             if (!SwapEnabled || Owner == null)
                 return;
             hand.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("Cards", $"Board: initiative badge pressed ({hand.Side}).");
             Owner.SwapRequested?.Invoke();
         }
 
         public override void OnPokeEnter(VRHand hand)
         {
             if (SwapEnabled)
+                hand.SendHaptic(HapticPreset.HoverTick);
+        }
+    }
+
+    /// <summary>
+    /// One physical board button: base plate + travelling cap + label. Poke (P2
+    /// registry) and laser (tray LaserTargets) both land in <see cref="OnPoke"/>.
+    /// Cap presses in ~4 mm on click and springs back (transform anim, no Animator).
+    /// </summary>
+    internal sealed class BoardButton : PokeableBehaviour
+    {
+        private System.Action? _onClick;
+        private Material? _capMaterial;
+        private TextMeshPro? _label;
+        private Transform? _cap;
+        private Color _accentColor;
+        private bool _enabledState;
+        private bool _accent;
+        private float _press; // 0..1 press animation
+
+        internal Collider? Collider { get; private set; }
+
+        private static readonly Color DisabledColor = new(0.24f, 0.23f, 0.22f);
+        private static readonly Color IdleColor = new(0.35f, 0.34f, 0.32f);
+
+        internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
+            string fallbackLabel, System.Action onClick)
+        {
+            var go = new GameObject($"BoardButton_{fallbackLabel}");
+            go.transform.SetParent(anchor, worldPositionStays: false);
+
+            var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            basePlate.name = "Base";
+            Object.Destroy(basePlate.GetComponent<Collider>());
+            basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+            basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
+            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            Tint(basePlate, new Color(0.10f, 0.09f, 0.08f));
+
+            var cap = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cap.name = "Cap";
+            Object.Destroy(cap.GetComponent<Collider>());
+            cap.transform.SetParent(go.transform, worldPositionStays: false);
+            cap.transform.localScale = new Vector3(size.x, size.y, 0.008f);
+            cap.transform.localPosition = new Vector3(0f, 0f, -0.004f);
+
+            Material? capMaterial = null;
+            Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+            if (shader != null)
+            {
+                capMaterial = new Material(shader) { color = DisabledColor };
+                cap.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+            }
+
+            // Label parented to the (unit-scale) button root, floating just in front
+            // of the cap — a child of the non-uniformly scaled cap would distort.
+            var labelGo = new GameObject("Label");
+            labelGo.transform.SetParent(go.transform, worldPositionStays: false);
+            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.010f); // viewer side (-Z)
+            var tmp = labelGo.AddComponent<TextMeshPro>();
+            tmp.text = fallbackLabel;
+            tmp.fontSize = 0.55f;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = Color.white;
+            tmp.enableWordWrapping = false;
+            ((RectTransform)labelGo.transform).sizeDelta = new Vector2(size.x * 0.95f, size.y * 0.9f);
+
+            var box = go.AddComponent<BoxCollider>();
+            box.size = new Vector3(size.x, size.y, 0.02f);
+            box.center = new Vector3(0f, 0f, -0.004f);
+            box.isTrigger = true;
+
+            var button = go.AddComponent<BoardButton>();
+            button._onClick = onClick;
+            button._capMaterial = capMaterial;
+            button._label = tmp;
+            button._cap = cap.transform;
+            button._accentColor = accent;
+            button.Collider = box;
+            return button;
+        }
+
+        internal void SetState(bool enabled, bool accent)
+        {
+            if (_enabledState == enabled && _accent == accent)
+                return;
+            _enabledState = enabled;
+            _accent = accent;
+            UpdateColor();
+        }
+
+        internal void SetLabel(string text)
+        {
+            if (_label != null && _label.text != text)
+                _label.text = text;
+        }
+
+        private void UpdateColor()
+        {
+            if (_capMaterial == null)
+                return;
+            Color color = !_enabledState ? DisabledColor : _accent ? _accentColor : IdleColor;
+            if (_capMaterial.color != color)
+                _capMaterial.color = color;
+        }
+
+        private void Update()
+        {
+            if (_cap == null || _press <= 0f)
+                return;
+            _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f);
+            // Cap travel: 4 mm into the board at full press.
+            Vector3 pos = _cap.localPosition;
+            pos.z = -0.004f + 0.004f * _press;
+            _cap.localPosition = pos;
+        }
+
+        public override void OnPoke(VRHand hand)
+        {
+            if (!_enabledState)
+                return;
+            _press = 1f;
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("Cards", $"Board: {name} pressed ({hand.Side}).");
+            _onClick?.Invoke();
+        }
+
+        public override void OnPokeEnter(VRHand hand)
+        {
+            if (_enabledState)
                 hand.SendHaptic(HapticPreset.HoverTick);
         }
     }
