@@ -73,6 +73,9 @@ internal static class WorldUIConfig
     /// <summary>Hold duration (seconds) for <see cref="ManualScreenChord"/>.</summary>
     internal static ConfigEntry<float> ManualScreenChordSeconds = null!;
 
+    /// <summary>Demote fullscreen SolidColor clears of non-base captured cameras to Depth (test #10).</summary>
+    internal static ConfigEntry<bool> DemoteOverlaySolidClears = null!;
+
     /// <summary>True when clicks go through ExecuteEvents (ClickMode execute/both).</summary>
     internal static bool ExecuteClicks =>
         !string.Equals(ClickMode.Value, "virtualmouse", System.StringComparison.OrdinalIgnoreCase);
@@ -184,6 +187,13 @@ internal static class WorldUIConfig
         ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", 2f,
             "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
             "toggle. Must be longer than [SettingsPanel] ChordHoldSeconds.");
+        DemoteOverlaySolidClears = _file.Bind("WorldUI", "DemoteOverlaySolidClears", true,
+            "While the floating 2D screen captures the game's cameras into its RenderTexture, " +
+            "demote FULLSCREEN SolidColor clears of NON-base captured cameras (e.g. the campaign " +
+            "map's depth-5 'Video Camera', whose clear is only the black backdrop behind fullscreen " +
+            "videos — GH VideoCamera.PlayFullscreenVideo) to Depth-only, so they can never wipe the " +
+            "composited map/UI to black. Viewport-limited (sub-rect) cameras keep their clear. " +
+            "Disable for vanilla-exact clears (black letterbox backdrop during videos).");
 
         SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
             "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +
