@@ -71,10 +71,29 @@ internal sealed class FlatScreen
     private bool _pressing;
     private bool _mirrorLogged;
 
+    // UICamera state we modify while it targets our RT (restored on release).
+    // Hardware test #4 (P3b): 'UI Camera' ships clearFlags=Depth — rendering that
+    // into a fresh RT leaves the COLOR buffer (incl. alpha ≈ 0) undefined, so an
+    // alpha-blended quad shows nothing in the HMD while the desktop Blit (which
+    // ignores alpha) looks perfect. While redirected we force an OPAQUE SolidColor
+    // clear (also fixes RT garbage).
+    private CameraClearFlags _uiOriginalClearFlags;
+    private Color _uiOriginalBackground;
+    private bool _uiCameraModified;
+    private static readonly Color OpaqueBlack = new(0f, 0f, 0f, 1f);
+
     // Placement anchors: re-place instantly when the head camera or the rig moves
     // (menu rig rebuild / recenter), instead of waiting for the lazy 45° follow.
     private Camera? _placedHead;
     private Vector3 _placedRigPos;
+
+    // Lazy follow (P3a): only glide the screen back in front after the gaze has
+    // been >45° off it for >1 s (prevents chasing quick glances).
+    private const float FollowAngleDegrees = 45f;
+    private const float FollowDwellSeconds = 1f;
+    private const float FollowSettledDegrees = 5f;
+    private float _offGazeSince = -1f;
+    private bool _gliding;
 
     // Pre-menu "starting…" indicator (HMD-side sign of life while the intro plays flat).
     private GameObject? _indicator;
@@ -87,12 +106,7 @@ internal sealed class FlatScreen
         Core.Events.VREvents.SceneLoaded += OnSceneLoaded;
     }
 
-    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e)
-    {
-        if (_uiCamera != null && _uiCamera.targetTexture == _rt)
-            _uiCamera.targetTexture = null;
-        _uiCamera = null;
-    }
+    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e) => ReleaseUiCamera();
 
     public void Tick()
     {
@@ -127,14 +141,55 @@ internal sealed class FlatScreen
             if (_uiCamera == null)
                 return;
         }
-        if (_uiCamera.targetTexture != _rt)
-        {
-            _uiCamera.targetTexture = _rt;
-            VRLog.Info("WorldUI", $"FlatScreen: UICamera '{_uiCamera.name}' → RenderTexture.");
-        }
+        RetargetUiCamera();
 
         FollowHead();
         TickPointer();
+    }
+
+    /// <summary>
+    /// Point the UICamera at our RT and force an OPAQUE SolidColor clear while it is
+    /// redirected (P3b — see field comment). Cheap per-tick re-assert: game code may
+    /// rewrite targetTexture/clearFlags at any time. Originals are captured on first
+    /// modification and restored by <see cref="ReleaseUiCamera"/>.
+    /// </summary>
+    private void RetargetUiCamera()
+    {
+        if (_uiCamera == null || _rt == null)
+            return;
+        if (_uiCamera.targetTexture != _rt)
+        {
+            if (!_uiCameraModified)
+            {
+                _uiOriginalClearFlags = _uiCamera.clearFlags;
+                _uiOriginalBackground = _uiCamera.backgroundColor;
+                _uiCameraModified = true;
+            }
+            _uiCamera.targetTexture = _rt;
+            VRLog.Info("WorldUI", $"FlatScreen: UICamera '{_uiCamera.name}' → RenderTexture " +
+                                  $"(clear {_uiCamera.clearFlags} → SolidColor opaque black while redirected).");
+        }
+        if (_uiCamera.clearFlags != CameraClearFlags.SolidColor)
+            _uiCamera.clearFlags = CameraClearFlags.SolidColor;
+        if (_uiCamera.backgroundColor != OpaqueBlack)
+            _uiCamera.backgroundColor = OpaqueBlack;
+    }
+
+    /// <summary>Undo everything <see cref="RetargetUiCamera"/> did and drop the reference.</summary>
+    private void ReleaseUiCamera()
+    {
+        if (_uiCamera != null)
+        {
+            if (_uiCamera.targetTexture == _rt)
+                _uiCamera.targetTexture = null;
+            if (_uiCameraModified)
+            {
+                _uiCamera.clearFlags = _uiOriginalClearFlags;
+                _uiCamera.backgroundColor = _uiOriginalBackground;
+            }
+        }
+        _uiCameraModified = false;
+        _uiCamera = null;
     }
 
     /// <summary>
@@ -280,12 +335,24 @@ internal sealed class FlatScreen
             Object.DontDestroyOnLoad(_quad);
             Object.Destroy(_quad.GetComponent<Collider>());
             _quadRenderer = _quad.GetComponent<Renderer>();
-            // Shader choice verified against the shipped game: the game itself calls
-            // Shader.Find("Sprites/Default") (decompiled ThirdParty GraphProgress/
-            // VertexView) and the P4 comfort vignette renders with it. "Unlit/Texture"
-            // is referenced by nothing the game ships and may be stripped.
-            Shader? shader = Shader.Find("Sprites/Default")
-                             ?? Shader.Find("Unlit/Texture")
+            // Shader choice (P3b, hardware test #4): the quad must render its texture
+            // ALPHA-IGNORING — the RT's alpha channel is whatever the UI left behind.
+            //
+            // 1. "Hidden/BlitCopy": Unity's always-included internal blit shader —
+            //    plain opaque copy of _MainTex (Blend Off, ignores alpha). Verified
+            //    shipped: the GAME itself calls Shader.Find("Hidden/BlitCopy")
+            //    (decompiled GH.Runtime.FirstPass, RenderHeads.Media.AVProMovieCapture/
+            //    CaptureFromCamera360.cs:446), and Graphics.Blit depends on it, so it
+            //    cannot be stripped. Its pass states ZTest Always / ZWrite Off — fine
+            //    for a menu screen that must never be occluded.
+            // 2. Fallback "Sprites/Default" (verified shipped: decompiled ThirdParty
+            //    GraphProgress/VertexView calls Shader.Find on it): alpha-blended, but
+            //    with the RT now cleared to OPAQUE black (RetargetUiCamera) dst alpha
+            //    ≈ 1, so it renders near-opaque instead of invisible.
+            // (An opaque keyword/MaterialPropertyBlock variant of Sprites/Default does
+            // not exist — the shader has no such keyword — hence the BlitCopy pick.)
+            Shader? shader = Shader.Find("Hidden/BlitCopy")
+                             ?? Shader.Find("Sprites/Default")
                              ?? Shader.Find("UI/Default");
             _quadRenderer.sharedMaterial = new Material(shader) { mainTexture = _rt };
 
@@ -304,11 +371,7 @@ internal sealed class FlatScreen
         }
 
         _quad.SetActive(true);
-        if (_uiCamera != null)
-        {
-            _uiCamera.targetTexture = _rt;
-            VRLog.Info("WorldUI", $"FlatScreen: UICamera '{_uiCamera.name}' → RenderTexture.");
-        }
+        RetargetUiCamera();
 
         // P5 (MISSION A.5): the ModalUI-constrained laser may point at the screen.
         RayInteractor.RegisterUiTarget(_quad.transform);
@@ -325,9 +388,7 @@ internal sealed class FlatScreen
             VirtualMouse.Release();
             _pressing = false;
         }
-        if (_uiCamera != null && _uiCamera.targetTexture == _rt)
-            _uiCamera.targetTexture = null;
-        _uiCamera = null;
+        ReleaseUiCamera();
 
         if (_quad != null)
         {
@@ -352,6 +413,8 @@ internal sealed class FlatScreen
         _visible = false;
         _mirrorLogged = false;
         _placedHead = null;
+        _offGazeSince = -1f;
+        _gliding = false;
     }
 
     private void ResolveUiCamera()
@@ -436,8 +499,8 @@ internal sealed class FlatScreen
             $"FlatScreen quad placed: pos={_quad.transform.position}, size={_quad.transform.localScale}, " +
             $"layer={_quad.layer}, shader='{(shader != null ? shader.name : "NULL")}', " +
             $"RT={( _rt != null ? $"{_rt.width}x{_rt.height}" : "NULL")} | " +
-            $"head '{head.name}' pos={head.transform.position}, mask=0x{head.cullingMask:X8}, " +
-            $"clear={head.clearFlags}, stereo={head.stereoTargetEye}.");
+            $"head '{head.name}' pos={head.transform.position}, fwd={head.transform.forward}, " +
+            $"mask=0x{head.cullingMask:X8}, clear={head.clearFlags}, stereo={head.stereoTargetEye}.");
     }
 
     private void FollowHead()
@@ -449,20 +512,49 @@ internal sealed class FlatScreen
             return;
 
         // Rig rebuild / recenter / head-camera swap: snap the screen back in front of
-        // the (new) vantage instead of lazily drifting after it.
+        // the (new) vantage instead of lazily drifting after it. Placement always uses
+        // the TRACKED head's actual world forward (PlaceScreen) — never an assumed
+        // axis: hardware test #4 placed the quad "forward" of a vantage the player
+        // wasn't facing.
         Transform? rig = Rig.VRRigDriver.RigRoot;
         Vector3 rigPos = rig != null ? rig.position : Vector3.zero;
         if (head != _placedHead || (rigPos - _placedRigPos).sqrMagnitude > 1e-4f)
         {
             PlaceScreen(instant: true);
+            _offGazeSince = -1f;
+            _gliding = false;
             return;
         }
 
-        // Lazy follow: re-center only when the screen drifts far out of view.
+        // Lazy follow (P3a): after the gaze has been >45° off the screen for >1 s,
+        // glide it back in front of the current gaze until it settles (<5°).
         Vector3 toScreen = _quad.transform.position - head.transform.position;
         float angle = Vector3.Angle(head.transform.forward, toScreen);
-        if (angle > 45f)
+        if (angle > FollowAngleDegrees)
+        {
+            if (_offGazeSince < 0f)
+                _offGazeSince = Time.unscaledTime;
+            if (!_gliding && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
+            {
+                _gliding = true;
+                VRLog.Info("WorldUI", $"FlatScreen lazy follow: gaze {angle:F0}° off for " +
+                                      $">{FollowDwellSeconds:F0}s — gliding back in front (head fwd {head.transform.forward}).");
+            }
+        }
+        else
+        {
+            _offGazeSince = -1f;
+        }
+
+        if (_gliding)
+        {
             PlaceScreen(instant: false);
+            if (angle < FollowSettledDegrees)
+            {
+                _gliding = false;
+                _offGazeSince = -1f;
+            }
+        }
     }
 
     // ---- pointer ---------------------------------------------------------------------------
