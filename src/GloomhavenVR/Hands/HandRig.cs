@@ -63,6 +63,14 @@ internal sealed class HandRig
     /// <summary>Tip of the index finger — poke origin.</summary>
     public Transform IndexTip = null!;
 
+    /// <summary>
+    /// Index-finger ROOT joint (knuckle). Curl-independent — the visible laser starts
+    /// here, not at <see cref="IndexTip"/>: the tip curls with the trigger pull
+    /// (FingerCurler), which made the beam swing on every press (hardware test #7).
+    /// Optional (additive to the frozen P2 contract); null falls back to IndexTip.
+    /// </summary>
+    public Transform? IndexKnuckle;
+
     /// <summary>Where grabbed objects snap (palm-aligned).</summary>
     public Transform GrabAnchor = null!;
 

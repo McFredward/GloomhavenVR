@@ -159,6 +159,8 @@ internal static class HandVisuals
             Transform? mid = FindDeep(instance, $"Anchor_{finger}_Mid") ?? FindDeep(instance, $"finger_{steamVr}_1{suffix}");
             Transform? tip = FindDeep(instance, $"Anchor_{finger}_Tip") ?? FindDeep(instance, $"finger_{steamVr}_2{suffix}");
             rig.SetFinger((Finger)f, new FingerJoints(root!, mid!, tip!));
+            if (f == (int)Finger.Index)
+                rig.IndexKnuckle = root; // curl-independent beam origin
         }
     }
 
@@ -227,6 +229,7 @@ internal static class HandVisuals
                 tipAnchor.SetParent(tipJoint, worldPositionStays: false);
                 tipAnchor.localPosition = new Vector3(0f, 0f, lengths.z);
                 rig.IndexTip = tipAnchor;
+                rig.IndexKnuckle = rootJoint; // curl-independent beam origin
             }
         }
     }
@@ -263,15 +266,23 @@ internal static class HandVisuals
 
     private static Material CreateHandMaterial(HandSide side)
     {
-        // Built-in shaders can be stripped from the game build — probe a few
-        // (TOOLCHAIN §4.1). Worst case is Unity's magenta error shader: ugly but visible.
-        Shader? shader = Shader.Find("Standard")
-                         ?? Shader.Find("Legacy Shaders/Diffuse")
-                         ?? Shader.Find("Sprites/Default");
-        var material = shader != null ? new Material(shader) : new Material(Shader.Find("Hidden/InternalErrorShader"));
+        // UNLIT ONLY (hardware test #7): the VR void and menu scenes have NO lights,
+        // so a lit shader (Standard / Legacy Diffuse) renders pitch black — hands were
+        // visible as dark silhouettes on the old grey void and vanished completely on
+        // the black one. Sprites/Default is unlit (vertex-color tinted) and verified
+        // shipped (decompiled ThirdParty GraphProgress/VertexView Shader.Find's it).
+        Shader? shader = Shader.Find("Sprites/Default")
+                         ?? Shader.Find("UI/Default")
+                         ?? Shader.Find("Hidden/InternalErrorShader");
+        var material = new Material(shader);
+        Color baseColor = Plugin.ParseHandColor();
+        // Slight per-side tint so L/R stay distinguishable at a glance.
         material.color = side == HandSide.Left
-            ? new Color(0.35f, 0.45f, 0.60f)
-            : new Color(0.60f, 0.45f, 0.35f);
+            ? baseColor * new Color(0.92f, 0.96f, 1.05f, 1f)
+            : baseColor;
+        material.color = new Color(
+            Mathf.Clamp01(material.color.r), Mathf.Clamp01(material.color.g),
+            Mathf.Clamp01(material.color.b), 1f);
         return material;
     }
 
@@ -332,5 +343,7 @@ internal static class HandVisuals
             tipAnchor.localPosition = new Vector3(0f, 0f, SegmentLengths[(int)Finger.Index].z);
             rig.IndexTip = tipAnchor;
         }
+
+        rig.IndexKnuckle ??= rig.GetFinger(Finger.Index).Root;
     }
 }

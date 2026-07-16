@@ -61,6 +61,17 @@ internal static class WorldUIConfig
     /// <summary>Fingertip poke on the flat screen clicks at the poked position.</summary>
     internal static ConfigEntry<bool> PokeClick = null!;
 
+    /// <summary>Click delivery: "execute" (ExecuteEvents, default) | "virtualmouse" | "both".</summary>
+    internal static ConfigEntry<string> ClickMode = null!;
+
+    /// <summary>True when clicks go through ExecuteEvents (ClickMode execute/both).</summary>
+    internal static bool ExecuteClicks =>
+        !string.Equals(ClickMode.Value, "virtualmouse", System.StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when button state goes through the virtual mouse (ClickMode virtualmouse/both).</summary>
+    internal static bool VirtualMouseButtons =>
+        !string.Equals(ClickMode.Value, "execute", System.StringComparison.OrdinalIgnoreCase);
+
     // ---- settings panel (MISSION B) ------------------------------------------------------
     /// <summary>Show the small gear pokeable next to the button cluster (scenario only).</summary>
     internal static ConfigEntry<bool> SettingsGearButton = null!;
@@ -140,6 +151,14 @@ internal static class WorldUIConfig
             "position (press on plane contact, release on withdraw; latch rules as above). " +
             "The screen may be out of arm's reach at the default distance — lean/step in, " +
             "or reduce [WorldUI] ScreenDistance.");
+        ClickMode = _file.Bind("WorldUI", "ClickMode", "execute",
+            "How a latched click on the floating screen is delivered. 'execute' (default): " +
+            "directly via uGUI ExecuteEvents on the raycast target — the same mechanism the " +
+            "game's own BaseButtons.clickButton uses; immune to input-module edge-visibility " +
+            "quirks (hardware test #7: virtual-mouse button edges produced no clicks). " +
+            "'virtualmouse': press/release through the virtual mouse device only. " +
+            "'both': both paths (may double-fire — diagnostic use only). Deliberate drags " +
+            "always go through the virtual mouse regardless of mode.");
 
         SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
             "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +

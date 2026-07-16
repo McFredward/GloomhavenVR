@@ -54,6 +54,28 @@ internal sealed class RayInteractor : IPickProvider
     private Vector3? _reticleOverride;
     private int _reticleOverrideFrame = -1;
 
+    /// <summary>
+    /// World point where the ray hits a code-intersected UI surface (the WorldUI flat
+    /// screen has no physics collider — FlatScreen sets this every tick with its
+    /// plane-intersection point, latched while a press is frozen). While fresh, the
+    /// visible beam is CLAMPED to this point and the reticle shows exactly there —
+    /// beam and dot converge by construction (hardware test #7: the unclamped beam
+    /// passed through the menu and visually crossed it away from the reticle).
+    /// One-frame latch like <see cref="ReticleOverride"/>; pick data unaffected.
+    /// </summary>
+    public Vector3? UiHitOverride
+    {
+        get => _uiHitOverride;
+        set
+        {
+            _uiHitOverride = value;
+            _uiHitOverrideFrame = Time.frameCount;
+        }
+    }
+
+    private Vector3? _uiHitOverride;
+    private int _uiHitOverrideFrame = -1;
+
     // ---- P5 (MISSION A.5): ModalUI visual constraint --------------------------------------
     // In ModalUI the ray stays ACTIVE (flat-screen pointer, dialogs) but its visuals only
     // show while it points near a known UI surface, so the laser doesn't sweep the room
@@ -208,25 +230,30 @@ internal sealed class RayInteractor : IPickProvider
             return;
         }
 
-        // Reticle snap (MISSION A.1): Board substitutes the hovered hex center.
-        Vector3 end = _current.HasHit
-            ? (_reticleOverride ?? _current.HitPoint)
-            : origin + direction * (maxDistance * 0.25f);
+        // Beam end priority: UI-surface hit (flat screen, code-intersected — clamps
+        // the beam so it never passes THROUGH the menu) → physics hit (with the
+        // Board's hex-snap reticle override) → open-ended segment.
+        bool uiHit = _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
+        Vector3 end = uiHit
+            ? _uiHitOverride!.Value
+            : _current.HasHit
+                ? (_reticleOverride ?? _current.HitPoint)
+                : origin + direction * (maxDistance * 0.25f);
 
-        // Visual origin at the index fingertip (test #6, requirement 3): the PICK ray
-        // keeps the OpenXR aim pose (origin/direction above), but the visible beam
-        // starts at the hand rig's index tip and converges on the aim ray's end point,
-        // so it reads as leaving the pointing finger instead of the controller/palm
-        // center. [Hands] LaserFingerOffsetMeters nudges the start along the beam.
+        // Visual origin (test #7, requirement): the PICK ray keeps the OpenXR aim pose
+        // (origin/direction above); the visible beam starts at the index KNUCKLE — the
+        // tip curls with the trigger pull (FingerCurler), which swung the beam on
+        // every press. The knuckle is curl-independent; the beam still converges on
+        // the aim ray's end, so it reads as leaving the pointing finger.
         Vector3 start = origin + direction * (0.03f * scale);
         if (Plugin.LaserFingerOrigin.Value)
         {
-            Transform tip = _hand.Rig.IndexTip;
-            if (tip != null)
+            Transform anchor = _hand.Rig.IndexKnuckle ?? _hand.Rig.IndexTip;
+            if (anchor != null)
             {
-                Vector3 toEnd = end - tip.position;
+                Vector3 toEnd = end - anchor.position;
                 if (toEnd.sqrMagnitude > 1e-8f)
-                    start = tip.position + toEnd.normalized * (Plugin.LaserFingerOffsetMeters.Value * scale);
+                    start = anchor.position + toEnd.normalized * (Plugin.LaserFingerOffsetMeters.Value * scale);
             }
         }
 
@@ -234,7 +261,7 @@ internal sealed class RayInteractor : IPickProvider
         _laser.SetPosition(0, start);
         _laser.SetPosition(1, end);
 
-        if (_current.HasHit)
+        if (_current.HasHit || uiHit)
         {
             if (!_reticle!.gameObject.activeSelf)
                 _reticle.gameObject.SetActive(true);
