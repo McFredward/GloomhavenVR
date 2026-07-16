@@ -14,8 +14,19 @@ namespace GloomhavenVR.Cards;
 /// <see cref="CardFan"/>, <see cref="PlayTray"/> or <see cref="HalfSelection"/> via
 /// the home-pose API. No per-frame allocations in <see cref="Update"/>.
 /// </summary>
-internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
+internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IGrabbableHandFilter
 {
+    /// <summary>
+    /// P7 (hardware test #10): hand excluded from ALL card interaction — the fan-
+    /// owning (non-dominant) hand. Its palm sits inside the fan, so its own proximity
+    /// hover kept flip-flopping highlights between two cards without any user input.
+    /// Set every frame by CardsDriver; only the free (dominant) hand touches cards.
+    /// </summary>
+    internal static VRHand? InteractionBlockedHand;
+
+    /// <summary>Per-hand grab/hover gate (see <see cref="InteractionBlockedHand"/>).</summary>
+    public bool AllowsHand(VRHand hand) => !ReferenceEquals(hand, InteractionBlockedHand);
+
     private CardFace _face = new();
     private RectTransform? _canvasRect;
     private Canvas? _canvas;
@@ -188,20 +199,15 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
 
     private static Transform BuildProceduralBacking(Transform parent, float w, float h)
     {
-        var backing = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        backing.name = "Backing";
-        Destroy(backing.GetComponent<Collider>());
+        // P7 (test #10): a REAL 3D card body — rounded slab with ~1.5 mm thickness,
+        // dark rim, opaque decorative back (see CardMesh). The live face canvas at
+        // z = -0.0012 covers the front almost edge-to-edge; only the thin rim shows.
+        var backing = new GameObject("Backing");
         backing.transform.SetParent(parent, worldPositionStays: false);
-        // Hairline margin only (0.5%) — thin slab so fanned neighbors cannot
-        // interpenetrate visually (z-stagger in CardFan is several times thicker).
-        backing.transform.localScale = new Vector3(w * 1.005f, h * 1.005f, 0.001f);
-        var renderer = backing.GetComponent<MeshRenderer>();
-        Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
-        if (shader != null)
-        {
-            var material = new Material(shader) { color = new Color(0.13f, 0.11f, 0.09f) };
-            renderer.sharedMaterial = material;
-        }
+        backing.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(w, h);
+        var renderer = backing.AddComponent<MeshRenderer>();
+        renderer.sharedMaterials = new[] { CardMesh.CreateEdgeMaterial(), CardMesh.CreateBackMaterial() };
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         return backing.transform;
     }
 
@@ -320,25 +326,52 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
 
     // -------------------------------------------------------------- interaction --
 
+    // Held-pose target in GrabAnchor local space (captured once per grab).
+    private Vector3 _heldPos;
+    private Quaternion _heldRot = Quaternion.identity;
+    private float _heldScale = 1f;
+
     /// <summary>
-    /// P5/P6 (MISSION A.6 + hardware test #8): the base hook only supplies the initial
-    /// snap (near the anchor, inspect scale) — the ACTUAL inspect pose is re-computed
-    /// every frame in <see cref="TickHeldPose"/>: above/in front of the holding hand,
-    /// facing the HMD, right-side-up. A static anchor-relative pose could never do
-    /// that (it flips with the wrist and buries the card in the hand model).
+    /// P7 (hardware test #10, "nicht immersiv"): the held card sits IN the hand like a
+    /// real card — pinched at its bottom third just off the palm, top extending past
+    /// the fingertips — and is parented to the GrabAnchor, so it rotates 1:1 with the
+    /// wrist. NO per-frame auto-facing, NO floating in front of the hand. The fixed
+    /// tilt ([Cards] HeldTiltDegrees) leans the card face gently toward the palm side
+    /// (where your eyes are when you supinate to read), which gives the "starts
+    /// readable" orientation; after that the hand controls everything.
+    ///
+    /// GrabAnchor frame (HandRig contract): +Y = palm normal (out of the palm),
+    /// +Z = along the fingers. Card frame: +Z away from the viewer, +Y = card top.
+    /// Euler(90°,0,0) maps card +Z onto anchor -Y (face toward the palm side) and
+    /// card top onto the finger direction; the tilt subtracts from that pitch.
     /// </summary>
-    protected override HeldPose GetHeldPose(VRHand hand) =>
-        new(new Vector3(0f, 0.04f, 0.02f), Quaternion.identity, CardsConfig.InspectScale.Value);
+    protected override HeldPose GetHeldPose(VRHand hand)
+    {
+        float scale = CardsConfig.InspectScale.Value;
+        float cardH = CardsConfig.CardHeight * scale;
+        var rot = Quaternion.Euler(90f - CardsConfig.HeldTiltDegrees.Value, 0f, 0f);
+        // Pinch point (card bottom third) at the anchor + config offsets: the card
+        // CENTER therefore sits ~0.35*h along the card's own up axis.
+        Vector3 pos = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value)
+                      + rot * new Vector3(0f, cardH * 0.35f, 0f);
+        return new HeldPose(pos, rot, scale);
+    }
 
     public override void OnGrab(VRHand hand)
     {
         // Keep the world pose across the re-parent — TickHeldPose flies the card from
-        // its fan slot to the inspect pose instead of teleporting it.
+        // its fan slot into the hand instead of teleporting it.
         Vector3 worldPos = transform.position;
         Quaternion worldRot = transform.rotation;
+        Vector3 worldScale = transform.localScale;
         base.OnGrab(hand); // snap to GrabAnchor at GetHeldPose (P2/P5 GrabbableBehaviour)
+        // Capture the local target the base snap applied, then fly in from the old pose.
+        _heldPos = transform.localPosition;
+        _heldRot = transform.localRotation;
+        _heldScale = transform.localScale.x;
         transform.position = worldPos;
         transform.rotation = worldRot;
+        transform.localScale = worldScale;
         ResetColliderRegion(); // full card again (fan strips, see SetColliderRegion)
         _laserPopped = false;
         try
@@ -352,40 +385,17 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
     }
 
     /// <summary>
-    /// Demeo-style inspect (P6): the held card floats toward the face, above the
-    /// holding hand, always readable — the hand model stays behind/below it and
-    /// cannot occlude it. Runs every frame while held (no allocations).
+    /// Fly-in to the in-hand pose (P7): a short LOCAL-space lerp toward the captured
+    /// held pose. Local space means the card follows the wrist 1:1 even while still
+    /// converging; once converged it is simply parented — zero per-frame head math,
+    /// no auto-facing, no allocations.
     /// </summary>
     private void TickHeldPose()
     {
-        VRHand? hand = Holder;
-        if (hand == null)
-            return;
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return;
-
-        float scale = hand.WorldScale;
-        Vector3 anchor = hand.Rig.GrabAnchor.position;
-        Vector3 headPos = head.transform.position;
-        Vector3 toHead = headPos - anchor;
-        if (toHead.sqrMagnitude < 1e-8f)
-            return;
-        toHead.Normalize();
-
-        Vector3 target = anchor
-                         + toHead * (CardsConfig.InspectForward.Value * scale)
-                         + Vector3.up * (CardsConfig.InspectUp.Value * scale);
-        // Card +Z points AWAY from the viewer (module convention) — look away from
-        // the head, world up keeps it right-side-up.
-        Vector3 away = target - headPos;
-        Quaternion targetRot = away.sqrMagnitude > 1e-8f
-            ? Quaternion.LookRotation(away.normalized, Vector3.up)
-            : transform.rotation;
-
         float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
-        transform.position = Vector3.Lerp(transform.position, target, t);
-        transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, t);
+        transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
+        transform.localRotation = Quaternion.Slerp(transform.localRotation, _heldRot, t);
+        transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
     }
 
     public override void OnRelease(VRHand hand, Vector3 velocity)
@@ -417,7 +427,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
 
     public void OnPokeEnter(VRHand hand)
     {
-        if (PokeSelectEnabled)
+        if (PokeSelectEnabled && AllowsHand(hand))
         {
             _popped = true;
             hand.SendHaptic(HapticPreset.HoverTick);
@@ -432,7 +442,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable
 
     public void OnPoke(VRHand hand)
     {
-        if (!PokeSelectEnabled)
+        if (!PokeSelectEnabled || !AllowsHand(hand))
             return;
         hand.SendHaptic(HapticPreset.ClickPulse);
         try

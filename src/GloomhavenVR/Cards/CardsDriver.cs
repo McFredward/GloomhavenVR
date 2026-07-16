@@ -193,6 +193,11 @@ internal sealed class CardsDriver : MonoBehaviour
         VRHand? gateHand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
         if (gateHand != _gateHand)
             _gateHand = gateHand;
+        // P7 (test #10): the fan-owning hand is COMPLETELY excluded from card
+        // hover/highlight/grab/poke — its palm sits inside the fan and its own
+        // proximity hover made two cards flip-flop highlights forever. Only the
+        // free (dominant) hand interacts with cards, by laser or proximity.
+        VRCard.InteractionBlockedHand = _gateHand;
         if (_gateHand == null)
         {
             if (_fan.IsOpen)
@@ -201,11 +206,12 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // Live-tunable gate feel (P6): forgiving Demeo cone on the raw device pose —
-        // the visual rig's grip-pitch offset demanded ~60° extra supination (test #8).
+        // Live-tunable gate feel (P7): pure supination (roll-axis) measure on the raw
+        // device pose — pitching/pointing the arm no longer factors in (test #10).
         PalmGate gate = _gateHand.PalmGate;
-        gate.EnterThreshold = CardsConfig.TiltThreshold.Value;
-        gate.ExitThreshold = CardsConfig.TiltExitThreshold;
+        gate.EnterThreshold = CardsConfig.SupinationThreshold.Value;
+        gate.ExitThreshold = CardsConfig.SupinationExitThreshold;
+        gate.RollAxisOnly = true;
         gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
 
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
@@ -242,7 +248,7 @@ internal sealed class CardsDriver : MonoBehaviour
         }
 
         PickPose pick = dom.Ray.Current;
-        if (!_fan.TryRaycast(pick.Origin, pick.Direction, out VRCard? card, out Vector3 point, out float dist)
+        if (!_fan.TryRaycast(pick.Origin, pick.Direction, _laserHover, out VRCard? card, out Vector3 point, out float dist)
             || card == null
             || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
         {

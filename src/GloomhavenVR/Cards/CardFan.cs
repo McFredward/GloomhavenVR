@@ -170,9 +170,15 @@ internal sealed class CardFan
     /// GEOMETRICALLY (per-card plane + rect — no physics, works regardless of the
     /// shrunken grab colliders). The nearest hit along the ray is the topmost card by
     /// construction (z-stagger/pop move upper cards toward the viewer). No allocations.
+    ///
+    /// P7 (hardware test #10, highlight hysteresis): <paramref name="sticky"/> — the
+    /// currently hovered card — WINS whenever the ray still touches its rect at all,
+    /// even if a neighbor is nearer along the ray. Overlapping fan cards + the pop
+    /// animation can otherwise trade the "nearest" title mid-animation; with the
+    /// sticky rule the hover only moves once the ray actually leaves the card.
     /// </summary>
-    internal bool TryRaycast(Vector3 origin, Vector3 direction, out VRCard? card,
-        out Vector3 point, out float distance)
+    internal bool TryRaycast(Vector3 origin, Vector3 direction, VRCard? sticky,
+        out VRCard? card, out Vector3 point, out float distance)
     {
         card = null;
         point = default;
@@ -196,7 +202,7 @@ internal sealed class CardFan
             if (denom < 1e-5f)
                 continue;
             float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
-            if (dist <= 0f || dist >= distance)
+            if (dist <= 0f)
                 continue;
 
             Vector3 hit = origin + direction * dist;
@@ -204,6 +210,17 @@ internal sealed class CardFan
             if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
                 continue;
 
+            if (ReferenceEquals(c, sticky))
+            {
+                // Current hover still under the ray — it wins outright.
+                card = c;
+                point = hit;
+                distance = dist;
+                return true;
+            }
+
+            if (dist >= distance)
+                continue;
             card = c;
             point = hit;
             distance = dist;

@@ -17,11 +17,14 @@ internal sealed class ProximityGrabber
     private const float ReachMeters = 0.13f;
 
     /// <summary>
-    /// Candidate stickiness (P6, hardware test #8): a rival must be closer than the
-    /// current highlight by this margin (meters, scale 1) to steal it — overlapping
-    /// fan cards used to flap the highlight every frame, buzzing the controller.
+    /// Candidate stickiness (P6, hardware test #8; widened P7, test #10): a rival must
+    /// be closer than the current highlight by this margin (meters, scale 1) to steal
+    /// it — overlapping fan cards used to flap the highlight every frame, buzzing the
+    /// controller. 2.5 cm means a neighboring card can never oscillate with the
+    /// current one: the pop animation moves a card by ~3.5 cm, less than the margin
+    /// plus the card strip spacing, so animation alone cannot flip the winner.
     /// </summary>
-    private const float SwitchMarginMeters = 0.01f;
+    private const float SwitchMarginMeters = 0.025f;
 
     private readonly VRHand _hand;
     private bool _enabled = true;
@@ -95,6 +98,8 @@ internal sealed class ProximityGrabber
     {
         if (!_enabled || !_hand.HasPose || Held != null || target == null || !target.CanGrab)
             return false;
+        if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            return false;
         SetHighlighted(null);
         Held = target;
         _releaseOnTriggerUp = releaseOnTriggerUp;
@@ -139,6 +144,9 @@ internal sealed class ProximityGrabber
 
             IGrabbable target = entries[i].Target;
             if (!target.CanGrab)
+                continue;
+            // Per-hand gate (P7): e.g. fan cards reject the fan-owning hand entirely.
+            if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
                 continue;
 
             float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
