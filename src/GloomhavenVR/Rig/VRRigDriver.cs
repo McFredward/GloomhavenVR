@@ -110,12 +110,10 @@ internal sealed class VRRigDriver : MonoBehaviour
     private Vector3 _menuAnchorPos;
     private Quaternion _menuAnchorYaw;
 
-    /// <summary>
-    /// Head camera clear color (menu-blackscreen fix): NOT black, so an HMD report can
-    /// distinguish "camera renders, content missing" (grey void) from "camera dead /
-    /// not rendering" (pitch black).
-    /// </summary>
-    private static readonly Color HeadVoidColor = new(0.12f, 0.13f, 0.15f, 1f);
+    // Head camera clear color: [Rig] VoidColor (default pure black since test #6 —
+    // the diagnostic-grey era is over; the config description documents that a dark
+    // grey helps debugging "renders but empty" vs "camera dead"). Live-tunable via
+    // TickHeadClearColor.
 
     private void Awake()
     {
@@ -192,6 +190,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         }
 
         TickHeadCullingMask();
+        TickHeadClearColor();
         TickCameraPolicy(sceneRecheck);
     }
 
@@ -228,6 +227,19 @@ internal sealed class VRRigDriver : MonoBehaviour
     }
 
     /// <summary>
+    /// Keep the owned head camera's SolidColor clear on <c>[Rig] VoidColor</c> —
+    /// live-tunable (per-frame color compare only; Skybox-clear anchors keep their sky).
+    /// </summary>
+    private void TickHeadClearColor()
+    {
+        if (_camera == null || _camera.clearFlags != CameraClearFlags.SolidColor)
+            return;
+        Color wanted = Plugin.VoidColor.Value;
+        if (_camera.backgroundColor != wanted)
+            _camera.backgroundColor = wanted;
+    }
+
+    /// <summary>
     /// Stereo-exclusion pump: sweep immediately on scene loads (new foreign cameras,
     /// e.g. MainMenu's stereo=Both 'Main Camera'), otherwise on a frame cadence that
     /// also catches cameras created mid-scene. Rig rebuilds sweep inside Build*.
@@ -254,8 +266,8 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>
     /// Create OUR head camera under the rig root, seeded from the anchor game camera:
     /// culling mask = anchor mask | mod layer (never 0), depth = anchor + 1, far plane
-    /// from the anchor, clear = solid dark grey (Skybox kept when the anchor has one —
-    /// that IS visible content). The game camera itself is never modified; stereo on
+    /// from the anchor, clear = solid [Rig] VoidColor (Skybox kept when the anchor has
+    /// one — that IS visible content). The game camera itself is never modified; stereo on
     /// it (and every other game camera) is owned by <see cref="VRCameraPolicy"/>.
     /// </summary>
     private void CreateHeadCamera(Camera anchor, float nearClip)
@@ -280,7 +292,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         else
         {
             _camera.clearFlags = CameraClearFlags.SolidColor;
-            _camera.backgroundColor = HeadVoidColor;
+            _camera.backgroundColor = Plugin.VoidColor.Value; // [Rig] VoidColor, default black
         }
         // FOV is owned by the XR display (per-eye projection) — no need to copy.
         _camera.stereoTargetEye = StereoTargetEyeMask.Both;
