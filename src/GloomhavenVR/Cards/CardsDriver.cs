@@ -130,6 +130,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _factory.ReleaseHand(hand);
         _tray.ClearSlots();
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
+        _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
+        _shortRestPresented = null;
         if (_browseHand == hand)
             CloseBrowser("hand destroyed");
         if (_boundHand == hand)
@@ -151,6 +153,11 @@ internal sealed class CardsDriver : MonoBehaviour
             _browser.Remove(card);
             if (_fieldCards.Remove(card))
                 RelayoutField();
+            if (ReferenceEquals(card, _shortRestCard)) // sacrifice widget recycled under us
+            {
+                _shortRestCard = null;
+                _shortRestPresented = null;
+            }
             _tray.RemoveCard(card);
             _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
         }
@@ -208,6 +215,7 @@ internal sealed class CardsDriver : MonoBehaviour
             _piles.TickStatus(_fakeActive ? null : hand);
         }
 
+        PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
         LogFanState(hand);
     }
 
@@ -842,7 +850,24 @@ internal sealed class CardsDriver : MonoBehaviour
         // Drop field (test #21 B): exists ONLY during a pick mode (C); leaving the
         // mode clears its occupants — the zone loop below parks them.
         bool pick = IsPickMode(mode);
-        _tray.SetPickFieldVisible(pick && trayVisible);
+
+        // Short-rest sacrifice overlay (test #25, item 1d): while the game presents the
+        // randomly lost card's burn/redraw choice (ShortRestedCard != null; the choice
+        // itself is the docked DialogPopup), lay that card physically at the board
+        // centre on the SAME centre field the avoid-damage burn uses — DISPLAY-ONLY.
+        // Guarded off during the pick modes (which own the field) so the two flows can
+        // never collide, and off when the tray is hidden. The short-rest random path
+        // stays in CardHandMode.CardsSelection, so this simply overlays the unchanged
+        // hand fan. Rebuild is the sole executor; PollShortRest keeps it live on redraw.
+        CAbilityCard? shortRested = pick ? null : CardsGameApi.ShortRestedCard(hand);
+        bool shortRest = shortRested != null && trayVisible;
+
+        _tray.SetPickFieldVisible((pick || shortRest) && trayVisible);
+        if (shortRest)
+            PresentShortRestCard(hand, shortRested!);
+        else
+            RemoveShortRestCard();
+
         if (!pick)
         {
             _fieldCards.Clear();
@@ -864,6 +889,10 @@ internal sealed class CardsDriver : MonoBehaviour
             bool inTray = _tray.SlotOf(card) >= 0;
             bool inBrowse = _browser.Contains(card);
             bool inField = _fieldCards.Contains(card);
+            // Short-rest sacrifice card: its own zone. Never in any of the above, so
+            // its Grabbable/PokeSelect resolve to false here (display-only) — we only
+            // keep it OUT of the park sweep so PresentShortRestCard's centre home holds.
+            bool inShortRest = ReferenceEquals(card, _shortRestCard);
 
             card.PokeSelectEnabled = inFan && pokeSelect;
             // Field occupants stay grabbable: plucking one back off the field and
@@ -874,7 +903,7 @@ internal sealed class CardsDriver : MonoBehaviour
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
 
-            if (!inFan && !inHalf && !inTray && !inBrowse && !inField)
+            if (!inFan && !inHalf && !inTray && !inBrowse && !inField && !inShortRest)
                 _factory.Park(card);
         }
 
@@ -1110,6 +1139,19 @@ internal sealed class CardsDriver : MonoBehaviour
     /// <summary>Cards physically laid onto the pick drop field (selected candidates).</summary>
     private readonly List<VRCard> _fieldCards = new(4);
 
+    /// <summary>
+    /// Short-rest sacrifice display (test #25, item 1d): the randomly lost card laid
+    /// physically at the board centre while the docked burn/redraw DialogPopup decides
+    /// its fate — the same sacrifice display as the avoid-damage burn. Its OWN path,
+    /// deliberately separate from <see cref="_fieldCards"/>: DISPLAY-ONLY, never
+    /// grabbable / poke-select / droppable (the docked choice commits burn/redraw).
+    /// <see cref="_shortRestPresented"/> is the change-dedup key (the CAbilityCard
+    /// currently shown) — on REDRAW the game swaps it for the alternate card and this
+    /// path re-adopts the new one.
+    /// </summary>
+    private VRCard? _shortRestCard;
+    private CAbilityCard? _shortRestPresented;
+
     /// <summary>Change-dedup for the pick-fan source line (item 9): (mode, source pile).</summary>
     private (CardHandMode mode, CardPileType source)? _loggedPickSource;
 
@@ -1276,6 +1318,99 @@ internal sealed class CardsDriver : MonoBehaviour
             float x = n > 1 ? (i - (n - 1) * 0.5f) * w * 0.55f : 0f;
             card.SetHome(field, new Vector3(x, 0f, -0.002f * (i + 1)), Quaternion.identity, 1f);
         }
+    }
+
+    // -------------------------------------------------------------- short rest --
+
+    /// <summary>
+    /// Present the short-rested card at the board centre (test #25, item 1d). Adopts
+    /// the sacrifice widget through the SAME <see cref="AdoptedCard"/> path as every
+    /// other physical card and homes it dead-centre on the pick field with the
+    /// identical single-card centring <see cref="RelayoutField"/> uses — so it reads
+    /// exactly like the avoid-damage sacrifice. DISPLAY-ONLY: forced non-grabbable /
+    /// non-poke (the zone loop resolves the same, this makes the intent explicit and
+    /// covers the frames between a poll-driven swap and the next Rebuild). The card's
+    /// live face is re-claimed off the docked DialogPopup automatically by
+    /// <c>CardFace.Maintain</c> (CardFace.cs:210) — the popup's own buttons still
+    /// commit the choice. Change-deduped Info line on present / redraw-swap.
+    /// </summary>
+    private void PresentShortRestCard(CardsHandUI hand, CAbilityCard lost)
+    {
+        AbilityCardUI? widget = CardsGameApi.ShortRestedCardWidget(hand);
+        if (widget == null || widget.AbilityCard == null)
+        {
+            // The sacrifice's widget is not resolvable this frame (rare mid-swap) —
+            // drop any stale display; the next poll re-presents once it exists.
+            RemoveShortRestCard();
+            return;
+        }
+
+        VRCard card = AdoptedCard(widget);
+        bool changed = !ReferenceEquals(lost, _shortRestPresented);
+        if (!ReferenceEquals(card, _shortRestCard))
+        {
+            if (_shortRestCard != null)
+                _factory.Park(_shortRestCard); // redraw: park the previous sacrifice
+            _shortRestCard = card;
+        }
+
+        card.Grabbable = false;      // display-only — the docked choice commits, not a drop
+        card.PokeSelectEnabled = false;
+
+        Transform? field = _tray.PickFieldAnchor;
+        if (field != null)
+        {
+            card.gameObject.SetActive(true);
+            card.SetHome(field, new Vector3(0f, 0f, -0.002f), Quaternion.identity, 1f);
+        }
+
+        if (changed)
+        {
+            bool swap = _shortRestPresented != null;
+            VRLog.Info("Cards", $"Short rest: {(swap ? "REDREW —" : "presenting")} sacrificed card " +
+                                $"'{CardsGameApi.CardName(widget)}' at the board centre " +
+                                "(display-only; burn/redraw commits via the docked choice).");
+            _shortRestPresented = lost;
+        }
+    }
+
+    /// <summary>
+    /// Tear down the short-rest sacrifice display (choice resolved / ShortRestedCard
+    /// went null / mode-hand-scenario change). Parks the card (its face stays adopted
+    /// for the pile viewer to reuse — the game restores it on hand teardown); the zone
+    /// loop re-parks it harmlessly thereafter. Change-deduped Info line.
+    /// </summary>
+    private void RemoveShortRestCard()
+    {
+        if (_shortRestCard == null && _shortRestPresented == null)
+            return;
+        if (_shortRestCard != null)
+        {
+            _factory.Park(_shortRestCard);
+            _shortRestCard = null;
+        }
+        if (_shortRestPresented != null)
+        {
+            VRLog.Info("Cards", "Short rest: sacrificed card removed from the board centre " +
+                                "(choice resolved / short rest ended).");
+            _shortRestPresented = null;
+        }
+    }
+
+    /// <summary>
+    /// Redraw watchdog (test #25, item 1d): <c>PerformFinalShortRest</c> re-points
+    /// ShortRestedCard at the alternate card WITHOUT a mode / selection change, so
+    /// nothing else would mark the driver dirty. Poll the accessor (guarded exactly
+    /// like Rebuild — off during pick modes) and flip dirty on any present / swap /
+    /// remove edge; Rebuild is the sole executor. Allocation-free, no-op when steady.
+    /// </summary>
+    private void PollShortRest(CardsHandUI? hand)
+    {
+        CAbilityCard? current = null;
+        if (hand != null && !IsPickMode(CardsGameApi.Mode(hand)))
+            current = CardsGameApi.ShortRestedCard(hand);
+        if (!ReferenceEquals(current, _shortRestPresented))
+            _dirty = true;
     }
 
     /// <summary>
@@ -1523,6 +1658,7 @@ internal sealed class CardsDriver : MonoBehaviour
         CloseBrowser(CardsGameApi.InScenario ? "no active hand" : "scenario ended");
         _tray.SetPickFieldVisible(false);
         _fieldCards.Clear();
+        RemoveShortRestCard(); // sacrifice display never survives losing the active hand (item 1d)
 
         bool wantFake = Plugin.DevMode.Value && CardsConfig.DevFakeHand.Value > 0 && !CardsGameApi.InScenario;
         if (!wantFake)
