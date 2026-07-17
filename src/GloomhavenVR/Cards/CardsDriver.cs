@@ -290,6 +290,12 @@ internal sealed class CardsDriver : MonoBehaviour
         gate.ExitThreshold = CardsConfig.SupinationExitThreshold;
         gate.RollAxisOnly = true;
         gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
+        // G5 (DEMEO-HANDS-CARDS §4): the reveal preset harmlessly overrides the
+        // Enter/Exit thresholds above when [Cards] RevealPreset=demeo (tight cone);
+        // and while the dominant hand holds something the gate stays put so a pluck
+        // never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
+        gate.ApplyDemeoPreset(CardsConfig.RevealDemeo);
+        gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
 
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
         // RevealMode=always: no gesture at all while a card phase is live (gate.Enabled
