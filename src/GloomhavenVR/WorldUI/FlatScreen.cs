@@ -63,7 +63,12 @@ namespace GloomhavenVR.WorldUI;
 /// failure, no UI camera captured for a sustained period): back to the proven
 /// single-RT path — all cameras composite the left RT, the screen quad goes opaque
 /// and stereo stays OFF (mirrors cannot carry the UI) — degraded but never
-/// one-eyed, never black. While stereo SUSPENDS (intro guard / un-routable video)
+/// one-eyed, never black. The no-UI fallback is SCENE-SCOPED (hardware test #20:
+/// the UI-less loading scene between intro and menu latched it for the whole Show,
+/// which kept the split — and with it stereo AND the video depth layer — off for
+/// the entire main menu): its latch re-arms on the next scene change or the moment
+/// a UI-classified camera IS captured, so a scene that does have a UI always gets
+/// the split back. While stereo SUSPENDS (intro guard / un-routable video)
 /// the UI cameras temporarily rejoin the left RT and the glass clears transparent,
 /// so the single suspended image carries everything, exactly like the pre-split
 /// path; the pre-menu intro guard keeps working unchanged.
@@ -170,10 +175,21 @@ internal sealed class FlatScreen
     private Material? _glassMaterial;
     /// <summary>True while UI cameras actually render the UI RT (false during stereo suspension / pre-menu).</summary>
     private bool _splitRouting;
-    /// <summary>The split failed this Show (UI RT/shader loss, no UI cameras) — single-RT fallback until the next Show.</summary>
+    /// <summary>The split failed this Show (UI RT/shader creation loss) — single-RT fallback until the next Show.</summary>
     private bool _splitFailed;
+    /// <summary>
+    /// No-UI watchdog latch (<see cref="TickNoUiWatchdog"/>): the CURRENT scene
+    /// demonstrably has no retargetable UI camera — single-RT fallback. Unlike
+    /// <see cref="_splitFailed"/> the evidence dies with the scene (hardware test
+    /// #20: the UI-less loading scene latched the fallback for the whole Show and
+    /// the main menu never got its split/stereo/video-depth back), so it re-arms on
+    /// stack release (scene change) or when a UI-classified camera IS captured.
+    /// </summary>
+    private bool _splitNoUi;
     /// <summary>Since when the routing stack has contained no UI camera (fallback watchdog).</summary>
     private float _noUiSince = -1f;
+    /// <summary>Last logged stereo-gate reason (change-deduped diagnostic, test #20).</summary>
+    private string? _stereoGateReason;
     /// <summary>True while the virtual mouse left button is held by us (drag or virtualmouse mode).</summary>
     private bool _vmPressed;
     private RenderTexture? _rt;
@@ -380,6 +396,14 @@ internal sealed class FlatScreen
             _captured.Add(record);
             CapturedSet.Add(cam, record);
             cam.targetTexture = TargetFor(record);
+            // A UI camera exists after all — the no-UI watchdog's evidence is void
+            // (test #20): re-arm so TickSplitLifecycle re-engages on the next sweep.
+            if (record.IsUi && _splitNoUi)
+            {
+                _splitNoUi = false;
+                VRLog.Info("WorldUI", $"Screen layer split no-UI fallback re-armed — UI camera " +
+                                      $"'{cam.name}' captured; the split re-engages on the next sweep.");
+            }
             // Full disposition line (test #10): rect + clear + depth + mask make the RT
             // composite reconstructable from the log alone.
             Rect r = cam.rect;
@@ -419,6 +443,7 @@ internal sealed class FlatScreen
         bool preMenu = IsPreMenuScene();
         if (SplitActive)
         {
+            _stereoGateReason = null; // gate open — the diagnostic re-logs on the next block
             _stereo.Tick(_rt, _backRenderer, preMenu);
             if (_stereo.Active)
             {
@@ -448,9 +473,25 @@ internal sealed class FlatScreen
             }
             TickNoUiWatchdog();
         }
-        else if (_stereo.Active)
+        else
         {
-            _stereo.Deactivate("screen layer split inactive");
+            if (_stereo.Active)
+                _stereo.Deactivate("screen layer split inactive");
+            // Gate diagnostic (test #20: the flat menu was exactly this state and the
+            // log never named it): with the split down, the WHOLE stereo/video-depth
+            // chain is structurally off — one change-deduped line names the reason so
+            // a flat screen in a hardware log is attributable at a glance.
+            string gate = !WorldUIConfig.ScreenLayerSplit.Value
+                ? "ScreenLayerSplit off (config)"
+                : _splitFailed ? "split creation failed this Show"
+                : _splitNoUi ? "no-UI watchdog latched (re-arms on scene change / UI capture)"
+                : "split not engaged (quad/RT not ready)";
+            if (gate != _stereoGateReason)
+            {
+                _stereoGateReason = gate;
+                VRLog.Info("WorldUI", $"Stereo screen + video depth layer unavailable — {gate}; " +
+                                      "the screen renders the single mono RT.");
+            }
         }
     }
 
@@ -541,7 +582,7 @@ internal sealed class FlatScreen
     /// </summary>
     private void TickSplitLifecycle()
     {
-        bool want = WorldUIConfig.ScreenLayerSplit.Value && !_splitFailed
+        bool want = WorldUIConfig.ScreenLayerSplit.Value && !_splitFailed && !_splitNoUi
                     && _rt != null && _quad != null && _quadRenderer != null;
         if (want && SplitActive)
         {
@@ -716,10 +757,11 @@ internal sealed class FlatScreen
         if (Time.unscaledTime - _noUiSince < NoUiFallbackSeconds)
             return;
 
-        _splitFailed = true;
+        _splitNoUi = true;
         VRLog.Warn("WorldUI", $"Screen layer split: no UI camera captured for {NoUiFallbackSeconds:F0}s " +
                               "while routing — falling back to the single-RT path (the UI would " +
-                              "otherwise be invisible to the stereo mirrors).");
+                              "otherwise be invisible to the stereo mirrors). Re-arms on the next " +
+                              "scene change or UI-camera capture (test #20: never latch across scenes).");
         TeardownSplit("no UI cameras found");
     }
 
@@ -851,6 +893,16 @@ internal sealed class FlatScreen
         CapturedSet.Clear();
         _base = null;
         _uiBase = null;
+        // The no-UI watchdog's evidence dies with the stack (scene change / hide):
+        // the NEXT scene may well have a UI camera — give the split a fresh chance
+        // (test #20: the latch carried from the UI-less loading scene into the main
+        // menu and kept split/stereo/video-depth off for the whole session).
+        if (_splitNoUi)
+        {
+            _splitNoUi = false;
+            VRLog.Info("WorldUI", "Screen layer split no-UI fallback re-armed — captured stack " +
+                                  "released (scene change / hide); the split re-engages on the next sweep.");
+        }
     }
 
     /// <summary>
@@ -1119,6 +1171,7 @@ internal sealed class FlatScreen
         _stereo.Deactivate("screen hidden");
         TeardownSplit("screen hidden");
         _splitFailed = false; // a failed split gets a fresh chance on the next Show
+        _stereoGateReason = null;
 
         if (_quad != null)
         {
