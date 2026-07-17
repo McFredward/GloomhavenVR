@@ -21,6 +21,16 @@ internal interface IGrabbable
     /// <summary>Gate: return false to be ignored (e.g. card not selectable right now).</summary>
     bool CanGrab { get; }
 
+    /// <summary>
+    /// True: this grabbable is ALWAYS taken with the GRIP button, ignoring the
+    /// <c>[Cards] GrabButton</c> config (hardware test #27: boards/world panels grip-
+    /// grab, more intuitive than the Demeo trigger). False: obey the config — Trigger
+    /// (Demeo default) or Grip — like cards do. net472 has no default-interface-method
+    /// support, so every <see cref="IGrabbable"/> implementer states this explicitly
+    /// (the <see cref="GrabbableBehaviour"/> base defaults it to false for cards).
+    /// </summary>
+    bool GrabWithGrip { get; }
+
     /// <summary>The hand closed on the object.</summary>
     void OnGrab(VRHand hand);
 
