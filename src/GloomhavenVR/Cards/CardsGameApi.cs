@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using ScenarioRuleLibrary;
+using UnityEngine;
 
 namespace GloomhavenVR.Cards;
 
@@ -229,6 +230,25 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// The active hand's REAL short-rest widget root (test #23 item 4:
+    /// <see cref="Surfaces.TrayControlDockSurface"/> docks it on the control board).
+    /// Non-null only while the game itself would show it — the SelectAbilityCards
+    /// phase with the widget active (<c>CardsHandUI.UpdateShortRest</c>,
+    /// CardsHandUI.cs:700). Field verified: <c>private ShortRest shortRest</c>
+    /// (CardsHandUI.cs:140, publicized), a <c>MonoBehaviour</c> on a uGUI object.
+    /// </summary>
+    internal static RectTransform? ShortRestWidget()
+    {
+        CardsHandUI? hand = ActiveHand();
+        if (hand == null || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return null;
+        ShortRest rest = hand.shortRest;
+        if (rest == null || !rest.gameObject.activeInHierarchy)
+            return null;
+        return rest.transform as RectTransform;
+    }
+
+    /// <summary>
     /// Long-rest availability at selection time: the pseudo-card is selectable only
     /// with &gt;1 discarded card (SetMode's <c>longRestAvailable</c> argument,
     /// CardsHandUI.cs:590) — mirrored here for token dimming.
@@ -314,6 +334,41 @@ internal static class CardsGameApi
     {
         Choreographer c = Choreographer.s_Choreographer;
         return c != null && c.m_UndoButton != null ? c.m_UndoButton : null;
+    }
+
+    /// <summary>
+    /// The REAL Ready/Continue widget root (test #23 item 4:
+    /// <see cref="Surfaces.TrayControlDockSurface"/> docks it on the control board so
+    /// "Fortfahren"/"End selection"/"Confirm"… render natively). Non-null only while
+    /// the game shows it — active AND visible (<c>IsVisibility =&gt; canvasGroup.alpha
+    /// &gt; 0</c>, ReadyButton.cs:93): an alpha-0 button would dock an invisible
+    /// click-catcher. ReadyButton is a bare HUD widget (own CanvasGroup, self-
+    /// SetActive; no UIWindow), so there is no window remainder to suppress.
+    /// </summary>
+    internal static RectTransform? ReadyWidget()
+    {
+        ReadyButton? b = Ready();
+        if (b == null || !b.gameObject.activeInHierarchy)
+            return null;
+        if (b.canvasGroup != null && b.canvasGroup.alpha <= 0.01f)
+            return null;
+        return b.transform as RectTransform;
+    }
+
+    /// <summary>
+    /// The REAL Undo widget root ("Rückgängig machen"; test #23 item 4). Non-null only
+    /// while the game shows it (active). Like ReadyButton it is a bare HUD widget
+    /// (own CanvasGroup, self-SetActive; no UIWindow) — nothing to suppress.
+    /// </summary>
+    internal static RectTransform? UndoWidget()
+    {
+        UndoButton? u = Undo();
+        if (u == null || !u.gameObject.activeInHierarchy)
+            return null;
+        CanvasGroup? cg = u.GetComponent<CanvasGroup>();
+        if (cg != null && cg.alpha <= 0.01f)
+            return null;
+        return u.transform as RectTransform;
     }
 
     /// <summary>

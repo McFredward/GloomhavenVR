@@ -30,6 +30,7 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> PropInfoCards = null!;
     internal static ConfigEntry<bool> EnemyReveal = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
+    internal static ConfigEntry<bool> TrayNativeControls = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
     /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
@@ -173,6 +174,13 @@ internal static class WorldUIConfig
             "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
             "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
             "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
+        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", true,
+            "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
+            "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +
+            "sprite, localized label and enable/disable states, reusing the DecisionDock docking " +
+            "mechanism — in place of the mod-drawn CONFIRM/UNDO board buttons and short-rest token " +
+            "(test #23 item 4). Long rest has no discrete uGUI widget (chosen via the card fan + " +
+            "Continue), so it stays a mod token. Off = the mod-drawn buttons/token are used as before.");
         ActorBars = _file.Bind("WorldUI", "ActorBars", true,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,
