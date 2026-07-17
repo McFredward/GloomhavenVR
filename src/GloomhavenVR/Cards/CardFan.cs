@@ -131,6 +131,21 @@ internal sealed class CardFan
         float step = n > 1 ? Mathf.Min(11f, maxArc / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
+        // G1 curvature-by-fill (Demeo CardHandView.cs:814): both the vertical arch and the
+        // per-card Z-tilt are multiplied by how full the hand is, so a few cards read nearly
+        // flat/untilted and a full hand arches and tilts. FanFlatCurvatureFactor/FanTiltFactor
+        // are the fill=1 targets (== the pre-Demeo constants 0.55/0.85). With FanCurveByFill
+        // OFF we drop the fill term entirely and use those constants at every hand size, so the
+        // legacy look is preserved exactly.
+        float archFactor = CardsConfig.FanFlatCurvatureFactor.Value;
+        float tiltFactor = CardsConfig.FanTiltFactor.Value;
+        if (CardsConfig.FanCurveByFill.Value)
+        {
+            float fill = Mathf.Clamp01((float)n / Mathf.Max(1, CardsConfig.FanMaxHandForCurve.Value));
+            archFactor *= fill;
+            tiltFactor *= fill;
+        }
+
         // Exposed strip of each card = chord between neighboring card centers. The
         // right neighbor draws IN FRONT (more negative z), covering this card's right
         // side — so each card's grab collider shrinks to its visible LEFT strip and
@@ -150,10 +165,10 @@ internal sealed class CardFan
             float rad = angle * Mathf.Deg2Rad;
             // Arc bends around a pivot below the fan root; z-stagger keeps the
             // draw order stable (later cards nearer the viewer = -Z).
+            var rot = Quaternion.Euler(0f, 0f, -angle * tiltFactor);
             var pos = new Vector3(Mathf.Sin(rad) * radius,
-                                  (Mathf.Cos(rad) - 1f) * radius * 0.55f,
+                                  (Mathf.Cos(rad) - 1f) * radius * archFactor,
                                   -ZStagger * i);
-            var rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
             card.SetHome(_root, pos, rot, 1f, instant);
 
             if (i == n - 1)
