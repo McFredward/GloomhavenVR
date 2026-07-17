@@ -113,9 +113,16 @@ internal sealed class ButtonCluster
             return;
 
         bool locked = CanvasConversion.IsLockedNow;
-        _ready!.MirrorReady(choreographer!.readyButton, locked);
-        _undo!.MirrorUndo(choreographer.m_UndoButton, locked);
-        _skip!.MirrorSkip(choreographer.m_SkipButton, locked);
+        // Test #23 item 4: when the REAL ReadyButton/UndoButton are docked natively on
+        // the control board (TrayControlDockSurface), this cluster's mirrored Ready/
+        // Undo would be a second copy — stand them down (null → hidden) while the
+        // native dock holds. Skip is not in that native set, so it stays mirrored
+        // (the no-tray floating fallback keeps mirroring all three).
+        bool nativeReady = Surfaces.TrayControlDockSurface.ContinueDocked;
+        bool nativeUndo = Surfaces.TrayControlDockSurface.UndoDocked;
+        _ready!.MirrorReady(nativeReady ? null : choreographer!.readyButton, locked);
+        _undo!.MirrorUndo(nativeUndo ? null : choreographer!.m_UndoButton, locked);
+        _skip!.MirrorSkip(choreographer!.m_SkipButton, locked);
 
         _ready.Animate();
         _undo.Animate();
