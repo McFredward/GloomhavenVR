@@ -145,7 +145,8 @@ internal static class WorldUIConfig
         InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", true,
             "Initiative track as a world-space panel above the table.");
         ElementBoard = _file.Bind("WorldUI", "ElementBoard", true,
-            "Element infusion board as a world-space panel near the initiative track.");
+            "Element infusion board docked on the control board's left column, below the " +
+            "objectives panel (floating world panel only as the no-tray fallback).");
         CombatLog = _file.Bind("WorldUI", "CombatLog", true,
             "Combat log as a world-space panel at the table's far side.");
         Objectives = _file.Bind("WorldUI", "Objectives", true,
