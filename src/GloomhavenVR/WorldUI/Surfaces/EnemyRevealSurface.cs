@@ -63,11 +63,20 @@ internal sealed class EnemyRevealSurface
     /// <summary>Hard width cap, real meters — many monster classes must not span the room.</summary>
     private const float MaxWidthMeters = 1.2f;
 
+    /// <summary>The fitted host width must hold steady this long before the fit is pinned.</summary>
+    private const float FitPinSettleSeconds = 1f;
+
     private static readonly StringBuilder NameScratch = new(128);
 
     private ConvertedPanel? _panel;
     private Quaternion _spawnYaw = Quaternion.identity;
     private bool _lastVisible;
+
+    // Host-rect pin (test #23): largest fitted width seen this reveal + the time it
+    // last grew; the fit freezes once it has held at that max for FitPinSettleSeconds.
+    private float _fitMaxWidth = -1f;
+    private float _fitAtMaxSince;
+    private bool _fitPinned;
 
     public string Name => "EnemyReveal";
 
@@ -95,9 +104,19 @@ internal sealed class EnemyRevealSurface
             var holder = track.enemyCardsHolder as RectTransform;
             if (holder != null)
             {
-                _panel = CanvasConversion.Convert(holder, Name, pokeable: false, fitContent: true);
+                // Flatten2D (test #23): the monster-card subtree carries the same baked
+                // 3D tilt as the combat log (recessed z / rotated RectTransforms shown
+                // through the perspective UI camera) — neutralize it so the cards lie
+                // flat on the world panel instead of sticking out.
+                _panel = CanvasConversion.Convert(holder, Name, pokeable: false,
+                    fitContent: true, flatten2D: true);
                 if (_panel != null)
+                {
+                    _fitMaxWidth = -1f;
+                    _fitAtMaxSince = 0f;
+                    _fitPinned = false;
                     CaptureSpawnYaw();
+                }
             }
         }
         else if (!visible && _panel != null)
@@ -112,7 +131,39 @@ internal sealed class EnemyRevealSurface
             // wholesale — keep this one dark so the vanilla EventSystem never hits it.
             if (_panel.HostRaycaster != null && _panel.HostRaycaster.enabled)
                 _panel.HostRaycaster.enabled = false;
+            PinWhenSettled();
             Place();
+        }
+    }
+
+    /// <summary>
+    /// Pin the host rect once the staggered reveal has settled at its FULL layout.
+    /// The cards animate in one by one (MonsterBaseUI.AnimateAppearance, staggered by
+    /// delayAnimationDraw), so the content fit keeps re-measuring and the host thrashes
+    /// (627↔649 px as cards pulse/highlight — test #23). Track the largest fitted width
+    /// and, once it has held there for <see cref="FitPinSettleSeconds"/> with no further
+    /// growth, freeze the fit — like <see cref="CombatLogSurface"/>.OnConverted clears
+    /// Panel.FitEnabled, except the log can disable immediately (it converts at its full
+    /// window rect) whereas here the full layout only exists after the cards are in, so
+    /// we settle first. Pinned strictly AT the max extent, never a mid-shrink measure.
+    /// </summary>
+    private void PinWhenSettled()
+    {
+        if (_panel == null || _fitPinned || !_panel.FitEnabled || _panel.HostRect == null)
+            return;
+        float width = _panel.HostRect.rect.width;
+        if (width > _fitMaxWidth + 0.5f)
+        {
+            _fitMaxWidth = width;
+            _fitAtMaxSince = Time.unscaledTime; // grew — restart the settle dwell
+        }
+        if (_panel.FitMeasuredOnce && _fitMaxWidth > 1f && width >= _fitMaxWidth - 0.5f
+            && Time.unscaledTime - _fitAtMaxSince >= FitPinSettleSeconds)
+        {
+            _panel.FitEnabled = false;
+            _fitPinned = true;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL host rect pinned at {width:F0} px " +
+                                  "(settled full layout) — content re-fit disabled to stop thrashing.");
         }
     }
 
