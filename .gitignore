@@ -34,3 +34,4 @@ dist/
 
 # harness worktrees/session data
 .claude/
+decompiled-demeo/
