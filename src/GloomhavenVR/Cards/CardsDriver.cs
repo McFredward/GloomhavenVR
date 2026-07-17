@@ -163,6 +163,10 @@ internal sealed class CardsDriver : MonoBehaviour
             Rebuild(anchor);
         }
 
+        // Deferred initial placement (test #17): retries until the head has a
+        // real tracked pose — the tray stays hidden meanwhile.
+        _tray.TickPlacement();
+
         UpdatePalmGate();
         UpdateFanLaser();
         UpdateBoardLaser();

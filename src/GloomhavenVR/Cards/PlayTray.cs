@@ -63,6 +63,8 @@ internal sealed class PlayTray
     private BoardButton? _confirm;
     private BoardButton? _undo;
     private bool _placed;
+    private bool _wantVisible;
+    private bool _placementDeferLogged;
 
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
 
@@ -199,10 +201,10 @@ internal sealed class PlayTray
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
-        // A pinned tray rebuilt after teardown re-pins immediately (it still takes
-        // ONE initial PlaceAtHead when first shown, since _placed = false).
-        if (!CardsConfig.TrayFollow.Value)
-            ApplyFollowMode();
+        // A persisted PINNED mode is deliberately NOT applied here (test #17): the
+        // pinned WORLD pose does not survive sessions, so pinning the fresh root now
+        // would anchor the tray at a stale/default pose (it spawned far below the
+        // map). PlaceAtHead re-pins right after the initial head-relative placement.
     }
 
     /// <summary>
@@ -377,16 +379,33 @@ internal sealed class PlayTray
         _initiativeMount = null;
         _objectivesMount = null;
         _placed = false;
+        _wantVisible = false;
+        _placementDeferLogged = false;
     }
 
+    /// <summary>
+    /// Tray visibility. While the initial placement is still deferred (untracked
+    /// head at scenario start, test #17) the root STAYS HIDDEN — showing it would
+    /// flash the tray at a stale/default pose; <see cref="TickPlacement"/> retries
+    /// until the head delivers a real pose.
+    /// </summary>
     internal void SetVisible(bool visible)
     {
         if (_root == null)
             return;
-        if (_root.gameObject.activeSelf != visible)
-            _root.gameObject.SetActive(visible);
+        _wantVisible = visible;
         if (visible && !_placed)
             PlaceAtHead();
+        bool show = visible && _placed;
+        if (_root.gameObject.activeSelf != show)
+            _root.gameObject.SetActive(show);
+    }
+
+    /// <summary>Per-frame retry for a deferred initial placement (CardsDriver.Update).</summary>
+    internal void TickPlacement()
+    {
+        if (_wantVisible && !_placed)
+            SetVisible(true);
     }
 
     /// <summary>
@@ -402,6 +421,22 @@ internal sealed class PlayTray
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
+        // Untracked head (test #17): in a session's first frames the rig camera
+        // still sits at its local origin — the "in front of the player" math would
+        // place (and a persisted PINNED mode then permanently pin) the tray at a
+        // garbage pose (it spawned far below the map). Defer until the pose driver
+        // delivered a real pose — the same first-pose signal VRRigDriver gates its
+        // pending recenter on; TickPlacement retries every frame.
+        if (head == VRRigDriver.HeadCamera && head.transform.localPosition.sqrMagnitude < 1e-6f)
+        {
+            if (!_placementDeferLogged)
+            {
+                _placementDeferLogged = true;
+                VRLog.Info("Cards", "Control board placement deferred — head has no tracked pose yet.");
+            }
+            return;
+        }
+        _placementDeferLogged = false;
 
         Transform headT = head.transform;
         Vector3 flatForward = headT.forward;
@@ -428,6 +463,11 @@ internal sealed class PlayTray
         _placed = true;
         VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}°, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.ClampedTrayScale:F2}×).");
+        // A persisted PINNED mode re-engages only NOW, at the just-placed
+        // head-relative pose (test #17): the tray always spawns in front of the
+        // player, pinned or not.
+        if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
+            ApplyFollowMode();
     }
 
     /// <summary>
