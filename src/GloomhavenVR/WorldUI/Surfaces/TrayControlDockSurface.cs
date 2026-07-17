@@ -68,14 +68,17 @@ internal sealed class TrayControlDockSurface
     {
         Instance = this;
         // Target sizes in tray-local meters (× mount lossy scale), matching the
-        // footprints the mod buttons occupied: CONFIRM 0.115×0.06, UNDO 0.09×0.042,
-        // the short-rest token inside the 0.105-wide rest plate.
+        // footprints the mod buttons occupy: CONFIRM 0.115×0.06, UNDO 0.09×0.042.
+        // Test #24 item 3: the native "Kurze Rast" widget is a wide, short bar
+        // (~335×30 px) — the fit binds on WIDTH, so the target width sets its size.
+        // Fill the widened 0.14 rest plate's button footprint (0.115×0.04) with a
+        // little vertical headroom so it reads comfortably, not tiny.
         _continue = new DockedControl("Continue", CardsGameApi.ReadyWidget,
             static () => PlayTray.Current?.ContinueMount, 0.12f, 0.062f, postDropGuard: true);
         _undo = new DockedControl("Undo", CardsGameApi.UndoWidget,
             static () => PlayTray.Current?.UndoDockMount, 0.10f, 0.052f, postDropGuard: false);
         _shortRest = new DockedControl("ShortRest", CardsGameApi.ShortRestWidget,
-            static () => PlayTray.Current?.ShortRestAnchor, 0.10f, 0.052f, postDropGuard: false);
+            static () => PlayTray.Current?.ShortRestAnchor, 0.13f, 0.05f, postDropGuard: false);
         _controls = new[] { _continue, _undo, _shortRest };
     }
 

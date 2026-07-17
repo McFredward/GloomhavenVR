@@ -19,11 +19,13 @@ namespace GloomhavenVR.Cards;
 ///   onto <see cref="InitiativeMount"/> — portraits incl. the vanilla '?' for
 ///   players who have not locked in),
 /// - LEFT: the converted Objectives panel (<see cref="ObjectivesMount"/>) next to
-///   the REST zone (short/long-rest tokens built by <see cref="RestControls"/>),
+///   the REST zone (short/long-rest board buttons built by <see cref="RestControls"/>;
+///   the REAL native short-rest widget docks over the short button when available),
 ///   with the element infusion board (<see cref="ElementMount"/>) docked directly
 ///   below it (test #20 — no longer a free-floating world panel),
-/// - CENTER: two large card slots (slot 0 = initiative, marked by the numbered
-///   badge; drop to place, grab to take back, physical swap = initiative swap);
+/// - CENTER: two large card slots (slot 0 = initiative; drop to place, grab to take
+///   back, physical swap = initiative swap — the redundant numbered badge was
+///   removed in test #24 item 3, the initiative already reads on the docked track);
 ///   during the modal pick modes the slot visuals yield to the PICK DROP FIELD
 ///   (test #21 B, see <see cref="BuildPickField"/>),
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
@@ -90,9 +92,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _longRestAnchor;
     private readonly VRCard?[] _occupants = new VRCard?[2];
 
-    private TextMeshPro? _badge;
     private TextMeshPro? _roundLabel;
-    private InitiativeBadgeZone? _badgeZone;
     private BoardButton? _confirm;
     private BoardButton? _undo;
     private Transform? _confirmAnchor;
@@ -344,7 +344,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         BuildSlotLabels();
         BuildSlotHighlights();
-        BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
         BuildHandle();
         BuildDashboardControls();
@@ -664,11 +663,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _pickFieldHighlight = null;
         _pickFieldVisible = false;
         _pickFieldHighlighted = false;
-        _badge = null;
         _roundLabel = null; // child of _root, destroyed with it
         _roundShown = int.MinValue;
         _confirmedLabel = null;
-        _badgeZone = null;
         _confirm = null;
         _undo = null;
         _confirmAnchor = null; // child of _root, destroyed with it
@@ -1223,14 +1220,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     // ------------------------------------------------------------------ status --
 
-    // Last shown badge state (int key, not string): -2 = none ("-"), -1 = long rest
-    // ("99"), else the initiative value. Rebuilding the string only on CHANGE avoids
-    // a per-frame ToString allocation AND a per-frame TMP text assignment — every
-    // rewrite re-triggers TMP's auto-size layout, which made the badge flicker
-    // against its plate (test #13).
-    private int _badgeState = int.MinValue;
-
-    // Last shown round number (change-gated like the badge; int.MinValue = never).
+    // Last shown round number (change-gated; int.MinValue = never). Rebuilding the
+    // string only on CHANGE avoids a per-frame ToString allocation AND a per-frame TMP
+    // text assignment — every rewrite re-triggers TMP's auto-size layout (test #13).
     private int _roundShown = int.MinValue;
 
     // Confirmed-state label ("✓ <GUI_READY>"), built once — TickStatus runs per
@@ -1275,35 +1267,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             }
         }
 
-        if (_badge == null)
-            return;
-
-        int state = -2;
-        bool canSwap = false;
-        bool ready = false;
-        if (hand != null && hand.PlayerActor != null)
-        {
-            if (CardsGameApi.IsLongRestSelected(hand))
-            {
-                state = -1; // long rest initiative (99) by game rule
-            }
-            else
-            {
-                ScenarioRuleLibrary.CAbilityCard? initiative = CardsGameApi.InitiativeCard(hand);
-                if (initiative != null)
-                    state = CardsGameApi.InitiativeValue(initiative);
-                canSwap = hand.PlayerActor.CharacterClass.RoundAbilityCards.Count == 2;
-            }
-            ready = CardsGameApi.IsSelectionReady(hand);
-        }
-
-        if (state != _badgeState)
-        {
-            _badgeState = state;
-            _badge.text = state switch { -2 => "-", -1 => "99", _ => state.ToString() };
-        }
-        if (_badgeZone != null)
-            _badgeZone.SwapEnabled = canSwap;
+        // Test #24 item 3: the mod-drawn initiative badge over slot 0 is GONE — the
+        // current initiative already reads on the docked initiative track (top edge),
+        // so the redundant number circle was removed. Physical card swap still swaps
+        // initiative (CardsDriver drives it on the slot gesture). We still read the
+        // ready state here for the CONFIRM accent below.
+        bool ready = hand != null && CardsGameApi.IsSelectionReady(hand);
 
         // Test #23 item 4: the REAL ReadyButton / UndoButton dock at these same
         // positions when the native-controls surface is active. While a native
@@ -1408,28 +1377,36 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             Tint(inner, new Color(0.12f, 0.10f, 0.08f));
         }
 
-        // Rest zone: backdrop + anchors (RestControls builds the tokens).
+        // Rest zone (test #24 item 3): backdrop + two button anchors. RestControls
+        // builds a comfortable BoardButton at each anchor (short rest on top, long
+        // rest below — they sit together); the REAL native "Kurze Rast" widget docks
+        // over the SHORT anchor (TrayControlDockSurface) and hides the mod short
+        // button while it holds. NO mod-drawn rest header anymore: the redundant
+        // "Kurze Rast" caption that used to sit above the button duplicated the
+        // native widget's own label (each button already carries its localized
+        // caption). Plate widened to 0.14 to seat the wider button footprints;
+        // centered at RestZoneX -0.245 it spans x -0.315..-0.175 (left edge clears
+        // the board edge -0.32; right edge clears slot 0's left content edge ≈ -0.129
+        // by 0.046), y -0.10..0.08 (height 0.18).
         var restBack = GameObject.CreatePrimitive(PrimitiveType.Quad);
         restBack.name = "RestZone";
         Object.Destroy(restBack.GetComponent<Collider>());
         restBack.transform.SetParent(_root, worldPositionStays: false);
-        restBack.transform.localScale = new Vector3(0.105f, 0.24f, 1f);
+        restBack.transform.localScale = new Vector3(0.14f, 0.18f, 1f);
         restBack.transform.localPosition = new Vector3(RestZoneX, -0.01f, 0.003f);
         Tint(restBack, new Color(0.12f, 0.11f, 0.10f));
 
-        // Caption box = the rest plate's width (0.105) — the localized header shrinks
-        // to fit instead of spilling over the slots (TmpFit, test #12).
-        AddCaption(_root!, new Vector3(RestZoneX, 0.105f, -0.004f),
-            CardsGameApi.Localize("GUI_SHORT_REST", "REST"), new Color(0.85f, 0.8f, 0.7f),
-            maxUpper: true, width: 0.10f, height: 0.026f, maxFontSize: 0.30f);
-
+        // Button anchors: the RestControls BoardButton bases sit at z 0.004 in front
+        // of the plate (z-order like CONFIRM/UNDO at z -0.006), viewer-side caps
+        // proud. Short at y 0.04 (button 0.115×0.04 → y 0.02..0.06), long at y -0.05
+        // (→ y -0.07..-0.03): a 0.05 gap between them, both inside the plate.
         _shortRestAnchor = new GameObject("ShortRestToken").transform;
         _shortRestAnchor.SetParent(_root, worldPositionStays: false);
-        _shortRestAnchor.localPosition = new Vector3(RestZoneX, 0.035f, -0.010f);
+        _shortRestAnchor.localPosition = new Vector3(RestZoneX, 0.04f, -0.006f);
 
         _longRestAnchor = new GameObject("LongRestToken").transform;
         _longRestAnchor.SetParent(_root, worldPositionStays: false);
-        _longRestAnchor.localPosition = new Vector3(RestZoneX, -0.055f, -0.010f);
+        _longRestAnchor.localPosition = new Vector3(RestZoneX, -0.05f, -0.006f);
     }
 
     private void BuildSlotLabels()
@@ -1453,49 +1430,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             "2", new Color(0.75f, 0.73f, 0.7f),
             maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
             maxFontSize: 0.28f / SlotScale);
-    }
-
-    private void BuildBadge()
-    {
-        if (_root == null || _slots[0] == null)
-            return;
-        float h = CardsConfig.CardHeight;
-
-        var badgeGo = new GameObject("InitiativeBadge");
-        badgeGo.transform.SetParent(_slots[0], worldPositionStays: false);
-        badgeGo.transform.localPosition = new Vector3(0f, h * 0.68f, -0.004f); // TMP reads from -Z (viewer side)
-
-        // Gold disc so the number reads as a marker, not floating text.
-        var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        disc.name = "BadgeDisc";
-        Object.Destroy(disc.GetComponent<Collider>());
-        disc.transform.SetParent(badgeGo.transform, worldPositionStays: false);
-        disc.transform.localScale = new Vector3(0.042f, 0.003f, 0.042f);
-        disc.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        // Disc front face 1.5 mm BEHIND the number (cylinder half-height 0.003):
-        // at z=0.003 the face sat exactly on the text plane — z-fighting made the
-        // badge number flicker/"clip" (test #13).
-        disc.transform.localPosition = new Vector3(0f, 0f, 0.0045f);
-        Tint(disc, new Color(0.5f, 0.42f, 0.2f));
-
-        _badge = badgeGo.AddComponent<TextMeshPro>();
-        _badge.text = "-";
-        _badgeState = -2; // keep the change-detection key in sync after a rebuild
-        _badge.alignment = TextAlignmentOptions.Center;
-        _badge.color = new Color(1f, 0.95f, 0.8f);
-        // The number must sit ON the 0.042 m disc (was fontSize 1.2 = a 0.12 m line
-        // dwarfing the marker, test #12) — single line, fitted to the disc.
-        Core.TmpFit.Fit(_badge, 0.05f, 0.036f, maxFontSize: 0.30f, wrap: false);
-
-        // Poke/laser the badge to swap initiative (same as the 2D badge click).
-        var zoneGo = new GameObject("SwapZone");
-        zoneGo.transform.SetParent(badgeGo.transform, worldPositionStays: false);
-        var box = zoneGo.AddComponent<BoxCollider>();
-        box.size = new Vector3(0.08f, 0.045f, 0.02f);
-        box.isTrigger = true;
-        _badgeZone = zoneGo.AddComponent<InitiativeBadgeZone>();
-        _badgeZone.Owner = this;
-        RegisterLaserTarget(box, _badgeZone);
     }
 
     private void BuildButtons(Transform? confirmAnchor, Transform? undoAnchor)
@@ -1564,28 +1498,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 return found;
         }
         return null;
-    }
-
-    /// <summary>Poke/laser target on the initiative badge → initiative swap.</summary>
-    private sealed class InitiativeBadgeZone : PokeableBehaviour
-    {
-        internal PlayTray? Owner;
-        internal bool SwapEnabled;
-
-        public override void OnPoke(VRHand hand)
-        {
-            if (!SwapEnabled || Owner == null)
-                return;
-            hand.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("Cards", $"Board: initiative badge pressed ({hand.Side}).");
-            Owner.SwapRequested?.Invoke();
-        }
-
-        public override void OnPokeEnter(VRHand hand)
-        {
-            if (SwapEnabled)
-                hand.SendHaptic(HapticPreset.HoverTick);
-        }
     }
 
     /// <summary>
