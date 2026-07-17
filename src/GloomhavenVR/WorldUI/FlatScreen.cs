@@ -143,8 +143,14 @@ internal sealed class FlatScreen
     /// <summary>Intro scene name (decompiled GH.Runtime Bootstrap.ShowSplash: "Intro").</summary>
     private const string IntroSceneName = "Intro";
 
-    /// <summary>Real-meter gap between the UI glass (screen plane) and the background quad behind it.</summary>
-    private const float BackplaneGapMeters = 0.03f;
+    /// <summary>
+    /// Real-meter gap between the UI glass (screen plane) and the background quad
+    /// behind it. Widened 3 → 6 cm after test #19: the PHYSICAL glass-vs-background
+    /// separation is the strongest depth cue of the whole split and costs nothing —
+    /// the background quad is grown by 1 + gap/distance so it subtends the same
+    /// angle from the head (no edge inset), and the pointer plane stays the glass.
+    /// </summary>
+    private const float BackplaneGapMeters = 0.06f;
 
     /// <summary>Sustained routing time without any captured UI camera before the split falls back.</summary>
     private const float NoUiFallbackSeconds = 3f;

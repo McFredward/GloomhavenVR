@@ -112,8 +112,11 @@ namespace GloomhavenVR.WorldUI;
 /// screen at distance D see a plane at D+V with on-screen disparity
 /// p = IPD·V/(D+V) — right eye's image displaced toward the right, left toward the
 /// left (each eye toward its own side = behind the screen). p is strictly below
-/// the IPD (~6.3 cm divergence limit) for any finite V; the explicit clamp only
-/// guards ScreenDepthStrength > 1. UV shift per eye = (p/2)/ScreenWidth; a fixed
+/// the IPD (~6.3 cm divergence limit) for any finite V; the explicit 55 mm clamp
+/// only engages once ScreenDepthStrength ≳ 1.5. Test #19 ("depth too subtle to
+/// notice"): the default V is now 2.2 m — at the default D = 1.6 m screen the
+/// video reads at 3.8 m ≈ 2.4× the screen distance, p ≈ 36 mm (was V = 0.8 m,
+/// 2.4 m ≈ 1.5×, ~21 mm). UV shift per eye = (p/2)/ScreenWidth; a fixed
 /// ~3 % overscan zoom keeps the shifted sampling window inside the video, so the
 /// shift never exposes void at the edges. The original renderMode/targetCamera is
 /// restored when the video/camera ends, the screen hides, the mirror dies or the
@@ -186,14 +189,20 @@ internal sealed class FlatScreenStereo
     /// <summary>
     /// UV zoom on the re-routed video (class doc VIDEO DEPTH LAYER): the per-eye blit
     /// samples a window this factor smaller than the full frame, so the disparity
-    /// shift never drags the sampling window off the video (void at the edges). The
-    /// 3 % margin per axis (~1.46 % per side) covers the worst-case clamped shift.
+    /// shift never drags the sampling window off the video (void at the edges).
+    /// Margin per side = (1 − 1/1.03)/2 ≈ 0.0146 UV. Re-derived for the test-#19
+    /// defaults (V = 2.2 m, D = 1.6 m, W = 2.2 m): default shift = (p/2)/W ≈
+    /// 0.036/2/2.2 ≈ 0.0083 (1.75× headroom); the worst CLAMPED shift
+    /// (55 mm → 0.0125) still fits. Narrower configured ScreenWidths hit the
+    /// margin cap in <see cref="ComputeVideoShiftUv"/> first — depth silently
+    /// saturates there, void is impossible by construction.
     /// </summary>
     private const float VideoOverscan = 1.03f;
     /// <summary>
     /// Ceiling on the total video disparity in real meters — below the ~6.3 cm
     /// divergence limit. Geometry alone (p = IPD·V/(D+V)) can never reach the IPD;
-    /// this guards ScreenDepthStrength values above 1 scaling p past it.
+    /// this guards ScreenDepthStrength values ≳ 1.5 scaling p past it (at the
+    /// default V/D the geometric p is already ~36 mm).
     /// </summary>
     private const float MaxVideoDisparityMeters = 0.055f;
 
@@ -337,12 +346,13 @@ internal sealed class FlatScreenStereo
             "stays exactly ON it — background recedes, menu floats in front, no artificial " +
             "geometry. Off = old behavior: stereo is fully suspended (mono) while any " +
             "camera-plane video plays.");
-        s_videoDepth = file.Bind("WorldUI", "VideoDepth", 0.8f,
+        s_videoDepth = file.Bind("WorldUI", "VideoDepth", 2.2f,
             "How far BEHIND the screen plane a re-routed 2D video appears, in real meters " +
             "(VideoDepthLayer). Disparity p = IPD*V/(D+V) with D = ScreenDistance: at the " +
-            "1.6 m default screen and 0.8 m depth the video reads at 2.4 m (1.5x the screen " +
-            "distance, ~21 mm disparity — far below the ~63 mm divergence limit; clamped " +
-            "regardless). 0 = video on the screen plane (no video depth).");
+            "1.6 m default screen and 2.2 m depth the video reads at 3.8 m (~2.4x the screen " +
+            "distance, ~36 mm disparity — below the ~63 mm divergence limit; clamped to " +
+            "55 mm regardless). Raised from 0.8 after test #19 (the recession read too " +
+            "subtle). 0 = video on the screen plane (no video depth).");
         s_parallaxScale = file.Bind("WorldUI", "ScreenParallaxScale", 6.0f,
             "Amplifies the stereo screen's scene-INTERNAL depth (test #16: far menu scenery " +
             "read flat at geometric settings). Separation AND convergence are multiplied by " +
@@ -441,7 +451,7 @@ internal sealed class FlatScreenStereo
     /// </summary>
     private float ComputeVideoShiftUv()
     {
-        float depth = Mathf.Clamp(s_videoDepth?.Value ?? 0.8f, 0f, 5f);
+        float depth = Mathf.Clamp(s_videoDepth?.Value ?? 2.2f, 0f, 5f);
         if (depth <= 0f)
             return 0f;
         float distance = Mathf.Max(0.1f, WorldUIConfig.ScreenDistance.Value);
