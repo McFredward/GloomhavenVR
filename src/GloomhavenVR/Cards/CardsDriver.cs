@@ -172,7 +172,7 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdateBoardLaser();
         UpdateSlotHighlight();
         _fan.Tick();
-        _half.Tick();
+        _half.Tick(VRHands.Primary);
 
         CardsHandUI? hand = CurrentHand();
         if (_tray.IsVisible)
