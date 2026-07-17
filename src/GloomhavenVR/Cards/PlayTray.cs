@@ -45,6 +45,23 @@ internal sealed class PlayTray
     private const float SlotCaptureRadius = 0.25f;
 
     /// <summary>
+    /// Test #18: the card slots read a bit small — the slot ROOTS are scaled 1.3×,
+    /// which uniformly enlarges the frames, the snap-glow highlights, the initiative
+    /// badge and the PARKED cards (cards park at localScale 1 under the slot, so the
+    /// parent scale IS the slot size). Layout stays collision-free at SlotSpacing
+    /// 0.155: enlarged highlight half-width 0.0635·1.24·1.3/2 ≈ 0.051 m → outer
+    /// edges ±0.129, clear of the rest plate (right edge -0.19) and the CONFIRM
+    /// column (base-plate left edge ≈ 0.177); the inter-slot highlight gap stays
+    /// ≈ 0.053 m. Grab/release is unaffected: VRCard.OnGrab re-parents into the
+    /// hand (held scale is hand-defined) and OnRelease restores localScale =
+    /// home scale back under the slot. Slot captions compensate the inherited
+    /// scale (see <see cref="BuildSlotLabels"/>); SlotCaptureRadius stays as-is —
+    /// at 0.25 m it already spans both slots and the glow is the primary accept
+    /// rule anyway.
+    /// </summary>
+    private const float SlotScale = 1.3f;
+
+    /// <summary>
     /// The live tray instance (test #15 dashboard mount seam): WorldUI surfaces read
     /// <see cref="InitiativeMount"/>/<see cref="ObjectivesMount"/> through this to
     /// pose their converted hosts on the tray. Null while no tray exists.
@@ -193,6 +210,16 @@ internal sealed class PlayTray
 
         if (_slots[0] == null || _slots[1] == null)
             BuildProceduralBoard();
+
+        // Bigger card slots (test #18): scale the slot roots BEFORE the dependent
+        // visuals build — frames (already childed), highlights, badge, labels and
+        // the parked cards all inherit the slot scale.
+        for (int i = 0; i < 2; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot != null)
+                slot.localScale *= SlotScale;
+        }
 
         BuildSlotLabels();
         BuildSlotHighlights();
@@ -993,13 +1020,18 @@ internal sealed class PlayTray
         // to the physical order) — label it so the marking is unambiguous.
         // Caption box stays inside one slot pitch (SlotSpacing 0.155) so neighboring
         // captions can never collide; "INITIATIVE" (and longer localizations) shrink
-        // to a single line inside it (TmpFit, test #12).
+        // to a single line inside it (TmpFit, test #12). The captions are children
+        // of the SCALED slots (test #18): the box metrics divide by SlotScale so the
+        // EFFECTIVE caption size stays as designed — an inherited 1.3× would push
+        // the 0.14 box past the 0.155 pitch and collide the neighboring caption.
         AddCaption(_slots[0]!, new Vector3(0f, -h * 0.62f, -0.004f),
             CardsGameApi.Localize("GUI_INITIATIVE", "INITIATIVE"), new Color(1f, 0.9f, 0.6f),
-            maxUpper: true, width: 0.14f, height: 0.024f, maxFontSize: 0.28f);
+            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
+            maxFontSize: 0.28f / SlotScale);
         AddCaption(_slots[1]!, new Vector3(0f, -h * 0.62f, -0.004f),
             "2", new Color(0.75f, 0.73f, 0.7f),
-            maxUpper: true, width: 0.14f, height: 0.024f, maxFontSize: 0.28f);
+            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
+            maxFontSize: 0.28f / SlotScale);
     }
 
     private void BuildBadge()
