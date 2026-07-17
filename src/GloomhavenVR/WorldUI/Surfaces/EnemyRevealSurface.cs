@@ -34,8 +34,11 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// under <c>enemyCardsHolder</c> (the blocker rises a few frames before the staggered
 /// card animations start). While visible, the holder subtree is converted onto its own
 /// host (<see cref="CanvasConversion"/> — the REAL widgets, native art/text) floating
-/// above the board center, upright, yaw lazily easing toward the head, scaling with the
-/// diorama, at the shared tray density; on hide it is released back to its exact 2D home
+/// in the player's forward VIEW FOCUS — anchored in front of the HEAD at a comfortable
+/// reading distance (the settings panel's "spawn in view" / ModalFallback.PlaceAtHmd
+/// pattern via <see cref="PanelPlacement.Spawn"/>), upright and facing the head, its
+/// POSITION and yaw lazily easing back to re-centre only when the head has clearly turned
+/// or moved, scaling with the diorama, at the shared tray density; on hide it is released back to its exact 2D home
 /// inside the track (whether
 /// that home is currently the docked track host or the screen-space canvas — the
 /// restore is parent-relative either way). Nested canvases inside the subtree are
@@ -51,9 +54,6 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class EnemyRevealSurface
 {
-    /// <summary>Panel center height above the board-center anchor, real meters.</summary>
-    private const float HeightMeters = 0.55f;
-
     /// <summary>
     /// Per-panel multiplier on the shared tray density (test #17 pattern): 0.6 renders
     /// the same content pixels ~1.67x larger — the objectives' verified readability
@@ -67,20 +67,28 @@ internal sealed class EnemyRevealSurface
     /// <summary>The fitted host width must hold steady this long before the fit is pinned.</summary>
     private const float FitPinSettleSeconds = 1f;
 
-    // Lazy follow (test #23 (c)) — FlatScreen.FollowHead's feel: re-face only past this
-    // yaw error, held for the dwell (ignore quick glances / jitter), then ease in until
-    // settled. FollowEaseRate is the Slerp rate (matches FlatScreen's 3/s glide).
-    private const float FollowDeadzoneDeg = 45f;
-    private const float FollowDwellSeconds = 1f;
+    // Lazy follow (test #27) — FlatScreen.FollowHead's feel, extended to POSITION as
+    // well as yaw: re-centre in front of the head only once the panel has drifted more
+    // than FollowDeadzoneDeg off the gaze (head turned / player walked), held for the
+    // dwell so quick glances and tremor are ignored, then ease in until it has re-
+    // converged on the fresh in-view target within FollowSettledDeg. Between triggers the
+    // panel is world-stable (its stored pose is applied verbatim, never recomputed), so
+    // it sits perfectly still and only glides on a deliberate move. FollowEaseRate is the
+    // Lerp/Slerp rate (matches FlatScreen's 3/s glide). The deadzone clears the ~9° that
+    // the comfortable downward reading drop already puts the panel below the gaze axis
+    // (see <see cref="PanelPlacement.SpawnDrop"/>), so it never self-triggers at rest.
+    private const float FollowDeadzoneDeg = 22f;
+    private const float FollowDwellSeconds = 0.5f;
     private const float FollowSettledDeg = 5f;
     private const float FollowEaseRate = 3f;
 
     private static readonly StringBuilder NameScratch = new(128);
 
     private ConvertedPanel? _panel;
-    private Quaternion _yaw = Quaternion.identity;   // current applied yaw (eased toward the head)
-    private bool _yawInitialized;
-    private int _facedPoseVersion = -1;              // RigPoseVersion the yaw was last snapped at
+    private Vector3 _position;                        // current applied host position (world-stable between glides)
+    private Quaternion _rotation = Quaternion.identity; // current applied host rotation (upright, facing the head)
+    private bool _placed;                            // false until Place() snaps the first in-view pose
+    private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at
     private float _offGazeSince = -1f;
     private bool _easing;
     private bool _lastVisible;
@@ -108,7 +116,7 @@ internal sealed class EnemyRevealSurface
         {
             _lastVisible = visible;
             VRLog.Info("WorldUI", visible
-                ? $"ENEMY REVEAL shown: {DescribeCards(track)} — floating over the board center."
+                ? $"ENEMY REVEAL shown: {DescribeCards(track)} — floating in the player's view focus."
                 : "ENEMY REVEAL hidden — cards restored to their 2D home in the initiative track.");
         }
 
@@ -128,7 +136,7 @@ internal sealed class EnemyRevealSurface
                     _fitMaxWidth = -1f;
                     _fitAtMaxSince = 0f;
                     _fitPinned = false;
-                    _yawInitialized = false; // Place() snaps the yaw on the first tick
+                    _placed = false; // Place() snaps the first in-view pose on the next tick
                     _easing = false;
                     _offGazeSince = -1f;
                 }
@@ -231,32 +239,50 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Lazy follow into view (test #23 (c)), mirroring FlatScreen.FollowHead: the panel
-    /// stays over the board center, but its yaw eases to face the player instead of
-    /// being stranded edge-on when the player walks around the table or snap-turns.
+    /// Lazy follow into view (test #27), mirroring FlatScreen.FollowHead but easing
+    /// POSITION as well as yaw: the panel is planted in the forward view focus and left
+    /// world-stable, then glides back to re-centre in front of the head only when the
+    /// player has clearly turned or moved. The comfortable in-view target is
+    /// <see cref="PanelPlacement.Spawn"/> — a reading distance straight ahead, slightly
+    /// below eye level, upright and facing the head — sized in FIXED game-world units at
+    /// the diorama reference scale so it still zooms WITH the board under world-grab.
+    ///
     /// SNAP (no ease) at spawn and on rig rebuild/recenter — the RigPoseVersion derive
-    /// events the world-anchored panels use, so a deliberate recentre re-faces at once.
-    /// Otherwise re-face only after the yaw has been &gt; <see cref="FollowDeadzoneDeg"/>
-    /// off the head for <see cref="FollowDwellSeconds"/> (dead-zoned against quick
-    /// glances / jitter), then Slerp toward it until it settles within
-    /// <see cref="FollowSettledDeg"/>.
+    /// events every panel uses — so a deliberate recentre re-places at once. Otherwise
+    /// re-centre only after the panel has drifted &gt; <see cref="FollowDeadzoneDeg"/> off
+    /// the gaze for <see cref="FollowDwellSeconds"/> (dead-zoned against quick glances /
+    /// tremor), then Lerp/Slerp toward the fresh target until it has re-converged within
+    /// <see cref="FollowSettledDeg"/>. CRUCIAL for jitter: while NOT easing the stored
+    /// <see cref="_position"/>/<see cref="_rotation"/> are applied verbatim — the target
+    /// is never recomputed per frame, so nothing fights the ease and the panel sits still.
     /// </summary>
-    private void UpdateFollowYaw(Vector3 center, Quaternion seatYaw)
+    private void UpdateFollow(Camera head, float scale)
     {
-        Quaternion desired = DesiredYaw(center, seatYaw);
+        // Comfortable in-view target (settings-panel "spawn in view" pattern): a reading
+        // distance ahead of the head, slightly dropped, upright and facing it. Sized at
+        // the reference scale so the distance is world-fixed (zooms with the board).
+        PanelPlacement.Spawn(head, scale, out Vector3 desiredPos, out Quaternion desiredRot);
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
-        if (!_yawInitialized || poseVersion != _facedPoseVersion)
+        if (!_placed || poseVersion != _facedPoseVersion)
         {
-            _yaw = desired;
-            _yawInitialized = true;
+            _position = desiredPos;
+            _rotation = desiredRot;
+            _placed = true;
             _facedPoseVersion = poseVersion;
             _offGazeSince = -1f;
             _easing = false;
             return;
         }
 
-        float off = Quaternion.Angle(_yaw, desired);
+        // Drift = the CURRENT panel centre's angle off the gaze. The reading drop already
+        // sits it ~9° below the forward axis, which FollowDeadzoneDeg clears, so an
+        // at-rest panel never self-triggers; a head turn / walk that pushes it past the
+        // deadzone does.
+        Vector3 toPanel = _position - head.transform.position;
+        float off = toPanel.sqrMagnitude > 1e-6f
+            ? Vector3.Angle(head.transform.forward, toPanel)
+            : 0f;
         if (off > FollowDeadzoneDeg)
         {
             if (_offGazeSince < 0f)
@@ -264,8 +290,8 @@ internal sealed class EnemyRevealSurface
             if (!_easing && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
             {
                 _easing = true;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the head for " +
-                                      $">{FollowDwellSeconds:F0}s — easing to face the player.");
+                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze for " +
+                                      $">{FollowDwellSeconds:F1}s — gliding back into the view focus.");
             }
         }
         else
@@ -275,8 +301,15 @@ internal sealed class EnemyRevealSurface
 
         if (_easing)
         {
-            _yaw = Quaternion.Slerp(_yaw, desired, Time.deltaTime * FollowEaseRate);
-            if (Quaternion.Angle(_yaw, desired) < FollowSettledDeg)
+            float t = Time.deltaTime * FollowEaseRate;
+            _position = Vector3.Lerp(_position, desiredPos, t);
+            _rotation = Quaternion.Slerp(_rotation, desiredRot, t);
+            // Settled = converged on the fresh target (its direction AND facing), not on
+            // the gaze axis — the target itself sits below the axis by the reading drop.
+            Vector3 toDesired = desiredPos - head.transform.position;
+            bool posSettled = toDesired.sqrMagnitude < 1e-6f
+                || Vector3.Angle(_position - head.transform.position, toDesired) < FollowSettledDeg;
+            if (posSettled && Quaternion.Angle(_rotation, desiredRot) < FollowSettledDeg)
             {
                 _easing = false;
                 _offGazeSince = -1f;
@@ -285,35 +318,21 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Upright yaw that points the panel's uGUI front at the player from
-    /// <paramref name="center"/> (canvas fronts render along -forward, so +Z points
-    /// AWAY from the head). Falls back to the seat yaw when the head is unavailable or
-    /// the head sits directly under the panel.
-    /// </summary>
-    private static Quaternion DesiredYaw(Vector3 center, Quaternion seatYaw)
-    {
-        Camera? head = CanvasConversion.WorldCamera;
-        if (head == null)
-            return seatYaw;
-        Vector3 facing = center - head.transform.position;
-        facing.y = 0f;
-        if (facing.sqrMagnitude < 1e-4f)
-            return seatYaw;
-        return Quaternion.LookRotation(facing.normalized, Vector3.up);
-    }
-
-    /// <summary>
-    /// Above the board center (the orbit focus the panels anchor to), at the SHARED
-    /// tray density (test #16) with the objectives' readability multiplier,
-    /// width-capped. Sized and offset in FIXED game-world units at the diorama's
-    /// reference scale (<see cref="ReferenceScale"/>), so the panel zooms WITH the
-    /// board under world-grab (test #23 (b)) — see that helper for why the old live
-    /// WorldScale multiplier held it at a constant apparent size instead.
+    /// Anchor the reveal in the player's forward view focus (test #27), at the SHARED
+    /// tray density (test #16) with the objectives' readability multiplier, width-capped.
+    /// Position/facing come from the lazy head-follow (<see cref="UpdateFollow"/>); the
+    /// host is sized in FIXED game-world units at the diorama's reference scale
+    /// (<see cref="ReferenceScale"/>) so the panel zooms WITH the board under world-grab
+    /// (test #23 (b)) — see that helper for why the old live WorldScale multiplier held
+    /// it at a constant apparent size instead.
     /// </summary>
     private void Place()
     {
-        if (_panel == null || !PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion seatYaw))
+        if (_panel == null)
             return;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return; // no head yet — leave the panel where it last sat (world-stable)
 
         float scale = ReferenceScale();
         float metersPerPx = 1f / (PlayTray.TrayPixelsPerMeter * DensityScale);
@@ -321,11 +340,10 @@ internal sealed class EnemyRevealSurface
         if (rect.width > 1f)
             metersPerPx = Mathf.Min(metersPerPx, MaxWidthMeters / rect.width);
 
-        Vector3 center = anchor + Vector3.up * (HeightMeters * scale);
-        UpdateFollowYaw(center, seatYaw);
+        UpdateFollow(head, scale);
 
         Transform host = _panel.HostTransform;
-        host.SetPositionAndRotation(center, _yaw);
+        host.SetPositionAndRotation(_position, _rotation);
         host.localScale = Vector3.one * (metersPerPx * scale);
     }
 
