@@ -18,6 +18,14 @@ internal sealed class CardFan
     private Transform? _root;
     private VRHand? _hand;
 
+    // G2: index of the card the ray/finger is currently over (-1 = none). Drives the
+    // whole-fan split in Relayout. Fed by the driver via SetHovered (parallel-owned file).
+    private int _hoveredIndex = -1;
+
+    // G4: when the eased follow starts (open, or the follow mode flips) the fan snaps to the
+    // palm once instead of easing in from a stale position.
+    private bool _followInit;
+
     internal bool IsOpen { get; private set; }
 
     /// <summary>Cards currently owned by the fan (read-only view).</summary>
@@ -37,6 +45,7 @@ internal sealed class CardFan
         }
         _root.SetParent(hand.Rig.PalmCenter, worldPositionStays: false);
         _root.gameObject.SetActive(true);
+        _followInit = true; // G4: snap to the palm on the first Tick, don't ease in
         IsOpen = true;
         Relayout(instant: true);
     }
@@ -87,16 +96,93 @@ internal sealed class CardFan
             Relayout(instant: false);
     }
 
+    // ------------------------------------------------------------------ hover split --
+
+    /// <summary>
+    /// G2 (Demeo CardHandView.cs:451-464): tell the fan which card the ray/finger is over
+    /// so the WHOLE fan can split apart around it — the neighbours slide sideways to open a
+    /// gap, most for the nearest, and the hovered card pops toward the viewer. Index -1 =
+    /// nothing hovered, and the split relaxes back to zero via the existing per-card lerp.
+    ///
+    /// PUBLIC because the hover source (laser <c>_laserHover</c> / proximity highlight) lives
+    /// in <see cref="CardsDriver"/> — a parallel-owned file (blueprint Group D) that pushes
+    /// the index in here. The split offsets are fan-LOCAL constants (they depend only on the
+    /// slot rotations, not the fan's head-facing world orientation), so we recompute on hover
+    /// CHANGE only and let <see cref="VRCard"/> animate the slide — a per-frame pass would be
+    /// redundant and this stays allocation-free.
+    ///
+    /// The hovered card's forward pop is intentionally NOT applied here: <see cref="VRCard"/>
+    /// already pops any hovered/highlighted card toward the viewer (its <c>_laserPopped</c> /
+    /// <c>_popped</c> path, magnitude == <see cref="CardsConfig.FanSelectedPopForward"/>'s
+    /// 0.035 default), so baking a pop into the home too would double it.
+    /// </summary>
+    public void SetHovered(int index)
+    {
+        if (index == _hoveredIndex)
+            return;
+        _hoveredIndex = index;
+        if (IsOpen)
+            Relayout(instant: false);
+    }
+
     // ------------------------------------------------------------------ per frame --
 
-    /// <summary>Orient the fan toward the head every frame while open.</summary>
+    /// <summary>Follow the palm (rigidly or eased) and face the head every frame while open.</summary>
     internal void Tick()
     {
         if (!IsOpen || _root == null || _hand == null)
             return;
 
-        // Pivot floats above the palm along the palm normal (+Y of PalmCenter).
-        _root.localPosition = new Vector3(0f, CardsConfig.FanPalmOffset.Value, 0f);
+        Transform? palm = _hand.Rig.PalmCenter;
+        if (palm == null)
+            return;
+
+        // The palm target: FanPalmOffset up the palm normal, in world space. FanPalmOffset is
+        // "real meters"; the palm's lossyScale is the diorama WorldScale, so multiply through
+        // to land in world units (the same product the rigid PalmCenter-parented offset gives).
+        float scale = palm.lossyScale.x;
+        Vector3 target = palm.position + palm.up * (CardsConfig.FanPalmOffset.Value * scale);
+
+        float smoothing = CardsConfig.FanFollowSmoothing.Value;
+        Transform? rig = VRRigDriver.RigRoot;
+        if (smoothing > 0f && rig != null)
+        {
+            // G4 eased dead-zoned follow (Demeo ViewHelper, CardHandView.cs:677). Parent to the
+            // STABLE rig root (same diorama scale as the palm, so card sizes are unchanged) and
+            // ease the fan's WORLD position toward the palm — decoupling it from the palm so the
+            // dead zone can hold it perfectly still through sub-threshold hand jitter. Reparent
+            // only when the mode actually flips (worldPositionStays: no visible jump).
+            if (_root.parent != rig)
+            {
+                _root.SetParent(rig, worldPositionStays: true);
+                _followInit = true;
+            }
+
+            if (_followInit)
+            {
+                _followInit = false;
+                _root.position = target;
+            }
+            else
+            {
+                Vector3 delta = target - _root.position;
+                // minDistanceToMove: below the dead zone the fan holds still; past it, ease in
+                // frame-rate-independent exponential steps at the configured rate.
+                if (delta.magnitude > CardsConfig.FanFollowDeadzone.Value * scale)
+                    _root.position += delta * (1f - Mathf.Exp(-smoothing * Time.deltaTime));
+            }
+        }
+        else
+        {
+            // Rigid (pre-Demeo, FanFollowSmoothing == 0): welded to the palm. Parent to
+            // PalmCenter and sit at the offset — exactly the previous behaviour.
+            if (_root.parent != palm)
+            {
+                _root.SetParent(palm, worldPositionStays: true);
+                _followInit = true;
+            }
+            _root.localPosition = new Vector3(0f, CardsConfig.FanPalmOffset.Value, 0f);
+        }
 
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
@@ -131,6 +217,26 @@ internal sealed class CardFan
         float step = n > 1 ? Mathf.Min(11f, maxArc / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
+        // G1 curvature-by-fill (Demeo CardHandView.cs:814): both the vertical arch and the
+        // per-card Z-tilt are multiplied by how full the hand is, so a few cards read nearly
+        // flat/untilted and a full hand arches and tilts. FanFlatCurvatureFactor/FanTiltFactor
+        // are the fill=1 targets (== the pre-Demeo constants 0.55/0.85). With FanCurveByFill
+        // OFF we drop the fill term entirely and use those constants at every hand size, so the
+        // legacy look is preserved exactly.
+        float archFactor = CardsConfig.FanFlatCurvatureFactor.Value;
+        float tiltFactor = CardsConfig.FanTiltFactor.Value;
+        if (CardsConfig.FanCurveByFill.Value)
+        {
+            float fill = Mathf.Clamp01((float)n / Mathf.Max(1, CardsConfig.FanMaxHandForCurve.Value));
+            archFactor *= fill;
+            tiltFactor *= fill;
+        }
+
+        // G2 whole-fan split (Demeo CardHandView.cs:451-464): when a card is hovered the
+        // others slide sideways to open a gap around it. Clamp defends against a stale index
+        // left over after a card was plucked out of the fan before the driver clears it.
+        int hovered = _hoveredIndex >= 0 && _hoveredIndex < n ? _hoveredIndex : -1;
+
         // Exposed strip of each card = chord between neighboring card centers. The
         // right neighbor draws IN FRONT (more negative z), covering this card's right
         // side — so each card's grab collider shrinks to its visible LEFT strip and
@@ -150,10 +256,17 @@ internal sealed class CardFan
             float rad = angle * Mathf.Deg2Rad;
             // Arc bends around a pivot below the fan root; z-stagger keeps the
             // draw order stable (later cards nearer the viewer = -Z).
+            var rot = Quaternion.Euler(0f, 0f, -angle * tiltFactor);
             var pos = new Vector3(Mathf.Sin(rad) * radius,
-                                  (Mathf.Cos(rad) - 1f) * radius * 0.55f,
+                                  (Mathf.Cos(rad) - 1f) * radius * archFactor,
                                   -ZStagger * i);
-            var rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
+
+            // Slide non-hovered cards along their OWN local right (rot * X, in fan space) to
+            // open the split gap around the hovered card. The hovered card is the pivot and
+            // does not move (its pop is VRCard's job — see SetHovered).
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(SplitOffset(i - hovered), 0f, 0f);
+
             card.SetHome(_root, pos, rot, 1f, instant);
 
             if (i == n - 1)
@@ -161,6 +274,24 @@ internal sealed class CardFan
             else
                 card.SetColliderRegion(strip, -(w - strip) * 0.5f);
         }
+    }
+
+    /// <summary>
+    /// G2 sideways split offset (real meters) for a card <paramref name="signed"/> = i -
+    /// hovered slots from the hovered card. Coded substitute for Demeo's serialized
+    /// <c>cardSplitCurve</c> (CardHandView.cs:452): a GAUSSIAN in slot-distance,
+    /// <c>FanSplitMultiplier * exp(-(d / FanSplitFalloff)^2)</c> with d = |signed|, signed by
+    /// which side of the hovered card we are on (left slides left, right slides right). The
+    /// nearest neighbour moves most and the push decays smoothly outward; FanSplitFalloff is
+    /// the Gaussian width — higher = only the immediate neighbours move, lower = the whole
+    /// fan spreads. FanSplitMultiplier = 0 disables the split entirely.
+    /// </summary>
+    private static float SplitOffset(int signed)
+    {
+        float d = Mathf.Abs(signed);
+        float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
+        float x = d / falloff;
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * CardsConfig.FanSplitMultiplier.Value;
     }
 
     // ------------------------------------------------------------------ laser pick --
