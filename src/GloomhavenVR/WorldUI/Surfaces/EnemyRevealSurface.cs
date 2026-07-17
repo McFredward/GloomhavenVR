@@ -34,8 +34,9 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// under <c>enemyCardsHolder</c> (the blocker rises a few frames before the staggered
 /// card animations start). While visible, the holder subtree is converted onto its own
 /// host (<see cref="CanvasConversion"/> — the REAL widgets, native art/text) floating
-/// above the board center, upright, yawed toward the head at spawn, at the shared tray
-/// density; on hide it is released back to its exact 2D home inside the track (whether
+/// above the board center, upright, yaw lazily easing toward the head, scaling with the
+/// diorama, at the shared tray density; on hide it is released back to its exact 2D home
+/// inside the track (whether
 /// that home is currently the docked track host or the screen-space canvas — the
 /// restore is parent-relative either way). Nested canvases inside the subtree are
 /// handled entirely by CanvasConversion's neutralization + periodic sweep; this class
@@ -66,10 +67,22 @@ internal sealed class EnemyRevealSurface
     /// <summary>The fitted host width must hold steady this long before the fit is pinned.</summary>
     private const float FitPinSettleSeconds = 1f;
 
+    // Lazy follow (test #23 (c)) — FlatScreen.FollowHead's feel: re-face only past this
+    // yaw error, held for the dwell (ignore quick glances / jitter), then ease in until
+    // settled. FollowEaseRate is the Slerp rate (matches FlatScreen's 3/s glide).
+    private const float FollowDeadzoneDeg = 45f;
+    private const float FollowDwellSeconds = 1f;
+    private const float FollowSettledDeg = 5f;
+    private const float FollowEaseRate = 3f;
+
     private static readonly StringBuilder NameScratch = new(128);
 
     private ConvertedPanel? _panel;
-    private Quaternion _spawnYaw = Quaternion.identity;
+    private Quaternion _yaw = Quaternion.identity;   // current applied yaw (eased toward the head)
+    private bool _yawInitialized;
+    private int _facedPoseVersion = -1;              // RigPoseVersion the yaw was last snapped at
+    private float _offGazeSince = -1f;
+    private bool _easing;
     private bool _lastVisible;
 
     // Host-rect pin (test #23): largest fitted width seen this reveal + the time it
@@ -115,7 +128,9 @@ internal sealed class EnemyRevealSurface
                     _fitMaxWidth = -1f;
                     _fitAtMaxSince = 0f;
                     _fitPinned = false;
-                    CaptureSpawnYaw();
+                    _yawInitialized = false; // Place() snaps the yaw on the first tick
+                    _easing = false;
+                    _offGazeSince = -1f;
                 }
             }
         }
@@ -216,26 +231,75 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Yaw toward the head, captured ONCE at spawn (upright, yaw-only — no per-frame
-    /// billboard: the reveal is a brief, stationary moment and a swiveling panel over
-    /// the board reads as attached to the head). Falls back to the seat yaw.
+    /// Lazy follow into view (test #23 (c)), mirroring FlatScreen.FollowHead: the panel
+    /// stays over the board center, but its yaw eases to face the player instead of
+    /// being stranded edge-on when the player walks around the table or snap-turns.
+    /// SNAP (no ease) at spawn and on rig rebuild/recenter — the RigPoseVersion derive
+    /// events the world-anchored panels use, so a deliberate recentre re-faces at once.
+    /// Otherwise re-face only after the yaw has been &gt; <see cref="FollowDeadzoneDeg"/>
+    /// off the head for <see cref="FollowDwellSeconds"/> (dead-zoned against quick
+    /// glances / jitter), then Slerp toward it until it settles within
+    /// <see cref="FollowSettledDeg"/>.
     /// </summary>
-    private void CaptureSpawnYaw()
+    private void UpdateFollowYaw(Vector3 center, Quaternion seatYaw)
     {
-        _spawnYaw = Quaternion.identity;
-        if (!PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion seatYaw))
+        Quaternion desired = DesiredYaw(center, seatYaw);
+
+        int poseVersion = Rig.VRRigDriver.RigPoseVersion;
+        if (!_yawInitialized || poseVersion != _facedPoseVersion)
+        {
+            _yaw = desired;
+            _yawInitialized = true;
+            _facedPoseVersion = poseVersion;
+            _offGazeSince = -1f;
+            _easing = false;
             return;
-        _spawnYaw = seatYaw; // fallback: face the recentered seat
+        }
+
+        float off = Quaternion.Angle(_yaw, desired);
+        if (off > FollowDeadzoneDeg)
+        {
+            if (_offGazeSince < 0f)
+                _offGazeSince = Time.unscaledTime;
+            if (!_easing && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
+            {
+                _easing = true;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the head for " +
+                                      $">{FollowDwellSeconds:F0}s — easing to face the player.");
+            }
+        }
+        else
+        {
+            _offGazeSince = -1f;
+        }
+
+        if (_easing)
+        {
+            _yaw = Quaternion.Slerp(_yaw, desired, Time.deltaTime * FollowEaseRate);
+            if (Quaternion.Angle(_yaw, desired) < FollowSettledDeg)
+            {
+                _easing = false;
+                _offGazeSince = -1f;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Upright yaw that points the panel's uGUI front at the player from
+    /// <paramref name="center"/> (canvas fronts render along -forward, so +Z points
+    /// AWAY from the head). Falls back to the seat yaw when the head is unavailable or
+    /// the head sits directly under the panel.
+    /// </summary>
+    private static Quaternion DesiredYaw(Vector3 center, Quaternion seatYaw)
+    {
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
-            return;
-        Vector3 pos = anchor + Vector3.up * (HeightMeters * PanelLayout.WorldScale);
-        // Canvas front faces -forward: +Z away from the head makes it face the head.
-        Vector3 facing = pos - head.transform.position;
+            return seatYaw;
+        Vector3 facing = center - head.transform.position;
         facing.y = 0f;
         if (facing.sqrMagnitude < 1e-4f)
-            return;
-        _spawnYaw = Quaternion.LookRotation(facing.normalized, Vector3.up);
+            return seatYaw;
+        return Quaternion.LookRotation(facing.normalized, Vector3.up);
     }
 
     /// <summary>
@@ -248,7 +312,7 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private void Place()
     {
-        if (_panel == null || !PanelLayout.TryGetAnchor(out Vector3 anchor, out _))
+        if (_panel == null || !PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion seatYaw))
             return;
 
         float scale = ReferenceScale();
@@ -257,9 +321,11 @@ internal sealed class EnemyRevealSurface
         if (rect.width > 1f)
             metersPerPx = Mathf.Min(metersPerPx, MaxWidthMeters / rect.width);
 
+        Vector3 center = anchor + Vector3.up * (HeightMeters * scale);
+        UpdateFollowYaw(center, seatYaw);
+
         Transform host = _panel.HostTransform;
-        host.SetPositionAndRotation(
-            anchor + Vector3.up * (HeightMeters * scale), _spawnYaw);
+        host.SetPositionAndRotation(center, _yaw);
         host.localScale = Vector3.one * (metersPerPx * scale);
     }
 
