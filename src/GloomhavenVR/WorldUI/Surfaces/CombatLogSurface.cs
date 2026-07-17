@@ -137,6 +137,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private float _builtBarWidth = -1f;
     private bool _placedFromConfig;
     private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
+    private bool _healLogged;           // change-dedup for the out-of-view heal log
 
     protected override RectTransform? FindTarget() =>
         Singleton<CombatLogHandler>.IsInitialized
@@ -209,6 +210,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _builtBarWidth = -1f;
         _placedFromConfig = false;
         _facedPoseVersion = -1;
+        _healLogged = false;
         _respawnRequested = false;
     }
 
@@ -252,21 +254,74 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
                 WorldUIConfig.CombatLogRight.Value,
                 WorldUIConfig.CombatLogUp.Value,
                 WorldUIConfig.CombatLogForward.Value);
-            _frame.position = anchor + yaw * (offset * worldScale);
+            Vector3 candidate = anchor + yaw * (offset * worldScale);
+
+            // Item 2 (test #24): a stale/out-of-view persisted offset — e.g. after an MR
+            // toggle re-derived the pose — is HEALED back into the forward FOV here. In
+            // view the clamp is a no-op; out of view it pulls the panel in front of the
+            // head and we persist the healed offset so it never strands again.
+            bool healed = PanelPlacement.ClampIntoView(head, worldScale, ref candidate,
+                out Quaternion facing);
+            _frame.position = candidate;
             _frame.localScale = Vector3.one
                                 * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
 
             // Test #20: NO per-tick billboard — the constant head re-facing read as
             // the content shifting with head motion. Orientation derives at EVENTS
-            // only: once per conversion, and (FOLLOW) when the seat yaw re-derives
-            // (rig rebuild/recenter — RigPoseVersion bumps there and nowhere else).
+            // only: once per conversion, when the seat yaw re-derives (rig rebuild/
+            // recenter — RigPoseVersion bumps there and nowhere else), and when a heal
+            // relocated the panel (a legitimate re-place, not a per-tick re-face).
             int poseVersion = Rig.VRRigDriver.RigPoseVersion;
-            if (!_placedFromConfig || poseVersion != _facedPoseVersion)
+            if (!_placedFromConfig || poseVersion != _facedPoseVersion || healed)
             {
-                FaceHead(head);
+                _frame.rotation = facing;
                 _facedPoseVersion = poseVersion;
             }
+            if (healed)
+            {
+                PersistLayout();
+                if (!_healLogged)
+                {
+                    _healLogged = true;
+                    VRLog.Info("WorldUI", "Combat log was out of view (stale/MR-toggled pose) " +
+                                          "— healed back into the forward field of view.");
+                }
+            }
+            else
+            {
+                _healLogged = false;
+            }
             _placedFromConfig = true;
+        }
+        else if (!grabbed && !WorldUIConfig.CombatLogFollow.Value)
+        {
+            // PINNED + already placed: stay FROZEN in the world (world-static rule), BUT if a
+            // recenter / Mixed-Reality toggle (pose version bump) left the frozen pose outside
+            // the new forward view, heal the EXISTING world pose in — item 2. Idempotent in
+            // view, so a deliberately-pinned visible panel is never disturbed; only checked
+            // once per pose version, never per tick.
+            int poseVersion = Rig.VRRigDriver.RigPoseVersion;
+            if (poseVersion != _facedPoseVersion)
+            {
+                _facedPoseVersion = poseVersion;
+                Vector3 pos = _frame.position;
+                if (PanelPlacement.ClampIntoView(head, worldScale, ref pos, out Quaternion facing))
+                {
+                    _frame.position = pos;
+                    _frame.rotation = facing;
+                    PersistLayout();
+                    if (!_healLogged)
+                    {
+                        _healLogged = true;
+                        VRLog.Info("WorldUI", "Combat log (PINNED) was stranded out of view by a " +
+                                              "recenter/MR toggle — healed back into the forward view.");
+                    }
+                }
+                else
+                {
+                    _healLogged = false;
+                }
+            }
         }
 
         Rect rect = Panel.HostRect.rect; // pinned to the full window layout (OnConverted)
@@ -309,17 +364,13 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         if (_frame == null)
             return;
         float worldScale = PanelLayout.WorldScale;
-        Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        fwd.y = 0f;
-        if (fwd.sqrMagnitude < 1e-4f)
-            fwd = Vector3.forward;
-        fwd.Normalize();
-
-        _frame.position = h.position + fwd * (0.75f * worldScale) - Vector3.up * (0.15f * worldScale);
-        // uGUI front faces -forward → +Z points away from the viewer (same convention as FaceHead).
-        _frame.rotation = Quaternion.LookRotation(fwd, Vector3.up);
+        // Shared in-view spawn (item 2): a comfortable reading distance in front of the
+        // head, slightly below eye level, upright and facing the head.
+        PanelPlacement.Spawn(head, worldScale, out Vector3 pos, out Quaternion rot);
+        _frame.position = pos;
+        _frame.rotation = rot;
         _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
+        _healLogged = false;
         PersistLayout();
     }
 

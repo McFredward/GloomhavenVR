@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -35,18 +36,49 @@ namespace GloomhavenVR.WorldUI;
 /// Availability deliberately does NOT gate on <see cref="WorldUIConfig.ConversionActive"/>:
 /// the panel hosts the [WorldUI] Master switch, so it must stay reachable to turn the
 /// physicalized UI back ON.
+///
+/// MOVABLE (test #24): like the control board and the combat log, the panel rides a
+/// mod-owned frame — holder (identity pose, diorama scale) → frame (grab root, user
+/// size factor) → brass grab bar + FOLLOW/PINNED pin + the settings canvas. It drives
+/// the SAME shared <see cref="PanelGrabHandle"/> core: one hand moves, two hands resize
+/// (0.5×–2×), release persists the layout as [SettingsPanel] Right/Up/Forward/Scale.
+/// Every OPEN routes the spawn through <see cref="PanelPlacement"/> so the panel always
+/// appears cleanly in the forward field of view (never clipped into the board or
+/// stranded off to the side), then behaves world-static (PINNED) or seat-anchored
+/// (FOLLOW) exactly like the combat log.
 /// </summary>
-internal sealed class SettingsPanel
+internal sealed class SettingsPanel : IPanelGrabOwner
 {
     private const float PanelWidthPx = 380f;
     private const float RowHeightPx = 34f;
     private const float RefreshInterval = 0.25f;
 
-    private GameObject? _root;
+    // Frame geometry (real meters at diorama scale 1 — mirrors CombatLogSurface).
+    private const float CanvasMetersPerPixel = 0.0007f; // 380 px ≈ 27 cm wide
+    private const float BarGapMeters = 0.03f;           // panel bottom edge sits this far above the bar center
+    private const float BarThickness = 0.024f;
+    private const float BarWidthFraction = 0.55f;
+    private const float ZoneWidthFraction = 0.62f;
+
+    private GameObject? _root;   // the settings canvas (child of the frame)
     private Canvas? _canvas;
     private bool _open;
     private float _nextRefresh;
     private readonly List<Action> _refreshers = new(16);
+
+    // Mod-owned grab frame (holder → frame → bar/pin/canvas), built lazily in Build().
+    private Transform? _holder;   // identity pose, carries the diorama scale
+    private Transform? _frame;     // grab root at the bar center; localScale = user size factor
+    private Transform? _bar;
+    private BoxCollider? _grabZone;
+    private PanelGrabHandle? _handle;
+    private PlayTray.BoardButton? _pin;
+    private Transform? _pinAnchor;
+    private PlayTray? _laserTray;
+    private bool _placedFromConfig;
+    private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
+    private bool _healLogged;           // change-dedup for the out-of-view heal log
+    private bool _respawnRequested;     // every OPEN drops the panel in view in front of the head
 
     // ---- cross-module seam (test #15) ------------------------------------------------------
 
@@ -88,6 +120,9 @@ internal sealed class SettingsPanel
         if (_canvas != null && _canvas.worldCamera != cam)
             _canvas.worldCamera = cam;
 
+        Placement(cam);
+        TickPin();
+
         if (Time.unscaledTime >= _nextRefresh)
         {
             _nextRefresh = Time.unscaledTime + RefreshInterval;
@@ -100,12 +135,22 @@ internal sealed class SettingsPanel
         if (ReferenceEquals(_instance, this))
             _instance = null;
         SetOpen(false);
-        if (_root != null)
-        {
-            UnityEngine.Object.Destroy(_root);
-            _root = null;
-            _canvas = null;
-        }
+        if (_holder != null)
+            UnityEngine.Object.Destroy(_holder.gameObject);
+        _holder = null;
+        _frame = null;
+        _bar = null;
+        _grabZone = null;
+        _handle = null;
+        _pin = null;
+        _pinAnchor = null;
+        _laserTray = null;
+        _root = null;
+        _canvas = null;
+        _placedFromConfig = false;
+        _facedPoseVersion = -1;
+        _healLogged = false;
+        _respawnRequested = false;
         _refreshers.Clear();
     }
 
@@ -121,51 +166,225 @@ internal sealed class SettingsPanel
 
         if (open)
         {
-            if (_root == null)
+            if (_holder == null)
                 Build();
-            if (_root == null)
+            if (_holder == null)
                 return;
-            PlaceInFrontOfHead();
-            _root.SetActive(true);
+            // Every open drops the panel cleanly in view in front of the head (item 1/3):
+            // the next Placement() consumes this and spawns via the shared clamp, so the
+            // panel never opens clipped into the board or stranded outside the view border.
+            _respawnRequested = true;
+            _placedFromConfig = false;
+            _holder.gameObject.SetActive(true);
+            Camera? head = CanvasConversion.WorldCamera;
+            if (head != null)
+                Placement(head); // place THIS frame so it never flashes at a stale pose
             if (_canvas != null)
                 UguiPokeSurfaces.Register(_canvas, PokeSurfaceTuning.SmallDialog);
             CanvasConversion.AddMaskRequest(); // head camera must render the UI layer
             RefreshAll();
-            VRLog.Info("WorldUI", "Settings panel opened.");
+            VRLog.Info("WorldUI", "Settings panel opened — placed in view in front of the head.");
         }
-        else if (_root != null)
+        else if (_holder != null)
         {
             if (_canvas != null)
                 UguiPokeSurfaces.Unregister(_canvas);
             CanvasConversion.RemoveMaskRequest();
-            _root.SetActive(false);
+            _holder.gameObject.SetActive(false);
             VRLog.Info("WorldUI", "Settings panel closed.");
         }
     }
 
-    private void PlaceInFrontOfHead()
+    // ---- placement (world-static/pinnable like the combat log) --------------------------------
+
+    /// <summary>
+    /// Keep the panel diorama-scaled and, while not grabbed, placed. A fresh open (or the
+    /// FOLLOW re-derive, or a first placement) routes through <see cref="PanelPlacement"/>
+    /// so the pose is guaranteed inside the forward FOV; PINNED then freezes it in the world.
+    /// </summary>
+    private void Placement(Camera head)
     {
-        if (_root == null)
+        if (_holder == null || _frame == null)
             return;
+
+        float worldScale = PanelLayout.WorldScale;
+        _holder.localScale = Vector3.one * worldScale;
+
+        if (_handle != null && _handle.IsGrabbed)
+            return; // the grab core owns the pose while held
+
+        if (_respawnRequested)
+        {
+            _respawnRequested = false;
+            PlaceInView(head);
+            _placedFromConfig = true;
+            _facedPoseVersion = VRRigDriver.RigPoseVersion;
+        }
+        else if (WorldUIConfig.SettingsFollow.Value || !_placedFromConfig)
+        {
+            if (!PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion yaw))
+                return;
+            Vector3 offset = new(
+                WorldUIConfig.SettingsRight.Value,
+                WorldUIConfig.SettingsUp.Value,
+                WorldUIConfig.SettingsForward.Value);
+            Vector3 candidate = anchor + yaw * (offset * worldScale);
+
+            // Item 2: heal a stale/out-of-view persisted offset back into the forward FOV.
+            bool healed = PanelPlacement.ClampIntoView(head, worldScale, ref candidate,
+                out Quaternion facing);
+            _frame.position = candidate;
+            _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.SettingsScale.Value, 0.5f, 2f);
+
+            // Orientation at events only (never per tick — the combat log's test #20 rule).
+            int poseVersion = VRRigDriver.RigPoseVersion;
+            if (!_placedFromConfig || poseVersion != _facedPoseVersion || healed)
+            {
+                _frame.rotation = facing;
+                _facedPoseVersion = poseVersion;
+            }
+            if (healed)
+            {
+                PersistLayout();
+                if (!_healLogged)
+                {
+                    _healLogged = true;
+                    VRLog.Info("WorldUI", "Settings panel was out of view — healed back into " +
+                                          "the forward field of view.");
+                }
+            }
+            else
+            {
+                _healLogged = false;
+            }
+            _placedFromConfig = true;
+        }
+        else if (!WorldUIConfig.SettingsFollow.Value)
+        {
+            // PINNED + already placed: stay frozen, but heal the EXISTING world pose in if a
+            // recenter/MR toggle (pose version bump) left it out of the new forward view (item 2).
+            int poseVersion = VRRigDriver.RigPoseVersion;
+            if (poseVersion != _facedPoseVersion)
+            {
+                _facedPoseVersion = poseVersion;
+                Vector3 pos = _frame.position;
+                if (PanelPlacement.ClampIntoView(head, worldScale, ref pos, out Quaternion facing))
+                {
+                    _frame.position = pos;
+                    _frame.rotation = facing;
+                    PersistLayout();
+                    if (!_healLogged)
+                    {
+                        _healLogged = true;
+                        VRLog.Info("WorldUI", "Settings panel (PINNED) was stranded out of view — " +
+                                              "healed back into the forward field of view.");
+                    }
+                }
+                else
+                {
+                    _healLogged = false;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fresh in-view spawn (item 1/3): a comfortable reading distance in front of the head,
+    /// slightly below eye level, upright and facing the head, then persist it. Used on every
+    /// open so the panel appears cleanly in front of the player, never overlapping the board
+    /// or the combat log.
+    /// </summary>
+    private void PlaceInView(Camera head)
+    {
+        if (_frame == null)
+            return;
+        float worldScale = PanelLayout.WorldScale;
+        PanelPlacement.Spawn(head, worldScale, out Vector3 pos, out Quaternion rot);
+        _frame.position = pos;
+        _frame.rotation = rot;
+        _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.SettingsScale.Value, 0.5f, 2f);
+        _healLogged = false;
+        PersistLayout();
+    }
+
+    // ---- IPanelGrabOwner ----------------------------------------------------------------------
+
+    Transform? IPanelGrabOwner.GrabRoot => _frame;
+    bool IPanelGrabOwner.GrabVisible =>
+        _open && _holder != null && _holder.gameObject.activeInHierarchy;
+    bool IPanelGrabOwner.GrabCarriesYaw => true; // world-static carry, yaws like the tray/combat log
+
+    void IPanelGrabOwner.OnGrabFinished()
+    {
+        // Release snaps upright — zero roll/pitch, yaw toward the head at THIS moment — then frozen.
         Camera? head = CanvasConversion.WorldCamera;
-        if (head == null)
+        if (head != null && _frame != null)
+        {
+            Vector3 away = _frame.position - head.transform.position;
+            away.y = 0f;
+            if (away.sqrMagnitude > 1e-6f)
+                _frame.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+        }
+        PersistLayout();
+    }
+
+    // ---- FOLLOW/PINNED + laser wiring ---------------------------------------------------------
+
+    private void TogglePin()
+    {
+        bool follow = !WorldUIConfig.SettingsFollow.Value;
+        WorldUIConfig.SettingsFollow.Value = follow; // BepInEx persists on set
+        if (!follow)
+            PersistLayout(); // freeze: re-derives the pin from these offsets on the next open
+        ApplyPinVisual();
+        VRLog.Info("WorldUI", "Settings panel anchor mode → " +
+                              $"{(follow ? "FOLLOW (seat-anchored)" : "PINNED (world-anchored)")}.");
+    }
+
+    private void ApplyPinVisual()
+    {
+        if (_pin == null)
             return;
+        bool follow = WorldUIConfig.SettingsFollow.Value;
+        _pin.SetState(true, accent: !follow);
+        _pin.SetLabel(follow ? "FOLLOW" : "PINNED");
+    }
 
-        float scale = PanelLayout.WorldScale;
-        Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        fwd.y = 0f;
-        if (fwd.sqrMagnitude < 1e-4f)
-            fwd = Vector3.forward;
-        fwd.Normalize();
+    /// <summary>
+    /// Laser support rides the tray's LaserTargets list while a tray exists and is visible
+    /// (CardsDriver ray-tests it); the list dies with each tray, so re-register per tray
+    /// INSTANCE. Poke needs none of this (the BoardButton self-registers).
+    /// </summary>
+    private void TickPin()
+    {
+        if (_pin == null)
+            return;
+        PlayTray? tray = PlayTray.Current;
+        if (tray != null && !ReferenceEquals(tray, _laserTray) && _pin.Collider != null)
+        {
+            tray.RegisterLaserTarget(_pin.Collider, _pin);
+            _laserTray = tray;
+        }
+    }
 
-        Vector3 pos = h.position + fwd * (0.55f * scale) - Vector3.up * (0.12f * scale);
-        // uGUI front faces -forward: +Z away from the player.
-        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
-
-        Transform t = _root.transform;
-        t.SetPositionAndRotation(pos, rot);
-        t.localScale = Vector3.one * (0.0007f * scale); // 0.7 mm/px → ~27 cm wide
+    /// <summary>
+    /// Inverse of the FOLLOW placement: the frame pose as table-anchor offsets in real
+    /// meters (seat-yaw space, divided by the diorama scale) + the size factor. BepInEx
+    /// writes the ConfigFile on set, so the layout survives sessions. Silent (called on
+    /// every open) — the open/anchor-mode logs already narrate placement.
+    /// </summary>
+    private void PersistLayout()
+    {
+        if (_frame == null || !PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion yaw))
+            return;
+        float worldScale = PanelLayout.WorldScale;
+        if (worldScale < 1e-5f)
+            return;
+        Vector3 local = Quaternion.Inverse(yaw) * (_frame.position - anchor) / worldScale;
+        WorldUIConfig.SettingsRight.Value = local.x;
+        WorldUIConfig.SettingsUp.Value = local.y;
+        WorldUIConfig.SettingsForward.Value = local.z;
+        WorldUIConfig.SettingsScale.Value = Mathf.Clamp(_frame.localScale.x, 0.5f, 2f);
     }
 
     // ---- chord ---------------------------------------------------------------------------
@@ -194,13 +413,24 @@ internal sealed class SettingsPanel
     {
         MixedReality.Bind(); // MR config may be read below before VRRigDriver's first tick
 
-        _root = new GameObject("GloomhavenVR.SettingsPanel") { layer = 5 };
+        BuildFrame();
+
+        _root = new GameObject("Canvas") { layer = 5 };
         var rect = _root.AddComponent<RectTransform>();
         _canvas = _root.AddComponent<Canvas>();
         _canvas.renderMode = RenderMode.WorldSpace;
         _canvas.worldCamera = CanvasConversion.WorldCamera;
         _root.AddComponent<GraphicRaycaster>();
         rect.sizeDelta = new Vector2(PanelWidthPx, 100f); // height grows via layout
+
+        // Ride the grab frame: bottom-center pivot so the panel grows UP from the bar
+        // (like the tray/combat-log mounts). localScale = real meters per uGUI pixel;
+        // the holder's diorama scale and the frame's user size factor stack on top.
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0f);
+        _root.transform.SetParent(_frame, worldPositionStays: false);
+        _root.transform.localPosition = new Vector3(0f, BarGapMeters, 0f);
+        _root.transform.localScale = Vector3.one * CanvasMetersPerPixel;
 
         var bg = _root.AddComponent<Image>();
         bg.color = new Color(0.07f, 0.07f, 0.10f, 0.92f);
@@ -340,8 +570,57 @@ internal sealed class SettingsPanel
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
-        VRLayers.Apply(_root);
-        _root.SetActive(false);
+        if (_holder == null)
+            return;
+        VRLayers.Apply(_holder.gameObject);
+        _holder.gameObject.SetActive(false);
+    }
+
+    // ---- grab frame (bar + FOLLOW/PINNED pin) -------------------------------------------------
+
+    /// <summary>
+    /// Build the mod-owned frame: holder (diorama scale) → frame (grab root) → brass grab
+    /// bar + FOLLOW/PINNED pin. Mirrors <c>CombatLogSurface.EnsureFrame</c> so the panel
+    /// moves/scales/persists through the shared <see cref="PanelGrabHandle"/> exactly like
+    /// the control board and the combat log.
+    /// </summary>
+    private void BuildFrame()
+    {
+        var holderGo = new GameObject("GloomhavenVR.SettingsPanel");
+        _holder = holderGo.transform;
+
+        var frameGo = new GameObject("Frame");
+        _frame = frameGo.transform;
+        _frame.SetParent(_holder, worldPositionStays: false);
+
+        float panelWidth = PanelWidthPx * CanvasMetersPerPixel;
+        float barWidth = panelWidth * BarWidthFraction;
+
+        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        bar.name = "Bar";
+        UnityEngine.Object.Destroy(bar.GetComponent<Collider>());
+        bar.transform.SetParent(_frame, worldPositionStays: false);
+        bar.transform.localScale = new Vector3(barWidth, BarThickness, BarThickness);
+        bar.GetComponent<MeshRenderer>().sharedMaterial =
+            WorldUIAssets.CreateFlatMaterial(new Color(0.62f, 0.5f, 0.28f)); // brass — same "grab me" as the tray
+        _bar = bar.transform;
+
+        // Grab zone + shared grab core (collider BEFORE the handle: OnEnable registers it).
+        _grabZone = frameGo.AddComponent<BoxCollider>();
+        _grabZone.size = new Vector3(panelWidth * ZoneWidthFraction, 0.05f, 0.05f);
+        _grabZone.isTrigger = true;
+        _handle = frameGo.AddComponent<PanelGrabHandle>();
+        _handle.Init(this, bar.GetComponent<MeshRenderer>(), "WorldUI", "Settings");
+
+        // FOLLOW/PINNED pin, right of the bar (the tray's toggle, same look & feel).
+        _pinAnchor = new GameObject("PinToggle").transform;
+        _pinAnchor.SetParent(_frame, worldPositionStays: false);
+        _pinAnchor.localPosition = new Vector3(barWidth * 0.5f + 0.05f, 0f, -0.002f);
+        _pin = PlayTray.BoardButton.Create(_pinAnchor, new Vector2(0.068f, 0.030f),
+            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", TogglePin);
+        ApplyPinVisual();
+
+        VRLog.Info("WorldUI", "Settings panel frame built (grab bar + FOLLOW/PINNED pin).");
     }
 
     private static bool BoardConfigSafe(Func<bool> read)
