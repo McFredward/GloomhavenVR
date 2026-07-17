@@ -134,6 +134,30 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
 /// <c>InitiativeTrackPlayerAvatar.CalculateInitiative</c> returns "?" for online
 /// players who have not locked in (<c>!actor.IsUnderMyControl</c> during
 /// <c>SelectAbilityCardsOrLongRest</c>).
+///
+/// PORTRAIT CLICKS SWITCH CHARACTERS (test #18). The host canvas registers with
+/// <see cref="Hands.Interact.UguiPokeSurfaces"/> (Convert's pokeable default), so
+/// the dominant laser (RayUguiDriver) and the fingertip poke (PokeInteractor)
+/// synthesize real pointer events on it. The 2D click path (verified via ilspycmd,
+/// decompiled GH.Runtime): each row's <c>ExtendedButton avatarButton</c>
+/// (InitiativeTrackActorBehaviour.cs:14, a <c>Button</c> subclass) handles
+/// <c>OnPointerClick</c> — gated by
+/// <c>InteractabilityManager.ShouldAllowClickForExtendedButton</c>
+/// (ExtendedButton.cs:168-173) — whose onClick reaches
+/// <c>InitiativeTrackPlayerAvatar.OnClick</c> (<c>isSelectableByClick</c>: only
+/// heroes the player controls) → <c>InitiativeTrack.Select(actorUI)</c>
+/// (<c>IsSelectable</c> phase gate) → <c>avatar.Select()</c> →
+/// <c>CardsHandManager.SwitchHand((CPlayerActor)m_Actor)</c>
+/// (InitiativeTrackPlayerAvatar.cs:21-28) — the same switch a miniature click
+/// performs. <c>UguiPointer.Release</c> fires
+/// <c>ExecuteEvents.pointerClickHandler</c>, which IS <c>Button.OnPointerClick</c>,
+/// so the whole chain runs and the game enforces control ownership itself. Clicks
+/// were dead in test #18 only because the stuck PhaseBanner soft lock kept every
+/// host raycaster disabled (see WorldUIModule). No pointer-over-UI feedback loop:
+/// UIManager_IsPointerOverUI_Patch reports over-UI only while the beam/fingertip is
+/// actually latched onto a registered surface, and the game never hides the
+/// initiative track on over-UI (unlike the stat panels, which are therefore
+/// converted non-pokeable).
 /// </summary>
 internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
 {
