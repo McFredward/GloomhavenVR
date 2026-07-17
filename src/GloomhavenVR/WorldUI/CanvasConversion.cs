@@ -62,6 +62,16 @@ internal sealed class ConvertedPanel
     /// <summary>Next periodic re-check frame (growth dirty-check throttle).</summary>
     public int FitNextCheckFrame;
 
+    // ---- re-fit churn damping (test #17; see FitHostToContent) -------------------------
+    /// <summary>Time of the last APPLIED fit (shrink/re-center rate limit).</summary>
+    public float FitLastApplied;
+
+    /// <summary>Pending shrink/re-center candidate size; zero when none.</summary>
+    public Vector2 FitPendingSize;
+
+    /// <summary>Time the pending candidate was first measured (stability clock).</summary>
+    public float FitPendingSince;
+
     /// <summary>Host transform for placement by the owning surface.</summary>
     public Transform HostTransform => HostGo.transform;
 
@@ -239,6 +249,12 @@ internal static class CanvasConversion
     /// <summary>Relative size/center change that triggers a re-fit (2 %).</summary>
     private const float FitChangeFraction = 0.02f;
 
+    /// <summary>Minimum seconds between APPLIED shrink/re-center re-fits per host (test #17).</summary>
+    private const float FitRefitMinIntervalSeconds = 1.5f;
+
+    /// <summary>A shrink/re-center candidate must hold steady this long before it applies.</summary>
+    private const float FitStableSeconds = 0.5f;
+
     // Scratch buffers for FitHostToContent (fit/periodic-check time only; reused, no
     // per-call allocations beyond one-time list growth).
     private static readonly List<Graphic> GraphicScratch = new(64);
@@ -368,6 +384,34 @@ internal static class CanvasConversion
             && Mathf.Abs(center.x) <= tolX && Mathf.Abs(center.y) <= tolY)
             return true;
 
+        // Re-fit churn damping (test #17): 'Panel_CombatLog' oscillated 569x138 ↔
+        // 569x291 twice a second for minutes (log entries fade in and out) —
+        // hundreds of re-fits and log lines. GROWTH beyond the current host bounds
+        // still fast-paths (content must never sit clipped behind the damping), but
+        // a pure shrink/re-center applies only when the measured candidate held
+        // steady for FitStableSeconds AND the last applied fit is at least
+        // FitRefitMinIntervalSeconds old. Oscillating content keeps resetting the
+        // stability clock and the host simply stays at its largest recent extent.
+        // The very first fit (FitMeasuredOnce false) is never damped.
+        bool growth = size.x > host.width + tolX || size.y > host.height + tolY;
+        if (panel.FitMeasuredOnce && !growth)
+        {
+            float now = Time.unscaledTime;
+            bool sameCandidate = Mathf.Abs(size.x - panel.FitPendingSize.x) <= tolX
+                                 && Mathf.Abs(size.y - panel.FitPendingSize.y) <= tolY;
+            if (!sameCandidate)
+            {
+                panel.FitPendingSize = size;
+                panel.FitPendingSince = now;
+                return true; // measured fine — just deferred
+            }
+            if (now - panel.FitPendingSince < FitStableSeconds
+                || now - panel.FitLastApplied < FitRefitMinIntervalSeconds)
+                return true;
+        }
+        panel.FitPendingSize = Vector2.zero;
+        panel.FitLastApplied = Time.unscaledTime;
+
         // Shifting the target by -center puts the content bound in the middle of
         // the resized host; the registered laser/poke plane now equals what the
         // user SEES (verify via the RayUguiDriver world-rect re-log lines).
@@ -386,7 +430,8 @@ internal static class CanvasConversion
     /// periodic re-check every ~<see cref="FitCheckIntervalFrames"/> frames per
     /// panel so content GROWTH (story pages, log lines) re-fits the host. Steady
     /// state cost: one Graphic-union scan per panel per 30 frames; the 2 % no-op
-    /// threshold inside <see cref="FitHostToContent"/> is the dirty check.
+    /// threshold inside <see cref="FitHostToContent"/> is the dirty check, and
+    /// shrink/re-center re-fits are additionally damped there (test #17 churn).
     /// </summary>
     private static void TickFit(ConvertedPanel panel)
     {
