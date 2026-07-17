@@ -350,6 +350,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         BuildRoundReadout();
         BuildMounts();
         BuildPickField();
+        BuildBoardSurface();
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
@@ -1409,6 +1410,43 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _longRestAnchor.localPosition = new Vector3(RestZoneX, -0.05f, -0.006f);
     }
 
+    /// <summary>
+    /// Test #24 item 7: a full-board LASER-RETICLE surface so the ray's hit dot
+    /// renders ANYWHERE on the control board's face, not only on its discrete
+    /// buttons/panels. An invisible thin plane collider matching the board face,
+    /// registered as a laser target — <see cref="CardsDriver"/> ray-tests it
+    /// geometrically (Collider.Raycast, layer-independent) with all the other
+    /// LaserTargets and clamps the beam to the hit (UiHitOverride → reticle).
+    ///
+    /// PRECEDENCE (no stolen clicks): the plane sits at z 0.002 — BEHIND every
+    /// viewer-side widget (board buttons at z ≤ -0.004, rest/CONFIRM/UNDO anchors
+    /// -0.006, the docked native uGUI hosts, the DecisionDock row) and behind the
+    /// slotted cards (z 0). CardsDriver keeps the NEAREST hit, so a real button /
+    /// token / card always wins where the ray crosses it; the docked native widgets
+    /// win through the game's own uGUI raycast (the RayUgui-closer guard stands the
+    /// board laser down entirely). The surface only wins where the ray points at
+    /// BARE board, where it shows the reticle and does NOTHING else — its
+    /// <see cref="BoardSurfaceTarget"/> OnPoke is a no-op, so a trigger on bare board
+    /// never activates anything and (as a bonus) the beam no longer passes THROUGH
+    /// the floating board to click a hex behind it. Laser reticle only: it is NOT a
+    /// PokeableBehaviour and is never registered for fingertip poke.
+    /// </summary>
+    private void BuildBoardSurface()
+    {
+        if (_root == null)
+            return;
+        var go = new GameObject("BoardSurface");
+        go.transform.SetParent(_root, worldPositionStays: false);
+        // Between the slotted cards (z 0) and the opaque board face (z 0.004): the
+        // reticle sits ~2 mm proud of the board, behind the cards and all widgets.
+        go.transform.localPosition = new Vector3(0f, 0f, 0.002f);
+        var box = go.AddComponent<BoxCollider>();
+        box.size = new Vector3(BoardW, BoardH, 0.002f);
+        box.isTrigger = true;
+        var target = go.AddComponent<BoardSurfaceTarget>();
+        RegisterLaserTarget(box, target);
+    }
+
     private void BuildSlotLabels()
     {
         if (_root == null || _slots[0] == null || _slots[1] == null)
@@ -1498,6 +1536,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 return found;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Full-board laser-reticle target (test #24 item 7, see <see cref="BuildBoardSurface"/>).
+    /// A no-op <see cref="IPokeable"/> — the ray beam already clamps to it via
+    /// UiHitOverride, so it needs no behavior; a trigger on bare board must do
+    /// nothing (never steal a click from a docked widget). DELIBERATELY a plain
+    /// MonoBehaviour, not a <see cref="PokeableBehaviour"/>: it is registered ONLY as
+    /// a laser target, never with the fingertip-poke registry.
+    /// </summary>
+    private sealed class BoardSurfaceTarget : MonoBehaviour, IPokeable
+    {
+        public void OnPokeEnter(VRHand hand) { }
+        public void OnPokeExit(VRHand hand) { }
+        public void OnPoke(VRHand hand) { }
     }
 
     /// <summary>
