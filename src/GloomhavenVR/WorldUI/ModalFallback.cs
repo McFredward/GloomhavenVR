@@ -353,14 +353,30 @@ internal static class ModalFallback
             // YesNoDialog (ID scene-serialized, poll-tracked): the short-rest
             // confirmation ("GUI_SHORT_REST_CONFIRMATION", ShortRest.cs:100/244 — a
             // YesNoDialog shown NEXT TO the 2D short-rest button in a HUD dialogHolder,
-            // mislocated + unpressable in VR → the test #24 item 5 deadlock). It carries
-            // serialized yesButton/noButton (ExtendedButton, both under the window's
-            // `box`), and its OnYes/OnNo click handlers run the game's own short-rest
-            // confirm/cancel callbacks (ShortRest.cs:100-119). The actionable row is the
-            // common ancestor of the two buttons — the description text ("Bist du
-            // sicher?") rides along when it shares that ancestor. A modal popup is active
-            // whenever its window is open (window.IsPopUp, nothing layers over it). The
-            // window remainder is suppressed like every docked prompt. Reached via the
+            // mislocated + unpressable in VR → the test #24/#25 deadlock). It carries
+            // serialized yesButton/noButton (ExtendedButton : Button, standard onClick
+            // wired on window.onShown, YesNoDialog.cs:112-113 → OnYes/OnNoClickHandle →
+            // the game's own short-rest confirm/cancel callbacks, ShortRest.cs:100-119)
+            // AND a descriptionText, all children of the serialized dialog container
+            // `box` (moved by YesNoDialog.Show).
+            //
+            // WHOLE-WINDOW DOCK (test #25 items 1b/1c — THE deadlock fix): dock the
+            // ENTIRE dialog box, not the isolated yes/no row. Isolating only the common
+            // ancestor of the two buttons dropped the question text (a sibling of the
+            // button row under `box`) so the player could not read what they were
+            // confirming (1b), AND the button-only row measured as EMPTY content — the
+            // content-fit found "nothing visible", so the docked poke/laser plane
+            // collapsed to a degenerate rect and the ExtendedButton clicks never landed
+            // (1c, the dead Ja/Nein). `box` is a strict descendant of the window root
+            // (YesNoDialog is [RequireComponent(UIWindow)] — window sits on the root,
+            // box is its child), so it satisfies the surface's descendant contract,
+            // brings the readable question along, and gives the fit real graphics to
+            // size the interactive plane on. The buttons' onClick already fired on
+            // onShown, so a laser/poke ExecuteEvents click on the docked box drives the
+            // real handlers. A modal popup is active whenever its window is open
+            // (window.IsPopUp, nothing layers over it); the window remainder (mislocated
+            // 2D frame/backdrop) is suppressed like every docked prompt — harmless to the
+            // docked box, which has been reparented out onto our host. Reached via the
             // active hand's ShortRest.yesNoDialog (CardsGameApi.ShortRestDialog).
             new("YesNoDialog",
                 static () => { YesNoDialog? d = ShortRestYesNo(); return d != null ? d.window : null; },
@@ -371,6 +387,14 @@ internal static class ModalFallback
                     YesNoDialog? d = ShortRestYesNo();
                     if (d == null || d.window == null)
                         return null;
+                    // Whole-window: the dialog box carries the question text + both
+                    // buttons together (a strict descendant of the window root).
+                    RectTransform? box = d.box;
+                    if (box != null && !ReferenceEquals(box, d.window.transform)
+                        && box.IsChildOf(d.window.transform))
+                        return box;
+                    // Fallback (box unexpectedly null): isolate the yes/no row so at
+                    // least the buttons dock rather than deadlocking on a missing target.
                     RowScratch.Clear();
                     if (d.yesButton != null)
                         RowScratch.Add(d.yesButton.transform);
