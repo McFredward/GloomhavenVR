@@ -616,6 +616,12 @@ internal sealed class FlatScreen
             _chordArmingLogged = false;
             return;
         }
+        // Test #17: while a floating modal is open the SAME hold is the modal escape
+        // chord (ModalFallback.TickEscapeChord, runs earlier in the driver order and
+        // consumes the press) — one press, one action; the screen toggle needs a
+        // fresh press once no modal floats.
+        if (NonDominantHold.Consumed)
+            return;
         float threshold = Mathf.Max(0.5f, WorldUIConfig.ManualScreenChordSeconds.Value);
         // Arming diagnostic (test #10): proves in the log that the hardware press
         // reaches the chord tracker even when the player releases before the threshold.
