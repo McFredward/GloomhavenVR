@@ -106,7 +106,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     internal bool IsHeld => Holder != null;
 
-    public override bool CanGrab => base.CanGrab && Grabbable;
+    /// <summary>
+    /// Test #15: cards refuse NEW grabs while a dialog is open (ModalUI) — the Grab
+    /// interactor stays enabled there so the tray handle keeps working, but the
+    /// fan/slots must not be manipulable mid-dialog. A card already held when the
+    /// dialog opens stays held (this only gates grab starts, incl. laser pluck).
+    /// </summary>
+    public override bool CanGrab => base.CanGrab && Grabbable
+        && Core.Events.VRModeStateMachine.CurrentMode != Core.Events.VRMode.ModalUI;
 
     // ------------------------------------------------------------------ build --
 

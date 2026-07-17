@@ -47,6 +47,19 @@ internal sealed class SettingsPanel
     private float _nextRefresh;
     private readonly List<Action> _refreshers = new(16);
 
+    // ---- cross-module seam (test #15) ------------------------------------------------------
+
+    /// <summary>The driver-owned live instance (single WorldUI driver; null after shutdown).</summary>
+    private static SettingsPanel? _instance;
+
+    public SettingsPanel() => _instance = this;
+
+    /// <summary>
+    /// Test #15: toggle the panel from outside WorldUI — the tray dashboard's gear
+    /// button (Cards) uses this. No-op while no panel exists (WorldUI off).
+    /// </summary>
+    internal static void RequestToggle() => _instance?.Toggle();
+
     // ---- per-frame -----------------------------------------------------------------------
 
     public void Tick()
@@ -85,6 +98,8 @@ internal sealed class SettingsPanel
 
     public void Shutdown()
     {
+        if (ReferenceEquals(_instance, this))
+            _instance = null;
         SetOpen(false);
         if (_root != null)
         {

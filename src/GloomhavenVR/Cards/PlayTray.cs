@@ -9,15 +9,21 @@ using UnityEngine;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// The control board (P7 redesign, hardware test #10): a desk-like tray in front of
-/// the player, tilted toward them like a card-table edge (~30° from horizontal,
-/// [Cards] TrayTilt), chest height, anchored in rig space (world-stable, moves with
-/// the diorama). Zones, left to right:
-/// - REST zone: short/long-rest tokens (built by <see cref="RestControls"/> onto the
-///   anchors) under a labeled backdrop,
-/// - two large card slots (slot 0 = initiative, marked by the numbered badge above
-///   it; drop to place, grab to take back, physical swap = initiative swap),
-/// - CONFIRM (drives the game's own Ready button path) and UNDO buttons.
+/// The control board (P7 redesign, test #10; test #15: central DASHBOARD): a
+/// desk-like tray in front of the player, tilted toward them like a card-table edge
+/// (~30° from horizontal, [Cards] TrayTilt), chest height, anchored in rig space by
+/// default ([Cards] TrayFollow; the PIN button on the frame switches to
+/// world-anchored). Visible for the WHOLE scenario since test #15 (dashboard), not
+/// only during card selection. Layout:
+/// - TOP edge: the game's REAL initiative track (converted canvas, posed by WorldUI
+///   onto <see cref="InitiativeMount"/> — portraits incl. the vanilla '?' for
+///   players who have not locked in),
+/// - LEFT: the converted Objectives panel (<see cref="ObjectivesMount"/>) next to
+///   the REST zone (short/long-rest tokens built by <see cref="RestControls"/>),
+/// - CENTER: two large card slots (slot 0 = initiative, marked by the numbered
+///   badge; drop to place, grab to take back, physical swap = initiative swap),
+/// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
+///   gear; the PIN follow-toggle sits on the bottom-right frame corner.
 /// Poke AND laser work on every element: pokes via the P2 registry, laser via
 /// <see cref="LaserTargets"/> which CardsDriver ray-tests geometrically each frame.
 /// Every interaction is logged. Slot order == initiative order:
@@ -29,12 +35,24 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class PlayTray
 {
-    // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13):
-    // the P8 pinch-grip held pose put the card's CENTER a hand-length away from the
-    // palm, so the old 0.11 m card-center-only check silently rejected most drops.
-    private const float SlotCaptureRadius = 0.12f;
+    // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13),
+    // widened again in test #15: hardware logs showed releases consistently landing
+    // 14–16 cm real from the slot center (the release gesture moves the hand) while
+    // the hover glow HAD triggered — the primary accept rule is now the glow itself
+    // (CardsDriver highlight-at-release), this radius is only the fallback.
+    private const float SlotCaptureRadius = 0.25f;
+
+    /// <summary>
+    /// The live tray instance (test #15 dashboard mount seam): WorldUI surfaces read
+    /// <see cref="InitiativeMount"/>/<see cref="ObjectivesMount"/> through this to
+    /// pose their converted hosts on the tray. Null while no tray exists.
+    /// </summary>
+    internal static PlayTray? Current { get; private set; }
 
     private Transform? _root;
+    private Transform? _anchorParent;
+    private Transform? _initiativeMount;
+    private Transform? _objectivesMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
     private Transform? _longRestAnchor;
@@ -51,6 +69,32 @@ internal sealed class PlayTray
     internal Transform? ShortRestAnchor => _shortRestAnchor;
     internal Transform? LongRestAnchor => _longRestAnchor;
     internal Transform? Root => _root;
+
+    // ---- dashboard mount seam (test #15) -----------------------------------------------
+    // WorldUI surfaces POSE-FOLLOW these anchors (they never re-parent their hosts
+    // under the tray: the hosts carry live GAME UI, and a tray/rig teardown must
+    // never cascade into destroying game-owned canvases — reversibility rule).
+    // Anchor origin conventions: InitiativeMount = bottom-center of the initiative
+    // panel (grows up, above the tray's top edge); ObjectivesMount = right-center
+    // (grows left, off the tray's left edge). Both inherit tray pose AND scale.
+
+    /// <summary>Mount for the converted InitiativeTrack canvas (top edge). Null until built.</summary>
+    internal Transform? InitiativeMount => _initiativeMount;
+
+    /// <summary>Mount for the converted Objectives panel (left side). Null until built.</summary>
+    internal Transform? ObjectivesMount => _objectivesMount;
+
+    /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
+    internal const float InitiativeMountWidth = BoardW;
+
+    /// <summary>Max panel height at the initiative mount, tray-local meters.</summary>
+    internal const float InitiativeMountMaxHeight = 0.14f;
+
+    /// <summary>Target panel width at the objectives mount, tray-local meters.</summary>
+    internal const float ObjectivesMountWidth = 0.26f;
+
+    /// <summary>Max panel height at the objectives mount, tray-local meters.</summary>
+    internal const float ObjectivesMountMaxHeight = 0.32f;
 
     /// <summary>Raised when the initiative badge is poked (CardsDriver queues the swap).</summary>
     internal System.Action? SwapRequested;
@@ -91,9 +135,12 @@ internal sealed class PlayTray
 
     internal void EnsureBuilt(VRCardFactory factory, Transform anchorParent)
     {
+        _anchorParent = anchorParent;
         if (_root != null)
         {
-            if (_root.parent != anchorParent)
+            // Re-home only in FOLLOW mode — a pinned tray lives under its world
+            // "TrayPin" holder (test #15) and must not be dragged back under the rig.
+            if (CardsConfig.TrayFollow.Value && _root.parent != anchorParent)
             {
                 _root.SetParent(anchorParent, worldPositionStays: false);
                 _placed = false;
@@ -101,8 +148,13 @@ internal sealed class PlayTray
             return;
         }
 
+        // Externally destroyed tray (rig teardown in follow mode): stale laser
+        // targets would otherwise pile up across rebuilds.
+        LaserTargets.RemoveAll(static t => t.Collider == null);
+
         _root = new GameObject("GloomhavenVR.PlayTray").transform;
         _root.SetParent(anchorParent, worldPositionStays: false);
+        Current = this;
 
         Transform? confirmAnchor = null;
         Transform? undoAnchor = null;
@@ -127,19 +179,39 @@ internal sealed class PlayTray
         BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
         BuildHandle();
-        _strip = InitiativeStrip.Build(_root, new Vector3(0f, BoardH * 0.5f + 0.052f, -0.004f), BoardW);
+        BuildDashboardControls();
+        BuildMounts();
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
+        // A pinned tray rebuilt after teardown re-pins immediately (it still takes
+        // ONE initial PlaceAtHead when first shown, since _placed = false).
+        if (!CardsConfig.TrayFollow.Value)
+            ApplyFollowMode();
+    }
+
+    /// <summary>
+    /// Test #15 dashboard: pose anchors for the game's REAL converted UI. The
+    /// initiative track docks above the top edge (replaces the old text strip AND
+    /// the free-floating world panel); the objectives panel docks off the left edge.
+    /// WorldUI pose-follows these — see the mount seam doc at <see cref="InitiativeMount"/>.
+    /// </summary>
+    private void BuildMounts()
+    {
+        _initiativeMount = new GameObject("InitiativeMount").transform;
+        _initiativeMount.SetParent(_root, worldPositionStays: false);
+        _initiativeMount.localPosition = new Vector3(0f, BoardH * 0.5f + 0.012f, -0.004f);
+
+        _objectivesMount = new GameObject("ObjectivesMount").transform;
+        _objectivesMount.SetParent(_root, worldPositionStays: false);
+        _objectivesMount.localPosition = new Vector3(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
     }
 
     // ------------------------------------------------------------------ grab handle --
 
     private TrayGrabHandle? _handle;
-    private InitiativeStrip? _strip;
-
-    /// <summary>The tray's initiative strip (null until built).</summary>
-    internal InitiativeStrip? Strip => _strip;
+    private BoardButton? _followToggle;
+    private BoardButton? _gear;
 
     /// <summary>
     /// Test #14 ("Controllboard"): a clearly visible handle bar along the tray's
@@ -172,14 +244,110 @@ internal sealed class PlayTray
         _handle.Init(this, bar.GetComponent<MeshRenderer>());
     }
 
+    // ------------------------------------------------------------------ dashboard controls --
+
+    /// <summary>
+    /// Test #15: the tray-frame utility buttons.
+    /// - PIN toggle (bottom-right corner, next to the handle bar): switches between
+    ///   "follows the player" (rig-anchored, default) and "pinned in the world".
+    ///   Label mirrors the state (FOLLOW / PINNED, accent while pinned); persisted
+    ///   as [Cards] TrayFollow; poke AND laser (registered laser target).
+    /// - Settings gear (right column, under UNDO): opens the in-VR settings panel
+    ///   (same panel as the table-edge gear / A-X chord).
+    /// </summary>
+    private void BuildDashboardControls()
+    {
+        if (_root == null)
+            return;
+
+        Transform pinAnchor = NewAnchor("FollowToggle",
+            new Vector3(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.002f));
+        _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
+            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow);
+        _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
+        RegisterLaserTarget(_followToggle.Collider!, _followToggle);
+
+        Transform gearAnchor = NewAnchor("SettingsGear",
+            new Vector3(ButtonZoneX, -0.125f, -0.006f));
+        _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
+            new Color(0.4f, 0.42f, 0.5f), "SET",
+            () => WorldUI.SettingsPanel.RequestToggle());
+        _gear.SetState(true, accent: false);
+        RegisterLaserTarget(_gear.Collider!, _gear);
+    }
+
+    private void ToggleFollow()
+    {
+        bool follow = !CardsConfig.TrayFollow.Value;
+        CardsConfig.TrayFollow.Value = follow; // BepInEx persists on set
+        ApplyFollowMode();
+        VRLog.Info("Cards", $"Tray anchor mode → {(follow ? "FOLLOW (rig-anchored)" : "PINNED (world-anchored)")}.");
+    }
+
+    /// <summary>World-anchor holder while pinned (carries the rig scale — see ApplyFollowMode).</summary>
+    private Transform? _pinRoot;
+
+    /// <summary>
+    /// Apply [Cards] TrayFollow to the live tray (test #15).
+    /// Follow: re-home under the rig-space anchor and re-anchor at the configured
+    /// head offsets. Pinned: the tray keeps its EXACT current world pose. It is
+    /// re-parented under a world-static holder ("TrayPin", DontDestroyOnLoad) whose
+    /// scale mirrors the rig anchor's lossy scale — so the tray's own localScale
+    /// keeps its 0.5×–2× semantics (PlaceAtHead, PersistPoseToConfig and the
+    /// two-hand resize clamp all assume that; a bare world detach would bake the
+    /// ~diorama-scale factor into localScale and break all three).
+    /// </summary>
+    private void ApplyFollowMode()
+    {
+        if (_root == null)
+            return;
+        if (CardsConfig.TrayFollow.Value)
+        {
+            if (_anchorParent != null && _root.parent != _anchorParent)
+                _root.SetParent(_anchorParent, worldPositionStays: true);
+            PlaceAtHead();
+            if (_pinRoot != null)
+            {
+                Object.Destroy(_pinRoot.gameObject);
+                _pinRoot = null;
+            }
+        }
+        else
+        {
+            if (_pinRoot == null)
+            {
+                _pinRoot = new GameObject("GloomhavenVR.TrayPin").transform;
+                _pinRoot.gameObject.hideFlags = HideFlags.HideAndDontSave;
+                Object.DontDestroyOnLoad(_pinRoot.gameObject);
+            }
+            Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
+            _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
+            if (_root.parent != _pinRoot)
+                _root.SetParent(_pinRoot, worldPositionStays: true);
+        }
+        if (_followToggle != null)
+        {
+            _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
+            _followToggle.SetLabel(CardsConfig.TrayFollow.Value ? "FOLLOW" : "PINNED");
+        }
+    }
+
     internal void Destroy()
     {
+        if (ReferenceEquals(Current, this))
+            Current = null; // WorldUI mount consumers fall back to the floating layout
         _occupants[0] = _occupants[1] = null;
         LaserTargets.Clear();
         if (_root != null)
         {
             Object.DestroyImmediate(_root.gameObject);
             _root = null;
+        }
+        if (_pinRoot != null)
+        {
+            Object.DestroyImmediate(_pinRoot.gameObject);
+            _pinRoot = null;
         }
         _slots = new Transform?[2];
         _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
@@ -189,7 +357,10 @@ internal sealed class PlayTray
         _confirm = null;
         _undo = null;
         _handle = null; // child of _root, destroyed with it
-        _strip = null;
+        _followToggle = null;
+        _gear = null;
+        _initiativeMount = null;
+        _objectivesMount = null;
         _placed = false;
     }
 
@@ -291,8 +462,15 @@ internal sealed class PlayTray
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.TrayScale.Value:F2}×.");
     }
 
-    /// <summary>Force re-placement next time the tray shows (mode re-entry).</summary>
-    internal void InvalidatePlacement() => _placed = false;
+    /// <summary>
+    /// Force re-placement next time the tray shows (mode re-entry) — FOLLOW mode
+    /// only: a pinned tray stays exactly where the player left it (test #15).
+    /// </summary>
+    internal void InvalidatePlacement()
+    {
+        if (CardsConfig.TrayFollow.Value)
+            _placed = false;
+    }
 
     // ------------------------------------------------------------------ slots --
 
@@ -551,8 +729,6 @@ internal sealed class PlayTray
     /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
-        _strip?.Tick();
-
         if (_badge == null)
             return;
 

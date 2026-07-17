@@ -151,7 +151,12 @@ internal static class VRModeStateMachine
         { VRMode.CardSelection, Interactors.Poke | Interactors.Grab | Interactors.PalmGate },
         { VRMode.HalfSelection, Interactors.Poke | Interactors.Grab | Interactors.PalmGate },
         { VRMode.BoardTargeting, Interactors.Ray | Interactors.Poke },
-        { VRMode.ModalUI, Interactors.Poke | Interactors.Ray },
+        // ModalUI gained Grab (test #15): the tray dashboard's grab handle must keep
+        // working while a dialog floats (move/scale the tray mid-dialog). CARD grabs
+        // stay blocked there via the per-grabbable gate (VRCard.CanGrab refuses in
+        // ModalUI; TrayGrabHandle accepts) — the interactor only provides the
+        // primitive, per-object policy decides who takes the grip.
+        { VRMode.ModalUI, Interactors.Poke | Interactors.Ray | Interactors.Grab },
     };
 
     /// <summary>

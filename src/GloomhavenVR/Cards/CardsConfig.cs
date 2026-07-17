@@ -71,6 +71,9 @@ internal static class CardsConfig
     /// <summary>Tray size multiplier (two-handed tray grab), clamped 0.5–2.</summary>
     internal static ConfigEntry<float> TrayScale = null!;
 
+    /// <summary>Tray anchor mode (test #15): true = follows the player (rig-anchored), false = static in world.</summary>
+    internal static ConfigEntry<bool> TrayFollow = null!;
+
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
@@ -146,6 +149,13 @@ internal static class CardsConfig
         TrayScale = _file.Bind("Cards", "TrayScale", 1f,
             "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
             "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.");
+        TrayFollow = _file.Bind("Cards", "TrayFollow", true,
+            "Tray anchor mode (test #15, toggled by the pin button on the tray frame). " +
+            "true = the tray is rig-anchored: it moves with you (world grab, snap turn, " +
+            "recenter) and re-places itself at the TrayForward/Down/Right offsets on mode " +
+            "entry. false = the tray is PINNED where you left it, world-anchored — it " +
+            "stays put while you move around and never re-places itself. Switching back " +
+            "to follow re-anchors it at the configured offsets.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
     }

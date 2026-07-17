@@ -46,8 +46,6 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VREvents.HandShown += OnHandShown;
-        VREvents.ChoreographerMessage += OnChoreoMessage;
-        VREvents.ChoreographerStateChanged += OnChoreoState;
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
@@ -67,8 +65,6 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VREvents.HandShown -= OnHandShown;
-        VREvents.ChoreographerMessage -= OnChoreoMessage;
-        VREvents.ChoreographerStateChanged -= OnChoreoState;
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
@@ -102,19 +98,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnHandShown(HandShownEvent e) => _dirty = true;
 
-    private void OnCardSelectionChanged(CardSelectionEvent e)
-    {
-        _dirty = true;
-        _tray.Strip?.MarkDirty(); // a (de)select changes the player's initiative
-    }
-
-    // Initiative strip invalidation (test #14): engine messages / choreographer
-    // state changes cover round starts, turn advances and initiative reveals.
-    // Handlers only set a dirty flag (P2 threading rules) — the strip re-reads
-    // the track in its Tick.
-    private void OnChoreoMessage(ChoreoMessageEvent e) => _tray.Strip?.MarkDirty();
-
-    private void OnChoreoState(ChoreoStateEvent e) => _tray.Strip?.MarkDirty();
+    private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
 
     private void OnHandsChanged() => _dirty = true;
 
@@ -441,20 +425,25 @@ internal sealed class CardsDriver : MonoBehaviour
     // ------------------------------------------------------------------ slot snap preview --
 
     private int _snapHighlightSlot = -1;
+    private VRCard? _snapHighlightCard;
 
     /// <summary>
     /// Test #13: while a card is HELD near the tray, glow the slot it would snap
     /// into on release (same accept/divert rules as OnCardReleased) and tick a
     /// haptic when the target slot changes — the drop is telegraphed, never a
     /// guess. Toggles/haptics only on change; no per-frame allocations.
+    /// Test #15: the glowing slot is also THE authoritative drop target — the
+    /// release path accepts it directly (see OnCardReleased), so what glows is
+    /// what drops, even when the release gesture moves the hand out of radius.
     /// </summary>
     private void UpdateSlotHighlight()
     {
         int slot = -1;
         VRHand? holder = null;
+        VRCard? held = null;
         if (_tray.IsVisible)
         {
-            VRCard? held = HeldCard(out holder);
+            held = HeldCard(out holder);
             if (held != null && holder != null)
             {
                 slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
@@ -467,6 +456,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 }
             }
         }
+        _snapHighlightCard = slot >= 0 ? held : null;
 
         // PlayTray dedupes the visual toggle itself (safe across tray rebuilds);
         // the driver-side cache only edges the haptic.
@@ -522,7 +512,10 @@ internal sealed class CardsDriver : MonoBehaviour
         _fanBuffer.Clear();
         _halfBuffer.Clear();
 
-        bool trayVisible = false;
+        // Test #15: the tray is the central DASHBOARD — visible for the whole
+        // scenario (initiative track, objectives, confirm/undo, settings), not only
+        // during card selection. Cards remain grabbable only in CardsSelection.
+        bool trayVisible = true;
         bool halfVisible = false;
         bool pokeSelect = false;
         bool grabbable = false;
@@ -530,7 +523,6 @@ internal sealed class CardsDriver : MonoBehaviour
         switch (mode)
         {
             case CardHandMode.CardsSelection:
-                trayVisible = true;
                 grabbable = true;
                 for (int i = 0; i < _widgetBuffer.Count; i++)
                 {
@@ -580,7 +572,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 break;
         }
 
-        if (!trayVisible)
+        if (mode != CardHandMode.CardsSelection)
             _tray.ClearSlots(); // stale occupancy must not pin cards outside CardsSelection
 
         // Configure cards per zone; everything else parks invisibly.
@@ -693,24 +685,34 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // Generous dual-sample capture (test #13): the held pose offsets the card
-        // center from the palm, so card center AND holding-hand position both count
-        // — whichever is nearest. Samples are ONLY the released card and the
-        // releasing hand's palm (never fan cards); one log line per real drop below.
+        // Test #15 accept rules, in priority order:
+        // 1. HIGHLIGHT: the slot that was GLOWING for this card at release wins —
+        //    hardware logs showed the release gesture consistently moving the hand
+        //    just out of radius (3.2–6 m vs 2.74 m at diorama scale ~23) while the
+        //    glow HAD triggered; what glows is what drops, guaranteed.
+        // 2. RADIUS fallback: generous dual-sample capture (test #13) — card center
+        //    AND holding-hand palm both count, whichever is nearest.
+        int highlightSlot = ReferenceEquals(_snapHighlightCard, card) ? _snapHighlightSlot : -1;
         int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
             out float d1, out float d2, out float radius);
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
         // Dropping onto an occupied slot diverts to the free one (or bounces).
+        // (The highlight already mirrors this divert while telegraphing.)
         if (slot >= 0 && !wasInTray && _tray.Occupant(slot) != null)
         {
             int other = 1 - slot;
             slot = _tray.Occupant(other) == null ? other : -1;
         }
 
-        // THE one log line per real drop (test #14).
-        VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m → " +
+        string rule = highlightSlot >= 0 ? "highlight" : slot >= 0 ? "radius" : "none";
+        if (highlightSlot >= 0)
+            slot = highlightSlot;
+
+        // THE one log line per real drop (test #14; #15 adds the accepting rule).
+        VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
+                            $"rule={rule} → " +
                             (slot < 0
                                 ? (wasInTray ? "take back to fan." : "return to fan.")
                                 : (wasInTray ? $"reorder to slot {slot + 1}." : $"play into slot {slot + 1}.")));
@@ -888,16 +890,28 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             if (_fakeActive)
                 ClearFakeCards();
-            //
 
             _fanBuffer.Clear();
             _fan.SetCards(_fanBuffer);
-            _tray.SetVisible(false);
             _half.SetVisible(false);
-            if (_boundHand != null)
+            if (CardsGameApi.InScenario)
             {
-                _factory.Clear(); // scenario/hand gone: restore faces, drop cards
-                _boundHand = null;
+                // Dashboard (test #15): a scenario without an ACTIVE local hand
+                // (other players' turns, in-between phases) keeps the tray up —
+                // initiative track/objectives/status stay readable; slots empty.
+                _tray.EnsureBuilt(_factory, anchor);
+                _rest.EnsureBuilt(_tray);
+                _tray.ClearSlots();
+                _tray.SetVisible(true);
+            }
+            else
+            {
+                _tray.SetVisible(false);
+                if (_boundHand != null)
+                {
+                    _factory.Clear(); // scenario/hand gone: restore faces, drop cards
+                    _boundHand = null;
+                }
             }
             return;
         }
@@ -935,6 +949,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void RouteFakeRelease(VRCard card, VRHand hand)
     {
+        int highlightSlot = ReferenceEquals(_snapHighlightCard, card) ? _snapHighlightSlot : -1;
         int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
             out float d1, out float d2, out float radius);
         if (slot >= 0 && _tray.Occupant(slot) != null && _tray.Occupant(slot) != card)
@@ -942,8 +957,11 @@ internal sealed class CardsDriver : MonoBehaviour
             int other = 1 - slot;
             slot = _tray.Occupant(other) == null ? other : -1;
         }
-        VRLog.Info("Cards", $"Drop ({hand.Side}, fake): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m → " +
-                            (slot >= 0 ? $"slot {slot + 1}." : "fan."));
+        string rule = highlightSlot >= 0 ? "highlight" : slot >= 0 ? "radius" : "none";
+        if (highlightSlot >= 0)
+            slot = highlightSlot; // test #15: what glows is what drops (see OnCardReleased)
+        VRLog.Info("Cards", $"Drop ({hand.Side}, fake): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
+                            $"rule={rule} → " + (slot >= 0 ? $"slot {slot + 1}." : "fan."));
         if (slot >= 0)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)

@@ -171,11 +171,56 @@
       come back (and restart the game): the tray reappears in your adjusted
       position/rotation/size (`[Cards] TrayForward/TrayDown/TrayRight/TrayYaw/
       TrayScale` in `dev.gloomhavenvr.cards.cfg`).
-- [ ] **Initiative strip**: along the tray's top edge, one chip per actor in
-      acting order (acts-first left): `<initiative> <name>` — players warm white,
-      enemies gray, dead dimmed, the ACTIVE actor bold gold. It matches the
-      game's 2D initiative track order at all times and updates live on round
-      start / turn changes / your own (de)selects, without per-frame rebuilds.
+- [ ] ~~**Initiative strip**~~ (test #14) — REPLACED in test #15 by the game's
+      real initiative track docked on the tray (see §3c).
+
+## 3c. Tray dashboard (test #15: real UI on the tray, follow-toggle, modal grab)
+
+Layout — the tray is now the central dashboard, visible for the WHOLE scenario
+(not only during card selection): TOP edge = the game's REAL initiative track
+(converted canvas); LEFT = converted objectives panel + rest zone; CENTER = the
+two card slots + initiative badge; RIGHT = CONFIRM / UNDO / SET (settings gear);
+bottom-right frame corner = the PIN follow-toggle; bottom edge = the brass grab
+handle. The element board stays a separate world panel.
+
+- [ ] **Real initiative track on the tray**: portraits (not text chips) sit right
+      above the tray's top edge, sized to the tray width. The old free-floating
+      initiative panel over the table is GONE. The old text strip is gone too.
+- [ ] The track shows the vanilla **'?' for players who have not locked in**
+      (online: other players during selection; initiative 0) — this is the game's
+      own display (`InitiativeTrackActorAvatar` / `InitiativeTrackPlayerAvatar`),
+      not a re-implementation.
+- [ ] Initiative swaps by poking the track's avatars still work (host raycaster).
+- [ ] **Objectives on the tray**: the mission objectives panel hangs off the
+      tray's LEFT edge and reads at tray scale.
+- [ ] Grab the handle, move / two-hand resize the tray: initiative track AND
+      objectives follow every move and scale with the tray (≤1 frame lag while
+      dragging is OK). Same after diorama world-grab/zoom.
+- [ ] The tray (with track + objectives) stays up in TableIdle / other players'
+      turns / half selection — CONFIRM/UNDO labels and enabled states keep
+      mirroring the game.
+- [ ] **Drops accept what glows (test #15 fix)**: hold a card over a slot until
+      the gold glow shows, then release — the drop MUST accept, even if the
+      release gesture moved your hand. The log line now carries the rule:
+      `Drop (…): … rule=highlight → play into slot 1.` (`rule=radius` = fallback
+      capture at 0.25 m real; `rule=none` = return to fan).
+- [ ] **PIN follow-toggle**: poke (or laser-click) the small PIN button on the
+      bottom-right frame corner. Label flips FOLLOW ↔ PINNED (accented while
+      pinned); persisted as `[Cards] TrayFollow`.
+      - FOLLOW (default): tray moves with you (world grab, snap turn, recenter)
+        and re-places at the configured head offsets on mode entry.
+      - PINNED: the tray keeps its exact current world pose — walk/teleport/turn
+        away and back: it has not moved. Round changes do NOT re-place it.
+      - Toggle back to FOLLOW → it re-anchors at the configured rig offsets.
+- [ ] **Tray grab during dialogs (ModalUI)**: open any dialog (short-rest
+      confirm, story box). Gripping the handle still moves/resizes the tray;
+      the PIN/SET/CONFIRM/UNDO pokes still respond. Cards do NOT react to grabs
+      (fan closed, slotted cards refuse the pluck) until the dialog closes.
+- [ ] SET (gear) on the tray toggles the same in-VR settings panel as the
+      table-edge gear / short A-X chord.
+- [ ] Hot reload (F6) mid-scenario: dashboard rebuilds, track/objectives re-dock,
+      pinned pose stays pinned (world), converted panels release/re-convert
+      cleanly (2D intact after VR off).
 
 ## 4. Rests
 
@@ -243,8 +288,8 @@
 - Confirmations (short-rest yes/no, burn/redraw, lose-card) are the game's 2D
   dialogs — world-space versions are P3c.
 - CONFIRM and UNDO are physical on the board now; SKIP and the in-turn item/bonus
-  bars remain 2D (the board only shows during card selection — an in-turn board
-  revision is a P3c candidate, see CONTROLBOARD.md §5-§8).
+  bars remain 2D (the board is a persistent dashboard since test #15; slots are
+  interactive only during card selection — see CONTROLBOARD.md §5-§8).
 - Extra-turn card selection and multi-hand (multi-merc tab) flows fall back to the
   active hand only; switching mercs mid-selection uses the 2D tabs for now.
 - Text sizes/poses of badge, captions, buttons and tokens are first-pass values —
