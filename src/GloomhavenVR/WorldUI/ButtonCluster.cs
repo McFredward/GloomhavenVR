@@ -312,11 +312,13 @@ internal sealed class ButtonCluster
                 labelGo.transform.localRotation = Quaternion.Euler(55f, 180f, 0f);
             }
             _label = labelGo.AddComponent<TextMeshPro>();
-            _label.fontSize = 0.35f;
             _label.alignment = TextAlignmentOptions.Center;
-            _label.rectTransform.sizeDelta = new Vector2(0.22f, 0.05f);
             _label.color = Color.white;
             _label.text = string.Empty;
+            // The label mirrors the game's LOCALIZED button texts (SetState), whose
+            // length varies per state/language — long strings previously wrapped past
+            // the 0.05 m box and clipped (test #12). Fit: shrink/wrap inside the box.
+            Core.TmpFit.Fit(_label, 0.24f, 0.07f, maxFontSize: 0.35f);
         }
 
         public void Destroy()

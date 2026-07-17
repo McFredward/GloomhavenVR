@@ -104,22 +104,22 @@ internal sealed class RestControls
             textGo.transform.localPosition = new Vector3(0f, 0f, -0.004f); // viewer side (-Z)
             var tmp = textGo.AddComponent<TextMeshPro>();
             tmp.text = label;
-            tmp.fontSize = 0.55f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.black;
-            ((RectTransform)textGo.transform).sizeDelta = new Vector2(0.05f, 0.03f);
+            // Fit ON the 0.035 m disc (was fontSize 0.55 = a 0.055 m line, test #12).
+            Core.TmpFit.Fit(tmp, 0.034f, 0.026f, maxFontSize: 0.24f, wrap: false);
 
             // Readable caption under the token (localized where the game has a key).
             var captionGo = new GameObject("Caption");
             captionGo.transform.SetParent(go.transform, worldPositionStays: false);
-            captionGo.transform.localPosition = new Vector3(0f, -0.028f, -0.004f);
+            captionGo.transform.localPosition = new Vector3(0f, -0.030f, -0.004f);
             var captionTmp = captionGo.AddComponent<TextMeshPro>();
             captionTmp.text = caption;
-            captionTmp.fontSize = 0.35f;
             captionTmp.alignment = TextAlignmentOptions.Center;
             captionTmp.color = new Color(0.85f, 0.8f, 0.7f);
-            captionTmp.enableWordWrapping = false;
-            ((RectTransform)captionGo.transform).sizeDelta = new Vector2(0.1f, 0.02f);
+            // Localized "Short rest"/"Long rest" may be long/two words — shrink and
+            // wrap inside the rest-zone width instead of overflowing (test #12).
+            Core.TmpFit.Fit(captionTmp, 0.10f, 0.034f, maxFontSize: 0.22f);
 
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(0.04f, 0.04f, 0.015f);

@@ -307,10 +307,10 @@ internal sealed class HalfSelection
                 textGo.transform.localPosition = new Vector3(0f, 0f, -0.003f); // viewer side (-Z)
                 var tmp = textGo.AddComponent<TextMeshPro>();
                 tmp.text = chipLabel;
-                tmp.fontSize = 0.5f;
                 tmp.alignment = TextAlignmentOptions.Center;
                 tmp.color = Color.white;
-                ((RectTransform)textGo.transform).sizeDelta = new Vector2(size.x, size.y);
+                // Localized chip labels shrink/wrap inside the chip (TmpFit, test #12).
+                Core.TmpFit.Fit(tmp, size.x * 0.95f, size.y * 0.85f, maxFontSize: 0.40f);
             }
 
             var zone = go.AddComponent<HalfZone>();
