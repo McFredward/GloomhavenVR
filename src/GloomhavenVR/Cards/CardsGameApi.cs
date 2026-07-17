@@ -631,6 +631,76 @@ internal static class CardsGameApi
     /// <summary>Verified: <c>public virtual bool IsDeadPlayer</c> (CActor.cs:618) + <c>EType Type</c> (CActor.cs:299).</summary>
     internal static bool IsPlayer(CActor actor) => actor is CPlayerActor;
 
+    // ---------------------------------------------------------------- card piles --
+
+    /// <summary>
+    /// Discard-pile size of the hand's character. Verified: <c>public
+    /// List&lt;CAbilityCard&gt; DiscardedAbilityCards =&gt; m_DiscardedAbilityCards;</c>
+    /// (CCharacterClass.cs:93) — the exact list <c>CardsHandUI.UpdateCards</c>
+    /// classifies widgets against (CardsHandUI.cs:1326).
+    /// </summary>
+    internal static int DiscardedCount(CardsHandUI hand) =>
+        hand.PlayerActor != null ? hand.PlayerActor.CharacterClass.DiscardedAbilityCards.Count : 0;
+
+    /// <summary>
+    /// Burnt-pile size: lost + permanently lost — the same union the 2D hand shows
+    /// under its single "burnt" header (<c>CardsHandUI.UpdateCards</c> routes BOTH
+    /// <c>LostAbilityCards</c> and <c>PermanentlyLostAbilityCards</c> to
+    /// <c>burntHeader.Show()</c>, CardsHandUI.cs:1333/1340). Lists verified:
+    /// CCharacterClass.cs:104/95.
+    /// </summary>
+    internal static int BurntCount(CardsHandUI hand)
+    {
+        if (hand.PlayerActor == null)
+            return 0;
+        CCharacterClass klass = hand.PlayerActor.CharacterClass;
+        return klass.LostAbilityCards.Count + klass.PermanentlyLostAbilityCards.Count;
+    }
+
+    /// <summary>
+    /// Fill <paramref name="buffer"/> with the live widgets of one pile, in the
+    /// authoritative pile order. Source of truth is the MODEL
+    /// (<c>CCharacterClass.Discarded/Lost/PermanentlyLostAbilityCards</c>) — the
+    /// exact membership test the 2D hand uses to tag its widgets
+    /// (CardsHandUI.UpdateCards, CardsHandUI.cs:1326-1340; CardsHandPreviewUI.cs:282)
+    /// — resolved to widgets through <c>cardsUI</c>, which holds one AbilityCardUI
+    /// per card of EVERY pile (CardsHandUI.cs:128; the FullCardHandViewer re-parents
+    /// these same widgets instead of instantiating, CardsHandUI.cs:345). Read-only:
+    /// no game state is touched. No allocation — caller owns the buffer.
+    /// </summary>
+    internal static void GetPileWidgets(CardsHandUI hand, bool burnt, List<AbilityCardUI> buffer)
+    {
+        buffer.Clear();
+        if (hand.PlayerActor == null)
+            return;
+        CCharacterClass klass = hand.PlayerActor.CharacterClass;
+        if (burnt)
+        {
+            AppendPileWidgets(hand, klass.LostAbilityCards, buffer);
+            AppendPileWidgets(hand, klass.PermanentlyLostAbilityCards, buffer);
+        }
+        else
+        {
+            AppendPileWidgets(hand, klass.DiscardedAbilityCards, buffer);
+        }
+    }
+
+    private static void AppendPileWidgets(CardsHandUI hand, List<CAbilityCard> pile, List<AbilityCardUI> buffer)
+    {
+        List<AbilityCardUI> cards = hand.cardsUI;
+        for (int i = 0; i < pile.Count; i++)
+        {
+            for (int j = 0; j < cards.Count; j++)
+            {
+                if (cards[j] != null && cards[j].AbilityCard == pile[i])
+                {
+                    buffer.Add(cards[j]);
+                    break;
+                }
+            }
+        }
+    }
+
     // ---------------------------------------------------------------------- misc --
 
     /// <summary>Verified: <c>public static Choreographer s_Choreographer</c> — alive only inside a scenario.</summary>

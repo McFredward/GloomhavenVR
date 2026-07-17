@@ -79,6 +79,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _objectivesMount;
     private Transform? _elementMount;
     private Transform? _clusterMount;
+    private Transform? _pileMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
     private Transform? _longRestAnchor;
@@ -127,6 +128,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// cluster is never re-parented under the tray). Null until built.
     /// </summary>
     internal Transform? ButtonClusterMount => _clusterMount;
+
+    /// <summary>
+    /// Mount for the pile viewer stacks (test #21), RIGHT edge — left-center origin
+    /// growing right, the mirror of the <see cref="ObjectivesMount"/> convention.
+    /// Unlike the other mounts this one hosts mod-owned children directly
+    /// (<see cref="PileViewer"/> parents its stacks under it — no live game UI, so
+    /// the reversibility rule that forbids re-parenting does not apply here).
+    /// Null until built.
+    /// </summary>
+    internal Transform? PileMount => _pileMount;
+
+    /// <summary>Stack center X in PileMount-local meters (see BuildMounts collision math).</summary>
+    internal const float PileStackOffsetX = 0.05f;
+
+    /// <summary>Vertical distance between the two stack centers, PileMount-local meters.</summary>
+    internal const float PileStackSpacing = 0.116f;
 
     /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
     internal const float InitiativeMountWidth = BoardW;
@@ -379,6 +396,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _clusterMount.localPosition = new Vector3(0f, ButtonClusterMountY, -0.006f);
         _clusterMount.localRotation = Quaternion.Euler(-90f, 0f, 0f);
         _clusterMount.localScale = Vector3.one * ButtonClusterMountScale;
+
+        // Test #21: the pile viewer docks off the board's RIGHT edge — the only
+        // free edge (initiative top, objectives + elements left, cluster bottom).
+        // Left-center origin at x = +0.332 growing right, mirroring the
+        // objectives' 0.012 mount gap. Stacks (PileViewer) sit at mount-local
+        // x = PileStackOffsetX (0.05) → centers x ≈ 0.382, worst-case right edge
+        // 0.382 + slab half 0.026 ≈ 0.408 — off-board, nothing docks there.
+        // Vertically: two stacks at y = ±PileStackSpacing/2 (±0.058); each cell
+        // spans slab half-height 0.031 + caption (bottom edge ≈ -0.055 in cell
+        // space) → column extent y ≈ +0.089 .. -0.113, inside the board's ±0.16
+        // half-height and clear of the FollowToggle (0.275, -0.19) and the handle
+        // bar (y -0.19), which both sit below y -0.144. Inter-stack clearance:
+        // upper cell bottom -0.003 vs lower cell top -0.027 → no overlap.
+        _pileMount = new GameObject("PileMount").transform;
+        _pileMount.SetParent(_root, worldPositionStays: false);
+        _pileMount.localPosition = new Vector3(BoardW * 0.5f + 0.012f, 0f, -0.004f);
     }
 
     // ------------------------------------------------------------------ grab handle --
@@ -549,6 +582,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _objectivesMount = null;
         _elementMount = null;
         _clusterMount = null; // child of _root, destroyed with it
+        _pileMount = null; // child of _root, destroyed with it (incl. the pile stacks)
         _placed = false;
         _wantVisible = false;
         _placementDeferLogged = false;

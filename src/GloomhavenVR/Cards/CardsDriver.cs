@@ -27,11 +27,15 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly PlayTray _tray = new();
     private readonly RestControls _rest = new();
     private readonly HalfSelection _half = new();
+    private readonly PileViewer _piles = new();
+    private readonly PileBrowser _browser = new();
 
     // Reused buffers (no per-frame allocations).
     private readonly List<AbilityCardUI> _widgetBuffer = new(24);
+    private readonly List<AbilityCardUI> _pileWidgetBuffer = new(16);
     private readonly List<VRCard> _fanBuffer = new(24);
     private readonly List<VRCard> _halfBuffer = new(4);
+    private readonly List<VRCard> _browseBuffer = new(16);
     private readonly List<VRCard> _fakeCards = new(12);
 
     private bool _dirty;
@@ -56,6 +60,9 @@ internal sealed class CardsDriver : MonoBehaviour
         _rest.ShortRestRequested += OnShortRestRequested;
         _rest.LongRestRequested += OnLongRestRequested;
         _half.PlayRequested += OnPlayRequested;
+        _piles.PokeToggled += OnPileTogglePoked;
+        _piles.GrabOpened += OnPileGrabOpened;
+        _piles.GrabReleased += OnPileGrabReleased;
 
         _dirty = true;
     }
@@ -77,8 +84,10 @@ internal sealed class CardsDriver : MonoBehaviour
         _liveGrabs.Clear();
         VRCard.InteractionBlockedHand = null;
         _fan.Destroy();
+        _browser.Destroy();
         _half.Destroy();
         _rest.Destroy();
+        _piles.Destroy(); // before the tray — the stacks live under its PileMount
         _tray.Destroy();
         _factory.Dispose(); // restores every adopted face
         CardActionQueue.Clear();
@@ -116,6 +125,8 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         _factory.ReleaseHand(hand);
         _tray.ClearSlots();
+        if (_browseHand == hand)
+            CloseBrowser("hand destroyed");
         if (_boundHand == hand)
             _boundHand = null;
         _dirty = true;
@@ -130,6 +141,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 ClearLaserHover();
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
+            _browser.Remove(card);
             _tray.RemoveCard(card);
             _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
         }
@@ -150,6 +162,7 @@ internal sealed class CardsDriver : MonoBehaviour
             // Hands (and rig) are down — nothing physical can exist.
             if (_fan.IsOpen)
                 _fan.Close();
+            CloseBrowser("hands down");
             ClearLaserHover();
             ClearBoardHover();
             _tray.SetVisible(false);
@@ -179,6 +192,7 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
+            _piles.TickStatus(_fakeActive ? null : hand);
         }
 
         LogFanState(hand);
@@ -548,6 +562,18 @@ internal sealed class CardsDriver : MonoBehaviour
         _half.EnsureBuilt(anchor);
         _half.DockTo(_tray); // action selection lives on the control board (test #19)
 
+        // Pile viewer (test #21): stacks exist whenever an active local hand does.
+        if (CardsConfig.PileViewer.Value)
+        {
+            _piles.EnsureBuilt(_tray);
+            _piles.SetVisible(true);
+        }
+        else
+        {
+            _piles.SetVisible(false);
+            CloseBrowser("[Cards] PileViewer off");
+        }
+
         CardHandMode mode = CardsGameApi.Mode(hand);
         CardsGameApi.GetCards(hand, _widgetBuffer);
 
@@ -617,6 +643,10 @@ internal sealed class CardsDriver : MonoBehaviour
         if (mode != CardHandMode.CardsSelection)
             _tray.ClearSlots(); // stale occupancy must not pin cards outside CardsSelection
 
+        // Pile browse (test #21): refresh content or close — BEFORE the zone flags
+        // below so freshly closed browse cards park in this same pass.
+        UpdateBrowser(hand, mode);
+
         // Configure cards per zone; everything else parks invisibly.
         for (int i = 0; i < _factory.All.Count; i++)
         {
@@ -626,13 +656,14 @@ internal sealed class CardsDriver : MonoBehaviour
             bool inFan = _fanBuffer.Contains(card);
             bool inHalf = _halfBuffer.Contains(card);
             bool inTray = _tray.SlotOf(card) >= 0;
+            bool inBrowse = _browser.Contains(card);
 
             card.PokeSelectEnabled = inFan && pokeSelect;
             card.Grabbable = (inFan && grabbable) || (inTray && grabbable);
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
 
-            if (!inFan && !inHalf && !inTray)
+            if (!inFan && !inHalf && !inTray && !inBrowse)
                 _factory.Park(card);
         }
 
@@ -956,10 +987,112 @@ internal sealed class CardsDriver : MonoBehaviour
         CardActionQueue.Enqueue(() => CardsGameApi.PlayHalf(full, type), () => _dirty = true);
     }
 
+    // ------------------------------------------------------------------ pile browse --
+
+    // Browse state (test #21): what was open when, so any mode/hand change closes
+    // it deterministically (C: browse fans never survive a context switch).
+    private bool _browseHeld;
+    private CardsHandUI? _browseHand;
+    private CardHandMode _browseMode;
+
+    /// <summary>The modal pick modes (poke-select fan flows; drop-field flows since test #21).</summary>
+    private static bool IsPickMode(CardHandMode mode) =>
+        mode == CardHandMode.LoseCard
+        || mode == CardHandMode.DiscardCard
+        || mode == CardHandMode.RecoverDiscardedCard
+        || mode == CardHandMode.RecoverLostCard
+        || mode == CardHandMode.IncreaseCardLimit;
+
+    private void OnPileTogglePoked(PileKind kind, VRHand hand)
+    {
+        if (_browser.IsOpen && _browser.Kind == kind)
+        {
+            CloseBrowser("poked again");
+            return;
+        }
+        OpenBrowser(kind, held: false);
+    }
+
+    private void OnPileGrabOpened(PileKind kind, VRHand hand) => OpenBrowser(kind, held: true);
+
+    private void OnPileGrabReleased(PileKind kind, VRHand hand)
+    {
+        if (_browseHeld)
+            CloseBrowser("grip released");
+    }
+
+    private void OpenBrowser(PileKind kind, bool held)
+    {
+        CardsHandUI? hand = CurrentHand();
+        Transform? anchor = AnchorParent();
+        if (hand == null || anchor == null || !CardsConfig.PileViewer.Value)
+            return;
+        CardHandMode mode = CardsGameApi.Mode(hand);
+        if (IsPickMode(mode) || VRModeStateMachine.CurrentMode == VRMode.ModalUI)
+            return; // modal pick flows / dialogs own the scene — browsing is non-modal only
+        _browseHeld = held;
+        _browseHand = hand;
+        _browseMode = mode;
+        _browser.Open(kind, anchor);
+        VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held" : "toggled")}, mode={mode}).");
+        _dirty = true; // content fills in Rebuild.UpdateBrowser
+    }
+
+    private void CloseBrowser(string reason)
+    {
+        if (!_browser.IsOpen)
+            return;
+        VRLog.Info("Cards", $"Pile browse CLOSE ({reason}).");
+        _browseHeld = false;
+        _browseHand = null;
+        _browser.Close();
+        _dirty = true; // next rebuild parks the browsed cards
+    }
+
+    /// <summary>
+    /// Rebuild-time browse refresh: close on any context change (mode/hand — C),
+    /// otherwise mirror the authoritative pile into the arc. Content comes from the
+    /// same widgets the 2D pile viewer re-parents (see CardsGameApi.GetPileWidgets),
+    /// adopted read-only — Grabbable/PokeSelect stay off via the zone-flag loop.
+    /// </summary>
+    private void UpdateBrowser(CardsHandUI hand, CardHandMode mode)
+    {
+        if (!_browser.IsOpen)
+            return;
+        if (hand != _browseHand || mode != _browseMode)
+        {
+            CloseBrowser($"context change (mode={mode}, handSwitch={hand != _browseHand})");
+            return;
+        }
+
+        bool burnt = _browser.Kind == PileKind.Burnt;
+        CardsGameApi.GetPileWidgets(hand, burnt, _pileWidgetBuffer);
+        _browseBuffer.Clear();
+        for (int i = 0; i < _pileWidgetBuffer.Count; i++)
+        {
+            AbilityCardUI widget = _pileWidgetBuffer[i];
+            if (widget.AbilityCard == null || widget.IsLongRest)
+                continue;
+            _browseBuffer.Add(AdoptedCard(widget));
+        }
+        if (_browseBuffer.Count == 0)
+        {
+            CloseBrowser("pile empty");
+            return;
+        }
+        PileKind kind = burnt ? PileKind.Burnt : PileKind.Discard;
+        _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({_browseBuffer.Count})");
+    }
+
     // ------------------------------------------------------------------ dev fake hand --
 
     private void RebuildFakeOrClear(Transform anchor)
     {
+        // No active local hand: no piles to show or browse (test #21 C — the stacks
+        // hide, an open browse closes; both return with the next active hand).
+        _piles.SetVisible(false);
+        CloseBrowser(CardsGameApi.InScenario ? "no active hand" : "scenario ended");
+
         bool wantFake = Plugin.DevMode.Value && CardsConfig.DevFakeHand.Value > 0 && !CardsGameApi.InScenario;
         if (!wantFake)
         {

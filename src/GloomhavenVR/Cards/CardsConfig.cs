@@ -77,6 +77,9 @@ internal static class CardsConfig
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
+    /// <summary>Discard/burnt pile stacks on the control board + the browse fan (hardware test #21 wish).</summary>
+    internal static ConfigEntry<bool> PileViewer = null!;
+
     internal static void Bind()
     {
         if (_file != null)
@@ -158,6 +161,11 @@ internal static class CardsConfig
             "to follow re-anchors it at the configured offsets.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
+        PileViewer = _file.Bind("Cards", "PileViewer", true,
+            "Discard/burnt pile stacks on the control board's right edge (hardware test #21 " +
+            "wish): each pile shows as a small physical card stack with a count; poking or " +
+            "pinch-grabbing a stack raises a readable browse fan of that pile's cards " +
+            "(informational — release/poke again to dismiss). false = no pile furniture at all.");
     }
 
     /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
