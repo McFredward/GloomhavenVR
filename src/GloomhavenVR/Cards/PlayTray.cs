@@ -25,7 +25,10 @@ namespace GloomhavenVR.Cards;
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
 ///   gear; the PIN follow-toggle sits on the bottom-right frame corner,
 /// - TOP-RIGHT corner: the round readout (test #18 — replaces the floating
-///   PhaseBanner box; same "Runde N" text, fed from the same game state).
+///   PhaseBanner box; same "Runde N" text, fed from the same game state),
+/// - BOTTOM-CENTER, under the slots: the WorldUI turn-flow ButtonCluster docks on
+///   <see cref="ButtonClusterMount"/> (test #19 — Undo | Ready | Skip with the
+///   game's live labels/states, no longer floating at the table edge).
 /// Poke AND laser work on every element: pokes via the P2 registry, laser via
 /// <see cref="LaserTargets"/> which CardsDriver ray-tests geometrically each frame.
 /// Every interaction is logged. Slot order == initiative order:
@@ -72,6 +75,7 @@ internal sealed class PlayTray
     private Transform? _anchorParent;
     private Transform? _initiativeMount;
     private Transform? _objectivesMount;
+    private Transform? _clusterMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
     private Transform? _longRestAnchor;
@@ -105,6 +109,14 @@ internal sealed class PlayTray
 
     /// <summary>Mount for the converted Objectives panel (left side). Null until built.</summary>
     internal Transform? ObjectivesMount => _objectivesMount;
+
+    /// <summary>
+    /// Mount for the WorldUI turn-flow ButtonCluster (Undo | Ready | Skip — the
+    /// game's live mid-turn buttons incl. "skip movement"/"end turn" states), docked
+    /// under the card slots (test #19). Pose-follow like the other mounts (the
+    /// cluster is never re-parented under the tray). Null until built.
+    /// </summary>
+    internal Transform? ButtonClusterMount => _clusterMount;
 
     /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
     internal const float InitiativeMountWidth = BoardW;
@@ -277,6 +289,12 @@ internal sealed class PlayTray
         Core.TmpFit.Fit(_roundLabel, 0.12f, 0.028f, maxFontSize: 0.32f, wrap: false);
     }
 
+    /// <summary>Cluster dock scale: the cluster's real-meter layout shrunk onto the button strip.</summary>
+    private const float ButtonClusterMountScale = 0.7f;
+
+    /// <summary>Cluster mount board-Y (collision math in <see cref="BuildMounts"/>).</summary>
+    private const float ButtonClusterMountY = -0.115f;
+
     private void BuildMounts()
     {
         _initiativeMount = new GameObject("InitiativeMount").transform;
@@ -286,6 +304,21 @@ internal sealed class PlayTray
         _objectivesMount = new GameObject("ObjectivesMount").transform;
         _objectivesMount.SetParent(_root, worldPositionStays: false);
         _objectivesMount.localPosition = new Vector3(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
+
+        // Test #19: the ButtonCluster docks under the card slots. Frame: +Z up the
+        // board ("away from the player" — the PanelLayout pose contract the
+        // cluster's own 180° yaw flip expects), +Y out of the board (caps rise
+        // toward the viewer, presses travel into the board). At 0.7× the cluster
+        // spans x ±0.109 (skip center 0.077 + base half 0.032) — clear of the rest
+        // plate (right edge -0.1925) and the gear/undo column (left edge 0.186) —
+        // and y -0.115 ± 0.042 (ready base half) → -0.157..-0.073: below the slot
+        // captions (bottom edge ≈ -0.068), inside the board (bottom edge -0.16),
+        // above the handle collider (top edge ≈ -0.165).
+        _clusterMount = new GameObject("ButtonClusterMount").transform;
+        _clusterMount.SetParent(_root, worldPositionStays: false);
+        _clusterMount.localPosition = new Vector3(0f, ButtonClusterMountY, -0.006f);
+        _clusterMount.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+        _clusterMount.localScale = Vector3.one * ButtonClusterMountScale;
     }
 
     // ------------------------------------------------------------------ grab handle --
@@ -444,6 +477,7 @@ internal sealed class PlayTray
         _gear = null;
         _initiativeMount = null;
         _objectivesMount = null;
+        _clusterMount = null; // child of _root, destroyed with it
         _placed = false;
         _wantVisible = false;
         _placementDeferLogged = false;

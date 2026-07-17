@@ -433,7 +433,7 @@ internal sealed class CardsDriver : MonoBehaviour
             }
             else
             {
-                VRLog.Info("Cards", $"Board: laser click → {(best as MonoBehaviour)?.name ?? best!.GetType().Name}.");
+                VRLog.Info("Cards", $"Board: laser click → {(best as MonoBehaviour)?.name ?? best!.ToString()}.");
                 best!.OnPoke(dom);
             }
         }
