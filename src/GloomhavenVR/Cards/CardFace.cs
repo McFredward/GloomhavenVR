@@ -33,6 +33,14 @@ internal sealed class CardFace
     /// <summary>Centered anchor frame the host pose uses (anchors AND pivot).</summary>
     private static readonly Vector2 CenterAnchor = new(0.5f, 0.5f);
 
+    /// <summary>
+    /// Fraction the fitted face is shrunk by so the card mesh's rounded dark front
+    /// shows as a thin outline around the art (test #24: "the black border is WAY too
+    /// big"). 0.06 leaves ~3% margin on every edge — ≈1.9 mm on a 63.5 mm card — a
+    /// tasteful rounded border, NOT the old fat black frame. See <see cref="RefreshFitScale"/>.
+    /// </summary>
+    private const float BorderFraction = 0.06f;
+
     private AbilityCardUI? _owner;
     private RectTransform? _face;
     private RectTransform? _host;
@@ -51,6 +59,10 @@ internal sealed class CardFace
     private bool _origLock;
 
     private float _fitScale = 1f;
+    // Host size the fit scale was last computed against — the host canvas is resized
+    // to the real face pixels AFTER Adopt (VRCard.SetCanvasSize), so the fit must be
+    // recomputed once the true host size is known (test #24 fat-border bug).
+    private Vector2 _fitHostSize;
 
     // Test #22: change-dedup for the burn/lose-confirm re-claim log (Maintain).
     private bool _reclaimedFromDialog;
@@ -105,16 +117,33 @@ internal sealed class CardFace
         Vector2 size = face.rect.size;
         if (size.x > 1f && size.y > 1f)
             FaceSize = size;
-        _fitScale = ComputeFitScale(host, FaceSize);
+        RefreshFitScale();
 
         ApplyHostPose();
         return true;
     }
 
-    private static float ComputeFitScale(RectTransform host, Vector2 faceSize)
+    /// <summary>
+    /// (Re)compute the face-to-host fit scale against the host's CURRENT size. VRCard
+    /// resizes the host canvas to the real face pixels right after <see cref="Adopt"/>,
+    /// so the scale captured during Adopt (against the placeholder host) would leave the
+    /// art shrunk in a large canvas — the "black border WAY too big" of test #24. We
+    /// re-fit whenever the host size changes and inset by <see cref="BorderFraction"/>
+    /// so the mesh's rounded dark front reads as a thin outline. Scale-independent, so
+    /// it holds at every card scale (fan, held, tray) and on both hands.
+    /// </summary>
+    private void RefreshFitScale()
     {
-        Vector2 hostSize = host.rect.size;
-        if (hostSize.x <= 0f || hostSize.y <= 0f)
+        if (_host == null)
+            return;
+        Vector2 hostSize = _host.rect.size;
+        _fitHostSize = hostSize;
+        _fitScale = ComputeFitScale(hostSize, FaceSize) * (1f - BorderFraction);
+    }
+
+    private static float ComputeFitScale(Vector2 hostSize, Vector2 faceSize)
+    {
+        if (hostSize.x <= 0f || hostSize.y <= 0f || faceSize.x <= 0f || faceSize.y <= 0f)
             return 1f;
         return Mathf.Min(hostSize.x / faceSize.x, hostSize.y / faceSize.y);
     }
@@ -123,6 +152,7 @@ internal sealed class CardFace
     {
         if (_face == null || _host == null)
             return;
+        RefreshFitScale();
         _face.SetParent(_host, worldPositionStays: false);
         _face.anchorMin = CenterAnchor;
         _face.anchorMax = CenterAnchor;
@@ -216,6 +246,11 @@ internal sealed class CardFace
             _face.anchoredPosition3D = Vector3.zero;
         if (_face.localRotation != Quaternion.identity)
             _face.localRotation = Quaternion.identity;
+        // Re-fit if the host canvas was resized (VRCard.SetCanvasSize runs right after
+        // Adopt to swap the placeholder host size for the real face pixels). Without
+        // this the face stays fitted to the placeholder → the fat black border.
+        if (_host.rect.size != _fitHostSize)
+            RefreshFitScale();
         float scale = _face.localScale.x;
         if (!Mathf.Approximately(scale, _fitScale))
             _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
