@@ -163,9 +163,15 @@ internal static class CanvasConversion
     /// The host is unpositioned (identity pose) — the caller places
     /// <see cref="ConvertedPanel.HostTransform"/> in the world and owns its lifetime
     /// via <see cref="Release"/>. Returns null when the target is gone.
+    /// <paramref name="fitContent"/> opts the host in/out of the central content fit
+    /// (<see cref="TickFit"/>); default null = fit pokeable hosts only (their laser/
+    /// poke plane must match visible content — test #14 item 1). Display-only panels
+    /// whose target is a large stretch container (the enemy round-reveal holder) pass
+    /// true: they need the host sized/centered on the visible content too, without
+    /// ever registering as a poke surface.
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
-        PokeSurfaceTuning? pokeTuning = null)
+        PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null)
     {
         if (target == null)
         {
@@ -230,14 +236,16 @@ internal static class CanvasConversion
         AdoptNestedCanvases(panel); // tests #19/#20: sorting-override + raycast hijack
 
         if (pokeable)
-        {
             UguiPokeSurfaces.Register(hostCanvas, pokeTuning); // P5: per-canvas press feel (A.10)
 
-            // Test #14 item 1: EVERY pokeable host is content-fitted, not only floated
-            // modals — the initiative track converted at its full 1920x1080 window rect
-            // (~45x25 m world plane!) and that invisible plane caught the laser before
-            // everything behind it (dot off the dialog, tray clicks eaten). Fitting is
-            // driven centrally from Tick(), incl. periodic re-fit on content growth.
+        // Test #14 item 1: EVERY pokeable host is content-fitted, not only floated
+        // modals — the initiative track converted at its full 1920x1080 window rect
+        // (~45x25 m world plane!) and that invisible plane caught the laser before
+        // everything behind it (dot off the dialog, tray clicks eaten). Fitting is
+        // driven centrally from Tick(), incl. periodic re-fit on content growth.
+        // Display-only callers opt in explicitly via fitContent (enemy reveal).
+        if (fitContent ?? pokeable)
+        {
             panel.FitEnabled = true;
             panel.FitFrameDegenerate = degenerate;
             panel.FitNotBefore = Time.unscaledTime + FitDelaySeconds;

@@ -28,6 +28,7 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> StatPanels = null!;
     internal static ConfigEntry<bool> PropInfoCards = null!;
+    internal static ConfigEntry<bool> EnemyReveal = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
     /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
@@ -155,6 +156,10 @@ internal static class WorldUIConfig
         PropInfoCards = _file.Bind("WorldUI", "PropInfoCards", true,
             "Hover prop-info cards (closed doors/chests, traps, terrain, quest items — the " +
             "game's TextInfoPanel/PropInfoPanel popups) as a small passive world panel low in view.");
+        EnemyReveal = _file.Bind("WorldUI", "EnemyReveal", true,
+            "Enemy round reveal (the monster ability cards shown after everyone confirmed " +
+            "their card selection) as a display-only world panel floating above the board " +
+            "while the game shows it, instead of hidden on the control board.");
         ActorBars = _file.Bind("WorldUI", "ActorBars", true,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,
