@@ -242,18 +242,47 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
 }
 
 /// <summary>
-/// Element infusion board as a world panel near the initiative track.
+/// Element infusion board, docked in the tray dashboard's LEFT column below the
+/// objectives panel (test #20; the free-floating world panel is gone — it hung over
+/// the table as an orphaned 'circle with squiggles'; floating slot layout only as
+/// the no-tray fallback). Behaves exactly like the objectives dock: pose-follows
+/// its mount, shared tray density, moves/scales/pins with the tray.
 /// Verified: <c>public class InfusionBoardUI : MonoBehaviour</c> with
 /// <c>public static InfusionBoardUI Instance { get; private set; }</c>.
 /// </summary>
-internal sealed class ElementBoardSurface : SlotPanelSurface
+internal sealed class ElementBoardSurface : TrayMountedPanelSurface
 {
     public override string Name => "ElementBoard";
     protected override bool ConfigEnabled => WorldUIConfig.ElementBoard.Value;
     protected override PanelSlot Slot => PanelSlot.ElementBoard;
+    protected override Transform? Mount => PlayTray.Current?.ElementMount;
+    protected override float MountWidth => PlayTray.ElementMountWidth;
+    protected override float MountMaxHeight => PlayTray.ElementMountMaxHeight;
+    protected override Vector2 GrowDirection => Vector2.left; // right edge on the mount, same column as the objectives
+
+    /// <summary>
+    /// The element icons are glanced at from board distance, not read like text —
+    /// at the shared density they render smaller than that job warrants. 0.8×
+    /// draws them 1.25× bigger; the dock fit clamp still bounds the board to its
+    /// mount budget like every docked panel.
+    /// </summary>
+    protected override float DensityScale => 0.8f;
 
     protected override RectTransform? FindTarget() =>
         InfusionBoardUI.Instance != null ? InfusionBoardUI.Instance.transform as RectTransform : null;
+
+    /// <summary>
+    /// Scope the content fit to the game's own serialized <c>elementsHolder</c>
+    /// (publicized field; verified in decompiled/GH.Runtime/InfusionBoardUI.cs —
+    /// every <c>InfusionElementUI</c> is instantiated under it in Awake), the same
+    /// by-construction rule the initiative track uses: fullscreen siblings on the
+    /// root canvas can never leak into the measured rect.
+    /// </summary>
+    protected override void OnConverted()
+    {
+        if (Panel != null && InfusionBoardUI.Instance != null)
+            Panel.FitContentRoot = InfusionBoardUI.Instance.elementsHolder as RectTransform;
+    }
 }
 
 /// <summary>

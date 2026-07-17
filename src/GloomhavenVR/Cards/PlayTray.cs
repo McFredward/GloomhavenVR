@@ -20,6 +20,8 @@ namespace GloomhavenVR.Cards;
 ///   players who have not locked in),
 /// - LEFT: the converted Objectives panel (<see cref="ObjectivesMount"/>) next to
 ///   the REST zone (short/long-rest tokens built by <see cref="RestControls"/>),
+///   with the element infusion board (<see cref="ElementMount"/>) docked directly
+///   below it (test #20 — no longer a free-floating world panel),
 /// - CENTER: two large card slots (slot 0 = initiative, marked by the numbered
 ///   badge; drop to place, grab to take back, physical swap = initiative swap),
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
@@ -75,6 +77,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _anchorParent;
     private Transform? _initiativeMount;
     private Transform? _objectivesMount;
+    private Transform? _elementMount;
     private Transform? _clusterMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
@@ -111,6 +114,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal Transform? ObjectivesMount => _objectivesMount;
 
     /// <summary>
+    /// Mount for the converted element infusion board (test #20), LEFT column below
+    /// the objectives dock — right-center origin growing left, same convention as
+    /// <see cref="ObjectivesMount"/>. Null until built.
+    /// </summary>
+    internal Transform? ElementMount => _elementMount;
+
+    /// <summary>
     /// Mount for the WorldUI turn-flow ButtonCluster (Undo | Ready | Skip — the
     /// game's live mid-turn buttons incl. "skip movement"/"end turn" states), docked
     /// under the card slots (test #19). Pose-follow like the other mounts (the
@@ -129,6 +139,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>Max panel height at the objectives mount, tray-local meters.</summary>
     internal const float ObjectivesMountMaxHeight = 0.32f;
+
+    /// <summary>Target panel width at the element mount, tray-local meters (same left column as the objectives).</summary>
+    internal const float ElementMountWidth = ObjectivesMountWidth;
+
+    /// <summary>Max panel height at the element mount, tray-local meters.</summary>
+    internal const float ElementMountMaxHeight = 0.12f;
 
     /// <summary>
     /// ONE shared pixel density for every tray-docked panel, uGUI pixels per
@@ -334,6 +350,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _objectivesMount.SetParent(_root, worldPositionStays: false);
         _objectivesMount.localPosition = new Vector3(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
 
+        // Test #20: the element infusion board docks in the LEFT column, below the
+        // objectives dock — same right-center/grow-left convention and column width,
+        // so both panels right-align off the board's left edge (x ≤ -0.332,
+        // off-board: no board furniture to collide with there, only each other).
+        // Vertically: the objectives are centered at y 0 with a 0.32 budget (worst
+        // case bottom edge -0.16); the element mount sits at y -0.232 with a 0.12
+        // budget (worst-case top edge -0.172) → 0.012 clearance, the same mount gap
+        // used at the board edges.
+        _elementMount = new GameObject("ElementMount").transform;
+        _elementMount.SetParent(_root, worldPositionStays: false);
+        _elementMount.localPosition = new Vector3(
+            -BoardW * 0.5f - 0.012f,
+            -(ObjectivesMountMaxHeight * 0.5f + 0.012f + ElementMountMaxHeight * 0.5f),
+            -0.004f);
+
         // Test #19: the ButtonCluster docks under the card slots. Frame: +Z up the
         // board ("away from the player" — the PanelLayout pose contract the
         // cluster's own 180° yaw flip expects), +Y out of the board (caps rise
@@ -516,6 +547,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _gear = null;
         _initiativeMount = null;
         _objectivesMount = null;
+        _elementMount = null;
         _clusterMount = null; // child of _root, destroyed with it
         _placed = false;
         _wantVisible = false;

@@ -18,8 +18,9 @@ namespace GloomhavenVR.WorldUI;
 /// (BepInEx saves on every ConfigEntry write).
 ///
 /// Opening:
-/// - a small "gear" pokeable at the table edge (next to the P3c button cluster),
-///   scenario-only ([SettingsPanel] GearButton), and
+/// - the tray dashboard's gear button (Cards module, via <see cref="RequestToggle"/>;
+///   test #20 removed the old free-floating world 'SET' pokeable at the table edge —
+///   the tray gear superseded it), and
 /// - a controller chord anywhere hands exist: hold the NON-dominant lower face button
 ///   (A/X — free for features, the recenter chord uses B+Y on both hands) for at least
 ///   [SettingsPanel] ChordHoldSeconds and RELEASE (P6: fires on release, because the
@@ -42,7 +43,6 @@ internal sealed class SettingsPanel
 
     private GameObject? _root;
     private Canvas? _canvas;
-    private GearButton? _gear;
     private bool _open;
     private float _nextRefresh;
     private readonly List<Action> _refreshers = new(16);
@@ -69,12 +69,10 @@ internal sealed class SettingsPanel
         {
             if (_open)
                 SetOpen(false);
-            _gear?.SetVisible(false);
             return;
         }
 
         TickChord();
-        TickGear();
 
         if (!_open || _root == null)
             return;
@@ -107,8 +105,6 @@ internal sealed class SettingsPanel
             _root = null;
             _canvas = null;
         }
-        _gear?.Destroy();
-        _gear = null;
         _refreshers.Clear();
     }
 
@@ -189,24 +185,6 @@ internal sealed class SettingsPanel
             return;
         NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
         Toggle();
-    }
-
-    // ---- gear button ---------------------------------------------------------------------
-
-    private void TickGear()
-    {
-        bool want = WorldUIConfig.SettingsGearButton.Value
-                    && Choreographer.s_Choreographer != null
-                    && PanelLayout.TryGetPose(PanelSlot.ButtonCluster, out _, out _);
-        if (!want)
-        {
-            _gear?.SetVisible(false);
-            return;
-        }
-
-        _gear ??= GearButton.Create(Toggle);
-        _gear.SetVisible(true);
-        _gear.Place();
     }
 
     // ---- construction ----------------------------------------------------------------------
@@ -507,88 +485,4 @@ internal sealed class SettingsPanel
         }
     }
 
-    // ---- gear ---------------------------------------------------------------------------------
-
-    /// <summary>Small pokeable gear at the table edge, right of the Ready/Undo/Skip cluster.</summary>
-    private sealed class GearButton : IPokeable
-    {
-        private GameObject _root = null!;
-        private Transform _cap = null!;
-        private Action _onPoke = null!;
-
-        public static GearButton Create(Action onPoke)
-        {
-            var gear = new GearButton { _onPoke = onPoke };
-            gear._root = new GameObject("GloomhavenVR.SettingsGear");
-
-            GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            cap.name = "Cap";
-            UnityEngine.Object.Destroy(cap.GetComponent<Collider>());
-            cap.transform.SetParent(gear._root.transform, worldPositionStays: false);
-            cap.transform.localScale = new Vector3(0.05f, 0.007f, 0.05f);
-            cap.transform.localPosition = new Vector3(0f, 0.012f, 0f);
-            cap.GetComponent<Renderer>().sharedMaterial =
-                WorldUIAssets.CreateFlatMaterial(new Color(0.5f, 0.5f, 0.55f));
-            gear._cap = cap.transform;
-
-            var labelGo = new GameObject("Label");
-            labelGo.transform.SetParent(gear._root.transform, worldPositionStays: false);
-            labelGo.transform.localPosition = new Vector3(0f, 0.02f, 0f);
-            labelGo.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
-            var tmp = labelGo.AddComponent<TextMeshPro>();
-            tmp.text = "SET";
-            tmp.fontSize = 0.28f;
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.rectTransform.sizeDelta = new Vector2(0.1f, 0.04f);
-            WorldUIAssets.TryAssignGameFont(tmp);
-
-            var collider = gear._root.AddComponent<BoxCollider>();
-            collider.center = new Vector3(0f, 0.015f, 0f);
-            collider.size = new Vector3(0.055f, 0.03f, 0.055f);
-            VRInteractables.RegisterPokeable(gear, collider);
-            VRLayers.Apply(gear._root); // pokes are registry-driven; layer is render-only
-            return gear;
-        }
-
-        public void Place()
-        {
-            if (_root == null || !PanelLayout.TryGetPose(PanelSlot.ButtonCluster, out Vector3 pos, out Quaternion rot))
-                return;
-            float scale = PanelLayout.WorldScale;
-            // Sit to the right of the Undo|Ready|Skip cluster (cluster is yaw-flipped
-            // toward the player; +X in its flipped frame = the player's right).
-            Quaternion flipped = rot * Quaternion.Euler(0f, 180f, 0f);
-            _root.transform.SetPositionAndRotation(pos + flipped * new Vector3(0.22f * scale, 0f, 0f), flipped);
-            _root.transform.localScale = Vector3.one * scale;
-
-            // Cap eases back up after a press dip.
-            if (_cap != null)
-                _cap.localPosition = Vector3.Lerp(_cap.localPosition,
-                    new Vector3(0f, 0.012f, 0f), Time.deltaTime * 8f);
-        }
-
-        public void SetVisible(bool visible)
-        {
-            if (_root != null && _root.activeSelf != visible)
-                _root.SetActive(visible);
-        }
-
-        public void Destroy()
-        {
-            VRInteractables.UnregisterPokeable(this);
-            if (_root != null)
-                UnityEngine.Object.Destroy(_root);
-        }
-
-        public void OnPokeEnter(VRHand hand) { }
-
-        public void OnPokeExit(VRHand hand) { }
-
-        public void OnPoke(VRHand hand)
-        {
-            if (_cap != null)
-                _cap.localPosition = new Vector3(0f, 0.006f, 0f); // brief press dip
-            _onPoke();
-        }
-    }
 }

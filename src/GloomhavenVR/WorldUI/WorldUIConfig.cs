@@ -117,9 +117,6 @@ internal static class WorldUIConfig
         !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
 
     // ---- settings panel (MISSION B) ------------------------------------------------------
-    /// <summary>Show the small gear pokeable next to the button cluster (scenario only).</summary>
-    internal static ConfigEntry<bool> SettingsGearButton = null!;
-
     /// <summary>Hold the non-dominant A/X this long to toggle the settings panel (0 = off).</summary>
     internal static ConfigEntry<float> SettingsChordHoldSeconds = null!;
 
@@ -145,7 +142,8 @@ internal static class WorldUIConfig
         InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", true,
             "Initiative track as a world-space panel above the table.");
         ElementBoard = _file.Bind("WorldUI", "ElementBoard", true,
-            "Element infusion board as a world-space panel near the initiative track.");
+            "Element infusion board docked on the control board's left column, below the " +
+            "objectives panel (floating world panel only as the no-tray fallback).");
         CombatLog = _file.Bind("WorldUI", "CombatLog", true,
             "Combat log as a world-space panel at the table's far side.");
         Objectives = _file.Bind("WorldUI", "Objectives", true,
@@ -273,9 +271,6 @@ internal static class WorldUIConfig
             "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
             "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
 
-        SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
-            "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +
-            "that opens the in-VR settings panel.");
         SettingsChordHoldSeconds = _file.Bind("SettingsPanel", "ChordHoldSeconds", 0.6f,
             "Hold the NON-dominant lower face button (A or X) this many seconds to toggle the " +
             "in-VR settings panel — works in the menu too. 0 disables the chord. " +
