@@ -179,6 +179,7 @@ internal sealed class PileViewer
             count.text = "-";
             count.alignment = TextAlignmentOptions.Center;
             count.color = new Color(1f, 0.95f, 0.8f);
+            WorldUI.NativeButtonSkin.ApplyFont(count); // native HUD font (test #25 item 3)
             Core.TmpFit.Fit(count, w * 0.9f, h * 0.62f, maxFontSize: 0.30f, wrap: false);
 
             // Caption under the stack (localized names shrink to fit, test #12).
@@ -189,6 +190,7 @@ internal sealed class PileViewer
             captionTmp.text = caption.ToUpperInvariant();
             captionTmp.alignment = TextAlignmentOptions.Center;
             captionTmp.color = new Color(0.85f, 0.8f, 0.7f);
+            WorldUI.NativeButtonSkin.ApplyFont(captionTmp); // native HUD font (test #25 item 3)
             Core.TmpFit.Fit(captionTmp, 0.095f, 0.024f, maxFontSize: 0.22f, wrap: false);
 
             var box = go.AddComponent<BoxCollider>();
