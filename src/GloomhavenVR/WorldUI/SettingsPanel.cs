@@ -4,6 +4,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI.Surfaces;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -315,6 +316,15 @@ internal sealed class SettingsPanel
 
         var note = Row(22f);
         Label(note, "* applies on next VR start", 12f, flexible: true);
+
+        Section("Anzeige");
+
+        // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag
+        // set by the panel's X button and reconverts it at the persisted pose; HIDE releases
+        // it back to its 2D home and keeps it from auto-reappearing.
+        Toggle("Kampflog anzeigen",
+            () => CombatLogSurface.UserVisible,
+            v => CombatLogSurface.SetUserVisible(v, "settings"));
 
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
         VRLayers.Apply(_root);

@@ -91,6 +91,9 @@ internal static class WorldUIConfig
     /// <summary>Combat log size multiplier (two-hand resize; clamped 0.5–2).</summary>
     internal static ConfigEntry<float> CombatLogScale = null!;
 
+    /// <summary>User hid the combat log via its X button / settings toggle — do not auto-appear.</summary>
+    internal static ConfigEntry<bool> CombatLogUserClosed = null!;
+
     /// <summary>Modal fallback style: "window" (float only the dialog window) | "screen" (full flat screen).</summary>
     internal static ConfigEntry<string> ModalStyle = null!;
 
@@ -243,6 +246,12 @@ internal static class WorldUIConfig
             "Combat log panel height above the table plane, real meters (grab-persisted).");
         CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", 1.0f,
             "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).");
+        CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", false,
+            "The user hid the combat log via its top-right X button (or the in-VR settings " +
+            "'Kampflog anzeigen' toggle). While true the panel releases back to its 2D home and " +
+            "does NOT auto-reappear in a scenario; the settings toggle clears it and re-shows the " +
+            "panel. Kept separate from [WorldUI] CombatLog (the feature master) so re-showing " +
+            "never disturbs the feature toggle or the persisted layout.");
         PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", false,
             "LEGACY (pre-test-#8) behavior: the world panels (initiative track, element " +
             "board, combat log, objectives, button cluster) re-derive their placement from " +

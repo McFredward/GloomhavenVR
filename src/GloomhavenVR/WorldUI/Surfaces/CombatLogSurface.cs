@@ -61,7 +61,44 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private const float ZoneWidthFraction = 0.62f;
 
     public override string Name => "CombatLog";
-    protected override bool ConfigEnabled => WorldUIConfig.CombatLog.Value;
+    // The user-closed flag (X button / settings toggle) hides the panel WITHOUT touching
+    // the feature master, so re-showing keeps the persisted layout (item 6).
+    protected override bool ConfigEnabled => UserVisible;
+
+    // ---- show/hide seam (item 6) -----------------------------------------------------------
+
+    /// <summary>Effective visibility: feature master ON and the user has not closed it.</summary>
+    internal static bool UserVisible =>
+        WorldUIConfig.CombatLog.Value && !WorldUIConfig.CombatLogUserClosed.Value;
+
+    private static bool _loggedVisible;
+
+    /// <summary>
+    /// Show/hide the combat log from the X close button or the settings 'Kampflog anzeigen'
+    /// toggle. SHOW clears the user-closed flag (and re-arms the feature master) so the next
+    /// tick reconverts and re-derives the pose from the persisted offsets — a sensible place
+    /// in front of the seat. HIDE sets the persisted flag so it does not auto-reappear; the
+    /// surface releases the conversion back to its 2D home like a normal hide. Change-deduped.
+    /// </summary>
+    internal static void SetUserVisible(bool visible, string source)
+    {
+        if (visible)
+        {
+            WorldUIConfig.CombatLog.Value = true;            // BepInEx persists on set
+            WorldUIConfig.CombatLogUserClosed.Value = false;
+        }
+        else
+        {
+            WorldUIConfig.CombatLogUserClosed.Value = true;
+        }
+        if (_loggedVisible != visible)
+        {
+            _loggedVisible = visible;
+            VRLog.Info("WorldUI", visible
+                ? $"Combat log shown ({source}) — reconverting at the persisted pose."
+                : $"Combat log hidden ({source}) — released to its 2D home, will not auto-reappear.");
+        }
+    }
 
     /// <summary>
     /// Test #21: the log CONTENT is styled in real 3D — entries recede obliquely
@@ -82,6 +119,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private PanelGrabHandle? _handle;
     private PlayTray.BoardButton? _pin;
     private Transform? _pinAnchor;
+    private PlayTray.BoardButton? _close;
+    private Transform? _closeAnchor;
     private PlayTray? _laserTray;
     private float _builtBarWidth = -1f;
     private bool _placedFromConfig;
@@ -152,6 +191,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _handle = null;
         _pin = null;
         _pinAnchor = null;
+        _close = null;
+        _closeAnchor = null;
         _laserTray = null;
         _builtBarWidth = -1f;
         _placedFromConfig = false;
@@ -218,6 +259,17 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             (Vector3.up * ((BarGapMeters + rect.height * metersPerPixel * 0.5f) * hostScale));
         CanvasConversion.PlaceHost(Panel, center, _frame.rotation, hostScale);
 
+        // X close button rides the panel's TOP-RIGHT corner (frame-local, meters at scale 1
+        // like the bar/pin — the anchor's hostScale handles the diorama/user scaling). The
+        // corner moves with the live host rect, so re-seat it every tick.
+        if (_closeAnchor != null)
+        {
+            const float inset = 0.035f;
+            float halfWidth = rect.width * metersPerPixel * 0.5f;
+            float topEdge = BarGapMeters + rect.height * metersPerPixel;
+            _closeAnchor.localPosition = new Vector3(halfWidth - inset, topEdge - inset, -0.004f);
+        }
+
         TickPin();
     }
 
@@ -255,6 +307,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _handle = null;
         _pin = null;
         _pinAnchor = null;
+        _close = null;
+        _closeAnchor = null;
         _laserTray = null;
         _builtBarWidth = -1f;
 
@@ -288,6 +342,17 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _pin = PlayTray.BoardButton.Create(_pinAnchor, new Vector2(0.068f, 0.030f),
             new Color(0.75f, 0.55f, 0.2f), "FOLLOW", TogglePin);
         ApplyPinVisual();
+
+        // X close button at the panel's TOP-RIGHT corner (item 6): same BoardButton
+        // vocabulary as the pin. Hides the log (releases the conversion to 2D) and
+        // persists the user-closed flag so it does not auto-reappear; re-spawn via the
+        // settings 'Kampflog anzeigen' toggle. The anchor pose is set every tick in
+        // Place() (the corner rides the live host rect). Accent = the tray's warm red.
+        _closeAnchor = new GameObject("CloseButton").transform;
+        _closeAnchor.SetParent(_frame, worldPositionStays: false);
+        _close = PlayTray.BoardButton.Create(_closeAnchor, new Vector2(0.05f, 0.05f),
+            new Color(0.72f, 0.28f, 0.24f), "X", () => SetUserVisible(false, "X button"));
+        _close.SetState(true, accent: true);
 
         // Render-only mod layer — grabs and pokes go through the registries.
         VRLayers.Apply(holderGo);
@@ -345,6 +410,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         if (tray != null && !ReferenceEquals(tray, _laserTray) && _pin.Collider != null)
         {
             tray.RegisterLaserTarget(_pin.Collider, _pin);
+            if (_close?.Collider != null)
+                tray.RegisterLaserTarget(_close.Collider, _close);
             _laserTray = tray;
         }
     }
