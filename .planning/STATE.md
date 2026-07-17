@@ -1,7 +1,7 @@
 # GSD State
 
 - **Milestone:** v0.1 (first playable VR release)
-- **Position:** **Hardware iteration loop.** 10 on-device test rounds done; menu + campaign map + scenario entry + clicking + card fan + board targeting all working in VR. Current round: map visuals, story-lock fallback, free movement, roll-only card reveal, 3D cards in hand, control-board redesign (all merged, awaiting test #11).
+- **Position:** **Hardware iteration loop.** 10 on-device test rounds done; menu + campaign map + scenario entry + clicking + card fan + board targeting all working in VR. Round 15 merged: tray dashboard (real initiative UI + objectives docked, pin toggle, modal grab, highlight-rule drops), placement fix (TimeManager freeze via skipped camera-arrival — CameraArrivalGuard), stereo-depth flat screen. Awaiting hardware test #16.
 - **Last update:** 2026-07-17
 
 ## Done
