@@ -58,12 +58,18 @@
       the hover is sticky — small aim wobble on the card must not flip the pop to a
       neighbor; pull the TRIGGER → the card flies into the dominant hand.
 - [ ] **Proximity pluck** with the dominant hand still works: reach in, grip → grab.
-- [ ] **In-hand hold (test #10 fix)**: the grabbed card sits IN the hand like a real
-      card — pinched above the palm, top past the fingertips, enlarged
+- [ ] **Pinch grip (test #12 fix)**: the grabbed card is held BETWEEN THUMB AND
+      INDEX — its lower edge sits at the midpoint of the thumb tip and index tip
+      (sampled at grab time), the card plane lies in the palm plane with a gentle
+      readable tilt (`[Cards] HeldTiltDegrees`), top past the fingertips, enlarged
       (`[Cards] InspectScale`). It rotates 1:1 with the wrist: twist the wrist → the
       card twists with it, NO auto-facing, no floating in front of the hand. Turning
-      the palm toward you presents the card readable (gentle fixed tilt,
-      `[Cards] HeldTiltDegrees/HeldForward/HeldOffPalm`).
+      the palm toward you presents the card readable.
+- [ ] Fine-tune the pinch with `[Cards] HeldPinchOffset` (GrabAnchor-local meters:
+      +Y out of the palm, +Z along the fingers). `HeldOffPalm/HeldForward` are only
+      the fallback for rigs without finger joints (procedural AND bundle gloves
+      always have `Anchor_{Thumb|Index}_Tip` — missing joints are synthesized, see
+      `unity/.../Bundle/Hands/README.md`).
 - [ ] Release (trigger-up for a laser pluck, grip-up for a proximity grab) in the
       void → the card animates back into its fan gap; release over a board slot (card
       or hand above the slot) → it parks there.

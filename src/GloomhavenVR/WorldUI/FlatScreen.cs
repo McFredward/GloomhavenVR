@@ -192,6 +192,14 @@ internal sealed class FlatScreen
     private bool _chordFired;
     private bool _chordArmingLogged;
 
+    /// <summary>
+    /// True while the manual chord forces the full screen (P8): ModalFallback reads
+    /// this to RELEASE its floating window conversions — a window re-parented onto a
+    /// world-space host would be missing from the screen's RT composite, so the
+    /// universal rescue must always put the windows back into the 2D UI first.
+    /// </summary>
+    internal static bool ManualScreenActive { get; private set; }
+
     public FlatScreen()
     {
         // P5 (MISSION A.2): scene loads re-wire the game's UI cameras (CanvasManager.
@@ -226,6 +234,7 @@ internal sealed class FlatScreen
         }
 
         TickManualChord();
+        ManualScreenActive = _manualShow;
 
         bool want = !preMenu && WantVisible();
         if (want && !_visible)
@@ -477,6 +486,7 @@ internal sealed class FlatScreen
     public void Shutdown()
     {
         Core.Events.VREvents.SceneLoaded -= OnSceneLoaded;
+        ManualScreenActive = false;
         Hide();
         DestroyIndicator();
     }
@@ -511,13 +521,16 @@ internal sealed class FlatScreen
 
         // Catch-all fallback for unconverted windows that expect interaction during
         // a scenario (events, tutorials, take-damage, ESC menu, rewards, ...): the
-        // ModalFallback tracker asserted ModalUI and wants the full 2D composite.
+        // ModalFallback tracker asserted ModalUI and wants the full 2D composite
+        // ([WorldUI] ModalStyle = screen, or a window that failed to convert).
+        // P8: while ModalFallback floats the window itself as a world-space panel
+        // (WindowModalActive), the modal is owned by that panel — no screen.
         // Otherwise, in a plain UI-lock modal, the world-space confirmation surface
         // owns simple dialogs; everything else falls back 2D too.
         if (mode == VRMode.ModalUI)
             return ModalFallback.ScreenWanted
-                   || !WorldUIConfig.Dialogs.Value
-                   || !IsConfirmationBoxOpen();
+                   || (!ModalFallback.WindowModalActive
+                       && (!WorldUIConfig.Dialogs.Value || !IsConfirmationBoxOpen()));
 
         return false;
     }

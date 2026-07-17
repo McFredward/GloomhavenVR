@@ -460,8 +460,11 @@ internal sealed class PlayTray
         restBack.transform.localPosition = new Vector3(RestZoneX, -0.01f, 0.003f);
         Tint(restBack, new Color(0.12f, 0.11f, 0.10f));
 
+        // Caption box = the rest plate's width (0.105) — the localized header shrinks
+        // to fit instead of spilling over the slots (TmpFit, test #12).
         AddCaption(_root!, new Vector3(RestZoneX, 0.105f, -0.004f),
-            CardsGameApi.Localize("GUI_SHORT_REST", "REST"), 0.55f, new Color(0.85f, 0.8f, 0.7f), maxUpper: true);
+            CardsGameApi.Localize("GUI_SHORT_REST", "REST"), new Color(0.85f, 0.8f, 0.7f),
+            maxUpper: true, width: 0.10f, height: 0.026f, maxFontSize: 0.30f);
 
         _shortRestAnchor = new GameObject("ShortRestToken").transform;
         _shortRestAnchor.SetParent(_root, worldPositionStays: false);
@@ -479,10 +482,15 @@ internal sealed class PlayTray
         float h = CardsConfig.CardHeight;
         // Slot 0 is ALWAYS the initiative slot (CardsDriver reconciles the game state
         // to the physical order) — label it so the marking is unambiguous.
+        // Caption box stays inside one slot pitch (SlotSpacing 0.155) so neighboring
+        // captions can never collide; "INITIATIVE" (and longer localizations) shrink
+        // to a single line inside it (TmpFit, test #12).
         AddCaption(_slots[0]!, new Vector3(0f, -h * 0.62f, -0.004f),
-            CardsGameApi.Localize("GUI_INITIATIVE", "INITIATIVE"), 0.45f, new Color(1f, 0.9f, 0.6f), maxUpper: true);
+            CardsGameApi.Localize("GUI_INITIATIVE", "INITIATIVE"), new Color(1f, 0.9f, 0.6f),
+            maxUpper: true, width: 0.14f, height: 0.024f, maxFontSize: 0.28f);
         AddCaption(_slots[1]!, new Vector3(0f, -h * 0.62f, -0.004f),
-            "2", 0.45f, new Color(0.75f, 0.73f, 0.7f), maxUpper: true);
+            "2", new Color(0.75f, 0.73f, 0.7f),
+            maxUpper: true, width: 0.14f, height: 0.024f, maxFontSize: 0.28f);
     }
 
     private void BuildBadge()
@@ -507,11 +515,11 @@ internal sealed class PlayTray
 
         _badge = badgeGo.AddComponent<TextMeshPro>();
         _badge.text = "-";
-        _badge.fontSize = 1.2f;
         _badge.alignment = TextAlignmentOptions.Center;
         _badge.color = new Color(1f, 0.95f, 0.8f);
-        var rect = (RectTransform)badgeGo.transform;
-        rect.sizeDelta = new Vector2(0.09f, 0.04f);
+        // The number must sit ON the 0.042 m disc (was fontSize 1.2 = a 0.12 m line
+        // dwarfing the marker, test #12) — single line, fitted to the disc.
+        Core.TmpFit.Fit(_badge, 0.05f, 0.036f, maxFontSize: 0.30f, wrap: false);
 
         // Poke/laser the badge to swap initiative (same as the 2D badge click).
         var zoneGo = new GameObject("SwapZone");
@@ -552,18 +560,18 @@ internal sealed class PlayTray
     }
 
     private static void AddCaption(Transform parent, Vector3 localPos, string text,
-        float fontSize, Color color, bool maxUpper)
+        Color color, bool maxUpper, float width, float height, float maxFontSize)
     {
         var go = new GameObject("Caption");
         go.transform.SetParent(parent, worldPositionStays: false);
         go.transform.localPosition = localPos;
         var tmp = go.AddComponent<TextMeshPro>();
         tmp.text = maxUpper ? text.ToUpperInvariant() : text;
-        tmp.fontSize = fontSize;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = color;
-        tmp.enableWordWrapping = false;
-        ((RectTransform)go.transform).sizeDelta = new Vector2(0.14f, 0.03f);
+        // Single-line captions: long localizations shrink to fit the given box
+        // instead of overflowing across the board (TmpFit, test #12).
+        Core.TmpFit.Fit(tmp, width, height, maxFontSize, wrap: false);
     }
 
     private static void Tint(GameObject go, Color color)
@@ -666,11 +674,12 @@ internal sealed class PlayTray
             labelGo.transform.localPosition = new Vector3(0f, 0f, -0.010f); // viewer side (-Z)
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.text = fallbackLabel;
-            tmp.fontSize = 0.55f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.white;
-            tmp.enableWordWrapping = false;
-            ((RectTransform)labelGo.transform).sizeDelta = new Vector2(size.x * 0.95f, size.y * 0.9f);
+            // Fit inside the cap face: localized CONFIRM/UNDO strings (SetLabel
+            // mirrors the game's texts) shrink/wrap inside the button instead of
+            // spilling over its edges (TmpFit, test #12).
+            Core.TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
 
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(size.x, size.y, 0.02f);
