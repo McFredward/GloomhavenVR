@@ -57,9 +57,23 @@ namespace GloomhavenVR.WorldUI;
 /// current, and every warp/press on the virtual device became invisible to the game
 /// — hover dead, no freeze, exactly the test-#5 symptom. Fix: <see cref="WarpTo"/> /
 /// <see cref="SetLeftButton"/> re-claim currency via <c>MakeCurrent()</c> whenever
-/// another device holds it (keep-alive; least invasive — no game patch). While the
-/// VR ray is OFF the screen we deliberately do not re-claim, so the physical mouse
-/// keeps working as the desktop fallback.
+/// another device holds it (keep-alive; least invasive — no game patch).
+///
+/// LEVEL-TRIGGERED KEEP-ALIVE (I5 — hardware test #17 root cause: HMD doffed mid-
+/// session, session unrecoverable). The I3 reclaim above is EDGE-triggered: it runs
+/// only inside WarpTo/SetLeftButton, whose sole callers live in the FlatScreen
+/// composite. With window-style modals every poke/laser click goes through
+/// ExecuteEvents instead, so in steady state NOTHING drove the virtual mouse — and
+/// when the headset standby made Unity's InputSystem re-enumerate devices and
+/// promote the physical 'Mouse' to <c>Mouse.current</c>, no code path existed that
+/// could ever take it back: the game read the frozen hardware cursor for the rest
+/// of the session (IsPointerOverUI flicker, dead button edges, un-dismissable
+/// modal). Fix: <see cref="Tick"/> re-asserts currency every
+/// <see cref="KeepAliveIntervalFrames"/> frames whenever another device holds it,
+/// re-adding our device first if the re-enumeration removed it. A physical mouse
+/// that is ACTIVELY producing input (hardware updates within
+/// <see cref="ThiefActiveGraceSeconds"/>) keeps currency — the deliberate desktop
+/// fallback stays usable — but a stale device (the doff case) cannot hold it.
 ///
 /// FRAME-EDGE DELIVERY (I4 — hardware test #6 root cause: hover alive, warps alive,
 /// ZERO clicks). The game's uGUI click path polls single-frame press EDGES on
@@ -134,6 +148,17 @@ internal static class VirtualMouse
     private static bool _lastGamepadMode;
     private static bool _gamepadModeKnown;
 
+    // ---- I5 level-triggered keep-alive state (test #17) ---------------------------------
+
+    /// <summary>Keep-alive attempt cadence while another device holds pointer currency.</summary>
+    private const int KeepAliveIntervalFrames = 30;
+
+    /// <summary>A thief with hardware input newer than this is in deliberate use — leave it alone.</summary>
+    private const double ThiefActiveGraceSeconds = 0.25;
+
+    private static int _nextKeepAliveFrame;
+    private static bool _keepAliveFighting;
+
     /// <summary>True once the virtual mouse device exists and is usable.</summary>
     public static bool IsAvailable => _mouse != null && _mouse.added;
 
@@ -146,16 +171,40 @@ internal static class VirtualMouse
         if (IsAvailable)
             return true;
 
+        InputManager? manager = Singleton<InputManager>.Instance;
+
         if (_mouse != null && !_mouse.added)
         {
             // The game never removes its virtual mouse itself (verified: no
-            // RemoveDevice call in decompiled GH.Runtime InputManager), but be loud
-            // if anything else does — CreateVirtualMouse re-adds it below.
-            VRLog.Warn("WorldUI", "VirtualMouse device was removed from the InputSystem — recreating.");
-            _mouse = null;
+            // RemoveDevice call in decompiled GH.Runtime InputManager) — but an XR
+            // runtime device re-enumeration (HMD standby, test #17) can. Re-add the
+            // SAME instance so the game's InputManager._virtualMouse reference (and
+            // its InputUser pairing) stays valid; the game's CreateVirtualMouse
+            // cannot recover this state itself (it only checks _virtualMouse == null,
+            // so a removed-but-referenced device would stay dead forever). Only if
+            // the re-add fails is the device rebuilt from scratch below.
+            try
+            {
+                InputSystem.AddDevice(_mouse);
+                // Re-added device state buffers start blank — re-queue our shadow so
+                // position/buttons match what we last told the InputSystem, and the
+                // event processing re-claims pointer currency the hardware way.
+                InputSystem.QueueStateEvent(_mouse, _shadow);
+                VRLog.Warn("WorldUI", "VirtualMouse device had been removed from the InputSystem " +
+                                      "(device re-enumeration?) — re-added the same device.");
+            }
+            catch (System.Exception ex)
+            {
+                VRLog.Warn("WorldUI", $"VirtualMouse device was removed and could not be re-added " +
+                                      $"({ex.GetType().Name}: {ex.Message}) — recreating from scratch.");
+                if (manager != null)
+                    manager._virtualMouse = null; // publicized field: let CreateVirtualMouse rebuild
+                _mouse = null;
+            }
+            if (IsAvailable)
+                return true;
         }
 
-        InputManager? manager = Singleton<InputManager>.Instance;
         if (manager == null)
         {
             VRLog.Warn("WorldUI", "VirtualMouse: InputManager singleton not ready.");
@@ -297,6 +346,98 @@ internal static class VirtualMouse
                 VRLog.Info("WorldUI", $"Game input mode: GamePadInUse={gamepadMode}.");
             }
         }
+
+        TickKeepAlive();
+    }
+
+    /// <summary>
+    /// I5 level-triggered currency keep-alive (test #17 — see class doc): whenever
+    /// another device holds <c>Mouse.current</c> while nothing actively drives the
+    /// pointer, take it back on a throttle. Steady-state cost: one reference compare
+    /// per frame; logging is deduped to one line per outage plus one on resolution.
+    /// </summary>
+    private static void TickKeepAlive()
+    {
+        if (_mouse == null)
+            return; // never created this session — nothing to keep alive
+
+        if (_mouse.added && Mouse.current == _mouse)
+        {
+            if (_keepAliveFighting)
+            {
+                _keepAliveFighting = false;
+                VRLog.Info("WorldUI", "VirtualMouse keep-alive: pointer currency is ours again " +
+                                      $"({_currencyReclaims} reclaim(s) this session).");
+            }
+            return;
+        }
+
+        if (Time.frameCount < _nextKeepAliveFrame)
+            return;
+        _nextKeepAliveFrame = Time.frameCount + KeepAliveIntervalFrames;
+
+        // Deliberate physical-mouse use holds currency legitimately (desktop
+        // fallback): fresh hardware input defers the reclaim; a stale device (the
+        // doff re-enumeration promoted a frozen 'Mouse') gets no such grace.
+        Mouse? thief = Mouse.current;
+        if (thief != null && thief != _mouse && thief.added
+            && InputState.currentTime - thief.lastUpdateTime < ThiefActiveGraceSeconds)
+            return;
+
+        if (!_keepAliveFighting)
+        {
+            _keepAliveFighting = true;
+            VRLog.Info("WorldUI", "VirtualMouse keep-alive: pointer currency held by " +
+                                  $"'{(thief != null ? thief.name : "none")}' while we are idle " +
+                                  $"(device removed={!_mouse.added}) — re-asserting every " +
+                                  $"{KeepAliveIntervalFrames} frames until it sticks.");
+        }
+        Reassert();
+    }
+
+    /// <summary>
+    /// Re-assert the virtual mouse as <c>Mouse.current</c>, re-adding the device
+    /// first if the InputSystem removed it. Returns true when the device exists and
+    /// currency was (re)claimed.
+    /// </summary>
+    private static bool Reassert()
+    {
+        if (!EnsureCreated())
+            return false; // logs its own reason (InputManager not ready / re-add failed)
+        if (Mouse.current == _mouse)
+            return true;
+        _mouse!.MakeCurrent();
+        _currencyReclaims++;
+        // Queued state event: the next input update processes it as a real device
+        // event, which re-claims currency the hardware way (decompiled
+        // InputManager.cs:2312-2322) — the direct MakeCurrent alone would lose to
+        // any hardware event already queued this frame. Same state as last written:
+        // no spurious button edge (previous-frame state is already equal).
+        InputSystem.QueueStateEvent(_mouse, _shadow);
+        return true;
+    }
+
+    /// <summary>
+    /// Presence-regained recovery entry (test #17): immediately re-add/re-claim,
+    /// bypassing the keep-alive throttle and the active-thief grace. Returns a short
+    /// description of what was recovered for the "[Core] Session resumed" report, or
+    /// null when nothing was wrong (or the bridge is not in use this session).
+    /// </summary>
+    internal static string? ForceReassert(string reason)
+    {
+        if (_mouse == null)
+            return null; // never created this session — nothing to recover
+        bool wasAdded = _mouse.added;
+        bool wasCurrent = wasAdded && Mouse.current == _mouse;
+        if (wasAdded && wasCurrent)
+            return null;
+        _nextKeepAliveFrame = 0;
+        if (!Reassert())
+            return null;
+        VRLog.Info("WorldUI", $"VirtualMouse: forced re-assert ({reason}) — " +
+                              $"device re-added={!wasAdded}, currency reclaimed={!wasCurrent}.");
+        return wasAdded ? "virtual-mouse pointer currency re-asserted"
+                        : "virtual-mouse device re-added + currency re-asserted";
     }
 
     /// <summary>Drop our device reference (module shutdown; the game owns the device itself).</summary>
@@ -314,6 +455,8 @@ internal static class VirtualMouse
         _gamepadModeKnown = false;
         _currencyReclaims = 0;
         _lastReclaimLog = float.NegativeInfinity;
+        _nextKeepAliveFrame = 0;
+        _keepAliveFighting = false;
     }
 
     private static void SetLeftButton(bool pressed)
