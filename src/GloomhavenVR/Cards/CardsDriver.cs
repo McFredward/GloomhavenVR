@@ -881,14 +881,37 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnConfirmRequested()
     {
-        // ClickReady runs the ReadyButton dispatch (Pass/StepComplete — no spin-wait,
-        // ScenarioRuleClient.Pass only messages the SRL), but queue it anyway so it
-        // serializes behind pending card selects.
+        // Confirm OR revoke (test #19), decided INSIDE the queued action so it
+        // serializes behind pending card selects and reads the freshest state:
+        // - active hand already confirmed → the game's own un-ready path
+        //   (UIReadyToggle.ReadyUp(false) → GameActionType.UnreadyPlayer);
+        // - online card selection, not yet readied → ready-up via the same toggle
+        //   (the 2D UI shows the toggle INSTEAD of the ReadyButton there);
+        // - everything else → the ReadyButton dispatch (Pass/StepComplete — no
+        //   spin-wait, ScenarioRuleClient.Pass only messages the SRL).
+        // Every outcome logs the RESOLVED game state.
         CardActionQueue.Enqueue(
             () =>
             {
-                bool fired = CardsGameApi.ClickReady();
-                VRLog.Info("Cards", $"Board: CONFIRM → ReadyButton {(fired ? "clicked" : "rejected (not interactable)")}.");
+                CardsHandUI? hand = CurrentHand();
+                if (hand != null && CardsGameApi.IsConfirmed(hand))
+                {
+                    bool revoked = CardsGameApi.SetReady(false);
+                    VRLog.Info("Cards", $"Board: CONFIRM → ready {(revoked ? "REVOKED" : "revoke rejected")} " +
+                                        $"({CardsGameApi.DescribeReadyState()}).");
+                }
+                else if (CardsGameApi.ReadyToggleAvailable())
+                {
+                    bool readied = CardsGameApi.SetReady(true);
+                    VRLog.Info("Cards", $"Board: CONFIRM → ready toggle {(readied ? "READIED" : "rejected")} " +
+                                        $"({CardsGameApi.DescribeReadyState()}).");
+                }
+                else
+                {
+                    bool fired = CardsGameApi.ClickReady();
+                    VRLog.Info("Cards", $"Board: CONFIRM → ReadyButton {(fired ? "clicked" : "rejected (not interactable)")} " +
+                                        $"({CardsGameApi.DescribeReadyState()}).");
+                }
             },
             () => _dirty = true);
     }

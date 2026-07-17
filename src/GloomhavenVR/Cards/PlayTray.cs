@@ -466,6 +466,7 @@ internal sealed class PlayTray
         _badge = null;
         _roundLabel = null; // child of _root, destroyed with it
         _roundShown = int.MinValue;
+        _confirmedLabel = null;
         _badgeZone = null;
         _confirm = null;
         _undo = null;
@@ -881,6 +882,10 @@ internal sealed class PlayTray
     // Last shown round number (change-gated like the badge; int.MinValue = never).
     private int _roundShown = int.MinValue;
 
+    // Confirmed-state label ("✓ <GUI_READY>"), built once — TickStatus runs per
+    // frame and the concat would allocate every tick (badge/round lesson, test #13).
+    private string? _confirmedLabel;
+
     /// <summary>Update round readout, badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
@@ -951,9 +956,25 @@ internal sealed class PlayTray
 
         if (_confirm != null)
         {
-            bool canConfirm = hand != null && CardsGameApi.CanConfirm();
-            _confirm.SetState(canConfirm, accent: ready && canConfirm);
-            _confirm.SetLabel(hand != null ? CardsGameApi.ConfirmLabel() : "-");
+            // Ready-state mirror (test #19): while THIS hand's player has confirmed
+            // (online card selection — the only game state where a confirm persists
+            // and is revocable, see CardsGameApi.ReadyToggle), the button flips to
+            // a distinct gold "✓ …" state; pressing it then REVOKES through the
+            // game's own un-ready path (CardsDriver.OnConfirmRequested). Switching
+            // the active hand re-reads the state each tick, so the display always
+            // tracks the shown character. Offline the game has no confirmed-waiting
+            // state (END SELECTION starts the round at once) — normal affordance.
+            bool confirmed = hand != null && CardsGameApi.IsConfirmed(hand);
+            bool canConfirm = hand != null
+                              && (CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable());
+            _confirm.SetState(canConfirm || confirmed,
+                accent: ready && canConfirm && !confirmed, confirmed: confirmed);
+            _confirm.SetLabel(confirmed
+                ? _confirmedLabel ??= "✓ " + CardsGameApi.Localize("GUI_READY", "READY")
+                : hand == null ? "-"
+                : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
+                    ? CardsGameApi.Localize("GUI_END_SELECTION", "END SELECTION")
+                    : CardsGameApi.ConfirmLabel());
         }
         if (_undo != null)
         {
@@ -1212,6 +1233,7 @@ internal sealed class PlayTray
         private Color _accentColor;
         private bool _enabledState;
         private bool _accent;
+        private bool _confirmed;
         private float _press; // 0..1 press animation
 
         // Poke dwell state (test #19): the hand whose fingertip is charging the
@@ -1224,6 +1246,14 @@ internal sealed class PlayTray
 
         private static readonly Color DisabledColor = new(0.24f, 0.23f, 0.22f);
         private static readonly Color IdleColor = new(0.35f, 0.34f, 0.32f);
+
+        /// <summary>
+        /// Confirmed/readied state (test #19): gold cap — clearly distinct from
+        /// both the green CONFIRM accent and the idle grey, matching the tray's
+        /// brass "locked in" language. Shown while the game reports the player
+        /// readied (revocable — pressing again un-readies).
+        /// </summary>
+        private static readonly Color ConfirmedColor = new(0.82f, 0.62f, 0.15f);
 
         /// <summary>Charge tint the cap ramps toward while a poke dwell runs (test #19).</summary>
         private static readonly Color DwellChargeColor = new(1f, 0.95f, 0.75f);
@@ -1320,12 +1350,13 @@ internal sealed class PlayTray
         /// </summary>
         internal System.Func<float>? ActivationGuard;
 
-        internal void SetState(bool enabled, bool accent)
+        internal void SetState(bool enabled, bool accent, bool confirmed = false)
         {
-            if (_enabledState == enabled && _accent == accent)
+            if (_enabledState == enabled && _accent == accent && _confirmed == confirmed)
                 return;
             _enabledState = enabled;
             _accent = accent;
+            _confirmed = confirmed;
             UpdateColor();
         }
 
@@ -1336,7 +1367,8 @@ internal sealed class PlayTray
         }
 
         /// <summary>Resting cap color for the current state (dwell ramps AWAY from this).</summary>
-        private Color StateColor() => !_enabledState ? DisabledColor : _accent ? _accentColor : IdleColor;
+        private Color StateColor() =>
+            !_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor;
 
         private void UpdateColor()
         {
