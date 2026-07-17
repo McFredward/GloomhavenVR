@@ -75,6 +75,24 @@ namespace GloomhavenVR.WorldUI;
 /// <see cref="ThiefActiveGraceSeconds"/>) keeps currency — the deliberate desktop
 /// fallback stays usable — but a stale device (the doff case) cannot hold it.
 ///
+/// PRESENCE-GATED CURRENCY (I6 — hardware test #18: a currency FLIP-WAR between
+/// 'Mouse' and 'ConsoleVirtualMouse' every ~2 log lines for whole sessions). The
+/// I5 active-thief grace assumed hardware mouse input means deliberate desktop
+/// use — but Virtual Desktop keeps injecting host mouse events while the user
+/// plays in VR, so the physical 'Mouse' stayed permanently "fresh": every VD event
+/// made it current (MakeCurrent on state-event processing), our 30-frame keep-
+/// alive took it back, the next event stole it again — a fight the game observed
+/// as pointer flapping. The HMD presence signal already computed by
+/// <see cref="VRPresenceWatch"/> (userPresence feature / live head pose — the
+/// heartbeat's own signals) resolves the ambiguity: while the HMD is WORN, nobody
+/// can be using the desktop deliberately, so the virtual mouse ALWAYS wins — no
+/// grace, no throttle, re-asserted every frame in <see cref="TickKeepAlive"/>. The
+/// desktop-fallback grace applies only while the HMD is not worn. State
+/// transitions (worn-policy flips, fight start, fight truly resolved after
+/// <see cref="FightResolvedSeconds"/> of stable ownership) are logged ONCE each —
+/// never per flip; the Mouse.current attribution log is rate-limited with a
+/// suppressed-flip counter for the same reason.
+///
 /// FRAME-EDGE DELIVERY (I4 — hardware test #6 root cause: hover alive, warps alive,
 /// ZERO clicks). The game's uGUI click path polls single-frame press EDGES on
 /// <c>Mouse.current</c>:
@@ -153,11 +171,26 @@ internal static class VirtualMouse
     /// <summary>Keep-alive attempt cadence while another device holds pointer currency.</summary>
     private const int KeepAliveIntervalFrames = 30;
 
-    /// <summary>A thief with hardware input newer than this is in deliberate use — leave it alone.</summary>
+    /// <summary>A thief with hardware input newer than this is in deliberate use — leave it alone.
+    /// Applies ONLY while the HMD is not worn (I6, test #18): worn = no grace at all.</summary>
     private const double ThiefActiveGraceSeconds = 0.25;
 
     private static int _nextKeepAliveFrame;
     private static bool _keepAliveFighting;
+
+    // ---- I6 presence-gated currency state (test #18) ------------------------------------
+
+    /// <summary>A fight only counts as resolved after currency stayed ours this long.</summary>
+    private const float FightResolvedSeconds = 3f;
+
+    /// <summary>Minimum spacing of Mouse.current attribution log lines (flip-war dedup).</summary>
+    private const float DeviceFlipLogSeconds = 5f;
+
+    private static bool _wornPolicyKnown;
+    private static bool _lastWornPolicy;
+    private static float _lastContestedTime = float.NegativeInfinity;
+    private static float _lastDeviceFlipLog = float.NegativeInfinity;
+    private static int _suppressedFlips;
 
     /// <summary>True once the virtual mouse device exists and is usable.</summary>
     public static bool IsAvailable => _mouse != null && _mouse.added;
@@ -326,16 +359,29 @@ internal static class VirtualMouse
 
         // Attribution diagnostics: log pointer-ownership changes and the game's
         // input-mode flips so a recurrence of test-#5 input death is explainable
-        // from the BepInEx log alone. Reference/bool compares only.
+        // from the BepInEx log alone. Reference/bool compares only. Rate-limited to
+        // one line per DeviceFlipLogSeconds (I6, test #18: a currency flip-war wrote
+        // this per ~2 lines for a whole session); flips in between are counted and
+        // reported with the next line instead.
         if (_mouse != null)
         {
             Mouse? current = Mouse.current;
             if (current != _lastCurrentSeen)
             {
                 _lastCurrentSeen = current;
-                VRLog.Info("WorldUI", $"Pointer device changed: Mouse.current is now " +
-                                      $"'{(current != null ? current.name : "none")}'" +
-                                      $"{(current == _mouse ? " (our virtual mouse)" : " (NOT our virtual mouse — game reads this one)")}.");
+                if (Time.unscaledTime - _lastDeviceFlipLog >= DeviceFlipLogSeconds)
+                {
+                    VRLog.Info("WorldUI", $"Pointer device changed: Mouse.current is now " +
+                                          $"'{(current != null ? current.name : "none")}'" +
+                                          $"{(current == _mouse ? " (our virtual mouse)" : " (NOT our virtual mouse — game reads this one)")}" +
+                                          $"{(_suppressedFlips > 0 ? $" — {_suppressedFlips} unlogged flip(s) since the last report" : "")}.");
+                    _lastDeviceFlipLog = Time.unscaledTime;
+                    _suppressedFlips = 0;
+                }
+                else
+                {
+                    _suppressedFlips++;
+                }
             }
 
             bool gamepadMode = InputManager.GamePadInUse;
@@ -351,24 +397,65 @@ internal static class VirtualMouse
     }
 
     /// <summary>
-    /// I5 level-triggered currency keep-alive (test #17 — see class doc): whenever
-    /// another device holds <c>Mouse.current</c> while nothing actively drives the
-    /// pointer, take it back on a throttle. Steady-state cost: one reference compare
-    /// per frame; logging is deduped to one line per outage plus one on resolution.
+    /// Currency keep-alive, presence-gated (I5 test #17 + I6 test #18 — see class
+    /// doc): whenever another device holds <c>Mouse.current</c> while nothing
+    /// actively drives the pointer, take it back. While the HMD is WORN
+    /// (<see cref="VRPresenceWatch.UserPresent"/>) the virtual mouse always
+    /// wins — re-asserted every frame, no grace for the physical mouse (Virtual
+    /// Desktop keeps it artificially "fresh"). While the HMD is NOT worn, the
+    /// desktop fallback applies: throttled re-assert that defers to a physical
+    /// mouse with fresh hardware input. Steady-state cost: one reference compare
+    /// per frame; every log line fires on a state TRANSITION, never per flip — a
+    /// fight only counts as resolved after <see cref="FightResolvedSeconds"/> of
+    /// uncontested ownership, so a flip-war logs exactly one start line.
     /// </summary>
     private static void TickKeepAlive()
     {
         if (_mouse == null)
             return; // never created this session — nothing to keep alive
 
+        bool worn = VRPresenceWatch.UserPresent;
+        if (!_wornPolicyKnown || worn != _lastWornPolicy)
+        {
+            _wornPolicyKnown = true;
+            _lastWornPolicy = worn;
+            VRLog.Info("WorldUI", worn
+                ? "VirtualMouse keep-alive: HMD worn — virtual mouse holds pointer currency " +
+                  "unconditionally (physical-mouse grace suspended)."
+                : "VirtualMouse keep-alive: HMD not worn — desktop fallback active (a physical " +
+                  $"mouse with hardware input fresher than {ThiefActiveGraceSeconds:F2}s keeps currency).");
+        }
+
         if (_mouse.added && Mouse.current == _mouse)
         {
-            if (_keepAliveFighting)
+            // Resolution is only declared (and logged) once ownership has been
+            // stable for a while — in a flip-war this branch is re-entered every
+            // other frame and must stay silent (I6).
+            if (_keepAliveFighting && Time.unscaledTime - _lastContestedTime >= FightResolvedSeconds)
             {
                 _keepAliveFighting = false;
                 VRLog.Info("WorldUI", "VirtualMouse keep-alive: pointer currency is ours again " +
-                                      $"({_currencyReclaims} reclaim(s) this session).");
+                                      $"(stable for {FightResolvedSeconds:F0}s; {_currencyReclaims} " +
+                                      "reclaim(s) this session).");
             }
+            return;
+        }
+        _lastContestedTime = Time.unscaledTime;
+
+        Mouse? thief = Mouse.current;
+        if (worn)
+        {
+            // HMD worn: ALWAYS win, immediately, every frame — nobody can be using
+            // the desktop deliberately while wearing the headset (I6, test #18).
+            if (!_keepAliveFighting)
+            {
+                _keepAliveFighting = true;
+                VRLog.Info("WorldUI", "VirtualMouse keep-alive: pointer currency held by " +
+                                      $"'{(thief != null ? thief.name : "none")}' while the HMD is worn " +
+                                      $"(device removed={!_mouse.added}) — re-asserting every frame; " +
+                                      "further flips are not logged until this resolves.");
+            }
+            Reassert();
             return;
         }
 
@@ -376,10 +463,9 @@ internal static class VirtualMouse
             return;
         _nextKeepAliveFrame = Time.frameCount + KeepAliveIntervalFrames;
 
-        // Deliberate physical-mouse use holds currency legitimately (desktop
-        // fallback): fresh hardware input defers the reclaim; a stale device (the
-        // doff re-enumeration promoted a frozen 'Mouse') gets no such grace.
-        Mouse? thief = Mouse.current;
+        // HMD not worn: deliberate physical-mouse use holds currency legitimately
+        // (desktop fallback): fresh hardware input defers the reclaim; a stale
+        // device (the doff re-enumeration promoted a frozen 'Mouse') gets no grace.
         if (thief != null && thief != _mouse && thief.added
             && InputState.currentTime - thief.lastUpdateTime < ThiefActiveGraceSeconds)
             return;
@@ -457,6 +543,10 @@ internal static class VirtualMouse
         _lastReclaimLog = float.NegativeInfinity;
         _nextKeepAliveFrame = 0;
         _keepAliveFighting = false;
+        _wornPolicyKnown = false;
+        _lastContestedTime = float.NegativeInfinity;
+        _lastDeviceFlipLog = float.NegativeInfinity;
+        _suppressedFlips = 0;
     }
 
     private static void SetLeftButton(bool pressed)
