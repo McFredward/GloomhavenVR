@@ -23,9 +23,13 @@ namespace GloomhavenVR.Cards;
 ///   with the element infusion board (<see cref="ElementMount"/>) docked directly
 ///   below it (test #20 — no longer a free-floating world panel),
 /// - CENTER: two large card slots (slot 0 = initiative, marked by the numbered
-///   badge; drop to place, grab to take back, physical swap = initiative swap),
+///   badge; drop to place, grab to take back, physical swap = initiative swap);
+///   during the modal pick modes the slot visuals yield to the PICK DROP FIELD
+///   (test #21 B, see <see cref="BuildPickField"/>),
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
 ///   gear; the PIN follow-toggle sits on the bottom-right frame corner,
+/// - RIGHT EDGE (off-board, mirror of the objectives dock): the discard/burnt pile
+///   stacks on <see cref="PileMount"/> (test #21 A, built by <see cref="PileViewer"/>),
 /// - TOP-RIGHT corner: the round readout (test #18 — replaces the floating
 ///   PhaseBanner box; same "Runde N" text, fed from the same game state),
 /// - BOTTOM-CENTER, under the slots: the WorldUI turn-flow ButtonCluster docks on

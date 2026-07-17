@@ -96,6 +96,8 @@ internal sealed class PileViewer
     {
         if (_discard == null || _burnt == null || hand == null)
             return;
+        if (!_discard.gameObject.activeSelf)
+            return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
         int discard = CardsGameApi.DiscardedCount(hand);
         int burnt = CardsGameApi.BurntCount(hand);
         if (_loggedCounts != (discard, burnt))

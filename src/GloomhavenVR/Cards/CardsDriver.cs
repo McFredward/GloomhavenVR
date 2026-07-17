@@ -103,6 +103,10 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.InvalidatePlacement();
             _half.InvalidatePlacement();
         }
+        // A dialog owns the scene (test #21 C): an open pile browse would float
+        // behind/through it — close, the stacks stay for re-opening afterwards.
+        if (change.To == VRMode.ModalUI)
+            CloseBrowser("modal dialog opened");
     }
 
     private void OnHandShown(HandShownEvent e) => _dirty = true;
@@ -125,6 +129,7 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         _factory.ReleaseHand(hand);
         _tray.ClearSlots();
+        _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
         if (_browseHand == hand)
             CloseBrowser("hand destroyed");
         if (_boundHand == hand)
@@ -790,9 +795,9 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
-        // Accident window (test #19): a pluck FROM a slot means the hand is working
-        // right next to CONFIRM — arm the tray's suppression guard.
-        if (_tray.SlotOf(card) >= 0)
+        // Accident window (test #19): a pluck FROM a slot or the pick field means
+        // the hand is working right next to CONFIRM — arm the suppression guard.
+        if (_tray.SlotOf(card) >= 0 || _fieldCards.Contains(card))
             _tray.NoteSlotActivity();
         if (_fan.Contains(card))
             _fan.Remove(card);
@@ -972,6 +977,12 @@ internal sealed class CardsDriver : MonoBehaviour
                             (accept
                                 ? (wasOnField ? "stay on field." : "select onto field.")
                                 : (wasOnField ? "take back (unselect)." : "return to fan.")));
+
+        // Accident window (test #19): the field sits directly above the cluster's
+        // Ready and beside the tray CONFIRM — every drop/take-back touching it
+        // arms the confirm suppression, exactly like the play slots.
+        if (accept || wasOnField)
+            _tray.NoteSlotActivity();
 
         if (accept)
         {
@@ -1290,10 +1301,13 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void RebuildFakeOrClear(Transform anchor)
     {
-        // No active local hand: no piles to show or browse (test #21 C — the stacks
-        // hide, an open browse closes; both return with the next active hand).
+        // No active local hand: no piles to show or browse, no pick field (test #21
+        // C — the stacks hide, an open browse closes, field occupants clear; all
+        // return with the next active hand).
         _piles.SetVisible(false);
         CloseBrowser(CardsGameApi.InScenario ? "no active hand" : "scenario ended");
+        _tray.SetPickFieldVisible(false);
+        _fieldCards.Clear();
 
         bool wantFake = Plugin.DevMode.Value && CardsConfig.DevFakeHand.Value > 0 && !CardsGameApi.InScenario;
         if (!wantFake)

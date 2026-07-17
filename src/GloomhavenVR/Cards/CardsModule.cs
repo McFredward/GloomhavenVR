@@ -49,7 +49,8 @@ internal sealed class CardsModule : IVRModule
         _driverGo.hideFlags = HideFlags.HideAndDontSave;
         _driverGo.AddComponent<CardsDriver>();
 
-        VRLog.Info(Name, "Card hand installed (fan + tray + half selection; 2D hand visually suppressed).");
+        VRLog.Info(Name, "Card hand installed (fan + tray + half selection + pile viewer; " +
+                         "2D hand visually suppressed).");
     }
 
     public void Shutdown()
