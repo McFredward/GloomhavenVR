@@ -143,6 +143,9 @@ internal static class VRModeStateMachine
     /// exists for a role). Ray-always-on config is applied in <see cref="InteractorsFor(VRMode)"/>.
     /// P5: Menu2D gained Poke (the in-VR settings panel is poke-driven and reachable from
     /// the menu once the menu rig exists).
+    /// Test #19: the DOMINANT hand additionally always gets Ray — guaranteed centrally
+    /// in <see cref="InteractorsFor(VRMode, HandRole)"/>, so rows here without Ray only
+    /// remove the NON-dominant laser.
     /// </summary>
     private static readonly Dictionary<VRMode, Interactors> InteractorPolicy = new()
     {
@@ -241,6 +244,18 @@ internal static class VRModeStateMachine
         Interactors set = HandPolicy.TryGetValue((mode, role), out Interactors overrideSet)
             ? overrideSet
             : InteractorPolicy.TryGetValue(mode, out Interactors s) ? s : Interactors.All;
+        // Laser persistence (hardware test #19): the DOMINANT hand's far ray is
+        // unconditionally part of its set, in EVERY mode — the tables above only
+        // distribute Poke/Grab/PalmGate and the non-dominant ray. The selection laser
+        // silently vanished mid-attack because a single-target attack waits in
+        // Choreographer state WaitingForCardSelection — not a TargetingStates member —
+        // so the mode stayed HalfSelection, whose policy carried no Ray. Desktop
+        // parity: the mouse can always point/click and the game gates by state, so an
+        // always-on dominant ray is exactly the mouse contract. Transient suppression
+        // (held object, pose loss) is level-derived inside RayInteractor.Active,
+        // never via this mask.
+        if (role == HandRole.Dominant)
+            set |= Interactors.Ray;
         if (Plugin.RayAlwaysOn.Value)
             set |= Interactors.Ray;
         return set;
