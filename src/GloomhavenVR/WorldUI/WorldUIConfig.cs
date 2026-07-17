@@ -190,13 +190,19 @@ internal static class WorldUIConfig
             "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
             "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
             "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
-        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", true,
+        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", false,
             "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
             "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +
             "sprite, localized label and enable/disable states, reusing the DecisionDock docking " +
             "mechanism — in place of the mod-drawn CONFIRM/UNDO board buttons and short-rest token " +
             "(test #23 item 4). Long rest has no discrete uGUI widget (chosen via the card fan + " +
-            "Continue), so it stays a mod token. Off = the mod-drawn buttons/token are used as before.");
+            "Continue), so it stays a mod token. " +
+            "DEFAULT OFF (test #27 item 3): docking the real widgets only WHILE they are game-side " +
+            "active, then releasing back to the mod button when they hide, made the board buttons " +
+            "visibly FLICKER between the flat in-game widget and the 3D mod button. The mod-drawn " +
+            "board buttons now wear the sampled native game skin themselves (NativeButtonSkin, test " +
+            "#26), so leaving this OFF gives every board button ONE permanent, uniform game-styled " +
+            "look with no swap. On = re-enable the real-widget docking (accepts the flicker).");
         ActorBars = _file.Bind("WorldUI", "ActorBars", true,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,
