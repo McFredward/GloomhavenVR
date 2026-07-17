@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.Cards;
 
@@ -120,7 +122,179 @@ internal sealed class CardFace
         RefreshFitScale();
 
         ApplyHostPose();
+
+        // Test #25: the card art has an artistic, non-rectangular outline. Once (session
+        // wide — the outer silhouette is shared by every ability card), capture the live
+        // art's opacity footprint and hand it to CardMesh, which re-shapes ALL card
+        // slabs to that outline via alpha-clip. Fully guarded/fallback-safe; never
+        // blocks adoption.
+        if (!s_silhouetteTried && !CardMesh.SilhouetteApplied)
+            TryCaptureSilhouette(owner);
+
         return true;
+    }
+
+    // ------------------------------------------------------- silhouette capture --
+
+    /// <summary>Session-wide one-shot guard for <see cref="TryCaptureSilhouette"/>.</summary>
+    private static bool s_silhouetteTried;
+
+    /// <summary>Footprint resolution (card-space). ~224 px wide keeps the ornate curve
+    /// crisp at fan distance while the one-shot CPU cost stays trivial.</summary>
+    private const int FootprintWidth = 224;
+
+    /// <summary>
+    /// Capture the live card art's opacity footprint (card-space alpha) and drive
+    /// <see cref="CardMesh.SetSilhouette"/>. We union the alpha of the card's larger
+    /// <c>Image</c> sprites (the class-skin backgrounds / frame that define the outer
+    /// outline; tiny icons are skipped and never extend the silhouette anyway), each
+    /// sampled by GPU blit → readback so it works even for non-CPU-readable atlas
+    /// textures. Robust: any failure just leaves the opaque rounded-rect slab in place.
+    /// </summary>
+    private static void TryCaptureSilhouette(AbilityCardUI owner)
+    {
+        s_silhouetteTried = true;
+        var readbacks = new List<Texture2D>();
+        try
+        {
+            FullAbilityCard? faceCard = owner.fullAbilityCard;
+            if (faceCard == null)
+                return;
+            RectTransform faceRoot = faceCard.RectTransform;
+            if (faceRoot == null)
+                return;
+            Rect faceRect = faceRoot.rect;
+            if (faceRect.width < 1f || faceRect.height < 1f)
+                return;
+
+            int fw = FootprintWidth;
+            int fh = Mathf.Clamp(
+                Mathf.RoundToInt(fw * faceRect.height / faceRect.width), 64, 512);
+            var alpha = new byte[fw * fh];
+
+            var cache = new Dictionary<int, Texture2D>();
+            var corners = new Vector3[4];
+            bool stamped = false;
+
+            Image[] images = faceCard.GetComponentsInChildren<Image>(includeInactive: false);
+            foreach (Image img in images)
+            {
+                if (img == null || !img.isActiveAndEnabled)
+                    continue;
+                Sprite sprite = img.sprite;
+                if (sprite == null || sprite.texture == null)
+                    continue;
+                float colorA = img.color.a;
+                if (colorA < 0.2f)
+                    continue;
+
+                // Image rect → normalized [0,1] within the face root (scale-independent:
+                // world corners transformed back into the face root's own local rect).
+                img.rectTransform.GetWorldCorners(corners);
+                float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 local = faceRoot.InverseTransformPoint(corners[c]);
+                    float nx = (local.x - faceRect.xMin) / faceRect.width;
+                    float ny = (local.y - faceRect.yMin) / faceRect.height;
+                    if (nx < minNx) minNx = nx;
+                    if (nx > maxNx) maxNx = nx;
+                    if (ny < minNy) minNy = ny;
+                    if (ny > maxNy) maxNy = ny;
+                }
+                float aw = maxNx - minNx, ah = maxNy - minNy;
+                if (aw <= 0.001f || ah <= 0.001f)
+                    continue;
+                if (aw * ah < 0.03f)
+                    continue; // tiny icon — never part of the outer outline
+
+                int texId = sprite.texture.GetInstanceID();
+                if (!cache.TryGetValue(texId, out Texture2D readback))
+                {
+                    readback = ReadTexture(sprite.texture);
+                    cache[texId] = readback;
+                    readbacks.Add(readback);
+                }
+                Rect tr = sprite.textureRect;
+                float tW = readback.width, tH = readback.height;
+
+                int fx0 = Mathf.Clamp(Mathf.FloorToInt(minNx * fw), 0, fw - 1);
+                int fx1 = Mathf.Clamp(Mathf.CeilToInt(maxNx * fw), 0, fw - 1);
+                int fy0 = Mathf.Clamp(Mathf.FloorToInt(minNy * fh), 0, fh - 1);
+                int fy1 = Mathf.Clamp(Mathf.CeilToInt(maxNy * fh), 0, fh - 1);
+                for (int fy = fy0; fy <= fy1; fy++)
+                {
+                    float v = (fy + 0.5f) / fh;
+                    float lv = (v - minNy) / ah;
+                    if (lv < 0f || lv > 1f)
+                        continue;
+                    float uvy = (tr.y + lv * tr.height) / tH;
+                    int rowBase = fy * fw;
+                    for (int fx = fx0; fx <= fx1; fx++)
+                    {
+                        float u = (fx + 0.5f) / fw;
+                        float lu = (u - minNx) / aw;
+                        if (lu < 0f || lu > 1f)
+                            continue;
+                        float uvx = (tr.x + lu * tr.width) / tW;
+                        float sa = readback.GetPixelBilinear(uvx, uvy).a * colorA;
+                        var b = (byte)Mathf.Clamp(Mathf.RoundToInt(sa * 255f), 0, 255);
+                        int idx = rowBase + fx;
+                        if (b > alpha[idx])
+                        {
+                            alpha[idx] = b;
+                            stamped = true;
+                        }
+                    }
+                }
+            }
+
+            if (!stamped)
+                return;
+
+            bool applied = CardMesh.SetSilhouette(alpha, fw, fh);
+            VRLog.Info("Cards", applied
+                ? $"CardFace captured the card-art silhouette ({fw}x{fh}) — 3D card body " +
+                  "now clipped to the artistic outline (test #25)."
+                : "CardFace captured a card-art footprint but it failed the silhouette " +
+                  "sanity guard (empty/solid/hollow) — kept the rounded-rect slab.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"CardFace silhouette capture skipped ({ex.Message}) — " +
+                                "kept the rounded-rect card slab.");
+        }
+        finally
+        {
+            foreach (Texture2D t in readbacks)
+                if (t != null)
+                    Object.Destroy(t);
+        }
+    }
+
+    /// <summary>
+    /// CPU-read a texture's pixels via a GPU blit — works even when the source atlas
+    /// texture is not marked CPU-readable (the usual case for bundled sprites).
+    /// </summary>
+    private static Texture2D ReadTexture(Texture src)
+    {
+        RenderTexture rt = RenderTexture.GetTemporary(
+            src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        RenderTexture prev = RenderTexture.active;
+        try
+        {
+            Graphics.Blit(src, rt);
+            RenderTexture.active = rt;
+            var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: false);
+            tex.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
+            tex.Apply(updateMipmaps: false);
+            return tex;
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+        }
     }
 
     /// <summary>
