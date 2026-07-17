@@ -65,6 +65,9 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down).</summary>
     internal static ConfigEntry<float> GripPitchOffsetDegrees = null!;
 
+    /// <summary>Vertical offset (meters) of the visual hand from the grip pose so its palm sits on the controller (positive = up).</summary>
+    internal static ConfigEntry<float> HandVerticalOffset = null!;
+
     /// <summary>Visible laser starts at the index fingertip instead of the aim pose (test #6).</summary>
     internal static ConfigEntry<bool> LaserFingerOrigin = null!;
 
@@ -181,6 +184,16 @@ public class Plugin : BaseUnityPlugin
             "-80 (LCVR uses an 80° down-pitch for its controller-relative interact/ray " +
             "origins). Hot-reloadable: edit while the game runs and the hands re-pose on the " +
             "next frame. Tuning guide: docs/TESTING-P2.md.");
+        HandVerticalOffset = Config.Bind(
+            "Hands", "HandVerticalOffset", 0.045f,
+            "Vertical offset (meters) of the visual hand model from the tracked OpenXR " +
+            "grip pose, along the controller's local up axis. POSITIVE raises the hand. " +
+            "The grip pose sits at the controller handle (≈ the palm when gripping), but " +
+            "the authored wrist plus the GripPitchOffsetDegrees down-pitch otherwise drop " +
+            "the palm several cm BELOW the controller — the hand floated low off the " +
+            "physical controller (hardware test #24). Default 0.045 seats the palm on the " +
+            "controller. Hot-reloadable: edit while the game runs and the hands re-seat on " +
+            "the next frame.");
         LaserFingerOrigin = Config.Bind(
             "Hands", "LaserFingerOrigin", true,
             "Start the VISIBLE laser beam at the hand rig's index fingertip (converging on " +
