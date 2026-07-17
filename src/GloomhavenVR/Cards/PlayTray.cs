@@ -127,6 +127,7 @@ internal sealed class PlayTray
         BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
         BuildHandle();
+        _strip = InitiativeStrip.Build(_root, new Vector3(0f, BoardH * 0.5f + 0.052f, -0.004f), BoardW);
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
@@ -135,6 +136,10 @@ internal sealed class PlayTray
     // ------------------------------------------------------------------ grab handle --
 
     private TrayGrabHandle? _handle;
+    private InitiativeStrip? _strip;
+
+    /// <summary>The tray's initiative strip (null until built).</summary>
+    internal InitiativeStrip? Strip => _strip;
 
     /// <summary>
     /// Test #14 ("Controllboard"): a clearly visible handle bar along the tray's
@@ -184,6 +189,7 @@ internal sealed class PlayTray
         _confirm = null;
         _undo = null;
         _handle = null; // child of _root, destroyed with it
+        _strip = null;
         _placed = false;
     }
 
@@ -545,6 +551,8 @@ internal sealed class PlayTray
     /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        _strip?.Tick();
+
         if (_badge == null)
             return;
 

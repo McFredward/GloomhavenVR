@@ -46,6 +46,8 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VREvents.HandShown += OnHandShown;
+        VREvents.ChoreographerMessage += OnChoreoMessage;
+        VREvents.ChoreographerStateChanged += OnChoreoState;
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
@@ -65,6 +67,8 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VREvents.HandShown -= OnHandShown;
+        VREvents.ChoreographerMessage -= OnChoreoMessage;
+        VREvents.ChoreographerStateChanged -= OnChoreoState;
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
@@ -98,7 +102,19 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnHandShown(HandShownEvent e) => _dirty = true;
 
-    private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
+    private void OnCardSelectionChanged(CardSelectionEvent e)
+    {
+        _dirty = true;
+        _tray.Strip?.MarkDirty(); // a (de)select changes the player's initiative
+    }
+
+    // Initiative strip invalidation (test #14): engine messages / choreographer
+    // state changes cover round starts, turn advances and initiative reveals.
+    // Handlers only set a dirty flag (P2 threading rules) — the strip re-reads
+    // the track in its Tick.
+    private void OnChoreoMessage(ChoreoMessageEvent e) => _tray.Strip?.MarkDirty();
+
+    private void OnChoreoState(ChoreoStateEvent e) => _tray.Strip?.MarkDirty();
 
     private void OnHandsChanged() => _dirty = true;
 

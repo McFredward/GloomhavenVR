@@ -447,6 +447,80 @@ internal static class CardsGameApi
         return fallback;
     }
 
+    // ------------------------------------------------------------ initiative order --
+
+    /// <summary>
+    /// Fill <paramref name="buffer"/> with the round's actors in ACTING ORDER
+    /// (acts-first first), read-only from the game's own initiative track.
+    /// Sources (all verified):
+    /// - <c>public static InitiativeTrack Instance</c> (InitiativeTrack.cs:108);
+    /// - <c>private List&lt;InitiativeTrackActorBehaviour&gt; actorsUI</c>
+    ///   (InitiativeTrack.cs:73, publicized) — the game keeps it sorted via
+    ///   <c>UpdateSortingOrder(): actorsUI.Sort()</c> (InitiativeTrack.cs:656) with
+    ///   <c>InitiativeTrackActorBehaviour.CompareTo</c> (IComparable,
+    ///   InitiativeTrackActorBehaviour.cs:124): ascending
+    ///   <c>GetOrderPriority() = 100 − actor.Initiative()</c> comparison, i.e. the
+    ///   LIST runs acts-LAST → acts-FIRST; the 2D display reverses it by iterating
+    ///   with <c>SetAsFirstSibling()</c> (InitiativeTrack.cs:662-666). We iterate the
+    ///   list backwards for acting order.
+    /// - <c>public CActor Actor</c> (InitiativeTrackActorBehaviour.cs:33).
+    /// No allocation — caller owns the buffer.
+    /// </summary>
+    internal static void GetInitiativeOrder(List<CActor> buffer)
+    {
+        buffer.Clear();
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track == null)
+            return;
+        List<InitiativeTrackActorBehaviour> actors = track.actorsUI;
+        for (int i = actors.Count - 1; i >= 0; i--)
+        {
+            if (actors[i] != null && actors[i].Actor != null)
+                buffer.Add(actors[i].Actor);
+        }
+    }
+
+    /// <summary>
+    /// The actor whose turn is running. Verified: <c>public CActor CurrentActor =&gt;
+    /// m_CurrentActor</c> (Choreographer.cs:490, field :209).
+    /// </summary>
+    internal static CActor? CurrentTurnActor()
+    {
+        Choreographer c = Choreographer.s_Choreographer;
+        return c != null ? c.CurrentActor : null;
+    }
+
+    /// <summary>
+    /// Display label for any actor. Players: <c>public string CharacterName</c>
+    /// (CPlayerActor.cs:22). Enemies/others: localized class name via
+    /// <c>CClass.LocKey</c> (CClass.cs:244) — the exact pattern the game's stat
+    /// panel uses (<c>LocalizationManager.GetTranslation(monsterClass.LocKey)</c>,
+    /// ActorStatPanel.cs:650-656). <c>CActor.Class</c> verified (CActor.cs:386).
+    /// May allocate — call only on order change, never per frame.
+    /// </summary>
+    internal static string ActorLabel(CActor actor)
+    {
+        if (actor is CPlayerActor player && !string.IsNullOrEmpty(player.CharacterName))
+            return player.CharacterName;
+        CClass klass = actor.Class;
+        if (klass != null && !string.IsNullOrEmpty(klass.LocKey))
+        {
+            string name = Localize(klass.LocKey, string.Empty);
+            if (!string.IsNullOrEmpty(name))
+                return name;
+        }
+        return actor.GetPrefabName();
+    }
+
+    /// <summary>
+    /// Verified: <c>public virtual int Initiative()</c> (CActor.cs:1372; overridden
+    /// CPlayerActor.cs:156 / CEnemyActor.cs:204). 0 = not yet determined this round.
+    /// </summary>
+    internal static int ActorInitiative(CActor actor) => actor.Initiative();
+
+    /// <summary>Verified: <c>public virtual bool IsDeadPlayer</c> (CActor.cs:618) + <c>EType Type</c> (CActor.cs:299).</summary>
+    internal static bool IsPlayer(CActor actor) => actor is CPlayerActor;
+
     // ---------------------------------------------------------------------- misc --
 
     /// <summary>Verified: <c>public static Choreographer s_Choreographer</c> — alive only inside a scenario.</summary>
