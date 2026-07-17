@@ -77,8 +77,14 @@ internal sealed class TrayControlDockSurface
             static () => PlayTray.Current?.ContinueMount, 0.12f, 0.062f, postDropGuard: true);
         _undo = new DockedControl("Undo", CardsGameApi.UndoWidget,
             static () => PlayTray.Current?.UndoDockMount, 0.10f, 0.052f, postDropGuard: false);
+        // Test #25 item 1a: the native "Kurze Rast" bar is the ONLY control the player
+        // wants (no mod-drawn fallback flicker), and it should read comfortably BIGGER —
+        // width bumped 0.13→0.16 (the bar is width-bound, ~335x30 px, so a wider target
+        // scales the whole widget up). It also holds its dock through transient hides
+        // (holdOnTransientNull) so it never rapid-cycles against the mod button.
         _shortRest = new DockedControl("ShortRest", CardsGameApi.ShortRestWidget,
-            static () => PlayTray.Current?.ShortRestAnchor, 0.13f, 0.05f, postDropGuard: false);
+            static () => PlayTray.Current?.ShortRestAnchor, 0.16f, 0.055f, postDropGuard: false,
+            holdOnTransientNull: true);
         _controls = new[] { _continue, _undo, _shortRest };
     }
 
@@ -103,6 +109,13 @@ internal sealed class TrayControlDockSurface
         && Choreographer.s_Choreographer != null
         && PlayTray.Current != null;
 
+    /// <summary>
+    /// Hysteresis window (test #25 item 1a): a docked native control survives this long
+    /// of continuous <c>FindWidget()==null</c> before releasing, so a one-frame game-
+    /// side hide/rebuild does not flicker the dock against the mod-drawn button.
+    /// </summary>
+    private const float HoldSeconds = 0.5f;
+
     public void Tick()
     {
         bool feature = FeatureEnabled;
@@ -116,12 +129,35 @@ internal sealed class TrayControlDockSurface
         bool mountReady = mount != null && mount.gameObject.activeInHierarchy;
         RectTransform? widget = mountReady ? ctl.FindWidget() : null;
 
-        // Release when the widget is gone/hidden, the panel died with a scene/hand
-        // teardown, or the game swapped in a different widget instance (hand switch).
-        if (ctl.Panel != null && (!ctl.Panel.IsAlive || !ReferenceEquals(ctl.Panel.Target, widget)))
+        // Genuine teardown → release now: the host/target died (scene/hand teardown),
+        // or the game swapped in a DIFFERENT widget instance (re-dock the new one).
+        bool targetDead = ctl.Panel != null && !ctl.Panel.IsAlive;
+        bool targetSwapped = ctl.Panel != null && widget != null
+                             && !ReferenceEquals(ctl.Panel.Target, widget);
+
+        // Transient null (the widget momentarily hid / the poll blipped): for a control
+        // with hysteresis, hold the dock until the null has persisted past HoldSeconds
+        // (test #25 item 1a — the anti-flicker hold). Without hysteresis a null releases
+        // at once, as before. A live/matching widget clears the hold clock.
+        bool transientNull = ctl.Panel != null && !targetDead && !targetSwapped && widget == null;
+        if (transientNull && ctl.HoldOnTransientNull)
+        {
+            if (ctl.NullSince <= 0f)
+                ctl.NullSince = Time.unscaledTime;
+        }
+        else
+        {
+            ctl.NullSince = 0f;
+        }
+        bool holdExpired = transientNull && ctl.HoldOnTransientNull
+                           && Time.unscaledTime - ctl.NullSince > HoldSeconds;
+        bool nullRelease = transientNull && (!ctl.HoldOnTransientNull || holdExpired);
+
+        if (ctl.Panel != null && (targetDead || targetSwapped || nullRelease))
         {
             CanvasConversion.Release(ctl.Panel); // restores the widget's exact 2D home
             ctl.Panel = null;
+            ctl.NullSince = 0f;
             if (ctl.DockLogged)
             {
                 ctl.DockLogged = false;
@@ -133,12 +169,22 @@ internal sealed class TrayControlDockSurface
         if (widget != null && ctl.Panel == null)
         {
             ctl.Panel = CanvasConversion.Convert(widget, $"TrayCtl_{ctl.Name}", pokeable: true);
-            if (ctl.Panel != null && !ctl.DockLogged)
+            if (ctl.Panel != null)
             {
-                ctl.DockLogged = true;
-                VRLog.Info("WorldUI", $"TRAY CONTROLS: '{ctl.Name}' REAL game widget docked on the " +
-                                      "control board (native sprite/label/enable-state, poke + laser) — " +
-                                      "the mod-drawn button is suppressed while it holds.");
+                // Native tray widgets convert at their own tight rect (e.g. the ~335x30
+                // "Kurze Rast" bar) — unlike a full-screen window root they need no
+                // content-fit. Disabling it keeps the host at the native rect (so the
+                // poke/laser plane matches the real button exactly) and stops the
+                // "nothing visible" shrink pass that only churned the log (test #25).
+                ctl.Panel.FitEnabled = false;
+                ctl.NullSince = 0f;
+                if (!ctl.DockLogged)
+                {
+                    ctl.DockLogged = true;
+                    VRLog.Info("WorldUI", $"TRAY CONTROLS: '{ctl.Name}' REAL game widget docked on the " +
+                                          "control board (native sprite/label/enable-state, poke + laser) — " +
+                                          "the mod-drawn button is suppressed while it holds.");
+                }
             }
         }
 
@@ -204,11 +250,25 @@ internal sealed class TrayControlDockSurface
         internal readonly float TargetWidth;
         internal readonly float TargetHeight;
         internal readonly bool PostDropGuard;
+
+        /// <summary>
+        /// Hold the dock through a MOMENTARY <c>FindWidget()==null</c> instead of
+        /// releasing at once (test #25 item 1a hysteresis): the game toggles the
+        /// short-rest widget's active/visible state across a phase blip or hand refresh,
+        /// and a same-frame release/re-dock made the native widget and the mod-drawn
+        /// button flicker against each other. Only a null that PERSISTS past
+        /// <see cref="HoldSeconds"/> (or a genuinely dead/swapped target) releases.
+        /// </summary>
+        internal readonly bool HoldOnTransientNull;
+
         internal ConvertedPanel? Panel;
         internal bool DockLogged;
 
+        /// <summary>Unscaled time the current transient-null hold began (0 = not holding).</summary>
+        internal float NullSince;
+
         internal DockedControl(string name, Func<RectTransform?> findWidget, Func<Transform?> findMount,
-            float targetWidth, float targetHeight, bool postDropGuard)
+            float targetWidth, float targetHeight, bool postDropGuard, bool holdOnTransientNull = false)
         {
             Name = name;
             FindWidget = findWidget;
@@ -216,6 +276,7 @@ internal sealed class TrayControlDockSurface
             TargetWidth = targetWidth;
             TargetHeight = targetHeight;
             PostDropGuard = postDropGuard;
+            HoldOnTransientNull = holdOnTransientNull;
         }
     }
 }
