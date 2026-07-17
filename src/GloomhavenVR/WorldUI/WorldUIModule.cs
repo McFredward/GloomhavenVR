@@ -8,10 +8,13 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>
 /// Physicalized UI (Phase 3c, R4 "physical interface"): canvas-conversion framework,
 /// physical Ready/Undo/Skip cluster, world panels for initiative track / element
-/// board / combat log / objectives, HMD toasts for phase banners, world-modal
-/// confirmation dialogs, world-space monster stat panels, true world-space actor
-/// bars, wrist HUD, floating 2D screen + virtual-mouse pointer, gamepad-mode guard
-/// and world tooltips. Built on the Phase-2 seed (<see cref="VirtualMouse"/>).
+/// board / combat log / objectives, world-modal confirmation dialogs, world-space
+/// monster stat panels, true world-space actor bars, wrist HUD, floating 2D screen +
+/// virtual-mouse pointer, gamepad-mode guard and world tooltips. Built on the
+/// Phase-2 seed (<see cref="VirtualMouse"/>). The phase banner is NOT converted
+/// (test #18: the converted banner never received its onHidden — the box froze in
+/// space and its soft lock kept every host raycaster disabled for the rest of the
+/// scenario); the round number lives on the control board instead (PlayTray).
 ///
 /// Everything is reversible: surfaces restore the panels they moved, patches gate on
 /// <see cref="WorldUIConfig.ConversionActive"/> (vanilla when VR is off), and
@@ -132,7 +135,6 @@ internal sealed class WorldUIModule : IVRModule
             new ObjectivesSurface(),
         };
         private readonly DialogSurface _dialogs = new();
-        private readonly PhaseBannerSurface _banner = new();
         private readonly StatPanelSurface _statPanels = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
@@ -170,7 +172,6 @@ internal sealed class WorldUIModule : IVRModule
             for (int i = 0; i < _slotSurfaces.Length; i++)
                 _slotSurfaces[i].Tick();
             _dialogs.Tick();
-            _banner.Tick();
             _statPanels.Tick();
             _wristHud.Tick();
             _flatScreen.Tick();
@@ -194,7 +195,6 @@ internal sealed class WorldUIModule : IVRModule
             for (int i = 0; i < _slotSurfaces.Length; i++)
                 _slotSurfaces[i].Shutdown();
             _dialogs.Shutdown();
-            _banner.Shutdown();
             _statPanels.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
