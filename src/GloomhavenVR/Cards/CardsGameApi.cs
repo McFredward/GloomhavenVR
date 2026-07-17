@@ -270,6 +270,58 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// The card the game is currently SHORT-RESTING away — the RANDOM discard-pile
+    /// sacrifice (never the <c>ImprovedShortRest</c> pick, which routes through
+    /// CardHandMode.LoseCard and leaves this null). Non-null from the moment
+    /// <c>PerformShortRest</c> picks it (<c>shortRestLostCardID =
+    /// ScenarioRNG.Next(DiscardedAbilityCards.Count)</c>, CardsHandUI.cs:752) until
+    /// <c>FinalizeShortRest</c> nulls it (CardsHandUI.cs:973); on REDRAW
+    /// <c>PerformFinalShortRest</c> re-points it at the alternate card
+    /// (<c>shortRestAlternateLostCardID</c>, CardsHandUI.cs:886), so the VALUE CHANGES
+    /// mid-choice. Verified: <c>public CAbilityCard ShortRestedCard =&gt;
+    /// _shortRestedCard;</c> (CardsHandUI.cs:260, publicized backing field).
+    /// </summary>
+    internal static CAbilityCard? ShortRestedCard(CardsHandUI hand) =>
+        hand != null ? hand.ShortRestedCard : null;
+
+    /// <summary>
+    /// The live widget of the currently short-rested card — its 2D face lives in the
+    /// docked burn/redraw <c>DialogPopup</c>, and VR re-adopts it to lay the card at
+    /// the board centre. Mirrors the game's own private <c>CardsHandUI.GetCardUI</c>
+    /// (scan <c>cardsUI</c> for the AbilityCardUI whose AbilityCard is the sacrifice —
+    /// <c>cardsUI</c> holds one widget per card of EVERY pile, CardsHandUI.cs:128).
+    /// Null until the widget exists / after it is recycled.
+    /// </summary>
+    internal static AbilityCardUI? ShortRestedCardWidget(CardsHandUI hand)
+    {
+        CAbilityCard? lost = ShortRestedCard(hand);
+        if (lost == null)
+            return null;
+        List<AbilityCardUI> cards = hand.cardsUI;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            if (cards[i] != null && cards[i].AbilityCard == lost)
+                return cards[i];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Is a short rest mid-choice — the random sacrifice picked and its burn/redraw
+    /// choice up? True exactly while <see cref="ShortRestedCard"/> is non-null: the
+    /// game sets it synchronously right before it shows the DialogPopup
+    /// (<c>UIManager.Instance.dialogPopup.Show(GetCardUI(lostCard)…)</c>,
+    /// CardsHandUI.cs:826/850) and nulls it synchronously inside
+    /// <c>FinalizeShortRest</c> once an option commits — so there is no frame where
+    /// the flag is set without the choice being live. The DialogPopup itself is docked
+    /// separately (DecisionDockSurface, other worker); this is the signal to lay the
+    /// sacrificed card physically at the board centre. DISPLAY-ONLY — the docked
+    /// buttons commit burn/redraw.
+    /// </summary>
+    internal static bool IsShortRestChoosing(CardsHandUI hand) =>
+        hand != null && hand.ShortRestedCard != null;
+
+    /// <summary>
     /// Long-rest availability at selection time: the pseudo-card is selectable only
     /// with &gt;1 discarded card (SetMode's <c>longRestAvailable</c> argument,
     /// CardsHandUI.cs:590) — mirrored here for token dimming.
