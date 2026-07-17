@@ -192,6 +192,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
         UpdatePalmGate();
         UpdateFanLaser();
+        UpdateFanHoverSplit();
         UpdateBoardLaser();
         UpdateBrowseLaser();
         UpdateSlotHighlight();
@@ -365,6 +366,64 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         _laserHover.SetLaserHover(false);
         _laserHover = null;
+    }
+
+    // ------------------------------------------------------------------ fan hover split --
+
+    private int _fanHoverIndex = -1;
+
+    /// <summary>
+    /// G6/G2 (DEMEO-HANDS-CARDS §5 Group D): drive the fan's whole-hand hover SPLIT from
+    /// EITHER input source. The dominant-hand laser hover is primary (our controller path);
+    /// only when no card is laser-hovered does the dominant hand's proximity highlight —
+    /// its finger near a fan card, Demeo-style — split the fan instead. Purely the VISUAL
+    /// split: pluck/select still route through <see cref="UpdateFanLaser"/> and the
+    /// proximity grabber unchanged. The index is resolved against the fan's OWN card order
+    /// (<see cref="CardFan.Cards"/> — the exact list <c>SetHovered</c> indexes into, so it
+    /// cannot drift from the driver's <c>_fanBuffer</c> after a mid-frame grab/return) and
+    /// pushed only on change. Allocation-free.
+    /// </summary>
+    private void UpdateFanHoverSplit()
+    {
+        if (!_fan.IsOpen)
+        {
+            if (_fanHoverIndex != -1)
+            {
+                _fanHoverIndex = -1;
+                _fan.SetHovered(-1);
+            }
+            return;
+        }
+
+        // Precedence: laser wins whenever a fan card is laser-hovered (primary controller
+        // path); proximity highlight only fills in when the laser hovers nothing.
+        VRCard? hovered = _laserHover;
+        if (hovered == null)
+        {
+            VRHand? dom = VRHands.Primary;
+            if (dom != null && dom != _gateHand && dom.Grabber.Held == null
+                && dom.Grabber.Highlighted is VRCard proximityCard && _fan.Contains(proximityCard))
+                hovered = proximityCard;
+        }
+
+        int index = hovered != null ? FanIndexOf(hovered) : -1;
+        if (index != _fanHoverIndex)
+        {
+            _fanHoverIndex = index;
+            _fan.SetHovered(index);
+        }
+    }
+
+    /// <summary>Index of <paramref name="card"/> in the fan's card order, or -1. Allocation-free.</summary>
+    private int FanIndexOf(VRCard card)
+    {
+        IReadOnlyList<VRCard> cards = _fan.Cards;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            if (ReferenceEquals(cards[i], card))
+                return i;
+        }
+        return -1;
     }
 
     // ------------------------------------------------------------------ board laser --
