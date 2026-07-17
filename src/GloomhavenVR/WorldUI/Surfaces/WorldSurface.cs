@@ -21,6 +21,14 @@ internal abstract class WorldSurface
     /// <summary>The panel to move to world space (null while not present).</summary>
     protected abstract RectTransform? FindTarget();
 
+    /// <summary>
+    /// Opt-in (test #21): neutralize the game's real 3D styling (local rotations /
+    /// z offsets) inside the converted subtree — see
+    /// <see cref="CanvasConversion.FlattenSubtree"/>. Default off: only surfaces
+    /// with a VERIFIED tilt symptom flatten (combat log today).
+    /// </summary>
+    protected virtual bool Flatten2D => false;
+
     /// <summary>Position the host in the world (called every tick while converted).</summary>
     protected abstract void Place();
 
@@ -42,7 +50,7 @@ internal abstract class WorldSurface
             RectTransform? target = FindTarget();
             if (target != null)
             {
-                Panel = CanvasConversion.Convert(target, Name);
+                Panel = CanvasConversion.Convert(target, Name, flatten2D: Flatten2D);
                 if (Panel != null)
                     OnConverted();
             }
