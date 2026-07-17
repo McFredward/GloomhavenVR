@@ -332,28 +332,64 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private float _heldScale = 1f;
 
     /// <summary>
-    /// P7 (hardware test #10, "nicht immersiv"): the held card sits IN the hand like a
-    /// real card — pinched at its bottom third just off the palm, top extending past
-    /// the fingertips — and is parented to the GrabAnchor, so it rotates 1:1 with the
-    /// wrist. NO per-frame auto-facing, NO floating in front of the hand. The fixed
-    /// tilt ([Cards] HeldTiltDegrees) leans the card face gently toward the palm side
-    /// (where your eyes are when you supinate to read), which gives the "starts
-    /// readable" orientation; after that the hand controls everything.
+    /// Fraction of the card height between the bottom edge and the pinch anchor:
+    /// the fingers grip the card's lower-edge area ~12 % up from the bottom, like a
+    /// real card pinched at its corner.
+    /// </summary>
+    private const float PinchGripFraction = 0.12f;
+
+    /// <summary>
+    /// P8 (hardware test #12, "pinch grip"): the held card is pinched BETWEEN THUMB
+    /// AND INDEX — its lower-edge area sits exactly at the pinch point, the midpoint
+    /// between the thumb tip and the index tip of the holding hand, sampled at grab
+    /// time (the fingers are curled onto the grip right then, i.e. the physical
+    /// pinch pose). The card is parented to the GrabAnchor, so it follows the wrist
+    /// 1:1 (P7 behavior kept); NO per-frame auto-facing.
     ///
-    /// GrabAnchor frame (HandRig contract): +Y = palm normal (out of the palm),
-    /// +Z = along the fingers. Card frame: +Z away from the viewer, +Y = card top.
-    /// Euler(90°,0,0) maps card +Z onto anchor -Y (face toward the palm side) and
-    /// card top onto the finger direction; the tilt subtracts from that pitch.
+    /// Frames: GrabAnchor is a child of PalmCenter with identity rotation
+    /// (HandVisuals.FillMissingAnchors), so its axes are the palm frame of the
+    /// HandRig contract — +Y = palm normal (out of the palm), +Z = along the
+    /// fingers; identical for the bundle gloves (Hands README: 'Anchor_Palm, +Y
+    /// must point OUT of the palm', 'Anchor_Grab' child of it; missing joints are
+    /// synthesized, so Anchor_{Thumb|Index}_Tip — or the SteamVR bone fallback
+    /// finger_{thumb|index}_2_{l|r} — always exist). Card frame: +Z away from the
+    /// viewer, +Y = card top.
+    ///
+    /// Rotation: Euler(90°,0,0) maps the card's plane onto the palm plane (card
+    /// normal ∥ palm normal, face readable from the palm side — where your eyes are
+    /// when you supinate) and the card top along the fingers; [Cards]
+    /// HeldTiltDegrees subtracts a gentle readable tilt from that pitch.
+    ///
+    /// Position: pinch = midpoint(thumb tip, index tip) in GrabAnchor local space
+    /// (InverseTransformPoint divides the diorama scale back out, so the result is
+    /// in the same real-meter units as the card constants) + [Cards]
+    /// HeldPinchOffset; the card CENTER then sits (0.5 − PinchGripFraction) · h
+    /// along the card's own up axis above that pinch. Fallback (rig without valid
+    /// thumb/index joints — never the case for procedural or bundle hands, but the
+    /// contract allows partial rigs): the pre-P8 palm-offset approximation
+    /// ([Cards] HeldOffPalm/HeldForward).
     /// </summary>
     protected override HeldPose GetHeldPose(VRHand hand)
     {
         float scale = CardsConfig.InspectScale.Value;
         float cardH = CardsConfig.CardHeight * scale;
         var rot = Quaternion.Euler(90f - CardsConfig.HeldTiltDegrees.Value, 0f, 0f);
-        // Pinch point (card bottom third) at the anchor + config offsets: the card
-        // CENTER therefore sits ~0.35*h along the card's own up axis.
-        Vector3 pos = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value)
-                      + rot * new Vector3(0f, cardH * 0.35f, 0f);
+
+        Vector3 pinchLocal;
+        FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
+        FingerJoints index = hand.Rig.GetFinger(Finger.Index);
+        if (thumb.IsValid && index.IsValid)
+        {
+            Vector3 pinchWorld = (thumb.Tip.position + index.Tip.position) * 0.5f;
+            pinchLocal = hand.Rig.GrabAnchor.InverseTransformPoint(pinchWorld);
+        }
+        else
+        {
+            pinchLocal = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
+        }
+        pinchLocal += CardsConfig.HeldPinchOffset.Value;
+
+        Vector3 pos = pinchLocal + rot * new Vector3(0f, cardH * (0.5f - PinchGripFraction), 0f);
         return new HeldPose(pos, rot, scale);
     }
 

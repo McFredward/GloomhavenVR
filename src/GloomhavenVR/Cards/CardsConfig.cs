@@ -41,11 +41,14 @@ internal static class CardsConfig
     /// <summary>Held card: face tilt toward the palm side (viewer), degrees.</summary>
     internal static ConfigEntry<float> HeldTiltDegrees = null!;
 
-    /// <summary>Held card: pinch-point offset along the fingers, real meters.</summary>
+    /// <summary>Held card: FALLBACK pinch-point offset along the fingers, real meters (no finger joints).</summary>
     internal static ConfigEntry<float> HeldForward = null!;
 
-    /// <summary>Held card: pinch-point offset off the palm surface, real meters.</summary>
+    /// <summary>Held card: FALLBACK pinch-point offset off the palm surface, real meters (no finger joints).</summary>
     internal static ConfigEntry<float> HeldOffPalm = null!;
+
+    /// <summary>Held card: fine-tune offset added to the thumb/index pinch point, GrabAnchor-local meters.</summary>
+    internal static ConfigEntry<Vector3> HeldPinchOffset = null!;
 
     /// <summary>Tray placement offset from the head, real meters: forward distance.</summary>
     internal static ConfigEntry<float> TrayForward = null!;
@@ -97,9 +100,18 @@ internal static class CardsConfig
             "Held card: how far the card face leans toward the palm side (your eyes when you " +
             "turn the hand to read), degrees. 0 = card exactly perpendicular to the palm.");
         HeldForward = _file.Bind("Cards", "HeldForward", 0.02f,
-            "Held card: pinch-point offset from the grab anchor along the fingers, meters.");
+            "Held card FALLBACK (only used when the hand rig has no finger joints): " +
+            "pinch-point offset from the grab anchor along the fingers, meters.");
         HeldOffPalm = _file.Bind("Cards", "HeldOffPalm", 0.015f,
-            "Held card: pinch-point offset off the palm surface, meters.");
+            "Held card FALLBACK (only used when the hand rig has no finger joints): " +
+            "pinch-point offset off the palm surface, meters.");
+        HeldPinchOffset = _file.Bind("Cards", "HeldPinchOffset", Vector3.zero,
+            "Held card fine-tune: offset (meters) ADDED to the computed pinch point — " +
+            "the midpoint between the thumb tip and index tip at grab time — in " +
+            "GrabAnchor-local axes: +Y out of the palm, +Z along the fingers, +X " +
+            "sideways (anatomically mirrored between hands). Example {x:0, y:0.01, " +
+            "z:0.02} lifts the card 1 cm off the palm and shifts it 2 cm toward the " +
+            "fingertips.");
         TrayForward = _file.Bind("Cards", "TrayForward", 0.45f,
             "Control board placement: forward distance from the head at placement time, meters.");
         TrayDown = _file.Bind("Cards", "TrayDown", 0.35f,
