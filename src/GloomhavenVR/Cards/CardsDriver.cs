@@ -700,6 +700,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
+        // Accident window (test #19): a pluck FROM a slot means the hand is working
+        // right next to CONFIRM — arm the tray's suppression guard.
+        if (_tray.SlotOf(card) >= 0)
+            _tray.NoteSlotActivity();
         if (_fan.Contains(card))
             _fan.Remove(card);
         // Tray occupancy stays until the release decides select/unselect/swap.
@@ -757,6 +761,12 @@ internal sealed class CardsDriver : MonoBehaviour
                             (slot < 0
                                 ? (wasInTray ? "take back to fan." : "return to fan.")
                                 : (wasInTray ? $"reorder to slot {slot + 1}." : $"play into slot {slot + 1}.")));
+
+        // Accident window (test #19): every drop/take-back touching the slots arms
+        // the tray's CONFIRM guard — the release gesture is exactly what brushed
+        // CONFIRM in the hardware log.
+        if (slot >= 0 || wasInTray)
+            _tray.NoteSlotActivity();
 
         if (slot >= 0 && !wasInTray)
         {
@@ -871,14 +881,37 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnConfirmRequested()
     {
-        // ClickReady runs the ReadyButton dispatch (Pass/StepComplete — no spin-wait,
-        // ScenarioRuleClient.Pass only messages the SRL), but queue it anyway so it
-        // serializes behind pending card selects.
+        // Confirm OR revoke (test #19), decided INSIDE the queued action so it
+        // serializes behind pending card selects and reads the freshest state:
+        // - active hand already confirmed → the game's own un-ready path
+        //   (UIReadyToggle.ReadyUp(false) → GameActionType.UnreadyPlayer);
+        // - online card selection, not yet readied → ready-up via the same toggle
+        //   (the 2D UI shows the toggle INSTEAD of the ReadyButton there);
+        // - everything else → the ReadyButton dispatch (Pass/StepComplete — no
+        //   spin-wait, ScenarioRuleClient.Pass only messages the SRL).
+        // Every outcome logs the RESOLVED game state.
         CardActionQueue.Enqueue(
             () =>
             {
-                bool fired = CardsGameApi.ClickReady();
-                VRLog.Info("Cards", $"Board: CONFIRM → ReadyButton {(fired ? "clicked" : "rejected (not interactable)")}.");
+                CardsHandUI? hand = CurrentHand();
+                if (hand != null && CardsGameApi.IsConfirmed(hand))
+                {
+                    bool revoked = CardsGameApi.SetReady(false);
+                    VRLog.Info("Cards", $"Board: CONFIRM → ready {(revoked ? "REVOKED" : "revoke rejected")} " +
+                                        $"({CardsGameApi.DescribeReadyState()}).");
+                }
+                else if (CardsGameApi.ReadyToggleAvailable())
+                {
+                    bool readied = CardsGameApi.SetReady(true);
+                    VRLog.Info("Cards", $"Board: CONFIRM → ready toggle {(readied ? "READIED" : "rejected")} " +
+                                        $"({CardsGameApi.DescribeReadyState()}).");
+                }
+                else
+                {
+                    bool fired = CardsGameApi.ClickReady();
+                    VRLog.Info("Cards", $"Board: CONFIRM → ReadyButton {(fired ? "clicked" : "rejected (not interactable)")} " +
+                                        $"({CardsGameApi.DescribeReadyState()}).");
+                }
             },
             () => _dirty = true);
     }
@@ -1003,6 +1036,8 @@ internal sealed class CardsDriver : MonoBehaviour
             slot = highlightSlot; // test #15: what glows is what drops (see OnCardReleased)
         VRLog.Info("Cards", $"Drop ({hand.Side}, fake): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
                             $"rule={rule} → " + (slot >= 0 ? $"slot {slot + 1}." : "fan."));
+        if (slot >= 0 || _tray.ContainsCard(card))
+            _tray.NoteSlotActivity(); // accident window (test #19), fake-mode parity
         if (slot >= 0)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)

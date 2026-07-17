@@ -437,6 +437,103 @@ internal static class CardsGameApi
         return Localize("GUI_UNDO", "Undo");
     }
 
+    // ------------------------------------------------ ready state (confirm/revoke) --
+
+    /// <summary>
+    /// The multiplayer ready toggle — the game's ONLY revocable confirm (test #19).
+    /// During ONLINE card selection the 2D UI shows this Toggle INSTEAD of the
+    /// ReadyButton (Choreographer.cs:12564 <c>InitializeReadyToggleForCardSelection</c>
+    /// vs the offline ReadyButton branch :12591); clicking it while readied
+    /// UN-readies via <c>UnreadyPlayer</c> → <c>Synchronizer.SendGameAction(
+    /// GameActionType.UnreadyPlayer…)</c> (UIReadyToggle.cs:740/751-760).
+    /// OFFLINE there is NO confirmed-waiting state at all: END SELECTION commits the
+    /// whole party at once and the round starts immediately
+    /// (<c>ReadyButton.OnClickInternal</c> → <c>Choreographer.Pass</c>) — nothing
+    /// exists to revoke, so every "confirmed" read below is false offline by design;
+    /// the deliberate-dwell + accident guard (PlayTray, test #19) carry the offline
+    /// protection. Verified: <c>public class UIReadyToggle :
+    /// Singleton&lt;UIReadyToggle&gt;</c> (UIReadyToggle.cs:19).
+    /// </summary>
+    private static UIReadyToggle? ReadyToggle()
+    {
+        UIReadyToggle t = Singleton<UIReadyToggle>.Instance;
+        return t != null ? t : null;
+    }
+
+    /// <summary>
+    /// Can the ready toggle take a click right now (online card selection)?
+    /// Verified: <c>public bool IsInteractable =&gt; _interactable</c>
+    /// (UIReadyToggle.cs:134); the phase gate mirrors the game's card-selection
+    /// toggle init (the toggle instance is reused for rewards/map loadout too —
+    /// the tray must only drive it during selection).
+    /// </summary>
+    internal static bool ReadyToggleAvailable()
+    {
+        if (!FFSNetwork.IsOnline || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return false;
+        UIReadyToggle? t = ReadyToggle();
+        return t != null && t.gameObject.activeInHierarchy && t.IsInteractable;
+    }
+
+    /// <summary>
+    /// Has this hand's player CONFIRMED card selection — the exact state the 2D
+    /// ready toggle shows? Readiness is per PLAYER in the game's model
+    /// (<c>PlayersReady</c> keys by NetworkPlayer, UIReadyToggle.cs:131), so every
+    /// hand under my control mirrors MY toggle: <c>public bool ToggledOn =&gt;
+    /// _isOn</c> (UIReadyToggle.cs:136) — flipped synchronously by
+    /// <c>ReadyUpPlayer/UnreadyPlayer</c> via <c>SetIsOnWithoutNotify</c>
+    /// (UIReadyToggle.cs:651/785). Hands not under my control are never
+    /// tray-confirmable. Always false offline (see <see cref="ReadyToggle"/>).
+    /// </summary>
+    internal static bool IsConfirmed(CardsHandUI hand)
+    {
+        if (!FFSNetwork.IsOnline || hand.PlayerActor == null
+            || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return false;
+        UIReadyToggle? t = ReadyToggle();
+        return t != null && t.gameObject.activeInHierarchy
+               && hand.PlayerActor.IsUnderMyControl && t.ToggledOn;
+    }
+
+    /// <summary>
+    /// Ready-up or REVOKE through the game's own toggle path — the exact tail of
+    /// the 2D click: <c>InputToggle(isOn)</c> → <c>ReadyUp(isOn)</c>
+    /// (UIReadyToggle.cs:398/610). ReadyUp is fully self-guarded (offline no-op,
+    /// all-ready count guard, <c>IsReadyUpForbidden</c>/<c>canReadyUp</c> callback
+    /// on ready-up, UIReadyToggle.cs:615-632) and routes revokes through
+    /// <c>UnreadyPlayer</c> → <c>GameActionType.UnreadyPlayer</c> — never a
+    /// synthetic state write. Returns whether the game accepted, resolved from
+    /// <c>ToggledOn</c> afterwards (flipped synchronously for the local player).
+    /// </summary>
+    internal static bool SetReady(bool ready)
+    {
+        UIReadyToggle? t = ReadyToggle();
+        if (t == null || t.ToggledOn == ready)
+            return false;
+        t.ReadyUp(ready);
+        return t.ToggledOn == ready;
+    }
+
+    /// <summary>
+    /// Resolved ready state for the confirm/revoke logs (test #19). Allocates —
+    /// log path only, never per frame.
+    /// </summary>
+    internal static string DescribeReadyState()
+    {
+        if (FFSNetwork.IsOnline)
+        {
+            UIReadyToggle? t = ReadyToggle();
+            return t != null
+                ? $"online: toggledOn={t.ToggledOn}, playersReady={t.PlayersReady.Count}, " +
+                  $"interactable={t.IsInteractable}"
+                : "online: no ready toggle";
+        }
+        ReadyButton? b = Ready();
+        return b != null
+            ? $"offline: readyButton={b.buttonState}, interactable={b.IsInteractable}"
+            : "offline: no ready button";
+    }
+
     // --------------------------------------------------------------- localization --
 
     /// <summary>
