@@ -140,7 +140,66 @@ internal static class BoardClickDriver
             // surface — nearest UI hit wins over the board pick.
             && !hand.Ray.HasFreshUiHit)
         {
+            ArmPlacementTile();
             RequestClick(hand, "trigger");
+        }
+    }
+
+    /// <summary>
+    /// Test #16 — deterministic placement arming. The vanilla flow arms
+    /// <c>Waypoint.s_PlacementTile</c> only in
+    /// <c>WorldspaceStarHexDisplay.HighlightSelectedPlacementHex</c>, which (a) runs
+    /// only when the pointed-at tile CHANGES and (b) clears the armed tile first and
+    /// early-outs on any hover hiccup (WorldspaceStarHexDisplay.cs:551/554/560/582/588)
+    /// — with hand jitter between adjacent hexes the armed tile flip-flopped between
+    /// null and a tile at frame rate, and <c>Choreographer.TileHandler</c>'s placement
+    /// branch (<c>clientTile == Waypoint.s_PlacementTile</c>, Choreographer.cs:1841)
+    /// rejected most clicks ("tile=(10,10), armed=null → will NOT place").
+    ///
+    /// So at CLICK time, if the clicked tile qualifies under the game's OWN arming
+    /// predicates (mirrored 1:1 from HighlightSelectedPlacementHex — starred tile
+    /// :582, unoccupied :588 — plus TileHandler's selected-actor requirement :1841),
+    /// arm it directly. This only mirrors the state a stable hover would have set;
+    /// TileHandler still runs every placement validation itself — no rule bypassed.
+    /// </summary>
+    private static void ArmPlacementTile()
+    {
+        Choreographer? choreo = Choreographer.s_Choreographer;
+        if (choreo == null || choreo.m_WaitState == null
+            || choreo.m_WaitState.m_State != Choreographer.ChoreographerStateType.WaitingForCardSelection)
+            return;
+
+        WorldspaceStarHexDisplay display = WorldspaceStarHexDisplay.Instance;
+        if (display == null
+            || display.CurrentDisplayState != WorldspaceStarHexDisplay.WorldSpaceStarDisplayState.CharacterPlacement)
+            return;
+
+        // Resolve the clicked tile exactly like the game's own pick does (patched MF
+        // → GetComponentInParent<CInteractable>, then TileBehaviour on the same
+        // object — WorldspaceStarHexDisplay.cs:559).
+        CInteractable? interactable = BoardPick.HitCollider != null
+            ? BoardPick.HitCollider.GetComponentInParent<CInteractable>()
+            : null;
+        TileBehaviour? tileBehaviour = interactable != null ? interactable.GetComponent<TileBehaviour>() : null;
+        CClientTile? tile = tileBehaviour != null ? tileBehaviour.m_ClientTile : null;
+        if (tile == null || tile.m_Tile == null)
+            return;
+
+        // The game's own arming predicates (see doc comment above).
+        if (!display.s_PlacementStars.ContainsKey(tile))
+            return;
+        if (ScenarioManager.Scenario == null
+            || ScenarioManager.Scenario.FindActorAt(tile.m_Tile.m_ArrayIndex) != null)
+            return;
+        if (InitiativeTrack.Instance == null || InitiativeTrack.Instance.SelectedActor() == null)
+            return;
+
+        if (!ReferenceEquals(Waypoint.s_PlacementTile, tile))
+        {
+            Waypoint.s_PlacementTile = tile;
+            VRLog.Info("Board", "[Placement] click-arm: s_PlacementTile ← " +
+                                $"({tile.m_Tile.m_ArrayIndex.X},{tile.m_Tile.m_ArrayIndex.Y}) " +
+                                "(hover refresh had not armed the clicked tile).");
         }
     }
 
