@@ -43,6 +43,9 @@ internal static class WorldUIConfig
     /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
     internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
+    /// <summary>Show the intro (pre-menu scenes) on the floating screen in VR too.</summary>
+    internal static ConfigEntry<bool> ShowIntro = null!;
+
     /// <summary>Flat-screen width in real-world meters (test #6: 2.2 m default).</summary>
     internal static ConfigEntry<float> ScreenWidth = null!;
 
@@ -141,6 +144,10 @@ internal static class WorldUIConfig
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
+        ShowIntro = _file.Bind("WorldUI", "ShowIntro", true,
+            "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +
+            "too. Off = old behavior: intro plays on the desktop only and the HMD shows a " +
+            "'starting...' indicator in the void.");
         ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", 2.2f,
             "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
             "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m).");

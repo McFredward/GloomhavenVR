@@ -49,6 +49,30 @@ internal sealed class WorldUIModule : IVRModule
 
         VRLog.Info(Name, "WorldUI driver installed (virtual mouse, canvas conversion, " +
                          "button cluster, panels, actor bars, wrist HUD, flat screen).");
+
+        LogKillSwitchState("startup");
+        // These two switches blank the ENTIRE VR interface when off (test #11: an
+        // accidentally persisted Master=false read as "menu no longer loads" — the
+        // HMD shows only void + hands). Log every flip loudly and re-warn at startup.
+        WorldUIConfig.Master.SettingChanged += (_, _) => LogKillSwitchState("setting changed");
+        WorldUIConfig.FlatScreen.SettingChanged += (_, _) => LogKillSwitchState("setting changed");
+    }
+
+    private void LogKillSwitchState(string reason)
+    {
+        bool master = WorldUIConfig.Master.Value;
+        bool screen = WorldUIConfig.FlatScreen.Value;
+        if (!master || !screen)
+        {
+            VRLog.Warn(Name, $"UI SHELL DISABLED BY CONFIG ({reason}): [WorldUI] Master={master}, " +
+                             $"FlatScreen={screen} — the HMD will show only the void, hands and lasers. " +
+                             "Fix: set both to true in BepInEx/config/dev.gloomhavenvr.worldui.cfg " +
+                             "(or delete the file to restore defaults).");
+        }
+        else
+        {
+            VRLog.Info(Name, $"UI shell active ({reason}): Master=true, FlatScreen=true.");
+        }
     }
 
     public void Shutdown()

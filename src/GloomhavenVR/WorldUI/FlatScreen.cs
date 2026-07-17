@@ -205,7 +205,12 @@ internal sealed class FlatScreen
 
     public void Tick()
     {
-        bool preMenu = IsPreMenuScene();
+        // Test #11: the intro CAN show on the screen now — the pre-menu gate existed
+        // because the early quad died with the Single-mode scene loads, which is long
+        // fixed (DontDestroyOnLoad + external-destroy rebuild). [WorldUI] ShowIntro
+        // (default on) shows logos/intro video in VR; off = old desktop-only intro
+        // with the void indicator.
+        bool preMenu = IsPreMenuScene() && !WorldUIConfig.ShowIntro.Value;
 
         TickStartingIndicator(preMenu);
 
