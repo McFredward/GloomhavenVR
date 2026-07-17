@@ -192,6 +192,7 @@ internal sealed class WorldUIModule : IVRModule
             ActorBars.Tick();
             ActorBars.LateTick();
             _tooltips.LateTick();
+            CanvasConversion.LateTick(); // test #21: 2D flatten after the game's tween writers
         }
 
         private void OnDestroy()

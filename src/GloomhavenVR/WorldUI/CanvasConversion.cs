@@ -75,6 +75,23 @@ internal sealed class ConvertedPanel
     /// <summary>Next frame for the periodic nested-canvas sweep (pooled children can bring canvases late).</summary>
     public int CanvasSweepNextFrame;
 
+    // ---- 2D flatten (test #21) ---------------------------------------------------------
+    /// <summary>
+    /// Opt-in (<see cref="CanvasConversion.Convert"/> <c>flatten2D</c>): neutralize the
+    /// game's REAL 3D styling inside the converted subtree — see
+    /// <see cref="CanvasConversion.FlattenSubtree"/>.
+    /// </summary>
+    public bool FlattenEnabled;
+
+    /// <summary>Transforms caught carrying 3D (rotation / local z), originals kept for Release.</summary>
+    public readonly List<FlattenRecord> Flattened = new(16);
+
+    /// <summary>Count at the last flatten log line (log once per conversion, re-log on pooled growth).</summary>
+    public int FlattenLoggedCount;
+
+    /// <summary>Earliest frame for the next growth re-log (pooling adds entries one by one).</summary>
+    public int FlattenLogNextFrame;
+
     // ---- re-fit churn damping (test #17; see FitHostToContent) -------------------------
     /// <summary>Time of the last APPLIED fit (shrink/re-center rate limit).</summary>
     public float FitLastApplied;
@@ -105,6 +122,18 @@ internal struct NestedCanvasRecord
 
     /// <summary>Raycaster added by us (destroyed on Release); null when the canvas already had one.</summary>
     public GraphicRaycaster? AddedRaycaster;
+}
+
+/// <summary>
+/// A transform inside a flattened subtree (test #21) that carried real 3D — its
+/// original local rotation and z, restored by <see cref="CanvasConversion.Release"/>
+/// (x/y stay live: the game animates those and they were never touched).
+/// </summary>
+internal struct FlattenRecord
+{
+    public Transform Transform;
+    public float OriginalLocalZ;
+    public Quaternion OriginalLocalRotation;
 }
 
 /// <summary>
@@ -169,9 +198,11 @@ internal static class CanvasConversion
     /// whose target is a large stretch container (the enemy round-reveal holder) pass
     /// true: they need the host sized/centered on the visible content too, without
     /// ever registering as a poke surface.
+    /// <paramref name="flatten2D"/> (test #21, opt-in per surface): neutralize the
+    /// game's real 3D styling inside the subtree — see <see cref="FlattenSubtree"/>.
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
-        PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null)
+        PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false)
     {
         if (target == null)
         {
@@ -234,6 +265,21 @@ internal static class CanvasConversion
         panel.HostRect = hostRect;
 
         AdoptNestedCanvases(panel); // tests #19/#20: sorting-override + raycast hijack
+
+        if (flatten2D)
+        {
+            // Test #21: initial pass now (the subtree converts already tilted);
+            // per-frame re-assert runs from LateTick — the game rewrites these.
+            // The sweep's growth log stays muted for the initial pass (the line
+            // below reports the starting count).
+            panel.FlattenEnabled = true;
+            panel.FlattenLogNextFrame = int.MaxValue;
+            FlattenSubtree(panel);
+            panel.FlattenLoggedCount = panel.Flattened.Count;
+            panel.FlattenLogNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
+            VRLog.Info("WorldUI", $"Flattened {panel.Flattened.Count} transform(s) in '{name}' " +
+                                  "(local rotation → identity, local z → 0; x/y animations untouched).");
+        }
 
         if (pokeable)
             UguiPokeSurfaces.Register(hostCanvas, pokeTuning); // P5: per-canvas press feel (A.10)
@@ -369,6 +415,109 @@ internal static class CanvasConversion
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
             if (ReferenceEquals(panel.AdoptedCanvases[i].Canvas, nested))
+                return true;
+        }
+        return false;
+    }
+
+    // ---- 2D flatten (test #21) ------------------------------------------------------------
+
+    /// <summary>Local rotation counts as 3D beyond this angle (degrees) off identity.</summary>
+    private const float FlattenAngleEpsilon = 0.05f;
+
+    /// <summary>Local z counts as 3D beyond this many uGUI pixels.</summary>
+    private const float FlattenZEpsilon = 0.01f;
+
+    // Scratch buffer (flatten sweep only; reused, no per-call allocations).
+    private static readonly List<RectTransform> RectScratch = new(64);
+
+    /// <summary>
+    /// Test #21: neutralize REAL 3D inside a converted subtree. The combat log's
+    /// content is styled with local rotations and z offsets (entries recede into
+    /// depth, the round banner angles backward) — BAKED into the serialized
+    /// prefab/scene RectTransforms, not written by any game code, and rendered
+    /// through the perspective UI camera (verified decompiled CanvasManager.cs:
+    /// <c>allCameras[i].tag.Equals("UICamera")</c> → <c>canvas.worldCamera</c>)
+    /// where it reads as subtle 2D styling. On a world-space host it becomes
+    /// literal geometry: content visibly tilted behind the panel plane,
+    /// parallax-shifting with head motion (Convert only flattens the target ROOT's
+    /// own pose, the subtree rode in untouched). No patchable runtime writer
+    /// exists — the fix is clamping the transforms themselves.
+    ///
+    /// Every RectTransform under the target carrying a non-identity local rotation
+    /// or a non-zero local z is recorded once (original rotation + z, restored by
+    /// <see cref="Release"/>) and clamped: rotation → identity, z → 0. X/Y are
+    /// NEVER touched — positional animations (entry slide/fade-ins) keep playing
+    /// flat. A one-shot flatten is NOT enough, the values come back live:
+    /// - pooled entry spawns write WORLD-identity rotation (verified ObjectPool.cs
+    ///   Spawn: <c>gameObject.transform.rotation = rotation</c> with
+    ///   <c>Quaternion.identity</c>) — under a world-ROTATED host that lands as a
+    ///   tilted LOCAL rotation on every new log line;
+    /// - the GUIAnimator tween system's MOVE_LOCAL channel writes a full Vector3
+    ///   localPosition incl. z per frame (verified LeanTweenGuiAnimationSettingMove:
+    ///   <c>Target.localPosition = value</c>; the banner intro plays it) — though
+    ///   NO rotation channel exists (no ...SettingRotate subclass).
+    /// So the sweep re-runs every frame from <see cref="LateTick"/> (LateUpdate —
+    /// after the game's Update-time tween writers): one GetComponentsInChildren
+    /// scan; writes are change-gated, and already-flat transforms cost only the
+    /// two reads. The record lookup runs only for transforms actually tilted this
+    /// frame.
+    /// </summary>
+    private static void FlattenSubtree(ConvertedPanel panel)
+    {
+        if (panel.Target == null)
+            return;
+
+        RectScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: true, RectScratch);
+        for (int i = 0; i < RectScratch.Count; i++)
+        {
+            RectTransform rect = RectScratch[i];
+            // The root's own pose is Convert's business (flattened there, restored
+            // whole by Release) — the sweep owns strictly the subtree below it.
+            if (rect == null || ReferenceEquals(rect, panel.Target))
+                continue;
+
+            Vector3 pos = rect.localPosition;
+            Quaternion rot = rect.localRotation;
+            bool tiltedRot = Quaternion.Angle(rot, Quaternion.identity) > FlattenAngleEpsilon;
+            bool tiltedZ = Mathf.Abs(pos.z) > FlattenZEpsilon;
+            if (!tiltedRot && !tiltedZ)
+                continue;
+
+            if (!IsFlattenRecorded(panel, rect))
+            {
+                panel.Flattened.Add(new FlattenRecord
+                {
+                    Transform = rect,
+                    OriginalLocalZ = pos.z,
+                    OriginalLocalRotation = rot,
+                });
+            }
+            if (tiltedRot)
+                rect.localRotation = Quaternion.identity;
+            if (tiltedZ)
+                rect.localPosition = new Vector3(pos.x, pos.y, 0f);
+        }
+        RectScratch.Clear();
+
+        // Log once per conversion (from Convert), re-log when pooling grows the set
+        // — throttled so a burst of new entries makes one line, not one per entry.
+        if (panel.Flattened.Count > panel.FlattenLoggedCount
+            && Time.frameCount >= panel.FlattenLogNextFrame)
+        {
+            VRLog.Info("WorldUI", $"Flatten grew to {panel.Flattened.Count} transform(s) in " +
+                                  $"'{panel.HostGo.name}' (pooled children).");
+            panel.FlattenLoggedCount = panel.Flattened.Count;
+            panel.FlattenLogNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
+        }
+    }
+
+    private static bool IsFlattenRecorded(ConvertedPanel panel, RectTransform rect)
+    {
+        for (int i = 0; i < panel.Flattened.Count; i++)
+        {
+            if (ReferenceEquals(panel.Flattened[i].Transform, rect))
                 return true;
         }
         return false;
@@ -625,6 +774,20 @@ internal static class CanvasConversion
         }
         panel.AdoptedCanvases.Clear();
 
+        // Un-flatten (test #21) BEFORE the root restore below: original local
+        // rotation and z go back per recorded transform (x/y stayed game-owned
+        // throughout), and the root's full-pose restore then wins as ever.
+        for (int i = 0; i < panel.Flattened.Count; i++)
+        {
+            FlattenRecord record = panel.Flattened[i];
+            if (record.Transform == null)
+                continue;
+            Vector3 pos = record.Transform.localPosition;
+            record.Transform.localPosition = new Vector3(pos.x, pos.y, record.OriginalLocalZ);
+            record.Transform.localRotation = record.OriginalLocalRotation;
+        }
+        panel.Flattened.Clear();
+
         if (panel.Target != null)
         {
             RectTransform target = panel.Target;
@@ -704,6 +867,22 @@ internal static class CanvasConversion
                 if (Active[i].HostRaycaster != null)
                     Active[i].HostRaycaster.enabled = enabled;
             }
+        }
+    }
+
+    /// <summary>
+    /// LateUpdate service (test #21): re-assert flatness AFTER the game's Update-time
+    /// tween writers ran — an Update-time sweep would lose to any tween ticking after
+    /// it and the tilt would render anyway. Cost: one change-gated subtree scan per
+    /// FLATTENED panel per frame (only surfaces that opted in; combat log today).
+    /// </summary>
+    internal static void LateTick()
+    {
+        for (int i = 0; i < Active.Count; i++)
+        {
+            ConvertedPanel panel = Active[i];
+            if (panel.FlattenEnabled && panel.IsAlive)
+                FlattenSubtree(panel);
         }
     }
 

@@ -63,6 +63,18 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     public override string Name => "CombatLog";
     protected override bool ConfigEnabled => WorldUIConfig.CombatLog.Value;
 
+    /// <summary>
+    /// Test #21: the log CONTENT is styled in real 3D — entries recede obliquely
+    /// into depth behind the window plane, the round header banner angles backward
+    /// and parallax-shifts with head motion. The tilt is baked into the serialized
+    /// prefab RectTransforms and shown through the game's perspective UICamera
+    /// (fine as styling in 2D; literal geometry on a world-space host), and pooled
+    /// entry spawns + the banner's MOVE_LOCAL intro tween keep re-writing it live.
+    /// Flatten the subtree per frame: rotations → identity, local z → 0, x/y
+    /// animations untouched (<see cref="CanvasConversion.FlattenSubtree"/>).
+    /// </summary>
+    protected override bool Flatten2D => true;
+
     private Transform? _holder;   // identity pose, carries the diorama scale
     private Transform? _frame;    // grab root at the bar center; localScale = user factor
     private Transform? _bar;
