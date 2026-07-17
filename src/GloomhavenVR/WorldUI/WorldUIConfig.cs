@@ -55,9 +55,6 @@ internal static class WorldUIConfig
     /// <summary>Flat-screen distance from the head in real-world meters.</summary>
     internal static ConfigEntry<float> ScreenDistance = null!;
 
-    /// <summary>Screen image recessed behind a window frame by this many real meters (0 = off).</summary>
-    internal static ConfigEntry<float> ScreenWindowRecess = null!;
-
     /// <summary>Freeze the pointer from trigger-press to release so uGUI sees a CLICK, not a tremor drag.</summary>
     internal static ConfigEntry<bool> ClickLatch = null!;
 
@@ -95,10 +92,6 @@ internal static class WorldUIConfig
     /// <summary>True when button state goes through the virtual mouse (ClickMode virtualmouse/both).</summary>
     internal static bool VirtualMouseButtons =>
         !string.Equals(ClickMode.Value, "execute", System.StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Clamped window recess in real meters ([WorldUI] ScreenWindowRecess, 0 = off).</summary>
-    internal static float ScreenRecessMeters =>
-        UnityEngine.Mathf.Clamp(ScreenWindowRecess.Value, 0f, 1f);
 
     /// <summary>True when fallback windows float individually ([WorldUI] ModalStyle != "screen").</summary>
     internal static bool ModalWindowStyle =>
@@ -175,13 +168,6 @@ internal static class WorldUIConfig
             "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m).");
         ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", 1.6f,
             "Distance from the head to the floating 2D screen in real-world meters.");
-        ScreenWindowRecess = _file.Bind("WorldUI", "ScreenWindowRecess", 0.22f,
-            "Window recess in real meters (test #16 'look THROUGH a window, not at a TV'): " +
-            "the screen IMAGE sits this far BEHIND a thin dark window frame at the nominal " +
-            "ScreenDistance, so head motion produces frame-vs-image parallax — a geometric " +
-            "depth cue that works for ALL content, including flat videos and stills. The " +
-            "image is scaled to keep its apparent size; pointer/laser/poke are unaffected " +
-            "(they intersect the image itself). 0 = off (flat TV, pre-#16 behavior).");
         ClickLatch = _file.Bind("WorldUI", "ClickLatch", true,
             "Freeze the virtual-mouse position from trigger-press (or fingertip contact) until " +
             "release, so press and release land on the SAME pixel and uGUI registers a click — " +

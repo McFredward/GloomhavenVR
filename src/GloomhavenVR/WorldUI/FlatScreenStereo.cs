@@ -47,10 +47,10 @@ namespace GloomhavenVR.WorldUI;
 /// diorama scale in scenarios), so:
 ///
 ///   separation = IPD × ScreenDepthStrength × WorldScale × ScreenParallaxScale
-///   convergence = (ScreenDistance + ScreenWindowRecess) × WorldScale × ScreenParallaxScale
+///   convergence = ScreenDistance × WorldScale × ScreenParallaxScale
 ///
 /// Converging at the screen's own distance makes the geometry self-consistent: the
-/// quad physically sits ScreenDistance (+ window recess, see FlatScreen) meters
+/// quad physically sits ScreenDistance meters
 /// away, so scene content at the equivalent scene distance shows zero disparity
 /// (on the quad), and content at scene-infinity shows an uncrossed disparity of
 /// IPD·f/D_screen·(W/2) ≈ 4 cm real on the default 2.2 m screen — comfortably
@@ -291,15 +291,13 @@ internal sealed class FlatScreenStereo
         // (1 in the menu rig; diorama scale in scenarios — see class doc). Both terms
         // carry the SAME parallax factor (class doc PARALLAX SCALE: sep/conv ratio —
         // and with it the at-infinity comfort — is invariant; only scene-internal
-        // depth is amplified), and convergence targets the image plane's ACTUAL
-        // distance: the quad sits ScreenDistance + window recess behind the head
-        // (FlatScreen's window frame), so content at screen distance lands exactly
-        // on the image, never floating in front of the frame.
+        // depth is amplified), and convergence targets the quad's actual distance
+        // (ScreenDistance), so content at screen distance lands exactly on the image.
         float scale = PanelLayout.WorldScale;
         float parallax = ParallaxScale;
         _sepScene = _ipdMeters * DepthStrength * scale * parallax;
         _convScene = Mathf.Max(MinConvergenceMeters,
-            WorldUIConfig.ScreenDistance.Value + WorldUIConfig.ScreenRecessMeters) * scale * parallax;
+            WorldUIConfig.ScreenDistance.Value) * scale * parallax;
     }
 
     /// <summary>Full teardown: mirrors, right RT, render hook; quad texture back to the left RT.</summary>
