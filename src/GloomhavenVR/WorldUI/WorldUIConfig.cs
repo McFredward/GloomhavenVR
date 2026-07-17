@@ -29,7 +29,7 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> StatPanels = null!;
     internal static ConfigEntry<bool> PropInfoCards = null!;
     internal static ConfigEntry<bool> EnemyReveal = null!;
-    internal static ConfigEntry<bool> TakeDamageBoard = null!;
+    internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
     /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
@@ -164,12 +164,15 @@ internal static class WorldUIConfig
             "Enemy round reveal (the monster ability cards shown after everyone confirmed " +
             "their card selection) as a display-only world panel floating above the board " +
             "while the game shows it, instead of hidden on the control board.");
-        TakeDamageBoard = _file.Bind("WorldUI", "TakeDamageBoard", true,
-            "Take-damage choice (burn 1 available card / take the damage / burn 2 discarded " +
-            "cards) as the game's REAL buttons docked on the control board while the prompt " +
-            "is open, instead of the floating flat window with the blood-red vignette " +
-            "(test #21). The card fan stays available for the burn follow-up (no ModalUI). " +
-            "Off = the generic modal fallback floats the whole panel as before.");
+        DecisionDock = _file.Bind("WorldUI", "DecisionDock", true,
+            "In-scenario decision/confirmation prompts (take-damage burn choice, the burn-" +
+            "confirm 'burn this / choose another card' dialog, and any other prompt in the " +
+            "DecisionDock registry) render their REAL game widgets — the actual buttons/" +
+            "toggles, so labels/localization/enable-states are native — docked in a reserved " +
+            "zone BELOW the two cards on the control board while the prompt is open, instead " +
+            "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
+            "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
+            "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
         ActorBars = _file.Bind("WorldUI", "ActorBars", true,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,
