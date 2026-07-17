@@ -5,6 +5,13 @@ using UnityEngine;
 
 namespace GloomhavenVR.Cards;
 
+/// <summary>Which controller button grabs a card (Demeo grabs with the index/trigger; test-#22 Demeo-parity pass).</summary>
+internal enum CardGrabButton
+{
+    Grip,
+    Trigger,
+}
+
 /// <summary>
 /// Phase-3b config. Plugin.cs is frozen shared surface, so the Cards module binds its
 /// own ConfigFile (<c>BepInEx/config/dev.gloomhavenvr.cards.cfg</c>) instead of adding
@@ -79,6 +86,44 @@ internal static class CardsConfig
 
     /// <summary>Discard/burnt pile stacks on the control board + the browse fan (hardware test #21 wish).</summary>
     internal static ConfigEntry<bool> PileViewer = null!;
+
+    // ---- Demeo-parity fan/grab tuning (test #22 blueprint DEMEO-HANDS-CARDS.md) ----
+
+    /// <summary>G1: scale fan arch + per-card tilt by how full the hand is (Demeo CardHandView.cs:814).</summary>
+    internal static ConfigEntry<bool> FanCurveByFill = null!;
+
+    /// <summary>G1: hand size at which the fan reaches its full curvature (fill = n / this, clamped 0..1).</summary>
+    internal static ConfigEntry<int> FanMaxHandForCurve = null!;
+
+    /// <summary>G1: full-curvature vertical-arch factor (the pre-Demeo constant curvature, now the fill=1 target).</summary>
+    internal static ConfigEntry<float> FanFlatCurvatureFactor = null!;
+
+    /// <summary>G1: full-curvature per-card Z-tilt factor (fill=1 target).</summary>
+    internal static ConfigEntry<float> FanTiltFactor = null!;
+
+    /// <summary>G2: sideways slide (real meters) applied to the fan's cards to split apart around the hovered one.</summary>
+    internal static ConfigEntry<float> FanSplitMultiplier = null!;
+
+    /// <summary>G2: how fast the neighbor split decays with index distance from the hovered card (higher = only nearest neighbors move). Coded-curve substitute for Demeo's serialized AnimationCurve.</summary>
+    internal static ConfigEntry<float> FanSplitFalloff = null!;
+
+    /// <summary>G2: forward pop (real meters, along -face-normal toward the viewer) of the hovered/selected card.</summary>
+    internal static ConfigEntry<float> FanSelectedPopForward = null!;
+
+    /// <summary>G3: which controller button grabs a card. Demeo = Trigger (index); our legacy = Grip.</summary>
+    internal static ConfigEntry<CardGrabButton> GrabButton = null!;
+
+    /// <summary>G4: eased dead-zoned fan follow rate (1/s exponential). 0 = rigidly parented to the palm (pre-Demeo). >0 = Demeo-style eased follow.</summary>
+    internal static ConfigEntry<float> FanFollowSmoothing = null!;
+
+    /// <summary>G4: fan-follow dead zone in real meters — the fan only chases the palm once it drifts past this (Demeo ViewHelper minDistanceToMove).</summary>
+    internal static ConfigEntry<float> FanFollowDeadzone = null!;
+
+    /// <summary>G5: reveal preset — "generous" (our deliberate P6 default, test #10) or "demeo" (tighter 53° supination cone).</summary>
+    internal static ConfigEntry<string> RevealPreset = null!;
+
+    /// <summary>G5: suppress the reveal gate on the hand that is currently grabbing something (Demeo CardHandController.cs:475).</summary>
+    internal static ConfigEntry<bool> RevealIgnoreWhenGrabbing = null!;
 
     internal static void Bind()
     {
@@ -166,7 +211,56 @@ internal static class CardsConfig
             "wish): each pile shows as a small physical card stack with a count; poking or " +
             "pinch-grabbing a stack raises a readable browse fan of that pile's cards " +
             "(informational — release/poke again to dismiss). false = no pile furniture at all.");
+
+        // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
+        FanCurveByFill = _file.Bind("Cards", "FanCurveByFill", true,
+            "Demeo parity (G1): scale the fan's vertical arch and per-card tilt by how full the " +
+            "hand is — nearly flat with a few cards, arched/tilted when the hand is full (Demeo " +
+            "CardHandView). false = the old constant curvature at every hand size.");
+        FanMaxHandForCurve = _file.Bind("Cards", "FanMaxHandForCurve", 10,
+            "Demeo parity (G1): hand size at which the fan reaches full curvature. fill = " +
+            "cardCount / this (clamped 0..1) scales the arch + tilt.");
+        FanFlatCurvatureFactor = _file.Bind("Cards", "FanFlatCurvatureFactor", 0.55f,
+            "Demeo parity (G1): the vertical-arch factor at a FULL hand (fill = 1). This is the " +
+            "pre-Demeo constant value; with FanCurveByFill it is now the fill=1 target and the " +
+            "arch scales down toward flat as the hand shrinks.");
+        FanTiltFactor = _file.Bind("Cards", "FanTiltFactor", 0.85f,
+            "Demeo parity (G1): the per-card Z-tilt factor at a FULL hand (fill = 1), scaled by fill.");
+        FanSplitMultiplier = _file.Bind("Cards", "FanSplitMultiplier", 0.02f,
+            "Demeo parity (G2): how far (real meters) the fan's cards slide sideways to open a gap " +
+            "around the hovered card (Demeo splits the whole fan apart, not just the hovered card). " +
+            "0 = no split.");
+        FanSplitFalloff = _file.Bind("Cards", "FanSplitFalloff", 1.6f,
+            "Demeo parity (G2): how quickly the neighbor split decays with distance (in card slots) " +
+            "from the hovered card. Higher = only the nearest neighbors move; lower = the whole fan " +
+            "spreads. Coded-curve substitute for Demeo's serialized falloff curve.");
+        FanSelectedPopForward = _file.Bind("Cards", "FanSelectedPopForward", 0.035f,
+            "Demeo parity (G2): how far (real meters) the hovered/selected card pops toward the " +
+            "viewer (along -face normal). Demeo uses ~0.25 scene units; 0.035 m matches our scale.");
+        GrabButton = _file.Bind("Cards", "GrabButton", CardGrabButton.Trigger,
+            "Demeo parity (G3): which controller button grabs a card by proximity. Trigger = " +
+            "Demeo (index-finger pinch, matches our laser pluck so a card grabbed either way " +
+            "releases on trigger-up). Grip = the pre-Demeo behavior.");
+        FanFollowSmoothing = _file.Bind("Cards", "FanFollowSmoothing", 16f,
+            "Demeo parity (G4): eased fan-follow rate (1/s exponential smoothing). The fan chases " +
+            "the palm with a soft ease instead of being rigidly welded to it (Demeo ViewHelper). " +
+            "0 = rigidly parented (the pre-Demeo behavior). Higher = snappier.");
+        FanFollowDeadzone = _file.Bind("Cards", "FanFollowDeadzone", 0.004f,
+            "Demeo parity (G4): fan-follow dead zone (real meters). The fan holds still until the " +
+            "palm drifts past this, then eases to it — kills micro-jitter (Demeo minDistanceToMove). " +
+            "Only used when FanFollowSmoothing > 0.");
+        RevealPreset = _file.Bind("Cards", "RevealPreset", "generous",
+            "Demeo parity (G5): 'generous' = our deliberate wide supination gate (hardware test " +
+            "#10 — a small wrist roll reveals; the default). 'demeo' = Demeo's tighter ~53-degree " +
+            "palm-up cone. Overrides the enter/exit supination thresholds when set to 'demeo'.");
+        RevealIgnoreWhenGrabbing = _file.Bind("Cards", "RevealIgnoreWhenGrabbing", true,
+            "Demeo parity (G5): don't open the fan on the hand that is currently grabbing " +
+            "something (Demeo suppresses the reveal on the busy hand). false = the old behavior.");
     }
+
+    /// <summary>True when the Demeo reveal preset is selected ([Cards] RevealPreset = demeo).</summary>
+    internal static bool RevealDemeo =>
+        string.Equals(RevealPreset.Value, "demeo", System.StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
     internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
