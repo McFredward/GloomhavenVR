@@ -43,6 +43,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
+        VRSession.Harmony?.PatchAll(typeof(Patches.TakeDamagePanelSafety)); // test #23 item 6: burn-two NRE/deadlock guard
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
@@ -141,6 +142,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly PropInfoSurface _propInfo = new();
         private readonly EnemyRevealSurface _enemyReveal = new();
         private readonly DecisionDockSurface _decisionDock = new();
+        private readonly DamageTooltipSurface _damageTooltip = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
@@ -181,6 +183,7 @@ internal sealed class WorldUIModule : IVRModule
             _propInfo.Tick();
             _enemyReveal.Tick();
             _decisionDock.Tick(); // after ModalFallback.Tick (its claim stands the generic path down)
+            _damageTooltip.Tick(); // after the dock: reads DecisionDockSurface.DockingTakeDamage
             _wristHud.Tick();
             _flatScreen.Tick();
             _settingsPanel.Tick();
@@ -208,6 +211,7 @@ internal sealed class WorldUIModule : IVRModule
             _propInfo.Shutdown();
             _enemyReveal.Shutdown();
             _decisionDock.Shutdown();
+            _damageTooltip.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();
