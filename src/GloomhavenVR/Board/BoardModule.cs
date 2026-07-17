@@ -25,6 +25,19 @@ namespace GloomhavenVR.Board;
 /// extension calls are needed here. Near-touch additionally works in every mode
 /// whose policy includes Poke (e.g. character placement during CardSelection).
 ///
+/// HERO PLACEMENT (verified for test #13, decompiled GH.Runtime): scenario-start
+/// placement runs while the mode is CardSelection — the Choreographer wait-state is
+/// WaitingForCardSelection (NOT a targeting state), and the P5 matrix gives the
+/// dominant hand Ray there, so the whole pick+click pipeline is live. Hover:
+/// WorldspaceStarHexDisplay.HighlightSelectedPlacementHex → InteractableUnderMouse →
+/// our patched MF.FindInteractableAtMousePosition (m_HexSelectionRaycastLayer, the
+/// same tile layer) sets Waypoint.s_PlacementTile + the glowing star
+/// (WorldspaceStarHexDisplay.cs:436/549/627/3822). Click: our CommonLoop postfix →
+/// LateUpdate → TileBehaviour.s_Callback → Choreographer.TileHandler placement
+/// branch (WaitingForCardSelection + clientTile == Waypoint.s_PlacementTile →
+/// PlaceActorAtRoundStart, Choreographer.cs:1841-1866) — re-picking another glowing
+/// hex is the same flow again. Nothing board-side needs a CardSelection extension.
+///
 /// Active when VR runs, and in Dev mode ([Dev] Enabled) so the whole pick/click
 /// pipeline is exercisable flat via [Dev] SimulateHands (+ [Board] ForceFarMode).
 /// </summary>

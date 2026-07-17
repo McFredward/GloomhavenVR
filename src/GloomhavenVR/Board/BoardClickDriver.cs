@@ -148,7 +148,11 @@ internal static class BoardClickDriver
     {
         _pending = true;
         hand.SendHaptic(HapticPreset.ClickPulse);
-        VRLog.Debug("Board", $"click requested ({kind}, {hand.Side}).");
+        // Test #13 diagnostics: the mode matters — hero placement commits in
+        // CardSelection (Choreographer.TileHandler placement branch), not only in
+        // BoardTargeting. Event-driven, so the interpolation never runs per frame.
+        VRLog.Debug("Board", $"click requested ({kind}, {hand.Side}, " +
+                             $"mode={VRModeStateMachine.CurrentMode}).");
     }
 }
 
