@@ -29,6 +29,13 @@ internal static class UguiPokeSurfaces
     // Per-canvas tuning; canvases without an entry use PokeSurfaceTuning.Default.
     private static readonly Dictionary<Canvas, PokeSurfaceTuning> Tunings = new(8);
 
+    // Nested canvases extending a HOST's hit-testing (test #20): uGUI Graphics under
+    // an ENABLED nested canvas register with THAT canvas (GraphicRegistry), so the
+    // host's GraphicRaycaster cannot see them — UguiPointer.TryRaycast queries these
+    // alongside the host. Only hosts live in Surfaces: the laser/poke plane math
+    // (RayUguiDriver, PokeInteractor) keeps intersecting the HOST rect alone.
+    private static readonly Dictionary<Canvas, List<Canvas>> NestedByHost = new(8);
+
     public static void Register(Canvas canvas) => Register(canvas, null);
 
     /// <summary>
@@ -55,8 +62,34 @@ internal static class UguiPokeSurfaces
     {
         Surfaces.Remove(canvas);
         if (canvas != null)
+        {
             Tunings.Remove(canvas);
+            NestedByHost.Remove(canvas);
+        }
     }
+
+    /// <summary>
+    /// Test #20: attach a nested canvas to a registered host so
+    /// <c>UguiPointer.TryRaycast</c> merges its GraphicRaycaster hits with the
+    /// host's. The nested canvas is NOT added to <see cref="Surfaces"/> — beam
+    /// clamp and poke plane stay on the host rect.
+    /// </summary>
+    public static void RegisterNested(Canvas host, Canvas nested)
+    {
+        if (host == null || nested == null)
+        {
+            VRLog.Warn("Interact", "UguiPokeSurfaces.RegisterNested called with null canvas — ignored.");
+            return;
+        }
+        if (!NestedByHost.TryGetValue(host, out List<Canvas>? list))
+            NestedByHost[host] = list = new List<Canvas>(2);
+        if (!list.Contains(nested))
+            list.Add(nested);
+    }
+
+    /// <summary>Nested canvases registered for a host (null when none; do not mutate).</summary>
+    internal static List<Canvas>? NestedOf(Canvas? host) =>
+        host != null && NestedByHost.TryGetValue(host, out List<Canvas>? list) ? list : null;
 
     /// <summary>Effective tuning for a registered canvas (Default when none was supplied).</summary>
     internal static PokeSurfaceTuning TuningFor(Canvas canvas) =>
@@ -69,20 +102,25 @@ internal static class UguiPokeSurfaces
             if (Surfaces[i] == null)
                 Surfaces.RemoveAt(i);
         }
-        // Drop tunings whose canvases died (rare; allocation acceptable here).
-        if (Tunings.Count > 0)
+        // Drop tunings/nested lists whose canvases died (rare; allocation acceptable here).
+        PruneDeadKeys(Tunings);
+        PruneDeadKeys(NestedByHost);
+    }
+
+    private static void PruneDeadKeys<TValue>(Dictionary<Canvas, TValue> map)
+    {
+        if (map.Count == 0)
+            return;
+        List<Canvas>? dead = null;
+        foreach (KeyValuePair<Canvas, TValue> pair in map)
         {
-            List<Canvas>? dead = null;
-            foreach (KeyValuePair<Canvas, PokeSurfaceTuning> pair in Tunings)
-            {
-                if (pair.Key == null)
-                    (dead ??= new List<Canvas>()).Add(pair.Key!); // Unity-null: reference still hashes
-            }
-            if (dead != null)
-            {
-                for (int i = 0; i < dead.Count; i++)
-                    Tunings.Remove(dead[i]);
-            }
+            if (pair.Key == null)
+                (dead ??= new List<Canvas>()).Add(pair.Key!); // Unity-null: reference still hashes
+        }
+        if (dead != null)
+        {
+            for (int i = 0; i < dead.Count; i++)
+                map.Remove(dead[i]);
         }
     }
 
@@ -90,6 +128,7 @@ internal static class UguiPokeSurfaces
     {
         Surfaces.Clear();
         Tunings.Clear();
+        NestedByHost.Clear();
     }
 }
 
