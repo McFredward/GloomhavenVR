@@ -181,6 +181,13 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
 
     public virtual bool CanGrab => !_attached;
 
+    /// <summary>
+    /// Cards obey the <c>[Cards] GrabButton</c> config (Trigger by default) — see
+    /// <see cref="IGrabbable.GrabWithGrip"/>. Grip-only grabbables (world panels/boards)
+    /// override this to true instead.
+    /// </summary>
+    public virtual bool GrabWithGrip => false;
+
     protected virtual void OnEnable()
     {
         Collider? collider = GetComponent<Collider>();

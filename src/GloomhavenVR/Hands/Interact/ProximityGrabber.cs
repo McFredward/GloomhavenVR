@@ -91,6 +91,16 @@ internal sealed class ProximityGrabber
         if (Highlighted == null)
             return;
 
+        // Test #27: grip-only grabbables (world panels/boards) always take the GRIP
+        // button regardless of [Cards] GrabButton — the tester found grip more
+        // intuitive for moving boards, while cards keep the Demeo trigger grab.
+        if (Highlighted.GrabWithGrip)
+        {
+            if (_hand.GripDown)
+                BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
+            return;
+        }
+
         // G3 (test-#22 Demeo parity): the grab edge is the button selected by
         // [Cards] GrabButton — Trigger (Demeo default) or Grip (legacy). CardsConfig
         // may be unbound before the Cards module inits, but Highlighted is non-null

@@ -93,6 +93,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     public bool CanGrab => _owner != null && _owner.GrabVisible && (_handA == null || _handB == null);
 
+    /// <summary>Boards/world panels are always grip-grabbed (test #27), ignoring [Cards] GrabButton.</summary>
+    public bool GrabWithGrip => true;
+
     public void OnGrab(VRHand hand)
     {
         if (_handA == null)
