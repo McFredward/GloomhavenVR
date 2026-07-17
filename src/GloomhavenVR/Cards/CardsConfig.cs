@@ -38,8 +38,11 @@ internal static class CardsConfig
     /// <summary>Scale factor applied to a card while grabbed/inspected.</summary>
     internal static ConfigEntry<float> InspectScale = null!;
 
-    /// <summary>Held card: face tilt toward the palm side (viewer), degrees.</summary>
+    /// <summary>LEGACY (superseded by <see cref="HeldFaceBias"/>): old palm-aligned face tilt, unused.</summary>
     internal static ConfigEntry<float> HeldTiltDegrees = null!;
+
+    /// <summary>Held card: face-normal lean from "out of the palm" back toward the wrist/eyes, degrees.</summary>
+    internal static ConfigEntry<float> HeldFaceBias = null!;
 
     /// <summary>Held card: FALLBACK pinch-point offset along the fingers, real meters (no finger joints).</summary>
     internal static ConfigEntry<float> HeldForward = null!;
@@ -97,8 +100,18 @@ internal static class CardsConfig
         InspectScale = _file.Bind("Cards", "InspectScale", 1.6f,
             "Scale multiplier applied to a card while it is held (natural-size inspection).");
         HeldTiltDegrees = _file.Bind("Cards", "HeldTiltDegrees", 20f,
-            "Held card: how far the card face leans toward the palm side (your eyes when you " +
-            "turn the hand to read), degrees. 0 = card exactly perpendicular to the palm.");
+            "LEGACY — no longer used (hardware test #13). The old palm-aligned held pose " +
+            "required a hard supination to read the card; the pose is now controlled by " +
+            "HeldFaceBias instead. Kept only so existing config files load cleanly.");
+        HeldFaceBias = _file.Bind("Cards", "HeldFaceBias", 65f,
+            "Held card readability (test #13): degrees the card FACE leans from 'flat on the " +
+            "palm' (0 = old pose, face along the palm normal — readable only by twisting the " +
+            "wrist) back toward the wrist/forearm. In a relaxed controller grip (grip pose " +
+            "~60 deg pitched, see [Hands] GripPitchOffsetDegrees) the fingers point forward " +
+            "and slightly down, so at ~65 the face points up/back at your eyes — like really " +
+            "holding a playing card. The card top points to the thumb side (which is world-up " +
+            "in a relaxed grip; mirrored automatically for the left hand). The card still " +
+            "follows the wrist 1:1 — this is a fixed bias, NOT per-frame auto-facing.");
         HeldForward = _file.Bind("Cards", "HeldForward", 0.02f,
             "Held card FALLBACK (only used when the hand rig has no finger joints): " +
             "pinch-point offset from the grab anchor along the fingers, meters.");

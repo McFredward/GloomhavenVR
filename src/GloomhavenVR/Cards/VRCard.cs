@@ -355,10 +355,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// finger_{thumb|index}_2_{l|r} — always exist). Card frame: +Z away from the
     /// viewer, +Y = card top.
     ///
-    /// Rotation: Euler(90°,0,0) maps the card's plane onto the palm plane (card
-    /// normal ∥ palm normal, face readable from the palm side — where your eyes are
-    /// when you supinate) and the card top along the fingers; [Cards]
-    /// HeldTiltDegrees subtracts a gentle readable tilt from that pitch.
+    /// Rotation (test #13, readable-at-rest): the old Euler(90°,0,0) laid the card
+    /// flat on the palm plane — readable only after a hard supination. Now the FACE
+    /// NORMAL is the palm normal (+Y) leaned [Cards] HeldFaceBias° back toward the
+    /// wrist (−Z): in a relaxed grip (grip pose ~60° pitched, [Hands]
+    /// GripPitchOffsetDegrees frame) the fingers point forward/slightly down, so
+    /// −Z runs back and UP toward the head — at the ~65° default the face points
+    /// at your eyes without any wrist twist. The card TOP points to the thumb side
+    /// (±X, mirrored per hand), which is world-up in a relaxed grip — the card
+    /// stands up out of the pinch exactly like a really held playing card. Still a
+    /// FIXED local rotation: 1:1 wrist-follow, NO per-frame auto-facing.
     ///
     /// Position: pinch = midpoint(thumb tip, index tip) in GrabAnchor local space
     /// (InverseTransformPoint divides the diorama scale back out, so the result is
@@ -373,7 +379,13 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         float scale = CardsConfig.InspectScale.Value;
         float cardH = CardsConfig.CardHeight * scale;
-        var rot = Quaternion.Euler(90f - CardsConfig.HeldTiltDegrees.Value, 0f, 0f);
+
+        // GrabAnchor frame: +Y out of the palm, +Z along the fingers, ±X thumb side.
+        float bias = CardsConfig.HeldFaceBias.Value * Mathf.Deg2Rad;
+        var faceNormal = new Vector3(0f, Mathf.Cos(bias), -Mathf.Sin(bias));
+        float thumbSide = hand.Side == HandSide.Right ? 1f : -1f;
+        // Card +Z (away from the viewer) = −faceNormal; card top (+Y) = thumb side.
+        var rot = Quaternion.LookRotation(-faceNormal, new Vector3(thumbSide, 0f, 0f));
 
         Vector3 pinchLocal;
         FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
