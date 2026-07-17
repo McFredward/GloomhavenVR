@@ -20,12 +20,17 @@
 - **Stick contention — `BoardTargeting` owns the thumbstick.** Phase-3a rotates AoE
   patterns with the stick, so snap/smooth turn is hard-disabled while
   `VRModeStateMachine.CurrentMode == VRMode.BoardTargeting` (and re-armed on exit, so
-  leaving targeting can't fire a stale flick). Turning is also off in `ModalUI` and
-  `Menu2D`. If a future mode needs the stick, extend the mode check in
-  `Rig/SnapTurn.cs` — do not read the stick concurrently.
-- **World grab availability** (ARCHITECTURE §8): every scenario mode except `ModalUI`
-  — and **P5: also disabled in `Menu2D`** (the menu rig gives Menu2D a rig root; the
-  dev proxy stays exempt so grab math is testable flat).
+  leaving targeting can't fire a stale flick). Turning is also off in `Menu2D`.
+  **Test #13: turning is ACTIVE in `ModalUI`** — nothing modal reads the stick, and
+  floating dialogs must not freeze diorama movement. If a future mode needs the
+  stick, extend the mode check in `Rig/SnapTurn.cs` — do not read the stick
+  concurrently.
+- **World grab availability** (ARCHITECTURE §8, updated test #13): **every scenario
+  mode, `ModalUI` included** — a floating dialog (story box, help box, ESC menu)
+  must not freeze the table; grab/rotate/zoom stay usable while it is open. Object
+  grabs near the floating window still win via the grip-contention rule above.
+  **P5: disabled in `Menu2D`** (the menu rig gives Menu2D a rig root, but there is
+  no table; the dev proxy stays exempt so grab math is testable flat).
 - **P5 — menu rig:** while VR runs and NO scenario camera exists, `VRRigDriver` head-
   tracks the menu camera (`Camera.main`, `[Rig] MenuRig`, default true) at 1:1 scale.
   `RigRoot`/`HeadCamera` are non-null in `Menu2D` too; `BaseWorldScale` reads 1.

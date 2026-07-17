@@ -21,8 +21,11 @@ namespace GloomhavenVR.Rig;
 /// GRIP CONTENTION (documented rule): object grabs win. A grip only starts a world grab
 /// if that hand's <see cref="Hands.Interact.ProximityGrabber"/> neither holds nor
 /// highlights a grabbable at grip-down; a grip that grabbed a card is ignored here until
-/// released. World grab runs in every scenario mode except <see cref="VRMode.ModalUI"/>
-/// (ARCHITECTURE §8).
+/// released. World grab runs in EVERY scenario mode — including
+/// <see cref="VRMode.ModalUI"/> since test #13: floating dialogs must not freeze the
+/// diorama (the player reads the story box AND repositions the table). Object grabs
+/// near a floating window still win via the grip-contention rule above. Only
+/// <see cref="VRMode.Menu2D"/> is excluded (no table exists).
 ///
 /// MATH (tracking-space anchored, feedback-free): with the rig mapping
 /// <c>world = rigPos + rigRot · (s · t)</c> for a tracking-space point <c>t</c>, anchors
@@ -97,11 +100,12 @@ internal sealed class WorldGrab : MonoBehaviour
     {
         Transform? rig = RigTarget.Current;
         VRMode mode = VRModeStateMachine.CurrentMode;
-        // P5: Menu2D is excluded too — the menu rig (VRRigDriver menu fallback) exists
+        // P5: Menu2D is excluded — the menu rig (VRRigDriver menu fallback) exists
         // there since P5, but there is no table to manipulate; grabbing air must not
         // drag the menu view. The dev proxy stays exempt so grab math is testable flat.
+        // Test #13: ModalUI is deliberately NOT excluded anymore — the diorama stays
+        // fully manipulable while a dialog floats (see class doc, grip contention).
         if (rig == null || !ComfortSettings.IsBound || !ComfortSettings.WorldGrabEnabled.Value
-            || mode == VRMode.ModalUI
             || (mode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             Disengage(rig);

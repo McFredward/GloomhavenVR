@@ -319,6 +319,15 @@ VRModeStateMachine.SetAuxModal(bool);  // P6: OR-input into ModalUI — WorldUI'
 matrix to both hands on every mode change; you normally only *read* `CurrentMode`
 and react to `ModeChanged` — never toggle interactors yourself.
 
+**World grab + turn per mode (test #13 policy change):** grip world-grab
+(`Rig/WorldGrab.cs`) and stick turning (`Rig/SnapTurn.cs`) run in **every scenario
+mode INCLUDING `ModalUI`** — a floating dialog must not freeze the diorama
+(grab/rotate/zoom and snap turn stay usable while reading it; object grabs near a
+floating window still win via the P4 grip-contention rule). Exceptions: `Menu2D`
+(no table; dev proxy exempt) disables both, and `BoardTargeting` disables *turning
+only* (the stick rotates AoE patterns there). No Cards interaction is enabled by
+this — card play stays governed by the interactor matrix above.
+
 ## 5. Virtual mouse — `GloomhavenVR.WorldUI.VirtualMouse`
 
 Drives the game's own console virtual mouse (a real InputSystem `Mouse` device via
