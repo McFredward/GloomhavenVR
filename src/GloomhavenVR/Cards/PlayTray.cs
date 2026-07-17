@@ -126,9 +126,45 @@ internal sealed class PlayTray
         BuildSlotHighlights();
         BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
+        BuildHandle();
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
+    }
+
+    // ------------------------------------------------------------------ grab handle --
+
+    private TrayGrabHandle? _handle;
+
+    /// <summary>
+    /// Test #14 ("Controllboard"): a clearly visible handle bar along the tray's
+    /// bottom edge. Grip it to move/rotate the tray; grip with BOTH hands to resize
+    /// (0.5×–2×). Registered as a normal <see cref="Hands.Interact.IGrabbable"/>, so
+    /// the P2 ProximityGrabber arbitration applies — WorldGrab yields whenever the
+    /// grip starts on (or highlights) the handle, and a grip anywhere else never
+    /// touches the tray.
+    /// </summary>
+    private void BuildHandle()
+    {
+        if (_root == null)
+            return;
+        var handleGo = new GameObject("TrayHandle");
+        handleGo.transform.SetParent(_root, worldPositionStays: false);
+        handleGo.transform.localPosition = new Vector3(0f, -BoardH * 0.5f - 0.030f, 0.004f);
+
+        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        bar.name = "Bar";
+        Object.Destroy(bar.GetComponent<Collider>());
+        bar.transform.SetParent(handleGo.transform, worldPositionStays: false);
+        bar.transform.localScale = new Vector3(BoardW * 0.55f, 0.024f, 0.024f);
+        Tint(bar, new Color(0.62f, 0.5f, 0.28f)); // brass bar — reads as "grab me"
+
+        var box = handleGo.AddComponent<BoxCollider>();
+        box.size = new Vector3(BoardW * 0.62f, 0.05f, 0.05f);
+        box.isTrigger = true;
+
+        _handle = handleGo.AddComponent<TrayGrabHandle>();
+        _handle.Init(this, bar.GetComponent<MeshRenderer>());
     }
 
     internal void Destroy()
@@ -147,6 +183,7 @@ internal sealed class PlayTray
         _badgeZone = null;
         _confirm = null;
         _undo = null;
+        _handle = null; // child of _root, destroyed with it
         _placed = false;
     }
 
@@ -190,10 +227,62 @@ internal sealed class PlayTray
                       + Vector3.up * (offset.y * scale);
 
         _root.position = pos;
-        _root.rotation = Quaternion.LookRotation(flatForward, Vector3.up)
+        // TrayYaw/TrayScale are the persisted tray-grab layout (test #14 wish:
+        // "Controllboard" the player can grip-move/resize; survives sessions).
+        _root.rotation = Quaternion.Euler(0f, CardsConfig.TrayYaw.Value, 0f)
+                         * Quaternion.LookRotation(flatForward, Vector3.up)
                          * Quaternion.Euler(90f - CardsConfig.TrayTilt.Value, 0f, 0f);
+        _root.localScale = Vector3.one * CardsConfig.ClampedTrayScale;
         _placed = true;
-        VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}° from horizontal).");
+        VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}°, " +
+                            $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.ClampedTrayScale:F2}×).");
+    }
+
+    /// <summary>
+    /// Persist the CURRENT root pose back into the config (called by
+    /// <see cref="TrayGrabHandle"/> when the last gripping hand lets go): the inverse
+    /// of <see cref="PlaceAtHead"/> — head-relative offsets in real meters, yaw
+    /// relative to the head's flat forward, and the size multiplier. BepInEx writes
+    /// the ConfigFile on set, so the layout survives sessions.
+    /// </summary>
+    internal void PersistPoseToConfig()
+    {
+        if (_root == null)
+            return;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return;
+
+        Transform headT = head.transform;
+        Vector3 flatForward = headT.forward;
+        flatForward.y = 0f;
+        if (flatForward.sqrMagnitude < 1e-4f)
+            flatForward = Vector3.forward;
+        flatForward.Normalize();
+        Vector3 right = Vector3.Cross(Vector3.up, flatForward);
+
+        float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+        if (scale < 1e-5f)
+            return;
+        Vector3 delta = _root.position - headT.position;
+        CardsConfig.TrayForward.Value = Vector3.Dot(delta, flatForward) / scale;
+        CardsConfig.TrayRight.Value = Vector3.Dot(delta, right) / scale;
+        CardsConfig.TrayDown.Value = -delta.y / scale;
+
+        // Yaw: heading of the tray's flat forward relative to the head's.
+        Vector3 trayFlat = _root.rotation * Quaternion.Euler(-(90f - CardsConfig.TrayTilt.Value), 0f, 0f)
+                           * Vector3.forward;
+        trayFlat.y = 0f;
+        if (trayFlat.sqrMagnitude > 1e-4f)
+        {
+            float headHeading = Mathf.Atan2(flatForward.x, flatForward.z) * Mathf.Rad2Deg;
+            float trayHeading = Mathf.Atan2(trayFlat.x, trayFlat.z) * Mathf.Rad2Deg;
+            CardsConfig.TrayYaw.Value = Mathf.DeltaAngle(headHeading, trayHeading);
+        }
+        CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x, 0.5f, 2f);
+        VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
+                            $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
+                            $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.TrayScale.Value:F2}×.");
     }
 
     /// <summary>Force re-placement next time the tray shows (mode re-entry).</summary>
