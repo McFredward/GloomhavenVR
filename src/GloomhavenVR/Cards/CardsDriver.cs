@@ -164,6 +164,7 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdatePalmGate();
         UpdateFanLaser();
         UpdateBoardLaser();
+        UpdateSlotHighlight();
         _fan.Tick();
         _half.Tick();
 
@@ -409,6 +410,65 @@ internal sealed class CardsDriver : MonoBehaviour
         _trayCardHover = null;
     }
 
+    // ------------------------------------------------------------------ slot snap preview --
+
+    private int _snapHighlightSlot = -1;
+
+    /// <summary>
+    /// Test #13: while a card is HELD near the tray, glow the slot it would snap
+    /// into on release (same accept/divert rules as OnCardReleased) and tick a
+    /// haptic when the target slot changes — the drop is telegraphed, never a
+    /// guess. Toggles/haptics only on change; no per-frame allocations.
+    /// </summary>
+    private void UpdateSlotHighlight()
+    {
+        int slot = -1;
+        VRHand? holder = null;
+        if (_tray.IsVisible)
+        {
+            VRCard? held = HeldCard(out holder);
+            if (held != null && holder != null)
+            {
+                slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
+                // Mirror the release-time divert: occupied target diverts a non-tray
+                // card to the free slot (tray→tray stays put — that is a swap).
+                if (slot >= 0 && !_tray.ContainsCard(held) && _tray.Occupant(slot) != null)
+                {
+                    int other = 1 - slot;
+                    slot = _tray.Occupant(other) == null ? other : -1;
+                }
+            }
+        }
+
+        // PlayTray dedupes the visual toggle itself (safe across tray rebuilds);
+        // the driver-side cache only edges the haptic.
+        _tray.SetHighlightedSlot(slot);
+        if (slot != _snapHighlightSlot)
+        {
+            _snapHighlightSlot = slot;
+            if (slot >= 0 && holder != null)
+                holder.SendHaptic(HapticPreset.HoverTick); // debounced: only on slot change
+        }
+    }
+
+    private static VRCard? HeldCard(out VRHand? holder)
+    {
+        holder = null;
+        VRHand? left = VRHands.Left;
+        if (left != null && left.Grabber.Held is VRCard heldLeft)
+        {
+            holder = left;
+            return heldLeft;
+        }
+        VRHand? right = VRHands.Right;
+        if (right != null && right.Grabber.Held is VRCard heldRight)
+        {
+            holder = right;
+            return heldRight;
+        }
+        return null;
+    }
+
     // ------------------------------------------------------------------ rebuild --
 
     private void Rebuild(Transform anchor)
@@ -589,11 +649,10 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // The inspect pose floats the card toward the face — test the HAND's position
-        // too, so "put my hand over the slot and let go" always drops (P6).
-        int slot = _tray.SlotAt(card.transform.position);
-        if (slot < 0)
-            slot = _tray.SlotAt(hand.Rig.PalmCenter.position);
+        // Generous dual-sample capture (test #13): the held pose offsets the card
+        // center from the palm, so card center AND holding-hand position both count
+        // — whichever is nearest. Every accept/reject is logged with distances.
+        int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position, log: true);
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
@@ -606,8 +665,12 @@ internal sealed class CardsDriver : MonoBehaviour
 
         if (slot >= 0 && !wasInTray)
         {
-            // Fan → tray: play the card. SelectCard is the spin-wait path — queued;
-            // outcome verified against the authoritative round pile afterwards.
+            // Fan → tray: play the card. The snap itself is PlaceCard's SetHome —
+            // a quick local lerp into the slot (CardLerpSpeed) — plus a click pulse
+            // so the zap is felt, not just seen (test #13).
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            // SelectCard is the spin-wait path — queued; outcome verified against
+            // the authoritative round pile afterwards.
             _tray.PlaceCard(card, slot);
             CardsHandUI handRef = gameHand;
             CardActionQueue.Enqueue(
@@ -628,6 +691,7 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             // Tray → tray: physical reorder. If the other slot is occupied this is an
             // initiative swap; a lone card just changes slots visually.
+            hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
             int oldSlot = _tray.SlotOf(card);
             if (slot != oldSlot && _tray.Occupant(slot) != null)
             {
@@ -819,16 +883,17 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void RouteFakeRelease(VRCard card, VRHand hand)
     {
-        int slot = _tray.SlotAt(card.transform.position);
-        if (slot < 0)
-            slot = _tray.SlotAt(hand.Rig.PalmCenter.position);
+        int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position, log: true);
         if (slot >= 0 && _tray.Occupant(slot) != null && _tray.Occupant(slot) != card)
         {
             int other = 1 - slot;
             slot = _tray.Occupant(other) == null ? other : -1;
         }
         if (slot >= 0)
+        {
+            hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
             _tray.PlaceCard(card, slot);
+        }
         else
         {
             _tray.RemoveCard(card);

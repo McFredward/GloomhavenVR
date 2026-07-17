@@ -3,6 +3,43 @@
 > Decision: ship the **SteamVR Unity Plugin glove hands** (BSD-3-Clause,
 > GPL-3.0-compatible) in `gloomhavenvr.bundle`. Verified 2026-07 against the
 > primary sources below.
+>
+> **Interim (shipping NOW, hardware test #13):** upgraded **procedural hands**
+> (see §0) — the bundle step needs the human's Windows machine, and no
+> runtime-loadable alternative passed the license/feasibility check.
+
+## 0. Runtime (no-bundle) options — researched 2026-07, test #13
+
+The bundle build is a human/Windows step, so we evaluated what can be
+integrated at RUNTIME from the plugin folder, honestly:
+
+1. **Static-pose rigid hand meshes (OBJ/glTF) split into per-segment parts**,
+   parented to the existing `HandRig` finger joints. A minimal OBJ loader is
+   ~100 lines and would slot into `HandVisuals.Build` cleanly. **Blocked on
+   assets, not code:** searches across Kenney, Quaternius, OpenGameArt,
+   BlendSwap, Sketchfab (2026-07) found **no CC0/permissive hand mesh that is
+   already split at the phalanx joints**. What exists is either (a) monolithic
+   static hands — cannot curl fingers, worse than what we have — or
+   (b) skinned/rigged hands (`.blend`/FBX), which require Unity's asset
+   pipeline (SkinnedMeshRenderer + serialized bind poses), i.e. the bundle
+   path. Splitting a monolithic mesh at the joints is offline mesh surgery
+   (Blender), which is exactly the human step we cannot take here.
+   Candidates checked: BlendSwap "Low Poly Hand (Rigged)" (CC0, `.blend`,
+   rigged → bundle path), Quaternius packs (CC0, no standalone hand),
+   Kenney (CC0, no hand mesh), Sketchfab low-poly hands (mixed licenses,
+   monolithic).
+2. **Markedly better procedural hands — CHOSEN, shipped in
+   `Hands/HandVisuals.cs`:** rounded palm via bevel-approximation stacking
+   (two interpenetrating chamfer slabs + knuckle-ridge capsule + thenar mound
+   + wrist heel), per-finger radii with per-segment taper, joint spheres for
+   continuous knuckle bends, squashed fingertip caps and lighter-tinted nail
+   hints. No assets, no licenses, hot-reload safe, zero per-frame cost, and
+   the frozen `HandRig` joint contract is untouched.
+
+**Upgrade path stays §1 below** (SteamVR gloves via `gloomhavenvr.bundle`,
+already contracted): skinned gloves + direct bone rotation replace the
+procedural visuals with zero code changes on the rig-consumer side — the
+loader already probes the bundle first and falls back to procedural.
 
 ## 1. Primary source: SteamVR Unity Plugin hands
 

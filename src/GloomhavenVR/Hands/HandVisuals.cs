@@ -38,7 +38,16 @@ internal static class HandVisuals
     private static readonly Vector3 PalmCenterPos = new(0f, -0.008f, 0.05f);
     private static readonly Vector3 PalmBoxSize = new(0.078f, 0.026f, 0.082f);
     private const float KnuckleZ = 0.088f;
-    private const float FingerRadius = 0.0075f;
+
+    /// <summary>
+    /// Per-finger base radius (test #13 upgrade): thumb/middle thicker, pinky
+    /// thinner — the old constant 0.0075 for all five read as sausage fingers.
+    /// Segments taper toward the tip (see <see cref="SegmentTaper"/>).
+    /// </summary>
+    private static readonly float[] FingerRadii = { 0.0090f, 0.0078f, 0.0080f, 0.0073f, 0.0063f };
+
+    /// <summary>Radius multiplier per segment (root, mid, tip) — real fingers taper.</summary>
+    private static readonly float[] SegmentTaper = { 1f, 0.88f, 0.78f };
 
     // Per finger: knuckle X offset (right hand, thumb side = -X), segment lengths root/mid/tip.
     private static readonly float[] FingerX = { -0.038f, -0.026f, -0.008f, 0.010f, 0.028f };
@@ -183,23 +192,24 @@ internal static class HandVisuals
     {
         float mirror = side == HandSide.Right ? 1f : -1f;
         Material material = CreateHandMaterial(side);
+        Material nailMaterial = CreateNailMaterial(material);
 
         var visualRoot = new GameObject("ProceduralHand");
         visualRoot.transform.SetParent(handRoot, worldPositionStays: false);
 
-        // Palm slab.
-        GameObject palm = CreatePrimitivePart(PrimitiveType.Cube, visualRoot.transform, material);
-        palm.name = "Palm";
-        palm.transform.localPosition = new Vector3(0f, -0.008f, 0.045f);
-        palm.transform.localScale = PalmBoxSize;
+        BuildPalm(visualRoot.transform, material, mirror);
 
         rig.Wrist = handRoot;
 
-        // Fingers: three-joint chains; visual capsule per segment. Capsule primitives are
-        // Y-aligned — rotate them 90° around X so the segment runs along local +Z.
+        // Fingers: three-joint chains; visual capsule per segment (tapered radii) +
+        // a sphere at every joint so bends stay continuous when the curler rotates
+        // them. Capsule primitives are Y-aligned — rotated 90° around X so the
+        // segment runs along local +Z. Joint POSITIONS/rotations are unchanged from
+        // Phase 2 (frozen rig contract) — only the visuals got better (test #13).
         for (int f = 0; f < 5; f++)
         {
             Vector3 lengths = SegmentLengths[f];
+            float radius = FingerRadii[f];
             bool isThumb = f == (int)Finger.Thumb;
 
             var rootJoint = new GameObject($"{(Finger)f}_Root").transform;
@@ -217,9 +227,11 @@ internal static class HandVisuals
                 rootJoint.localRotation = Quaternion.identity;
             }
 
-            Transform midJoint = CreateSegment(rootJoint, lengths.x, material, $"{(Finger)f}_Mid");
-            Transform tipJoint = CreateSegment(midJoint, lengths.y, material, $"{(Finger)f}_Tip");
-            CreateSegmentVisual(tipJoint, lengths.z, material);
+            Transform midJoint = CreateSegment(rootJoint, lengths.x, radius * SegmentTaper[0], material, $"{(Finger)f}_Mid");
+            Transform tipJoint = CreateSegment(midJoint, lengths.y, radius * SegmentTaper[1], material, $"{(Finger)f}_Tip");
+            float tipRadius = radius * SegmentTaper[2];
+            CreateSegmentVisual(tipJoint, lengths.z, tipRadius, material);
+            CreateFingertip(tipJoint, lengths.z, tipRadius, material, nailMaterial);
 
             rig.SetFinger((Finger)f, new FingerJoints(rootJoint, midJoint, tipJoint));
 
@@ -234,24 +246,92 @@ internal static class HandVisuals
         }
     }
 
-    /// <summary>Creates the next joint at the end of a segment and the segment's capsule visual.</summary>
-    private static Transform CreateSegment(Transform parentJoint, float length, Material material, string nextJointName)
+    /// <summary>
+    /// Rounded palm (test #13): the single hard-edged slab read as a brick. Bevel
+    /// approximation by stacking — two interpenetrating boxes (each smaller than
+    /// the other on one axis) chamfer the edges, a capsule ridge fills the knuckle
+    /// line, a mound rounds the thumb base and a capsule heel rounds the wrist end.
+    /// Static visuals only: built once, zero per-frame cost.
+    /// </summary>
+    private static void BuildPalm(Transform parent, Material material, float mirror)
     {
-        CreateSegmentVisual(parentJoint, length, material);
+        Vector3 center = new(0f, -0.008f, 0.045f);
+
+        GameObject slabA = CreatePrimitivePart(PrimitiveType.Cube, parent, material);
+        slabA.name = "Palm";
+        slabA.transform.localPosition = center;
+        slabA.transform.localScale = new Vector3(PalmBoxSize.x, PalmBoxSize.y * 0.72f, PalmBoxSize.z);
+
+        GameObject slabB = CreatePrimitivePart(PrimitiveType.Cube, parent, material);
+        slabB.name = "PalmBevel";
+        slabB.transform.localPosition = center;
+        slabB.transform.localScale = new Vector3(PalmBoxSize.x * 0.88f, PalmBoxSize.y, PalmBoxSize.z * 0.90f);
+
+        // Knuckle ridge: capsule across the palm just behind the finger roots.
+        GameObject knuckles = CreatePrimitivePart(PrimitiveType.Capsule, parent, material);
+        knuckles.name = "KnuckleRidge";
+        knuckles.transform.localRotation = Quaternion.Euler(0f, 0f, 90f); // Y-capsule → X-aligned
+        knuckles.transform.localPosition = new Vector3(mirror * -0.005f, -0.006f, KnuckleZ - 0.006f);
+        knuckles.transform.localScale = new Vector3(0.022f, 0.033f, 0.022f); // r 0.011, len 0.066
+
+        // Thumb-base mound (thenar): the palm visibly thickens toward the thumb.
+        GameObject thenar = CreatePrimitivePart(PrimitiveType.Sphere, parent, material);
+        thenar.name = "ThumbMound";
+        thenar.transform.localPosition = new Vector3(mirror * -0.026f, -0.012f, 0.032f);
+        thenar.transform.localScale = new Vector3(0.030f, 0.020f, 0.042f);
+
+        // Heel: rounded wrist end instead of a raw box edge.
+        GameObject heel = CreatePrimitivePart(PrimitiveType.Capsule, parent, material);
+        heel.name = "PalmHeel";
+        heel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+        heel.transform.localPosition = new Vector3(0f, -0.008f, 0.008f);
+        heel.transform.localScale = new Vector3(0.024f, 0.026f, 0.024f);
+    }
+
+    /// <summary>Creates the next joint at the end of a segment and the segment's capsule visual.</summary>
+    private static Transform CreateSegment(Transform parentJoint, float length, float radius,
+        Material material, string nextJointName)
+    {
+        CreateSegmentVisual(parentJoint, length, radius, material);
         var next = new GameObject(nextJointName).transform;
         next.SetParent(parentJoint, worldPositionStays: false);
         next.localPosition = new Vector3(0f, 0f, length);
+        // Joint sphere ON the new joint: when the curler bends it, the sphere keeps
+        // the knuckle continuous instead of showing a gap between two capsules.
+        GameObject joint = CreatePrimitivePart(PrimitiveType.Sphere, next, material);
+        joint.name = "Joint";
+        joint.transform.localScale = Vector3.one * (radius * 2.05f);
         return next;
     }
 
-    private static void CreateSegmentVisual(Transform joint, float length, Material material)
+    private static void CreateSegmentVisual(Transform joint, float length, float radius, Material material)
     {
         GameObject capsule = CreatePrimitivePart(PrimitiveType.Capsule, joint, material);
         capsule.name = "Segment";
         capsule.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
         capsule.transform.localPosition = new Vector3(0f, 0f, length * 0.5f);
         // Capsule primitive: height 2 along Y, radius 0.5 ⇒ scale to (2r, len/2, 2r).
-        capsule.transform.localScale = new Vector3(FingerRadius * 2f, length * 0.5f + FingerRadius * 0.5f, FingerRadius * 2f);
+        capsule.transform.localScale = new Vector3(radius * 2f, length * 0.5f + radius * 0.5f, radius * 2f);
+    }
+
+    /// <summary>
+    /// Fingertip cap + fingernail hint (test #13): a slightly squashed sphere caps
+    /// the distal segment; a small flattened, lighter-tinted box on the BACK of the
+    /// segment (+Y = back of hand) reads as a nail at a glance.
+    /// </summary>
+    private static void CreateFingertip(Transform tipJoint, float length, float radius,
+        Material material, Material nailMaterial)
+    {
+        GameObject cap = CreatePrimitivePart(PrimitiveType.Sphere, tipJoint, material);
+        cap.name = "TipCap";
+        cap.transform.localPosition = new Vector3(0f, 0f, length);
+        cap.transform.localScale = new Vector3(radius * 1.9f, radius * 1.7f, radius * 2.0f);
+
+        GameObject nail = CreatePrimitivePart(PrimitiveType.Cube, tipJoint, material);
+        nail.name = "Nail";
+        nail.GetComponent<Renderer>().sharedMaterial = nailMaterial;
+        nail.transform.localPosition = new Vector3(0f, radius * 0.72f, length * 0.72f);
+        nail.transform.localScale = new Vector3(radius * 1.2f, radius * 0.30f, length * 0.5f);
     }
 
     private static GameObject CreatePrimitivePart(PrimitiveType type, Transform parent, Material material)
@@ -283,6 +363,19 @@ internal static class HandVisuals
         material.color = new Color(
             Mathf.Clamp01(material.color.r), Mathf.Clamp01(material.color.g),
             Mathf.Clamp01(material.color.b), 1f);
+        return material;
+    }
+
+    /// <summary>Lighter tint of the hand material — the fingernail hint (unlit, like the hand).</summary>
+    private static Material CreateNailMaterial(Material handMaterial)
+    {
+        var material = new Material(handMaterial);
+        Color c = handMaterial.color;
+        material.color = new Color(
+            Mathf.Clamp01(c.r * 1.10f + 0.12f),
+            Mathf.Clamp01(c.g * 1.10f + 0.12f),
+            Mathf.Clamp01(c.b * 1.08f + 0.10f),
+            1f);
         return material;
     }
 

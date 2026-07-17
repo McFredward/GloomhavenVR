@@ -29,7 +29,10 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class PlayTray
 {
-    private const float SlotCaptureRadius = 0.11f; // meters, scaled by tray lossyScale
+    // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13):
+    // the P8 pinch-grip held pose put the card's CENTER a hand-length away from the
+    // palm, so the old 0.11 m card-center-only check silently rejected most drops.
+    private const float SlotCaptureRadius = 0.12f;
 
     private Transform? _root;
     private Transform?[] _slots = new Transform?[2];
@@ -120,6 +123,7 @@ internal sealed class PlayTray
             BuildProceduralBoard();
 
         BuildSlotLabels();
+        BuildSlotHighlights();
         BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
         // Mod layer (render-only — zones & tokens poke via registries).
@@ -137,6 +141,8 @@ internal sealed class PlayTray
             _root = null;
         }
         _slots = new Transform?[2];
+        _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
+        _highlightedSlot = -1;
         _badge = null;
         _badgeZone = null;
         _confirm = null;
@@ -207,10 +213,14 @@ internal sealed class PlayTray
     internal bool ContainsCard(VRCard card) => SlotOf(card) >= 0;
 
     /// <summary>
-    /// Which slot would capture a card released at <paramref name="worldPos"/>?
-    /// Returns -1 when outside both capture radii.
+    /// Which slot would capture a card with the card center at <paramref name="cardPos"/>
+    /// and the holding hand at <paramref name="handPos"/>? EITHER sample within the
+    /// capture radius accepts — the pinch-grip held pose (P8) offsets the card center
+    /// from the palm, so "hand over the slot" and "card over the slot" must both work
+    /// (test #13). Returns -1 when outside both radii. With <paramref name="log"/> the
+    /// full distance table and the verdict go to the log (drop-time diagnostics).
     /// </summary>
-    internal int SlotAt(Vector3 worldPos)
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos, bool log = false)
     {
         if (_root == null || !IsVisible)
             return -1;
@@ -218,19 +228,79 @@ internal sealed class PlayTray
         float radius = SlotCaptureRadius * scale;
         int best = -1;
         float bestDist = float.MaxValue;
+        float d0 = float.PositiveInfinity, d1 = float.PositiveInfinity;
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
             if (slot == null)
                 continue;
-            float dist = Vector3.Distance(worldPos, slot.position);
+            float dist = Mathf.Min(
+                Vector3.Distance(cardPos, slot.position),
+                Vector3.Distance(handPos, slot.position));
+            if (i == 0) d0 = dist; else d1 = dist;
             if (dist <= radius && dist < bestDist)
             {
                 bestDist = dist;
                 best = i;
             }
         }
+        if (log)
+        {
+            VRLog.Info("Cards", $"Slot check: slot1 {d0:F3} m, slot2 {d1:F3} m " +
+                                $"(min of card/hand samples), radius {radius:F3} m → " +
+                                (best >= 0 ? $"ACCEPT slot {best + 1}." : "REJECT (out of range)."));
+        }
         return best;
+    }
+
+    // ------------------------------------------------------------------ highlight --
+
+    private readonly GameObject?[] _slotHighlights = new GameObject?[2];
+    private int _highlightedSlot = -1;
+
+    /// <summary>
+    /// Glow frame behind each slot — shown while a HELD card is within snap range
+    /// (test #13: telegraph exactly where the card will zap on release). Unlit
+    /// bright gold so it reads emissive in the unlit void scenes.
+    /// </summary>
+    private void BuildSlotHighlights()
+    {
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+        for (int i = 0; i < 2; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot == null || _slotHighlights[i] != null)
+                continue;
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = "SlotHighlight";
+            Object.Destroy(quad.GetComponent<Collider>());
+            quad.transform.SetParent(slot, worldPositionStays: false);
+            quad.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
+            quad.transform.localPosition = new Vector3(0f, 0f, 0.0035f); // behind card, rim past the frame
+            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+            if (shader != null)
+            {
+                quad.GetComponent<MeshRenderer>().sharedMaterial =
+                    new Material(shader) { color = new Color(1f, 0.85f, 0.3f, 0.95f) };
+            }
+            quad.SetActive(false);
+            _slotHighlights[i] = quad;
+        }
+    }
+
+    /// <summary>Show the snap-preview glow on one slot (-1 = none). No-ops unless it changes.</summary>
+    internal void SetHighlightedSlot(int slot)
+    {
+        if (slot == _highlightedSlot)
+            return;
+        _highlightedSlot = slot;
+        for (int i = 0; i < 2; i++)
+        {
+            GameObject? go = _slotHighlights[i];
+            if (go != null && go.activeSelf != (i == slot))
+                go.SetActive(i == slot);
+        }
     }
 
     /// <summary>Visually park a card in a slot (game-state sync happens separately).</summary>
@@ -352,33 +422,43 @@ internal sealed class PlayTray
 
     // ------------------------------------------------------------------ status --
 
+    // Last shown badge state (int key, not string): -2 = none ("-"), -1 = long rest
+    // ("99"), else the initiative value. Rebuilding the string only on CHANGE avoids
+    // a per-frame ToString allocation AND a per-frame TMP text assignment — every
+    // rewrite re-triggers TMP's auto-size layout, which made the badge flicker
+    // against its plate (test #13).
+    private int _badgeState = int.MinValue;
+
     /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
         if (_badge == null)
             return;
 
-        string text = "-";
+        int state = -2;
         bool canSwap = false;
         bool ready = false;
         if (hand != null && hand.PlayerActor != null)
         {
             if (CardsGameApi.IsLongRestSelected(hand))
             {
-                text = "99"; // long rest initiative by game rule
+                state = -1; // long rest initiative (99) by game rule
             }
             else
             {
                 ScenarioRuleLibrary.CAbilityCard? initiative = CardsGameApi.InitiativeCard(hand);
                 if (initiative != null)
-                    text = CardsGameApi.InitiativeValue(initiative).ToString();
+                    state = CardsGameApi.InitiativeValue(initiative);
                 canSwap = hand.PlayerActor.CharacterClass.RoundAbilityCards.Count == 2;
             }
             ready = CardsGameApi.IsSelectionReady(hand);
         }
 
-        if (_badge.text != text)
-            _badge.text = text;
+        if (state != _badgeState)
+        {
+            _badgeState = state;
+            _badge.text = state switch { -2 => "-", -1 => "99", _ => state.ToString() };
+        }
         if (_badgeZone != null)
             _badgeZone.SwapEnabled = canSwap;
 
@@ -510,11 +590,15 @@ internal sealed class PlayTray
         disc.transform.SetParent(badgeGo.transform, worldPositionStays: false);
         disc.transform.localScale = new Vector3(0.042f, 0.003f, 0.042f);
         disc.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        disc.transform.localPosition = new Vector3(0f, 0f, 0.003f);
+        // Disc front face 1.5 mm BEHIND the number (cylinder half-height 0.003):
+        // at z=0.003 the face sat exactly on the text plane — z-fighting made the
+        // badge number flicker/"clip" (test #13).
+        disc.transform.localPosition = new Vector3(0f, 0f, 0.0045f);
         Tint(disc, new Color(0.5f, 0.42f, 0.2f));
 
         _badge = badgeGo.AddComponent<TextMeshPro>();
         _badge.text = "-";
+        _badgeState = -2; // keep the change-detection key in sync after a rebuild
         _badge.alignment = TextAlignmentOptions.Center;
         _badge.color = new Color(1f, 0.95f, 0.8f);
         // The number must sit ON the 0.042 m disc (was fontSize 1.2 = a 0.12 m line
