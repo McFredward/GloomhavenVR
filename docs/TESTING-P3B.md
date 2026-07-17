@@ -139,6 +139,44 @@
 - [ ] While the laser points at any board element the beam clamps to it and the
       trigger must NOT also click the game board behind it.
 
+## 3b. Tray v3 (test #14 fixes: drops, buttons, grab, initiative strip)
+
+- [ ] **One drop = one placement**: play a full selection phase while moving,
+      world-grabbing and scaling the diorama a lot. `Board: card placed…` /
+      `Drop (…)` lines appear ONLY when you really release a card — no bursts of
+      placements while nobody is dropping anything (the old sync path re-placed
+      and re-logged both slots on every rebuild and yanked HELD cards onto the
+      slots, which then self-accepted on the next unrelated grip release).
+- [ ] Each real release logs exactly one line:
+      `Drop (Right): slot1 0.08 m, slot2 0.31 m, radius 0.12 m → play into slot 1.`
+      (distances/radius are world units — they scale with the diorama).
+- [ ] A card you are HOLDING is never ripped out of the hand by a rebuild
+      (badge press, selection event, window churn) — it stays pinched until YOU
+      release it.
+- [ ] **Button presses always answer in the log**: every CONFIRM/UNDO attempt
+      writes `Board: BoardButton_… pressed (source=poke|laser, …)` or
+      `… press REJECTED (source=…, …) — disabled: active=… interactable=… state=…`.
+      A dead-silent button press is a bug.
+- [ ] CONFIRM works even though the 2D UI stack is hidden in VR: the gate now
+      mirrors the game's own `ReadyButton.OnClick` guard (enabled + no warning
+      mask + interactable) and deliberately ignores the 2D canvas alpha.
+- [ ] **Tray handle (Controllboard)**: a brass bar hangs under the tray's bottom
+      edge. Grip it (proximity, like grabbing a card) → the tray follows your
+      hand (position + yaw; tilt stays). The world grab must NOT engage while
+      the bar is highlighted/held — and gripping empty air must never move the
+      tray.
+- [ ] Grip the bar with BOTH hands and spread/pinch → the tray resizes,
+      clamped 0.5×–2×; cards, buttons and strip scale with it.
+- [ ] Release → `Tray layout persisted: …` in the log; leave card selection and
+      come back (and restart the game): the tray reappears in your adjusted
+      position/rotation/size (`[Cards] TrayForward/TrayDown/TrayRight/TrayYaw/
+      TrayScale` in `dev.gloomhavenvr.cards.cfg`).
+- [ ] **Initiative strip**: along the tray's top edge, one chip per actor in
+      acting order (acts-first left): `<initiative> <name>` — players warm white,
+      enemies gray, dead dimmed, the ACTIVE actor bold gold. It matches the
+      game's 2D initiative track order at all times and updates live on round
+      start / turn changes / your own (de)selects, without per-frame rebuilds.
+
 ## 4. Rests
 
 - [ ] Short-rest token (yellow "ZZZ") is lit only when >1 discarded card and not
