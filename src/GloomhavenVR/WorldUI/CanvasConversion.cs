@@ -35,6 +35,15 @@ internal sealed class ConvertedPanel
     /// <summary>Optional narrower subtree to measure (e.g. the story window's UICharacterStoryBox).</summary>
     public RectTransform? FitContentRoot;
 
+    /// <summary>
+    /// True when the target converted with a degenerate (&lt;1 px) rect that Convert
+    /// clamped to the 100 px placeholder (zero-size layout containers, e.g. the
+    /// objectives list). The placeholder is NOT a real window frame — clamping the
+    /// content fit into it would crop the measured bounds to 100 px while the text
+    /// visibly overflows it (test #16: giant objectives text from a 100 px host).
+    /// </summary>
+    public bool FitFrameDegenerate;
+
     /// <summary>True for pokeable hosts: the registered laser/poke plane must match visible content.</summary>
     public bool FitEnabled;
 
@@ -143,7 +152,8 @@ internal static class CanvasConversion
 
         // Rect size while still under the original (possibly stretch) anchors.
         Vector2 size = target.rect.size;
-        if (size.x < 1f || size.y < 1f)
+        bool degenerate = size.x < 1f || size.y < 1f;
+        if (degenerate)
             size = new Vector2(Mathf.Max(size.x, 100f), Mathf.Max(size.y, 100f));
 
         var hostGo = new GameObject($"GloomhavenVR.Panel_{name}");
@@ -189,6 +199,7 @@ internal static class CanvasConversion
             // everything behind it (dot off the dialog, tray clicks eaten). Fitting is
             // driven centrally from Tick(), incl. periodic re-fit on content growth.
             panel.FitEnabled = true;
+            panel.FitFrameDegenerate = degenerate;
             panel.FitNotBefore = Time.unscaledTime + FitDelaySeconds;
             panel.FitFirstDeadline = Time.unscaledTime + FitFirstWarnSeconds;
         }
@@ -244,10 +255,15 @@ internal static class CanvasConversion
     /// <paramref name="contentRoot"/> (or the whole target) whose effective alpha is
     /// visible — invisible click-catchers (the story box's full-area alpha-0 skip
     /// button) stay clickable (GraphicRaycaster raycasts per-graphic, not per-host-
-    /// rect) but no longer size the panel. The union is clamped to the TARGET's own
-    /// frame (not the current — possibly already shrunk — host rect), so a later
-    /// content GROWTH (multi-page story, log lines) re-expands the host up to the
-    /// window's original rect (test #14: one-shot fits under-covered later pages).
+    /// rect) but no longer size the panel. Zero-draw-size graphics (collapsed
+    /// layout cells) are skipped too (test #16). The union is clamped to the
+    /// TARGET's own frame (not the current — possibly already shrunk — host rect),
+    /// so a later content GROWTH (multi-page story, log lines) re-expands the host
+    /// up to the window's original rect (test #14: one-shot fits under-covered
+    /// later pages) — unless the target converted with a degenerate rect
+    /// (<see cref="ConvertedPanel.FitFrameDegenerate"/>): overflowing content
+    /// bounds then stand on their own (test #16: the zero-size objectives
+    /// container must measure its full text, not the 100 px placeholder).
     ///
     /// The target is shifted so the content bound is centered on the host pose;
     /// Release() still restores the exact 2D home (originals captured at Convert).
@@ -285,6 +301,12 @@ internal static class CanvasConversion
                 continue;
 
             var rect = (RectTransform)g.transform;
+            // Zero draw size = nothing on screen (collapsed layout cells, empty
+            // stretch containers with a Graphic) — must not anchor the union at
+            // their corner points (test #16 measurement tightening).
+            Rect drawRect = rect.rect;
+            if (drawRect.width < 0.5f || drawRect.height < 0.5f)
+                continue;
             rect.GetWorldCorners(CornerScratch);
             for (int c = 0; c < 4; c++)
             {
@@ -305,15 +327,26 @@ internal static class CanvasConversion
         // corners so live show-animation scale is honored): off-screen/overflow
         // elements must not grow the panel beyond the window's own rect, but a
         // previously shrunk host must not cap a legitimate content growth.
-        panel.Target.GetWorldCorners(CornerScratch);
-        Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
-        Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
-        // Min/max-normalized: a mid-animation rotation/negative scale must not
-        // invert the frame and turn the clamp into garbage.
-        Vector2 frameMin = Vector2.Min(frameA, frameB);
-        Vector2 frameMax = Vector2.Max(frameA, frameB);
-        min = Vector2.Max(min, frameMin);
-        max = Vector2.Min(max, frameMax);
+        // EXCEPT for degenerate targets (test #16): a zero-size layout container
+        // has no real frame — the 100 px Convert placeholder would crop the union
+        // to a corner of the visibly overflowing content (objectives text). There
+        // the union of visible graphics IS the frame.
+        // An unreal frame clamps to nothing: infinite extents make both clamps
+        // below natural no-ops without a second code path.
+        Vector2 frameMin = new(float.MinValue, float.MinValue);
+        Vector2 frameMax = new(float.MaxValue, float.MaxValue);
+        if (!panel.FitFrameDegenerate)
+        {
+            panel.Target.GetWorldCorners(CornerScratch);
+            Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
+            Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
+            // Min/max-normalized: a mid-animation rotation/negative scale must not
+            // invert the frame and turn the clamp into garbage.
+            frameMin = Vector2.Min(frameA, frameB);
+            frameMax = Vector2.Max(frameA, frameB);
+            min = Vector2.Max(min, frameMin);
+            max = Vector2.Min(max, frameMax);
+        }
 
         Vector2 size = max - min;
         if (size.x < 32f || size.y < 32f)

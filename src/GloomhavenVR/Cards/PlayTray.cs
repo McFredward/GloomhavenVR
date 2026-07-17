@@ -96,6 +96,19 @@ internal sealed class PlayTray
     /// <summary>Max panel height at the objectives mount, tray-local meters.</summary>
     internal const float ObjectivesMountMaxHeight = 0.32f;
 
+    /// <summary>
+    /// ONE shared pixel density for every tray-docked panel, uGUI pixels per
+    /// tray-local meter (test #16). Before, each panel was scaled to FIT its dock
+    /// area from its host-rect size — similar dock sizes over wildly different
+    /// host rects (1714 px initiative track vs 100 px objectives) made the
+    /// initiative portraits minuscule and the objectives text giant. With a shared
+    /// density the world size follows the CONTENT pixel size instead, so text and
+    /// portraits read consistently across panels. 2400 px/m maps the game's
+    /// ~24–30 px HUD body text to ~10–13 mm — the same order as the tray's own
+    /// TmpFit caption/button labels (0.024–0.030 m boxes) at arm's length.
+    /// </summary>
+    internal const float TrayPixelsPerMeter = 2400f;
+
     /// <summary>Raised when the initiative badge is poked (CardsDriver queues the swap).</summary>
     internal System.Action? SwapRequested;
 
