@@ -46,17 +46,30 @@ namespace GloomhavenVR.WorldUI;
 /// head motion maps 1 real meter → WorldScale game units; 1 in the menu rig, the
 /// diorama scale in scenarios), so:
 ///
-///   separation = IPD × [WorldUI] ScreenDepthStrength × WorldScale   (game units)
-///   convergence = [WorldUI] ScreenDistance × WorldScale             (game units)
+///   separation = IPD × ScreenDepthStrength × WorldScale × ScreenParallaxScale
+///   convergence = (ScreenDistance + ScreenWindowRecess) × WorldScale × ScreenParallaxScale
 ///
 /// Converging at the screen's own distance makes the geometry self-consistent: the
-/// quad physically sits ScreenDistance meters away, so scene content at the
-/// equivalent scene distance shows zero disparity (on the quad), and content at
-/// scene-infinity shows an uncrossed disparity of IPD·f/D_screen·(W/2) ≈ 4 cm real
-/// on the default 2.2 m screen — comfortably BELOW the ~6.3 cm divergence limit.
-/// Because the captured camera's FOV is typically NARROWER than the angle the quad
-/// subtends, perceived depth is slightly understated — intentional (comfort).
+/// quad physically sits ScreenDistance (+ window recess, see FlatScreen) meters
+/// away, so scene content at the equivalent scene distance shows zero disparity
+/// (on the quad), and content at scene-infinity shows an uncrossed disparity of
+/// IPD·f/D_screen·(W/2) ≈ 4 cm real on the default 2.2 m screen — comfortably
+/// BELOW the ~6.3 cm divergence limit. Because the captured camera's FOV is
+/// typically NARROWER than the angle the quad subtends, perceived depth is
+/// slightly understated — intentional (comfort).
 /// Strength scales all disparities linearly; 0 = mono = exactly today's behavior.
+///
+/// PARALLAX SCALE (hardware test #16: the menu pan read FLAT): with geometric
+/// separation (6.3 cm) and convergence at 1.6 scene units, relative parallax
+/// (∝ separation/distance) of FAR menu scenery is below the perceivable threshold.
+/// [WorldUI] ScreenParallaxScale multiplies BOTH separation AND convergence by the
+/// same factor — KEY INVARIANT: the at-infinity disparity depends only on the
+/// sep/conv RATIO, which stays constant (still ~4 cm real, below the divergence
+/// limit), while every scene-INTERNAL depth difference is amplified by the factor.
+/// The captured world reads like a diorama behind glass instead of a flat photo;
+/// comfort at infinity is untouched by construction. Near content pops out more
+/// aggressively at high factors — the clamp (1..60) and the default (6) keep it
+/// in the range validated for the menu scenes.
 ///
 /// PER-EYE QUAD TEXTURE (MultiPass): the head camera renders the quad once per eye
 /// pass; a <see cref="Camera.onPreRender"/> hook swaps the quad material's
@@ -117,6 +130,7 @@ internal sealed class FlatScreenStereo
     // instance may be opened on the same path).
     private static ConfigEntry<bool>? s_stereoScreen;
     private static ConfigEntry<float>? s_depthStrength;
+    private static ConfigEntry<float>? s_parallaxScale;
 
     /// <summary>One mod-owned mirror camera shadowing a captured game camera into the right RT.</summary>
     private sealed class MirrorEntry
@@ -201,9 +215,18 @@ internal sealed class FlatScreenStereo
             "linearly). 1 = geometrically derived from your HMD IPD (window-accurate, " +
             "slightly understated by design); smaller = flatter/more comfortable; " +
             "0 = mono (same as StereoScreen=false).");
+        s_parallaxScale = file.Bind("WorldUI", "ScreenParallaxScale", 6.0f,
+            "Amplifies the stereo screen's scene-INTERNAL depth (test #16: far menu scenery " +
+            "read flat at geometric settings). Separation AND convergence are multiplied by " +
+            "the same factor, so the at-infinity disparity (their ratio) stays constant and " +
+            "comfortable while depth differences inside the captured scene grow this many " +
+            "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
+            "geometry; clamped to 1-60.");
     }
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
+
+    private static float ParallaxScale => Mathf.Clamp(s_parallaxScale?.Value ?? 6f, 1f, 60f);
 
     private static bool WantActive(RenderTexture? leftRt) =>
         leftRt != null
@@ -265,10 +288,18 @@ internal sealed class FlatScreenStereo
         SampleIpd();
 
         // Real meters → captured-scene units via the rig's real↔game scale relation
-        // (1 in the menu rig; diorama scale in scenarios — see class doc).
+        // (1 in the menu rig; diorama scale in scenarios — see class doc). Both terms
+        // carry the SAME parallax factor (class doc PARALLAX SCALE: sep/conv ratio —
+        // and with it the at-infinity comfort — is invariant; only scene-internal
+        // depth is amplified), and convergence targets the image plane's ACTUAL
+        // distance: the quad sits ScreenDistance + window recess behind the head
+        // (FlatScreen's window frame), so content at screen distance lands exactly
+        // on the image, never floating in front of the frame.
         float scale = PanelLayout.WorldScale;
-        _sepScene = _ipdMeters * DepthStrength * scale;
-        _convScene = Mathf.Max(MinConvergenceMeters, WorldUIConfig.ScreenDistance.Value) * scale;
+        float parallax = ParallaxScale;
+        _sepScene = _ipdMeters * DepthStrength * scale * parallax;
+        _convScene = Mathf.Max(MinConvergenceMeters,
+            WorldUIConfig.ScreenDistance.Value + WorldUIConfig.ScreenRecessMeters) * scale * parallax;
     }
 
     /// <summary>Full teardown: mirrors, right RT, render hook; quad texture back to the left RT.</summary>
