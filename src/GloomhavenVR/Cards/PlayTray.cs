@@ -79,6 +79,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _objectivesMount;
     private Transform? _elementMount;
     private Transform? _clusterMount;
+    private Transform? _damageMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
     private Transform? _longRestAnchor;
@@ -128,6 +129,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     internal Transform? ButtonClusterMount => _clusterMount;
 
+    /// <summary>
+    /// Mount for the take-damage choice row (test #21): while the game's
+    /// TakeDamagePanel prompt is open, its three REAL choice buttons (burn one
+    /// available / take damage / burn two discarded) dock here — CENTERED origin
+    /// (the panel centers on the mount), prominent over the slot zone. Null until
+    /// built. Collision decision in <see cref="BuildMounts"/>.
+    /// </summary>
+    internal Transform? DamageMount => _damageMount;
+
     /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
     internal const float InitiativeMountWidth = BoardW;
 
@@ -145,6 +155,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>Max panel height at the element mount, tray-local meters.</summary>
     internal const float ElementMountMaxHeight = 0.12f;
+
+    /// <summary>Target panel width at the damage mount, tray-local meters.</summary>
+    internal const float DamageMountWidth = 0.34f;
+
+    /// <summary>Max panel height at the damage mount, tray-local meters.</summary>
+    internal const float DamageMountMaxHeight = 0.16f;
 
     /// <summary>
     /// ONE shared pixel density for every tray-docked panel, uGUI pixels per
@@ -379,6 +395,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _clusterMount.localPosition = new Vector3(0f, ButtonClusterMountY, -0.006f);
         _clusterMount.localRotation = Quaternion.Euler(-90f, 0f, 0f);
         _clusterMount.localScale = Vector3.one * ButtonClusterMountScale;
+
+        // Test #21: the take-damage choice row docks CENTERED OVER THE SLOT ZONE —
+        // a DELIBERATE overlay, not a layout bug: while the lethal-damage prompt is
+        // open the card slots are irrelevant (the round cards are locked in; the
+        // burn follow-up runs through the FAN, not the slots), and the prompt must
+        // be the most prominent thing on the board. z -0.020 lifts the row 2 cm
+        // proud of the board so it draws (and ray-tests) in FRONT of the parked
+        // cards (z≈0), captions (-0.004) and highlights (+0.0035). At the 0.34
+        // width budget the panel spans x ±0.17 — clear of the rest plate (right
+        // edge -0.1925) and the CONFIRM base plate (left edge ≈0.177); at the 0.16
+        // height budget it spans y -0.02..0.14 (center 0.06), inside the board
+        // (edge 0.16) and below the round readout plate (bottom edge ≈0.107 at
+        // x ≥ 0.17). The prompt is transient — everything under it comes back the
+        // moment the window closes.
+        _damageMount = new GameObject("DamageMount").transform;
+        _damageMount.SetParent(_root, worldPositionStays: false);
+        _damageMount.localPosition = new Vector3(0f, 0.06f, -0.020f);
     }
 
     // ------------------------------------------------------------------ grab handle --
@@ -549,6 +582,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _objectivesMount = null;
         _elementMount = null;
         _clusterMount = null; // child of _root, destroyed with it
+        _damageMount = null;
         _placed = false;
         _wantVisible = false;
         _placementDeferLogged = false;
