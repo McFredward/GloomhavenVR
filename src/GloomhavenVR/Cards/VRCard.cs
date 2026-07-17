@@ -28,6 +28,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     public bool AllowsHand(VRHand hand) => !ReferenceEquals(hand, InteractionBlockedHand);
 
     private CardFace _face = new();
+    private readonly BurnCardFx _burnFx = new();
     private RectTransform? _canvasRect;
     private Canvas? _canvas;
     private Transform? _visualRoot;
@@ -516,6 +517,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         UpdateCanvasCamera();
         _face.Maintain();
+        // Keep the game's world-space CardSmoke plume bounded to the card while a burn/
+        // ghost effect runs (test #22, symptom 4c-i). No-op when nothing is burning.
+        _burnFx.Tick(FullCard);
 
         if (IsHeld)
         {
@@ -551,10 +555,15 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         base.OnDisable(); // unregister grabbable + detach from hand if held
         VRInteractables.UnregisterPokeable(this);
+        _burnFx.Detach(); // restore any bounded CardSmoke module state
         _popped = false;
         _laserPopped = false;
         _pop = 0f;
     }
 
-    private void OnDestroy() => DetachGameCard();
+    private void OnDestroy()
+    {
+        _burnFx.Detach();
+        DetachGameCard();
+    }
 }
