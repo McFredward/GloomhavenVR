@@ -110,6 +110,20 @@ namespace GloomhavenVR.WorldUI;
 /// video runs: both eye passes show the left RT and the mirrors stop rendering.
 /// The result is never a one-eyed image. Logged on every flip.
 ///
+/// INTRO GUARD (hardware test #17: one-eyed intro): the intro's render path is NOT
+/// mirror-reproducible-by-construction and NOT observable — decompiled
+/// GH.Runtime/IntroPlayer.cs only ever calls <c>_player.Play()</c>; the
+/// VideoPlayer's renderMode/camera binding and the logo canvas mode are
+/// scene-serialized in Intro.unity (no code to verify against), and the test-#17
+/// log shows the player never surfaces as camera-plane (no discovery/suspension
+/// line during the whole intro) while the right eye still misses the video — the
+/// frames reach the left RT through some camera-bound path the 'Main Camera'
+/// mirror cannot replay. While the screen shows a PRE-MENU scene, stereo is
+/// therefore force-suspended (both eyes = the left RT, which provably carries the
+/// intro) unless a video depth route is active that frame (a route composites the
+/// video into BOTH RTs by construction, so it IS verified — the depth layer wins).
+/// The intro is flat 2D content, so identical eyes are CORRECT: nothing is lost.
+///
 /// VIDEO DISCOVERY (hardware test #16, one-eyed intro): a one-shot GetComponent at
 /// mirror creation is NOT enough — the intro's player binds to its camera via
 /// <c>VideoPlayer.targetCamera</c> from a DIFFERENT GameObject (the intro 'Camera'
@@ -241,6 +255,9 @@ internal sealed class FlatScreenStereo
     /// <summary>Per-eye UV shift of the video depth layer (recomputed per tick; 0 = plane depth).</summary>
     private float _videoShiftUv;
 
+    /// <summary>True while the screen shows a pre-menu scene (class doc INTRO GUARD).</summary>
+    private bool _introGuard;
+
     // onPreRender eye-pass bookkeeping (all fixed fields — the hook must not allocate).
     private int _parityFrame = -1;
     private int _parityIndex;
@@ -314,11 +331,14 @@ internal sealed class FlatScreenStereo
     /// Per-tick lifecycle (called from FlatScreen.CaptureStack while the screen is
     /// visible): engage/disengage per config + session state, keep the right RT in
     /// step with the left one, refresh IPD and the derived scene-unit geometry.
+    /// <paramref name="introActive"/> = the screen currently shows a pre-menu scene
+    /// (class doc INTRO GUARD — forces the suspension unless a video route runs).
     /// </summary>
-    internal void Tick(RenderTexture? leftRt, Renderer? quadRenderer)
+    internal void Tick(RenderTexture? leftRt, Renderer? quadRenderer, bool introActive)
     {
         _leftRt = leftRt;
         _quadMaterial = quadRenderer != null ? quadRenderer.sharedMaterial : null;
+        _introGuard = introActive;
 
         if (!WantActive(leftRt))
         {
@@ -597,6 +617,7 @@ internal sealed class FlatScreenStereo
 
         bool depthLayer = s_videoDepthLayer?.Value ?? true;
         bool suspend = false;
+        bool anyRouted = false;
         for (int i = _mirrors.Count - 1; i >= 0; i--)
         {
             MirrorEntry entry = _mirrors[i];
@@ -623,19 +644,36 @@ internal sealed class FlatScreenStereo
             if (entry.Routed || (depthLayer && !entry.RouteFailed && TryRouteVideo(entry)))
             {
                 UpdateVideoBlits(entry);
+                anyRouted = true;
                 continue; // both RTs get the video — full stereo stays engaged
             }
             suspend = true; // fallback: both eyes show the left RT (never one-eyed)
+        }
+
+        // Intro guard (class doc): the intro's render path cannot be verified to
+        // reach the right RT — force identical eyes UNLESS a video route runs this
+        // frame (a route puts the video into BOTH RTs by construction, so it is the
+        // one verified-reproducible intro path and keeps the depth layer).
+        bool introForced = false;
+        if (_introGuard && !anyRouted && !suspend)
+        {
+            suspend = true;
+            introForced = true;
         }
 
         if (suspend != _videoSuspended)
         {
             _videoSuspended = suspend;
             VRLog.Info("WorldUI", suspend
-                ? "Stereo screen SUSPENDED — a captured camera plays a near-plane video " +
-                  "the depth layer could not take over (disabled or re-route failed); both " +
-                  "eyes show the left RT until it ends."
-                : "Stereo screen RESUMED — near-plane video ended; per-eye rendering re-engaged.");
+                ? (introForced
+                    ? "Stereo screen SUSPENDED — intro guard: the pre-menu scene's render " +
+                      "path cannot be verified to reach the right eye (scene-serialized " +
+                      "player binding, no camera-plane discovery); both eyes show the left " +
+                      "RT so the intro is never one-eyed."
+                    : "Stereo screen SUSPENDED — a captured camera plays a near-plane video " +
+                      "the depth layer could not take over (disabled or re-route failed); both " +
+                      "eyes show the left RT until it ends.")
+                : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
 
         for (int i = 0; i < _mirrors.Count; i++)

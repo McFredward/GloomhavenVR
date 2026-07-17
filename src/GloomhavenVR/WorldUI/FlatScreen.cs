@@ -366,7 +366,11 @@ internal sealed class FlatScreen
 
         // 4. Stereo screen (test #15 #7): mirror the captured stack into the right-eye
         //    RT. Runs AFTER the clear policy so mirrors copy the EFFECTIVE clear flags.
-        _stereo.Tick(_rt, _quadRenderer);
+        //    Pre-menu scenes engage the stereo intro guard (test #17 one-eyed intro:
+        //    the Intro scene's render path is scene-serialized and unverifiable —
+        //    FlatScreenStereo forces identical eyes there unless its video depth
+        //    layer took the video over, which reaches both eyes by construction).
+        _stereo.Tick(_rt, _quadRenderer, IsPreMenuScene());
         if (_stereo.Active)
         {
             _stereo.BeginStackSync();
