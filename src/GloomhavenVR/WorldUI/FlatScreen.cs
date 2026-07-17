@@ -50,21 +50,6 @@ namespace GloomhavenVR.WorldUI;
 /// interaction and the monitor are unaffected. [WorldUI] StereoScreen=false (or
 /// ScreenDepthStrength=0) never engages any of it: single-RT mono path, unchanged.
 ///
-/// WINDOW RECESS (hardware test #16: "look THROUGH a window, not at a TV"): the
-/// IMAGE quad is placed [WorldUI] ScreenWindowRecess real meters BEHIND the nominal
-/// ScreenDistance plane and scaled up by (D+r)/D so it subtends exactly the same
-/// angle as the un-recessed screen, while a thin mod-owned dark FRAME (four slim
-/// quads, no colliders) sits AT the nominal plane. Head motion now produces
-/// frame-vs-image parallax — a real GEOMETRIC window cue that works for ALL content
-/// including flat videos/stills (where the stereo mirrors are correctly suspended).
-/// Everything downstream is recess-agnostic by construction: pointer, poke and
-/// virtual-mouse math intersect the image quad's own transform (moved as a whole),
-/// the desktop mirror blits the RT before any quad is involved, and the stereo
-/// convergence targets the image plane's actual distance (FlatScreenStereo).
-/// The frame is a child of the quad: it is created, shown, hidden and destroyed
-/// with it (DontDestroyOnLoad inherited, hot-reload teardown via Shutdown→Hide).
-/// Recess 0 disables the frame and restores the exact pre-#16 placement.
-///
 /// DESKTOP MIRROR (menu-blackscreen fix): while the RT redirect is active nothing
 /// would reach the desktop backbuffer (the XR mirror shows an HMD eye, which shows
 /// the quad at best). <see cref="OnEndOfFrame"/> — driven by the WorldUI driver's
@@ -211,17 +196,6 @@ internal sealed class FlatScreen
     private const float FollowSettledDegrees = 5f;
     private float _offGazeSince = -1f;
     private bool _gliding;
-
-    // ---- window frame (test #16, class doc WINDOW RECESS) ----------------------------------
-    // Border sizes in real meters (× WorldScale at placement). The OVERLAP extends the
-    // frame's inner edge over the image edge so moderate head sway keeps the image edge
-    // hidden behind the frame instead of opening a gap (edge parallax ≈ sway × r/(D+r)
-    // ≈ 12 % of the sway at the defaults — 2 cm covers ~16 cm of lateral head motion).
-    private const float FrameBorderMeters = 0.06f;
-    private const float FrameOverlapMeters = 0.02f;
-
-    private GameObject? _frameRoot;
-    private readonly Transform?[] _framePieces = new Transform?[4];
 
     // Pre-menu "starting…" indicator (HMD-side sign of life while the intro plays flat).
     private GameObject? _indicator;
@@ -392,7 +366,11 @@ internal sealed class FlatScreen
 
         // 4. Stereo screen (test #15 #7): mirror the captured stack into the right-eye
         //    RT. Runs AFTER the clear policy so mirrors copy the EFFECTIVE clear flags.
-        _stereo.Tick(_rt, _quadRenderer);
+        //    Pre-menu scenes engage the stereo intro guard (test #17 one-eyed intro:
+        //    the Intro scene's render path is scene-serialized and unverifiable —
+        //    FlatScreenStereo forces identical eyes there unless its video depth
+        //    layer took the video over, which reaches both eyes by construction).
+        _stereo.Tick(_rt, _quadRenderer, IsPreMenuScene());
         if (_stereo.Active)
         {
             _stereo.BeginStackSync();
@@ -786,10 +764,9 @@ internal sealed class FlatScreen
             _rt = null;
             if (_quad != null)
             {
-                Object.Destroy(_quad); // the window frame is a child — dies with it
+                Object.Destroy(_quad);
                 _quad = null;
                 _quadRenderer = null;
-                _frameRoot = null;
             }
         }
         if (_visible)
@@ -819,14 +796,8 @@ internal sealed class FlatScreen
             fwd = Vector3.forward;
         fwd.Normalize();
 
-        // Window recess (class doc WINDOW RECESS): the IMAGE quad sits recess meters
-        // behind the nominal plane, angularly compensated by (D+r)/D via
-        // WantedQuadWidth — from the head it looks exactly as large as before; only
-        // the frame-vs-image parallax is new. All pointer/poke math uses this
-        // transform, so moving the quad moves the whole interaction surface with it.
         float distance = Mathf.Max(0.1f, WorldUIConfig.ScreenDistance.Value);
-        float recess = WorldUIConfig.ScreenRecessMeters;
-        Vector3 target = h.position + fwd * ((distance + recess) * scale);
+        Vector3 target = h.position + fwd * (distance * scale);
         // Quad primitive faces -Z (visible from -forward side): +Z away from viewer.
         Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
 
@@ -844,8 +815,6 @@ internal sealed class FlatScreen
             t.rotation = Quaternion.Slerp(t.rotation, rot, Time.deltaTime * 3f);
         }
         t.localScale = size;
-
-        UpdateWindowFrame(distance, recess, scale);
 
         if (instant)
         {
@@ -875,104 +844,12 @@ internal sealed class FlatScreen
     }
 
     /// <summary>
-    /// Effective image-quad width in world units: the configured screen width times
-    /// the (D+r)/D recess compensation (class doc WINDOW RECESS — the recessed image
-    /// subtends the same angle as the un-recessed screen). Single source of truth for
-    /// <see cref="PlaceScreen"/> AND <see cref="FollowHead"/>'s re-place trigger — a
-    /// divergence between the two would re-place the screen every frame.
+    /// Quad width in world units for the configured screen size. Single source of
+    /// truth for <see cref="PlaceScreen"/> AND <see cref="FollowHead"/>'s re-place
+    /// trigger — a divergence between the two would re-place the screen every frame.
     /// </summary>
-    private static float WantedQuadWidth(float scale)
-    {
-        float distance = Mathf.Max(0.1f, WorldUIConfig.ScreenDistance.Value);
-        return WorldUIConfig.ScreenWidth.Value * scale
-               * (distance + WorldUIConfig.ScreenRecessMeters) / distance;
-    }
-
-    // ---- window frame (class doc WINDOW RECESS) ----------------------------------------------
-
-    /// <summary>
-    /// Keep the window frame at the NOMINAL screen plane, recess meters in FRONT of
-    /// the image quad (whose child it is — position/rotation/visibility follow for
-    /// free; only the local offset and the piece layout are maintained here, on the
-    /// same cadence as placement). Recess 0 = frame hidden, nothing else changes.
-    /// </summary>
-    private void UpdateWindowFrame(float distance, float recessMeters, float scale)
-    {
-        if (_quad == null)
-            return;
-        if (recessMeters <= 0f)
-        {
-            if (_frameRoot != null && _frameRoot.activeSelf)
-                _frameRoot.SetActive(false);
-            return;
-        }
-
-        if (_frameRoot == null) // also true when the quad (and thus the frame) was destroyed externally
-            BuildWindowFrame();
-        if (!_frameRoot!.activeSelf)
-            _frameRoot.SetActive(true);
-
-        // Toward the viewer = -Z in quad space (the primitive faces -Z); the quad's
-        // localScale.z is 1, so the local offset is the world offset.
-        _frameRoot.transform.localPosition = new Vector3(0f, 0f, -recessMeters * scale);
-
-        // Child local units are normalized to the quad (parent scale = quad size), so
-        // the NOMINAL screen edge — where the recessed image edge projects from the
-        // centered head — sits at ±0.5·D/(D+r); the aperture pulls in by the overlap
-        // and the border extends outward from there. Vertical pieces span the full
-        // outer height so the ring tiles without corner gaps.
-        Vector3 quadSize = _quad.transform.localScale;
-        float innerHalf = 0.5f * distance / (distance + recessMeters);
-        float innerX = innerHalf - FrameOverlapMeters * scale / quadSize.x;
-        float innerY = innerHalf - FrameOverlapMeters * scale / quadSize.y;
-        float borderX = FrameBorderMeters * scale / quadSize.x;
-        float borderY = FrameBorderMeters * scale / quadSize.y;
-
-        SetFramePiece(0, new Vector2(-(innerX + borderX * 0.5f), 0f), new Vector2(borderX, 2f * (innerY + borderY)));
-        SetFramePiece(1, new Vector2(innerX + borderX * 0.5f, 0f), new Vector2(borderX, 2f * (innerY + borderY)));
-        SetFramePiece(2, new Vector2(0f, innerY + borderY * 0.5f), new Vector2(2f * innerX, borderY));
-        SetFramePiece(3, new Vector2(0f, -(innerY + borderY * 0.5f)), new Vector2(2f * innerX, borderY));
-    }
-
-    private void SetFramePiece(int index, Vector2 localPos, Vector2 localSize)
-    {
-        Transform? piece = _framePieces[index];
-        if (piece == null)
-            return;
-        piece.localPosition = new Vector3(localPos.x, localPos.y, 0f);
-        piece.localScale = new Vector3(localSize.x, localSize.y, 1f);
-    }
-
-    private void BuildWindowFrame()
-    {
-        _frameRoot = new GameObject("GloomhavenVR.FlatScreenFrame");
-        // Child of the quad: DontDestroyOnLoad, SetActive and destruction are all
-        // inherited — the frame can never outlive or lag the screen it frames.
-        _frameRoot.transform.SetParent(_quad!.transform, worldPositionStays: false);
-
-        // Sprites/Default (verified shipped — see the quad's shader note) draws in the
-        // TRANSPARENT queue, i.e. AFTER the opaque image quad. That ordering is load-
-        // bearing: the quad's Hidden/BlitCopy pass is ZTest Always, so an opaque frame
-        // drawn before it would be overwritten wherever the frame overlaps the image —
-        // exactly the overlap strip the window effect needs.
-        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
-        var material = new Material(shader) { color = new Color(0.055f, 0.05f, 0.045f, 1f) };
-        for (int i = 0; i < _framePieces.Length; i++)
-        {
-            GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            piece.name = "GloomhavenVR.FlatScreenFrame." + i;
-            // No collider — the pointer/laser/poke paths intersect the image quad
-            // only; the frame must never shadow a raycast.
-            Object.Destroy(piece.GetComponent<Collider>());
-            piece.transform.SetParent(_frameRoot.transform, worldPositionStays: false);
-            piece.GetComponent<Renderer>().sharedMaterial = material;
-            _framePieces[i] = piece.transform;
-        }
-        VRLayers.Apply(_frameRoot); // recursive — head camera only, like the quad
-        VRLog.Info("WorldUI", "FlatScreen window frame created — image recessed " +
-                              $"{WorldUIConfig.ScreenRecessMeters:F2} m behind the frame plane " +
-                              "(head motion now yields frame-vs-image parallax).");
-    }
+    private static float WantedQuadWidth(float scale) =>
+        WorldUIConfig.ScreenWidth.Value * scale;
 
     private void FollowHead()
     {
@@ -989,10 +866,9 @@ internal sealed class FlatScreen
         // wasn't facing.
         Transform? rig = Rig.VRRigDriver.RigRoot;
         Vector3 rigPos = rig != null ? rig.position : Vector3.zero;
-        // Live-tunable size/distance/recess ([WorldUI] ScreenWidth/ScreenDistance/
-        // ScreenWindowRecess): re-place when the effective width no longer matches
-        // the quad (cheap float compare; the recess factor is part of the width, so
-        // a recess flip re-places too).
+        // Live-tunable size/distance ([WorldUI] ScreenWidth/ScreenDistance):
+        // re-place when the effective width no longer matches the quad (cheap
+        // float compare).
         float wantedWidth = WantedQuadWidth(PanelLayout.WorldScale);
         if (head != _placedHead || (rigPos - _placedRigPos).sqrMagnitude > 1e-4f
             || Mathf.Abs(_quad.transform.localScale.x - wantedWidth) > 0.001f)
