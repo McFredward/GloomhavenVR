@@ -144,6 +144,8 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             if (ReferenceEquals(card, _laserHover))
                 ClearLaserHover();
+            if (ReferenceEquals(card, _browseHover))
+                ClearBrowseHover();
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _browser.Remove(card);
@@ -172,6 +174,7 @@ internal sealed class CardsDriver : MonoBehaviour
             CloseBrowser("hands down");
             ClearLaserHover();
             ClearBoardHover();
+            ClearBrowseHover();
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
@@ -190,9 +193,11 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdatePalmGate();
         UpdateFanLaser();
         UpdateBoardLaser();
+        UpdateBrowseLaser();
         UpdateSlotHighlight();
         _fan.Tick();
         _half.Tick();
+        _browser.Tick(); // held reading fan follows the grabbing hand (item 5)
 
         CardsHandUI? hand = CurrentHand();
         if (_tray.IsVisible)
@@ -484,6 +489,62 @@ internal sealed class CardsDriver : MonoBehaviour
         _trayCardHover = null;
     }
 
+    // ------------------------------------------------------------------ browse laser --
+
+    private VRCard? _browseHover;
+
+    /// <summary>
+    /// Item 5 (laser-selectable pile browse): the dominant hand's ray highlights an
+    /// open browse arc's cards and TriggerDown plucks the pointed card into the hand
+    /// to read it close (released on TriggerUp → returns to the arc, no game state).
+    /// Yields to the fan laser and the board laser — those are real interactions; the
+    /// browse is a passive read layered on top. Mirrors <see cref="UpdateFanLaser"/>.
+    /// </summary>
+    private void UpdateBrowseLaser()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (!_browser.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
+            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || _laserHover != null || _trayCardHover != null || _boardHover != null)
+        {
+            ClearBrowseHover();
+            return;
+        }
+
+        PickPose pick = dom.Ray.Current;
+        if (!_browser.TryRaycast(pick.Origin, pick.Direction, _browseHover, out VRCard? card, out Vector3 point, out float dist)
+            || card == null
+            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        {
+            ClearBrowseHover();
+            return;
+        }
+
+        if (!ReferenceEquals(card, _browseHover))
+        {
+            ClearBrowseHover();
+            _browseHover = card;
+            card.SetLaserHover(true);
+            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
+        }
+
+        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        if (dom.TriggerDown && card.CanGrab)
+        {
+            VRCard grab = card;
+            ClearBrowseHover();
+            dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
+        }
+    }
+
+    private void ClearBrowseHover()
+    {
+        if (_browseHover == null)
+            return;
+        _browseHover.SetLaserHover(false);
+        _browseHover = null;
+    }
+
     // ------------------------------------------------------------------ slot snap preview --
 
     private int _snapHighlightSlot = -1;
@@ -721,8 +782,10 @@ internal sealed class CardsDriver : MonoBehaviour
 
             card.PokeSelectEnabled = inFan && pokeSelect;
             // Field occupants stay grabbable: plucking one back off the field and
-            // releasing it elsewhere unselects through the game's own seam.
-            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField;
+            // releasing it elsewhere unselects through the game's own seam. Browse
+            // cards are grabbable too (item 5) — but purely to pull one close and
+            // read it; the release routes back to the arc, never to a game seam.
+            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse;
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
 
@@ -815,6 +878,15 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_fakeActive)
         {
             RouteFakeRelease(card, hand);
+            return;
+        }
+
+        // Pile-browse card (item 5): plucked out for a close read — return it to the
+        // reading arc, NEVER into the select/slot seams below (these are discard/burnt
+        // cards, not hand cards; committing them would be wrong). Purely informational.
+        if (_browser.IsOpen && _browser.Contains(card))
+        {
+            _browser.Add(card);
             return;
         }
 
@@ -1223,10 +1295,10 @@ internal sealed class CardsDriver : MonoBehaviour
             CloseBrowser("poked again");
             return;
         }
-        OpenBrowser(kind, held: false);
+        OpenBrowser(kind, held: false, hand);
     }
 
-    private void OnPileGrabOpened(PileKind kind, VRHand hand) => OpenBrowser(kind, held: true);
+    private void OnPileGrabOpened(PileKind kind, VRHand hand) => OpenBrowser(kind, held: true, hand);
 
     private void OnPileGrabReleased(PileKind kind, VRHand hand)
     {
@@ -1234,20 +1306,22 @@ internal sealed class CardsDriver : MonoBehaviour
             CloseBrowser("grip released");
     }
 
-    private void OpenBrowser(PileKind kind, bool held)
+    private void OpenBrowser(PileKind kind, bool held, VRHand? hand)
     {
-        CardsHandUI? hand = CurrentHand();
+        CardsHandUI? gameHand = CurrentHand();
         Transform? anchor = AnchorParent();
-        if (hand == null || anchor == null || !CardsConfig.PileViewer.Value)
+        if (gameHand == null || anchor == null || !CardsConfig.PileViewer.Value)
             return;
-        CardHandMode mode = CardsGameApi.Mode(hand);
+        CardHandMode mode = CardsGameApi.Mode(gameHand);
         if (IsPickMode(mode) || VRModeStateMachine.CurrentMode == VRMode.ModalUI)
             return; // modal pick flows / dialogs own the scene — browsing is non-modal only
         _browseHeld = held;
-        _browseHand = hand;
+        _browseHand = gameHand;
         _browseMode = mode;
-        _browser.Open(kind, anchor);
-        VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held" : "toggled")}, mode={mode}).");
+        // Held grab (item 5): the arc becomes a reading fan pinned to the grabbing
+        // hand — "the pile in my hand". Poke-toggle stays a fixed head-relative wall.
+        _browser.Open(kind, anchor, held ? hand : null);
+        VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held in hand" : "toggled")}, mode={mode}).");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
 
@@ -1258,6 +1332,7 @@ internal sealed class CardsDriver : MonoBehaviour
         VRLog.Info("Cards", $"Pile browse CLOSE ({reason}).");
         _browseHeld = false;
         _browseHand = null;
+        ClearBrowseHover();
         _browser.Close();
         _dirty = true; // next rebuild parks the browsed cards
     }
