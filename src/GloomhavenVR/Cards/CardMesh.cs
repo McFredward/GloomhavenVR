@@ -17,6 +17,23 @@ namespace GloomhavenVR.Cards;
 /// floats at z = -0.0012 in front of the front face (z = 0); the slab extends from
 /// z = 0 to z = +thickness, i.e. entirely behind the face — matching the README
 /// contract "front face area flush around z ≈ 0..+0.001".
+///
+/// Silhouette (hardware test #25): the game's ability cards are NOT plain rectangles —
+/// the card art has an artistic, non-rectangular outline (transparent decorative
+/// edges), and the rounded-rect slab's dark front/rim used to show as a rectangular
+/// border AROUND that art. <see cref="SetSilhouette"/> switches the SHARED front/rim +
+/// back materials to alpha-CLIP (stock Standard shader, Cutout mode) against a
+/// card-space alpha footprint captured from the LIVE card art at runtime (see
+/// <see cref="CardFace"/>), so the visible 3D silhouette (front border ring, thin rim,
+/// decorative back) follows the card's ACTUAL outline instead of a rectangle. The mesh
+/// GEOMETRY is unchanged (the full-envelope rounded slab, same pivot/size → grab
+/// collider and fan layout unaffected); only the fragments inside the art outline
+/// survive the clip. Every vertex — front, back AND rim — carries card-space planar UVs
+/// so the single footprint texture maps onto every face; the rim samples a hair INSIDE
+/// its outline point so the thin edge survives the clip along the solid silhouette. If
+/// no footprint is ever supplied (or it fails the sanity guard) the materials stay
+/// opaque — exactly the round-24 rounded-rect look, so this can only ever add the
+/// ornate outline, never regress.
 /// </summary>
 internal static class CardMesh
 {
@@ -35,9 +52,23 @@ internal static class CardMesh
     // still a trivial one-time build.
     private const int CornerSegments = 6;
 
+    // How far (fraction of card size) the rim's UV sample is pulled INWARD from its
+    // outline point, so the thin edge samples fully-opaque interior of the silhouette
+    // footprint (alpha ≈ 1) and survives the alpha clip along the solid outline instead
+    // of straddling the ~0.5 alpha boundary. ~2 % ≈ 1.3 mm on a 63.5 mm card.
+    private const float RimUvInset = 0.02f;
+
     private static Mesh? _sharedMesh;
     private static Vector2 _sharedMeshSize;
     private static Texture2D? _backTexture;
+
+    // Shared front/rim + back materials (one pair for ALL cards). Cached so that a
+    // silhouette supplied AFTER cards are built (SetSilhouette, first CardFace.Adopt)
+    // mutates the very instances every backing renderer already references — so every
+    // live card adopts the ornate outline at once. See VRCard.BuildProceduralBacking.
+    private static Material? _edgeMaterial;
+    private static Material? _backMaterial;
+    private static bool _silhouetteApplied;
 
     /// <summary>
     /// Build (or reuse) the rounded slab mesh for the given card size. Submesh 0 =
@@ -112,8 +143,18 @@ internal static class CardMesh
             vertices[rimBase + i * 2 + 1] = new Vector3(p.x, p.y, Thickness);
             normals[rimBase + i * 2] = outward;
             normals[rimBase + i * 2 + 1] = outward;
-            uv[rimBase + i * 2] = new Vector2((float)i / n, 0f);
-            uv[rimBase + i * 2 + 1] = new Vector2((float)i / n, 1f);
+            // Card-space planar UV pulled slightly inward (so the silhouette footprint
+            // is sampled just INSIDE the outline, alpha ≈ 1 on the solid edge) — the rim
+            // then follows the ornate outline under the alpha clip and keeps its 1.5 mm
+            // thickness along the visible silhouette. Same value front + back copy so
+            // the whole edge wall clips consistently.
+            Vector2 pin = new(p.x - outward.x * (width * RimUvInset),
+                              p.y - outward.y * (height * RimUvInset));
+            var uvRim = new Vector2(
+                Mathf.Clamp01(pin.x / width + 0.5f),
+                Mathf.Clamp01(pin.y / height + 0.5f));
+            uv[rimBase + i * 2] = uvRim;
+            uv[rimBase + i * 2 + 1] = uvRim;
         }
         vertices[frontBase + n] = new Vector3(0f, 0f, 0f);
         normals[frontBase + n] = Vector3.back;
@@ -182,21 +223,156 @@ internal static class CardMesh
 
     // ------------------------------------------------------------------ materials --
 
-    /// <summary>Dark neutral for the front (hidden behind the live face) and the rim edge.</summary>
+    /// <summary>Dark front/rim colour (hidden behind the live face; the thin rounded
+    /// front reads as the card's border — see CardFace inset).</summary>
+    private static readonly Color EdgeColor = new(0.10f, 0.09f, 0.08f);
+
+    /// <summary>
+    /// Dark neutral for the front (hidden behind the live face) and the rim edge.
+    /// SHARED across every card (see <see cref="_edgeMaterial"/>) so a later
+    /// <see cref="SetSilhouette"/> re-shapes them all at once.
+    /// </summary>
     internal static Material CreateEdgeMaterial()
     {
-        Material m = NewMaterial();
-        m.color = new Color(0.10f, 0.09f, 0.08f);
-        return m;
+        if (_edgeMaterial == null)
+        {
+            _edgeMaterial = NewMaterial();
+            _edgeMaterial.color = EdgeColor;
+        }
+        return _edgeMaterial;
     }
 
-    /// <summary>Opaque decorative card back: procedural lattice pattern texture.</summary>
+    /// <summary>Opaque decorative card back: procedural lattice pattern texture. Shared
+    /// across every card (see <see cref="CreateEdgeMaterial"/>).</summary>
     internal static Material CreateBackMaterial()
     {
-        Material m = NewMaterial();
+        if (_backMaterial == null)
+        {
+            _backMaterial = NewMaterial();
+            _backMaterial.color = Color.white;
+            _backMaterial.mainTexture = GetBackTexture();
+        }
+        return _backMaterial;
+    }
+
+    /// <summary>True once <see cref="SetSilhouette"/> has re-shaped the card body to the
+    /// real card-art outline (one-shot).</summary>
+    internal static bool SilhouetteApplied => _silhouetteApplied;
+
+    /// <summary>
+    /// Re-shape the 3D card body to the real card silhouette (hardware test #25). One
+    /// time per session: <paramref name="alpha"/> is a card-space opacity footprint of
+    /// the LIVE card art (row-major, <c>alpha[y*w + x]</c>, x → right, y → up, normalized
+    /// over the card face rect) captured by <see cref="CardFace"/>. Its alpha is baked
+    /// into the shared front/rim and back materials, which flip to the stock Standard
+    /// shader's Cutout (alpha-test) mode — so every card's slab is clipped to the art's
+    /// outline: the dark front now reads as an ORNATE border ring, the rim follows the
+    /// curve, the back carries the same shape.
+    ///
+    /// Robust by design: returns without applying (cards stay the opaque rounded-rect)
+    /// if the footprint is malformed, degenerate (mostly empty or a solid rectangle —
+    /// the latter would be pointless AND is the signature of a bad capture), hollow in
+    /// the centre, or if the Standard shader (hence Cutout) is unavailable. It therefore
+    /// can never make a card invisible. Returns whether the silhouette was applied.
+    /// </summary>
+    internal static bool SetSilhouette(byte[]? alpha, int w, int h)
+    {
+        if (_silhouetteApplied)
+            return true;
+        if (alpha == null || w <= 1 || h <= 1 || alpha.Length != w * h)
+            return false;
+
+        // Need the Standard shader for a proper opaque alpha-CLIP (Cutout). Without it a
+        // fallback shader would only alpha-blend (unlit, sorting hazards) — not worth the
+        // risk, so keep the opaque rounded-rect instead.
+        Material edge = CreateEdgeMaterial();
+        Material back = CreateBackMaterial();
+        if (edge.shader == null || edge.shader.name != "Standard")
+            return false;
+
+        // --- sanity guard: reject empty / solid / hollow-centre footprints ----------
+        long opaque = 0;
+        for (int i = 0; i < alpha.Length; i++)
+            if (alpha[i] >= 128) opaque++;
+        float frac = (float)opaque / alpha.Length;
+        if (frac < 0.12f || frac > 0.985f)
+            return false; // near-empty (bad capture) or near-solid (a rectangle — no-op)
+        // Centre must be solid card (a valid card is opaque at its middle).
+        if (!CenterOpaque(alpha, w, h))
+            return false;
+
+        // --- bake the footprint alpha into both materials' textures -----------------
+        Texture2D backPattern = GetBackTexture();
+        var edgePixels = new Color32[alpha.Length];
+        var backPixels = new Color32[alpha.Length];
+        var edgeRgb = (Color32)EdgeColor;
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * w + x;
+                byte a = alpha[i];
+                edgePixels[i] = new Color32(edgeRgb.r, edgeRgb.g, edgeRgb.b, a);
+                // Card back is drawn through MIRRORED UVs (see Build): mirror the alpha
+                // so the back outline lines up with the front. The lattice RGB is
+                // left-right symmetric, so its own mirroring is invisible.
+                Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / w, (y + 0.5f) / h);
+                byte am = alpha[y * w + (w - 1 - x)];
+                backPixels[i] = new Color32(
+                    (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), am);
+            }
+        }
+
+        ConfigureCutout(edge, MakeCutoutTexture("GloomhavenVR.CardSilhouette.Edge", edgePixels, w, h));
+        ConfigureCutout(back, MakeCutoutTexture("GloomhavenVR.CardSilhouette.Back", backPixels, w, h));
+        _silhouetteApplied = true;
+        return true;
+    }
+
+    /// <summary>Is the middle 20 % box of the footprint solidly opaque (a real card)?</summary>
+    private static bool CenterOpaque(byte[] alpha, int w, int h)
+    {
+        int x0 = (int)(w * 0.4f), x1 = (int)(w * 0.6f);
+        int y0 = (int)(h * 0.4f), y1 = (int)(h * 0.6f);
+        int total = 0, opaque = 0;
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+            {
+                total++;
+                if (alpha[y * w + x] >= 128) opaque++;
+            }
+        return total > 0 && opaque >= total * 0.85f;
+    }
+
+    private static Texture2D MakeCutoutTexture(string name, Color32[] pixels, int w, int h)
+    {
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: true)
+        {
+            name = name,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+        };
+        tex.SetPixels32(pixels);
+        tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+        return tex;
+    }
+
+    /// <summary>Flip a shared Standard material into opaque alpha-test (Cutout) mode with
+    /// the given footprint texture (RGB = look, A = card outline).</summary>
+    private static void ConfigureCutout(Material m, Texture2D tex)
+    {
+        m.mainTexture = tex;
         m.color = Color.white;
-        m.mainTexture = GetBackTexture();
-        return m;
+        m.SetFloat("_Mode", 1f); // Cutout
+        m.SetOverrideTag("RenderType", "TransparentCutout");
+        m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+        m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+        m.SetInt("_ZWrite", 1);
+        m.EnableKeyword("_ALPHATEST_ON");
+        m.DisableKeyword("_ALPHABLEND_ON");
+        m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        m.SetFloat("_Cutoff", 0.5f);
+        m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
     }
 
     private static Material NewMaterial()
@@ -264,7 +440,9 @@ internal static class CardMesh
             }
         }
         tex.SetPixels(pixels);
-        tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+        // Keep CPU-readable: SetSilhouette samples this pattern (GetPixelBilinear) to
+        // composite the card-back with the captured outline alpha.
+        tex.Apply(updateMipmaps: true, makeNoLongerReadable: false);
         _backTexture = tex;
         return tex;
     }
