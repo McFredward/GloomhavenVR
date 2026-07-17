@@ -737,6 +737,14 @@ internal sealed class CardsDriver : MonoBehaviour
                     if (occupant == null || occupant.GameCard == null || !occupant.GameCard.IsSelected)
                         _fieldCards.RemoveAt(i);
                 }
+                // Item 9: the SELECTABLE widgets become the fan. In CardsSelection the
+                // fan is the real hand; in the burn-two-discarded flow the game marks
+                // the DISCARD-pile widgets selectable (CardHandMode.LoseCard, pile
+                // Discarded, count 2 — AbilityCardUI.SetMode), so the exact same fan
+                // becomes the discard pile, picked exactly like hand cards through the
+                // one authoritative TryCommitPick → SelectCard seam. Track the source
+                // pile for the change-deduped Info line below.
+                CardPileType pickSource = CardPileType.None;
                 for (int i = 0; i < _widgetBuffer.Count; i++)
                 {
                     AbilityCardUI widget = _widgetBuffer[i];
@@ -744,10 +752,13 @@ internal sealed class CardsDriver : MonoBehaviour
                         continue;
                     if (!widget.IsSelectable)
                         continue;
+                    if (pickSource == CardPileType.None)
+                        pickSource = widget.CardType;
                     VRCard card = AdoptedCard(widget);
                     if (!_fieldCards.Contains(card))
                         _fanBuffer.Add(card);
                 }
+                LogPickSource(mode, pickSource);
                 RelayoutField();
                 break;
 
@@ -768,7 +779,10 @@ internal sealed class CardsDriver : MonoBehaviour
         bool pick = IsPickMode(mode);
         _tray.SetPickFieldVisible(pick && trayVisible);
         if (!pick)
+        {
             _fieldCards.Clear();
+            _loggedPickSource = null; // re-entering a pick mode logs its source afresh (item 9)
+        }
 
         // Pile browse (test #21): refresh content or close — BEFORE the zone flags
         // below so freshly closed browse cards park in this same pass.
@@ -1030,6 +1044,34 @@ internal sealed class CardsDriver : MonoBehaviour
 
     /// <summary>Cards physically laid onto the pick drop field (selected candidates).</summary>
     private readonly List<VRCard> _fieldCards = new(4);
+
+    /// <summary>Change-dedup for the pick-fan source line (item 9): (mode, source pile).</summary>
+    private (CardHandMode mode, CardPileType source)? _loggedPickSource;
+
+    /// <summary>
+    /// Item 9: name where the pick fan's candidates come from — the REAL HAND
+    /// (avoid-damage lose-1, card-limit) vs the DISCARD pile (burn-two-discarded,
+    /// recover-discard) vs the BURNT pile (recover-lost) — change-deduped to one line
+    /// per (mode, source) change. Proves from the log alone that "burn two discarded"
+    /// really turned the discard pile into the selectable hand fan.
+    /// </summary>
+    private void LogPickSource(CardHandMode mode, CardPileType source)
+    {
+        var key = (mode, source);
+        if (_loggedPickSource.HasValue && _loggedPickSource.Value == key)
+            return;
+        _loggedPickSource = key;
+        string name = source switch
+        {
+            CardPileType.Hand => "real hand",
+            CardPileType.Discarded => "discard pile",
+            CardPileType.Lost or CardPileType.Permalost => "burnt pile",
+            CardPileType.None => "none (no selectable cards)",
+            _ => source.ToString(),
+        };
+        VRLog.Info("Cards", $"Pick fan source ({mode}): {name} — the selectable cards ARE the hand fan " +
+                            "(picked through the one TryCommitPick → CardsHandUI.SelectCard seam).");
+    }
 
     /// <summary>
     /// One pick commit may be in flight at a time (test #21 B): poke and drop both
