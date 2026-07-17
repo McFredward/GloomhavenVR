@@ -1,4 +1,5 @@
 using GloomhavenVR.Core;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -217,5 +218,43 @@ internal sealed class PropInfoSurface
     {
         DetachWatch(_textInfo);
         DetachWatch(_propInfo);
+    }
+}
+
+/// <summary>
+/// Attribution diagnostic (test #18): the 'Geschlossene Tür' panel appeared with
+/// nothing in the log naming WHY — the lock had to be reconstructed from fan-state
+/// lines. One change-deduped Info line per Show while VR runs names the hovered
+/// prop titles, so any future "mystery panel" report is attributable from
+/// LogOutput.log alone. Postfix on the params overload — the (title, description)
+/// overload delegates to it (UITextInfoPanel.cs:74-77). Note Show can still
+/// early-return inside the game (scene transition, results shown, DoShow off), so
+/// the line records the hover REQUEST, not necessarily a visible panel.
+/// </summary>
+[HarmonyPatch(typeof(UITextInfoPanel), nameof(UITextInfoPanel.Show), typeof((string, string)[]))]
+internal static class UITextInfoPanel_Show_Patch
+{
+    private static string? _lastLogged;
+
+    private static void Postfix((string title, string description)[] input)
+    {
+        if (!VRSession.IsRunning)
+            return;
+        string titles = "<none>";
+        if (input != null && input.Length > 0)
+        {
+            var sb = new System.Text.StringBuilder(64);
+            for (int i = 0; i < input.Length; i++)
+            {
+                if (i > 0)
+                    sb.Append(" | ");
+                sb.Append(string.IsNullOrEmpty(input[i].title) ? "<untitled>" : input[i].title);
+            }
+            titles = sb.ToString();
+        }
+        if (titles == _lastLogged)
+            return; // change-deduped: the hover path re-Shows per hover change
+        _lastLogged = titles;
+        VRLog.Info("WorldUI", $"UITextInfoPanel.Show (hover prop info): {titles}.");
     }
 }

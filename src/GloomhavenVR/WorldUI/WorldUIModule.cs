@@ -38,6 +38,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(WorldspaceDisplayPanelBase_Patches));
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
+        VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
