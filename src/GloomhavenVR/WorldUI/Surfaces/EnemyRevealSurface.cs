@@ -239,16 +239,19 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Above the board center (the orbit focus the panels anchor to — live, so the
-    /// panel follows a diorama move/rescale), at the SHARED tray density (test #16)
-    /// with the objectives' readability multiplier, width-capped.
+    /// Above the board center (the orbit focus the panels anchor to), at the SHARED
+    /// tray density (test #16) with the objectives' readability multiplier,
+    /// width-capped. Sized and offset in FIXED game-world units at the diorama's
+    /// reference scale (<see cref="ReferenceScale"/>), so the panel zooms WITH the
+    /// board under world-grab (test #23 (b)) — see that helper for why the old live
+    /// WorldScale multiplier held it at a constant apparent size instead.
     /// </summary>
     private void Place()
     {
         if (_panel == null || !PanelLayout.TryGetAnchor(out Vector3 anchor, out _))
             return;
 
-        float scale = PanelLayout.WorldScale;
+        float scale = ReferenceScale();
         float metersPerPx = 1f / (PlayTray.TrayPixelsPerMeter * DensityScale);
         Rect rect = _panel.HostRect.rect; // content-fitted by CanvasConversion.TickFit
         if (rect.width > 1f)
@@ -258,6 +261,23 @@ internal sealed class EnemyRevealSurface
         host.SetPositionAndRotation(
             anchor + Vector3.up * (HeightMeters * scale), _spawnYaw);
         host.localScale = Vector3.one * (metersPerPx * scale);
+    }
+
+    /// <summary>
+    /// Diorama reference scale (game units per real meter, fixed at rig build). The
+    /// board sits at a fixed game-world size; world-grab zoom rescales the RIG, so a
+    /// game-unit-fixed panel appears to scale with the board exactly as the board does.
+    /// The old code multiplied position and size by the LIVE WorldScale, which cancels
+    /// that viewing magnification — the reveal floated at a constant apparent size
+    /// while the diorama scaled beneath it (test #23 (b)). Anchoring to the constant
+    /// base scale keeps the default look (live == base at the default zoom) while
+    /// letting zoom move the panel with the board. Falls back to the live scale (1
+    /// outside a scenario) when no rig has resolved a base scale yet.
+    /// </summary>
+    private static float ReferenceScale()
+    {
+        float baseScale = Rig.VRRigDriver.BaseWorldScale;
+        return baseScale > 1e-4f ? baseScale : PanelLayout.WorldScale;
     }
 
     public void Shutdown()
