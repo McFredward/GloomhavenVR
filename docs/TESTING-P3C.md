@@ -70,7 +70,10 @@
 - [ ] Every miniature (players + enemies) has its HP/effect bar floating just above
       its head, facing you, world-anchored (bars do NOT smear across a head-locked
       plane — the P2 known-issue is gone).
-- [ ] Bars grow gently with distance but stay readable across the table (clamp ×2.5).
+- [ ] Test #14: bars keep a FIXED board-space size — step away / lean back and the
+      bars do NOT grow; they scale only when the diorama itself is scaled (like the
+      minis). Billboard rotation still tracks the HMD.
+- [ ] `[WorldUI] BarFixedSize = false` restores the legacy distance growth (×2.5 max).
 - [ ] Damage numbers, heals, XP/gold pops and condition icons still animate (data flow
       untouched).
 - [ ] Kill an enemy: its bar disappears cleanly (no orphaned host canvases — check
@@ -319,8 +322,8 @@ summons the whole flat screen — only THAT window floats in front of the HMD.
 
 - [ ] In a scenario, pinch-zoom the diorama considerably LARGER (world bigger): HP
       bars stay just above the miniatures' heads — never inside the minis.
-- [ ] Zoom far OUT: bars stay just above the minis (and gently grow with distance for
-      readability, ×2.5 max).
+- [ ] Zoom far OUT: bars stay just above the minis at their fixed board-space size
+      (legacy `[WorldUI] BarFixedSize = false`: gentle distance growth, ×2.5 max).
 - [ ] Boss/large monsters: bar clears the taller model (bounds-derived anchor).
 - [ ] Summons spawned mid-fight get correctly anchored bars (bounds cached at adopt).
 
@@ -331,3 +334,48 @@ summons the whole flat screen — only THAT window floats in front of the HMD.
 | **Converted / passive — never trigger the fallback** | ConfirmationBox (world dialog, while `[WorldUI] Dialogs` on), ActorStatPanel, EnemyCurrentTurnStatPanel (stat surfaces), CombatLog, CardHolder (Cards module), QuestTracker, MapObjectiveManager, TrapInfoPanel, DoorInfoPanel, MapNodeInfoPanel (hover popups), phase banner (custom-ID toast) |
 | **Fallback → ModalUI + floating window (P8, `ModalStyle=window`) or flat screen (`screen` / conversion failure)** | EventsPanel, Message, HelpBox, TextInfoPanel, IntroductionScreen, RewardsPanel, ResultsPanel, TakeDamagePanel, DurabilityPanel, QuestPopup, UnlockQuestPopup, AdventureCompletionPanel, HeroLevelUpPanel, ESCMenu, Options(+Submenu/Vice), DifficultyPanel, CompendiumPanel, PartyPanel, EquipmentItemsPanel, Mutiplayer*/Character/MainMenu confirmation boxes, multiplayer panels; ConfirmationBox too when `[WorldUI] Dialogs = false` |
 | **Live-polled (scene-serialized IDs), resolved to their UIWindow for the window style** | StoryController story box ('UI Story Box', `StoryController.window`), LevelMessageUILayoutGroup ×2 (tutorial/level messages incl. `UILevelMessageBoxFixed`, via `LevelMessagesUIHandler.s_Instance`), UIManager.dialogPopup (choice dialogs, `DialogPopup.Window`) |
+
+## 12. Test #14 — panel planes, straight laser, placement
+
+### 12.1 Content-fit laser/poke planes (ALL converted hosts)
+
+- [ ] Start a scenario and check the log's `[Interact] Ray-uGUI canvas '…': world
+      rect …` lines: `Panel_InitiativeTrack` must NOT report a ~45×25 m rect
+      (sizeDelta 1920×1080) anymore — after the `Host rect fit 'GloomhavenVR.
+      Panel_InitiativeTrack': 1920x1080 → …` line, the re-logged world rect must
+      match the VISIBLE strip. Same for `Panel_CombatLog`, `Panel_Objectives` and
+      every `Panel_Modal_*`.
+- [ ] Sweep the laser across the table between panels: the dot lands on the board /
+      scene behind, never on an invisible plane in mid-air; tray buttons and board
+      hexes stay clickable with panels visible nearby.
+- [ ] Multi-page story window: advance to a LONGER page — the host re-fits (a new
+      `Host rect fit` log line at most ~0.5 s later) and the laser/poke plane covers
+      the whole visible text (growth re-fit, every ~30 frames, 2 % threshold).
+- [ ] No per-frame `Host rect fit` spam while a panel's content is static.
+
+### 12.2 Dead-straight laser
+
+- [ ] The beam NEVER changes direction when the dot crosses onto a panel, a card or
+      a snapped hex — controller rotation alone re-aims it. Hits only shorten it.
+- [ ] Hex snap ([Board] SnapToHexCenter): the game's own hex hover highlight shows
+      the snapped hex; the visible dot stays exactly on the aim ray at the surface.
+- [ ] The beam still starts at the pointing finger (knuckle projected onto the aim
+      line) and does not swing when the trigger is pulled (finger curl).
+
+### 12.3 Dot/beam on top of UI
+
+- [ ] Move the dot across every corner of a floated dialog and the initiative track:
+      the dot and the last beam segment are ALWAYS fully visible on the panel (never
+      partially behind text/images). Render queue 4600 > canvas range; real scene
+      geometry still occludes the beam normally.
+
+### 12.4 Hero placement (second click)
+
+- [ ] Round start: click your character (highlight) → point at a glowing start hex:
+      log `[Placement] hover refresh → s_PlacementTile=(x,y), overUI=False, …` and
+      the hex shows the hover star + character ghost preview.
+- [ ] Click the hovered hex: log `[Placement] TileHandler click: tile=(x,y),
+      armed=(x,y), actorSelected=True → will PLACE.` and the character moves.
+- [ ] Repeat onto another glowing hex (re-position) — same flow.
+- [ ] While the beam is ON a world panel (e.g. initiative track), overUI must log
+      True and board hover must pause (vanilla semantics); off the panel it resumes.

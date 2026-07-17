@@ -95,9 +95,15 @@ restores the mouse. (In real VR the game camera is rig-driven, so this is moot.)
 - [ ] Chest/loot tile: touch-click to move onto it, loot resolves at turn end as usual.
 - [ ] Clicking an enemy/ally miniature (not its hex) targets its tile — identical to
       clicking the hex.
-- [ ] Character placement at scenario start: near-touch a starting hex to place your
-      hero (the ray is normally off in CardSelection mode — near touch or
-      `[Hands] RayAlwaysOn` covers placement).
+- [ ] Character placement at scenario start (re-worked test #14 item 5): click your
+      character → it highlights; POINT at a glowing start hex — the hover star +
+      ghost preview appear (log `[Placement] hover refresh → s_PlacementTile=(x,y),
+      overUI=False`) — then click it: the hero is placed (log `[Placement]
+      TileHandler click: … → will PLACE.`). The destination must be hovered first
+      (the game arms `Waypoint.s_PlacementTile` on hover only); in VR this needs
+      `UIManager.IsPointerOverUI` to be false while the beam is on the board — a
+      logged `overUI=True` off-panel means the IsPointerOverUI patch or the host
+      content fit regressed.
 
 ### Undo / consistency
 
