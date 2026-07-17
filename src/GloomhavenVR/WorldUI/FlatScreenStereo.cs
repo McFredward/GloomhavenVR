@@ -239,6 +239,8 @@ internal sealed class FlatScreenStereo
         public bool Routed;
         /// <summary>Routing failed once for this entry — stay on the suspension fallback (no retry spam).</summary>
         public bool RouteFailed;
+        /// <summary>The precondition early-out in <see cref="TryRouteVideo"/> logged once (test #20 diagnostic).</summary>
+        public bool RouteSkipLogged;
         /// <summary>Player state to restore when the route is torn down.</summary>
         public VideoRenderMode RoutedOriginalMode;
         public Camera? RoutedOriginalCamera;
@@ -286,6 +288,13 @@ internal sealed class FlatScreenStereo
     private bool _videoRecheckDue;
     private int _videoSweepFrame = int.MinValue;
     private readonly HashSet<int> _videoLogged = new();
+    /// <summary>
+    /// One-line-per-gate guard for the sweep's early-outs (test #20 diagnostic: every
+    /// silent skip names itself ONCE). Keyed per player instance ID plus a small
+    /// per-gate discriminant (e.g. the renderMode), so a player that CHANGES mode
+    /// re-logs with the new state.
+    /// </summary>
+    private readonly HashSet<long> _videoGateLogged = new();
 
     /// <summary>Eye separation / convergence distance in CAPTURED-SCENE units (recomputed per tick).</summary>
     private float _sepScene;
@@ -531,9 +540,6 @@ internal sealed class FlatScreenStereo
         for (int i = 0; i < players.Length; i++)
         {
             VideoPlayer player = players[i];
-            if (player.renderMode != VideoRenderMode.CameraNearPlane
-                && player.renderMode != VideoRenderMode.CameraFarPlane)
-                continue;
 
             MirrorEntry? entry = null;
             Camera? bound = player.targetCamera;
@@ -545,9 +551,37 @@ internal sealed class FlatScreenStereo
                 if (host != null && _bySource.TryGetValue(host, out MirrorEntry byHost))
                     entry = byHost;
             }
+
+            if (player.renderMode != VideoRenderMode.CameraNearPlane
+                && player.renderMode != VideoRenderMode.CameraFarPlane)
+            {
+                // Gate diagnostic (test #20): a player bound to a MIRRORED camera in
+                // a non-camera-plane mode needs no depth route BY DESIGN (its frames
+                // reach both eyes through the normal camera render) — but if a video
+                // ever reads flat/one-eyed on hardware, this line rules the mode in
+                // or out. Keyed player+mode so a mode CHANGE re-logs.
+                if (entry != null
+                    && _videoGateLogged.Add(player.GetInstanceID() * 31L + (int)player.renderMode))
+                    VRLog.Info("WorldUI", $"Stereo screen sweep: VideoPlayer on " +
+                                          $"'{player.gameObject.name}' is bound to captured " +
+                                          $"'{entry.Source.name}' but renderMode {player.renderMode} " +
+                                          "is not camera-plane — no depth route needed/possible.");
+                continue;
+            }
+            if (entry == null)
+            {
+                // Camera-plane player whose camera we did NOT capture: the depth
+                // route cannot reach it and no suspension applies — name it once.
+                if (_videoGateLogged.Add(player.GetInstanceID()))
+                    VRLog.Info("WorldUI", $"Stereo screen sweep: camera-plane VideoPlayer on " +
+                                          $"'{player.gameObject.name}' (targetCamera " +
+                                          $"'{(bound != null ? bound.name : "<null>")}') matches no " +
+                                          "captured camera — outside the depth route's reach.");
+                continue;
+            }
             // Only fill EMPTY slots (Unity fake-null included — a destroyed player is
             // replaced, a live cached one is never thrashed by a second candidate).
-            if (entry == null || entry.Video != null)
+            if (entry.Video != null)
                 continue;
             entry.Video = player;
             LogLateVideo(player, entry.Source, "global sweep, bound via targetCamera from GO '"
@@ -727,8 +761,9 @@ internal sealed class FlatScreenStereo
                       "player binding, no camera-plane discovery); both eyes show the left " +
                       "RT so the intro is never one-eyed."
                     : "Stereo screen SUSPENDED — a captured camera plays a near-plane video " +
-                      "the depth layer could not take over (disabled or re-route failed); both " +
-                      "eyes show the left RT until it ends.")
+                      "the depth layer could not take over (" +
+                      (depthLayer ? "re-route failed or timed out" : "VideoDepthLayer disabled") +
+                      "); both eyes show the left RT until it ends.")
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
 
@@ -828,7 +863,19 @@ internal sealed class FlatScreenStereo
     {
         VideoPlayer? player = entry.Video;
         if (player == null || _leftRt == null)
+        {
+            // Should be unreachable (VideoActive vouches for the player; the left RT
+            // lives while the screen shows) — but a silent false here means "route
+            // never attempted, suspension forever" (test #20 class of bug): name it.
+            if (!entry.RouteSkipLogged)
+            {
+                entry.RouteSkipLogged = true;
+                VRLog.Warn("WorldUI", $"Video depth layer: route for '{entry.Source.name}' not " +
+                                      $"attempted ({(player == null ? "no VideoPlayer on the entry" : "left RT missing")}) " +
+                                      "— suspension fallback takes over.");
+            }
             return false;
+        }
 
         try
         {
