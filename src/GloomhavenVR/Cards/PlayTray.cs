@@ -35,10 +35,12 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class PlayTray
 {
-    // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13):
-    // the P8 pinch-grip held pose put the card's CENTER a hand-length away from the
-    // palm, so the old 0.11 m card-center-only check silently rejected most drops.
-    private const float SlotCaptureRadius = 0.12f;
+    // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13),
+    // widened again in test #15: hardware logs showed releases consistently landing
+    // 14–16 cm real from the slot center (the release gesture moves the hand) while
+    // the hover glow HAD triggered — the primary accept rule is now the glow itself
+    // (CardsDriver highlight-at-release), this radius is only the fallback.
+    private const float SlotCaptureRadius = 0.25f;
 
     /// <summary>
     /// The live tray instance (test #15 dashboard mount seam): WorldUI surfaces read
