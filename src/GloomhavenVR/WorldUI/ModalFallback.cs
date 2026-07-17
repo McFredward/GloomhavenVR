@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
+using Script.GUI.Popups;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -77,18 +78,21 @@ namespace GloomhavenVR.WorldUI;
 /// and the hover prop-info cards TextInfoPanel / UIPropInfoPanel →
 /// Surfaces.PropInfoSurface — test #18) deliberately do NOT trigger the fallback.
 ///
-/// TRAY-DOCK CLAIMS (test #21): a third window class between "converted" and
-/// "fallback" — fallback IDs whose INTERACTIVE WIDGETS a dedicated surface docks
-/// onto the control board while the window is open (<see cref="TrayDockClaims"/>,
-/// ID → live claim predicate). While a claim holds, the generic path stands down
-/// COMPLETELY for that window: no float, no screen, and crucially NO ModalUI —
+/// DECISION-DOCK CLAIMS (test #21, generalized test #22): a third window class
+/// between "converted" and "fallback" — decision/confirmation prompts whose REAL
+/// INTERACTIVE WIDGETS <see cref="Surfaces.DecisionDockSurface"/> docks in a reserved
+/// zone BELOW the two cards on the control board while the window is open (the
+/// <see cref="DecisionDock"/> registry). While a claim holds, the generic path stands
+/// down COMPLETELY for that window: no float, no screen, and crucially NO ModalUI —
 /// these prompts have follow-up flows that need the normal interactors (the
 /// take-damage burn choice continues in the card fan, which the ModalUI palm-gate
-/// shutdown killed in test #21). The IDs STAY in <see cref="FallbackIds"/>: the
-/// claim is consulted level-triggered every tick, so the moment it breaks (surface
-/// off, tray gone, conversion failure grace expired) the window is handled
-/// generically again — a wrongly-floated window is recoverable, a dropped one is a
-/// silent deadlock (the DurabilityPanel rule).
+/// shutdown killed in test #21; the burn-confirm dialog FOLLOWS a LoseCard pick). The
+/// claim is consulted level-triggered every tick AGAINST THE WINDOW INSTANCE, so it
+/// covers both ID-tracked windows (TakeDamagePanel, which STAYS in
+/// <see cref="FallbackIds"/>) and the ID-less poll-tracked dialogPopup; the moment it
+/// breaks (surface off, tray gone, conversion-failure grace expired) the window is
+/// handled generically again — a wrongly-floated window is recoverable, a dropped one
+/// is a silent deadlock (the DurabilityPanel rule).
 /// </summary>
 internal static class ModalFallback
 {
@@ -161,10 +165,10 @@ internal static class ModalFallback
         // the rest of the UI (CardsHandManager.cs:1214, BaseButtons.cs:68).
         UIWindowID.ResultsPanel,
         // MODAL: TakeDamagePanel — burn-card choice + confirm button (:60), networked
-        // confirmation (Choreographer.cs:5505, SendGameAction :774). Test #21:
-        // normally CLAIMED by Surfaces.TakeDamageSurface (choice row docked on the
-        // control board, no float/ModalUI — the burn follow-up needs the live card
-        // fan); kept here so the generic float takes over whenever the claim breaks.
+        // confirmation (Choreographer.cs:5505, SendGameAction :774). Test #21/#22:
+        // normally CLAIMED by the DecisionDock (widget row docked below the cards, no
+        // float/ModalUI — the burn follow-up needs the live card fan); kept here so
+        // the generic float takes over whenever the claim breaks.
         UIWindowID.TakeDamagePanel,
         // UNMAPPED (audit): NO owning class anywhere in the decompile — the string
         // exists only in UIWindowID.cs, so its behavior is unprovable. Kept MODAL
@@ -213,22 +217,263 @@ internal static class ModalFallback
     };
 
     /// <summary>
-    /// Tray-dock claims (test #21, class doc above): fallback window IDs whose
-    /// interactive widgets a dedicated surface docks onto the control board — the
-    /// map value is the surface's LIVE claim predicate, consulted level-triggered
-    /// every tick. Sibling-prompt candidates for future entries (same class: small
-    /// choice panel whose follow-up needs the normal interactors): the short-rest
-    /// reshuffle confirmation (ID-less — runs through the UIManager.dialogPopup
-    /// poll source, would need a poll-claim seam), and HeroLevelUpPanel (card
-    /// pick). Deliberately NOT converted now.
+    /// DECISION DOCK registry (test #22, generalizes the test-#21 take-damage claim):
+    /// the ID/predicate → dock map of in-scenario decision/confirmation prompts whose
+    /// REAL interactive widgets <see cref="Surfaces.DecisionDockSurface"/> docks in the
+    /// reserved zone BELOW the two cards on the control board. Adding a prompt is a
+    /// single <see cref="Prompt"/> entry in <see cref="Prompts"/>: a name, its
+    /// <c>UIWindow</c>, its open predicate, and how to isolate its actionable widget
+    /// row. While a prompt is claimed the generic modal path (float + ModalUI) stands
+    /// down COMPLETELY for its window — these prompts have follow-ups that need the
+    /// normal interactors (the burn choice continues in the card fan). The claim is
+    /// consulted level-triggered every tick against the WINDOW INSTANCE (not the ID),
+    /// so it covers BOTH the ID-tracked TakeDamagePanel AND the ID-less poll-tracked
+    /// dialogPopup, and the moment a claim breaks (surface off, tray gone, grace
+    /// expired) the window is handled generically again — a wrongly-floated window is
+    /// recoverable, a dropped one is a silent deadlock (the DurabilityPanel rule).
+    ///
+    /// See the report for the SYSTEMATIC dock-vs-float verdict on every scenario
+    /// decision window/popup. Sibling candidates for future entries (small choice
+    /// panel whose follow-up needs the normal interactors): <c>YesNoDialog</c>
+    /// (short-rest yes/no; serialized yesButton/noButton) — dockable but not yet
+    /// wired. Deliberately NOT dockable: <c>UIEventPanel</c> (a scroll-list of
+    /// variable event options + rewards — no discrete widget row to isolate; stays
+    /// floating), and every passive info popup (no choice row at all).
     /// </summary>
-    private static readonly Dictionary<UIWindowID, Func<bool>> TrayDockClaims = new()
+    internal static class DecisionDock
     {
-        { UIWindowID.TakeDamagePanel, static () => Surfaces.TakeDamageSurface.ClaimsWindow },
-    };
+        /// <summary>
+        /// One dockable prompt. Two predicates that DIFFER on purpose (the take-damage
+        /// burn flow, test #22): <see cref="IsOpen"/> — the window is OPEN — gates the
+        /// CLAIM (generic float + ModalUI stand down, keeping the card fan live for the
+        /// follow-up), and STAYS TRUE while the game alpha-hides the panel during the
+        /// LoseCard pick + burn-confirm (TakeDamagePanel.ToggleVisibility only drives an
+        /// inner CanvasGroup, not the window). <see cref="IsActive"/> — the prompt's
+        /// widgets are the ones to DOCK RIGHT NOW (open AND visible AND topmost) —
+        /// gates what the surface converts, so an alpha-hidden panel behind an open
+        /// burn-confirm dialog is not docked over it. All delegates are cheap and
+        /// allocation-free in steady state.
+        /// </summary>
+        internal sealed class Prompt
+        {
+            internal readonly string Name;
+            internal readonly Func<UIWindow?> Window;
+            internal readonly Func<bool> IsOpen;
+            internal readonly Func<bool> IsActive;
+            internal readonly Func<RectTransform?> FindRow;
 
-    private static bool IsTrayDockClaimed(UIWindowID id) =>
-        TrayDockClaims.TryGetValue(id, out Func<bool> claimed) && claimed();
+            internal Prompt(string name, Func<UIWindow?> window, Func<bool> isOpen,
+                Func<bool> isActive, Func<RectTransform?> findRow)
+            {
+                Name = name;
+                Window = window;
+                IsOpen = isOpen;
+                IsActive = isActive;
+                FindRow = findRow;
+            }
+        }
+
+        /// <summary>Reused between per-tick row isolations (single active prompt — see the surface).</summary>
+        private static readonly List<Transform> RowScratch = new(4);
+
+        /// <summary>A window handed back to the generic float after the surface's grace expired.</summary>
+        private static UIWindow? _gaveUp;
+
+        // DialogPopup FIRST: it is the follow-up confirm layered ON TOP of the
+        // take-damage panel, so when both windows are open it is the active prompt.
+        internal static readonly Prompt[] Prompts =
+        {
+            // UIManager.dialogPopup (ID None — poll-tracked): the burn-confirm and the
+            // short-rest lose-card confirms (CardsHandUI.cs:826/850/909/2069). Its
+            // option buttons are pooled InputButtons under horizontal/verticalOptions-
+            // Holder; the actionable widgets are their ExtendedButton transforms. The
+            // embedded card lives under contentHolder — NOT part of the row (a parallel
+            // worker renders the card); it is suppressed with the rest of the window.
+            // A modal dialog is active whenever it is open (nothing layers over it).
+            new("DialogPopup",
+                static () => DialogPop()?.Window,
+                static () => { DialogPopup? d = DialogPop(); return d != null && d.IsOpen(); },
+                static () => { DialogPopup? d = DialogPop(); return d != null && d.IsOpen(); },
+                static () =>
+                {
+                    DialogPopup? d = DialogPop();
+                    if (d == null || d.Window == null)
+                        return null;
+                    RowScratch.Clear();
+                    List<InputButton>? buttons = d.optionButtons;
+                    if (buttons != null)
+                    {
+                        for (int i = 0; i < buttons.Count; i++)
+                        {
+                            InputButton ib = buttons[i];
+                            if (ib == null || !ib.gameObject.activeInHierarchy)
+                                continue;
+                            ExtendedButton eb = ib.ExtendedButton;
+                            if (eb != null)
+                                RowScratch.Add(eb.transform);
+                        }
+                    }
+                    return IsolateRow(d.Window, RowScratch);
+                }),
+
+            // TakeDamagePanel (UIWindowID TakeDamagePanel): two burn toggles + the
+            // take-damage button (all serialized on the Singleton). IsOpen (claim) is
+            // window-open ALONE — it must stay claimed through the whole burn flow so
+            // the generic float/ModalUI never wakes and the LoseCard fan stays live —
+            // but IsActive (dock) also requires the panel be VISIBLE: while the game
+            // alpha-hides it (canvasGroupVisbility → 0) behind the LoseCard pick + the
+            // burn-confirm dialog, its row must NOT dock over the dialog.
+            new("TakeDamagePanel",
+                static () => TakeDamage()?.myWindow,
+                static () => { TakeDamagePanel? p = TakeDamage(); return p != null && p.myWindow != null && p.myWindow.IsOpen; },
+                static () =>
+                {
+                    TakeDamagePanel? p = TakeDamage();
+                    if (p == null || p.myWindow == null || !p.myWindow.IsOpen)
+                        return false;
+                    CanvasGroup? cg = p.canvasGroupVisbility; // game's inner visibility toggle
+                    return cg == null || cg.alpha > 0.01f;
+                },
+                static () =>
+                {
+                    TakeDamagePanel? p = TakeDamage();
+                    if (p == null || p.myWindow == null)
+                        return null;
+                    RowScratch.Clear();
+                    if (p.burnAvailableCardsToggle != null)
+                        RowScratch.Add(p.burnAvailableCardsToggle.transform);
+                    if (p.burnDiscardedCardsToggle != null)
+                        RowScratch.Add(p.burnDiscardedCardsToggle.transform);
+                    if (p.takeDamageButton != null)
+                        RowScratch.Add(p.takeDamageButton.transform);
+                    return IsolateRow(p.myWindow, RowScratch);
+                }),
+        };
+
+        private static TakeDamagePanel? TakeDamage() =>
+            Singleton<TakeDamagePanel>.IsInitialized ? Singleton<TakeDamagePanel>.Instance : null;
+
+        private static DialogPopup? DialogPop()
+        {
+            UIManager? m = UIManager.Instance;
+            return m != null ? m.dialogPopup : null;
+        }
+
+        /// <summary>The decision-dock feature is live (config + conversion + in a scenario).</summary>
+        private static bool FeatureEnabled =>
+            WorldUIConfig.DecisionDock.Value && WorldUIConfig.ConversionActive
+            && Choreographer.s_Choreographer != null;
+
+        /// <summary>Clear a stale hand-off once its window closed, so the next prompt re-arms.</summary>
+        private static void PruneGaveUp()
+        {
+            // Unity-null (destroyed) trips the '!= null' guard already; a live-but-closed
+            // window clears here so the same prompt can re-dock on its next open.
+            if (_gaveUp != null && !_gaveUp.IsOpen)
+                _gaveUp = null;
+        }
+
+        /// <summary>
+        /// The prompt whose widgets to dock right now: the first ACTIVE (open + visible
+        /// + topmost) prompt. Skips a window the grace handed back to the generic float.
+        /// DialogPopup is listed first, so a burn-confirm layered over the alpha-hidden
+        /// take-damage panel wins.
+        /// </summary>
+        internal static Prompt? ActivePrompt()
+        {
+            PruneGaveUp();
+            if (!FeatureEnabled)
+                return null;
+            for (int i = 0; i < Prompts.Length; i++)
+            {
+                Prompt p = Prompts[i];
+                UIWindow? w = p.Window();
+                if (w == null || ReferenceEquals(w, _gaveUp))
+                    continue;
+                if (p.IsActive())
+                    return p;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Does the decision dock currently own this window? Consulted by
+        /// <see cref="ModalFallback"/> (stand the generic path down) AND by the
+        /// surface's WantConverted — so the surface docks EXACTLY what the generic
+        /// path releases. Instance-based (not ID) so it covers both the ID-tracked
+        /// TakeDamagePanel and the poll-tracked dialogPopup.
+        /// </summary>
+        internal static bool ClaimsWindow(UIWindow? window)
+        {
+            if (window == null || !FeatureEnabled)
+                return false;
+            PruneGaveUp();
+            if (ReferenceEquals(window, _gaveUp))
+                return false;
+            for (int i = 0; i < Prompts.Length; i++)
+            {
+                Prompt p = Prompts[i];
+                UIWindow? w = p.Window();
+                if (w != null && ReferenceEquals(w, window) && p.IsOpen())
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Hand a window back to the generic float (the surface's grace expired for it).</summary>
+        internal static void MarkGaveUp(UIWindow window) => _gaveUp = window;
+
+        /// <summary>Drop the hand-off state (surface shutdown / module detach).</summary>
+        internal static void Reset() => _gaveUp = null;
+
+        /// <summary>
+        /// The interactive ROW: deepest common ancestor of the actionable widgets that
+        /// is a STRICT descendant of the window root — found structurally, never by
+        /// name. Null (→ retry, grace running) when there are no widgets, or the
+        /// ancestor is the window root itself / outside it (docking that would drag the
+        /// vignette + card along). A single-widget prompt lifts to the widget's layout
+        /// container so a proper row (not a lone control) docks.
+        /// </summary>
+        internal static RectTransform? IsolateRow(UIWindow window, List<Transform> widgets)
+        {
+            if (window == null || widgets.Count == 0)
+                return null;
+            Transform? ca = null;
+            for (int i = 0; i < widgets.Count; i++)
+                ca = ca == null ? widgets[i] : CommonAncestor(ca, widgets[i]);
+            if (ca == null)
+                return null;
+            if (widgets.Count == 1 && ca.parent != null)
+                ca = ca.parent;
+            if (ReferenceEquals(ca, window.transform) || !ca.IsChildOf(window.transform))
+                return null;
+            return ca as RectTransform;
+        }
+
+        /// <summary>Deepest common ancestor of two transforms (null-tolerant).</summary>
+        private static Transform? CommonAncestor(Transform? a, Transform? b)
+        {
+            if (a == null || b == null)
+                return null;
+            int da = Depth(a), db = Depth(b);
+            while (da > db) { a = a!.parent; da--; }
+            while (db > da) { b = b!.parent; db--; }
+            while (a != null && b != null && !ReferenceEquals(a, b))
+            {
+                a = a.parent;
+                b = b.parent;
+            }
+            return a != null && ReferenceEquals(a, b) ? a : null;
+        }
+
+        private static int Depth(Transform t)
+        {
+            int d = 0;
+            for (Transform? p = t.parent; p != null; p = p.parent)
+                d++;
+            return d;
+        }
+    }
 
     /// <summary>Fallback windows currently open (tracked instances; pruned per tick).</summary>
     private static readonly HashSet<UIWindow> Open = new();
@@ -324,9 +569,9 @@ internal static class ModalFallback
         // scenario Menu2D auto-shows the full screen anyway, so want stays false there).
         if (Open.Add(e.Window))
         {
-            if (IsTrayDockClaimed(e.Id))
+            if (DecisionDock.ClaimsWindow(e.Window))
                 VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened — " +
-                                      "CLAIMED by a control-board dock surface (no float, no ModalUI " +
+                                      "CLAIMED by the control-board decision dock (no float, no ModalUI " +
                                       "while the claim holds; generic fallback resumes if it breaks).");
             else
                 VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened without a " +
@@ -411,11 +656,11 @@ internal static class ModalFallback
         {
             if (window == null)
                 continue;
-            // Test #21: while a tray-dock surface claims this window, it is NOT
+            // Test #21/#22: while the decision dock claims this window, it is NOT
             // part of the generic modal path — no float, no screen, no ModalUI
             // (still tracked in Open: the claim is re-checked every tick, so a
             // broken claim hands the window back here level-triggered).
-            if (IsTrayDockClaimed(window.ID))
+            if (DecisionDock.ClaimsWindow(window))
                 continue;
             OpenWindows.Add(window);
         }
@@ -426,7 +671,13 @@ internal static class ModalFallback
             AddGroupWindow(LevelMessagesUIHandler.s_Instance.LevelMessageBoxLayoutGroup);
             AddGroupWindow(LevelMessagesUIHandler.s_Instance.LevelMessageHelpTextLayoutGroup);
         }
-        if (dialog && manager != null && manager.dialogPopup != null)
+        // The scenario dialogPopup (burn-confirm / short-rest lose-card confirm) is
+        // ID-less — it reaches the generic path ONLY through this poll. Skip it while
+        // the decision dock claims it (test #22): its option-button row docks below
+        // the cards instead, and standing the generic path down here is what keeps the
+        // fan live for the LoseCard follow-up (no ModalUI).
+        if (dialog && manager != null && manager.dialogPopup != null
+            && !DecisionDock.ClaimsWindow(manager.dialogPopup.Window))
             AddPollWindow(manager.dialogPopup.Window);
 
         bool anyOpen = OpenWindows.Count > 0;
