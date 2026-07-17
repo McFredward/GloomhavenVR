@@ -62,14 +62,15 @@ internal sealed class ConvertedPanel
     /// <summary>Next periodic re-check frame (growth dirty-check throttle).</summary>
     public int FitNextCheckFrame;
 
-    // ---- nested-canvas neutralization (test #19) ---------------------------------------
+    // ---- nested-canvas adoption (tests #19/#20) ----------------------------------------
     /// <summary>
     /// Game-owned nested <see cref="Canvas"/> components inside the converted subtree,
-    /// disabled while converted and re-enabled on Release (see
-    /// <see cref="CanvasConversion.NeutralizeNestedCanvases"/> for why they must not
-    /// stay live under the host).
+    /// kept ENABLED with <c>overrideSorting</c> cleared and their raycaster merged into
+    /// the host's hit-testing while converted; original state restored on Release (see
+    /// <see cref="CanvasConversion.AdoptNestedCanvases"/> for why disabling them was
+    /// wrong).
     /// </summary>
-    public readonly List<Canvas> NeutralizedCanvases = new(2);
+    public readonly List<NestedCanvasRecord> AdoptedCanvases = new(2);
 
     /// <summary>Next frame for the periodic nested-canvas sweep (pooled children can bring canvases late).</summary>
     public int CanvasSweepNextFrame;
@@ -89,6 +90,21 @@ internal sealed class ConvertedPanel
 
     /// <summary>True while the moved rect still exists (scene not unloaded).</summary>
     public bool IsAlive => Target != null;
+}
+
+/// <summary>
+/// A game-owned nested <see cref="Canvas"/> inside a converted subtree, adopted by
+/// <see cref="CanvasConversion.AdoptNestedCanvases"/> — everything needed to restore
+/// its exact pre-conversion state on Release.
+/// </summary>
+internal struct NestedCanvasRecord
+{
+    public Canvas Canvas;
+    public bool OriginalOverrideSorting;
+    public Camera? OriginalWorldCamera;
+
+    /// <summary>Raycaster added by us (destroyed on Release); null when the canvas already had one.</summary>
+    public GraphicRaycaster? AddedRaycaster;
 }
 
 /// <summary>
@@ -211,7 +227,7 @@ internal static class CanvasConversion
         panel.HostRaycaster = raycaster;
         panel.HostRect = hostRect;
 
-        NeutralizeNestedCanvases(panel); // test #19: sorting-override + raycast hijack
+        AdoptNestedCanvases(panel); // tests #19/#20: sorting-override + raycast hijack
 
         if (pokeable)
         {
@@ -249,7 +265,7 @@ internal static class CanvasConversion
         t.localScale = Vector3.one * (metersPerPixel * worldScale);
     }
 
-    // ---- nested-canvas neutralization (test #19) -------------------------------------------
+    // ---- nested-canvas adoption (tests #19/#20) --------------------------------------------
 
     /// <summary>Periodic sweep throttle (~0.4 s at 72 Hz) for late-appearing nested canvases.</summary>
     private const int CanvasSweepIntervalFrames = 30;
@@ -258,34 +274,42 @@ internal static class CanvasConversion
     private static readonly List<Canvas> CanvasScratch = new(8);
 
     /// <summary>
-    /// Test #19: disable every game-owned <see cref="Canvas"/> COMPONENT inside the
-    /// converted subtree (recorded on the panel, re-enabled by <see cref="Release"/>).
-    /// A nested canvas riding into the host breaks the conversion contract twice —
-    /// the initiative track carries one (verified decompiled InitiativeTrack.cs:
-    /// <c>[SerializeField] private Canvas canvas</c>, <c>sortingOrder = 40</c>,
-    /// toggled live by <c>ToggleSortingOrder</c> — DialogPopup drops it to 0 while
-    /// popups show, which only does anything on an override-sorting canvas):
+    /// Tests #19/#20: ADOPT every game-owned nested <see cref="Canvas"/> inside the
+    /// converted subtree — keep it ENABLED, clear <c>overrideSorting</c>, merge its
+    /// raycaster into the host's hit-testing. A nested canvas riding into the host
+    /// breaks the conversion contract twice — the initiative track carries one
+    /// (verified decompiled InitiativeTrack.cs: <c>[SerializeField] private Canvas
+    /// canvas</c>, <c>sortingOrder = 40</c>, rewritten live by
+    /// <c>ToggleSortingOrder</c> while popups show):
     ///
     /// - RENDERING: an override-sorting nested canvas beats every sortingOrder-0
     ///   transparent renderer in the view REGARDLESS OF DEPTH — the docked track drew
-    ///   over the hands (Sprites/Default: transparent queue, no depth write) even with
-    ///   a hand held in front of it. Disabled, the subtree renders as plain host
-    ///   content: sortingOrder 0, depth/distance-sorted like every other panel.
+    ///   over the hands even with a hand held in front of it (test #19). With
+    ///   <c>overrideSorting</c> cleared the canvas inherits the host's sorting and
+    ///   depth/distance-sorts with the scene like plain host content. Test #19
+    ///   DISABLED the component instead, believing the children would merge into the
+    ///   host — in reality a disabled nested Canvas stops rendering its ENTIRE
+    ///   subtree (the standard <c>canvas.enabled = false</c> hide-UI optimization;
+    ///   children only merge up when the component is DESTROYED), so the docked
+    ///   track was invisible in test #20 while the geometric ray∩rect clamp still
+    ///   collided with its host: collisions without pixels.
     /// - HIT-TESTING: uGUI Graphics register with their NEAREST enabled parent canvas
-    ///   (GraphicRegistry), so every initiative Graphic belonged to the nested canvas
-    ///   and the HOST GraphicRaycaster — the one registered in UguiPokeSurfaces and
-    ///   queried by UguiPointer.TryRaycast — raycast an EMPTY set: laser/poke hovered
-    ///   nothing and portrait clicks never even started (test #19: zero uGUI-click
-    ///   lines; the ray∩plane intersect was fine, the raycast behind it was hollow).
+    ///   (GraphicRegistry), so every Graphic under the nested canvas belongs to IT and
+    ///   the HOST GraphicRaycaster raycasts a hollow set there. Each adopted canvas
+    ///   therefore gets a GraphicRaycaster (added when missing) and is registered via
+    ///   <see cref="UguiPokeSurfaces.RegisterNested"/>; UguiPointer.TryRaycast merges
+    ///   its hits with the host's. The beam clamp and poke plane keep using the HOST
+    ///   rect only. <c>worldCamera</c> is aligned with the host so the raycaster's
+    ///   eventCamera matches the camera the drivers project screen points with.
     ///
-    /// Disabling (not destroying) is fully reversible and safe: Unity re-registers the
-    /// child Graphics with the host via OnCanvasHierarchyChanged, the game's only use
-    /// of the field is writing <c>sortingOrder</c> (a no-op while disabled), and its
-    /// own GraphicRaycaster simply raycasts nothing. Swept periodically from
-    /// <see cref="Tick"/> too: pooled children (initiative rows) may bring canvases
-    /// of their own after conversion.
+    /// Everything is recorded on the panel and restored by <see cref="Release"/>
+    /// (overrideSorting, worldCamera; raycasters WE added are destroyed). Swept
+    /// periodically from <see cref="Tick"/>: pooled children (initiative rows) may
+    /// bring canvases after conversion, and the game can flip overrideSorting back
+    /// on live (AbilityCardUI/CardHighlight set it; ToggleSortingOrder's sortingOrder
+    /// writes are harmless with override off) — re-asserted here, silently.
     /// </summary>
-    private static void NeutralizeNestedCanvases(ConvertedPanel panel)
+    private static void AdoptNestedCanvases(ConvertedPanel panel)
     {
         panel.CanvasSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
         if (panel.Target == null)
@@ -296,15 +320,50 @@ internal static class CanvasConversion
         for (int i = 0; i < CanvasScratch.Count; i++)
         {
             Canvas nested = CanvasScratch[i];
-            if (nested == null || !nested.enabled)
+            if (nested == null)
                 continue;
-            nested.enabled = false;
-            panel.NeutralizedCanvases.Add(nested);
-            VRLog.Info("WorldUI", $"Neutralized nested canvas '{nested.name}' in '{panel.HostGo.name}' " +
-                                  $"(overrideSorting={nested.overrideSorting}, sortingOrder={nested.sortingOrder}) — " +
-                                  "host canvas owns rendering and raycasts again.");
+
+            if (IsAdopted(panel, nested))
+            {
+                // Re-assert per sweep (change-only writes; no log — the adoption
+                // line below already documented this canvas once).
+                if (nested.overrideSorting)
+                    nested.overrideSorting = false;
+                if (nested.worldCamera != panel.HostCanvas.worldCamera)
+                    nested.worldCamera = panel.HostCanvas.worldCamera;
+                continue;
+            }
+
+            var record = new NestedCanvasRecord
+            {
+                Canvas = nested,
+                OriginalOverrideSorting = nested.overrideSorting,
+                OriginalWorldCamera = nested.worldCamera,
+            };
+            nested.overrideSorting = false;
+            nested.worldCamera = panel.HostCanvas.worldCamera;
+            if (nested.GetComponent<GraphicRaycaster>() == null)
+                record.AddedRaycaster = nested.gameObject.AddComponent<GraphicRaycaster>();
+
+            UguiPokeSurfaces.RegisterNested(panel.HostCanvas, nested);
+            panel.AdoptedCanvases.Add(record);
+            VRLog.Info("WorldUI", $"Adopted nested canvas '{nested.name}' in '{panel.HostGo.name}' " +
+                                  $"(overrideSorting {record.OriginalOverrideSorting}→false, " +
+                                  $"sortingOrder={nested.sortingOrder}, raycaster " +
+                                  (record.AddedRaycaster != null ? "added" : "existing") +
+                                  ") — inherits host sorting/depth, raycasts merged with the host.");
         }
         CanvasScratch.Clear();
+    }
+
+    private static bool IsAdopted(ConvertedPanel panel, Canvas nested)
+    {
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            if (ReferenceEquals(panel.AdoptedCanvases[i].Canvas, nested))
+                return true;
+        }
+        return false;
     }
 
     // ---- content fit (tests #13/#14) ------------------------------------------------------
@@ -540,16 +599,23 @@ internal static class CanvasConversion
         Active.Remove(panel);
 
         if (panel.HostCanvas != null)
-            UguiPokeSurfaces.Unregister(panel.HostCanvas);
+            UguiPokeSurfaces.Unregister(panel.HostCanvas); // drops nested registrations too
 
-        // Re-enable the game's own nested canvases (test #19) — only those WE disabled;
-        // ones the game had disabled itself stay that way.
-        for (int i = 0; i < panel.NeutralizedCanvases.Count; i++)
+        // Restore the game's own nested canvases (tests #19/#20): overrideSorting and
+        // worldCamera back to their captured values; raycasters WE added are removed
+        // (ones the game serialized stay).
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
-            if (panel.NeutralizedCanvases[i] != null)
-                panel.NeutralizedCanvases[i].enabled = true;
+            NestedCanvasRecord record = panel.AdoptedCanvases[i];
+            if (record.Canvas != null)
+            {
+                record.Canvas.overrideSorting = record.OriginalOverrideSorting;
+                record.Canvas.worldCamera = record.OriginalWorldCamera;
+            }
+            if (record.AddedRaycaster != null)
+                Object.Destroy(record.AddedRaycaster);
         }
-        panel.NeutralizedCanvases.Clear();
+        panel.AdoptedCanvases.Clear();
 
         if (panel.Target != null)
         {
@@ -608,9 +674,10 @@ internal static class CanvasConversion
             if (panel.HostCanvas.worldCamera != cam)
                 panel.HostCanvas.worldCamera = cam;
 
-            // Test #19: pooled/late children may bring nested canvases after Convert.
+            // Tests #19/#20: pooled/late children may bring nested canvases after
+            // Convert, and the game can flip overrideSorting back on live.
             if (Time.frameCount >= panel.CanvasSweepNextFrame)
-                NeutralizeNestedCanvases(panel);
+                AdoptNestedCanvases(panel);
 
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
         }

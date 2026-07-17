@@ -54,9 +54,14 @@ internal sealed class UguiPointer
     internal GameObject? Hovered => _hovered;
 
     /// <summary>
-    /// Raycast a specific canvas at a screen point through its own GraphicRaycaster.
-    /// Returns false (and clears hover) when the raycaster is missing or DISABLED —
-    /// i.e. when the game locked its UI.
+    /// Raycast a specific canvas at a screen point through its own GraphicRaycaster,
+    /// merged with the raycasters of any NESTED canvases registered for it in
+    /// <see cref="UguiPokeSurfaces"/> (test #20: Graphics under an ENABLED nested
+    /// canvas register with THAT canvas, not the host — the host raycaster alone
+    /// would raycast a hollow panel). Returns false (and clears hover) when the
+    /// HOST raycaster is missing or DISABLED — i.e. when the game locked its UI;
+    /// nested raycasters are only ever reachable through an enabled host, so the
+    /// modality gate stays intact.
     /// </summary>
     internal bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit)
     {
@@ -69,15 +74,67 @@ internal sealed class UguiPointer
         PointerEventData data = GetData();
         data.position = screenPos;
 
+        bool any = TryRaycastTop(raycaster, data, out topHit);
+
+        List<Canvas>? nested = UguiPokeSurfaces.NestedOf(canvas);
+        if (nested != null)
+        {
+            for (int i = 0; i < nested.Count; i++)
+            {
+                Canvas sub = nested[i];
+                // A disabled nested canvas is the game hiding that subtree — its
+                // Graphics must be neither visible nor hittable.
+                if (sub == null || !sub.isActiveAndEnabled)
+                    continue;
+                GraphicRaycaster? subRaycaster = sub.GetComponent<GraphicRaycaster>();
+                if (subRaycaster == null || !subRaycaster.isActiveAndEnabled)
+                    continue;
+                if (TryRaycastTop(subRaycaster, data, out RaycastResult subTop)
+                    && (!any || Beats(subTop, topHit)))
+                {
+                    topHit = subTop;
+                    any = true;
+                }
+            }
+        }
+
+        if (!any)
+            return false;
+        data.pointerCurrentRaycast = topHit;
+        return true;
+    }
+
+    /// <summary>Top hit of a single raycaster, if any.</summary>
+    private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top)
+    {
         _hits.Clear();
         raycaster.Raycast(data, _hits);
         if (_hits.Count == 0)
+        {
+            top = default;
             return false;
-
+        }
         // GraphicRaycaster appends results sorted by depth (closest/topmost first).
-        topHit = _hits[0];
-        data.pointerCurrentRaycast = topHit;
+        top = _hits[0];
         return true;
+    }
+
+    /// <summary>
+    /// Cross-raycaster ordering — the subset of EventSystem's RaycastComparer that
+    /// matters for coplanar, same-camera canvases: sorting layer value, then canvas
+    /// sortingOrder. A nested canvas reports its own serialized order even with
+    /// overrideSorting off (verified test #19 logs: 35/-1 while the host is 0), so
+    /// the initiative track's content (40) beats the host background and the element
+    /// board's 'BackgroundMask' underlay (-1) stays behind host content. Ties go to
+    /// the challenger: nested content draws inside/above the host content it overlaps.
+    /// </summary>
+    private static bool Beats(in RaycastResult challenger, in RaycastResult incumbent)
+    {
+        int challengerLayer = SortingLayer.GetLayerValueFromID(challenger.sortingLayer);
+        int incumbentLayer = SortingLayer.GetLayerValueFromID(incumbent.sortingLayer);
+        if (challengerLayer != incumbentLayer)
+            return challengerLayer > incumbentLayer;
+        return challenger.sortingOrder >= incumbent.sortingOrder;
     }
 
     /// <summary>Update hover state to <paramref name="target"/> (null = nothing hovered).</summary>
