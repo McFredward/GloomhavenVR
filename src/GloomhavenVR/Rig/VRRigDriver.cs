@@ -83,6 +83,26 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>Fallback diorama scale when auto-detection has no tile size yet.</summary>
     private const float FallbackWorldScale = 12f;
 
+    // Scale-aware clip planes (test #17): WorldGrab rescales the rig root live
+    // (0.1×–12× of base) while the hands — parented under the rig — scale and move
+    // with it, so a near plane FIXED at build time in world units swallowed them at
+    // max zoom-in (rig scale shrinks → the hands' world-unit distance from the eyes
+    // shrinks below the frozen near plane and they clip invisible). TickClipPlanes
+    // keeps near = BaseNearMeters × current rig scale (~5 real cm in front of the
+    // eyes at ANY zoom), clamped to sane absolute world-unit bounds, and lets the
+    // far plane grow with zoom-out so the diorama never pops out of the frustum;
+    // the far/near ratio is capped for depth precision.
+
+    /// <summary>Near clip in REAL meters in front of the eyes (× live rig scale).</summary>
+    private const float BaseNearMeters = 0.05f;
+
+    /// <summary>Absolute near-plane bounds, world units.</summary>
+    private const float MinNearClip = 0.01f;
+    private const float MaxNearClip = 0.5f;
+
+    /// <summary>Depth-precision guard: the far plane never exceeds near × this.</summary>
+    private const float MaxFarNearRatio = 50000f;
+
     /// <summary>Real-world size a hex tile should read as on the "table" (meters).</summary>
     private const float TargetHexSizeMeters = 0.15f;
 
@@ -108,6 +128,8 @@ internal sealed class VRRigDriver : MonoBehaviour
     private GameObject? _cameraGo;
 
     private TrackedPoseDriver? _poseDriver;
+    private float _buildScale = 1f;   // rig scale the head camera was created at
+    private float _baseFarClip = 100f; // anchor-derived far plane at build scale
     private bool _pendingRecenter;
     private int _sweepCountdown;
     private bool _sceneRecheck;
@@ -217,6 +239,7 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         TickHeadCullingMask();
         TickHeadClearColor();
+        TickClipPlanes();
         TickCameraPolicy(sceneRecheck);
     }
 
@@ -284,6 +307,31 @@ internal sealed class VRRigDriver : MonoBehaviour
     }
 
     /// <summary>
+    /// Keep the owned head camera's clip planes scale-aware (test #17: hands
+    /// vanished at max zoom-in — WorldGrab shrinks the rig scale, the hands' world-
+    /// unit distance from the eyes shrinks with it, and the build-time near plane
+    /// clipped them). near = <see cref="BaseNearMeters"/> × live rig scale, clamped
+    /// to absolute world-unit bounds; far grows with zoom-out (the eyes recede from
+    /// the fixed-size world) but never drops below the anchor-derived build value,
+    /// with the far/near ratio capped for depth precision. Menu rig: scale stays 1,
+    /// so this degenerates to the build values. Two float compares per frame.
+    /// </summary>
+    private void TickClipPlanes()
+    {
+        if (_camera == null || _rigRoot == null)
+            return;
+        float scale = _rigRoot.transform.localScale.x;
+        float near = Mathf.Clamp(BaseNearMeters * scale, MinNearClip, MaxNearClip);
+        float far = Mathf.Min(
+            Mathf.Max(_baseFarClip, _baseFarClip * (scale / _buildScale)),
+            near * MaxFarNearRatio);
+        if (!Mathf.Approximately(_camera.nearClipPlane, near))
+            _camera.nearClipPlane = near;
+        if (!Mathf.Approximately(_camera.farClipPlane, far))
+            _camera.farClipPlane = far;
+    }
+
+    /// <summary>
     /// Stereo-exclusion pump: sweep immediately on scene loads (new foreign cameras,
     /// e.g. MainMenu's stereo=Both 'Main Camera'), otherwise on a frame cadence that
     /// also catches cameras created mid-scene. Rig rebuilds sweep inside Build*.
@@ -309,7 +357,9 @@ internal sealed class VRRigDriver : MonoBehaviour
 
     /// <summary>
     /// Create OUR head camera under the rig root, seeded from the anchor game camera:
-    /// depth = anchor + 1, far plane from the anchor. Mask policy (CAMERA-POLICY §2):
+    /// depth = anchor + 1, far plane from the anchor. Clip planes are seeded for
+    /// <paramref name="rigScale"/> and kept scale-aware per frame by
+    /// <see cref="TickClipPlanes"/> (test #17). Mask policy (CAMERA-POLICY §2):
     /// scenario = anchor mask | mod layer (never 0); menu (<paramref name="modLayerOnly"/>,
     /// test #10) = the mod layer ONLY, with a forced SolidColor [Rig] VoidColor clear —
     /// Menu2D shows the world exclusively through the FlatScreen RT, so the HMD renders
@@ -318,18 +368,21 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// never modified; stereo on it (and every other game camera) is owned by
     /// <see cref="VRCameraPolicy"/>.
     /// </summary>
-    private void CreateHeadCamera(Camera anchor, float nearClip, bool modLayerOnly = false)
+    private void CreateHeadCamera(Camera anchor, float rigScale, bool modLayerOnly = false)
     {
         _cameraGo = new GameObject("GloomhavenVR.HeadCamera");
         _cameraGo.transform.SetParent(_rigRoot!.transform, worldPositionStays: false);
         _cameraGo.transform.localPosition = Vector3.zero;
         _cameraGo.transform.localRotation = Quaternion.identity;
 
+        _buildScale = rigScale;
+        _baseFarClip = Mathf.Max(anchor.farClipPlane, 100f);
+
         _camera = _cameraGo.AddComponent<Camera>();
         _camera.cullingMask = modLayerOnly ? VRLayers.ModLayerMask : ComposeHeadMask(anchor.cullingMask);
         _camera.depth = anchor.depth + 1f;
-        _camera.nearClipPlane = nearClip;
-        _camera.farClipPlane = Mathf.Max(anchor.farClipPlane, 100f);
+        _camera.nearClipPlane = Mathf.Clamp(BaseNearMeters * rigScale, MinNearClip, MaxNearClip);
+        _camera.farClipPlane = _baseFarClip;
         _camera.allowHDR = anchor.allowHDR;
         _camera.allowMSAA = anchor.allowMSAA;
         _camera.useOcclusionCulling = anchor.useOcclusionCulling;
@@ -391,8 +444,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         _rigRoot.transform.rotation = Quaternion.Euler(0f, anchor.transform.eulerAngles.y, 0f);
         _rigRoot.transform.localScale = Vector3.one * scale;
 
-        // Near plane in world units so ~5 real cm in front of the eyes still renders.
-        CreateHeadCamera(anchor, 0.05f * scale);
+        // Clip planes seeded for this scale (~5 real cm near plane) and kept
+        // scale-aware while WorldGrab zooms the rig (TickClipPlanes, test #17).
+        CreateHeadCamera(anchor, scale);
 
         RigRoot = _rigRoot.transform;
         HeadCamera = _camera;
@@ -432,7 +486,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         _rigRoot.transform.rotation = _menuAnchorYaw;
         _rigRoot.transform.localScale = Vector3.one;
 
-        CreateHeadCamera(anchor, 0.05f, modLayerOnly: true);
+        CreateHeadCamera(anchor, 1f, modLayerOnly: true);
 
         RigRoot = _rigRoot.transform;
         HeadCamera = _camera;
