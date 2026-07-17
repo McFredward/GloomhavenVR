@@ -257,11 +257,14 @@ internal sealed class RayUguiDriver
         float w = (Corners[3] - Corners[0]).magnitude;
         float h = (Corners[1] - Corners[0]).magnitude;
         int id = canvas.GetInstanceID();
+        // Relative threshold: world-grab rescales every panel with the diorama, so an
+        // absolute 1 cm gate re-logged hundreds of lines per session (test #14).
         if (LoggedCanvasSizes.TryGetValue(id, out Vector2 last)
-            && Mathf.Abs(last.x - w) < 0.01f && Mathf.Abs(last.y - h) < 0.01f)
+            && Mathf.Abs(last.x - w) < last.x * 0.02f + 0.001f
+            && Mathf.Abs(last.y - h) < last.y * 0.02f + 0.001f)
             return;
         LoggedCanvasSizes[id] = new Vector2(w, h);
-        Core.VRLog.Info("Interact",
+        Core.VRLog.Debug("Interact",
             $"Ray-uGUI canvas '{canvas.name}': world rect {w:F3}x{h:F3} m, " +
             $"BL={Corners[0]:F3} TL={Corners[1]:F3} TR={Corners[2]:F3} BR={Corners[3]:F3}, " +
             $"pivot={rect.pivot}, sizeDelta={rect.sizeDelta}, lossyScale={rect.lossyScale:F4}.");
