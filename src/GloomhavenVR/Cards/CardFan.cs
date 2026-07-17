@@ -18,6 +18,10 @@ internal sealed class CardFan
     private Transform? _root;
     private VRHand? _hand;
 
+    // G2: index of the card the ray/finger is currently over (-1 = none). Drives the
+    // whole-fan split in Relayout. Fed by the driver via SetHovered (parallel-owned file).
+    private int _hoveredIndex = -1;
+
     internal bool IsOpen { get; private set; }
 
     /// <summary>Cards currently owned by the fan (read-only view).</summary>
@@ -87,6 +91,35 @@ internal sealed class CardFan
             Relayout(instant: false);
     }
 
+    // ------------------------------------------------------------------ hover split --
+
+    /// <summary>
+    /// G2 (Demeo CardHandView.cs:451-464): tell the fan which card the ray/finger is over
+    /// so the WHOLE fan can split apart around it — the neighbours slide sideways to open a
+    /// gap, most for the nearest, and the hovered card pops toward the viewer. Index -1 =
+    /// nothing hovered, and the split relaxes back to zero via the existing per-card lerp.
+    ///
+    /// PUBLIC because the hover source (laser <c>_laserHover</c> / proximity highlight) lives
+    /// in <see cref="CardsDriver"/> — a parallel-owned file (blueprint Group D) that pushes
+    /// the index in here. The split offsets are fan-LOCAL constants (they depend only on the
+    /// slot rotations, not the fan's head-facing world orientation), so we recompute on hover
+    /// CHANGE only and let <see cref="VRCard"/> animate the slide — a per-frame pass would be
+    /// redundant and this stays allocation-free.
+    ///
+    /// The hovered card's forward pop is intentionally NOT applied here: <see cref="VRCard"/>
+    /// already pops any hovered/highlighted card toward the viewer (its <c>_laserPopped</c> /
+    /// <c>_popped</c> path, magnitude == <see cref="CardsConfig.FanSelectedPopForward"/>'s
+    /// 0.035 default), so baking a pop into the home too would double it.
+    /// </summary>
+    public void SetHovered(int index)
+    {
+        if (index == _hoveredIndex)
+            return;
+        _hoveredIndex = index;
+        if (IsOpen)
+            Relayout(instant: false);
+    }
+
     // ------------------------------------------------------------------ per frame --
 
     /// <summary>Orient the fan toward the head every frame while open.</summary>
@@ -146,6 +179,11 @@ internal sealed class CardFan
             tiltFactor *= fill;
         }
 
+        // G2 whole-fan split (Demeo CardHandView.cs:451-464): when a card is hovered the
+        // others slide sideways to open a gap around it. Clamp defends against a stale index
+        // left over after a card was plucked out of the fan before the driver clears it.
+        int hovered = _hoveredIndex >= 0 && _hoveredIndex < n ? _hoveredIndex : -1;
+
         // Exposed strip of each card = chord between neighboring card centers. The
         // right neighbor draws IN FRONT (more negative z), covering this card's right
         // side — so each card's grab collider shrinks to its visible LEFT strip and
@@ -169,6 +207,13 @@ internal sealed class CardFan
             var pos = new Vector3(Mathf.Sin(rad) * radius,
                                   (Mathf.Cos(rad) - 1f) * radius * archFactor,
                                   -ZStagger * i);
+
+            // Slide non-hovered cards along their OWN local right (rot * X, in fan space) to
+            // open the split gap around the hovered card. The hovered card is the pivot and
+            // does not move (its pop is VRCard's job — see SetHovered).
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(SplitOffset(i - hovered), 0f, 0f);
+
             card.SetHome(_root, pos, rot, 1f, instant);
 
             if (i == n - 1)
@@ -176,6 +221,24 @@ internal sealed class CardFan
             else
                 card.SetColliderRegion(strip, -(w - strip) * 0.5f);
         }
+    }
+
+    /// <summary>
+    /// G2 sideways split offset (real meters) for a card <paramref name="signed"/> = i -
+    /// hovered slots from the hovered card. Coded substitute for Demeo's serialized
+    /// <c>cardSplitCurve</c> (CardHandView.cs:452): a GAUSSIAN in slot-distance,
+    /// <c>FanSplitMultiplier * exp(-(d / FanSplitFalloff)^2)</c> with d = |signed|, signed by
+    /// which side of the hovered card we are on (left slides left, right slides right). The
+    /// nearest neighbour moves most and the push decays smoothly outward; FanSplitFalloff is
+    /// the Gaussian width — higher = only the immediate neighbours move, lower = the whole
+    /// fan spreads. FanSplitMultiplier = 0 disables the split entirely.
+    /// </summary>
+    private static float SplitOffset(int signed)
+    {
+        float d = Mathf.Abs(signed);
+        float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
+        float x = d / falloff;
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * CardsConfig.FanSplitMultiplier.Value;
     }
 
     // ------------------------------------------------------------------ laser pick --
