@@ -70,6 +70,9 @@ internal static class WorldUIConfig
     /// <summary>Legacy: world panels re-orient with the rig yaw per frame (HUD-like). Default false (P6).</summary>
     internal static ConfigEntry<bool> PanelsFollowView = null!;
 
+    /// <summary>Modal fallback style: "window" (float only the dialog window) | "screen" (full flat screen).</summary>
+    internal static ConfigEntry<string> ModalStyle = null!;
+
     /// <summary>Self-rescue: hold the non-dominant A/X in a scenario to toggle the flat screen.</summary>
     internal static ConfigEntry<bool> ManualScreenChord = null!;
 
@@ -86,6 +89,10 @@ internal static class WorldUIConfig
     /// <summary>True when button state goes through the virtual mouse (ClickMode virtualmouse/both).</summary>
     internal static bool VirtualMouseButtons =>
         !string.Equals(ClickMode.Value, "execute", System.StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when fallback windows float individually ([WorldUI] ModalStyle != "screen").</summary>
+    internal static bool ModalWindowStyle =>
+        !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
 
     // ---- settings panel (MISSION B) ------------------------------------------------------
     /// <summary>Show the small gear pokeable next to the button cluster (scenario only).</summary>
@@ -185,6 +192,15 @@ internal static class WorldUIConfig
             "the live rig yaw every frame, so they swing around the table with every snap " +
             "turn / world grab — perceived as a floating HUD. Default false: panels are " +
             "FIXED IN THE WORLD at the table and re-anchor only on rig rebuild or recenter.");
+        ModalStyle = _file.Bind("WorldUI", "ModalStyle", "window",
+            "How in-scenario 2D fallback windows (story boxes, events, tutorials, ESC " +
+            "menu, rewards, choice dialogs, ...) are made operable in VR (P8, test #12). " +
+            "'window' (default): only THAT window is converted to a world-space panel " +
+            "floating in front of the HMD — poke AND laser clickable — and restored to " +
+            "its 2D home when it closes; the full flat screen appears only when a " +
+            "specific window fails to convert (reason logged). 'screen': pre-P8 " +
+            "behavior — the full 2D desktop composite appears for every fallback " +
+            "window. The manual A/X chord always summons the full screen regardless.");
         ManualScreenChord = _file.Bind("WorldUI", "ManualScreenChord", true,
             "Self-rescue chord: HOLD the NON-dominant lower face button (A or X) for " +
             "ManualScreenChordSeconds during a scenario to toggle the floating 2D screen " +

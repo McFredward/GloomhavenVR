@@ -254,26 +254,50 @@ Config: `[Rig] Experimental3DMap` (placeholder, no effect), `[WorldUI] PanelsFol
 - [ ] `[Rig] Experimental3DMap = true` changes NOTHING (placeholder; documented in the
       config description).
 
-### 11.2 Catch-all modal fallback (in-scenario dialogs)
+### 11.2 Catch-all modal fallback (in-scenario dialogs) — P8: floating windows
+
+`[WorldUI] ModalStyle` (default `window`, P8/test #12): the fallback no longer
+summons the whole flat screen — only THAT window floats in front of the HMD.
 
 - [ ] Play a scenario with tutorials enabled (or any scenario intro text): the moment
-      a 2D window opens that VR does not convert, the flat screen appears with the
-      full UI and the laser pointer works on it. Log: `MODAL FALLBACK: window '…'
-      (ID …) opened in scenario …` (or the level-message/dialog-popup variant) and a
-      mode change `… -> ModalUI`.
-- [ ] Dismiss the dialog on the screen: the screen hides, mode returns to the previous
-      flow mode. Log: `Modal fallback: window '…' closed — screen released.`
-- [ ] The events that ARE converted do NOT trigger the screen: plain confirmation
+      a 2D window opens that VR does not convert, the WINDOW ITSELF appears as a
+      world-space panel ~1.2 m in front of the HMD (NOT the full screen). Log:
+      `MODAL FALLBACK: window '…' (ID …) opened …`, `MODAL WINDOW: '…' floated in
+      front of the HMD …` and a mode change `… -> ModalUI`.
+- [ ] Scenario-start STORY BOX ('UI Story Box' on 'Story Canvas'): floats as a panel;
+      clicking it (laser trigger or fingertip poke) advances the story pages exactly
+      like a 2D click (the box's full-area skip button receives the click). After the
+      last page the panel disappears and the window is restored to its 2D home.
+- [ ] Tutorial/level messages (`UILevelMessageBoxFixed`, Introduction Canvas) and
+      scenario CHOICE dialogs (`dialogPopup`) float the same way — poke AND laser
+      both click their buttons.
+- [ ] Dismiss the floated window: it is restored to its exact 2D home (check the
+      desktop mirror afterwards — the 2D UI must be pixel-identical), mode returns to
+      the previous flow mode. Log: `MODAL WINDOW: '…' released — restored to its 2D
+      home.`
+- [ ] The events that ARE converted do NOT trigger the fallback: plain confirmation
       boxes (world-space dialog), actor stat panels, phase banners, combat log.
-- [ ] ESC (desktop keyboard) mid-scenario: ESC menu triggers the fallback screen too.
-- [ ] End-of-scenario rewards/results panels show up on the screen (IDs RewardsPanel /
-      ResultsPanel in the fallback log) — no deadlock at scenario end.
+- [ ] ESC (desktop keyboard) mid-scenario: the ESC menu floats as a window too.
+- [ ] End-of-scenario rewards/results panels float (IDs RewardsPanel / ResultsPanel
+      in the fallback log) — no deadlock at scenario end.
+- [ ] `[WorldUI] ModalStyle = screen` restores the pre-P8 behavior (full flat screen
+      for every fallback window).
+- [ ] AUTOMATIC per-window fallback: if a window fails to convert (log
+      `MODAL WINDOW: conversion of '…' FAILED (…) — falling back to the full flat
+      screen`), the full screen rises for exactly that window.
+- [ ] Quit to menu / scene change with a floated window open: no leaked
+      `GloomhavenVR.Panel_Modal_*` hosts (UnityExplorer), no errors; F6 hot reload
+      restores every floated window to 2D.
 
 ### 11.3 Manual screen chord (self-rescue)
 
 - [ ] In a scenario, hold the NON-dominant lower face button (A or X) for ~2 s:
       double-check haptic pulse, the flat screen toggles ON in any mode. Log:
       `MANUAL SCREEN CHORD: flat screen toggled ON …`. Hold again ~2 s → OFF.
+- [ ] P8: the chord works REGARDLESS of `[WorldUI] ModalStyle` — while the manual
+      screen is up, any floating modal windows are RELEASED back into the 2D
+      composite (they must be visible ON the screen), and re-float when the chord
+      toggles the screen off with the window still open.
 - [ ] A SHORT hold (~0.6–1.5 s, release before 2 s) still toggles the **settings
       panel** on release — the two chords never fire together (a long hold consumes
       the press; no settings panel after a screen toggle).
@@ -304,6 +328,6 @@ Config: `[Rig] Experimental3DMap` (placeholder, no effect), `[WorldUI] PanelsFol
 
 | Set | Windows |
 |---|---|
-| **Converted / passive — never trigger the screen** | ConfirmationBox (world dialog, while `[WorldUI] Dialogs` on), ActorStatPanel, EnemyCurrentTurnStatPanel (stat surfaces), CombatLog, CardHolder (Cards module), QuestTracker, MapObjectiveManager, TrapInfoPanel, DoorInfoPanel, MapNodeInfoPanel (hover popups), phase banner (custom-ID toast) |
-| **Fallback → ModalUI + flat screen (in-scenario)** | EventsPanel, Message, HelpBox, TextInfoPanel, IntroductionScreen, RewardsPanel, ResultsPanel, TakeDamagePanel, DurabilityPanel, QuestPopup, UnlockQuestPopup, AdventureCompletionPanel, HeroLevelUpPanel, ESCMenu, Options(+Submenu/Vice), DifficultyPanel, CompendiumPanel, PartyPanel, EquipmentItemsPanel, Mutiplayer*/Character/MainMenu confirmation boxes, multiplayer panels; ConfirmationBox too when `[WorldUI] Dialogs = false` |
-| **Live-polled (scene-serialized IDs)** | LevelMessageUILayoutGroup (tutorial/story level messages), UIManager.dialogPopup (choice dialogs) |
+| **Converted / passive — never trigger the fallback** | ConfirmationBox (world dialog, while `[WorldUI] Dialogs` on), ActorStatPanel, EnemyCurrentTurnStatPanel (stat surfaces), CombatLog, CardHolder (Cards module), QuestTracker, MapObjectiveManager, TrapInfoPanel, DoorInfoPanel, MapNodeInfoPanel (hover popups), phase banner (custom-ID toast) |
+| **Fallback → ModalUI + floating window (P8, `ModalStyle=window`) or flat screen (`screen` / conversion failure)** | EventsPanel, Message, HelpBox, TextInfoPanel, IntroductionScreen, RewardsPanel, ResultsPanel, TakeDamagePanel, DurabilityPanel, QuestPopup, UnlockQuestPopup, AdventureCompletionPanel, HeroLevelUpPanel, ESCMenu, Options(+Submenu/Vice), DifficultyPanel, CompendiumPanel, PartyPanel, EquipmentItemsPanel, Mutiplayer*/Character/MainMenu confirmation boxes, multiplayer panels; ConfirmationBox too when `[WorldUI] Dialogs = false` |
+| **Live-polled (scene-serialized IDs), resolved to their UIWindow for the window style** | StoryController story box ('UI Story Box', `StoryController.window`), LevelMessageUILayoutGroup ×2 (tutorial/level messages incl. `UILevelMessageBoxFixed`, via `LevelMessagesUIHandler.s_Instance`), UIManager.dialogPopup (choice dialogs, `DialogPopup.Window`) |
