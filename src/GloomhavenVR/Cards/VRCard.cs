@@ -533,8 +533,12 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         float popTarget = _popped || _laserPopped ? 1f : 0f;
         _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
 
-        // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up.
-        Vector3 target = _homePos + _homeRot * new Vector3(0f, 0.012f * _pop, -0.035f * _pop);
+        // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up. The
+        // forward magnitude is [Cards] FanSelectedPopForward (G2) so it matches the fan
+        // split; falls back to the 0.035 m default if the config is not yet bound.
+        float popForward = CardsConfig.FanSelectedPopForward != null
+            ? CardsConfig.FanSelectedPopForward.Value : 0.035f;
+        Vector3 target = _homePos + _homeRot * new Vector3(0f, 0.012f * _pop, -popForward * _pop);
         float scale = _homeScale * (1f + 0.18f * _pop);
 
         if (_instantNext)
