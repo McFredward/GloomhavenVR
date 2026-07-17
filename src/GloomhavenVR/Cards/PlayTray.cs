@@ -597,6 +597,14 @@ internal sealed class PlayTray
 
     internal VRCard? Occupant(int slot) => _occupants[slot];
 
+    /// <summary>
+    /// Slot anchor transform (test #19: HalfSelection docks the round cards into
+    /// the SAME slots during action selection). Null until built or out of range —
+    /// callers treat null as "no dock" instead of crashing the driver.
+    /// </summary>
+    internal Transform? SlotTransform(int slot) =>
+        slot >= 0 && slot < _slots.Length ? _slots[slot] : null;
+
     internal int SlotOf(VRCard card)
     {
         if (_occupants[0] == card) return 0;

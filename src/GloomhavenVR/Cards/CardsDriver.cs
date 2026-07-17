@@ -546,6 +546,7 @@ internal sealed class CardsDriver : MonoBehaviour
         _tray.EnsureBuilt(_factory, anchor);
         _rest.EnsureBuilt(_tray);
         _half.EnsureBuilt(anchor);
+        _half.DockTo(_tray); // action selection lives on the control board (test #19)
 
         CardHandMode mode = CardsGameApi.Mode(hand);
         CardsGameApi.GetCards(hand, _widgetBuffer);

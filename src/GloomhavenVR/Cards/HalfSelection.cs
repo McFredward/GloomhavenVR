@@ -10,7 +10,8 @@ using UnityEngine;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// In-turn action selection: the round's played cards lie in front of the player;
+/// In-turn action selection: the round's played cards sit docked in the control
+/// board's card slots (test #19; head-floating layout only as the no-tray fallback);
 /// poking the top or bottom half commits that half via
 /// <c>FullAbilityCard.OnAbilityClick(ActionType, isProxyAction: false, checkValid: true)</c>
 /// — the identical call the 2D buttons make, so all validity/phase guards apply
@@ -40,6 +41,7 @@ internal sealed class HalfSelection
     private readonly List<VRCard> _cards = new(4);
     private readonly Dictionary<VRCard, ZoneSet> _zones = new(4);
     private Transform? _root;
+    private PlayTray? _tray;
     private bool _placed;
 
     /// <summary>Poke commit request: (card, half). CardsDriver executes it.</summary>
@@ -48,6 +50,20 @@ internal sealed class HalfSelection
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
 
     internal bool Contains(VRCard card) => _cards.Contains(card);
+
+    /// <summary>
+    /// Test #19: the action-selection display lives ON the control board — the round
+    /// cards dock straight into the tray's two card slots (same position, frame and
+    /// SlotScale density as during selection; stable under tray follow/pin/move/
+    /// resize because the cards parent under the slot transforms, exactly like
+    /// <see cref="PlayTray.PlaceCard"/>). The head-floating layout survives only as
+    /// the no-tray fallback.
+    /// </summary>
+    internal void DockTo(PlayTray? tray) => _tray = tray;
+
+    /// <summary>Dock target for card <paramref name="index"/>; null → floating fallback.</summary>
+    private Transform? DockSlot(int index) =>
+        _tray != null && _tray.Root != null ? _tray.SlotTransform(index) : null;
 
     // ------------------------------------------------------------------ lifecycle --
 
@@ -73,8 +89,8 @@ internal sealed class HalfSelection
             return;
         if (_root.gameObject.activeSelf != visible)
             _root.gameObject.SetActive(visible);
-        if (visible && !_placed)
-            PlaceAtHead();
+        if (visible && !_placed && DockSlot(0) == null)
+            PlaceAtHead(); // floating fallback only — docked cards live on the tray
         if (!visible)
             ClearCards();
     }
@@ -143,8 +159,19 @@ internal sealed class HalfSelection
                 continue;
             card.gameObject.SetActive(true);
             card.Grabbable = false; // pokes only in this layout
-            float x = n > 1 ? (i == 0 ? -0.75f : 0.75f) * w * layoutScale : 0f;
-            card.SetHome(_root, new Vector3(x, 0f, 0f), Quaternion.identity, layoutScale);
+            Transform? slot = DockSlot(i);
+            if (slot != null)
+            {
+                // Docked (test #19): the round cards stay in the SAME tray slots
+                // they were played into — home scale 1 under the slot root, so the
+                // slot's own SlotScale is the card density (test #18 pattern).
+                card.SetHome(slot, Vector3.zero, Quaternion.identity, 1f);
+            }
+            else
+            {
+                float x = n > 1 ? (i == 0 ? -0.75f : 0.75f) * w * layoutScale : 0f;
+                card.SetHome(_root, new Vector3(x, 0f, 0f), Quaternion.identity, layoutScale);
+            }
             ArmCard(card);
         }
     }
