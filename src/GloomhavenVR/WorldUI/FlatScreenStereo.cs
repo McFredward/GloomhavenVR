@@ -46,17 +46,30 @@ namespace GloomhavenVR.WorldUI;
 /// head motion maps 1 real meter → WorldScale game units; 1 in the menu rig, the
 /// diorama scale in scenarios), so:
 ///
-///   separation = IPD × [WorldUI] ScreenDepthStrength × WorldScale   (game units)
-///   convergence = [WorldUI] ScreenDistance × WorldScale             (game units)
+///   separation = IPD × ScreenDepthStrength × WorldScale × ScreenParallaxScale
+///   convergence = (ScreenDistance + ScreenWindowRecess) × WorldScale × ScreenParallaxScale
 ///
 /// Converging at the screen's own distance makes the geometry self-consistent: the
-/// quad physically sits ScreenDistance meters away, so scene content at the
-/// equivalent scene distance shows zero disparity (on the quad), and content at
-/// scene-infinity shows an uncrossed disparity of IPD·f/D_screen·(W/2) ≈ 4 cm real
-/// on the default 2.2 m screen — comfortably BELOW the ~6.3 cm divergence limit.
-/// Because the captured camera's FOV is typically NARROWER than the angle the quad
-/// subtends, perceived depth is slightly understated — intentional (comfort).
+/// quad physically sits ScreenDistance (+ window recess, see FlatScreen) meters
+/// away, so scene content at the equivalent scene distance shows zero disparity
+/// (on the quad), and content at scene-infinity shows an uncrossed disparity of
+/// IPD·f/D_screen·(W/2) ≈ 4 cm real on the default 2.2 m screen — comfortably
+/// BELOW the ~6.3 cm divergence limit. Because the captured camera's FOV is
+/// typically NARROWER than the angle the quad subtends, perceived depth is
+/// slightly understated — intentional (comfort).
 /// Strength scales all disparities linearly; 0 = mono = exactly today's behavior.
+///
+/// PARALLAX SCALE (hardware test #16: the menu pan read FLAT): with geometric
+/// separation (6.3 cm) and convergence at 1.6 scene units, relative parallax
+/// (∝ separation/distance) of FAR menu scenery is below the perceivable threshold.
+/// [WorldUI] ScreenParallaxScale multiplies BOTH separation AND convergence by the
+/// same factor — KEY INVARIANT: the at-infinity disparity depends only on the
+/// sep/conv RATIO, which stays constant (still ~4 cm real, below the divergence
+/// limit), while every scene-INTERNAL depth difference is amplified by the factor.
+/// The captured world reads like a diorama behind glass instead of a flat photo;
+/// comfort at infinity is untouched by construction. Near content pops out more
+/// aggressively at high factors — the clamp (1..60) and the default (6) keep it
+/// in the range validated for the menu scenes.
 ///
 /// PER-EYE QUAD TEXTURE (MultiPass): the head camera renders the quad once per eye
 /// pass; a <see cref="Camera.onPreRender"/> hook swaps the quad material's
@@ -72,6 +85,18 @@ namespace GloomhavenVR.WorldUI;
 /// fullscreen story videos on 'Video Camera', the intro), stereo is SUSPENDED: both
 /// eye passes show the left RT and the mirrors stop rendering. Correct by nature —
 /// video frames are 2D; there is no depth to reconstruct. Logged on every flip.
+///
+/// VIDEO DISCOVERY (hardware test #16, one-eyed intro): a one-shot GetComponent at
+/// mirror creation is NOT enough — the intro's player binds to its camera via
+/// <c>VideoPlayer.targetCamera</c> from a DIFFERENT GameObject (the intro 'Camera'
+/// mirrors as 3D with no player, no suspension → right eye black). Two throttled
+/// recovery paths keep the suspension correct without per-frame cost: entries whose
+/// cached player is null re-run GetComponent every ~15 frames (players added to the
+/// camera GO after capture), and a global FindObjectsOfType sweep every ~30 frames
+/// matches camera-plane players to captured cameras by targetCamera OR host GO.
+/// Late discoveries are logged once per player. The suspension check itself also
+/// verifies the binding still points at the source, so a player re-targeted to an
+/// uncaptured camera stops suspending stereo.
 ///
 /// LIFECYCLE: everything is mod-owned under one hidden DontDestroyOnLoad root.
 /// Mirrors die with the captured stack (<see cref="ReleaseMirrors"/> on scene
@@ -94,6 +119,10 @@ internal sealed class FlatScreenStereo
     private const int IpdSampleIntervalFrames = 90;
     /// <summary>Convergence floor (real meters) — guards a mis-configured ScreenDistance.</summary>
     private const float MinConvergenceMeters = 0.25f;
+    /// <summary>Frames between GetComponent re-checks on entries with no cached VideoPlayer.</summary>
+    private const int VideoRecheckIntervalFrames = 15;
+    /// <summary>Frames between global sweeps for camera-plane VideoPlayers on OTHER GameObjects.</summary>
+    private const int VideoSweepIntervalFrames = 30;
 
     // Config lives in the SAME dev.gloomhavenvr.worldui.cfg as the rest of the
     // FlatScreen ([WorldUI] section) — bound through an existing entry's ConfigFile
@@ -101,6 +130,7 @@ internal sealed class FlatScreenStereo
     // instance may be opened on the same path).
     private static ConfigEntry<bool>? s_stereoScreen;
     private static ConfigEntry<float>? s_depthStrength;
+    private static ConfigEntry<float>? s_parallaxScale;
 
     /// <summary>One mod-owned mirror camera shadowing a captured game camera into the right RT.</summary>
     private sealed class MirrorEntry
@@ -109,7 +139,11 @@ internal sealed class FlatScreenStereo
         public Camera Mirror = null!;
         public Transform MirrorTransform = null!;
         public GameObject Go = null!;
-        /// <summary>VideoPlayer hosted on the source camera's GO (near-plane video suspension).</summary>
+        /// <summary>
+        /// Camera-plane VideoPlayer bound to the source (near-plane video suspension) —
+        /// hosted on its GO or targeting it via targetCamera; discovered at mirror
+        /// creation or later by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
+        /// </summary>
         public VideoPlayer? Video;
         /// <summary>True = eye-offset stereo camera; false = zero-offset mono (UI / orthographic).</summary>
         public bool Stereo3D;
@@ -135,6 +169,14 @@ internal sealed class FlatScreenStereo
     private float _ipdMeters = DefaultIpdMeters;
     private int _ipdFrame = int.MinValue;
     private bool _ipdLogged;
+
+    // Late video discovery (class doc VIDEO DISCOVERY) — throttle gates + one-line-
+    // per-player log guard (instance IDs; players die with their scene, the set stays
+    // small for the process lifetime).
+    private int _videoRecheckFrame = int.MinValue;
+    private bool _videoRecheckDue;
+    private int _videoSweepFrame = int.MinValue;
+    private readonly HashSet<int> _videoLogged = new();
 
     /// <summary>Eye separation / convergence distance in CAPTURED-SCENE units (recomputed per tick).</summary>
     private float _sepScene;
@@ -173,9 +215,18 @@ internal sealed class FlatScreenStereo
             "linearly). 1 = geometrically derived from your HMD IPD (window-accurate, " +
             "slightly understated by design); smaller = flatter/more comfortable; " +
             "0 = mono (same as StereoScreen=false).");
+        s_parallaxScale = file.Bind("WorldUI", "ScreenParallaxScale", 6.0f,
+            "Amplifies the stereo screen's scene-INTERNAL depth (test #16: far menu scenery " +
+            "read flat at geometric settings). Separation AND convergence are multiplied by " +
+            "the same factor, so the at-infinity disparity (their ratio) stays constant and " +
+            "comfortable while depth differences inside the captured scene grow this many " +
+            "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
+            "geometry; clamped to 1-60.");
     }
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
+
+    private static float ParallaxScale => Mathf.Clamp(s_parallaxScale?.Value ?? 6f, 1f, 60f);
 
     private static bool WantActive(RenderTexture? leftRt) =>
         leftRt != null
@@ -237,10 +288,18 @@ internal sealed class FlatScreenStereo
         SampleIpd();
 
         // Real meters → captured-scene units via the rig's real↔game scale relation
-        // (1 in the menu rig; diorama scale in scenarios — see class doc).
+        // (1 in the menu rig; diorama scale in scenarios — see class doc). Both terms
+        // carry the SAME parallax factor (class doc PARALLAX SCALE: sep/conv ratio —
+        // and with it the at-infinity comfort — is invariant; only scene-internal
+        // depth is amplified), and convergence targets the image plane's ACTUAL
+        // distance: the quad sits ScreenDistance + window recess behind the head
+        // (FlatScreen's window frame), so content at screen distance lands exactly
+        // on the image, never floating in front of the frame.
         float scale = PanelLayout.WorldScale;
-        _sepScene = _ipdMeters * DepthStrength * scale;
-        _convScene = Mathf.Max(MinConvergenceMeters, WorldUIConfig.ScreenDistance.Value) * scale;
+        float parallax = ParallaxScale;
+        _sepScene = _ipdMeters * DepthStrength * scale * parallax;
+        _convScene = Mathf.Max(MinConvergenceMeters,
+            WorldUIConfig.ScreenDistance.Value + WorldUIConfig.ScreenRecessMeters) * scale * parallax;
     }
 
     /// <summary>Full teardown: mirrors, right RT, render hook; quad texture back to the left RT.</summary>
@@ -285,6 +344,65 @@ internal sealed class FlatScreenStereo
     {
         for (int i = 0; i < _mirrors.Count; i++)
             _mirrors[i].Synced = false;
+
+        // Late-video throttles (class doc VIDEO DISCOVERY). The global sweep runs
+        // FIRST so the SyncCamera calls of this very tick already see a discovered
+        // player and can suspend immediately.
+        _videoRecheckDue = Time.frameCount - _videoRecheckFrame >= VideoRecheckIntervalFrames;
+        if (_videoRecheckDue)
+            _videoRecheckFrame = Time.frameCount;
+        if (_active && _mirrors.Count > 0
+            && Time.frameCount - _videoSweepFrame >= VideoSweepIntervalFrames)
+        {
+            _videoSweepFrame = Time.frameCount;
+            SweepForCameraPlaneVideos();
+        }
+    }
+
+    /// <summary>
+    /// Global sweep for camera-plane VideoPlayers living on GameObjects OTHER than
+    /// their camera (the intro binds via targetCamera — test #16 one-eyed intro).
+    /// Throttled to every <see cref="VideoSweepIntervalFrames"/> frames while stereo
+    /// is active and mirrors exist; the FindObjectsOfType allocation is accepted at
+    /// that rate — a missed player costs a whole eye, not a frame-time spike.
+    /// </summary>
+    private void SweepForCameraPlaneVideos()
+    {
+        VideoPlayer[] players = Object.FindObjectsOfType<VideoPlayer>();
+        for (int i = 0; i < players.Length; i++)
+        {
+            VideoPlayer player = players[i];
+            if (player.renderMode != VideoRenderMode.CameraNearPlane
+                && player.renderMode != VideoRenderMode.CameraFarPlane)
+                continue;
+
+            MirrorEntry? entry = null;
+            Camera? bound = player.targetCamera;
+            if (bound != null && _bySource.TryGetValue(bound, out MirrorEntry byTarget))
+                entry = byTarget;
+            else
+            {
+                Camera host = player.GetComponent<Camera>();
+                if (host != null && _bySource.TryGetValue(host, out MirrorEntry byHost))
+                    entry = byHost;
+            }
+            // Only fill EMPTY slots (Unity fake-null included — a destroyed player is
+            // replaced, a live cached one is never thrashed by a second candidate).
+            if (entry == null || entry.Video != null)
+                continue;
+            entry.Video = player;
+            LogLateVideo(player, entry.Source, "global sweep, bound via targetCamera from GO '"
+                                               + player.gameObject.name + "'");
+        }
+    }
+
+    private void LogLateVideo(VideoPlayer player, Camera source, string how)
+    {
+        if (!_videoLogged.Add(player.GetInstanceID()))
+            return;
+        VRLog.Info("WorldUI", $"Stereo screen: camera-plane VideoPlayer discovered LATE for " +
+                              $"'{source.name}' ({how}) — near-plane suspension now applies " +
+                              "(without it this video would render in one eye only).");
     }
 
     /// <summary>
@@ -301,7 +419,16 @@ internal sealed class FlatScreenStereo
 
         entry.Synced = true;
         entry.SourceOn = source.isActiveAndEnabled;
-        entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video);
+        // Players can be ADDED to the camera GO after mirror creation — re-check
+        // empty slots on the throttled gate (destroyed players are fake-null and
+        // re-checked too; class doc VIDEO DISCOVERY).
+        if (entry.Video == null && _videoRecheckDue)
+        {
+            entry.Video = source.GetComponent<VideoPlayer>();
+            if (entry.Video != null)
+                LogLateVideo(entry.Video, source, "component appeared on the camera's GameObject");
+        }
+        entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video, source);
         if (!entry.SourceOn)
             return; // mirror gets disabled in EndStackSync; nothing to copy
 
@@ -431,7 +558,9 @@ internal sealed class FlatScreenStereo
             MirrorTransform = go.transform,
             Go = go,
             // Camera-hosted VideoPlayer (MainMenuVideo ambient movies, campaign
-            // 'Video Camera' fullscreen videos, the intro player) — suspension input.
+            // 'Video Camera' fullscreen videos) — first suspension probe; players
+            // added later or bound from another GO via targetCamera (the intro) are
+            // caught by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
             Video = source.GetComponent<VideoPlayer>(),
             // UI-tagged and orthographic cameras composite flat AT the screen plane;
             // real 3D perspective cameras get the eye offset.
@@ -446,10 +575,16 @@ internal sealed class FlatScreenStereo
         return entry;
     }
 
-    private static bool IsNearPlaneVideoActive(VideoPlayer? video) =>
+    /// <summary>
+    /// True while this player blits camera-plane frames into the SOURCE camera's
+    /// output. The binding check (targetCamera or same GO) lets a player that gets
+    /// re-targeted elsewhere stop suspending stereo without waiting for a sweep.
+    /// </summary>
+    private static bool IsNearPlaneVideoActive(VideoPlayer? video, Camera source) =>
         video != null && video.enabled
         && (video.renderMode == VideoRenderMode.CameraNearPlane
-            || video.renderMode == VideoRenderMode.CameraFarPlane);
+            || video.renderMode == VideoRenderMode.CameraFarPlane)
+        && (video.targetCamera == source || video.gameObject == source.gameObject);
 
     // ---- per-eye quad texture (MultiPass) ----------------------------------------------------
 
