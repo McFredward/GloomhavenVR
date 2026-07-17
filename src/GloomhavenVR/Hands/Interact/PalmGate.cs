@@ -36,8 +36,18 @@ internal sealed class PalmGate
     private const float DefaultEnterDot = 0.6f;
     private const float DefaultExitDot = 0.35f;
 
+    // G5 (DEMEO-HANDS-CARDS §4 row G5, §5 Group C): Demeo reveals the hand at a tight
+    // ~53° cone — Dot(hand.right, avatarUp) > 0.6, closing at the same 0.6 with no
+    // hysteresis gap (CardHandController.cs:452-456,474). We keep a hair of dead band
+    // (0.6 enter / 0.5 exit) so the roll-axis measure doesn't chatter at the boundary,
+    // vs our deliberately generous P6 default (SupinationThreshold 0.2 / exit -0.15).
+    private const float DemeoEnterDot = 0.6f;
+    private const float DemeoExitDot = 0.5f;
+
     private readonly VRHand _hand;
     private bool _enabled = true;
+    private bool _demeoPreset;
+    private bool _busySuppressed;
 
     internal PalmGate(VRHand hand) => _hand = hand;
 
@@ -61,6 +71,32 @@ internal sealed class PalmGate
     /// (thumb up), +1 palm fully up / toward the face.
     /// </summary>
     public bool RollAxisOnly;
+
+    /// <summary>
+    /// G5 busy-hand gate (DEMEO-HANDS-CARDS §5 Group C): when true and the gate hand is
+    /// mid-grab, the gate is force-closed and its open transition suppressed — you cannot
+    /// reveal the fan with the same hand you are grabbing a card with (mirrors
+    /// CardHandController.cs:475-476). The grab state is read from this gate's own hand
+    /// (<c>_hand.Grabber.Held</c>), so the driver only forwards the on/off toggle
+    /// ([Cards] RevealIgnoreWhenGrabbing). Auto-property: no external assignment required
+    /// for a clean build before the driver wires it.
+    /// </summary>
+    public bool IgnoreWhenHandBusy { get; set; }
+
+    /// <summary>
+    /// G5 reveal preset (DEMEO-HANDS-CARDS §4 row G5): forward [Cards] RevealPreset via
+    /// <c>CardsConfig.RevealDemeo</c>. <c>false</c> = generous P6 default (uses the
+    /// driver-set <see cref="EnterThreshold"/>/<see cref="ExitThreshold"/>, byte-identical
+    /// to today); <c>true</c> = Demeo's tight cone (<see cref="DemeoEnterDot"/>/
+    /// <see cref="DemeoExitDot"/>), ignoring the driver-set thresholds.
+    /// </summary>
+    public void ApplyDemeoPreset(bool demeo)
+    {
+        if (_demeoPreset == demeo)
+            return;
+        _demeoPreset = demeo;
+        Core.VRLog.Debug("Interact", $"PalmGate reveal preset → {(demeo ? "demeo" : "generous")}.");
+    }
 
     /// <summary>True while the palm faces the headset.</summary>
     public bool IsOpen { get; private set; }
@@ -89,6 +125,25 @@ internal sealed class PalmGate
     {
         if (!_enabled || !_hand.HasPose)
             return;
+
+        // G5 busy-hand gate (mirrors CardHandController.cs:475-476): the hand currently
+        // grabbing a card must not also reveal the fan. Force-close and skip evaluation
+        // while busy; normal behavior resumes the moment the grab ends (next tick).
+        if (IgnoreWhenHandBusy && _hand.Grabber.Held != null)
+        {
+            if (!_busySuppressed)
+            {
+                _busySuppressed = true;
+                Core.VRLog.Debug("Interact", "PalmGate reveal suppressed — gate hand busy grabbing.");
+            }
+            SetOpen(false);
+            return;
+        }
+        if (_busySuppressed)
+        {
+            _busySuppressed = false;
+            Core.VRLog.Debug("Interact", "PalmGate reveal restored — gate hand free.");
+        }
 
         // Head position: the rig's head camera in VR; Camera.main in the desktop sim.
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
@@ -138,9 +193,14 @@ internal sealed class PalmGate
             CurrentDot = Vector3.Dot(normal, toHead.normalized);
         }
 
-        if (!IsOpen && CurrentDot > EnterThreshold)
+        // Preset selects the cone: generous uses the driver-set thresholds (byte-identical
+        // to the P6 default); demeo uses the tight constants and ignores those thresholds.
+        float enter = _demeoPreset ? DemeoEnterDot : EnterThreshold;
+        float exit = _demeoPreset ? DemeoExitDot : ExitThreshold;
+
+        if (!IsOpen && CurrentDot > enter)
             SetOpen(true);
-        else if (IsOpen && CurrentDot < ExitThreshold)
+        else if (IsOpen && CurrentDot < exit)
             SetOpen(false);
     }
 
