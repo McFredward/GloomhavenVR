@@ -22,6 +22,10 @@ internal sealed class CardFan
     // whole-fan split in Relayout. Fed by the driver via SetHovered (parallel-owned file).
     private int _hoveredIndex = -1;
 
+    // G4: when the eased follow starts (open, or the follow mode flips) the fan snaps to the
+    // palm once instead of easing in from a stale position.
+    private bool _followInit;
+
     internal bool IsOpen { get; private set; }
 
     /// <summary>Cards currently owned by the fan (read-only view).</summary>
@@ -41,6 +45,7 @@ internal sealed class CardFan
         }
         _root.SetParent(hand.Rig.PalmCenter, worldPositionStays: false);
         _root.gameObject.SetActive(true);
+        _followInit = true; // G4: snap to the palm on the first Tick, don't ease in
         IsOpen = true;
         Relayout(instant: true);
     }
@@ -122,14 +127,62 @@ internal sealed class CardFan
 
     // ------------------------------------------------------------------ per frame --
 
-    /// <summary>Orient the fan toward the head every frame while open.</summary>
+    /// <summary>Follow the palm (rigidly or eased) and face the head every frame while open.</summary>
     internal void Tick()
     {
         if (!IsOpen || _root == null || _hand == null)
             return;
 
-        // Pivot floats above the palm along the palm normal (+Y of PalmCenter).
-        _root.localPosition = new Vector3(0f, CardsConfig.FanPalmOffset.Value, 0f);
+        Transform? palm = _hand.Rig.PalmCenter;
+        if (palm == null)
+            return;
+
+        // The palm target: FanPalmOffset up the palm normal, in world space. FanPalmOffset is
+        // "real meters"; the palm's lossyScale is the diorama WorldScale, so multiply through
+        // to land in world units (the same product the rigid PalmCenter-parented offset gives).
+        float scale = palm.lossyScale.x;
+        Vector3 target = palm.position + palm.up * (CardsConfig.FanPalmOffset.Value * scale);
+
+        float smoothing = CardsConfig.FanFollowSmoothing.Value;
+        Transform? rig = VRRigDriver.RigRoot;
+        if (smoothing > 0f && rig != null)
+        {
+            // G4 eased dead-zoned follow (Demeo ViewHelper, CardHandView.cs:677). Parent to the
+            // STABLE rig root (same diorama scale as the palm, so card sizes are unchanged) and
+            // ease the fan's WORLD position toward the palm — decoupling it from the palm so the
+            // dead zone can hold it perfectly still through sub-threshold hand jitter. Reparent
+            // only when the mode actually flips (worldPositionStays: no visible jump).
+            if (_root.parent != rig)
+            {
+                _root.SetParent(rig, worldPositionStays: true);
+                _followInit = true;
+            }
+
+            if (_followInit)
+            {
+                _followInit = false;
+                _root.position = target;
+            }
+            else
+            {
+                Vector3 delta = target - _root.position;
+                // minDistanceToMove: below the dead zone the fan holds still; past it, ease in
+                // frame-rate-independent exponential steps at the configured rate.
+                if (delta.magnitude > CardsConfig.FanFollowDeadzone.Value * scale)
+                    _root.position += delta * (1f - Mathf.Exp(-smoothing * Time.deltaTime));
+            }
+        }
+        else
+        {
+            // Rigid (pre-Demeo, FanFollowSmoothing == 0): welded to the palm. Parent to
+            // PalmCenter and sit at the offset — exactly the previous behaviour.
+            if (_root.parent != palm)
+            {
+                _root.SetParent(palm, worldPositionStays: true);
+                _followInit = true;
+            }
+            _root.localPosition = new Vector3(0f, CardsConfig.FanPalmOffset.Value, 0f);
+        }
 
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
