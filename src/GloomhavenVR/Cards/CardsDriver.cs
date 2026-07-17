@@ -440,12 +440,15 @@ internal sealed class CardsDriver : MonoBehaviour
             }
         }
 
-        if (slot == _snapHighlightSlot)
-            return;
-        _snapHighlightSlot = slot;
+        // PlayTray dedupes the visual toggle itself (safe across tray rebuilds);
+        // the driver-side cache only edges the haptic.
         _tray.SetHighlightedSlot(slot);
-        if (slot >= 0 && holder != null)
-            holder.SendHaptic(HapticPreset.HoverTick); // debounced: only on slot change
+        if (slot != _snapHighlightSlot)
+        {
+            _snapHighlightSlot = slot;
+            if (slot >= 0 && holder != null)
+                holder.SendHaptic(HapticPreset.HoverTick); // debounced: only on slot change
+        }
     }
 
     private static VRCard? HeldCard(out VRHand? holder)

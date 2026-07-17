@@ -198,8 +198,11 @@ internal sealed class RayUguiDriver
     // Reused corner buffer (GetWorldCorners fills in place — no per-frame allocations).
     private static readonly Vector3[] Corners = new Vector3[4];
 
-    // One-time world-rect log per registered canvas (instance IDs; survives re-registration).
-    private static readonly HashSet<int> LoggedCanvases = new();
+    // World-rect verification log: once per registered canvas AND once more per
+    // material size change — converted hosts can be re-fit to their visible
+    // content ~0.4 s after conversion (CanvasConversion.FitHostToContent), so the
+    // first-seen rect may not be the final one. Keyed by instance ID.
+    private static readonly Dictionary<int, Vector2> LoggedCanvasSizes = new();
 
     /// <summary>
     /// Ray ∩ canvas via the RectTransform's actual WORLD-SPACE corners (test #13):
@@ -242,15 +245,22 @@ internal sealed class RayUguiDriver
         return u >= 0f && u <= 1f && v >= 0f && v <= 1f;
     }
 
-    /// <summary>One-time verification log per canvas: its actual world rect (test #13).</summary>
+    /// <summary>
+    /// Verification log per canvas (test #13): its actual world rect — once on first
+    /// sight and again whenever the world SIZE changes by more than ~1 cm (converted
+    /// hosts get re-fit to their visible content shortly after conversion).
+    /// </summary>
     private static void LogCanvasOnce(Canvas canvas)
     {
-        if (!LoggedCanvases.Add(canvas.GetInstanceID()))
-            return;
         var rect = (RectTransform)canvas.transform;
         rect.GetWorldCorners(Corners);
         float w = (Corners[3] - Corners[0]).magnitude;
         float h = (Corners[1] - Corners[0]).magnitude;
+        int id = canvas.GetInstanceID();
+        if (LoggedCanvasSizes.TryGetValue(id, out Vector2 last)
+            && Mathf.Abs(last.x - w) < 0.01f && Mathf.Abs(last.y - h) < 0.01f)
+            return;
+        LoggedCanvasSizes[id] = new Vector2(w, h);
         Core.VRLog.Info("Interact",
             $"Ray-uGUI canvas '{canvas.name}': world rect {w:F3}x{h:F3} m, " +
             $"BL={Corners[0]:F3} TL={Corners[1]:F3} TR={Corners[2]:F3} BR={Corners[3]:F3}, " +
