@@ -1,3 +1,4 @@
+using GloomhavenVR.Hands;
 using HarmonyLib;
 using UnityEngine;
 
@@ -78,6 +79,61 @@ internal static class InputManager_CursorPosition_Patch
             return true; // no VR pick — original (real mouse / virtual mouse / gamepad)
 
         __result = screenPoint;
+        return false;
+    }
+}
+
+/// <summary>
+/// #3 pointer-over-UI truth (test #14 item 5 — hero-placement second click dead).
+///
+/// Vanilla flow (all decompiled GH.Runtime, verified 2026-07-17):
+/// <code>
+///   // WorldspaceStarHexDisplay.cs:3813-3819
+///   private CInteractable Interactable()
+///   {
+///       if (AutoTestController.s_AutoLogPlaybackInProgress || UIManager.IsPointerOverUI)
+///           return null;                       // ← THE GATE
+///       return InteractableUnderMouse();       // → our patched MF pick
+///   }
+///   // UIManager.cs:108-122: IsPointerOverUI =
+///   //   EventSystem.current.IsPointerOverGameObject()  (mouse pointer -1)
+///   //   || IsControllerOverUI (gamepad only — false in our ForceMouseMode)
+/// </code>
+/// <c>Interactable()</c> feeds <c>PointingAtANewTile()</c> and
+/// <c>HighlightSelectedPlacementHex()</c> (WorldspaceStarHexDisplay.cs:436/549) — the
+/// ONLY place that sets <c>Waypoint.s_PlacementTile</c> (:551 clears, :627 sets), and
+/// <c>Choreographer.TileHandler</c>'s placement branch requires
+/// <c>clientTile == Waypoint.s_PlacementTile</c> (Choreographer.cs:1841) before
+/// <c>PlaceActorAtRoundStart</c>. It also gates <c>HoverRegisterer</c> (:32).
+///
+/// DIVERGENCE IN VR: <c>EventSystem.IsPointerOverGameObject()</c> reflects the
+/// InControl input module's mouse pointer, whose position is the PARKED virtual/
+/// hardware mouse (PointerInputModuleExtended.cs:269-307 — GetMousePosition, not our
+/// patched CursorPosition). Its per-frame <c>RaycastAll</c> hits our world-space host
+/// canvases through the head camera (each host carries a GraphicRaycaster with
+/// worldCamera = head cam) — with the pre-fit giant planes (Panel_InitiativeTrack
+/// ~45x25 m) virtually ANY parked pixel was "over UI", so <c>Interactable()</c>
+/// returned null every frame, <c>s_PlacementTile</c> stayed null, and the second
+/// click fell through TileHandler. The character click (:1826) has no such gate,
+/// which is exactly the observed asymmetry.
+///
+/// FIX: while the VR pick owns the pointer (<see cref="BoardPick.Active"/> — never in
+/// Menu2D/ModalUI, so flat-screen/2D flows keep vanilla), report the VR truth: the
+/// pointer is over UI iff the picking hand's beam is latched onto a UI surface
+/// (<c>Ray.HasFreshUiHit</c> — world panels, card fan, flat screen) or its fingertip
+/// hovers UI (<c>Poke.HoveredUi</c>). Same predicate BoardClickDriver uses to route
+/// trigger clicks — hover gating and click routing can no longer disagree.
+/// </summary>
+[HarmonyPatch(typeof(UIManager), nameof(UIManager.IsPointerOverUI), MethodType.Getter)]
+internal static class UIManager_IsPointerOverUI_Patch
+{
+    private static bool Prefix(ref bool __result)
+    {
+        if (!BoardPick.Active)
+            return true; // no VR pick — vanilla EventSystem/gamepad answer
+
+        VRHand? hand = BoardPick.SourceHand;
+        __result = hand != null && (hand.Ray.HasFreshUiHit || hand.Poke.HoveredUi != null);
         return false;
     }
 }

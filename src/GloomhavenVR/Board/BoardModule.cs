@@ -25,18 +25,24 @@ namespace GloomhavenVR.Board;
 /// extension calls are needed here. Near-touch additionally works in every mode
 /// whose policy includes Poke (e.g. character placement during CardSelection).
 ///
-/// HERO PLACEMENT (verified for test #13, decompiled GH.Runtime): scenario-start
+/// HERO PLACEMENT (re-verified for test #14, decompiled GH.Runtime): scenario-start
 /// placement runs while the mode is CardSelection — the Choreographer wait-state is
 /// WaitingForCardSelection (NOT a targeting state), and the P5 matrix gives the
 /// dominant hand Ray there, so the whole pick+click pipeline is live. Hover:
-/// WorldspaceStarHexDisplay.HighlightSelectedPlacementHex → InteractableUnderMouse →
-/// our patched MF.FindInteractableAtMousePosition (m_HexSelectionRaycastLayer, the
-/// same tile layer) sets Waypoint.s_PlacementTile + the glowing star
+/// WorldspaceStarHexDisplay.Update → PointingAtANewTile → Interactable() — which
+/// FIRST bails when UIManager.IsPointerOverUI (WorldspaceStarHexDisplay.cs:3813-3819,
+/// the gate the test-#13 analysis missed; see UIManager_IsPointerOverUI_Patch) —
+/// then InteractableUnderMouse → our patched MF.FindInteractableAtMousePosition
+/// (m_HexSelectionRaycastLayer, the same tile layer) →
+/// HighlightSelectedPlacementHex sets Waypoint.s_PlacementTile + the glowing star
 /// (WorldspaceStarHexDisplay.cs:436/549/627/3822). Click: our CommonLoop postfix →
 /// LateUpdate → TileBehaviour.s_Callback → Choreographer.TileHandler placement
 /// branch (WaitingForCardSelection + clientTile == Waypoint.s_PlacementTile →
 /// PlaceActorAtRoundStart, Choreographer.cs:1841-1866) — re-picking another glowing
-/// hex is the same flow again. Nothing board-side needs a CardSelection extension.
+/// hex is the same flow again. The destination must be HOVERED before the click so
+/// s_PlacementTile is armed; with the pointer-over-UI truth patched for VR (and the
+/// giant unfitted host planes gone, test #14 item 1) the VR hover arms it exactly
+/// like the mouse hover does.
 ///
 /// Active when VR runs, and in Dev mode ([Dev] Enabled) so the whole pick/click
 /// pipeline is exercisable flat via [Dev] SimulateHands (+ [Board] ForceFarMode).
@@ -64,7 +70,11 @@ internal sealed class BoardModule : IVRModule
 
         VRSession.Harmony?.PatchAll(typeof(Patches.MF_FindInteractableAtMousePosition_Patch));
         VRSession.Harmony?.PatchAll(typeof(Patches.InputManager_CursorPosition_Patch));
+        VRSession.Harmony?.PatchAll(typeof(Patches.UIManager_IsPointerOverUI_Patch));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
+        // TEMPORARY test-#14 item-5 evidence (hero placement) — remove once confirmed.
+        VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Hover_Diagnostics));
+        VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Click_Diagnostics));
 
         _driverGo = new GameObject("GloomhavenVR.Board");
         Object.DontDestroyOnLoad(_driverGo);
