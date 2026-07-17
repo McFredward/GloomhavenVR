@@ -9,7 +9,8 @@ namespace GloomhavenVR.WorldUI;
 /// Physicalized UI (Phase 3c, R4 "physical interface"): canvas-conversion framework,
 /// physical Ready/Undo/Skip cluster, world panels for initiative track / element
 /// board / combat log / objectives, world-modal confirmation dialogs, world-space
-/// monster stat panels, true world-space actor bars, wrist HUD, floating 2D screen +
+/// monster stat panels, the transient enemy round-reveal float over the board
+/// (test #20), true world-space actor bars, wrist HUD, floating 2D screen +
 /// virtual-mouse pointer, gamepad-mode guard and world tooltips. Built on the
 /// Phase-2 seed (<see cref="VirtualMouse"/>). The phase banner is NOT converted
 /// (test #18: the converted banner never received its onHidden — the box froze in
@@ -138,6 +139,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly DialogSurface _dialogs = new();
         private readonly StatPanelSurface _statPanels = new();
         private readonly PropInfoSurface _propInfo = new();
+        private readonly EnemyRevealSurface _enemyReveal = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
@@ -176,6 +178,7 @@ internal sealed class WorldUIModule : IVRModule
             _dialogs.Tick();
             _statPanels.Tick();
             _propInfo.Tick();
+            _enemyReveal.Tick();
             _wristHud.Tick();
             _flatScreen.Tick();
             _settingsPanel.Tick();
@@ -200,6 +203,7 @@ internal sealed class WorldUIModule : IVRModule
             _dialogs.Shutdown();
             _statPanels.Shutdown();
             _propInfo.Shutdown();
+            _enemyReveal.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();
