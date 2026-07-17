@@ -303,6 +303,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         BuildDashboardControls();
         BuildRoundReadout();
         BuildMounts();
+        BuildPickField();
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
@@ -568,6 +569,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _slots = new Transform?[2];
         _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
         _highlightedSlot = -1;
+        _pickField = null; // child of _root, destroyed with it
+        _pickFieldHighlight = null;
+        _pickFieldVisible = false;
+        _pickFieldHighlighted = false;
         _badge = null;
         _roundLabel = null; // child of _root, destroyed with it
         _roundShown = int.MinValue;
@@ -795,6 +800,142 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             }
         }
         return best;
+    }
+
+    // ------------------------------------------------------------------ pick field --
+
+    private Transform? _pickField;
+    private GameObject? _pickFieldHighlight;
+    private bool _pickFieldVisible;
+    private bool _pickFieldHighlighted;
+
+    /// <summary>Card anchor of the pick drop field (null until built). Cards home at scale 1.</summary>
+    internal Transform? PickFieldAnchor => _pickField;
+
+    /// <summary>True while a modal pick mode shows the drop field (CardsDriver drives this).</summary>
+    internal bool PickFieldVisible => _pickFieldVisible;
+
+    /// <summary>
+    /// The DROP FIELD for the modal pick flows (test #21 B): a single slot-style
+    /// frame in the CENTER of the slot zone — lay a candidate card onto it to
+    /// select it (same accept mechanics as the play slots: highlight-on-hover
+    /// primary rule + capture-radius fallback, CardsDriver routes the release).
+    /// While visible it REPLACES the two play-slot visuals (SetPickFieldVisible
+    /// toggles the slot roots): the slots are guaranteed empty in pick modes
+    /// (Rebuild calls ClearSlots outside CardsSelection), and two empty slot
+    /// frames flanking a third frame read as three competing targets.
+    /// Layout: anchored at the slot-zone center (0, 0.015) with the slots'
+    /// 1.3× SlotScale — the field card reads exactly like a slotted card. Frame
+    /// half-extents ≈ (0.046, 0.064)·1.3 → x ±0.060, y -0.068..+0.098: clear of
+    /// the rest plate (right edge -0.1925), the CONFIRM column (left edge
+    /// 0.1735) and the cluster mount (top edge -0.073 — the game's live confirm
+    /// mirror docks DIRECTLY under the field, see BuildMounts). The mode's
+    /// confirm affordance is therefore already adjacent on two sides: the
+    /// ButtonCluster Ready below (mirrors ReadyButton in all 16 states incl.
+    /// EREADYBUTTONRECOVERCARD "Confirm") and the tray CONFIRM to the right
+    /// (accented while the field shows, see TickStatus).
+    /// </summary>
+    private void BuildPickField()
+    {
+        if (_root == null || _pickField != null)
+            return;
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+
+        _pickField = new GameObject("PickField").transform;
+        _pickField.SetParent(_root, worldPositionStays: false);
+        _pickField.localPosition = new Vector3(0f, 0.015f, 0f);
+        _pickField.localScale = Vector3.one * SlotScale; // field card = slot card density (test #18)
+
+        var frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        frame.name = "Frame";
+        Object.Destroy(frame.GetComponent<Collider>());
+        frame.transform.SetParent(_pickField, worldPositionStays: false);
+        frame.transform.localScale = new Vector3(w * 1.12f, h * 1.12f, 1f);
+        frame.transform.localPosition = new Vector3(0f, 0f, 0.003f);
+        Tint(frame, new Color(0.62f, 0.42f, 0.18f)); // warm accent — distinct from the play slots
+
+        var inner = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        inner.name = "FrameInner";
+        Object.Destroy(inner.GetComponent<Collider>());
+        inner.transform.SetParent(_pickField, worldPositionStays: false);
+        inner.transform.localScale = new Vector3(w * 1.04f, h * 1.04f, 1f);
+        inner.transform.localPosition = new Vector3(0f, 0f, 0.0025f);
+        Tint(inner, new Color(0.12f, 0.10f, 0.08f));
+
+        // Snap-glow behind the frame — the same telegraph the play slots use.
+        var glow = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        glow.name = "FieldHighlight";
+        Object.Destroy(glow.GetComponent<Collider>());
+        glow.transform.SetParent(_pickField, worldPositionStays: false);
+        glow.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
+        glow.transform.localPosition = new Vector3(0f, 0f, 0.0035f);
+        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        if (shader != null)
+        {
+            glow.GetComponent<MeshRenderer>().sharedMaterial =
+                new Material(shader) { color = new Color(1f, 0.85f, 0.3f, 0.95f) };
+        }
+        glow.SetActive(false);
+        _pickFieldHighlight = glow;
+
+        // Caption under the field (box metrics divide by SlotScale — test #18 pattern).
+        AddCaption(_pickField, new Vector3(0f, -h * 0.62f, -0.004f),
+            CardsGameApi.Localize("GUI_SELECT", "SELECT"), new Color(1f, 0.85f, 0.55f),
+            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
+            maxFontSize: 0.28f / SlotScale);
+
+        _pickField.gameObject.SetActive(false);
+    }
+
+    /// <summary>
+    /// Show/hide the pick drop field; while shown the two play-slot visuals hide
+    /// (see <see cref="BuildPickField"/>) and come back on hide. No-ops unless the
+    /// state changes.
+    /// </summary>
+    internal void SetPickFieldVisible(bool visible)
+    {
+        if (_pickField == null || _pickFieldVisible == visible)
+            return;
+        _pickFieldVisible = visible;
+        _pickField.gameObject.SetActive(visible);
+        for (int i = 0; i < 2; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot != null && slot.gameObject.activeSelf == visible)
+                slot.gameObject.SetActive(!visible);
+        }
+        if (!visible)
+            SetPickFieldHighlight(false);
+        VRLog.Info("Cards", $"Board: pick drop field {(visible ? "shown (slots hidden)" : "hidden (slots restored)")}.");
+    }
+
+    /// <summary>
+    /// Would the field capture a card released now? Same generous dual-sample rule
+    /// as <see cref="SlotNear"/> (card center OR holding palm within the capture
+    /// radius, test #13) with the distances exposed for the one-line drop log.
+    /// </summary>
+    internal bool PickFieldNear(Vector3 cardPos, Vector3 handPos, out float dist, out float radius)
+    {
+        dist = float.PositiveInfinity;
+        radius = 0f;
+        if (_pickField == null || !_pickFieldVisible || _root == null || !IsVisible)
+            return false;
+        radius = SlotCaptureRadius * _root.lossyScale.x;
+        dist = Mathf.Min(
+            Vector3.Distance(cardPos, _pickField.position),
+            Vector3.Distance(handPos, _pickField.position));
+        return dist <= radius;
+    }
+
+    /// <summary>Snap-preview glow on the field (change-gated, like SetHighlightedSlot).</summary>
+    internal void SetPickFieldHighlight(bool highlighted)
+    {
+        if (_pickFieldHighlighted == highlighted)
+            return;
+        _pickFieldHighlighted = highlighted;
+        if (_pickFieldHighlight != null && _pickFieldHighlight.activeSelf != highlighted)
+            _pickFieldHighlight.SetActive(highlighted);
     }
 
     // ------------------------------------------------------------------ highlight --
@@ -1083,8 +1224,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             bool confirmed = hand != null && CardsGameApi.IsConfirmed(hand);
             bool canConfirm = hand != null
                               && (CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable());
+            // Pick flows (test #21 B): while the drop field shows, CONFIRM is the
+            // mode's mirrored confirm affordance (the ReadyButton path the recover
+            // flows arm) — accent it as soon as the game reports it fireable.
             _confirm.SetState(canConfirm || confirmed,
-                accent: ready && canConfirm && !confirmed, confirmed: confirmed);
+                accent: (ready || _pickFieldVisible) && canConfirm && !confirmed, confirmed: confirmed);
             _confirm.SetLabel(confirmed
                 ? _confirmedLabel ??= "✓ " + CardsGameApi.Localize("GUI_READY", "READY")
                 : hand == null ? "-"

@@ -142,6 +142,8 @@ internal sealed class CardsDriver : MonoBehaviour
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _browser.Remove(card);
+            if (_fieldCards.Remove(card))
+                RelayoutField();
             _tray.RemoveCard(card);
             _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
         }
@@ -481,6 +483,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private int _snapHighlightSlot = -1;
     private VRCard? _snapHighlightCard;
+    private VRCard? _fieldHighlightCard; // pick-field counterpart of _snapHighlightCard (test #21 B)
 
     /// <summary>
     /// Test #13: while a card is HELD near the tray, glow the slot it would snap
@@ -493,6 +496,34 @@ internal sealed class CardsDriver : MonoBehaviour
     /// </summary>
     private void UpdateSlotHighlight()
     {
+        // Pick modes (test #21 B): the drop FIELD is the only snap target — same
+        // telegraph contract as the slots (glow-at-release is the primary accept
+        // rule, haptic tick on edge). Slot glow stays off while the field shows.
+        if (_tray.PickFieldVisible)
+        {
+            VRCard? fieldHeld = HeldCard(out VRHand? fieldHolder);
+            bool near = fieldHeld != null && fieldHolder != null
+                && _tray.PickFieldNear(fieldHeld.transform.position,
+                    fieldHolder.Rig.PalmCenter.position, out _, out _);
+            _tray.SetPickFieldHighlight(near);
+            VRCard? target = near ? fieldHeld : null;
+            if (!ReferenceEquals(target, _fieldHighlightCard))
+            {
+                _fieldHighlightCard = target;
+                if (target != null && fieldHolder != null)
+                    fieldHolder.SendHaptic(HapticPreset.HoverTick); // debounced: only on edge
+            }
+            _tray.SetHighlightedSlot(-1);
+            _snapHighlightSlot = -1;
+            _snapHighlightCard = null;
+            return;
+        }
+        if (_fieldHighlightCard != null)
+        {
+            _fieldHighlightCard = null;
+            _tray.SetPickFieldHighlight(false);
+        }
+
         int slot = -1;
         VRHand? holder = null;
         VRCard? held = null;
@@ -618,17 +649,34 @@ internal sealed class CardsDriver : MonoBehaviour
             case CardHandMode.RecoverDiscardedCard:
             case CardHandMode.RecoverLostCard:
             case CardHandMode.IncreaseCardLimit:
-                // Modal card picks (long-rest burn, avoid-damage, recovers): the 2D
-                // UI is click-to-select — VR is poke-to-select on the fan.
+                // Modal card picks (long-rest burn, avoid-damage, discards,
+                // recovers): the 2D UI is click-to-select. VR (test #21 B): the
+                // candidates are GRABBABLE — lay one onto the board's drop field to
+                // select it — with poke-to-select kept as the fallback; both paths
+                // commit through the same seam (TryCommitPick →
+                // CardsHandUI.SelectCard).
                 pokeSelect = true;
+                grabbable = true;
+                // Field occupants stay valid only while the game still reports them
+                // selected (an undo / "choose other card" returns them to the fan).
+                for (int i = _fieldCards.Count - 1; i >= 0; i--)
+                {
+                    VRCard occupant = _fieldCards[i];
+                    if (occupant == null || occupant.GameCard == null || !occupant.GameCard.IsSelected)
+                        _fieldCards.RemoveAt(i);
+                }
                 for (int i = 0; i < _widgetBuffer.Count; i++)
                 {
                     AbilityCardUI widget = _widgetBuffer[i];
                     if (widget.AbilityCard == null || widget.IsLongRest)
                         continue;
-                    if (widget.IsSelectable)
-                        _fanBuffer.Add(AdoptedCard(widget));
+                    if (!widget.IsSelectable)
+                        continue;
+                    VRCard card = AdoptedCard(widget);
+                    if (!_fieldCards.Contains(card))
+                        _fanBuffer.Add(card);
                 }
+                RelayoutField();
                 break;
 
             case CardHandMode.ActionSelection:
@@ -642,6 +690,13 @@ internal sealed class CardsDriver : MonoBehaviour
 
         if (mode != CardHandMode.CardsSelection)
             _tray.ClearSlots(); // stale occupancy must not pin cards outside CardsSelection
+
+        // Drop field (test #21 B): exists ONLY during a pick mode (C); leaving the
+        // mode clears its occupants — the zone loop below parks them.
+        bool pick = IsPickMode(mode);
+        _tray.SetPickFieldVisible(pick && trayVisible);
+        if (!pick)
+            _fieldCards.Clear();
 
         // Pile browse (test #21): refresh content or close — BEFORE the zone flags
         // below so freshly closed browse cards park in this same pass.
@@ -657,13 +712,16 @@ internal sealed class CardsDriver : MonoBehaviour
             bool inHalf = _halfBuffer.Contains(card);
             bool inTray = _tray.SlotOf(card) >= 0;
             bool inBrowse = _browser.Contains(card);
+            bool inField = _fieldCards.Contains(card);
 
             card.PokeSelectEnabled = inFan && pokeSelect;
-            card.Grabbable = (inFan && grabbable) || (inTray && grabbable);
+            // Field occupants stay grabbable: plucking one back off the field and
+            // releasing it elsewhere unselects through the game's own seam.
+            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField;
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
 
-            if (!inFan && !inHalf && !inTray && !inBrowse)
+            if (!inFan && !inHalf && !inTray && !inBrowse && !inField)
                 _factory.Park(card);
         }
 
@@ -759,6 +817,14 @@ internal sealed class CardsDriver : MonoBehaviour
         if (gameHand == null || card.GameCard == null)
         {
             _fan.Add(card);
+            return;
+        }
+
+        // Pick modes (test #21 B): the drop field is the only target — the slot
+        // logic below is CardsSelection-only.
+        if (IsPickMode(CardsGameApi.Mode(gameHand)))
+        {
+            HandlePickRelease(card, hand, gameHand);
             return;
         }
 
@@ -867,12 +933,148 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsHandUI? gameHand = CurrentHand();
         if (gameHand == null)
             return;
-        CAbilityCard ability = card.GameCard.AbilityCard;
+        // Modal pick fallback (test #21 B): poke commits through the SAME seam as
+        // the drop field — one guard, no double-commit.
+        TryCommitPick(card, gameHand, "poke");
+    }
+
+    // ------------------------------------------------------------------ pick flows --
+
+    /// <summary>Cards physically laid onto the pick drop field (selected candidates).</summary>
+    private readonly List<VRCard> _fieldCards = new(4);
+
+    /// <summary>
+    /// One pick commit may be in flight at a time (test #21 B): poke and drop both
+    /// funnel into <see cref="TryCommitPick"/>, and a second request is dropped
+    /// until the queued SelectCard resolved — the once-per-action guard pattern of
+    /// the test #19 half-selection accident fixes.
+    /// </summary>
+    private bool _pickCommitBusy;
+
+    /// <summary>
+    /// Release routing for the modal pick modes (test #21 B). Accept rules mirror
+    /// the play slots (test #15): the glow that telegraphed the drop wins, the
+    /// generous capture radius is the fallback. Accepting a fan card lays it onto
+    /// the field and commits the selection; releasing a FIELD card anywhere else
+    /// takes the pick back through the game's own UnselectCard seam.
+    /// </summary>
+    private void HandlePickRelease(VRCard card, VRHand hand, CardsHandUI gameHand)
+    {
+        bool highlight = ReferenceEquals(_fieldHighlightCard, card);
+        bool near = _tray.PickFieldNear(card.transform.position, hand.Rig.PalmCenter.position,
+            out float dist, out float radius);
+        bool wasOnField = _fieldCards.Contains(card);
+        bool accept = highlight || near;
+        string rule = highlight ? "highlight" : near ? "radius" : "none";
+
+        // THE one log line per real pick drop (the test #14 contract).
+        VRLog.Info("Cards", $"Drop ({hand.Side}): pick field {dist:F2} m, radius {radius:F2} m, rule={rule} → " +
+                            (accept
+                                ? (wasOnField ? "stay on field." : "select onto field.")
+                                : (wasOnField ? "take back (unselect)." : "return to fan.")));
+
+        if (accept)
+        {
+            hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
+            PlaceOnField(card);
+            if (!wasOnField)
+                TryCommitPick(card, gameHand, "drop-field");
+        }
+        else if (wasOnField)
+        {
+            _fieldCards.Remove(card);
+            RelayoutField();
+            _fan.Add(card);
+            AbilityCardUI widget = card.GameCard!;
+            CAbilityCard ability = widget.AbilityCard;
+            CardsHandUI handRef = gameHand;
+            CardActionQueue.Enqueue(
+                () => CardsGameApi.UnselectCard(handRef, ability),
+                () =>
+                {
+                    VRLog.Info("Cards", $"Pick take-back ({CardsGameApi.Mode(handRef)}): '{CardsGameApi.CardName(widget)}' " +
+                                        "via drop-field → CardsHandUI.UnselectCard.");
+                    _dirty = true;
+                });
+        }
+        else
+        {
+            _fan.Add(card); // released in the void: animated return
+        }
+    }
+
+    /// <summary>
+    /// THE pick commit — both input paths (field drop, poke fallback) land here and
+    /// nowhere else. Skips are logged: an already-selected widget (the game's
+    /// SelectCard would no-op anyway) and a commit still in flight (no
+    /// double-commit). The outcome is verified from the widget state after the
+    /// queued call resolved.
+    /// </summary>
+    private void TryCommitPick(VRCard card, CardsHandUI gameHand, string seam)
+    {
+        AbilityCardUI? widget = card.GameCard;
+        if (widget == null)
+            return;
+        if (widget.IsSelected)
+        {
+            VRLog.Info("Cards", $"Pick commit skipped (seam={seam}) — '{CardsGameApi.CardName(widget)}' " +
+                                "is already selected (no double-commit).");
+            return;
+        }
+        if (_pickCommitBusy)
+        {
+            VRLog.Info("Cards", $"Pick commit ignored (seam={seam}) — a commit is already in flight " +
+                                "(no double-commit, test #19 guard pattern).");
+            return;
+        }
+        _pickCommitBusy = true;
+        CAbilityCard ability = widget.AbilityCard;
         CardsHandUI handRef = gameHand;
-        // Modal pick (LoseCard/Recover…): select → the game runs its confirm dialog.
         CardActionQueue.Enqueue(
             () => CardsGameApi.SelectCard(handRef, ability),
-            () => _dirty = true);
+            () =>
+            {
+                _pickCommitBusy = false;
+                bool selected = widget != null && widget.IsSelected;
+                VRLog.Info("Cards", $"Pick commit ({CardsGameApi.Mode(handRef)}): '{(widget != null ? CardsGameApi.CardName(widget) : "?")}' " +
+                                    $"via {seam} → CardsHandUI.SelectCard {(selected ? "accepted" : "rejected")}.");
+                if (!selected && _fieldCards.Remove(card))
+                {
+                    RelayoutField();
+                    _fan.Add(card);
+                }
+                _dirty = true;
+            });
+    }
+
+    private void PlaceOnField(VRCard card)
+    {
+        if (!_fieldCards.Contains(card))
+            _fieldCards.Add(card);
+        RelayoutField();
+    }
+
+    /// <summary>
+    /// Home the field occupants onto the drop field: one card centered, two (the
+    /// burn-two-from-discard flows) side by side. Held cards are never re-homed
+    /// (the phantom-ACCEPT lesson, see PlayTray.PlaceCard).
+    /// </summary>
+    private void RelayoutField()
+    {
+        Transform? field = _tray.PickFieldAnchor;
+        if (field == null)
+            return;
+        int n = _fieldCards.Count;
+        float w = CardsConfig.CardWidth.Value;
+        for (int i = 0; i < n; i++)
+        {
+            VRCard card = _fieldCards[i];
+            if (card == null || card.IsHeld)
+                continue;
+            card.gameObject.SetActive(true);
+            float x = n > 1 ? (i - (n - 1) * 0.5f) * w * 0.55f : 0f;
+            card.SetHome(field, new Vector3(x, 0f, -0.002f * (i + 1)), Quaternion.identity, 1f);
+        }
     }
 
     /// <summary>
