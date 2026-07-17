@@ -306,10 +306,14 @@ internal static class CanvasConversion
         // elements must not grow the panel beyond the window's own rect, but a
         // previously shrunk host must not cap a legitimate content growth.
         panel.Target.GetWorldCorners(CornerScratch);
-        Vector3 frameBl = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
-        Vector3 frameTr = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
-        min = Vector2.Max(min, new Vector2(frameBl.x, frameBl.y));
-        max = Vector2.Min(max, new Vector2(frameTr.x, frameTr.y));
+        Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
+        Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
+        // Min/max-normalized: a mid-animation rotation/negative scale must not
+        // invert the frame and turn the clamp into garbage.
+        Vector2 frameMin = Vector2.Min(frameA, frameB);
+        Vector2 frameMax = Vector2.Max(frameA, frameB);
+        min = Vector2.Max(min, frameMin);
+        max = Vector2.Min(max, frameMax);
 
         Vector2 size = max - min;
         if (size.x < 32f || size.y < 32f)
@@ -317,8 +321,8 @@ internal static class CanvasConversion
 
         const float Padding = 12f;
         size += Vector2.one * (2f * Padding);
-        size.x = Mathf.Min(size.x, Mathf.Abs(frameTr.x - frameBl.x));
-        size.y = Mathf.Min(size.y, Mathf.Abs(frameTr.y - frameBl.y));
+        size.x = Mathf.Min(size.x, frameMax.x - frameMin.x);
+        size.y = Mathf.Min(size.y, frameMax.y - frameMin.y);
 
         // Dirty check (test #14): within 2 % of the current host rect (size AND
         // centering) — nothing to do. Host pivot is centered, so local origin ==
