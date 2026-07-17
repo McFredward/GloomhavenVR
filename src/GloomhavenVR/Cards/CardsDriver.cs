@@ -455,6 +455,12 @@ internal sealed class CardsDriver : MonoBehaviour
             // rest tokens) keep the plain OnPoke path.
             if (best is PlayTray.BoardButton button)
             {
+                // Item 8: any board button press is a foreign interaction (the Cards
+                // events cover CONFIRM/UNDO/rest via their handlers regardless of
+                // input modality; this also catches board buttons with no Cards event,
+                // e.g. settings/recenter, on the laser path). Pile stacks are NOT
+                // BoardButtons — they route through OnPoke below and manage the browse.
+                ForeignInteraction("board button");
                 button.Press(dom, "laser");
             }
             else
@@ -858,6 +864,11 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
+        // Item 8: grabbing a hand/tray/field card while a browse is open is a foreign
+        // interaction. Grabbing a BROWSE card is part of the browse (read close), so
+        // it is exempt — only the arc's own cards may be plucked without dismissing.
+        if (!_browser.Contains(card))
+            ForeignInteraction("card grabbed");
         // Accident window (test #19): a pluck FROM a slot or the pick field means
         // the hand is working right next to CONFIRM — arm the suppression guard.
         if (_tray.SlotOf(card) >= 0 || _fieldCards.Contains(card))
@@ -1183,6 +1194,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnSwapRequested()
     {
+        ForeignInteraction("tray initiative swap");
         CardsHandUI? hand = CurrentHand();
         if (hand == null)
             return;
@@ -1207,6 +1219,7 @@ internal sealed class CardsDriver : MonoBehaviour
         // - everything else → the ReadyButton dispatch (Pass/StepComplete — no
         //   spin-wait, ScenarioRuleClient.Pass only messages the SRL).
         // Every outcome logs the RESOLVED game state.
+        ForeignInteraction("tray CONFIRM");
         CardActionQueue.Enqueue(
             () =>
             {
@@ -1235,6 +1248,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnUndoRequested()
     {
+        ForeignInteraction("tray UNDO");
         CardActionQueue.Enqueue(
             () =>
             {
@@ -1246,6 +1260,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnShortRestRequested()
     {
+        ForeignInteraction("short rest toggle");
         CardsHandUI? hand = CurrentHand();
         if (hand == null)
             return;
@@ -1255,6 +1270,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnLongRestRequested()
     {
+        ForeignInteraction("long rest toggle");
         CardsHandUI? hand = CurrentHand();
         if (hand == null)
             return;
@@ -1264,6 +1280,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnPlayRequested(VRCard card, CBaseCard.ActionType type)
     {
+        ForeignInteraction("action play");
         FullAbilityCard? full = card.FullCard;
         if (full == null)
             return;
@@ -1323,6 +1340,22 @@ internal sealed class CardsDriver : MonoBehaviour
         _browser.Open(kind, anchor, held ? hand : null);
         VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held in hand" : "toggled")}, mode={mode}).");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
+    }
+
+    /// <summary>
+    /// Close-on-foreign-interaction watchdog (test #22, item 8): while a pile browse
+    /// is open, ANY interaction that is not part of the browse itself dismisses it —
+    /// grabbing a hand/tray card, pressing a board button, a rest toggle, an action
+    /// play. Every foreign-interaction seam funnels through this ONE close path
+    /// (logged with its trigger) instead of scattering CloseBrowser calls across the
+    /// handlers. Lifecycle closes (hands-down, hand destroyed, mode/dialog change,
+    /// pile emptied) keep their own paths — those are reversibility guarantees (item
+    /// D / test #21 C), not user interactions.
+    /// </summary>
+    private void ForeignInteraction(string source)
+    {
+        if (_browser.IsOpen)
+            CloseBrowser($"foreign interaction: {source}");
     }
 
     private void CloseBrowser(string reason)
