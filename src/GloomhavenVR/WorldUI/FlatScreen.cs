@@ -53,8 +53,9 @@ namespace GloomhavenVR.WorldUI;
 ///   alpha-blended ("glass"), identical in both eyes, exactly at the pointer plane.
 /// - BACKGROUND LAYER: 3D perspective cameras keep compositing the left RT — with
 ///   <see cref="FlatScreenStereo"/> mirrors producing the right RT from WORLD-space
-///   content (which mirrors CAN render) plus the video depth layer — shown on an
-///   opaque background quad a few cm BEHIND the glass, so the UI always visibly
+///   content (which mirrors CAN render), or, while a camera-plane video plays, both
+///   eyes showing shifted copies of the left RT (its VIDEO DEPTH SHIFT) — shown on
+///   an opaque background quad a few cm BEHIND the glass, so the UI always visibly
 ///   floats in front even when parallax is subtle.
 ///
 /// The pointer target stays the screen quad at the screen plane (the single
@@ -68,8 +69,8 @@ namespace GloomhavenVR.WorldUI;
 /// which kept the split — and with it stereo AND the video depth layer — off for
 /// the entire main menu): its latch re-arms on the next scene change or the moment
 /// a UI-classified camera IS captured, so a scene that does have a UI always gets
-/// the split back. While stereo SUSPENDS (intro guard / un-routable video)
-/// the UI cameras temporarily rejoin the left RT and the glass clears transparent,
+/// the split back. While stereo SUSPENDS (intro guard / video with the shift path
+/// unavailable) the UI cameras temporarily rejoin the left RT and the glass clears transparent,
 /// so the single suspended image carries everything, exactly like the pre-split
 /// path; the pre-menu intro guard keeps working unchanged.
 ///
@@ -438,8 +439,7 @@ internal sealed class FlatScreen
         //    EFFECTIVE clear flags. Pre-menu scenes engage the stereo intro guard
         //    (test #17 one-eyed intro: the Intro scene's render path is
         //    scene-serialized and unverifiable — FlatScreenStereo forces identical
-        //    eyes there unless its video depth layer took the video over, which
-        //    reaches both eyes by construction).
+        //    eyes there, zero shift: the intro must remain verified-identical).
         bool preMenu = IsPreMenuScene();
         if (SplitActive)
         {
@@ -458,8 +458,8 @@ internal sealed class FlatScreen
             }
 
             // Routing follows the suspension decided THIS tick (EndStackSync):
-            // suspended (intro guard / un-routable video) → the UI rejoins the left
-            // RT so the single suspended image carries everything. Applying the flip
+            // suspended (intro guard / unavailable shift path) → the UI rejoins the
+            // left RT so the single suspended image carries everything. Applying the flip
             // here is still same-frame — cameras render after Update — so no frame
             // is ever one-eyed or UI-less; bases/clears are recomputed immediately.
             bool routing = !preMenu && !_stereo.Suspended;
