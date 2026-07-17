@@ -1,7 +1,7 @@
 # GSD State
 
 - **Milestone:** v0.1 (first playable VR release)
-- **Position:** **Hardware iteration loop.** 10 on-device test rounds done; menu + campaign map + scenario entry + clicking + card fan + board targeting all working in VR. Round 15 merged: tray dashboard (real initiative UI + objectives docked, pin toggle, modal grab, highlight-rule drops), placement fix (TimeManager freeze via skipped camera-arrival — CameraArrivalGuard), stereo-depth flat screen. Awaiting hardware test #16.
+- **Position:** **Hardware iteration loop.** Test #16 done: first successful hero placement + tray grab/pin working on device. Round 16 merged: (1) robust camera-plane video discovery (one-eyed intro) + window depth (ScreenParallaxScale 6×, ScreenWindowRecess 0.22 m image behind frame); (2) uniform tray-panel pixel density (2400 px/m, PlayTray.TrayPixelsPerMeter) + tight initiative row fit (initiativeTrackHolder) + objectives degenerate-rect fix; (3) stat-panel self-occlusion loop killed (non-pokeable, side-anchored, 0.3 s release hysteresis), deterministic click-time placement arming, **HelpBox tooltip strip removed from ModalFallback IDs** (root cause of dead fan + dead board clicks all session — mode machine sat in ModalUI from first placement to shutdown; Player.log Debug lines proved fan buffer was full the whole time). New change-deduped `[Cards] fan state:` Info diagnostic. Awaiting hardware test #17.
 - **Last update:** 2026-07-17
 
 ## Done
