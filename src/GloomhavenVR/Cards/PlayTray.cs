@@ -106,6 +106,8 @@ internal sealed class PlayTray
     /// portraits read consistently across panels. 2400 px/m maps the game's
     /// ~24–30 px HUD body text to ~10–13 mm — the same order as the tray's own
     /// TmpFit caption/button labels (0.024–0.030 m boxes) at arm's length.
+    /// Panels that need larger type multiply this via their DensityScale override
+    /// (WorldUI TrayMountedPanelSurface, test #17: objectives at 0.6×).
     /// </summary>
     internal const float TrayPixelsPerMeter = 2400f;
 

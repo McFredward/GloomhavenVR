@@ -47,6 +47,15 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
     private const float MaxDensityScale = 1f;
     private const float MinDensityScale = 0.5f;
 
+    /// <summary>
+    /// Per-panel multiplier on the shared tray density (test #17). 1 = the shared
+    /// <see cref="PlayTray.TrayPixelsPerMeter"/> as-is; below 1 renders the SAME
+    /// content pixels onto MORE tray meters (0.6 ⇒ ~1.67× bigger text). The dock
+    /// fit clamp below still applies, so a lowered density never overflows the
+    /// panel's dock budget by more than the shared MinDensityScale allowance.
+    /// </summary>
+    protected virtual float DensityScale => 1f;
+
     /// <summary>Live mount anchor (null/destroyed → floating fallback).</summary>
     protected abstract Transform? Mount { get; }
 
@@ -91,11 +100,12 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         // mount's lossy scale carries BOTH the tray-grab scale and the diorama
         // scale, so the density holds at tray scale 1 and multiplies uniformly.
         float trayScale = mount.lossyScale.x;
+        float density = PlayTray.TrayPixelsPerMeter * DensityScale;
         float fitScale = Mathf.Min(
-            MountWidth * PlayTray.TrayPixelsPerMeter / rect.width,
-            MountMaxHeight * PlayTray.TrayPixelsPerMeter / rect.height);
+            MountWidth * density / rect.width,
+            MountMaxHeight * density / rect.height);
         float metersPerPx = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale)
-                            / PlayTray.TrayPixelsPerMeter;
+                            / density;
 
         Vector2 grow = GrowDirection;
         Vector3 offset = new Vector3(
@@ -211,6 +221,14 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     protected override float MountWidth => PlayTray.ObjectivesMountWidth;
     protected override float MountMaxHeight => PlayTray.ObjectivesMountMaxHeight;
     protected override Vector2 GrowDirection => Vector2.left; // right edge on the mount
+
+    /// <summary>
+    /// Test #17: at the shared density the objectives text read too small (the
+    /// initiative track at the SAME density was verdict-perfect — do not touch it).
+    /// 0.6× density renders the objectives ~1.67× bigger; the dock fit clamp keeps
+    /// them inside the mount budget.
+    /// </summary>
+    protected override float DensityScale => 0.6f;
 
     protected override RectTransform? FindTarget()
     {
