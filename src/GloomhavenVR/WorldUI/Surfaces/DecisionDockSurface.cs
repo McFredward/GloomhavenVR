@@ -197,6 +197,20 @@ internal sealed class DecisionDockSurface : WorldSurface
         // Track the active prompt; a new/switched/closed prompt re-arms the latches.
         if (!ReferenceEquals(window, _activeWindow))
         {
+            // The active prompt CHANGED (test #26: the short-rest Yes/No closed and the
+            // burn/redraw DialogPopup opened in its place). WorldSurface only converts
+            // while Panel == null, so a live conversion of the PREVIOUS prompt would
+            // stick on the board forever and the new prompt would never dock — nor float,
+            // since the claim keeps the generic path down. Tear the old conversion down
+            // here (restore its suppression + release its row) so base.Tick re-converts
+            // the new target THIS tick.
+            if (Panel != null)
+            {
+                RestoreSuppression();
+                if (ReleaseCurrentPanel())
+                    VRLog.Info("WorldUI", "DECISION DOCK: active prompt changed — previous row " +
+                                          "released so the next prompt's row can dock in its place.");
+            }
             _activeWindow = open ? window : null;
             _active = open ? active : null;
             _wantSince = 0f;
