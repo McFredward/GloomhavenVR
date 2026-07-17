@@ -140,6 +140,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly StatPanelSurface _statPanels = new();
         private readonly PropInfoSurface _propInfo = new();
         private readonly EnemyRevealSurface _enemyReveal = new();
+        private readonly TakeDamageSurface _takeDamage = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
@@ -179,6 +180,7 @@ internal sealed class WorldUIModule : IVRModule
             _statPanels.Tick();
             _propInfo.Tick();
             _enemyReveal.Tick();
+            _takeDamage.Tick(); // after ModalFallback.Tick (its claim stands the generic path down)
             _wristHud.Tick();
             _flatScreen.Tick();
             _settingsPanel.Tick();
@@ -205,6 +207,7 @@ internal sealed class WorldUIModule : IVRModule
             _statPanels.Shutdown();
             _propInfo.Shutdown();
             _enemyReveal.Shutdown();
+            _takeDamage.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();

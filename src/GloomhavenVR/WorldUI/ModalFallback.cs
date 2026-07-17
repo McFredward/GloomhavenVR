@@ -76,6 +76,19 @@ namespace GloomhavenVR.WorldUI;
 /// DoorInfoPanel / MapNodeInfoPanel, the passive HelpBox hint strip — test #16 —
 /// and the hover prop-info cards TextInfoPanel / UIPropInfoPanel →
 /// Surfaces.PropInfoSurface — test #18) deliberately do NOT trigger the fallback.
+///
+/// TRAY-DOCK CLAIMS (test #21): a third window class between "converted" and
+/// "fallback" — fallback IDs whose INTERACTIVE WIDGETS a dedicated surface docks
+/// onto the control board while the window is open (<see cref="TrayDockClaims"/>,
+/// ID → live claim predicate). While a claim holds, the generic path stands down
+/// COMPLETELY for that window: no float, no screen, and crucially NO ModalUI —
+/// these prompts have follow-up flows that need the normal interactors (the
+/// take-damage burn choice continues in the card fan, which the ModalUI palm-gate
+/// shutdown killed in test #21). The IDs STAY in <see cref="FallbackIds"/>: the
+/// claim is consulted level-triggered every tick, so the moment it breaks (surface
+/// off, tray gone, conversion failure grace expired) the window is handled
+/// generically again — a wrongly-floated window is recoverable, a dropped one is a
+/// silent deadlock (the DurabilityPanel rule).
 /// </summary>
 internal static class ModalFallback
 {
@@ -148,7 +161,10 @@ internal static class ModalFallback
         // the rest of the UI (CardsHandManager.cs:1214, BaseButtons.cs:68).
         UIWindowID.ResultsPanel,
         // MODAL: TakeDamagePanel — burn-card choice + confirm button (:60), networked
-        // confirmation (Choreographer.cs:5505, SendGameAction :774).
+        // confirmation (Choreographer.cs:5505, SendGameAction :774). Test #21:
+        // normally CLAIMED by Surfaces.TakeDamageSurface (choice row docked on the
+        // control board, no float/ModalUI — the burn follow-up needs the live card
+        // fan); kept here so the generic float takes over whenever the claim breaks.
         UIWindowID.TakeDamagePanel,
         // UNMAPPED (audit): NO owning class anywhere in the decompile — the string
         // exists only in UIWindowID.cs, so its behavior is unprovable. Kept MODAL
@@ -195,6 +211,24 @@ internal static class ModalFallback
         UIWindowID.MutiplayerPlayerPicker,      // MODAL: UIMultiplayerSelectPlayerScreen (:311)
         UIWindowID.MultiplayerFriendList,       // MODAL: MultiplayerFriendList (:54)
     };
+
+    /// <summary>
+    /// Tray-dock claims (test #21, class doc above): fallback window IDs whose
+    /// interactive widgets a dedicated surface docks onto the control board — the
+    /// map value is the surface's LIVE claim predicate, consulted level-triggered
+    /// every tick. Sibling-prompt candidates for future entries (same class: small
+    /// choice panel whose follow-up needs the normal interactors): the short-rest
+    /// reshuffle confirmation (ID-less — runs through the UIManager.dialogPopup
+    /// poll source, would need a poll-claim seam), and HeroLevelUpPanel (card
+    /// pick). Deliberately NOT converted now.
+    /// </summary>
+    private static readonly Dictionary<UIWindowID, Func<bool>> TrayDockClaims = new()
+    {
+        { UIWindowID.TakeDamagePanel, static () => Surfaces.TakeDamageSurface.ClaimsWindow },
+    };
+
+    private static bool IsTrayDockClaimed(UIWindowID id) =>
+        TrayDockClaims.TryGetValue(id, out Func<bool> claimed) && claimed();
 
     /// <summary>Fallback windows currently open (tracked instances; pruned per tick).</summary>
     private static readonly HashSet<UIWindow> Open = new();
@@ -289,9 +323,16 @@ internal static class ModalFallback
         // unconditional; the SCENARIO gate is applied level-triggered in Tick() (pre-
         // scenario Menu2D auto-shows the full screen anyway, so want stays false there).
         if (Open.Add(e.Window))
-            VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened without a " +
-                                  $"VR conversion (scenario={VRModeStateMachine.ScenarioBoardExists}) → " +
-                                  "ModalUI + floating window (or screen) while it stays open in a scenario.");
+        {
+            if (IsTrayDockClaimed(e.Id))
+                VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened — " +
+                                      "CLAIMED by a control-board dock surface (no float, no ModalUI " +
+                                      "while the claim holds; generic fallback resumes if it breaks).");
+            else
+                VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened without a " +
+                                      $"VR conversion (scenario={VRModeStateMachine.ScenarioBoardExists}) → " +
+                                      "ModalUI + floating window (or screen) while it stays open in a scenario.");
+        }
     }
 
     private static bool IsFallbackWindow(UIWindowID id)
@@ -368,8 +409,15 @@ internal static class ModalFallback
         OpenWindows.Clear();
         foreach (UIWindow window in Open)
         {
-            if (window != null)
-                OpenWindows.Add(window);
+            if (window == null)
+                continue;
+            // Test #21: while a tray-dock surface claims this window, it is NOT
+            // part of the generic modal path — no float, no screen, no ModalUI
+            // (still tracked in Open: the claim is re-checked every tick, so a
+            // broken claim hands the window back here level-triggered).
+            if (IsTrayDockClaimed(window.ID))
+                continue;
+            OpenWindows.Add(window);
         }
         if (story)
             AddPollWindow(Singleton<StoryController>.Instance.window);
