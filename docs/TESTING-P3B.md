@@ -16,6 +16,17 @@
 - [ ] F6 hot reload (ScriptEngine): no errors, fan/tray rebuild cleanly, no leaked
       `GloomhavenVR.*` objects from the previous load (check with UnityExplorer).
 
+## 0b. Hand visuals (test #13 upgrade)
+
+- [ ] The procedural hands read as HANDS at a glance: rounded palm (no brick
+      edges), knuckle ridge, thumb-base mound, fingers that taper toward the
+      tips (thumb clearly thicker than the pinky), lighter nail hints on the
+      backs of the fingertips.
+- [ ] Pull the trigger / grip and watch the fingers curl: knuckles stay
+      CONTINUOUS (joint spheres) — no gaps opening between segments.
+- [ ] Bundle gloves (when present) still load and take priority; deleting the
+      bundle falls back to the upgraded procedural hands with a log line.
+
 ## 1. 2D suppression (in scenario, HMD on)
 
 - [ ] Load any scenario. When card selection starts, the 2D hand window does NOT
@@ -58,13 +69,19 @@
       the hover is sticky — small aim wobble on the card must not flip the pop to a
       neighbor; pull the TRIGGER → the card flies into the dominant hand.
 - [ ] **Proximity pluck** with the dominant hand still works: reach in, grip → grab.
-- [ ] **Pinch grip (test #12 fix)**: the grabbed card is held BETWEEN THUMB AND
-      INDEX — its lower edge sits at the midpoint of the thumb tip and index tip
-      (sampled at grab time), the card plane lies in the palm plane with a gentle
-      readable tilt (`[Cards] HeldTiltDegrees`), top past the fingertips, enlarged
-      (`[Cards] InspectScale`). It rotates 1:1 with the wrist: twist the wrist → the
-      card twists with it, NO auto-facing, no floating in front of the hand. Turning
-      the palm toward you presents the card readable.
+- [ ] **Pinch grip (test #12) + readable at rest (test #13)**: the grabbed card is
+      held BETWEEN THUMB AND INDEX — its lower edge sits at the midpoint of the
+      thumb tip and index tip (sampled at grab time), enlarged
+      (`[Cards] InspectScale`). With the controller in a RELAXED grip (hand in
+      front of the chest, no wrist twist) the card stands up out of the pinch,
+      top toward the thumb side, FACE toward your eyes — readable immediately,
+      like really holding a playing card (`[Cards] HeldFaceBias`, default 65°;
+      `HeldTiltDegrees` is legacy/unused). It still rotates 1:1 with the wrist:
+      twist the wrist → the card twists with it, NO auto-facing, no floating in
+      front of the hand.
+- [ ] **Both hands**: grab with the left hand too — the card mirrors correctly
+      (top toward the left thumb, face toward you), never mirrored text or
+      facing away.
 - [ ] Fine-tune the pinch with `[Cards] HeldPinchOffset` (GrabAnchor-local meters:
       +Y out of the palm, +Z along the fingers). `HeldOffPalm/HeldForward` are only
       the fallback for rigs without finger joints (procedural AND bundle gloves
@@ -73,6 +90,12 @@
 - [ ] Release (trigger-up for a laser pluck, grip-up for a proximity grab) in the
       void → the card animates back into its fan gap; release over a board slot (card
       or hand above the slot) → it parks there.
+- [ ] **Slot snap (test #13)**: while holding a card NEAR a slot (card center OR
+      the holding hand within ~12 cm), the target slot shows a gold glow frame
+      and a haptic tick fires once as the target slot changes; release → the
+      card "zaps" into the glowing slot with a quick lerp + click haptic. Every
+      drop writes a `Slot check: …` log line with per-slot distances and
+      ACCEPT/REJECT.
 
 ## 3. Control board (P7 redesign — see .planning/research/CONTROLBOARD.md)
 
@@ -85,6 +108,10 @@
       gold number badge above it | CONFIRM + UNDO buttons (right).
 - [ ] Labels are localized (game language ≠ English → CONFIRM/UNDO/LONG REST texts
       follow the game where keys exist).
+- [ ] **Steady labels (test #13 fix)**: "ZZZ", "99" and the badge number/"-" sit
+      fully ON their discs, do not flicker or "clip" while moving the head (they
+      were z-fighting their plates), and the badge number changes without a
+      visible re-layout blink.
 - [ ] Drop a fan card onto slot 1 (left): the card parks; the badge shows its
       initiative number; the game state gets the selection (initiative track avatar
       shows that number). Free re-arranging: grab back / move between slots at will
@@ -147,6 +174,13 @@
 - [ ] Open the settings panel (physical SET button): the dominant laser clamps to the
       panel, hovering widgets highlights them, TRIGGER clicks them — no more
       pass-through. Same for converted world dialogs.
+- [ ] **Dot everywhere (test #13 fix)**: on a FLOATED modal dialog (story box —
+      1920 px wide at host scale 0.7), sweep the laser across the WHOLE panel:
+      the dot + clamped beam stay visible edge to edge, including the right
+      half (the ModalUI visuals cone used to hide them past ~25° off the panel
+      center while clicks kept landing). The log prints one
+      `Ray-uGUI canvas …: world rect …` line per registered canvas for
+      verification.
 - [ ] While the beam is clamped to a panel or fan card, the trigger must NOT also
       fire a board click behind it (nearest UI wins).
 - [ ] A fan card or miniature physically in front of a panel blocks the panel hover
