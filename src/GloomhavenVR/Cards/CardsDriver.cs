@@ -144,6 +144,8 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             if (ReferenceEquals(card, _laserHover))
                 ClearLaserHover();
+            if (ReferenceEquals(card, _browseHover))
+                ClearBrowseHover();
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _browser.Remove(card);
@@ -172,6 +174,7 @@ internal sealed class CardsDriver : MonoBehaviour
             CloseBrowser("hands down");
             ClearLaserHover();
             ClearBoardHover();
+            ClearBrowseHover();
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
@@ -190,9 +193,11 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdatePalmGate();
         UpdateFanLaser();
         UpdateBoardLaser();
+        UpdateBrowseLaser();
         UpdateSlotHighlight();
         _fan.Tick();
         _half.Tick();
+        _browser.Tick(); // held reading fan follows the grabbing hand (item 5)
 
         CardsHandUI? hand = CurrentHand();
         if (_tray.IsVisible)
@@ -450,6 +455,12 @@ internal sealed class CardsDriver : MonoBehaviour
             // rest tokens) keep the plain OnPoke path.
             if (best is PlayTray.BoardButton button)
             {
+                // Item 8: any board button press is a foreign interaction (the Cards
+                // events cover CONFIRM/UNDO/rest via their handlers regardless of
+                // input modality; this also catches board buttons with no Cards event,
+                // e.g. settings/recenter, on the laser path). Pile stacks are NOT
+                // BoardButtons — they route through OnPoke below and manage the browse.
+                ForeignInteraction("board button");
                 button.Press(dom, "laser");
             }
             else
@@ -482,6 +493,62 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         _trayCardHover.SetLaserHover(false);
         _trayCardHover = null;
+    }
+
+    // ------------------------------------------------------------------ browse laser --
+
+    private VRCard? _browseHover;
+
+    /// <summary>
+    /// Item 5 (laser-selectable pile browse): the dominant hand's ray highlights an
+    /// open browse arc's cards and TriggerDown plucks the pointed card into the hand
+    /// to read it close (released on TriggerUp → returns to the arc, no game state).
+    /// Yields to the fan laser and the board laser — those are real interactions; the
+    /// browse is a passive read layered on top. Mirrors <see cref="UpdateFanLaser"/>.
+    /// </summary>
+    private void UpdateBrowseLaser()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (!_browser.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
+            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || _laserHover != null || _trayCardHover != null || _boardHover != null)
+        {
+            ClearBrowseHover();
+            return;
+        }
+
+        PickPose pick = dom.Ray.Current;
+        if (!_browser.TryRaycast(pick.Origin, pick.Direction, _browseHover, out VRCard? card, out Vector3 point, out float dist)
+            || card == null
+            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        {
+            ClearBrowseHover();
+            return;
+        }
+
+        if (!ReferenceEquals(card, _browseHover))
+        {
+            ClearBrowseHover();
+            _browseHover = card;
+            card.SetLaserHover(true);
+            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
+        }
+
+        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        if (dom.TriggerDown && card.CanGrab)
+        {
+            VRCard grab = card;
+            ClearBrowseHover();
+            dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
+        }
+    }
+
+    private void ClearBrowseHover()
+    {
+        if (_browseHover == null)
+            return;
+        _browseHover.SetLaserHover(false);
+        _browseHover = null;
     }
 
     // ------------------------------------------------------------------ slot snap preview --
@@ -670,6 +737,14 @@ internal sealed class CardsDriver : MonoBehaviour
                     if (occupant == null || occupant.GameCard == null || !occupant.GameCard.IsSelected)
                         _fieldCards.RemoveAt(i);
                 }
+                // Item 9: the SELECTABLE widgets become the fan. In CardsSelection the
+                // fan is the real hand; in the burn-two-discarded flow the game marks
+                // the DISCARD-pile widgets selectable (CardHandMode.LoseCard, pile
+                // Discarded, count 2 — AbilityCardUI.SetMode), so the exact same fan
+                // becomes the discard pile, picked exactly like hand cards through the
+                // one authoritative TryCommitPick → SelectCard seam. Track the source
+                // pile for the change-deduped Info line below.
+                CardPileType pickSource = CardPileType.None;
                 for (int i = 0; i < _widgetBuffer.Count; i++)
                 {
                     AbilityCardUI widget = _widgetBuffer[i];
@@ -677,10 +752,13 @@ internal sealed class CardsDriver : MonoBehaviour
                         continue;
                     if (!widget.IsSelectable)
                         continue;
+                    if (pickSource == CardPileType.None)
+                        pickSource = widget.CardType;
                     VRCard card = AdoptedCard(widget);
                     if (!_fieldCards.Contains(card))
                         _fanBuffer.Add(card);
                 }
+                LogPickSource(mode, pickSource);
                 RelayoutField();
                 break;
 
@@ -701,7 +779,10 @@ internal sealed class CardsDriver : MonoBehaviour
         bool pick = IsPickMode(mode);
         _tray.SetPickFieldVisible(pick && trayVisible);
         if (!pick)
+        {
             _fieldCards.Clear();
+            _loggedPickSource = null; // re-entering a pick mode logs its source afresh (item 9)
+        }
 
         // Pile browse (test #21): refresh content or close — BEFORE the zone flags
         // below so freshly closed browse cards park in this same pass.
@@ -721,8 +802,10 @@ internal sealed class CardsDriver : MonoBehaviour
 
             card.PokeSelectEnabled = inFan && pokeSelect;
             // Field occupants stay grabbable: plucking one back off the field and
-            // releasing it elsewhere unselects through the game's own seam.
-            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField;
+            // releasing it elsewhere unselects through the game's own seam. Browse
+            // cards are grabbable too (item 5) — but purely to pull one close and
+            // read it; the release routes back to the arc, never to a game seam.
+            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse;
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
 
@@ -795,6 +878,11 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
+        // Item 8: grabbing a hand/tray/field card while a browse is open is a foreign
+        // interaction. Grabbing a BROWSE card is part of the browse (read close), so
+        // it is exempt — only the arc's own cards may be plucked without dismissing.
+        if (!_browser.Contains(card))
+            ForeignInteraction("card grabbed");
         // Accident window (test #19): a pluck FROM a slot or the pick field means
         // the hand is working right next to CONFIRM — arm the suppression guard.
         if (_tray.SlotOf(card) >= 0 || _fieldCards.Contains(card))
@@ -815,6 +903,15 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_fakeActive)
         {
             RouteFakeRelease(card, hand);
+            return;
+        }
+
+        // Pile-browse card (item 5): plucked out for a close read — return it to the
+        // reading arc, NEVER into the select/slot seams below (these are discard/burnt
+        // cards, not hand cards; committing them would be wrong). Purely informational.
+        if (_browser.IsOpen && _browser.Contains(card))
+        {
+            _browser.Add(card);
             return;
         }
 
@@ -947,6 +1044,34 @@ internal sealed class CardsDriver : MonoBehaviour
 
     /// <summary>Cards physically laid onto the pick drop field (selected candidates).</summary>
     private readonly List<VRCard> _fieldCards = new(4);
+
+    /// <summary>Change-dedup for the pick-fan source line (item 9): (mode, source pile).</summary>
+    private (CardHandMode mode, CardPileType source)? _loggedPickSource;
+
+    /// <summary>
+    /// Item 9: name where the pick fan's candidates come from — the REAL HAND
+    /// (avoid-damage lose-1, card-limit) vs the DISCARD pile (burn-two-discarded,
+    /// recover-discard) vs the BURNT pile (recover-lost) — change-deduped to one line
+    /// per (mode, source) change. Proves from the log alone that "burn two discarded"
+    /// really turned the discard pile into the selectable hand fan.
+    /// </summary>
+    private void LogPickSource(CardHandMode mode, CardPileType source)
+    {
+        var key = (mode, source);
+        if (_loggedPickSource.HasValue && _loggedPickSource.Value == key)
+            return;
+        _loggedPickSource = key;
+        string name = source switch
+        {
+            CardPileType.Hand => "real hand",
+            CardPileType.Discarded => "discard pile",
+            CardPileType.Lost or CardPileType.Permalost => "burnt pile",
+            CardPileType.None => "none (no selectable cards)",
+            _ => source.ToString(),
+        };
+        VRLog.Info("Cards", $"Pick fan source ({mode}): {name} — the selectable cards ARE the hand fan " +
+                            "(picked through the one TryCommitPick → CardsHandUI.SelectCard seam).");
+    }
 
     /// <summary>
     /// One pick commit may be in flight at a time (test #21 B): poke and drop both
@@ -1111,6 +1236,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnSwapRequested()
     {
+        ForeignInteraction("tray initiative swap");
         CardsHandUI? hand = CurrentHand();
         if (hand == null)
             return;
@@ -1135,6 +1261,7 @@ internal sealed class CardsDriver : MonoBehaviour
         // - everything else → the ReadyButton dispatch (Pass/StepComplete — no
         //   spin-wait, ScenarioRuleClient.Pass only messages the SRL).
         // Every outcome logs the RESOLVED game state.
+        ForeignInteraction("tray CONFIRM");
         CardActionQueue.Enqueue(
             () =>
             {
@@ -1163,6 +1290,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnUndoRequested()
     {
+        ForeignInteraction("tray UNDO");
         CardActionQueue.Enqueue(
             () =>
             {
@@ -1174,6 +1302,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnShortRestRequested()
     {
+        ForeignInteraction("short rest toggle");
         CardsHandUI? hand = CurrentHand();
         if (hand == null)
             return;
@@ -1183,6 +1312,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnLongRestRequested()
     {
+        ForeignInteraction("long rest toggle");
         CardsHandUI? hand = CurrentHand();
         if (hand == null)
             return;
@@ -1192,6 +1322,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnPlayRequested(VRCard card, CBaseCard.ActionType type)
     {
+        ForeignInteraction("action play");
         FullAbilityCard? full = card.FullCard;
         if (full == null)
             return;
@@ -1223,10 +1354,10 @@ internal sealed class CardsDriver : MonoBehaviour
             CloseBrowser("poked again");
             return;
         }
-        OpenBrowser(kind, held: false);
+        OpenBrowser(kind, held: false, hand);
     }
 
-    private void OnPileGrabOpened(PileKind kind, VRHand hand) => OpenBrowser(kind, held: true);
+    private void OnPileGrabOpened(PileKind kind, VRHand hand) => OpenBrowser(kind, held: true, hand);
 
     private void OnPileGrabReleased(PileKind kind, VRHand hand)
     {
@@ -1234,21 +1365,39 @@ internal sealed class CardsDriver : MonoBehaviour
             CloseBrowser("grip released");
     }
 
-    private void OpenBrowser(PileKind kind, bool held)
+    private void OpenBrowser(PileKind kind, bool held, VRHand? hand)
     {
-        CardsHandUI? hand = CurrentHand();
+        CardsHandUI? gameHand = CurrentHand();
         Transform? anchor = AnchorParent();
-        if (hand == null || anchor == null || !CardsConfig.PileViewer.Value)
+        if (gameHand == null || anchor == null || !CardsConfig.PileViewer.Value)
             return;
-        CardHandMode mode = CardsGameApi.Mode(hand);
+        CardHandMode mode = CardsGameApi.Mode(gameHand);
         if (IsPickMode(mode) || VRModeStateMachine.CurrentMode == VRMode.ModalUI)
             return; // modal pick flows / dialogs own the scene — browsing is non-modal only
         _browseHeld = held;
-        _browseHand = hand;
+        _browseHand = gameHand;
         _browseMode = mode;
-        _browser.Open(kind, anchor);
-        VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held" : "toggled")}, mode={mode}).");
+        // Held grab (item 5): the arc becomes a reading fan pinned to the grabbing
+        // hand — "the pile in my hand". Poke-toggle stays a fixed head-relative wall.
+        _browser.Open(kind, anchor, held ? hand : null);
+        VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held in hand" : "toggled")}, mode={mode}).");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
+    }
+
+    /// <summary>
+    /// Close-on-foreign-interaction watchdog (test #22, item 8): while a pile browse
+    /// is open, ANY interaction that is not part of the browse itself dismisses it —
+    /// grabbing a hand/tray card, pressing a board button, a rest toggle, an action
+    /// play. Every foreign-interaction seam funnels through this ONE close path
+    /// (logged with its trigger) instead of scattering CloseBrowser calls across the
+    /// handlers. Lifecycle closes (hands-down, hand destroyed, mode/dialog change,
+    /// pile emptied) keep their own paths — those are reversibility guarantees (item
+    /// D / test #21 C), not user interactions.
+    /// </summary>
+    private void ForeignInteraction(string source)
+    {
+        if (_browser.IsOpen)
+            CloseBrowser($"foreign interaction: {source}");
     }
 
     private void CloseBrowser(string reason)
@@ -1258,6 +1407,7 @@ internal sealed class CardsDriver : MonoBehaviour
         VRLog.Info("Cards", $"Pile browse CLOSE ({reason}).");
         _browseHeld = false;
         _browseHand = null;
+        ClearBrowseHover();
         _browser.Close();
         _dirty = true; // next rebuild parks the browsed cards
     }
