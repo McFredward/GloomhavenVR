@@ -1562,6 +1562,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         private System.Action? _onClick;
         private Material? _capMaterial;
+        private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on the procedural fallback
         private TextMeshPro? _label;
         private Transform? _cap;
         private Color _accentColor;
@@ -1617,19 +1618,34 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
             Tint(basePlate, new Color(0.10f, 0.09f, 0.08f));
 
-            var cap = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cap.name = "Cap";
-            Object.Destroy(cap.GetComponent<Collider>());
-            cap.transform.SetParent(go.transform, worldPositionStays: false);
-            cap.transform.localScale = new Vector3(size.x, size.y, 0.008f);
-            cap.transform.localPosition = new Vector3(0f, 0f, -0.004f);
-
+            // Native look (test #25 item 3): when a live game button has been sampled,
+            // the travelling cap is an EMPTY holder carrying the game's own 9-sliced
+            // button sprite (WorldUI.NativeButtonSkin) on a unit-scale face — so it is
+            // indistinguishable from a native widget. Otherwise it falls back to the
+            // procedural grey cube cap. Either way the holder sits at CapRestZ and
+            // travels on press; the collider (on go) is independent of it.
             Material? capMaterial = null;
-            Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
-            if (shader != null)
+            SpriteRenderer? capFace = null;
+            var cap = new GameObject("Cap");
+            cap.transform.SetParent(go.transform, worldPositionStays: false);
+            cap.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
+
+            // Face proud of the base plate (viewer side, -Z), just behind the label.
+            capFace = WorldUI.NativeButtonSkin.CreateFace(cap.transform, size, localZ: -0.004f, sortingOrder: 1);
+            if (capFace == null)
             {
-                capMaterial = new Material(shader) { color = DisabledColor };
-                cap.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                // Procedural fallback: the original squashed grey cube cap.
+                var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                capCube.name = "CapMesh";
+                Object.Destroy(capCube.GetComponent<Collider>());
+                capCube.transform.SetParent(cap.transform, worldPositionStays: false);
+                capCube.transform.localScale = new Vector3(size.x, size.y, 0.008f);
+                Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+                if (shader != null)
+                {
+                    capMaterial = new Material(shader) { color = DisabledColor };
+                    capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                }
             }
 
             // Label parented to the (unit-scale) button root, floating just in front
@@ -1640,7 +1656,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.text = fallbackLabel;
             tmp.alignment = TextAlignmentOptions.Center;
-            tmp.color = Color.white;
+            // Native label (test #25 item 3): the game's HUD font (MarcellusSC) + its
+            // parchment-gold button-text colour when the skin has been sampled; plain
+            // white otherwise (procedural fallback).
+            tmp.color = WorldUI.NativeButtonSkin.HasFont ? WorldUI.NativeButtonSkin.LabelColor : Color.white;
+            WorldUI.NativeButtonSkin.ApplyFont(tmp);
             // Fit inside the cap face: localized CONFIRM/UNDO strings (SetLabel
             // mirrors the game's texts) shrink/wrap inside the button instead of
             // spilling over its edges (TmpFit, test #12).
@@ -1654,10 +1674,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             var button = go.AddComponent<BoardButton>();
             button._onClick = onClick;
             button._capMaterial = capMaterial;
+            button._capFace = capFace;
             button._label = tmp;
             button._cap = cap.transform;
             button._accentColor = accent;
             button.Collider = box;
+            button.UpdateColor(); // seat the initial (disabled) native/procedural face tint
             return button;
         }
 
@@ -1711,12 +1733,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 gameObject.SetActive(visible);
         }
 
-        /// <summary>Resting cap color for the current state (dwell ramps AWAY from this).</summary>
+        /// <summary>Resting cap color for the current state (procedural fallback; dwell ramps AWAY from this).</summary>
         private Color StateColor() =>
             !_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor;
 
+        /// <summary>Native-skin face state for the current button state (test #25 item 3).</summary>
+        private WorldUI.NativeButtonSkin.FaceState FaceState() =>
+            !_enabledState ? WorldUI.NativeButtonSkin.FaceState.Disabled
+            : (_confirmed || _accent) ? WorldUI.NativeButtonSkin.FaceState.Accent
+            : WorldUI.NativeButtonSkin.FaceState.Idle;
+
         private void UpdateColor()
         {
+            if (_capFace != null)
+            {
+                WorldUI.NativeButtonSkin.Apply(_capFace, FaceState());
+                return;
+            }
             if (_capMaterial == null)
                 return;
             Color color = StateColor();
@@ -1804,7 +1837,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 pos.z = CapRestZ + CapTravel * progress;
                 _cap.localPosition = pos;
             }
-            if (_capMaterial != null)
+            if (_capFace != null)
+                _capFace.color = Color.Lerp(WorldUI.NativeButtonSkin.ColorFor(FaceState()), DwellChargeColor, progress);
+            else if (_capMaterial != null)
                 _capMaterial.color = Color.Lerp(StateColor(), DwellChargeColor, progress);
 
             int tick = (int)(progress * 4f);
