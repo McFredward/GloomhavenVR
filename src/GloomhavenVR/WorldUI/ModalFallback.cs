@@ -498,6 +498,26 @@ internal static class ModalFallback
         }
     }
 
+    /// <summary>
+    /// Presence-regained recovery (test #17): re-place every floating modal window in
+    /// front of the CURRENT head pose. The user may have physically moved while the
+    /// HMD was off — a modal stranded out of view is an un-dismissable lock. Returns
+    /// how many windows were re-floated (for the "[Core] Session resumed" report).
+    /// </summary>
+    internal static int RefloatOpenWindows()
+    {
+        int count = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!wp.Panel.IsAlive)
+                continue;
+            PlaceAtHmd(wp.Panel);
+            count++;
+        }
+        return count;
+    }
+
     /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
     private static void PlaceAtHmd(ConvertedPanel panel)
     {
