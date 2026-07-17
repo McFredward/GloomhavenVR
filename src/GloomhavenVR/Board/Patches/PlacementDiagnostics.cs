@@ -43,6 +43,82 @@ internal static class Placement_Hover_Diagnostics
 }
 
 /// <summary>
+/// GATE stage: the fresh hardware log showed TileHandler clicks with armed=null while
+/// the hover diagnostic above stayed silent ALL session — so the block sits in
+/// <c>WorldspaceStarHexDisplay.Update</c>'s gate chain BEFORE
+/// HighlightSelectedPlacementHex (the found root cause: TimeManager left paused by a
+/// camera-follow transition, see <see cref="CameraArrivalGuard"/>). This prefix logs a
+/// change-deduped snapshot of EVERY gate on the way to the hover-arming call
+/// (WorldspaceStarHexDisplay.cs:408-436):
+///
+///   :410 <c>m_HexDisplayToggledOff</c> → toggledOff
+///   :425 <c>CurrentGameState == Scenario</c> → gameState, <c>!TimeManager.IsPaused</c>
+///        → paused (+ Main.s_NumberOfPausesRegistered → pause3d, to distinguish a
+///        CameraTargetFocalFollowController pause, which does NOT touch the Main
+///        refcount, from a leaked Pause3DWorld)
+///   :427 <c>PointingAtANewTile()</c> → hover (the same <c>Interactable()</c> the game
+///        will compare: null names the :3815 UI gate via overUI, a tile names success)
+///   :428 <c>!m_AllHexesHighlighted && !LockView</c> → allHexes / lockView
+///   :430 <c>m_RefreshedCurrentState</c> → refreshed
+///   :433 <c>m_currentDisplayState == CharacterPlacement</c> → display
+///
+/// Ladder semantics on hardware: NO "Update gates:" lines while "[Placement]
+/// TileHandler click:" lines appear ⇒ WSHD.Update itself is not running (:410 fails
+/// or the component is inactive). Otherwise the first snapshot with a blocking value
+/// names the gate. Silent outside WaitingForCardSelection; the <c>Interactable()</c>
+/// probe (one raycast) runs only while display==CharacterPlacement. Remove together
+/// with the other two diagnostics after HMD confirmation.
+/// </summary>
+[HarmonyPatch(typeof(WorldspaceStarHexDisplay), nameof(WorldspaceStarHexDisplay.Update))]
+internal static class Placement_UpdateGate_Diagnostics
+{
+    private static (WorldspaceStarHexDisplay.WorldSpaceStarDisplayState display, bool toggledOff,
+        EGameState gameState, bool paused, int pause3d, bool allHexes, bool lockView,
+        bool refreshed, CInteractable? hover, bool overUI, BoardPick.PickSource source)? _last;
+
+    private static void Prefix(WorldspaceStarHexDisplay __instance)
+    {
+        Choreographer? choreo = Choreographer.s_Choreographer;
+        if (choreo == null || choreo.m_WaitState == null
+            || choreo.m_WaitState.m_State != Choreographer.ChoreographerStateType.WaitingForCardSelection)
+            return;
+
+        WorldspaceStarHexDisplay.WorldSpaceStarDisplayState display = __instance.CurrentDisplayState;
+        CInteractable? hover = null;
+        bool overUI = false;
+        if (display == WorldspaceStarHexDisplay.WorldSpaceStarDisplayState.CharacterPlacement)
+        {
+            overUI = UIManager.IsPointerOverUI;
+            hover = __instance.Interactable(); // frame-memoized VR pick → identical to the game's own :427 probe
+        }
+
+        var snapshot = (display, __instance.m_HexDisplayToggledOff,
+            SaveData.Instance.Global.CurrentGameState, TimeManager.IsPaused,
+            Main.s_NumberOfPausesRegistered, __instance.m_AllHexesHighlighted,
+            __instance.LockView, __instance.m_RefreshedCurrentState, hover, overUI,
+            BoardPick.Source);
+        if (_last.HasValue && _last.Value == snapshot)
+            return;
+        _last = snapshot;
+
+        VRLog.Info("Board", "[Placement] Update gates: " +
+                            $"display={snapshot.display}, toggledOff={snapshot.Item2}, " +
+                            $"gameState={snapshot.Item3}, paused={snapshot.Item4}, " +
+                            $"pause3d={snapshot.Item5}, allHexes={snapshot.Item6}, " +
+                            $"lockView={snapshot.Item7}, refreshed={snapshot.Item8}, " +
+                            $"hover={HoverName(hover)}, overUI={snapshot.overUI}, pick={snapshot.Source}.");
+    }
+
+    private static string HoverName(CInteractable? hover)
+    {
+        if (hover == null)
+            return "null";
+        CClientTile? tile = hover.GetComponent<TileBehaviour>()?.m_ClientTile;
+        return tile != null ? Placement_Hover_Diagnostics.TileName(tile) : hover.GetType().Name;
+    }
+}
+
+/// <summary>
 /// CLICK stage: <c>Choreographer.TileHandler</c>'s placement branch commits only when
 /// <c>clientTile == Waypoint.s_PlacementTile</c> and an actor is selected on the
 /// initiative track (decompiled Choreographer.cs:1841 → PlaceActorAtRoundStart
