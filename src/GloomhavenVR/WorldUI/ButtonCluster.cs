@@ -306,6 +306,7 @@ internal sealed class ButtonCluster
         private BoxCollider _collider = null!;
         private Renderer _capRenderer = null!;
         private Renderer _baseRenderer = null!;
+        private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on prefab/unsampled
         private TextMeshPro _label = null!;
         private System.Action _onClick = null!;
         private Color _accent;
@@ -381,6 +382,22 @@ internal sealed class ButtonCluster
             _capRenderer = cap.GetComponent<Renderer>();
             _capRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(_accent);
 
+            // Native look (test #25 item 3): lay the game's own 9-sliced button sprite
+            // flat on the cap's top face (the viewer side in both the docked and the
+            // table-edge frames) so the mod cluster reads as native. Euler(90,0,0)
+            // aims the sprite's normal (-Z) up +Y; it sits just proud of the cap top
+            // (cap half-height 0.0045). When no native sprite is sampled yet the cap
+            // keeps its flat accent material. The cylinder body stays as the button's
+            // depth under the flat face.
+            _capFace = NativeButtonSkin.CreateFace(_cap, new Vector2(radius * 2f, radius * 2f),
+                localZ: 0f, sortingOrder: 1);
+            if (_capFace != null)
+            {
+                Transform ft = _capFace.transform;
+                ft.localPosition = new Vector3(0f, 0.006f, 0f);
+                ft.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            }
+
             // Poke collider slightly proud of the cap (primitive box — poke contract).
             _collider = _rootGo.AddComponent<BoxCollider>();
             _collider.center = new Vector3(0f, 0.026f, 0f);
@@ -400,7 +417,10 @@ internal sealed class ButtonCluster
             }
             _label = labelGo.AddComponent<TextMeshPro>();
             _label.alignment = TextAlignmentOptions.Center;
-            _label.color = Color.white;
+            // Native label (test #25 item 3): the game's HUD font + parchment-gold
+            // button-text colour when sampled; white otherwise.
+            _label.color = NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : Color.white;
+            NativeButtonSkin.ApplyFont(_label);
             _label.text = string.Empty;
             // The label mirrors the game's LOCALIZED button texts (SetState), whose
             // length varies per state/language — long strings previously wrapped past
@@ -514,16 +534,36 @@ internal sealed class ButtonCluster
                 _collider.enabled = interactable;
             }
 
-            Color baseColor = accentOverride ?? _accent;
-            Color applied = interactable ? baseColor : baseColor * 0.35f;
-            if (applied != _appliedColor)
+            if (_capFace != null)
             {
-                _appliedColor = applied;
-                _capRenderer.sharedMaterial.color = applied;
+                // Native face (test #25 item 3): a uniform native button — Idle when
+                // usable, Disabled when not. Native buttons don't colour-code their
+                // action (the localized label already names it), so the old warm/green
+                // accent is dropped here. The cylinder body is neutralised so only the
+                // flat sprite reads (its side would otherwise show the accent colour).
+                NativeButtonSkin.Apply(_capFace,
+                    interactable ? NativeButtonSkin.FaceState.Idle : NativeButtonSkin.FaceState.Disabled);
+                var body = new Color(0.12f, 0.11f, 0.10f, 1f);
+                if (body != _appliedColor)
+                {
+                    _appliedColor = body;
+                    _capRenderer.sharedMaterial.color = body;
+                }
+            }
+            else
+            {
+                Color baseColor = accentOverride ?? _accent;
+                Color applied = interactable ? baseColor : baseColor * 0.35f;
+                if (applied != _appliedColor)
+                {
+                    _appliedColor = applied;
+                    _capRenderer.sharedMaterial.color = applied;
+                }
             }
             if (_label != null)
             {
-                _label.color = interactable ? Color.white : new Color(1f, 1f, 1f, 0.35f);
+                Color labelBase = NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : Color.white;
+                _label.color = interactable ? labelBase : new Color(labelBase.r, labelBase.g, labelBase.b, 0.35f);
                 // Reference compare first: the game only reassigns the string on change.
                 if (!ReferenceEquals(text, _mirroredText) && text != _mirroredText)
                 {
