@@ -13,9 +13,11 @@ namespace GloomhavenVR.Rig;
 /// STICK CONTENTION (documented rule): <see cref="VRMode.BoardTargeting"/> owns the
 /// thumbstick — Phase-3a rotates AoE patterns with it — so turning is hard-disabled
 /// there (and re-armed, so leaving targeting never fires a stale flick). Turning is
-/// also disabled in <see cref="VRMode.ModalUI"/> (stick may scroll modal UI later) and
-/// in <see cref="VRMode.Menu2D"/> (no rig exists; dev-proxy runs exempt). It is further
-/// suppressed while the turn hand participates in a world grab.
+/// also disabled in <see cref="VRMode.Menu2D"/> (no table exists; dev-proxy runs
+/// exempt). Test #13: turning is ACTIVE in <see cref="VRMode.ModalUI"/> — nothing
+/// modal reads the stick, and the player must keep full diorama movement while a
+/// dialog floats. It is further suppressed while the turn hand participates in a
+/// world grab.
 /// </summary>
 internal sealed class SnapTurn : MonoBehaviour
 {
@@ -49,7 +51,8 @@ internal sealed class SnapTurn : MonoBehaviour
             return;
 
         VRMode vrMode = VRModeStateMachine.CurrentMode;
-        if (vrMode == VRMode.BoardTargeting || vrMode == VRMode.ModalUI
+        // Test #13: ModalUI no longer suppresses turning (see class doc).
+        if (vrMode == VRMode.BoardTargeting
             || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             _armed = true; // never fire a stale flick when the stick is handed back

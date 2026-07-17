@@ -183,7 +183,9 @@ BoardTargeting ── StepComplete/Pass ──▶ HalfSelection | TableIdle
 any ── UIWindow modal ──▶ ModalUI (world-space dialog, rest locked)
 ```
 
-Each mode enables/disables interaction primitives; world-grab always available except ModalUI.
+Each mode enables/disables interaction primitives; world-grab and snap turn are available
+in every scenario mode INCLUDING ModalUI (test #13 — floating dialogs must not freeze the
+diorama; BoardTargeting still owns the stick, Menu2D has no table).
 
 ## 9. Multiplayer, legal, licensing
 

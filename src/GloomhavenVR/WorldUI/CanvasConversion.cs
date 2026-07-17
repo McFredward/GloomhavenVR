@@ -181,6 +181,100 @@ internal static class CanvasConversion
         t.localScale = Vector3.one * (metersPerPixel * worldScale);
     }
 
+    // Scratch buffers for FitHostToContent (fit-time only, never per-frame steady state).
+    private static readonly List<Graphic> GraphicScratch = new(64);
+    private static readonly Vector3[] CornerScratch = new Vector3[4];
+
+    /// <summary>
+    /// Test #13: shrink a converted panel's HOST rect to the target's actual VISIBLE
+    /// content bounds. Game windows often convert with a full-screen stretch root
+    /// (the story window is 1920x1080 while the visible box is a small bottom strip)
+    /// — the host rect is what the laser (RayUguiDriver) and poke plane intersect,
+    /// so a full-screen host makes the beam latch onto a huge invisible panel.
+    ///
+    /// Bounds = union of all enabled child <see cref="Graphic"/>s under
+    /// <paramref name="contentRoot"/> (or the whole target) whose effective alpha is
+    /// visible — invisible click-catchers (the story box's full-area alpha-0 skip
+    /// button) stay clickable (GraphicRaycaster raycasts per-graphic, not per-host-
+    /// rect) but no longer size the panel. The target is shifted so the content
+    /// bound is centered on the host pose; Release() still restores the exact 2D
+    /// home (originals were captured at Convert).
+    ///
+    /// Returns false when no visible content was measurable yet (e.g. the window is
+    /// still fading in) — the caller may retry later. Returns true once the host is
+    /// fitted OR fitting is not needed (content already fills the rect).
+    /// </summary>
+    internal static bool FitHostToContent(ConvertedPanel panel, RectTransform? contentRoot = null)
+    {
+        if (panel == null || panel.Target == null || panel.HostRect == null)
+            return true; // nothing to do, do not retry
+
+        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
+                             && contentRoot.IsChildOf(panel.Target)
+            ? contentRoot
+            : panel.Target;
+
+        Vector2 min = new(float.MaxValue, float.MaxValue);
+        Vector2 max = new(float.MinValue, float.MinValue);
+        bool any = false;
+
+        GraphicScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, GraphicScratch);
+        for (int i = 0; i < GraphicScratch.Count; i++)
+        {
+            Graphic g = GraphicScratch[i];
+            if (!g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
+                continue;
+            // Effective alpha: own color × hierarchy (CanvasGroup) alpha.
+            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
+                continue;
+
+            var rect = (RectTransform)g.transform;
+            rect.GetWorldCorners(CornerScratch);
+            for (int c = 0; c < 4; c++)
+            {
+                Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
+                if (local.x < min.x) min.x = local.x;
+                if (local.y < min.y) min.y = local.y;
+                if (local.x > max.x) max.x = local.x;
+                if (local.y > max.y) max.y = local.y;
+            }
+            any = true;
+        }
+        GraphicScratch.Clear();
+
+        if (!any)
+            return false; // nothing visible yet (fade-in) — caller retries
+
+        // Clamp into the current host rect: off-screen/overflow elements must not
+        // grow the panel beyond the window's own frame.
+        Rect host = panel.HostRect.rect;
+        min = Vector2.Max(min, host.min);
+        max = Vector2.Min(max, host.max);
+        Vector2 size = max - min;
+        if (size.x < 32f || size.y < 32f)
+            return false; // degenerate (mid scale-in animation) — caller retries
+
+        const float Padding = 12f;
+        size += Vector2.one * (2f * Padding);
+        size.x = Mathf.Min(size.x, host.width);
+        size.y = Mathf.Min(size.y, host.height);
+
+        // Content (nearly) fills the window already — keep the rect, done.
+        if (size.x >= host.width * 0.92f && size.y >= host.height * 0.92f)
+            return true;
+
+        // Host pivot is centered, so local origin == rect center: shifting the
+        // target by -center puts the content bound in the middle of the shrunk host.
+        Vector2 center = (min + max) * 0.5f;
+        panel.Target.anchoredPosition -= center;
+        panel.HostRect.sizeDelta = size;
+        VRLog.Info("WorldUI", $"Host rect fit '{panel.HostGo.name}': " +
+                              $"{host.width:F0}x{host.height:F0} → {size.x:F0}x{size.y:F0} px " +
+                              $"(content offset {center.x:F0},{center.y:F0}).");
+        return true;
+    }
+
     /// <summary>Restore the panel into its original 2D home and destroy the host.</summary>
     internal static void Release(ConvertedPanel? panel)
     {
