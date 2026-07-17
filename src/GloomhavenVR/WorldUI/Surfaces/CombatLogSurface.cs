@@ -71,14 +71,25 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     internal static bool UserVisible =>
         WorldUIConfig.CombatLog.Value && !WorldUIConfig.CombatLogUserClosed.Value;
 
-    private static bool _loggedVisible;
+    // Change-dedup for the show/hide log. Nullable so the FIRST action always logs — a
+    // plain bool seeded false silently swallowed an initial hide (the panel is shown by
+    // default), which read as the toggle doing nothing.
+    private static bool? _loggedVisible;
+
+    // Set by every SHOW (settings toggle / X-recover): the next Place() ignores the (possibly
+    // stale or grabbed-away) persisted pose and drops the panel in front of the head, then
+    // persists THAT — so "Kampflog anzeigen" always brings the log back into view, and an
+    // X-close is always recoverable to where the user is looking. Static because SetUserVisible
+    // is static (the settings toggle has no surface reference); consumed once, in Place().
+    private static bool _respawnRequested;
 
     /// <summary>
     /// Show/hide the combat log from the X close button or the settings 'Kampflog anzeigen'
-    /// toggle. SHOW clears the user-closed flag (and re-arms the feature master) so the next
-    /// tick reconverts and re-derives the pose from the persisted offsets — a sensible place
-    /// in front of the seat. HIDE sets the persisted flag so it does not auto-reappear; the
-    /// surface releases the conversion back to its 2D home like a normal hide. Change-deduped.
+    /// toggle. SHOW clears the user-closed flag (and re-arms the feature master) AND requests a
+    /// respawn so the next tick reconverts and re-places the panel in view in front of the head
+    /// (never a stale/out-of-view persisted pose — the reason a re-show read as "nothing
+    /// happened"). HIDE sets the persisted flag so it does not auto-reappear; the surface
+    /// releases the conversion back to its 2D home like a normal hide. Change-deduped.
     /// </summary>
     internal static void SetUserVisible(bool visible, string source)
     {
@@ -86,6 +97,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         {
             WorldUIConfig.CombatLog.Value = true;            // BepInEx persists on set
             WorldUIConfig.CombatLogUserClosed.Value = false;
+            _respawnRequested = true;                        // bring it back into view (item 1)
         }
         else
         {
@@ -95,7 +107,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         {
             _loggedVisible = visible;
             VRLog.Info("WorldUI", visible
-                ? $"Combat log shown ({source}) — reconverting at the persisted pose."
+                ? $"Combat log shown ({source}) — reconverting and re-placing in front of the head."
                 : $"Combat log hidden ({source}) — released to its 2D home, will not auto-reappear.");
         }
     }
@@ -197,6 +209,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _builtBarWidth = -1f;
         _placedFromConfig = false;
         _facedPoseVersion = -1;
+        _respawnRequested = false;
     }
 
     // ---- placement (every tick while converted) ----------------------------------------------
@@ -219,7 +232,18 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             _holder.gameObject.SetActive(true);
 
         bool grabbed = _handle != null && _handle.IsGrabbed;
-        if (!grabbed && (WorldUIConfig.CombatLogFollow.Value || !_placedFromConfig))
+
+        // A SHOW (settings toggle / X-recover) always drops the panel in view in front of the
+        // head and persists that pose — regardless of FOLLOW/PINNED and any stale offsets — so
+        // the toggle can never appear to do nothing (item 1).
+        if (_respawnRequested && !grabbed)
+        {
+            _respawnRequested = false;
+            PlaceInView(head);
+            _placedFromConfig = true;
+            _facedPoseVersion = Rig.VRRigDriver.RigPoseVersion;
+        }
+        else if (!grabbed && (WorldUIConfig.CombatLogFollow.Value || !_placedFromConfig))
         {
             // FOLLOW: re-derive from the persisted offsets every tick (world-anchored
             // like every panel — the seat yaw is cached in PanelLayout). PINNED
@@ -271,6 +295,32 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         }
 
         TickPin();
+    }
+
+    /// <summary>
+    /// Respawn placement (item 1): drop the panel a comfortable reading distance in front of
+    /// the head, slightly below eye level, upright and facing the head, then PERSIST it as the
+    /// new layout. Used whenever the log is shown from the settings toggle or recovered from its
+    /// X close — the panel is guaranteed to appear where the user is looking, healing any stale
+    /// or grabbed-away persisted pose that would otherwise re-show it out of view.
+    /// </summary>
+    private void PlaceInView(Camera head)
+    {
+        if (_frame == null)
+            return;
+        float worldScale = PanelLayout.WorldScale;
+        Transform h = head.transform;
+        Vector3 fwd = h.forward;
+        fwd.y = 0f;
+        if (fwd.sqrMagnitude < 1e-4f)
+            fwd = Vector3.forward;
+        fwd.Normalize();
+
+        _frame.position = h.position + fwd * (0.75f * worldScale) - Vector3.up * (0.15f * worldScale);
+        // uGUI front faces -forward → +Z points away from the viewer (same convention as FaceHead).
+        _frame.rotation = Quaternion.LookRotation(fwd, Vector3.up);
+        _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
+        PersistLayout();
     }
 
     /// <summary>
