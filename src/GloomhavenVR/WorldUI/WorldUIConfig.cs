@@ -29,6 +29,9 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> StatPanels = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
+
+    /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
+    internal static ConfigEntry<bool> BarFixedSize = null!;
     internal static ConfigEntry<bool> WristHud = null!;
     internal static ConfigEntry<bool> FlatScreen = null!;
     internal static ConfigEntry<bool> Tooltips = null!;
@@ -136,6 +139,11 @@ internal static class WorldUIConfig
             "Actor/monster stat panels as world panels near the table (opened by the game / Phase-3a poke).");
         ActorBars = _file.Bind("WorldUI", "ActorBars", true,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
+        BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,
+            "Actor HP/effect bars keep a FIXED board-space size — they scale only with the " +
+            "diorama, like the miniatures themselves (test #14: the old distance compensation " +
+            "grew bars up to 2.5x when stepping away, which read as the bars 'growing'). " +
+            "Off = legacy behavior: bars gently grow with head distance to stay readable.");
         WristHud = _file.Bind("WorldUI", "WristHud", true,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
         FlatScreen = _file.Bind("WorldUI", "FlatScreen", true,
