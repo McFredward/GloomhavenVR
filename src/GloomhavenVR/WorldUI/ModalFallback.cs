@@ -76,6 +76,12 @@ internal static class ModalFallback
     /// <summary>Extra shrink on the host scale (a full-screen-wide window subtends ~60° at 1.2 m).</summary>
     private const float WindowScaleFactor = 0.7f;
 
+    /// <summary>Wait before fitting the host rect to content (window show animations run ~0.3 s).</summary>
+    private const float FitDelaySeconds = 0.4f;
+
+    /// <summary>Stop retrying the content fit after this long (window stays at its root rect).</summary>
+    private const float FitDeadlineSeconds = 2.5f;
+
     /// <summary>
     /// Window IDs that demand user interaction when opened during a scenario and have
     /// no world-space VR conversion → they float as windows (or raise the screen).
@@ -127,6 +133,15 @@ internal static class ModalFallback
     {
         public UIWindow Window = null!;
         public ConvertedPanel Panel = null!;
+
+        // Test #13 content fit (see CanvasConversion.FitHostToContent): full-screen
+        // window roots (story window: 1920x1080 around a small visible box) must not
+        // become the laser/poke plane. Fitted after FitDelaySeconds (show animation),
+        // retried until visible content is measurable or the deadline passes.
+        public RectTransform? ContentRoot;
+        public bool Fitted;
+        public float FitAt;
+        public float FitDeadline;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -346,6 +361,27 @@ internal static class ModalFallback
                 raycaster.enabled = true;
         }
 
+        // 5. Fit pending host rects to visible content (test #13, laser-dot fix +
+        //    'huge panel' fix): delayed past the show animation, retried while the
+        //    window is still fading in, abandoned at the deadline (full root rect
+        //    stays — behavior then equals pre-fit builds). Steady state: all Fitted,
+        //    zero work.
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Fitted || Time.unscaledTime < wp.FitAt || !wp.Panel.IsAlive)
+                continue;
+            if (CanvasConversion.FitHostToContent(wp.Panel, wp.ContentRoot))
+                wp.Fitted = true;
+            else if (Time.unscaledTime >= wp.FitDeadline)
+            {
+                wp.Fitted = true;
+                VRLog.Warn("WorldUI", "MODAL WINDOW: content fit gave up (nothing visible after " +
+                                      $"{FitDeadlineSeconds:F1}s) — '{wp.Panel.HostGo.name}' keeps its " +
+                                      "full root rect.");
+            }
+        }
+
         if (want != _lastWant)
         {
             _lastWant = want;
@@ -428,17 +464,24 @@ internal static class ModalFallback
             // Story-box sanity: the click-to-advance UICharacterStoryBox (serialized
             // separately from the window, StoryController.cs:62-66) must live INSIDE
             // the converted subtree, or the floating panel could never advance the
-            // story. Same for its skip button (UICharacterStoryBox.cs:44).
+            // story. Same for its skip button (UICharacterStoryBox.cs:44). While
+            // here, remember it as the content root for the host-rect fit — the
+            // story window root is a full-screen 1920x1080 stretch rect, the visible
+            // dialog is the UICharacterStoryBox subtree.
+            RectTransform? contentRoot = null;
             if (Singleton<StoryController>.IsInitialized)
             {
                 StoryController sc = Singleton<StoryController>.Instance;
-                if (sc != null && ReferenceEquals(sc.window, window)
-                    && sc.dialogBox != null && !sc.dialogBox.transform.IsChildOf(window.transform))
+                if (sc != null && ReferenceEquals(sc.window, window) && sc.dialogBox != null)
                 {
-                    VRLog.Warn("WorldUI", "MODAL WINDOW: story box dialog (UICharacterStoryBox) is NOT " +
-                                          "under the story window root — clicking the floating panel could " +
-                                          "not advance the story; falling back to the full flat screen.");
-                    return false;
+                    if (!sc.dialogBox.transform.IsChildOf(window.transform))
+                    {
+                        VRLog.Warn("WorldUI", "MODAL WINDOW: story box dialog (UICharacterStoryBox) is NOT " +
+                                              "under the story window root — clicking the floating panel could " +
+                                              "not advance the story; falling back to the full flat screen.");
+                        return false;
+                    }
+                    contentRoot = sc.dialogBox.transform as RectTransform;
                 }
             }
 
@@ -451,7 +494,14 @@ internal static class ModalFallback
             }
 
             PlaceAtHmd(panel);
-            Converted.Add(new WindowPanel { Window = window, Panel = panel });
+            Converted.Add(new WindowPanel
+            {
+                Window = window,
+                Panel = panel,
+                ContentRoot = contentRoot,
+                FitAt = Time.unscaledTime + FitDelaySeconds,
+                FitDeadline = Time.unscaledTime + FitDeadlineSeconds,
+            });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
                                   "restored to 2D when it closes.");
