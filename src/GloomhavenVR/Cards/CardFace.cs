@@ -52,7 +52,16 @@ internal sealed class CardFace
 
     private float _fitScale = 1f;
 
+    // Test #22: change-dedup for the burn/lose-confirm re-claim log (Maintain).
+    private bool _reclaimedFromDialog;
+
     internal bool IsAdopted => _face != null;
+
+    /// <summary>
+    /// True once the face was re-claimed from a burn/lose/discard confirm popup back
+    /// onto our dock (see <see cref="Maintain"/>). Purely informational.
+    /// </summary>
+    internal bool ReclaimedFromDialog => _reclaimedFromDialog;
 
     internal AbilityCardUI? Owner => _owner;
 
@@ -77,6 +86,7 @@ internal sealed class CardFace
         _owner = owner;
         _face = face;
         _host = host;
+        _reclaimedFromDialog = false;
 
         _origParent = face.parent;
         _origSibling = face.GetSiblingIndex();
@@ -145,14 +155,43 @@ internal sealed class CardFace
             // Who moved it? A hand-layout refresh re-parents the face back under its
             // own AbilityCardUI (reclaim it). A game DIALOG (burn/redraw popups take
             // fullAbilityCard.gameObject, CardsHandUI.cs:826/2069) re-parents it
-            // somewhere foreign — YIELD, never fight a dialog; the next HandShown
-            // rebuild re-adopts the face after the dialog resolves.
+            // somewhere foreign.
             if (_face.parent == _origParent || (_owner != null && _face.IsChildOf(_owner.transform)))
             {
                 ApplyHostPose();
             }
+            // BURN/LOSE/DISCARD CONFIRM (test #22, symptom 4b): the game passes the
+            // LIVE face straight to <c>DialogPopup.Show(fullAbilityCard.gameObject)</c>
+            // (CardsHandUI.cs:826/850/909/2069), which re-parents it under the popup's
+            // <c>contentHolder</c> WITHOUT the healthy full-card preview prep
+            // (ToggleFullCard / ToggleFullCardCanvasSorting / a CardEffects _PosAndBounds
+            // refresh — CardsHandUI.cs:340-345). On our world-space modal float the
+            // card's custom screen-space card shader then resolves to DEEP BLACK, its
+            // hover FX Image quads blow up to the popup canvas scale, and the burn flame
+            // overlay reads as a fullscreen sheet (symptoms 4b/4c). We do NOT float that
+            // popup content: RE-CLAIM the face onto our own known-good FaceCanvas (the
+            // identical pipeline that renders every other hand/dock card correctly) so
+            // the card stays readable ON the action-selection dock and the burn effect
+            // plays on the card mesh. The popup's own yes/no buttons still float and
+            // commit the burn; its now-empty contentHolder is harmless, and DialogPopup
+            // restores the face to this same parent on Hide (PreviousState, verified
+            // DialogPopup.cs:38-46). Keyed purely off widget state (a DialogPopup in the
+            // parent chain), never off the modal-dock code.
+            else if (IsDialogContent(_face.parent))
+            {
+                if (!_reclaimedFromDialog)
+                {
+                    _reclaimedFromDialog = true;
+                    VRLog.Info("Cards", "CardFace re-claimed the burn/lose confirm card onto the " +
+                                        "action-selection dock (kept off the modal float where the " +
+                                        "screen-space card shader renders black).");
+                }
+                ApplyHostPose();
+            }
             else
             {
+                // Any other foreign parent — YIELD, never fight it; the next HandShown
+                // rebuild re-adopts the face after the flow resolves.
                 VRLog.Debug("Cards", $"CardFace yielded to game dialog ({_face.parent?.name ?? "null"}).");
                 Yield();
             }
@@ -183,11 +222,23 @@ internal sealed class CardFace
     }
 
     /// <summary>
+    /// True when <paramref name="parent"/> lives inside a <c>DialogPopup</c> — i.e. the
+    /// game handed our face to a burn/lose/discard confirm popup (the only flow that
+    /// re-parents a live <c>fullAbilityCard.gameObject</c> into a DialogPopup, verified
+    /// CardsHandUI.cs:826/850/909/2069). Full-card PREVIEW re-parents into
+    /// <c>FullCardHandViewer.CardContainer</c> instead — and is short-circuited here
+    /// anyway by <c>LockFullCard</c> — so this never mis-fires on a preview.
+    /// </summary>
+    private static bool IsDialogContent(Transform? parent) =>
+        parent != null && parent.GetComponentInParent<DialogPopup>() != null;
+
+    /// <summary>
     /// Let go of the face WITHOUT touching its transform (a game dialog owns it now).
     /// Only the LockFullCard flag is returned.
     /// </summary>
     internal void Yield()
     {
+        _reclaimedFromDialog = false;
         if (_owner != null)
             _owner.LockFullCard = _origLock;
         _face = null;
@@ -203,6 +254,7 @@ internal sealed class CardFace
         _face = null;
         _host = null;
         _owner = null;
+        _reclaimedFromDialog = false;
 
         if (face == null)
             return;
