@@ -172,7 +172,7 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdateBoardLaser();
         UpdateSlotHighlight();
         _fan.Tick();
-        _half.Tick();
+        _half.Tick(VRHands.Primary);
 
         CardsHandUI? hand = CurrentHand();
         if (_tray.IsVisible)
@@ -433,7 +433,7 @@ internal sealed class CardsDriver : MonoBehaviour
             }
             else
             {
-                VRLog.Info("Cards", $"Board: laser click → {(best as MonoBehaviour)?.name ?? best!.GetType().Name}.");
+                VRLog.Info("Cards", $"Board: laser click → {(best as MonoBehaviour)?.name ?? best!.ToString()}.");
                 best!.OnPoke(dom);
             }
         }
@@ -546,6 +546,7 @@ internal sealed class CardsDriver : MonoBehaviour
         _tray.EnsureBuilt(_factory, anchor);
         _rest.EnsureBuilt(_tray);
         _half.EnsureBuilt(anchor);
+        _half.DockTo(_tray); // action selection lives on the control board (test #19)
 
         CardHandMode mode = CardsGameApi.Mode(hand);
         CardsGameApi.GetCards(hand, _widgetBuffer);

@@ -1,3 +1,4 @@
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
@@ -62,6 +63,15 @@ namespace GloomhavenVR.WorldUI;
 /// (<c>Assets/Bundle/Table/Button_Ready.prefab</c> etc., see the Table README asset
 /// wishlist) are probed first and used when present. The cluster is hidden in
 /// <see cref="VRMode.Menu2D"/>.
+///
+/// DOCKED ON THE CONTROL BOARD (test #19): while a <see cref="PlayTray"/> exists the
+/// cluster pose-follows <see cref="PlayTray.ButtonClusterMount"/> under the card
+/// slots (never re-parented — a tray/rig teardown must not cascade into the
+/// cluster; the same mount-seam contract as the initiative/objectives panels).
+/// Labels flip flat onto the caps there (the table-edge label sign would lie
+/// across the slot captions), the buttons register as tray laser targets (poke AND
+/// laser on every board element — the board contract), and the cluster hides with
+/// the tray. The floating table-edge slot remains the no-tray fallback.
 /// </summary>
 internal sealed class ButtonCluster
 {
@@ -97,8 +107,10 @@ internal sealed class ButtonCluster
         if (_root == null)
             return;
 
-        SetVisible(true);
-        PlaceCluster();
+        bool placed = PlaceCluster();
+        SetVisible(placed);
+        if (!placed)
+            return;
 
         bool locked = CanvasConversion.IsLockedNow;
         _ready!.MirrorReady(choreographer!.readyButton, locked);
@@ -116,6 +128,7 @@ internal sealed class ButtonCluster
         _undo?.Destroy();
         _skip?.Destroy();
         _ready = _undo = _skip = null;
+        _laserTray = null; // a rebuilt cluster must re-register its laser targets
         if (_root != null)
         {
             Object.Destroy(_root);
@@ -145,14 +158,75 @@ internal sealed class ButtonCluster
         VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip).");
     }
 
-    private void PlaceCluster()
+    /// <summary>
+    /// Pose the cluster; returns whether it should be visible this frame. Docked on
+    /// the control board while a <see cref="PlayTray"/> mount exists (test #19):
+    /// pose-follow, never re-parented (mount-seam contract, see
+    /// <see cref="PlayTray.ButtonClusterMount"/>), hidden with the tray. Floating
+    /// table-edge slot as the no-tray fallback.
+    /// </summary>
+    private bool PlaceCluster()
     {
-        if (_root == null || !PanelLayout.TryGetPose(PanelSlot.ButtonCluster, out Vector3 pos, out Quaternion rot))
-            return;
-        float scale = PanelLayout.WorldScale;
+        if (_root == null)
+            return false;
         Transform t = _root.transform;
-        t.SetPositionAndRotation(pos, rot * Quaternion.Euler(0f, 180f, 0f)); // +Z toward player
-        t.localScale = Vector3.one * scale;
+
+        Transform? mount = PlayTray.Current?.ButtonClusterMount;
+        if (mount != null)
+        {
+            SetDockedLabels(true);
+            RegisterTrayLaserTargets();
+            if (!mount.gameObject.activeInHierarchy)
+                return false; // tray hidden (deferred placement) → cluster hides with it
+            // Same frame semantics as the floating branch: the mount's +Z points
+            // "away from the player" (up the board), so the standard 180° yaw puts
+            // the cluster's +Z toward the player; +Y comes out of the board (cap
+            // travel presses into the board). Mount lossy scale carries tray grab
+            // scale, rig scale AND the 0.7× dock shrink.
+            t.SetPositionAndRotation(mount.position, mount.rotation * Quaternion.Euler(0f, 180f, 0f));
+            t.localScale = Vector3.one * mount.lossyScale.x;
+            return true;
+        }
+
+        SetDockedLabels(false);
+        if (PanelLayout.TryGetPose(PanelSlot.ButtonCluster, out Vector3 pos, out Quaternion rot))
+        {
+            float scale = PanelLayout.WorldScale;
+            t.SetPositionAndRotation(pos, rot * Quaternion.Euler(0f, 180f, 0f)); // +Z toward player
+            t.localScale = Vector3.one * scale;
+        }
+        return true;
+    }
+
+    private void SetDockedLabels(bool docked)
+    {
+        _ready?.SetDocked(docked);
+        _undo?.SetDocked(docked);
+        _skip?.SetDocked(docked);
+    }
+
+    /// <summary>
+    /// The PlayTray instance whose laser-target list holds our buttons (identity
+    /// guard — register once per tray; the tray's per-frame loop skips dead or
+    /// disabled colliders itself).
+    /// </summary>
+    private PlayTray? _laserTray;
+
+    /// <summary>
+    /// Docked clusters are laser targets too (poke AND laser on every board
+    /// element — the board contract): the dominant hand's board laser
+    /// (CardsDriver.UpdateBoardLaser) ray-tests the tray's registry and routes
+    /// TriggerDown into <see cref="PhysicalButton.OnPoke"/>.
+    /// </summary>
+    private void RegisterTrayLaserTargets()
+    {
+        PlayTray? tray = PlayTray.Current;
+        if (tray == null || ReferenceEquals(_laserTray, tray))
+            return;
+        _laserTray = tray;
+        _ready?.RegisterLaserTarget(tray);
+        _undo?.RegisterLaserTarget(tray);
+        _skip?.RegisterLaserTarget(tray);
     }
 
     private void SetVisible(bool visible)
@@ -234,6 +308,12 @@ internal sealed class ButtonCluster
         private bool _interactable = true;
         private string? _mirroredText;
         private Color _appliedColor;
+
+        // Docked label pose (test #19): home pose captured at build, restored on undock.
+        private bool _docked;
+        private bool _labelAnchored; // prefab LabelAnchor path keeps authoring authority
+        private Vector3 _labelHomePos;
+        private Quaternion _labelHomeRot;
 
         public static PhysicalButton Create(Transform parent, string name, Vector3 localPos,
             float radius, Color accent, System.Action onClick)
@@ -319,7 +399,46 @@ internal sealed class ButtonCluster
             // length varies per state/language — long strings previously wrapped past
             // the 0.05 m box and clipped (test #12). Fit: shrink/wrap inside the box.
             Core.TmpFit.Fit(_label, 0.24f, 0.07f, maxFontSize: 0.35f);
+            _labelAnchored = anchor != null;
+            _labelHomePos = labelGo.transform.localPosition;
+            _labelHomeRot = labelGo.transform.localRotation;
         }
+
+        /// <summary>
+        /// Docked label pose (test #19): at the table edge the label is a tilted
+        /// sign BEHIND the cap — on the control board that sign would lie across
+        /// the tray's slot captions, so docked labels flip flat ONTO the cap
+        /// (readable from the board's viewer side, text-up pointing up the board)
+        /// and re-fit into the 0.11 button pitch. Procedural labels only; a bundle
+        /// prefab's LabelAnchor keeps authoring authority.
+        /// </summary>
+        public void SetDocked(bool docked)
+        {
+            if (_docked == docked)
+                return;
+            _docked = docked;
+            if (_label == null || _labelAnchored)
+                return;
+            Transform lt = _label.transform;
+            if (docked)
+            {
+                lt.localPosition = new Vector3(0f, _capRestY + 0.014f, 0f);
+                lt.localRotation = Quaternion.Euler(90f, 180f, 0f);
+                Core.TmpFit.Fit(_label, 0.105f, 0.045f, maxFontSize: 0.30f);
+            }
+            else
+            {
+                lt.localPosition = _labelHomePos;
+                lt.localRotation = _labelHomeRot;
+                Core.TmpFit.Fit(_label, 0.24f, 0.07f, maxFontSize: 0.35f);
+            }
+        }
+
+        /// <summary>Register with the tray's board-laser registry (docked mode).</summary>
+        public void RegisterLaserTarget(PlayTray tray) => tray.RegisterLaserTarget(_collider, this);
+
+        /// <summary>Attributable name for laser-click logs (plain class, no MonoBehaviour name).</summary>
+        public override string ToString() => _rootGo != null ? _rootGo.name : nameof(PhysicalButton);
 
         public void Destroy()
         {

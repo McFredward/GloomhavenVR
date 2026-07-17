@@ -30,6 +30,9 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class CardFace
 {
+    /// <summary>Centered anchor frame the host pose uses (anchors AND pivot).</summary>
+    private static readonly Vector2 CenterAnchor = new(0.5f, 0.5f);
+
     private AbilityCardUI? _owner;
     private RectTransform? _face;
     private RectTransform? _host;
@@ -111,9 +114,9 @@ internal sealed class CardFace
         if (_face == null || _host == null)
             return;
         _face.SetParent(_host, worldPositionStays: false);
-        _face.anchorMin = new Vector2(0.5f, 0.5f);
-        _face.anchorMax = new Vector2(0.5f, 0.5f);
-        _face.pivot = new Vector2(0.5f, 0.5f);
+        _face.anchorMin = CenterAnchor;
+        _face.anchorMax = CenterAnchor;
+        _face.pivot = CenterAnchor;
         _face.anchoredPosition3D = Vector3.zero;
         _face.localRotation = Quaternion.identity;
         _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
@@ -157,8 +160,23 @@ internal sealed class CardFace
         }
         if (!_face.gameObject.activeSelf)
             _face.gameObject.SetActive(true);
+        // Re-assert the FULL anchor frame, not just the anchored position (test #19
+        // x-offset): on ActionSelection entry the game re-anchors the face rect —
+        // <c>AbilityCardUI.ToggleFullCard(active: true)</c> sets
+        // <c>anchorMin = anchorMax = (0, 0.5)</c>, LEFT-middle (AbilityCardUI.cs:
+        // 1000-1002, verified ilspycmd). With only anchoredPosition3D restored, the
+        // face's pivot then sat on the host's LEFT EDGE — the card art (and the
+        // backing fitted to it) rendered half a card left of the slot frame.
+        if (_face.anchorMin != CenterAnchor)
+            _face.anchorMin = CenterAnchor;
+        if (_face.anchorMax != CenterAnchor)
+            _face.anchorMax = CenterAnchor;
+        if (_face.pivot != CenterAnchor)
+            _face.pivot = CenterAnchor;
         if (_face.anchoredPosition3D != Vector3.zero)
             _face.anchoredPosition3D = Vector3.zero;
+        if (_face.localRotation != Quaternion.identity)
+            _face.localRotation = Quaternion.identity;
         float scale = _face.localScale.x;
         if (!Mathf.Approximately(scale, _fitScale))
             _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);

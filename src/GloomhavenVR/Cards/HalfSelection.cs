@@ -4,26 +4,28 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
 using ScenarioRuleLibrary;
-using TMPro;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// In-turn action selection: the round's played cards lie in front of the player;
+/// In-turn action selection: the round's played cards sit docked in the control
+/// board's card slots (test #19; head-floating layout only as the no-tray fallback);
 /// poking the top or bottom half commits that half via
 /// <c>FullAbilityCard.OnAbilityClick(ActionType, isProxyAction: false, checkValid: true)</c>
 /// — the identical call the 2D buttons make, so all validity/phase guards apply
-/// (see CardsGameApi.PlayHalf). The default move/attack options the game offers are
-/// presented as poke chips under each card
-/// (<c>DefaultMoveAction/DefaultAttackAction</c>, same entry point). Invalid halves
-/// are dimmed using the same query the UI renders from
+/// (see CardsGameApi.PlayHalf). The CARD HALVES are the whole affordance (test #19):
+/// no mod-side "ATK 2"-style buttons — the game's card art already shows the values,
+/// and the game's own face widgets (default-action buttons, consume/infusion
+/// buttons) stay reachable because each card's world canvas is registered with the
+/// P2 <c>UguiPokeSurfaces</c> while in this layout (finger poke AND dominant laser
+/// via <c>RayUguiDriver</c>). Laser commits therefore run through the REAL
+/// 'Top button'/'Bottom button' uGUI click path; the mod zones mirror that hover as
+/// a per-half tint (gold = top, teal = bottom) and additionally handle fingertip
+/// pokes. Invalid halves are dimmed using the same query the UI renders from
 /// (<c>FullAbilityCard.IsInteractable + isValid</c>). The
 /// <c>CardsActionControlller</c> phase machine (Select1st → Pick1st → Select2nd →
 /// Pick2nd) drives which halves report playable — we only mirror it.
-/// Each card's world canvas is registered with the P2 <c>UguiPokeSurfaces</c> while
-/// in this layout, so the REAL uGUI widgets on the face (consume/infusion buttons)
-/// are finger-pokeable too.
 /// </summary>
 internal sealed class HalfSelection
 {
@@ -32,14 +34,13 @@ internal sealed class HalfSelection
         public GameObject Root = null!;
         public HalfZone Top = null!;
         public HalfZone Bottom = null!;
-        public HalfZone DefaultAttack = null!;
-        public HalfZone DefaultMove = null!;
         public Canvas? RegisteredCanvas;
     }
 
     private readonly List<VRCard> _cards = new(4);
     private readonly Dictionary<VRCard, ZoneSet> _zones = new(4);
     private Transform? _root;
+    private PlayTray? _tray;
     private bool _placed;
 
     /// <summary>Poke commit request: (card, half). CardsDriver executes it.</summary>
@@ -48,6 +49,20 @@ internal sealed class HalfSelection
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
 
     internal bool Contains(VRCard card) => _cards.Contains(card);
+
+    /// <summary>
+    /// Test #19: the action-selection display lives ON the control board — the round
+    /// cards dock straight into the tray's two card slots (same position, frame and
+    /// SlotScale density as during selection; stable under tray follow/pin/move/
+    /// resize because the cards parent under the slot transforms, exactly like
+    /// <see cref="PlayTray.PlaceCard"/>). The head-floating layout survives only as
+    /// the no-tray fallback.
+    /// </summary>
+    internal void DockTo(PlayTray? tray) => _tray = tray;
+
+    /// <summary>Dock target for card <paramref name="index"/>; null → floating fallback.</summary>
+    private Transform? DockSlot(int index) =>
+        _tray != null && _tray.Root != null ? _tray.SlotTransform(index) : null;
 
     // ------------------------------------------------------------------ lifecycle --
 
@@ -73,8 +88,8 @@ internal sealed class HalfSelection
             return;
         if (_root.gameObject.activeSelf != visible)
             _root.gameObject.SetActive(visible);
-        if (visible && !_placed)
-            PlaceAtHead();
+        if (visible && !_placed && DockSlot(0) == null)
+            PlaceAtHead(); // floating fallback only — docked cards live on the tray
         if (!visible)
             ClearCards();
     }
@@ -143,8 +158,19 @@ internal sealed class HalfSelection
                 continue;
             card.gameObject.SetActive(true);
             card.Grabbable = false; // pokes only in this layout
-            float x = n > 1 ? (i == 0 ? -0.75f : 0.75f) * w * layoutScale : 0f;
-            card.SetHome(_root, new Vector3(x, 0f, 0f), Quaternion.identity, layoutScale);
+            Transform? slot = DockSlot(i);
+            if (slot != null)
+            {
+                // Docked (test #19): the round cards stay in the SAME tray slots
+                // they were played into — home scale 1 under the slot root, so the
+                // slot's own SlotScale is the card density (test #18 pattern).
+                card.SetHome(slot, Vector3.zero, Quaternion.identity, 1f);
+            }
+            else
+            {
+                float x = n > 1 ? (i == 0 ? -0.75f : 0.75f) * w * layoutScale : 0f;
+                card.SetHome(_root, new Vector3(x, 0f, 0f), Quaternion.identity, layoutScale);
+            }
             ArmCard(card);
         }
     }
@@ -154,6 +180,9 @@ internal sealed class HalfSelection
         for (int i = _cards.Count - 1; i >= 0; i--)
             DisarmCard(_cards[i]);
         _cards.Clear();
+        if (_laserZone != null)
+            _laserZone.SetLaserHover(false);
+        _laserZone = null;
     }
 
     // ------------------------------------------------------------------ zones --
@@ -173,15 +202,12 @@ internal sealed class HalfSelection
         var set = new ZoneSet { Root = new GameObject("HalfZones") };
         set.Root.transform.SetParent(card.transform, worldPositionStays: false);
 
+        // No default-action chips (test #19): the game's own face widgets cover the
+        // default "Attack 2"/"Move 2" options via the registered canvas below.
         set.Top = HalfZone.Create(set.Root.transform, card, CBaseCard.ActionType.TopAction,
-            new Vector3(0f, h * 0.27f, 0f), new Vector2(w * 0.96f, h * 0.42f), null, this);
+            new Vector3(0f, h * 0.27f, 0f), new Vector2(w * 0.96f, h * 0.42f), this);
         set.Bottom = HalfZone.Create(set.Root.transform, card, CBaseCard.ActionType.BottomAction,
-            new Vector3(0f, -h * 0.27f, 0f), new Vector2(w * 0.96f, h * 0.42f), null, this);
-        // The game's default options ("Attack 2" / "Move 2") as chips beside the card.
-        set.DefaultAttack = HalfZone.Create(set.Root.transform, card, CBaseCard.ActionType.DefaultAttackAction,
-            new Vector3(w * 0.78f, h * 0.27f, 0f), new Vector2(w * 0.42f, h * 0.16f), "ATK 2", this);
-        set.DefaultMove = HalfZone.Create(set.Root.transform, card, CBaseCard.ActionType.DefaultMoveAction,
-            new Vector3(w * 0.78f, -h * 0.27f, 0f), new Vector2(w * 0.42f, h * 0.16f), "MOV 2", this);
+            new Vector3(0f, -h * 0.27f, 0f), new Vector2(w * 0.96f, h * 0.42f), this);
         Core.VRLayers.Apply(set.Root); // mod layer (render-only; zones poke via registries)
 
         _zones[card] = set;
@@ -226,8 +252,11 @@ internal sealed class HalfSelection
 
     // ------------------------------------------------------------------ per frame --
 
-    /// <summary>Refresh valid/invalid dimming from the game's own interactability query.</summary>
-    internal void Tick()
+    /// <summary>
+    /// Refresh valid/invalid dimming from the game's own interactability query and
+    /// mirror the dominant laser's uGUI hover as the per-half tint.
+    /// </summary>
+    internal void Tick(VRHand? dominant)
     {
         if (!IsVisible)
             return;
@@ -239,9 +268,57 @@ internal sealed class HalfSelection
             FullAbilityCard? full = card.FullCard;
             set.Top.SetPlayable(full != null && CardsGameApi.IsHalfPlayable(full, CBaseCard.ActionType.TopAction));
             set.Bottom.SetPlayable(full != null && CardsGameApi.IsHalfPlayable(full, CBaseCard.ActionType.BottomAction));
-            set.DefaultAttack.SetPlayable(full != null && CardsGameApi.IsHalfPlayable(full, CBaseCard.ActionType.DefaultAttackAction));
-            set.DefaultMove.SetPlayable(full != null && CardsGameApi.IsHalfPlayable(full, CBaseCard.ActionType.DefaultMoveAction));
         }
+        UpdateLaserHover(dominant);
+    }
+
+    private HalfZone? _laserZone;
+
+    /// <summary>
+    /// Laser hover feedback (test #19): the card faces are registered with
+    /// <c>UguiPokeSurfaces</c> while in this layout, so the dominant hand's
+    /// <c>RayUguiDriver</c> already hovers AND trigger-clicks the REAL half widgets
+    /// ('Top button'/'Bottom button' — the exact uGUI targets the 2D click path
+    /// uses; the commit stays there, so there is no second laser commit path to
+    /// double-fire). This only MIRRORS that hover as the per-half tint: map the
+    /// hovered widget to its card, split top/bottom on the ray∩card-plane hit
+    /// (same math as <see cref="PlayTray.TryRaycastCards"/>). No allocations.
+    /// </summary>
+    private void UpdateLaserHover(VRHand? dominant)
+    {
+        HalfZone? hit = null;
+        GameObject? hovered = dominant != null && dominant.RayUgui.HasHit
+            ? dominant.RayUgui.Hovered
+            : null;
+        if (dominant != null && hovered != null)
+        {
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard card = _cards[i];
+                if (card == null || !_zones.TryGetValue(card, out ZoneSet set)
+                    || !hovered.transform.IsChildOf(card.transform))
+                    continue;
+                PickPose pick = dominant.Ray.Current;
+                Transform t = card.transform;
+                float denom = Vector3.Dot(pick.Direction, t.forward);
+                if (denom < 1e-5f)
+                    break;
+                float dist = Vector3.Dot(t.position - pick.Origin, t.forward) / denom;
+                if (dist <= 0f)
+                    break;
+                Vector3 local = t.InverseTransformPoint(pick.Origin + pick.Direction * dist);
+                hit = local.y >= 0f ? set.Top : set.Bottom;
+                break;
+            }
+        }
+
+        if (ReferenceEquals(hit, _laserZone))
+            return;
+        if (_laserZone != null)
+            _laserZone.SetLaserHover(false);
+        _laserZone = hit;
+        if (_laserZone != null)
+            _laserZone.SetLaserHover(true);
     }
 
     internal void RequestPlay(VRCard card, CBaseCard.ActionType type)
@@ -256,7 +333,7 @@ internal sealed class HalfSelection
         }
     }
 
-    /// <summary>One pokeable half/default zone with a state overlay quad.</summary>
+    /// <summary>One pokeable half zone with a state overlay quad.</summary>
     private sealed class HalfZone : PokeableBehaviour
     {
         private VRCard _card = null!;
@@ -265,13 +342,17 @@ internal sealed class HalfSelection
         private Material? _overlay;
         private bool _playable;
         private bool _hovered;
+        private bool _laserHovered;
 
         private static readonly Color InvalidColor = new(0f, 0f, 0f, 0.55f);
-        private static readonly Color HoverColor = new(0.4f, 0.9f, 0.45f, 0.22f);
+        // Distinct per-half hover tints (test #19): the glow itself says WHICH
+        // action a commit would play — warm gold for top, cool teal for bottom.
+        private static readonly Color TopHoverColor = new(1f, 0.82f, 0.35f, 0.26f);
+        private static readonly Color BottomHoverColor = new(0.35f, 0.75f, 1f, 0.26f);
         private static readonly Color ClearColor = new(0f, 0f, 0f, 0f);
 
         internal static HalfZone Create(Transform parent, VRCard card, CBaseCard.ActionType type,
-            Vector3 localPos, Vector2 size, string? chipLabel, HalfSelection owner)
+            Vector3 localPos, Vector2 size, HalfSelection owner)
         {
             var go = new GameObject($"Zone_{type}");
             go.transform.SetParent(parent, worldPositionStays: false);
@@ -297,32 +378,13 @@ internal sealed class HalfSelection
                 quad.GetComponent<MeshRenderer>().sharedMaterial = overlay;
             }
 
-            if (chipLabel != null)
-            {
-                // Chip background so the default option reads as its own button.
-                if (overlay != null)
-                    overlay.color = new Color(0.25f, 0.22f, 0.18f, 0.9f);
-                var textGo = new GameObject("Label");
-                textGo.transform.SetParent(go.transform, worldPositionStays: false);
-                textGo.transform.localPosition = new Vector3(0f, 0f, -0.003f); // viewer side (-Z)
-                var tmp = textGo.AddComponent<TextMeshPro>();
-                tmp.text = chipLabel;
-                tmp.alignment = TextAlignmentOptions.Center;
-                tmp.color = Color.white;
-                // Localized chip labels shrink/wrap inside the chip (TmpFit, test #12).
-                Core.TmpFit.Fit(tmp, size.x * 0.95f, size.y * 0.85f, maxFontSize: 0.40f);
-            }
-
             var zone = go.AddComponent<HalfZone>();
             zone._card = card;
             zone._type = type;
             zone._owner = owner;
             zone._overlay = overlay;
-            zone._isChip = chipLabel != null;
             return zone;
         }
-
-        private bool _isChip;
 
         internal void SetPlayable(bool playable)
         {
@@ -332,17 +394,29 @@ internal sealed class HalfSelection
             UpdateOverlay();
         }
 
+        /// <summary>
+        /// Laser hover tint (set by <see cref="UpdateLaserHover"/>). Purely visual —
+        /// the laser COMMIT runs through RayUguiDriver's real uGUI click.
+        /// </summary>
+        internal void SetLaserHover(bool hovered)
+        {
+            if (_laserHovered == hovered)
+                return;
+            _laserHovered = hovered;
+            UpdateOverlay();
+        }
+
         private void UpdateOverlay()
         {
             if (_overlay == null)
                 return;
             Color color;
             if (!_playable)
-                color = _isChip ? new Color(0.12f, 0.11f, 0.1f, 0.85f) : InvalidColor;
-            else if (_hovered)
-                color = _isChip ? new Color(0.35f, 0.5f, 0.3f, 0.95f) : HoverColor;
+                color = InvalidColor;
+            else if (_hovered || _laserHovered)
+                color = _type == CBaseCard.ActionType.TopAction ? TopHoverColor : BottomHoverColor;
             else
-                color = _isChip ? new Color(0.25f, 0.22f, 0.18f, 0.9f) : ClearColor;
+                color = ClearColor;
             if (_overlay.color != color)
                 _overlay.color = color;
         }
