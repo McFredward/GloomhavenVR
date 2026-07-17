@@ -97,6 +97,7 @@ internal sealed class WorldUIModule : IVRModule
 
         CanvasConversion.ReleaseAll();
         WorldUIAssets.Reset();
+        NativeButtonSkin.Reset();
         InputModeGuard.Reset();
         VirtualMouse.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
