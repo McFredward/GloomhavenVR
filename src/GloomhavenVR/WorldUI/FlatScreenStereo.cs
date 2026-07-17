@@ -73,6 +73,18 @@ namespace GloomhavenVR.WorldUI;
 /// eye passes show the left RT and the mirrors stop rendering. Correct by nature —
 /// video frames are 2D; there is no depth to reconstruct. Logged on every flip.
 ///
+/// VIDEO DISCOVERY (hardware test #16, one-eyed intro): a one-shot GetComponent at
+/// mirror creation is NOT enough — the intro's player binds to its camera via
+/// <c>VideoPlayer.targetCamera</c> from a DIFFERENT GameObject (the intro 'Camera'
+/// mirrors as 3D with no player, no suspension → right eye black). Two throttled
+/// recovery paths keep the suspension correct without per-frame cost: entries whose
+/// cached player is null re-run GetComponent every ~15 frames (players added to the
+/// camera GO after capture), and a global FindObjectsOfType sweep every ~30 frames
+/// matches camera-plane players to captured cameras by targetCamera OR host GO.
+/// Late discoveries are logged once per player. The suspension check itself also
+/// verifies the binding still points at the source, so a player re-targeted to an
+/// uncaptured camera stops suspending stereo.
+///
 /// LIFECYCLE: everything is mod-owned under one hidden DontDestroyOnLoad root.
 /// Mirrors die with the captured stack (<see cref="ReleaseMirrors"/> on scene
 /// change) and are rebuilt on the next capture sweep — late arrivals get a mirror
@@ -94,6 +106,10 @@ internal sealed class FlatScreenStereo
     private const int IpdSampleIntervalFrames = 90;
     /// <summary>Convergence floor (real meters) — guards a mis-configured ScreenDistance.</summary>
     private const float MinConvergenceMeters = 0.25f;
+    /// <summary>Frames between GetComponent re-checks on entries with no cached VideoPlayer.</summary>
+    private const int VideoRecheckIntervalFrames = 15;
+    /// <summary>Frames between global sweeps for camera-plane VideoPlayers on OTHER GameObjects.</summary>
+    private const int VideoSweepIntervalFrames = 30;
 
     // Config lives in the SAME dev.gloomhavenvr.worldui.cfg as the rest of the
     // FlatScreen ([WorldUI] section) — bound through an existing entry's ConfigFile
@@ -109,7 +125,11 @@ internal sealed class FlatScreenStereo
         public Camera Mirror = null!;
         public Transform MirrorTransform = null!;
         public GameObject Go = null!;
-        /// <summary>VideoPlayer hosted on the source camera's GO (near-plane video suspension).</summary>
+        /// <summary>
+        /// Camera-plane VideoPlayer bound to the source (near-plane video suspension) —
+        /// hosted on its GO or targeting it via targetCamera; discovered at mirror
+        /// creation or later by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
+        /// </summary>
         public VideoPlayer? Video;
         /// <summary>True = eye-offset stereo camera; false = zero-offset mono (UI / orthographic).</summary>
         public bool Stereo3D;
@@ -135,6 +155,14 @@ internal sealed class FlatScreenStereo
     private float _ipdMeters = DefaultIpdMeters;
     private int _ipdFrame = int.MinValue;
     private bool _ipdLogged;
+
+    // Late video discovery (class doc VIDEO DISCOVERY) — throttle gates + one-line-
+    // per-player log guard (instance IDs; players die with their scene, the set stays
+    // small for the process lifetime).
+    private int _videoRecheckFrame = int.MinValue;
+    private bool _videoRecheckDue;
+    private int _videoSweepFrame = int.MinValue;
+    private readonly HashSet<int> _videoLogged = new();
 
     /// <summary>Eye separation / convergence distance in CAPTURED-SCENE units (recomputed per tick).</summary>
     private float _sepScene;
@@ -285,6 +313,65 @@ internal sealed class FlatScreenStereo
     {
         for (int i = 0; i < _mirrors.Count; i++)
             _mirrors[i].Synced = false;
+
+        // Late-video throttles (class doc VIDEO DISCOVERY). The global sweep runs
+        // FIRST so the SyncCamera calls of this very tick already see a discovered
+        // player and can suspend immediately.
+        _videoRecheckDue = Time.frameCount - _videoRecheckFrame >= VideoRecheckIntervalFrames;
+        if (_videoRecheckDue)
+            _videoRecheckFrame = Time.frameCount;
+        if (_active && _mirrors.Count > 0
+            && Time.frameCount - _videoSweepFrame >= VideoSweepIntervalFrames)
+        {
+            _videoSweepFrame = Time.frameCount;
+            SweepForCameraPlaneVideos();
+        }
+    }
+
+    /// <summary>
+    /// Global sweep for camera-plane VideoPlayers living on GameObjects OTHER than
+    /// their camera (the intro binds via targetCamera — test #16 one-eyed intro).
+    /// Throttled to every <see cref="VideoSweepIntervalFrames"/> frames while stereo
+    /// is active and mirrors exist; the FindObjectsOfType allocation is accepted at
+    /// that rate — a missed player costs a whole eye, not a frame-time spike.
+    /// </summary>
+    private void SweepForCameraPlaneVideos()
+    {
+        VideoPlayer[] players = Object.FindObjectsOfType<VideoPlayer>();
+        for (int i = 0; i < players.Length; i++)
+        {
+            VideoPlayer player = players[i];
+            if (player.renderMode != VideoRenderMode.CameraNearPlane
+                && player.renderMode != VideoRenderMode.CameraFarPlane)
+                continue;
+
+            MirrorEntry? entry = null;
+            Camera? bound = player.targetCamera;
+            if (bound != null && _bySource.TryGetValue(bound, out MirrorEntry byTarget))
+                entry = byTarget;
+            else
+            {
+                Camera host = player.GetComponent<Camera>();
+                if (host != null && _bySource.TryGetValue(host, out MirrorEntry byHost))
+                    entry = byHost;
+            }
+            // Only fill EMPTY slots (Unity fake-null included — a destroyed player is
+            // replaced, a live cached one is never thrashed by a second candidate).
+            if (entry == null || entry.Video != null)
+                continue;
+            entry.Video = player;
+            LogLateVideo(player, entry.Source, "global sweep, bound via targetCamera from GO '"
+                                               + player.gameObject.name + "'");
+        }
+    }
+
+    private void LogLateVideo(VideoPlayer player, Camera source, string how)
+    {
+        if (!_videoLogged.Add(player.GetInstanceID()))
+            return;
+        VRLog.Info("WorldUI", $"Stereo screen: camera-plane VideoPlayer discovered LATE for " +
+                              $"'{source.name}' ({how}) — near-plane suspension now applies " +
+                              "(without it this video would render in one eye only).");
     }
 
     /// <summary>
@@ -301,7 +388,16 @@ internal sealed class FlatScreenStereo
 
         entry.Synced = true;
         entry.SourceOn = source.isActiveAndEnabled;
-        entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video);
+        // Players can be ADDED to the camera GO after mirror creation — re-check
+        // empty slots on the throttled gate (destroyed players are fake-null and
+        // re-checked too; class doc VIDEO DISCOVERY).
+        if (entry.Video == null && _videoRecheckDue)
+        {
+            entry.Video = source.GetComponent<VideoPlayer>();
+            if (entry.Video != null)
+                LogLateVideo(entry.Video, source, "component appeared on the camera's GameObject");
+        }
+        entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video, source);
         if (!entry.SourceOn)
             return; // mirror gets disabled in EndStackSync; nothing to copy
 
@@ -431,7 +527,9 @@ internal sealed class FlatScreenStereo
             MirrorTransform = go.transform,
             Go = go,
             // Camera-hosted VideoPlayer (MainMenuVideo ambient movies, campaign
-            // 'Video Camera' fullscreen videos, the intro player) — suspension input.
+            // 'Video Camera' fullscreen videos) — first suspension probe; players
+            // added later or bound from another GO via targetCamera (the intro) are
+            // caught by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
             Video = source.GetComponent<VideoPlayer>(),
             // UI-tagged and orthographic cameras composite flat AT the screen plane;
             // real 3D perspective cameras get the eye offset.
@@ -446,10 +544,16 @@ internal sealed class FlatScreenStereo
         return entry;
     }
 
-    private static bool IsNearPlaneVideoActive(VideoPlayer? video) =>
+    /// <summary>
+    /// True while this player blits camera-plane frames into the SOURCE camera's
+    /// output. The binding check (targetCamera or same GO) lets a player that gets
+    /// re-targeted elsewhere stop suspending stereo without waiting for a sweep.
+    /// </summary>
+    private static bool IsNearPlaneVideoActive(VideoPlayer? video, Camera source) =>
         video != null && video.enabled
         && (video.renderMode == VideoRenderMode.CameraNearPlane
-            || video.renderMode == VideoRenderMode.CameraFarPlane);
+            || video.renderMode == VideoRenderMode.CameraFarPlane)
+        && (video.targetCamera == source || video.gameObject == source.gameObject);
 
     // ---- per-eye quad texture (MultiPass) ----------------------------------------------------
 
