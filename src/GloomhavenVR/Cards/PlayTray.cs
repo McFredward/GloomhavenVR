@@ -352,33 +352,43 @@ internal sealed class PlayTray
 
     // ------------------------------------------------------------------ status --
 
+    // Last shown badge state (int key, not string): -2 = none ("-"), -1 = long rest
+    // ("99"), else the initiative value. Rebuilding the string only on CHANGE avoids
+    // a per-frame ToString allocation AND a per-frame TMP text assignment — every
+    // rewrite re-triggers TMP's auto-size layout, which made the badge flicker
+    // against its plate (test #13).
+    private int _badgeState = int.MinValue;
+
     /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
         if (_badge == null)
             return;
 
-        string text = "-";
+        int state = -2;
         bool canSwap = false;
         bool ready = false;
         if (hand != null && hand.PlayerActor != null)
         {
             if (CardsGameApi.IsLongRestSelected(hand))
             {
-                text = "99"; // long rest initiative by game rule
+                state = -1; // long rest initiative (99) by game rule
             }
             else
             {
                 ScenarioRuleLibrary.CAbilityCard? initiative = CardsGameApi.InitiativeCard(hand);
                 if (initiative != null)
-                    text = CardsGameApi.InitiativeValue(initiative).ToString();
+                    state = CardsGameApi.InitiativeValue(initiative);
                 canSwap = hand.PlayerActor.CharacterClass.RoundAbilityCards.Count == 2;
             }
             ready = CardsGameApi.IsSelectionReady(hand);
         }
 
-        if (_badge.text != text)
-            _badge.text = text;
+        if (state != _badgeState)
+        {
+            _badgeState = state;
+            _badge.text = state switch { -2 => "-", -1 => "99", _ => state.ToString() };
+        }
         if (_badgeZone != null)
             _badgeZone.SwapEnabled = canSwap;
 
@@ -510,11 +520,15 @@ internal sealed class PlayTray
         disc.transform.SetParent(badgeGo.transform, worldPositionStays: false);
         disc.transform.localScale = new Vector3(0.042f, 0.003f, 0.042f);
         disc.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        disc.transform.localPosition = new Vector3(0f, 0f, 0.003f);
+        // Disc front face 1.5 mm BEHIND the number (cylinder half-height 0.003):
+        // at z=0.003 the face sat exactly on the text plane — z-fighting made the
+        // badge number flicker/"clip" (test #13).
+        disc.transform.localPosition = new Vector3(0f, 0f, 0.0045f);
         Tint(disc, new Color(0.5f, 0.42f, 0.2f));
 
         _badge = badgeGo.AddComponent<TextMeshPro>();
         _badge.text = "-";
+        _badgeState = -2; // keep the change-detection key in sync after a rebuild
         _badge.alignment = TextAlignmentOptions.Center;
         _badge.color = new Color(1f, 0.95f, 0.8f);
         // The number must sit ON the 0.042 m disc (was fontSize 1.2 = a 0.12 m line

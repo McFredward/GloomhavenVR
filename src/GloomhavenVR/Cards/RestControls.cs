@@ -101,7 +101,10 @@ internal sealed class RestControls
 
             var textGo = new GameObject("Label");
             textGo.transform.SetParent(go.transform, worldPositionStays: false);
-            textGo.transform.localPosition = new Vector3(0f, 0f, -0.004f); // viewer side (-Z)
+            // Viewer side (-Z), 1.5 mm IN FRONT of the disc face: the disc (half-
+            // height 0.004) fronts at exactly -0.004 — a label on that same plane
+            // z-fought the disc, so "ZZZ"/"99" flickered/clipped (test #13).
+            textGo.transform.localPosition = new Vector3(0f, 0f, -0.0055f);
             var tmp = textGo.AddComponent<TextMeshPro>();
             tmp.text = label;
             tmp.alignment = TextAlignmentOptions.Center;
@@ -112,7 +115,8 @@ internal sealed class RestControls
             // Readable caption under the token (localized where the game has a key).
             var captionGo = new GameObject("Caption");
             captionGo.transform.SetParent(go.transform, worldPositionStays: false);
-            captionGo.transform.localPosition = new Vector3(0f, -0.030f, -0.004f);
+            // Same 1.5 mm clearance: the caption box top overlaps the disc rim.
+            captionGo.transform.localPosition = new Vector3(0f, -0.030f, -0.0055f);
             var captionTmp = captionGo.AddComponent<TextMeshPro>();
             captionTmp.text = caption;
             captionTmp.alignment = TextAlignmentOptions.Center;
