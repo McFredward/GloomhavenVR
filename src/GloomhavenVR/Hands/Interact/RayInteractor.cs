@@ -14,8 +14,10 @@ namespace GloomhavenVR.Hands.Interact;
 /// "where this controller points", unaffected by grip-pose tilt or the visual hand
 /// offset. Fallback (simulated hands / no aim pose): origin at the index knuckle,
 /// direction = hand forward (+Z, along the fingers). Visual: a subtle LineRenderer
-/// laser plus a reticle dot at the hit point, shown only while the interactor is
-/// enabled (far-interaction modes / RayAlwaysOn config).
+/// laser plus a reticle dot, shown only while the interactor is enabled
+/// (far-interaction modes / RayAlwaysOn config). Test #14: the visible beam is a
+/// STRAIGHT segment of the aim ray — hits clamp its length, the reticle sits at
+/// ray ∩ surface on that line, and nothing may re-aim it (see UpdateVisuals).
 ///
 /// Physics only — uGUI far pointing goes through the virtual mouse bridge instead
 /// (GloomhavenVR.WorldUI.VirtualMouse), matching UI-ARCH §4.4 strategy 1.
@@ -35,34 +37,22 @@ internal sealed class RayInteractor : IPickProvider
     /// <summary>Layers the pick ray tests. Phase-3a sets the game's selection mask here.</summary>
     public LayerMask Mask = Physics.DefaultRaycastLayers;
 
-    /// <summary>
-    /// P5 (MISSION A.1): world position that overrides the VISIBLE reticle/laser end
-    /// while the ray has a hit — Board sets this to the hovered hex center
-    /// ([Board] SnapToHexCenter) so the reticle snaps like the game cursor does.
-    /// Consumers set it per frame; it is cleared automatically when the ray misses,
-    /// is disabled, or nobody re-sets it (one-frame latch). Pick data is unaffected.
-    /// </summary>
-    public Vector3? ReticleOverride
-    {
-        get => _reticleOverride;
-        set
-        {
-            _reticleOverride = value;
-            _reticleOverrideFrame = Time.frameCount;
-        }
-    }
-
-    private Vector3? _reticleOverride;
-    private int _reticleOverrideFrame = -1;
+    // Test #14 item 2: the former ReticleOverride (Board hex-snap moved the visible
+    // dot to the hex center) is GONE — any override that moves the end point off the
+    // aim line visibly re-aims the beam ('zaps' onto elements). The snapped hex is
+    // communicated by the game's own hex hover highlight (HoverRegisterer/star
+    // display via the projected cursor, BoardPick.TryGetCursorWorld), never by
+    // bending the beam or dot.
 
     /// <summary>
     /// World point where the ray hits a code-intersected UI surface (the WorldUI flat
     /// screen has no physics collider — FlatScreen sets this every tick with its
     /// plane-intersection point, latched while a press is frozen). While fresh, the
-    /// visible beam is CLAMPED to this point and the reticle shows exactly there —
-    /// beam and dot converge by construction (hardware test #7: the unclamped beam
-    /// passed through the menu and visually crossed it away from the reticle).
-    /// One-frame latch like <see cref="ReticleOverride"/>; pick data unaffected.
+    /// visible beam's LENGTH is clamped to this point's distance along the aim ray
+    /// and the reticle shows at that ray point — the beam never passes THROUGH a
+    /// menu (hardware test #7) and never changes direction (test #14: only the
+    /// projection onto the aim line is used, so a latched press point slightly off
+    /// the current aim cannot bend the beam). One-frame latch; pick data unaffected.
     /// </summary>
     public Vector3? UiHitOverride
     {
@@ -146,7 +136,6 @@ internal sealed class RayInteractor : IPickProvider
         if (!_enabled || !_hand.HasPose)
         {
             _current.HasHit = false;
-            _reticleOverride = null;
             return;
         }
 
@@ -181,10 +170,6 @@ internal sealed class RayInteractor : IPickProvider
             _current.HasHit = false;
             _current.HitCollider = null;
         }
-
-        // One-frame latch: consumers (Board) re-set the override every frame they want it.
-        if (_reticleOverride.HasValue && Time.frameCount > _reticleOverrideFrame + 1)
-            _reticleOverride = null;
 
         UpdateVisuals(origin, direction, maxDistance, scale);
     }
@@ -258,30 +243,40 @@ internal sealed class RayInteractor : IPickProvider
             return;
         }
 
-        // Beam end priority: UI-surface hit (flat screen, code-intersected — clamps
-        // the beam so it never passes THROUGH the menu) → physics hit (with the
-        // Board's hex-snap reticle override) → open-ended segment.
+        // Test #14 item 2 — the beam is ALWAYS the straight aim ray. Both endpoints
+        // lie on (origin, direction); hits clamp the LENGTH only, so the controller
+        // alone controls the beam angle. The old geometry started at the knuckle and
+        // converged on the hit POINT — when the hit jumped onto a canvas plane
+        // (UiHitOverride) or a snapped hex (ReticleOverride, now removed) the beam
+        // visibly changed angle ('zapped' onto elements).
+        //
+        // Length priority: UI-surface hit (code-intersected canvas/flat screen —
+        // never pass THROUGH a menu, test #7) → physics hit → open-ended segment.
+        // The UI point is projected onto the aim line: RayUguiDriver points are on
+        // it by construction; FlatScreen's latched press point may drift off it, and
+        // only its along-ray distance may influence the visuals.
         bool uiHit = _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
-        Vector3 end = uiHit
-            ? _uiHitOverride!.Value
+        float length = uiHit
+            ? Mathf.Max(0.02f * scale, Vector3.Dot(_uiHitOverride!.Value - origin, direction))
             : _current.HasHit
-                ? (_reticleOverride ?? _current.HitPoint)
-                : origin + direction * (maxDistance * 0.25f);
+                ? _current.HitDistance
+                : maxDistance * 0.25f;
+        Vector3 end = origin + direction * length;
 
-        // Visual origin (test #7, requirement): the PICK ray keeps the OpenXR aim pose
-        // (origin/direction above); the visible beam starts at the index KNUCKLE — the
-        // tip curls with the trigger pull (FingerCurler), which swung the beam on
-        // every press. The knuckle is curl-independent; the beam still converges on
-        // the aim ray's end, so it reads as leaving the pointing finger.
+        // Visual origin (test #7 + #14): the beam still reads as leaving the pointing
+        // finger, but the knuckle anchor is PROJECTED ONTO THE AIM LINE — the start
+        // point sits at the knuckle's along-ray distance plus the configured offset,
+        // never off-axis, so the beam direction is exactly the aim direction at all
+        // times (the tip curls with the trigger pull; the knuckle is curl-independent).
         Vector3 start = origin + direction * (0.03f * scale);
         if (Plugin.LaserFingerOrigin.Value)
         {
             Transform anchor = _hand.Rig.IndexKnuckle ?? _hand.Rig.IndexTip;
             if (anchor != null)
             {
-                Vector3 toEnd = end - anchor.position;
-                if (toEnd.sqrMagnitude > 1e-8f)
-                    start = anchor.position + toEnd.normalized * (Plugin.LaserFingerOffsetMeters.Value * scale);
+                float along = Mathf.Max(0f, Vector3.Dot(anchor.position - origin, direction))
+                              + Plugin.LaserFingerOffsetMeters.Value * scale;
+                start = origin + direction * Mathf.Min(along, length * 0.9f);
             }
         }
 
@@ -345,6 +340,16 @@ internal sealed class RayInteractor : IPickProvider
         Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
         var material = shader != null ? new Material(shader) : new Material(Shader.Find("Hidden/InternalErrorShader"));
         material.color = color;
+        // Test #14 item 3: reticle/beam partially vanished ON dialogs — world-space
+        // canvas graphics (UI/Default, TMP) draw in the transparent queue (~3000)
+        // and within one queue transparents sort by depth, so canvas geometry at the
+        // same plane could draw OVER the dot/beam. Render queue 4600 draws after
+        // every canvas graphic unconditionally; real scene occlusion is preserved
+        // because the shader still depth-TESTS (ZTest LEqual) against the opaque
+        // scene's depth buffer while UI shaders write no depth at all. This is the
+        // robust variant vs. a camera-facing plane offset, which would need per-
+        // surface tuning and can still lose to TMP sub-mesh sorting.
+        material.renderQueue = 4600;
         return material;
     }
 

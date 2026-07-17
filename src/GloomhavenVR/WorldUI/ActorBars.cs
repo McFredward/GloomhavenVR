@@ -13,7 +13,9 @@ namespace GloomhavenVR.WorldUI;
 /// (UI-ARCH §3.3). In VR that plane is head-locked garbage. This class adopts every
 /// <c>WorldspacePanelUIController</c> (per-actor panel holding HealthBar/EffectsBar/
 /// ShieldBar/AttackModBar/InfoBar), moves it onto its own world-space host canvas
-/// above the miniature, billboards it to the HMD and scales it with a distance clamp.
+/// above the miniature and billboards it to the HMD. Size is FIXED in board space
+/// by default ([WorldUI] BarFixedSize, test #14 item 4); the legacy distance-growth
+/// clamp is opt-in.
 /// The DATA flow (UpdateHealth/UpdateEffects/ShowDamage/...) is untouched — the game
 /// keeps feeding the very same components.
 ///
@@ -132,12 +134,18 @@ internal static class ActorBars
                 continue;
             Quaternion rot = Quaternion.LookRotation(fromHead.normalized, Vector3.up);
 
-            // Distance clamp in HMD-RELATIVE REAL meters: world distance ÷ diorama
-            // scale (rig lossyScale incl. the live pinch multiplier) — real size up
-            // close, gently growing when far so bars stay readable across the table
-            // (clamped ×2.5). The panel scale is world units = real meters × scale.
-            float realDistance = fromHead.magnitude / worldScale;
-            float grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
+            // Bar size (test #14 item 4): FIXED board-space size by default
+            // ([WorldUI] BarFixedSize) — the bar scales only with the diorama, like
+            // the miniature it belongs to. The old distance compensation (growing
+            // up to 2.5x with head distance) made bars visibly GROW when the player
+            // stepped away and is now the opt-in legacy path.
+            float grow = 1f;
+            if (!WorldUIConfig.BarFixedSize.Value)
+            {
+                // Legacy: distance in HMD-relative REAL meters (world ÷ diorama scale).
+                float realDistance = fromHead.magnitude / worldScale;
+                grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
+            }
 
             Transform t = panel.HostGo.transform;
             t.SetPositionAndRotation(pos, rot);

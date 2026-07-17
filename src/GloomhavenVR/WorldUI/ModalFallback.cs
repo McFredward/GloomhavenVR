@@ -76,12 +76,6 @@ internal static class ModalFallback
     /// <summary>Extra shrink on the host scale (a full-screen-wide window subtends ~60° at 1.2 m).</summary>
     private const float WindowScaleFactor = 0.7f;
 
-    /// <summary>Wait before fitting the host rect to content (window show animations run ~0.3 s).</summary>
-    private const float FitDelaySeconds = 0.4f;
-
-    /// <summary>Stop retrying the content fit after this long (window stays at its root rect).</summary>
-    private const float FitDeadlineSeconds = 2.5f;
-
     /// <summary>
     /// Window IDs that demand user interaction when opened during a scenario and have
     /// no world-space VR conversion → they float as windows (or raise the screen).
@@ -128,20 +122,16 @@ internal static class ModalFallback
     /// <summary>All open modal windows this tick (ID-tracked + poll sources), rebuilt per tick.</summary>
     private static readonly List<UIWindow> OpenWindows = new(8);
 
-    /// <summary>One floated window: the game window + its world-space host.</summary>
+    /// <summary>
+    /// One floated window: the game window + its world-space host. Content fitting
+    /// (test #13/#14) is centralized in <see cref="CanvasConversion"/> — every
+    /// pokeable host is fitted and growth-re-fitted there; the story window's
+    /// narrower content root is passed via <see cref="ConvertedPanel.FitContentRoot"/>.
+    /// </summary>
     private sealed class WindowPanel
     {
         public UIWindow Window = null!;
         public ConvertedPanel Panel = null!;
-
-        // Test #13 content fit (see CanvasConversion.FitHostToContent): full-screen
-        // window roots (story window: 1920x1080 around a small visible box) must not
-        // become the laser/poke plane. Fitted after FitDelaySeconds (show animation),
-        // retried until visible content is measurable or the deadline passes.
-        public RectTransform? ContentRoot;
-        public bool Fitted;
-        public float FitAt;
-        public float FitDeadline;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -361,26 +351,9 @@ internal static class ModalFallback
                 raycaster.enabled = true;
         }
 
-        // 5. Fit pending host rects to visible content (test #13, laser-dot fix +
-        //    'huge panel' fix): delayed past the show animation, retried while the
-        //    window is still fading in, abandoned at the deadline (full root rect
-        //    stays — behavior then equals pre-fit builds). Steady state: all Fitted,
-        //    zero work.
-        for (int i = 0; i < Converted.Count; i++)
-        {
-            WindowPanel wp = Converted[i];
-            if (wp.Fitted || Time.unscaledTime < wp.FitAt || !wp.Panel.IsAlive)
-                continue;
-            if (CanvasConversion.FitHostToContent(wp.Panel, wp.ContentRoot))
-                wp.Fitted = true;
-            else if (Time.unscaledTime >= wp.FitDeadline)
-            {
-                wp.Fitted = true;
-                VRLog.Warn("WorldUI", "MODAL WINDOW: content fit gave up (nothing visible after " +
-                                      $"{FitDeadlineSeconds:F1}s) — '{wp.Panel.HostGo.name}' keeps its " +
-                                      "full root rect.");
-            }
-        }
+        // (Content fitting — test #13/#14 — is centralized in CanvasConversion.Tick:
+        // every pokeable host is fitted after the show animation and periodically
+        // re-fitted on content growth.)
 
         if (want != _lastWant)
         {
@@ -494,13 +467,14 @@ internal static class ModalFallback
             }
 
             PlaceAtHmd(panel);
+            // Narrower measure root for the content fit (story window: the visible
+            // UICharacterStoryBox, not the 1920x1080 stretch root). The fit itself
+            // runs centrally in CanvasConversion.Tick (test #14 item 1).
+            panel.FitContentRoot = contentRoot;
             Converted.Add(new WindowPanel
             {
                 Window = window,
                 Panel = panel,
-                ContentRoot = contentRoot,
-                FitAt = Time.unscaledTime + FitDelaySeconds,
-                FitDeadline = Time.unscaledTime + FitDeadlineSeconds,
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +

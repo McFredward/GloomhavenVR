@@ -23,24 +23,16 @@ internal sealed class BoardDriver : MonoBehaviour
     private void Update()
     {
         SyncRayMask();
-        SyncReticleSnap();
         BoardClickDriver.Tick();
         AoeControl.Tick();
         TargetingUx.Tick();
     }
 
-    /// <summary>
-    /// P5 (MISSION A.1): while far-picking with [Board] SnapToHexCenter, snap the
-    /// VISIBLE ray reticle to the hovered hex center via the P2 ray's ReticleOverride
-    /// (a one-frame latch — no clearing needed when the pick moves off the board).
-    /// </summary>
-    private static void SyncReticleSnap()
-    {
-        if (!BoardConfig.SnapToHexCenter.Value || BoardPick.Source != BoardPick.PickSource.Far)
-            return;
-        if (BoardPick.TryGetCursorWorld(out UnityEngine.Vector3 world))
-            BoardPick.SourceHand!.Ray.ReticleOverride = world;
-    }
+    // Test #14 item 2: the former SyncReticleSnap (visible reticle snapped to the
+    // hovered hex center via RayInteractor.ReticleOverride) is REMOVED — moving the
+    // dot off the aim line visibly re-aimed the beam. [Board] SnapToHexCenter still
+    // snaps the GAME-side cursor projection (BoardPick.ResolveCursorWorld), so the
+    // game's own hex hover highlight communicates the snapped hex.
 
     private static void SyncRayMask()
     {
