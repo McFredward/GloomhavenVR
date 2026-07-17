@@ -46,8 +46,6 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VREvents.HandShown += OnHandShown;
-        VREvents.ChoreographerMessage += OnChoreoMessage;
-        VREvents.ChoreographerStateChanged += OnChoreoState;
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
@@ -67,8 +65,6 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VREvents.HandShown -= OnHandShown;
-        VREvents.ChoreographerMessage -= OnChoreoMessage;
-        VREvents.ChoreographerStateChanged -= OnChoreoState;
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
@@ -102,19 +98,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnHandShown(HandShownEvent e) => _dirty = true;
 
-    private void OnCardSelectionChanged(CardSelectionEvent e)
-    {
-        _dirty = true;
-        _tray.Strip?.MarkDirty(); // a (de)select changes the player's initiative
-    }
-
-    // Initiative strip invalidation (test #14): engine messages / choreographer
-    // state changes cover round starts, turn advances and initiative reveals.
-    // Handlers only set a dirty flag (P2 threading rules) — the strip re-reads
-    // the track in its Tick.
-    private void OnChoreoMessage(ChoreoMessageEvent e) => _tray.Strip?.MarkDirty();
-
-    private void OnChoreoState(ChoreoStateEvent e) => _tray.Strip?.MarkDirty();
+    private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
 
     private void OnHandsChanged() => _dirty = true;
 
@@ -522,7 +506,10 @@ internal sealed class CardsDriver : MonoBehaviour
         _fanBuffer.Clear();
         _halfBuffer.Clear();
 
-        bool trayVisible = false;
+        // Test #15: the tray is the central DASHBOARD — visible for the whole
+        // scenario (initiative track, objectives, confirm/undo, settings), not only
+        // during card selection. Cards remain grabbable only in CardsSelection.
+        bool trayVisible = true;
         bool halfVisible = false;
         bool pokeSelect = false;
         bool grabbable = false;
@@ -530,7 +517,6 @@ internal sealed class CardsDriver : MonoBehaviour
         switch (mode)
         {
             case CardHandMode.CardsSelection:
-                trayVisible = true;
                 grabbable = true;
                 for (int i = 0; i < _widgetBuffer.Count; i++)
                 {
@@ -580,7 +566,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 break;
         }
 
-        if (!trayVisible)
+        if (mode != CardHandMode.CardsSelection)
             _tray.ClearSlots(); // stale occupancy must not pin cards outside CardsSelection
 
         // Configure cards per zone; everything else parks invisibly.
@@ -888,16 +874,28 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             if (_fakeActive)
                 ClearFakeCards();
-            //
 
             _fanBuffer.Clear();
             _fan.SetCards(_fanBuffer);
-            _tray.SetVisible(false);
             _half.SetVisible(false);
-            if (_boundHand != null)
+            if (CardsGameApi.InScenario)
             {
-                _factory.Clear(); // scenario/hand gone: restore faces, drop cards
-                _boundHand = null;
+                // Dashboard (test #15): a scenario without an ACTIVE local hand
+                // (other players' turns, in-between phases) keeps the tray up —
+                // initiative track/objectives/status stay readable; slots empty.
+                _tray.EnsureBuilt(_factory, anchor);
+                _rest.EnsureBuilt(_tray);
+                _tray.ClearSlots();
+                _tray.SetVisible(true);
+            }
+            else
+            {
+                _tray.SetVisible(false);
+                if (_boundHand != null)
+                {
+                    _factory.Clear(); // scenario/hand gone: restore faces, drop cards
+                    _boundHand = null;
+                }
             }
             return;
         }
