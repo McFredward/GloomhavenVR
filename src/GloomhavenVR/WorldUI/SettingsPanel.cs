@@ -4,6 +4,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI.Surfaces;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -191,6 +192,8 @@ internal sealed class SettingsPanel
 
     private void Build()
     {
+        MixedReality.Bind(); // MR config may be read below before VRRigDriver's first tick
+
         _root = new GameObject("GloomhavenVR.SettingsPanel") { layer = 5 };
         var rect = _root.AddComponent<RectTransform>();
         _canvas = _root.AddComponent<Canvas>();
@@ -315,6 +318,26 @@ internal sealed class SettingsPanel
 
         var note = Row(22f);
         Label(note, "* applies on next VR start", 12f, flexible: true);
+
+        Section("Anzeige");
+
+        // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag
+        // set by the panel's X button and reconverts it at the persisted pose; HIDE releases
+        // it back to its 2D home and keeps it from auto-reappearing.
+        Toggle("Kampflog anzeigen",
+            () => CombatLogSurface.UserVisible,
+            v => CombatLogSurface.SetUserVisible(v, "settings"));
+
+        Section("Mixed Reality");
+
+        // MR chroma-key mode (item 7): disables all skyboxes and clears the sky/background to
+        // the key color so a compositor (Virtual Desktop) can passthrough-composite the room.
+        Toggle("Mixed Reality",
+            () => MixedReality.Enabled.Value,
+            v => MixedReality.Enabled.Value = v);
+        var mrColorRow = Row();
+        Label(mrColorRow, "Key-Farbe", 16f, flexible: true);
+        CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
         VRLayers.Apply(_root);

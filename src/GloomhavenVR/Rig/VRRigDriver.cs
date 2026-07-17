@@ -241,12 +241,16 @@ internal sealed class VRRigDriver : MonoBehaviour
         TickHeadClearColor();
         TickClipPlanes();
         TickCameraPolicy(sceneRecheck);
+        // MR runs LAST so its key-color clear wins the frame over TickHeadClearColor's
+        // VoidColor (docs: MixedReality precedence) — no-op unless MR mode is on.
+        MixedReality.Tick();
     }
 
     private void OnDestroy()
     {
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
+        MixedReality.RestoreAll(); // put every keyed camera + the skybox back before the policy release
         VRCameraPolicy.RestoreAll();
         if (Instance == this)
             Instance = null;
@@ -343,6 +347,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         if (sceneLoaded)
         {
             VRCameraPolicy.PruneDead();
+            MixedReality.PruneDead(); // drop MR bookkeeping for cameras the unload destroyed
             VRCameraPolicy.Sweep("scene load");
             _sweepCountdown = SweepIntervalFrames;
             return;
