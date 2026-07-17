@@ -58,6 +58,15 @@ internal sealed class RestControls
     /// <summary>Refresh availability/selected tinting (call per frame while the tray shows).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        // Test #23 item 4: the REAL ShortRest widget docks on the tray (native
+        // "Kurze Rast" style) when the native-controls surface is active — hide the
+        // mod short-rest token while it holds; it reappears (with full state) when
+        // the native widget undocks. Long rest has NO discrete uGUI widget (card-fan
+        // selection + Continue), so its token STAYS mod-drawn.
+        bool shortDocked = WorldUI.Surfaces.TrayControlDockSurface.ShortRestDocked;
+        if (_shortToken != null && _shortToken.gameObject.activeSelf == shortDocked)
+            _shortToken.gameObject.SetActive(!shortDocked);
+
         bool canShort = false, canLong = false, shortSelected = false, longSelected = false;
         if (hand != null)
         {
@@ -66,7 +75,8 @@ internal sealed class RestControls
             shortSelected = CardsGameApi.IsShortRestSelected(hand);
             longSelected = CardsGameApi.IsLongRestSelected(hand);
         }
-        _shortToken?.SetState(canShort, shortSelected);
+        if (!shortDocked)
+            _shortToken?.SetState(canShort, shortSelected);
         _longToken?.SetState(canLong, longSelected);
     }
 

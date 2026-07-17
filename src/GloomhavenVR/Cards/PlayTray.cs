@@ -95,6 +95,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private InitiativeBadgeZone? _badgeZone;
     private BoardButton? _confirm;
     private BoardButton? _undo;
+    private Transform? _confirmAnchor;
+    private Transform? _undoAnchor;
     private bool _placed;
     private bool _wantVisible;
     private bool _placementDeferLogged;
@@ -104,6 +106,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal Transform? ShortRestAnchor => _shortRestAnchor;
     internal Transform? LongRestAnchor => _longRestAnchor;
     internal Transform? Root => _root;
+
+    /// <summary>
+    /// Mount for the REAL Continue/Confirm (ReadyButton) native dock (test #23 item
+    /// 4): the exact anchor the mod CONFIRM button occupied, so the docked native
+    /// widget keeps the familiar right-column position. Pose-follow, centered origin
+    /// (canvas faces the viewer, the DecisionMount convention). Null until built.
+    /// </summary>
+    internal Transform? ContinueMount => _confirmAnchor;
+
+    /// <summary>Mount for the REAL Undo (UndoButton) native dock — the old UNDO anchor (test #23 item 4).</summary>
+    internal Transform? UndoDockMount => _undoAnchor;
 
     // ---- dashboard mount seam (test #15) -----------------------------------------------
     // WorldUI surfaces POSE-FOLLOW these anchors (they never re-parent their hosts
@@ -234,8 +247,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>Arm the accidental-confirm guard (called by CardsDriver on real slot drops/plucks only).</summary>
     internal void NoteSlotActivity() => _lastSlotActivity = Time.unscaledTime;
 
-    /// <summary>Seconds left of the confirm suppression window (≤0 = free). Wired as the CONFIRM ActivationGuard.</summary>
-    private float ConfirmGuardRemaining() => _lastSlotActivity + ConfirmGuardSeconds - Time.unscaledTime;
+    /// <summary>
+    /// Seconds left of the confirm suppression window (≤0 = free). Wired as the mod
+    /// CONFIRM ActivationGuard, and read by <see cref="WorldUI.Surfaces.TrayControlDockSurface"/>
+    /// to gate the docked NATIVE Continue button the same way (test #19 / #23 item 4).
+    /// </summary>
+    internal float ConfirmGuardRemaining() => _lastSlotActivity + ConfirmGuardSeconds - Time.unscaledTime;
 
     /// <summary>Raised when the initiative badge is poked (CardsDriver queues the swap).</summary>
     internal System.Action? SwapRequested;
@@ -456,6 +473,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _decisionMount.SetParent(_root, worldPositionStays: false);
         _decisionMount.localPosition = new Vector3(0f, -0.29f, -0.020f);
 
+        // Test #23 item 4: native-widget docks for the RIGHT-column controls. The
+        // REAL Continue/Confirm (ReadyButton) and Undo (UndoButton) dock here — the
+        // EXACT positions the mod CONFIRM/UNDO board buttons occupy (ButtonZoneX,
+        // 0.045 / -0.06), so the familiar right-column layout is unchanged. Direct
+        // _root children with identity localRotation (like DecisionMount): the
+        // converted canvas faces the viewer via the board's own rotation. The
+        // mod-drawn CONFIRM/UNDO buttons live at the same spots and hide while their
+        // native counterpart is docked (TrayControlDockSurface / TickStatus).
+        _confirmAnchor = new GameObject("ContinueMount").transform;
+        _confirmAnchor.SetParent(_root, worldPositionStays: false);
+        _confirmAnchor.localPosition = new Vector3(ButtonZoneX, 0.045f, -0.006f);
+
+        _undoAnchor = new GameObject("UndoDockMount").transform;
+        _undoAnchor.SetParent(_root, worldPositionStays: false);
+        _undoAnchor.localPosition = new Vector3(ButtonZoneX, -0.06f, -0.006f);
+
         // Test #21: the pile viewer docks off the board's RIGHT edge — the only
         // free edge (initiative top, objectives + elements left, cluster bottom).
         // Left-center origin at x = +0.332 growing right, mirroring the
@@ -638,6 +671,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _badgeZone = null;
         _confirm = null;
         _undo = null;
+        _confirmAnchor = null; // child of _root, destroyed with it
+        _undoAnchor = null;
         _handle = null; // child of _root, destroyed with it
         _followToggle = null;
         _gear = null;
@@ -1270,8 +1305,18 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (_badgeZone != null)
             _badgeZone.SwapEnabled = canSwap;
 
-        if (_confirm != null)
+        // Test #23 item 4: the REAL ReadyButton / UndoButton dock at these same
+        // positions when the native-controls surface is active. While a native
+        // widget holds, its mod-drawn twin hides (they overlap) and its state mirror
+        // is skipped; when it undocks (feature off / widget hidden / no tray) the mod
+        // button reappears with its full state logic — never a missing control.
+        if (_confirm != null && WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked)
         {
+            _confirm.SetVisible(false);
+        }
+        else if (_confirm != null)
+        {
+            _confirm.SetVisible(true);
             // Ready-state mirror (test #19): while THIS hand's player has confirmed
             // (online card selection — the only game state where a confirm persists
             // and is revocable, see CardsGameApi.ReadyToggle), the button flips to
@@ -1295,8 +1340,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     ? CardsGameApi.Localize("GUI_END_SELECTION", "END SELECTION")
                     : CardsGameApi.ConfirmLabel());
         }
-        if (_undo != null)
+        if (_undo != null && WorldUI.Surfaces.TrayControlDockSurface.UndoDocked)
         {
+            _undo.SetVisible(false);
+        }
+        else if (_undo != null)
+        {
+            _undo.SetVisible(true);
             bool canUndo = hand != null && CardsGameApi.CanUndo();
             _undo.SetState(canUndo, accent: false);
             _undo.SetLabel(hand != null ? CardsGameApi.UndoLabel() : "-");
@@ -1683,6 +1733,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             if (_label != null && _label.text != text)
                 _label.text = text;
+        }
+
+        /// <summary>
+        /// Show/hide the whole button (test #23 item 4): the mod CONFIRM/UNDO buttons
+        /// hide while the REAL ReadyButton/UndoButton dock at the same spot. Inactive
+        /// = its collider is off too, so it produces no poke/laser events.
+        /// </summary>
+        internal void SetVisible(bool visible)
+        {
+            if (gameObject.activeSelf != visible)
+                gameObject.SetActive(visible);
         }
 
         /// <summary>Resting cap color for the current state (dwell ramps AWAY from this).</summary>

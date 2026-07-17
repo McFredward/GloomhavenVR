@@ -141,6 +141,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly PropInfoSurface _propInfo = new();
         private readonly EnemyRevealSurface _enemyReveal = new();
         private readonly DecisionDockSurface _decisionDock = new();
+        private readonly TrayControlDockSurface _trayControls = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
@@ -181,6 +182,7 @@ internal sealed class WorldUIModule : IVRModule
             _propInfo.Tick();
             _enemyReveal.Tick();
             _decisionDock.Tick(); // after ModalFallback.Tick (its claim stands the generic path down)
+            _trayControls.Tick(); // test #23 item 4: dock the REAL Ready/Undo/ShortRest on the board
             _wristHud.Tick();
             _flatScreen.Tick();
             _settingsPanel.Tick();
@@ -208,6 +210,7 @@ internal sealed class WorldUIModule : IVRModule
             _propInfo.Shutdown();
             _enemyReveal.Shutdown();
             _decisionDock.Shutdown();
+            _trayControls.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();
