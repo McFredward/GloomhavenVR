@@ -36,15 +36,17 @@ of the script and re-run. Then drag each anchor empty so it sits over the matchi
 > the .glb; FBX is the proven route.)
 1. Import **`PlayTray_prepped.fbx`** (and the textures written next to it) into
    `unity/GloomhavenVR.Assets/Assets/Bundle/Table/`.
-2. Drag it into a scene. **Orientation check (important — cards inherit the slot rotation):** the mod
-   homes each card onto its slot anchor with identity local rotation, so the board must sit so its
-   **decorated top face points local −Z** with the board lying in the **local XY plane**. FBX from
-   Blender usually lands lying flat (Y-up). Wrap it under an empty named **`PlayTray`** and rotate the
-   board child until: board flat, nice face toward −Z (toward you when the tray tilts up). Save that
-   empty as the prefab **`Assets/Bundle/Table/PlayTray.prefab`** (exact name). Confirm the six anchor
-   empties are child transforms with the exact names. **Definitive test after building:** the two
-   cards sit flat in the slots, face-up toward you — if they stand vertical or face away, rotate the
-   board 90°/180° and rebuild.
+2. Drag it into a scene. **Orientation — VERIFIED from the exported FBX (`PlayTray_prepped.fbx`):**
+   the board imports lying flat (horizontal, thin axis = Y, decorated face −Y). The mod homes each
+   card onto its slot anchor with **identity** local rotation, so the board must sit in the prefab's
+   **local XY plane with the decorated face toward −Z**. Apply exactly this: set the imported model's
+   **Rotation X = +90°** (Euler `90, 0, 0`). That stands the board into XY with the nice face toward
+   −Z and all six anchors on the z=0 card plane (slots centre, rest left, buttons right — checked).
+   **If the nice face ends up pointing AWAY from you, use X = −90° instead** (the one face-side the
+   geometry can't disambiguate). Wrap the model under an empty named **`PlayTray`** and save it as the
+   prefab **`Assets/Bundle/Table/PlayTray.prefab`** (exact name); confirm the six anchor empties are
+   child transforms with the exact names. **Definitive test after building:** the two cards sit flat
+   in the slots, face-up toward you.
 3. **Material/shader (avoid the pink trap):** the imported material must use a shader that ships in
    the bundle. Easiest reliable options:
    - Assign the mod's bundled lit/unlit board shader if present, OR
