@@ -23,10 +23,17 @@ internal static class CardMesh
     /// <summary>Card body thickness in meters (~1.5 mm — a stiff physical card).</summary>
     internal const float Thickness = 0.0015f;
 
-    /// <summary>Corner radius in meters (real poker cards use ~3 mm).</summary>
+    /// <summary>
+    /// Corner radius in meters. Real Gloomhaven / poker cards round at ~3 mm on a
+    /// 63.5 mm width (≈4.7% of width) — the gentle curve the card art outline follows.
+    /// </summary>
     internal const float CornerRadius = 0.003f;
 
-    private const int CornerSegments = 4; // 4 arcs x 5 points = 20-point outline
+    // Arc subdivision per 90° corner. Test #24: the thin dark front now reads AS the
+    // card's rounded border (see CardFace inset), so the corners must look smoothly
+    // curved rather than faceted. 6 segments -> 4 arcs x 7 points = 28-point outline,
+    // still a trivial one-time build.
+    private const int CornerSegments = 6;
 
     private static Mesh? _sharedMesh;
     private static Vector2 _sharedMeshSize;
