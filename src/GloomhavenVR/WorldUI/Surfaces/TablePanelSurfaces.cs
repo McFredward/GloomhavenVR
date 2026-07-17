@@ -1,4 +1,5 @@
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
@@ -76,6 +77,7 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         Transform? mount = Mount; // Unity-null aware: destroyed mounts fall through
         if (mount == null)
         {
+            _dockLoggedMountId = 0; // undocked — the next dock logs its rect again
             if (!Panel.HostGo.activeSelf)
                 Panel.HostGo.SetActive(true);
             base.Place(); // old floating layout (fallback per the mount-seam contract)
@@ -116,6 +118,46 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         Transform host = Panel.HostTransform;
         host.SetPositionAndRotation(mount.position + mount.rotation * offset, mount.rotation);
         host.localScale = Vector3.one * (metersPerPx * trayScale);
+
+        LogDockedRect(mount);
+    }
+
+    // ---- dock world-rect diagnostics (test #19 item 3) ---------------------------------
+    private static readonly Vector3[] DockCornerScratch = new Vector3[4];
+    private int _dockLoggedMountId;
+    private Vector2 _dockLoggedWorldSize;
+
+    /// <summary>
+    /// Test #19 item 3: log the world rect the docked host canvas — the exact plane
+    /// the laser/poke intersect (RayUguiDriver.TryIntersect uses the same corners) —
+    /// actually spans: once per (re-)dock and once more per material size change, so
+    /// a future "the laser misses the panel" is diagnosable from the log alone
+    /// (compare the logged rect against where the content visibly sits on the tray).
+    /// Info level on purpose: BepInEx's default disk config drops Debug entirely
+    /// (test #19: zero 'Ray-uGUI canvas' lines in LogOutput.log while laser clicks
+    /// demonstrably ran), and a diagnostic that never reaches the hardware log
+    /// diagnoses nothing. Change-deduped on mount identity + world size (2 % + 1 mm):
+    /// tray grabs and diorama rescales move the panel every tick, so POSITION is
+    /// logged but never re-triggers — a handful of lines per session.
+    /// </summary>
+    private void LogDockedRect(Transform mount)
+    {
+        if (Panel == null)
+            return;
+        Panel.HostRect.GetWorldCorners(DockCornerScratch);
+        float w = (DockCornerScratch[3] - DockCornerScratch[0]).magnitude;
+        float h = (DockCornerScratch[1] - DockCornerScratch[0]).magnitude;
+        int mountId = mount.GetInstanceID();
+        if (mountId == _dockLoggedMountId
+            && Mathf.Abs(w - _dockLoggedWorldSize.x) < _dockLoggedWorldSize.x * 0.02f + 0.001f
+            && Mathf.Abs(h - _dockLoggedWorldSize.y) < _dockLoggedWorldSize.y * 0.02f + 0.001f)
+            return;
+        _dockLoggedMountId = mountId;
+        _dockLoggedWorldSize = new Vector2(w, h);
+        Rect px = Panel.HostRect.rect;
+        VRLog.Info("WorldUI", $"Docked '{Panel.HostGo.name}' on '{mount.name}': " +
+                              $"world rect {w:F3}x{h:F3} m ({px.width:F0}x{px.height:F0} px), " +
+                              $"BL={DockCornerScratch[0]:F3} TR={DockCornerScratch[2]:F3}.");
     }
 }
 
@@ -152,8 +194,15 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
 /// performs. <c>UguiPointer.Release</c> fires
 /// <c>ExecuteEvents.pointerClickHandler</c>, which IS <c>Button.OnPointerClick</c>,
 /// so the whole chain runs and the game enforces control ownership itself. Clicks
-/// were dead in test #18 only because the stuck PhaseBanner soft lock kept every
-/// host raycaster disabled (see WorldUIModule). No pointer-over-UI feedback loop:
+/// stayed dead through test #19 because the track's own NESTED CANVAS
+/// (<c>[SerializeField] private Canvas canvas</c>, <c>sortingOrder = 40</c>,
+/// InitiativeTrack.cs:53) rode into the host: every portrait Graphic registered
+/// with IT instead of the host canvas, so the host GraphicRaycaster raycast an
+/// empty set (zero uGUI-click lines), and its sorting override drew the track over
+/// the depth-non-writing hands regardless of depth — both fixed by
+/// <see cref="CanvasConversion"/> neutralizing nested canvases (test #19; the #18
+/// PhaseBanner soft lock was real but not the only blocker). No
+/// pointer-over-UI feedback loop:
 /// UIManager_IsPointerOverUI_Patch reports over-UI only while the beam/fingertip is
 /// actually latched onto a registered surface, and the game never hides the
 /// initiative track on over-UI (unlike the stat panels, which are therefore
