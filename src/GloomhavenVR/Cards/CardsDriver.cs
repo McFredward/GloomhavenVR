@@ -46,6 +46,8 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VREvents.HandShown += OnHandShown;
+        VREvents.ChoreographerMessage += OnChoreoMessage;
+        VREvents.ChoreographerStateChanged += OnChoreoState;
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
@@ -65,6 +67,8 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VREvents.HandShown -= OnHandShown;
+        VREvents.ChoreographerMessage -= OnChoreoMessage;
+        VREvents.ChoreographerStateChanged -= OnChoreoState;
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
@@ -74,6 +78,7 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         ClearLaserHover();
         ClearBoardHover();
+        _liveGrabs.Clear();
         VRCard.InteractionBlockedHand = null;
         _fan.Destroy();
         _half.Destroy();
@@ -97,7 +102,19 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnHandShown(HandShownEvent e) => _dirty = true;
 
-    private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
+    private void OnCardSelectionChanged(CardSelectionEvent e)
+    {
+        _dirty = true;
+        _tray.Strip?.MarkDirty(); // a (de)select changes the player's initiative
+    }
+
+    // Initiative strip invalidation (test #14): engine messages / choreographer
+    // state changes cover round starts, turn advances and initiative reveals.
+    // Handlers only set a dirty flag (P2 threading rules) — the strip re-reads
+    // the track in its Tick.
+    private void OnChoreoMessage(ChoreoMessageEvent e) => _tray.Strip?.MarkDirty();
+
+    private void OnChoreoState(ChoreoStateEvent e) => _tray.Strip?.MarkDirty();
 
     private void OnHandsChanged() => _dirty = true;
 
@@ -130,6 +147,7 @@ internal sealed class CardsDriver : MonoBehaviour
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _tray.RemoveCard(card);
+            _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
         }
         _factory.ReleaseWidget(widget);
         _dirty = true;
@@ -381,8 +399,18 @@ internal sealed class CardsDriver : MonoBehaviour
         dom.Ray.UiHitOverride = bestPoint;
         if (dom.TriggerDown)
         {
-            VRLog.Info("Cards", "Board: laser click.");
-            best!.OnPoke(dom);
+            // Route through Press for buttons so the log carries source=laser and
+            // rejected presses explain their gate (test #14); other pokeables (badge,
+            // rest tokens) keep the plain OnPoke path.
+            if (best is PlayTray.BoardButton button)
+            {
+                button.Press(dom, "laser");
+            }
+            else
+            {
+                VRLog.Info("Cards", $"Board: laser click → {(best as MonoBehaviour)?.name ?? best!.GetType().Name}.");
+                best!.OnPoke(dom);
+            }
         }
     }
 
@@ -627,8 +655,18 @@ internal sealed class CardsDriver : MonoBehaviour
 
     // ------------------------------------------------------------------ interactions --
 
+    /// <summary>
+    /// Drop state machine (test #14): a slot placement may fire EXACTLY ONCE per
+    /// real user release. Cards enter on OnCardGrabbed (the only way a hand gets a
+    /// card) and leave on the matching OnCardReleased — any Released event without
+    /// a live grab session (double-fire, stale event after a rebuild/hot reload) is
+    /// dropped before it can reach the slot logic.
+    /// </summary>
+    private readonly HashSet<VRCard> _liveGrabs = new();
+
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
+        _liveGrabs.Add(card);
         if (_fan.Contains(card))
             _fan.Remove(card);
         // Tray occupancy stays until the release decides select/unselect/swap.
@@ -636,6 +674,12 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnCardReleased(VRCard card, VRHand hand, Vector3 velocity)
     {
+        if (!_liveGrabs.Remove(card))
+        {
+            VRLog.Warn("Cards", $"Release without live grab ignored ({card.name}) — drop path is once-per-release.");
+            return;
+        }
+
         if (_fakeActive)
         {
             RouteFakeRelease(card, hand);
@@ -651,8 +695,10 @@ internal sealed class CardsDriver : MonoBehaviour
 
         // Generous dual-sample capture (test #13): the held pose offsets the card
         // center from the palm, so card center AND holding-hand position both count
-        // — whichever is nearest. Every accept/reject is logged with distances.
-        int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position, log: true);
+        // — whichever is nearest. Samples are ONLY the released card and the
+        // releasing hand's palm (never fan cards); one log line per real drop below.
+        int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
+            out float d1, out float d2, out float radius);
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
@@ -662,6 +708,12 @@ internal sealed class CardsDriver : MonoBehaviour
             int other = 1 - slot;
             slot = _tray.Occupant(other) == null ? other : -1;
         }
+
+        // THE one log line per real drop (test #14).
+        VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m → " +
+                            (slot < 0
+                                ? (wasInTray ? "take back to fan." : "return to fan.")
+                                : (wasInTray ? $"reorder to slot {slot + 1}." : $"play into slot {slot + 1}.")));
 
         if (slot >= 0 && !wasInTray)
         {
@@ -883,16 +935,19 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void RouteFakeRelease(VRCard card, VRHand hand)
     {
-        int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position, log: true);
+        int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
+            out float d1, out float d2, out float radius);
         if (slot >= 0 && _tray.Occupant(slot) != null && _tray.Occupant(slot) != card)
         {
             int other = 1 - slot;
             slot = _tray.Occupant(other) == null ? other : -1;
         }
+        VRLog.Info("Cards", $"Drop ({hand.Side}, fake): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m → " +
+                            (slot >= 0 ? $"slot {slot + 1}." : "fan."));
         if (slot >= 0)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
-            _tray.PlaceCard(card, slot);
+            _tray.PlaceCard(card, slot); // the Drop line above is the announcement
         }
         else
         {

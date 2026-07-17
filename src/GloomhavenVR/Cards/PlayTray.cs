@@ -126,9 +126,50 @@ internal sealed class PlayTray
         BuildSlotHighlights();
         BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
+        BuildHandle();
+        _strip = InitiativeStrip.Build(_root, new Vector3(0f, BoardH * 0.5f + 0.052f, -0.004f), BoardW);
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
         _placed = false;
+    }
+
+    // ------------------------------------------------------------------ grab handle --
+
+    private TrayGrabHandle? _handle;
+    private InitiativeStrip? _strip;
+
+    /// <summary>The tray's initiative strip (null until built).</summary>
+    internal InitiativeStrip? Strip => _strip;
+
+    /// <summary>
+    /// Test #14 ("Controllboard"): a clearly visible handle bar along the tray's
+    /// bottom edge. Grip it to move/rotate the tray; grip with BOTH hands to resize
+    /// (0.5×–2×). Registered as a normal <see cref="Hands.Interact.IGrabbable"/>, so
+    /// the P2 ProximityGrabber arbitration applies — WorldGrab yields whenever the
+    /// grip starts on (or highlights) the handle, and a grip anywhere else never
+    /// touches the tray.
+    /// </summary>
+    private void BuildHandle()
+    {
+        if (_root == null)
+            return;
+        var handleGo = new GameObject("TrayHandle");
+        handleGo.transform.SetParent(_root, worldPositionStays: false);
+        handleGo.transform.localPosition = new Vector3(0f, -BoardH * 0.5f - 0.030f, 0.004f);
+
+        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        bar.name = "Bar";
+        Object.Destroy(bar.GetComponent<Collider>());
+        bar.transform.SetParent(handleGo.transform, worldPositionStays: false);
+        bar.transform.localScale = new Vector3(BoardW * 0.55f, 0.024f, 0.024f);
+        Tint(bar, new Color(0.62f, 0.5f, 0.28f)); // brass bar — reads as "grab me"
+
+        var box = handleGo.AddComponent<BoxCollider>();
+        box.size = new Vector3(BoardW * 0.62f, 0.05f, 0.05f);
+        box.isTrigger = true;
+
+        _handle = handleGo.AddComponent<TrayGrabHandle>();
+        _handle.Init(this, bar.GetComponent<MeshRenderer>());
     }
 
     internal void Destroy()
@@ -147,6 +188,8 @@ internal sealed class PlayTray
         _badgeZone = null;
         _confirm = null;
         _undo = null;
+        _handle = null; // child of _root, destroyed with it
+        _strip = null;
         _placed = false;
     }
 
@@ -190,10 +233,62 @@ internal sealed class PlayTray
                       + Vector3.up * (offset.y * scale);
 
         _root.position = pos;
-        _root.rotation = Quaternion.LookRotation(flatForward, Vector3.up)
+        // TrayYaw/TrayScale are the persisted tray-grab layout (test #14 wish:
+        // "Controllboard" the player can grip-move/resize; survives sessions).
+        _root.rotation = Quaternion.Euler(0f, CardsConfig.TrayYaw.Value, 0f)
+                         * Quaternion.LookRotation(flatForward, Vector3.up)
                          * Quaternion.Euler(90f - CardsConfig.TrayTilt.Value, 0f, 0f);
+        _root.localScale = Vector3.one * CardsConfig.ClampedTrayScale;
         _placed = true;
-        VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}° from horizontal).");
+        VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}°, " +
+                            $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.ClampedTrayScale:F2}×).");
+    }
+
+    /// <summary>
+    /// Persist the CURRENT root pose back into the config (called by
+    /// <see cref="TrayGrabHandle"/> when the last gripping hand lets go): the inverse
+    /// of <see cref="PlaceAtHead"/> — head-relative offsets in real meters, yaw
+    /// relative to the head's flat forward, and the size multiplier. BepInEx writes
+    /// the ConfigFile on set, so the layout survives sessions.
+    /// </summary>
+    internal void PersistPoseToConfig()
+    {
+        if (_root == null)
+            return;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return;
+
+        Transform headT = head.transform;
+        Vector3 flatForward = headT.forward;
+        flatForward.y = 0f;
+        if (flatForward.sqrMagnitude < 1e-4f)
+            flatForward = Vector3.forward;
+        flatForward.Normalize();
+        Vector3 right = Vector3.Cross(Vector3.up, flatForward);
+
+        float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+        if (scale < 1e-5f)
+            return;
+        Vector3 delta = _root.position - headT.position;
+        CardsConfig.TrayForward.Value = Vector3.Dot(delta, flatForward) / scale;
+        CardsConfig.TrayRight.Value = Vector3.Dot(delta, right) / scale;
+        CardsConfig.TrayDown.Value = -delta.y / scale;
+
+        // Yaw: heading of the tray's flat forward relative to the head's.
+        Vector3 trayFlat = _root.rotation * Quaternion.Euler(-(90f - CardsConfig.TrayTilt.Value), 0f, 0f)
+                           * Vector3.forward;
+        trayFlat.y = 0f;
+        if (trayFlat.sqrMagnitude > 1e-4f)
+        {
+            float headHeading = Mathf.Atan2(flatForward.x, flatForward.z) * Mathf.Rad2Deg;
+            float trayHeading = Mathf.Atan2(trayFlat.x, trayFlat.z) * Mathf.Rad2Deg;
+            CardsConfig.TrayYaw.Value = Mathf.DeltaAngle(headHeading, trayHeading);
+        }
+        CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x, 0.5f, 2f);
+        VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
+                            $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
+                            $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.TrayScale.Value:F2}×.");
     }
 
     /// <summary>Force re-placement next time the tray shows (mode re-entry).</summary>
@@ -220,15 +315,23 @@ internal sealed class PlayTray
     /// (test #13). Returns -1 when outside both radii. With <paramref name="log"/> the
     /// full distance table and the verdict go to the log (drop-time diagnostics).
     /// </summary>
-    internal int SlotNear(Vector3 cardPos, Vector3 handPos, bool log = false)
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos) =>
+        SlotNear(cardPos, handPos, out _, out _, out _);
+
+    /// <summary>
+    /// Same test with the sampled distances exposed so the RELEASE path can log one
+    /// concise line per real drop (test #14) — no logging in here.
+    /// </summary>
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos, out float d0, out float d1, out float radius)
     {
+        d0 = d1 = float.PositiveInfinity;
+        radius = 0f;
         if (_root == null || !IsVisible)
             return -1;
         float scale = _root.lossyScale.x;
-        float radius = SlotCaptureRadius * scale;
+        radius = SlotCaptureRadius * scale;
         int best = -1;
         float bestDist = float.MaxValue;
-        float d0 = float.PositiveInfinity, d1 = float.PositiveInfinity;
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
@@ -243,12 +346,6 @@ internal sealed class PlayTray
                 bestDist = dist;
                 best = i;
             }
-        }
-        if (log)
-        {
-            VRLog.Info("Cards", $"Slot check: slot1 {d0:F3} m, slot2 {d1:F3} m " +
-                                $"(min of card/hand samples), radius {radius:F3} m → " +
-                                (best >= 0 ? $"ACCEPT slot {best + 1}." : "REJECT (out of range)."));
         }
         return best;
     }
@@ -303,8 +400,17 @@ internal sealed class PlayTray
         }
     }
 
-    /// <summary>Visually park a card in a slot (game-state sync happens separately).</summary>
-    internal void PlaceCard(VRCard card, int slot, bool instant = false)
+    /// <summary>
+    /// Visually park a card in a slot (game-state sync happens separately).
+    /// <paramref name="announce"/> is true only on the REAL drop path — the
+    /// game-state sync re-runs on every rebuild and must stay silent (test #14: the
+    /// unconditional log here produced the "card placed" spam without user drops).
+    /// A HELD card is never re-homed: SetHome re-parents, which used to yank the
+    /// card out of the hand mid-grab and pull it onto the slot (the source of the
+    /// phantom ACCEPTs — the card then sat within capture radius at the next
+    /// unrelated grip release). Occupancy still updates; the release path homes it.
+    /// </summary>
+    internal void PlaceCard(VRCard card, int slot, bool instant = false, bool announce = false)
     {
         if (_slots[slot] == null)
             return;
@@ -312,9 +418,13 @@ internal sealed class PlayTray
         if (_occupants[0] == card) _occupants[0] = null;
         if (_occupants[1] == card) _occupants[1] = null;
         _occupants[slot] = card;
-        card.gameObject.SetActive(true);
-        card.SetHome(_slots[slot]!, Vector3.zero, Quaternion.identity, 1f, instant);
-        VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
+        if (!card.IsHeld)
+        {
+            card.gameObject.SetActive(true);
+            card.SetHome(_slots[slot]!, Vector3.zero, Quaternion.identity, 1f, instant);
+        }
+        if (announce)
+            VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
     }
 
     internal void RemoveCard(VRCard card)
@@ -361,13 +471,22 @@ internal sealed class PlayTray
                 want0 ??= card;
         }
 
+        // Re-place ONLY what changed (test #14): this sync runs on every rebuild —
+        // dozens of times per selection phase — and unconditional re-placing both
+        // re-parented held cards and spammed the log with phantom placements.
         bool changed = _occupants[0] != want0 || _occupants[1] != want1;
-        _occupants[0] = null;
-        _occupants[1] = null;
-        if (want0 != null)
-            PlaceCard(want0, 0);
-        if (want1 != null)
-            PlaceCard(want1, 1);
+        if (_occupants[0] != want0)
+        {
+            _occupants[0] = null;
+            if (want0 != null)
+                PlaceCard(want0, 0);
+        }
+        if (_occupants[1] != want1)
+        {
+            _occupants[1] = null;
+            if (want1 != null)
+                PlaceCard(want1, 1);
+        }
         return changed;
     }
 
@@ -432,6 +551,8 @@ internal sealed class PlayTray
     /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        _strip?.Tick();
+
         if (_badge == null)
             return;
 
@@ -627,11 +748,13 @@ internal sealed class PlayTray
         _confirm = BoardButton.Create(confirmParent, new Vector2(0.115f, 0.06f),
             new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
             () => ConfirmRequested?.Invoke());
+        _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
         _undo = BoardButton.Create(undoParent, new Vector2(0.09f, 0.042f),
             new Color(0.45f, 0.32f, 0.2f), "UNDO",
             () => UndoRequested?.Invoke());
+        _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
     }
 
@@ -780,6 +903,12 @@ internal sealed class PlayTray
             return button;
         }
 
+        /// <summary>
+        /// Built ONLY when a press is rejected — explains the disabled state
+        /// (e.g. the CanConfirm gate inputs). Wired by <see cref="BuildButtons"/>.
+        /// </summary>
+        internal System.Func<string>? DisabledReason;
+
         internal void SetState(bool enabled, bool accent)
         {
             if (_enabledState == enabled && _accent == accent)
@@ -815,13 +944,25 @@ internal sealed class PlayTray
             _cap.localPosition = pos;
         }
 
-        public override void OnPoke(VRHand hand)
+        /// <summary>Poke path (P2 PokeInteractor — geometric fingertip test against this collider).</summary>
+        public override void OnPoke(VRHand hand) => Press(hand, "poke");
+
+        /// <summary>
+        /// Single press entry for BOTH input paths (test #14): every attempt is
+        /// logged with its source and, when rejected, the exact gate state — a
+        /// silent dead button can no longer happen.
+        /// </summary>
+        internal void Press(VRHand hand, string source)
         {
             if (!_enabledState)
+            {
+                VRLog.Info("Cards", $"Board: {name} press REJECTED (source={source}, {hand.Side}) — " +
+                                    $"disabled: {(DisabledReason != null ? DisabledReason() : "no reason hook")}.");
                 return;
+            }
             _press = 1f;
             hand.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("Cards", $"Board: {name} pressed ({hand.Side}).");
+            VRLog.Info("Cards", $"Board: {name} pressed (source={source}, {hand.Side}).");
             _onClick?.Invoke();
         }
 

@@ -65,6 +65,12 @@ internal static class CardsConfig
     /// <summary>Tray tilt toward the player in degrees (0 = flat).</summary>
     internal static ConfigEntry<float> TrayTilt = null!;
 
+    /// <summary>Tray yaw relative to the head's flat forward at placement, degrees (written by the tray grab).</summary>
+    internal static ConfigEntry<float> TrayYaw = null!;
+
+    /// <summary>Tray size multiplier (two-handed tray grab), clamped 0.5–2.</summary>
+    internal static ConfigEntry<float> TrayScale = null!;
+
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
@@ -134,9 +140,18 @@ internal static class CardsConfig
         TrayTilt = _file.Bind("Cards", "TrayTilt", 30f,
             "Control board tilt, degrees FROM HORIZONTAL toward the player: 0 = flat like a " +
             "desk, 90 = upright panel. 30 reads like a card-table edge / lectern.");
+        TrayYaw = _file.Bind("Cards", "TrayYaw", 0f,
+            "Control board yaw relative to the head's flat forward at placement time, degrees. " +
+            "Written automatically when you grip-move the tray by its handle bar; edit only to reset.");
+        TrayScale = _file.Bind("Cards", "TrayScale", 1f,
+            "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
+            "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
     }
+
+    /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
+    internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
 
     /// <summary>Card height derived from width (63.5 x 88 mm poker aspect).</summary>
     internal static float CardHeight => CardWidth.Value * (88f / 63.5f);
