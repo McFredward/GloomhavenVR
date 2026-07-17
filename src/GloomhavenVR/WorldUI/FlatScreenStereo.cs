@@ -15,24 +15,24 @@ namespace GloomhavenVR.WorldUI;
 /// eye offset, so the screen reads like a window into the scene while it is still
 /// operated as a flat screen (laser + virtual mouse + poke unchanged).
 ///
-/// PER-EYE RENDERING (MultiPass): the game cameras keep rendering the LEFT RT
+/// PER-EYE RENDERING (MultiPass): the background cameras keep rendering the LEFT RT
 /// exactly as before (this is also what the desktop mirror blits — the monitor stays
-/// monoscopic and byte-identical). For every captured camera ONE mod-owned MIRROR
-/// camera renders the RIGHT RT:
+/// monoscopic). For every captured 3D camera ONE mod-owned MIRROR camera renders the
+/// RIGHT RT: offset by the eye separation along the source camera's +right, with an
+/// off-axis projection shift (lens shift, no toe-in — toe-in causes vertical
+/// parallax) that converges both eyes at the screen's own distance. Scene content AT
+/// the convergence distance sits exactly on the quad; farther content recedes BEHIND
+/// it (window/portal look); nearer content pops slightly out.
 ///
-/// - 3D cameras (perspective, not tagged UICamera): mirror offset by the eye
-///   separation along the source camera's +right, with an off-axis projection shift
-///   (lens shift, no toe-in — toe-in causes vertical parallax) that converges both
-///   eyes at the screen's own distance. Scene content AT the convergence distance
-///   sits exactly on the quad; farther content recedes BEHIND it (window/portal
-///   look); nearer content pops slightly out.
-/// - UI / orthographic cameras: mirror at ZERO offset — the identical image in both
-///   eyes puts all flat UI exactly on the screen plane, which is where the pointer
-///   pixel mapping says it is. Rendering the UI per-RT (instead of compositing it
-///   once) is REQUIRED for correctness, not just simpler: camera depth order
-///   interleaves UI and 3D surfaces (menu 'UI Camera' depth 1 UNDER the map's
-///   'Video Camera' depth 5), so each RT must replay the full stack in depth order —
-///   a post-hoc UI blit over the right RT would reorder the composite.
+/// ONLY 3D CAMERAS ARRIVE HERE (hardware test #18): Screen-Space-Camera canvases
+/// render exclusively through their assigned camera — a mirror can NEVER reproduce
+/// them, so the pre-#18 zero-offset "MONO mirror" path for UI/orthographic cameras
+/// produced an EMPTY right-eye UI (menu left-eye-only once the video depth layer
+/// replaced the suspension that had masked it). <see cref="FlatScreen"/>'s SCREEN
+/// LAYER SPLIT now retargets UI cameras onto its transparent glass RT (identical in
+/// both eyes at the screen plane) and syncs ONLY the 3D background cameras into this
+/// class; while the split is not active, FlatScreen keeps the whole stereo feature
+/// off (single mono RT — degraded but never one-eyed).
 ///
 /// Mirrors are bare cameras: settings are field-copied from the live source every
 /// tick (transform, projection, mask minus the mod layer, EFFECTIVE clear flags —
@@ -72,27 +72,41 @@ namespace GloomhavenVR.WorldUI;
 /// aggressively at high factors — the clamp (1..60) and the default (6) keep it
 /// in the range validated for the menu scenes.
 ///
-/// PER-EYE QUAD TEXTURE (MultiPass): the head camera renders the quad once per eye
-/// pass; a <see cref="Camera.onPreRender"/> hook swaps the quad material's
-/// mainTexture per pass from <c>camera.stereoActiveEye</c> (Left → RT-L, Right →
-/// RT-R). Should a runtime ever report Mono there, a per-frame pass-parity fallback
-/// (first pass = Left) takes over automatically; the observed pattern is logged once.
+/// PER-EYE QUAD TEXTURE (MultiPass): the head camera renders the background quad
+/// once per eye pass; a <see cref="Camera.onPreRender"/> hook swaps that quad
+/// material's mainTexture per pass from <c>camera.stereoActiveEye</c> (Left → RT-L,
+/// Right → RT-R). Should a runtime ever report Mono there, a per-frame pass-parity
+/// fallback (first pass = Left) takes over automatically; the observed pattern is
+/// logged once.
 ///
-/// VIDEO DEPTH LAYER (hardware test #17): VideoPlayers in CameraNearPlane/FarPlane
-/// mode blit decoded frames into their host camera's render target only — a mirror
-/// camera can NEVER reproduce them (the player is bound to one camera), so the right
-/// eye would miss the video entirely. Suspending stereo (both eyes = left RT) fixed
-/// the rivalry but flattened the WHOLE screen whenever the menu's ambient movie ran —
-/// the main menu never had depth. Now each discovered camera-plane player is
-/// RE-ROUTED instead: renderMode flips to RenderTexture into a mod-owned video RT,
-/// and one CommandBuffer per eye composites that RT as the BASE layer into the
-/// left RT (on the source camera) and the right RT (on its mirror) with a small
-/// opposite horizontal shift per eye. The symmetric shift is UNCROSSED disparity —
-/// the flat video plane reads [WorldUI] VideoDepth meters BEHIND the screen plane,
-/// while zero-offset UI mirrors keep the clickable menu exactly ON the plane: the
-/// UI floats in front of a receded background with no artificial geometry at all.
-/// The 3D mirrors keep rendering, so real scene content (menu pan scenery) still
-/// gets true per-eye parallax on top of the video base layer.
+/// VIDEO DEPTH LAYER (hardware tests #17/#18): VideoPlayers in CameraNearPlane/
+/// FarPlane mode blit decoded frames into their host camera's render target only — a
+/// mirror camera can NEVER reproduce them (the player is bound to one camera), so the
+/// right eye would miss the video entirely. Suspending stereo (both eyes = left RT)
+/// fixed the rivalry but flattened the WHOLE screen whenever the menu's ambient movie
+/// ran — the main menu never had depth. Now each discovered camera-plane player is
+/// RE-ROUTED instead: renderMode flips to APIOnly — the documented way to consume
+/// frames manually; the decoded texture is exposed directly as
+/// <c>VideoPlayer.texture</c>. Test #18 proved the previous RenderTexture-mode
+/// switch left the mod RT BLACK in both eyes: a mid-play renderMode/targetTexture
+/// change never re-opens the player's internal render path — the route therefore
+/// also RE-KICKS the player (Stop()/Play() with a resume seek; Prepare() when it
+/// was not playing yet) so the mode switch takes effect mid-playback. Each tick the
+/// current <c>player.texture</c> is copied into a stable mod-owned RT (the player
+/// may swap its internal texture object between frames — the baked blits must not
+/// go stale), and one CommandBuffer per eye composites that RT as the BASE layer
+/// into the left RT (on the source camera) and the right RT (on its mirror) with a
+/// small opposite horizontal shift per eye. Readiness is VERIFIED, not assumed: the
+/// route only counts as carrying the video once <c>player.texture</c> is non-null
+/// (logged once with dimensions and isPlaying/isPrepared state); until then both
+/// blits stay empty no-ops (nothing black is ever composited), and if no frame
+/// arrives within ~5 s the route is torn down, the player restored (with the same
+/// re-kick) and the suspension fallback takes over. The symmetric shift is
+/// UNCROSSED disparity — the flat video plane reads [WorldUI] VideoDepth meters
+/// BEHIND the screen plane, while the UI stays exactly ON the plane: the UI floats
+/// in front of a receded background with no artificial geometry at all. The 3D
+/// mirrors keep rendering, so real scene content (menu pan scenery) still gets true
+/// per-eye parallax on top of the video base layer.
 ///
 /// Disparity math (real meters, screen-plane geometry): eyes converged on the
 /// screen at distance D see a plane at D+V with on-screen disparity
@@ -105,10 +119,11 @@ namespace GloomhavenVR.WorldUI;
 /// restored when the video/camera ends, the screen hides, the mirror dies or the
 /// feature is disabled (hot-reload safe via Deactivate → ReleaseMirrors).
 ///
-/// FALLBACK SUSPENSION: if re-routing fails (unexpected render mode, RT creation
-/// failure) — or [WorldUI] VideoDepthLayer is off — stereo is SUSPENDED while the
-/// video runs: both eye passes show the left RT and the mirrors stop rendering.
-/// The result is never a one-eyed image. Logged on every flip.
+/// FALLBACK SUSPENSION: if re-routing fails (re-route exception, RT creation
+/// failure, no decoded frames within the readiness timeout) — or
+/// [WorldUI] VideoDepthLayer is off — stereo is SUSPENDED while the video runs:
+/// both eye passes show the left RT and the mirrors stop rendering. The result is
+/// never a one-eyed image. Logged on every flip.
 ///
 /// INTRO GUARD (hardware test #17: one-eyed intro): the intro's render path is NOT
 /// mirror-reproducible-by-construction and NOT observable — decompiled
@@ -162,6 +177,13 @@ internal sealed class FlatScreenStereo
     /// <summary>Frames between global sweeps for camera-plane VideoPlayers on OTHER GameObjects.</summary>
     private const int VideoSweepIntervalFrames = 30;
     /// <summary>
+    /// Readiness timeout for a re-routed player (class doc VIDEO DEPTH LAYER): if
+    /// <c>player.texture</c> stays null this many frames after the APIOnly re-kick
+    /// (~5 s at 60 fps — a Play() re-prepare takes well under 1 s), the route is
+    /// torn down and the suspension fallback takes over.
+    /// </summary>
+    private const int VideoReadyTimeoutFrames = 300;
+    /// <summary>
     /// UV zoom on the re-routed video (class doc VIDEO DEPTH LAYER): the per-eye blit
     /// samples a window this factor smaller than the full frame, so the disparity
     /// shift never drags the sampling window off the video (void at the edges). The
@@ -198,22 +220,30 @@ internal sealed class FlatScreenStereo
         /// creation or later by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
         /// </summary>
         public VideoPlayer? Video;
-        /// <summary>True = eye-offset stereo camera; false = zero-offset mono (UI / orthographic).</summary>
-        public bool Stereo3D;
         // Per-tick mark-and-sweep + video inputs (written by SyncCamera, read by EndStackSync).
         public bool Synced;
         public bool SourceOn;
         public bool VideoActive;
 
         // ---- video depth layer routing (class doc VIDEO DEPTH LAYER) ----------------
-        /// <summary>True while the player is re-routed into <see cref="VideoRt"/> and both blits run.</summary>
+        /// <summary>True while the player is re-routed to APIOnly and both blits run.</summary>
         public bool Routed;
         /// <summary>Routing failed once for this entry — stay on the suspension fallback (no retry spam).</summary>
         public bool RouteFailed;
         /// <summary>Player state to restore when the route is torn down.</summary>
         public VideoRenderMode RoutedOriginalMode;
         public Camera? RoutedOriginalCamera;
-        /// <summary>Mod-owned RT the re-routed player decodes into (composited into BOTH eye RTs).</summary>
+        /// <summary>
+        /// True once <c>player.texture</c> was observed non-null after the re-route —
+        /// the verified "frames actually flow into both eyes" signal (logged once).
+        /// </summary>
+        public bool TextureReady;
+        /// <summary>Frame the route engaged (readiness timeout reference).</summary>
+        public int RouteStartFrame;
+        /// <summary>
+        /// Stable mod-owned copy of the decoded frame (<c>player.texture</c> is copied
+        /// in every tick) — the per-eye CommandBuffer blits sample THIS texture.
+        /// </summary>
         public RenderTexture? VideoRt;
         public CommandBuffer? SourceCb;
         public CommandBuffer? MirrorCb;
@@ -267,6 +297,14 @@ internal sealed class FlatScreenStereo
 
     /// <summary>True while per-eye rendering is engaged (right RT + hook exist).</summary>
     internal bool Active => _active;
+
+    /// <summary>
+    /// True while both eye passes show the LEFT RT (video fallback / intro guard).
+    /// <see cref="FlatScreen"/> reads this after <see cref="EndStackSync"/> to fold
+    /// the UI back into the left RT while the single suspended image must carry
+    /// everything (its SCREEN LAYER SPLIT class doc).
+    /// </summary>
+    internal bool Suspended => _videoSuspended;
 
     public FlatScreenStereo()
     {
@@ -541,20 +579,15 @@ internal sealed class FlatScreenStereo
         }
         if (entry.Routed)
         {
-            // While re-routed the player is OURS: re-assert the RenderTexture binding
-            // every tick (game code may rewrite renderMode/targetTexture at any time —
-            // same philosophy as FlatScreen's targetTexture re-assert) and count the
-            // video as active while the player lives and its host camera renders.
-            // EndStackSync tears the route down once either goes away.
+            // While re-routed the player is OURS: re-assert the APIOnly mode every
+            // tick (game code may rewrite renderMode at any time — same philosophy
+            // as FlatScreen's targetTexture re-assert) and count the video as active
+            // while the player lives and its host camera renders. EndStackSync tears
+            // the route down once either goes away.
             VideoPlayer? player = entry.Video;
             bool alive = player != null && player.enabled;
-            if (alive && entry.VideoRt != null)
-            {
-                if (player!.renderMode != VideoRenderMode.RenderTexture)
-                    player.renderMode = VideoRenderMode.RenderTexture;
-                if (player.targetTexture != entry.VideoRt)
-                    player.targetTexture = entry.VideoRt;
-            }
+            if (alive && player!.renderMode != VideoRenderMode.APIOnly)
+                player.renderMode = VideoRenderMode.APIOnly;
             entry.VideoActive = entry.SourceOn && alive;
         }
         else
@@ -567,9 +600,9 @@ internal sealed class FlatScreenStereo
         Camera mirror = entry.Mirror;
         Transform st = source.transform;
 
-        // Eye offset: right eye = source pose shifted along the source's +right.
-        // UI/ortho mirrors stay at zero offset (identical image = screen-plane depth).
-        if (entry.Stereo3D && _sepScene > 0f)
+        // Eye offset: right eye = source pose shifted along the source's +right
+        // (only 3D cameras arrive here — the UI lives on FlatScreen's glass layer).
+        if (_sepScene > 0f)
             entry.MirrorTransform.SetPositionAndRotation(st.position + st.right * _sepScene, st.rotation);
         else
             entry.MirrorTransform.SetPositionAndRotation(st.position, st.rotation);
@@ -593,14 +626,14 @@ internal sealed class FlatScreenStereo
         if (mirror.targetTexture != _rtRight)
             mirror.targetTexture = _rtRight;
 
-        // Projection: copy the source matrix; stereo mirrors additionally get the
-        // off-axis convergence shift (see class doc — lens shift, not toe-in).
+        // Projection: copy the source matrix plus the off-axis convergence shift
+        // (see class doc — lens shift, not toe-in).
         // Derivation: the right camera sits +s along +right; a point straight ahead
         // at the convergence distance D lands at NDC x = -m00*s/D in it, so
         // m02 -= m00*s/D translates the image so that point matches the left eye
         // (zero disparity at D; uncrossed/behind-screen beyond it).
         Matrix4x4 proj = source.projectionMatrix;
-        if (entry.Stereo3D && _sepScene > 0f && _convScene > 1e-4f)
+        if (_sepScene > 0f && _convScene > 1e-4f)
             proj.m02 -= proj.m00 * (_sepScene / _convScene);
         mirror.projectionMatrix = proj;
     }
@@ -643,9 +676,22 @@ internal sealed class FlatScreenStereo
 
             if (entry.Routed || (depthLayer && !entry.RouteFailed && TryRouteVideo(entry)))
             {
-                UpdateVideoBlits(entry);
-                anyRouted = true;
-                continue; // both RTs get the video — full stereo stays engaged
+                if (TickVideoRoute(entry))
+                {
+                    // Only a VERIFIED route (frames observed) counts: the intro
+                    // guard must never lift on a route that has not produced a
+                    // texture yet — until then the blits are empty no-ops and
+                    // stereo simply runs without the video base layer.
+                    if (entry.TextureReady)
+                        anyRouted = true;
+                    continue; // both RTs get the video — full stereo stays engaged
+                }
+                // Route torn down (readiness timeout) — the player is camera-plane
+                // again; re-check whether it still forces the suspension.
+                entry.VideoActive = entry.SourceOn
+                                    && IsNearPlaneVideoActive(entry.Video, entry.Source);
+                if (!entry.VideoActive)
+                    continue;
             }
             suspend = true; // fallback: both eyes show the left RT (never one-eyed)
         }
@@ -736,16 +782,13 @@ internal sealed class FlatScreenStereo
             // added later or bound from another GO via targetCamera (the intro) are
             // caught by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
             Video = source.GetComponent<VideoPlayer>(),
-            // UI-tagged and orthographic cameras composite flat AT the screen plane;
-            // real 3D perspective cameras get the eye offset.
-            Stereo3D = !source.CompareTag("UICamera") && !source.orthographic,
         };
         _mirrors.Add(entry);
         _bySource.Add(source, entry);
 
-        VRLog.Info("WorldUI", $"Stereo mirror created for '{source.name}': " +
-                              $"{(entry.Stereo3D ? $"3D (eye offset {_sepScene:F4} scene units, converge {_convScene:F2})" : "MONO (UI/ortho — screen-plane depth)")}" +
-                              $"{(entry.Video != null ? ", hosts a VideoPlayer (near-plane suspension applies)" : "")}.");
+        VRLog.Info("WorldUI", $"Stereo mirror created for '{source.name}': eye offset " +
+                              $"{_sepScene:F4} scene units, converge {_convScene:F2}" +
+                              $"{(entry.Video != null ? ", hosts a VideoPlayer (video depth layer applies)" : "")}.");
         return entry;
     }
 
@@ -763,39 +806,22 @@ internal sealed class FlatScreenStereo
     // ---- video depth layer (class doc VIDEO DEPTH LAYER) -------------------------------------
 
     /// <summary>
-    /// Re-route the entry's camera-plane VideoPlayer into a mod-owned RT and attach
-    /// one compositing CommandBuffer per eye. Ordered so the PLAYER is touched last:
+    /// Re-route the entry's camera-plane VideoPlayer to APIOnly and attach one
+    /// compositing CommandBuffer per eye. Ordered so the PLAYER is touched last:
     /// any failure before that leaves the game's binding untouched, and the catch
-    /// path (mode/RT/AddCommandBuffer surprises) unwinds whatever was created and
-    /// flags the entry for the suspension fallback. False = caller must suspend.
+    /// path (mode/AddCommandBuffer surprises) unwinds whatever was created and
+    /// flags the entry for the suspension fallback. The blits stay EMPTY until
+    /// <see cref="TickVideoRoute"/> verifies decoded frames actually exist
+    /// (class doc VIDEO DEPTH LAYER). False = caller must suspend.
     /// </summary>
     private bool TryRouteVideo(MirrorEntry entry)
     {
         VideoPlayer? player = entry.Video;
-        RenderTexture? leftRt = _leftRt;
-        if (player == null || leftRt == null)
+        if (player == null || _leftRt == null)
             return false;
 
         try
         {
-            // RT sized to the decoded video (1:1 texels); before the player reports
-            // its dimensions (not yet prepared) fall back to the screen RT size —
-            // both end up stretched to the full screen by the blit either way.
-            int width = player.width > 0 ? (int)player.width : leftRt.width;
-            int height = player.height > 0 ? (int)player.height : leftRt.height;
-            var rt = new RenderTexture(width, height, 0)
-            {
-                name = "GloomhavenVR.FlatScreenVideoRT",
-            };
-            if (!rt.Create())
-            {
-                Object.Destroy(rt);
-                entry.RouteFailed = true;
-                VRLog.Warn("WorldUI", $"Video depth layer: RT creation failed for '{entry.Source.name}' " +
-                                      "— staying on the mono suspension fallback.");
-                return false;
-            }
-
             // Near-plane video draws in FRONT of its host camera's own geometry,
             // far-plane BEHIND it — mirror that ordering with the hook point so the
             // per-RT composite matches what the backbuffer showed.
@@ -809,17 +835,22 @@ internal sealed class FlatScreenStereo
             entry.MirrorCb = new CommandBuffer { name = "GloomhavenVR.VideoDepth.Right" };
             entry.Source.AddCommandBuffer(entry.CbEvent, entry.SourceCb);
             entry.Mirror.AddCommandBuffer(entry.CbEvent, entry.MirrorCb);
-            entry.VideoRt = rt;
 
-            player.renderMode = VideoRenderMode.RenderTexture;
-            player.targetTexture = rt;
+            // APIOnly exposes the decoded frames directly via player.texture — no
+            // target juggling; the mid-play mode switch needs the re-kick to take
+            // effect (test #18: without it the previous RenderTexture route stayed
+            // BLACK — the player never re-opened its internal render path).
+            player.renderMode = VideoRenderMode.APIOnly;
             entry.Routed = true;
+            entry.TextureReady = false;
+            entry.RouteStartFrame = Time.frameCount;
             entry.BuiltShiftUv = float.MinValue; // force the first blit build
+            RekickPlayer(player);
 
             VRLog.Info("WorldUI", $"Video depth layer ENGAGED for '{entry.Source.name}': player " +
-                                  $"re-routed {entry.RoutedOriginalMode} → RenderTexture ({width}x{height}); " +
-                                  $"both eyes composite it with ±{_videoShiftUv:F4} UV shift — video reads " +
-                                  "behind the screen plane, UI stays on it.");
+                                  $"re-routed {entry.RoutedOriginalMode} → APIOnly (re-kicked; awaiting " +
+                                  $"decoded frames); both eyes will composite them with ±{_videoShiftUv:F4} " +
+                                  "UV shift — video reads behind the screen plane, UI stays on it.");
             return true;
         }
         catch (System.Exception ex)
@@ -829,6 +860,94 @@ internal sealed class FlatScreenStereo
             entry.RouteFailed = true;
             RestoreVideoRoute(entry, "route failed"); // unwinds partial state too
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Per-tick service for an engaged route: verify decoded frames actually exist
+    /// (<c>player.texture</c> — APIOnly's documented consumption surface, logged
+    /// once when it first appears), copy the current frame into the stable mod RT
+    /// both eye blits sample, and (re)build the blits. False = the route was torn
+    /// down (no frames within <see cref="VideoReadyTimeoutFrames"/>, or the copy RT
+    /// could not be created) and the caller falls back to the suspension check.
+    /// </summary>
+    private bool TickVideoRoute(MirrorEntry entry)
+    {
+        VideoPlayer? player = entry.Video;
+        if (player == null)
+            return true; // VideoActive already vouched for the player; next tick tears down
+
+        Texture? frame = player.texture;
+        if (frame == null)
+        {
+            if (Time.frameCount - entry.RouteStartFrame <= VideoReadyTimeoutFrames)
+                return true; // still preparing after the re-kick — blits stay empty no-ops
+            entry.RouteFailed = true;
+            RestoreVideoRoute(entry, $"player.texture still null {VideoReadyTimeoutFrames} frames " +
+                                     "after the APIOnly re-route");
+            return false;
+        }
+
+        if (!entry.TextureReady)
+        {
+            entry.TextureReady = true;
+            VRLog.Info("WorldUI", $"Video depth layer READY for '{entry.Source.name}': player.texture " +
+                                  $"{frame.width}x{frame.height} (isPlaying={player.isPlaying}, " +
+                                  $"isPrepared={player.isPrepared}, frame {player.frame}) — decoded " +
+                                  "frames now composite into BOTH eye RTs.");
+        }
+
+        if (entry.VideoRt == null
+            || entry.VideoRt.width != frame.width || entry.VideoRt.height != frame.height)
+        {
+            if (entry.VideoRt != null)
+            {
+                entry.VideoRt.Release();
+                Object.Destroy(entry.VideoRt);
+                entry.VideoRt = null;
+            }
+            var rt = new RenderTexture(frame.width, frame.height, 0)
+            {
+                name = "GloomhavenVR.FlatScreenVideoRT",
+            };
+            if (!rt.Create())
+            {
+                Object.Destroy(rt);
+                entry.RouteFailed = true;
+                VRLog.Warn("WorldUI", $"Video depth layer: frame-copy RT creation failed for " +
+                                      $"'{entry.Source.name}' — mono suspension fallback takes over.");
+                RestoreVideoRoute(entry, "copy RT creation failed");
+                return false;
+            }
+            entry.VideoRt = rt;
+            entry.BuiltShiftUv = float.MinValue; // blits must re-bake the new source
+        }
+
+        Graphics.Blit(frame, entry.VideoRt);
+        UpdateVideoBlits(entry);
+        return true;
+    }
+
+    /// <summary>
+    /// A renderMode switch does NOT take effect mid-playback — the player keeps its
+    /// internal render target (hardware test #18: black video after the re-route).
+    /// Stop()/Play() re-opens the pipeline in the new mode; the resume seek keeps
+    /// story videos in place (the looping menu ambient barely moves during the
+    /// re-kick). A player that was not playing yet only needs a Prepare().
+    /// </summary>
+    private static void RekickPlayer(VideoPlayer player)
+    {
+        if (player.isPlaying)
+        {
+            double resume = player.time;
+            player.Stop();
+            player.Play();
+            if (resume > 0.0 && player.canSetTime)
+                player.time = resume;
+        }
+        else
+        {
+            player.Prepare();
         }
     }
 
@@ -890,13 +1009,14 @@ internal sealed class FlatScreenStereo
         if (!entry.Routed)
             return;
         entry.Routed = false;
+        entry.TextureReady = false;
 
         VideoPlayer? player = entry.Video;
         if (player != null)
         {
-            player.targetTexture = null;
             player.renderMode = entry.RoutedOriginalMode;
             player.targetCamera = entry.RoutedOriginalCamera;
+            RekickPlayer(player); // the mode switch BACK needs the same mid-play re-open
         }
         VRLog.Info("WorldUI", $"Video depth layer RELEASED for " +
                               $"'{(entry.Source != null ? entry.Source.name : "<destroyed>")}' ({reason}) — " +

@@ -85,6 +85,9 @@ internal static class WorldUIConfig
     /// <summary>Demote fullscreen SolidColor clears of non-base captured cameras to Depth (test #10).</summary>
     internal static ConfigEntry<bool> DemoteOverlaySolidClears = null!;
 
+    /// <summary>Split the flat screen into a UI glass layer over a stereo background layer (test #18).</summary>
+    internal static ConfigEntry<bool> ScreenLayerSplit = null!;
+
     /// <summary>True when clicks go through ExecuteEvents (ClickMode execute/both).</summary>
     internal static bool ExecuteClicks =>
         !string.Equals(ClickMode.Value, "virtualmouse", System.StringComparison.OrdinalIgnoreCase);
@@ -225,6 +228,14 @@ internal static class WorldUIConfig
             "videos — GH VideoCamera.PlayFullscreenVideo) to Depth-only, so they can never wipe the " +
             "composited map/UI to black. Viewport-limited (sub-rect) cameras keep their clear. " +
             "Disable for vanilla-exact clears (black letterbox backdrop during videos).");
+        ScreenLayerSplit = _file.Bind("WorldUI", "ScreenLayerSplit", true,
+            "Render the floating 2D screen as TWO layers (hardware test #18): the game's UI " +
+            "cameras — whose Screen-Space-Camera canvases only ever render through their " +
+            "assigned camera, so stereo mirror cameras can never reproduce them and the menu " +
+            "went one-eyed — draw onto a transparent 'glass' quad shown identically to both " +
+            "eyes at the screen plane, while 3D scene cameras and videos render a background " +
+            "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
+            "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
 
         SettingsGearButton = _file.Bind("SettingsPanel", "GearButton", true,
             "Show a small 'SET' gear pokeable at the table edge (next to Ready/Undo/Skip) " +
