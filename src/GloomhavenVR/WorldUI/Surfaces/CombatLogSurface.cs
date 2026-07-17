@@ -80,6 +80,21 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             ? Singleton<CombatLogHandler>.Instance.transform as RectTransform
             : null;
 
+    /// <summary>
+    /// Test #20: NO dynamic content re-fit for this panel. The host kept thrashing
+    /// 569x138 ↔ 569x291 as log entries faded in and out (the test #17 damping only
+    /// slowed the churn), and on a static panel every re-fit reads as the content
+    /// jumping. The combat log converts at its own full window rect — the game's
+    /// max layout, small enough to stand as the permanent laser/poke plane — so the
+    /// host stays pinned there: static beats hugging. (A degenerate convert keeps
+    /// the fit — the 100 px placeholder is no real layout to pin to.)
+    /// </summary>
+    protected override void OnConverted()
+    {
+        if (Panel != null && !Panel.FitFrameDegenerate)
+            Panel.FitEnabled = false;
+    }
+
     // ---- IPanelGrabOwner -------------------------------------------------------------------
 
     Transform? IPanelGrabOwner.GrabRoot => _frame;
