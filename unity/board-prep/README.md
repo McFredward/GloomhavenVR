@@ -30,10 +30,21 @@ of the script and re-run. Then drag each anchor empty so it sits over the matchi
 (the two card slots, the rest pads, the button pads) — the mod finds them by name, position is up to you.
 
 ## Step 2 — Unity bundle build (same as the hands, `docs/ANLEITUNG-HAENDE.md`)
-1. In the companion project `unity/GloomhavenVR.Assets`, import `PlayTray_prepped.glb` into
-   `Assets/Bundle/Table/`.
-2. Drag it into a scene, save it as a prefab **`Assets/Bundle/Table/PlayTray.prefab`** (exact name).
-   Confirm the six anchor empties survived the import as child transforms with the exact names.
+> Unity 2021.3 does NOT import `.glb` natively and the companion project has no glTF importer, so use
+> the **`.fbx`** the prep script now also writes (`PlayTray_prepped.fbx` + its textures) — the same
+> native-FBX path the hands use. (Alternative: add the `glTFast` package via Package Manager and use
+> the .glb; FBX is the proven route.)
+1. Import **`PlayTray_prepped.fbx`** (and the textures written next to it) into
+   `unity/GloomhavenVR.Assets/Assets/Bundle/Table/`.
+2. Drag it into a scene. **Orientation check (important — cards inherit the slot rotation):** the mod
+   homes each card onto its slot anchor with identity local rotation, so the board must sit so its
+   **decorated top face points local −Z** with the board lying in the **local XY plane**. FBX from
+   Blender usually lands lying flat (Y-up). Wrap it under an empty named **`PlayTray`** and rotate the
+   board child until: board flat, nice face toward −Z (toward you when the tray tilts up). Save that
+   empty as the prefab **`Assets/Bundle/Table/PlayTray.prefab`** (exact name). Confirm the six anchor
+   empties are child transforms with the exact names. **Definitive test after building:** the two
+   cards sit flat in the slots, face-up toward you — if they stand vertical or face away, rotate the
+   board 90°/180° and rebuild.
 3. **Material/shader (avoid the pink trap):** the imported material must use a shader that ships in
    the bundle. Easiest reliable options:
    - Assign the mod's bundled lit/unlit board shader if present, OR

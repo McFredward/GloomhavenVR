@@ -100,6 +100,14 @@ for name, pos in anchors.items():
 
 # --- export ---
 bpy.ops.object.select_all(action='SELECT')
+# GLB (for inspection / glTFast pipelines)
 bpy.ops.export_scene.gltf(filepath=dst, export_format='GLB', export_apply=True,
                           export_yup=True, use_selection=True)
-print("WROTE", dst, "tris~", TARGET_TRIS, "size", tuple(round(x,3) for x in board.dimensions))
+# FBX (Unity 2021.3 imports this NATIVELY — the companion project has no glTF importer,
+# same path the hands use). Unity-friendly axes; textures export next to the .fbx.
+fbx = os.path.splitext(dst)[0] + ".fbx"
+bpy.ops.export_scene.fbx(filepath=fbx, use_selection=True, apply_unit_scale=True,
+                         apply_scale_options='FBX_SCALE_ALL', bake_space_transform=True,
+                         axis_forward='-Z', axis_up='Y', object_types={'MESH', 'EMPTY'},
+                         path_mode='COPY', embed_textures=False, mesh_smooth_type='FACE')
+print("WROTE", dst, "and", fbx, "| tris~", TARGET_TRIS, "size", tuple(round(x,3) for x in board.dimensions))
