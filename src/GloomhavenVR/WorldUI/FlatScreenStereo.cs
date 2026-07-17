@@ -15,24 +15,24 @@ namespace GloomhavenVR.WorldUI;
 /// eye offset, so the screen reads like a window into the scene while it is still
 /// operated as a flat screen (laser + virtual mouse + poke unchanged).
 ///
-/// PER-EYE RENDERING (MultiPass): the game cameras keep rendering the LEFT RT
+/// PER-EYE RENDERING (MultiPass): the background cameras keep rendering the LEFT RT
 /// exactly as before (this is also what the desktop mirror blits — the monitor stays
-/// monoscopic and byte-identical). For every captured camera ONE mod-owned MIRROR
-/// camera renders the RIGHT RT:
+/// monoscopic). For every captured 3D camera ONE mod-owned MIRROR camera renders the
+/// RIGHT RT: offset by the eye separation along the source camera's +right, with an
+/// off-axis projection shift (lens shift, no toe-in — toe-in causes vertical
+/// parallax) that converges both eyes at the screen's own distance. Scene content AT
+/// the convergence distance sits exactly on the quad; farther content recedes BEHIND
+/// it (window/portal look); nearer content pops slightly out.
 ///
-/// - 3D cameras (perspective, not tagged UICamera): mirror offset by the eye
-///   separation along the source camera's +right, with an off-axis projection shift
-///   (lens shift, no toe-in — toe-in causes vertical parallax) that converges both
-///   eyes at the screen's own distance. Scene content AT the convergence distance
-///   sits exactly on the quad; farther content recedes BEHIND it (window/portal
-///   look); nearer content pops slightly out.
-/// - UI / orthographic cameras: mirror at ZERO offset — the identical image in both
-///   eyes puts all flat UI exactly on the screen plane, which is where the pointer
-///   pixel mapping says it is. Rendering the UI per-RT (instead of compositing it
-///   once) is REQUIRED for correctness, not just simpler: camera depth order
-///   interleaves UI and 3D surfaces (menu 'UI Camera' depth 1 UNDER the map's
-///   'Video Camera' depth 5), so each RT must replay the full stack in depth order —
-///   a post-hoc UI blit over the right RT would reorder the composite.
+/// ONLY 3D CAMERAS ARRIVE HERE (hardware test #18): Screen-Space-Camera canvases
+/// render exclusively through their assigned camera — a mirror can NEVER reproduce
+/// them, so the pre-#18 zero-offset "MONO mirror" path for UI/orthographic cameras
+/// produced an EMPTY right-eye UI (menu left-eye-only once the video depth layer
+/// replaced the suspension that had masked it). <see cref="FlatScreen"/>'s SCREEN
+/// LAYER SPLIT now retargets UI cameras onto its transparent glass RT (identical in
+/// both eyes at the screen plane) and syncs ONLY the 3D background cameras into this
+/// class; while the split is not active, FlatScreen keeps the whole stereo feature
+/// off (single mono RT — degraded but never one-eyed).
 ///
 /// Mirrors are bare cameras: settings are field-copied from the live source every
 /// tick (transform, projection, mask minus the mod layer, EFFECTIVE clear flags —
@@ -72,11 +72,12 @@ namespace GloomhavenVR.WorldUI;
 /// aggressively at high factors — the clamp (1..60) and the default (6) keep it
 /// in the range validated for the menu scenes.
 ///
-/// PER-EYE QUAD TEXTURE (MultiPass): the head camera renders the quad once per eye
-/// pass; a <see cref="Camera.onPreRender"/> hook swaps the quad material's
-/// mainTexture per pass from <c>camera.stereoActiveEye</c> (Left → RT-L, Right →
-/// RT-R). Should a runtime ever report Mono there, a per-frame pass-parity fallback
-/// (first pass = Left) takes over automatically; the observed pattern is logged once.
+/// PER-EYE QUAD TEXTURE (MultiPass): the head camera renders the background quad
+/// once per eye pass; a <see cref="Camera.onPreRender"/> hook swaps that quad
+/// material's mainTexture per pass from <c>camera.stereoActiveEye</c> (Left → RT-L,
+/// Right → RT-R). Should a runtime ever report Mono there, a per-frame pass-parity
+/// fallback (first pass = Left) takes over automatically; the observed pattern is
+/// logged once.
 ///
 /// VIDEO DEPTH LAYER (hardware tests #17/#18): VideoPlayers in CameraNearPlane/
 /// FarPlane mode blit decoded frames into their host camera's render target only — a
@@ -219,8 +220,6 @@ internal sealed class FlatScreenStereo
         /// creation or later by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
         /// </summary>
         public VideoPlayer? Video;
-        /// <summary>True = eye-offset stereo camera; false = zero-offset mono (UI / orthographic).</summary>
-        public bool Stereo3D;
         // Per-tick mark-and-sweep + video inputs (written by SyncCamera, read by EndStackSync).
         public bool Synced;
         public bool SourceOn;
@@ -298,6 +297,14 @@ internal sealed class FlatScreenStereo
 
     /// <summary>True while per-eye rendering is engaged (right RT + hook exist).</summary>
     internal bool Active => _active;
+
+    /// <summary>
+    /// True while both eye passes show the LEFT RT (video fallback / intro guard).
+    /// <see cref="FlatScreen"/> reads this after <see cref="EndStackSync"/> to fold
+    /// the UI back into the left RT while the single suspended image must carry
+    /// everything (its SCREEN LAYER SPLIT class doc).
+    /// </summary>
+    internal bool Suspended => _videoSuspended;
 
     public FlatScreenStereo()
     {
@@ -593,9 +600,9 @@ internal sealed class FlatScreenStereo
         Camera mirror = entry.Mirror;
         Transform st = source.transform;
 
-        // Eye offset: right eye = source pose shifted along the source's +right.
-        // UI/ortho mirrors stay at zero offset (identical image = screen-plane depth).
-        if (entry.Stereo3D && _sepScene > 0f)
+        // Eye offset: right eye = source pose shifted along the source's +right
+        // (only 3D cameras arrive here — the UI lives on FlatScreen's glass layer).
+        if (_sepScene > 0f)
             entry.MirrorTransform.SetPositionAndRotation(st.position + st.right * _sepScene, st.rotation);
         else
             entry.MirrorTransform.SetPositionAndRotation(st.position, st.rotation);
@@ -619,14 +626,14 @@ internal sealed class FlatScreenStereo
         if (mirror.targetTexture != _rtRight)
             mirror.targetTexture = _rtRight;
 
-        // Projection: copy the source matrix; stereo mirrors additionally get the
-        // off-axis convergence shift (see class doc — lens shift, not toe-in).
+        // Projection: copy the source matrix plus the off-axis convergence shift
+        // (see class doc — lens shift, not toe-in).
         // Derivation: the right camera sits +s along +right; a point straight ahead
         // at the convergence distance D lands at NDC x = -m00*s/D in it, so
         // m02 -= m00*s/D translates the image so that point matches the left eye
         // (zero disparity at D; uncrossed/behind-screen beyond it).
         Matrix4x4 proj = source.projectionMatrix;
-        if (entry.Stereo3D && _sepScene > 0f && _convScene > 1e-4f)
+        if (_sepScene > 0f && _convScene > 1e-4f)
             proj.m02 -= proj.m00 * (_sepScene / _convScene);
         mirror.projectionMatrix = proj;
     }
@@ -775,16 +782,13 @@ internal sealed class FlatScreenStereo
             // added later or bound from another GO via targetCamera (the intro) are
             // caught by the throttled recheck/sweep (class doc VIDEO DISCOVERY).
             Video = source.GetComponent<VideoPlayer>(),
-            // UI-tagged and orthographic cameras composite flat AT the screen plane;
-            // real 3D perspective cameras get the eye offset.
-            Stereo3D = !source.CompareTag("UICamera") && !source.orthographic,
         };
         _mirrors.Add(entry);
         _bySource.Add(source, entry);
 
-        VRLog.Info("WorldUI", $"Stereo mirror created for '{source.name}': " +
-                              $"{(entry.Stereo3D ? $"3D (eye offset {_sepScene:F4} scene units, converge {_convScene:F2})" : "MONO (UI/ortho — screen-plane depth)")}" +
-                              $"{(entry.Video != null ? ", hosts a VideoPlayer (near-plane suspension applies)" : "")}.");
+        VRLog.Info("WorldUI", $"Stereo mirror created for '{source.name}': eye offset " +
+                              $"{_sepScene:F4} scene units, converge {_convScene:F2}" +
+                              $"{(entry.Video != null ? ", hosts a VideoPlayer (video depth layer applies)" : "")}.");
         return entry;
     }
 

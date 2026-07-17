@@ -40,21 +40,49 @@ namespace GloomhavenVR.WorldUI;
 /// exactly <c>targetTexture</c>/clear flags of captured cameras. A camera can be
 /// stereo-None AND render into our RT.
 ///
-/// STEREO SCREEN (hardware test #15, point 7): while shown in VR the screen renders
-/// WITH stereo depth — the game cameras keep composing the (left) RT exactly as
-/// before, and <see cref="FlatScreenStereo"/> shadows every captured camera with a
-/// mod-owned mirror camera into a second right-eye RT (3D cameras eye-offset +
-/// convergence-shifted, UI/ortho cameras zero-offset → screen-plane depth); a
-/// Camera.onPreRender hook swaps the quad texture per MultiPass eye pass. Pointer
-/// mapping, virtual mouse and the desktop mirror below all keep using the LEFT RT —
-/// interaction and the monitor are unaffected. [WorldUI] StereoScreen=false (or
-/// ScreenDepthStrength=0) never engages any of it: single-RT mono path, unchanged.
+/// SCREEN LAYER SPLIT (hardware test #18): Screen-Space-Camera canvases render ONLY
+/// through their assigned camera — no other camera (in particular no stereo mirror)
+/// can ever reproduce them, so a right-eye RT composed by mirrors alone loses the
+/// entire menu UI (test #18: left-eye-only menu, once the video depth layer replaced
+/// the stereo suspension that had masked it). While [WorldUI] ScreenLayerSplit is on,
+/// the captured stack is therefore split in two:
+///
+/// - UI GLASS LAYER: UI-classified cameras (UICamera-tagged / orthographic — the
+///   canvases' worldCamera targets) are retargeted onto a mod-owned UI RT cleared to
+///   TRANSPARENT; their canvases follow automatically. The screen quad shows this RT
+///   alpha-blended ("glass"), identical in both eyes, exactly at the pointer plane.
+/// - BACKGROUND LAYER: 3D perspective cameras keep compositing the left RT — with
+///   <see cref="FlatScreenStereo"/> mirrors producing the right RT from WORLD-space
+///   content (which mirrors CAN render) plus the video depth layer — shown on an
+///   opaque background quad a few cm BEHIND the glass, so the UI always visibly
+///   floats in front even when parallax is subtle.
+///
+/// The pointer target stays the screen quad at the screen plane (the single
+/// authoritative quad — TickPointer/TickPoke and the RT pixel mapping are
+/// untouched; both RTs share one resolution). FALLBACK (config off, UI RT creation
+/// failure, no UI camera captured for a sustained period): back to the proven
+/// single-RT path — all cameras composite the left RT, the screen quad goes opaque
+/// and stereo stays OFF (mirrors cannot carry the UI) — degraded but never
+/// one-eyed, never black. While stereo SUSPENDS (intro guard / un-routable video)
+/// the UI cameras temporarily rejoin the left RT and the glass clears transparent,
+/// so the single suspended image carries everything, exactly like the pre-split
+/// path; the pre-menu intro guard keeps working unchanged.
+///
+/// STEREO SCREEN (hardware test #15, point 7): while shown in VR AND split, the
+/// background renders WITH stereo depth — the 3D cameras keep composing the (left)
+/// RT and <see cref="FlatScreenStereo"/> shadows each with an eye-offset,
+/// convergence-shifted mirror into a right-eye RT; a Camera.onPreRender hook swaps
+/// the BACKGROUND quad texture per MultiPass eye pass. Pointer mapping, virtual
+/// mouse and the desktop mirror below are unaffected. [WorldUI] StereoScreen=false
+/// (or ScreenDepthStrength=0) never engages any of it: the split still works, the
+/// background is simply mono.
 ///
 /// DESKTOP MIRROR (menu-blackscreen fix): while the RT redirect is active nothing
 /// would reach the desktop backbuffer (the XR mirror shows an HMD eye, which shows
 /// the quad at best). <see cref="OnEndOfFrame"/> — driven by the WorldUI driver's
-/// WaitForEndOfFrame loop, i.e. after Unity's own XR mirror-view blit — blits the RT
-/// to the backbuffer every frame, so the monitor always shows the full 2D UI and
+/// WaitForEndOfFrame loop, i.e. after Unity's own XR mirror-view blit — blits the
+/// left RT to the backbuffer every frame and alpha-composites the UI RT over it
+/// while the split routes, so the monitor always shows the complete 2D UI and
 /// stays mouse-operable as a fallback.
 ///
 /// PRE-MENU GATE (menu-blackscreen fix): the game boots scene 0 (Bootstrap) → scene
@@ -115,8 +143,31 @@ internal sealed class FlatScreen
     /// <summary>Intro scene name (decompiled GH.Runtime Bootstrap.ShowSplash: "Intro").</summary>
     private const string IntroSceneName = "Intro";
 
+    /// <summary>Real-meter gap between the UI glass (screen plane) and the background quad behind it.</summary>
+    private const float BackplaneGapMeters = 0.03f;
+
+    /// <summary>Sustained routing time without any captured UI camera before the split falls back.</summary>
+    private const float NoUiFallbackSeconds = 3f;
+
     private GameObject? _quad;
     private Renderer? _quadRenderer;
+    /// <summary>Opaque single-RT material (screen quad in fallback; background quad in split mode).</summary>
+    private Material? _screenMaterial;
+
+    // ---- screen layer split (test #18; class doc SCREEN LAYER SPLIT) -----------------------
+    /// <summary>Background quad a few cm behind the glass (split mode only).</summary>
+    private GameObject? _backQuad;
+    private Renderer? _backRenderer;
+    /// <summary>Transparent UI RT the glass shows (null = split not engaged).</summary>
+    private RenderTexture? _uiRt;
+    /// <summary>Alpha-blended glass material (screen quad in split mode; doubles as the desktop UI-composite blit).</summary>
+    private Material? _glassMaterial;
+    /// <summary>True while UI cameras actually render the UI RT (false during stereo suspension / pre-menu).</summary>
+    private bool _splitRouting;
+    /// <summary>The split failed this Show (UI RT/shader loss, no UI cameras) — single-RT fallback until the next Show.</summary>
+    private bool _splitFailed;
+    /// <summary>Since when the routing stack has contained no UI camera (fallback watchdog).</summary>
+    private float _noUiSince = -1f;
     /// <summary>True while the virtual mouse left button is held by us (drag or virtualmouse mode).</summary>
     private bool _vmPressed;
     private RenderTexture? _rt;
@@ -157,6 +208,8 @@ internal sealed class FlatScreen
         public bool WasEnabled;
         /// <summary>True while we demote this camera's fullscreen SolidColor clear to Depth (see <see cref="TickStackClears"/>).</summary>
         public bool Demoted;
+        /// <summary>UI-stack classification at capture time (class doc SCREEN LAYER SPLIT).</summary>
+        public bool IsUi;
     }
 
     // Captured camera stack (I1, hardware test #5). The list is reused across
@@ -164,17 +217,20 @@ internal sealed class FlatScreen
     // captured (rare event — scene load / MainMenuVideo appearing).
     private readonly System.Collections.Generic.List<CapturedCamera> _captured = new(8);
 
-    /// <summary>The stack's base (lowest-depth) camera — the only one whose clear we force.</summary>
+    /// <summary>The background stack's base (lowest-depth) camera — forced to an OPAQUE SolidColor clear.</summary>
     private CapturedCamera? _base;
+
+    /// <summary>The UI stack's base camera — forced to a TRANSPARENT SolidColor clear while routing.</summary>
+    private CapturedCamera? _uiBase;
 
     /// <summary>Per-eye rendering for the screen (test #15 #7) — inert unless [WorldUI] StereoScreen.</summary>
     private readonly FlatScreenStereo _stereo = new();
 
-    /// <summary>Cameras currently captured into the RT (camera-inventory diagnostics).</summary>
-    private static readonly System.Collections.Generic.HashSet<Camera> CapturedSet = new();
+    /// <summary>Cameras currently captured, with their records (per-camera target re-assert + diagnostics).</summary>
+    private static readonly System.Collections.Generic.Dictionary<Camera, CapturedCamera> CapturedSet = new();
 
-    /// <summary>True while the FlatScreen has redirected this camera into its RT.</summary>
-    internal static bool IsCaptured(Camera cam) => CapturedSet.Contains(cam);
+    /// <summary>True while the FlatScreen has redirected this camera into one of its RTs.</summary>
+    internal static bool IsCaptured(Camera cam) => CapturedSet.ContainsKey(cam);
 
     // Base-clear rationale (hardware test #4, P3b): the game's menu cameras ship
     // clearFlags=Depth — rendering that into a fresh RT leaves the COLOR buffer
@@ -183,6 +239,9 @@ internal sealed class FlatScreen
     // lowest-depth camera therefore gets an OPAQUE SolidColor clear forced (also
     // fixes RT garbage); every other camera keeps its own clear flags.
     private static readonly Color OpaqueBlack = new(0f, 0f, 0f, 1f);
+
+    /// <summary>UI-stack base clear (split): the glass shows exactly what the UI cameras drew.</summary>
+    private static readonly Color TransparentBlack = new(0f, 0f, 0f, 0f);
 
     // Placement anchors: re-place instantly when the head camera or the rig moves
     // (menu rig rebuild / recenter), instead of waiting for the lazy 45° follow.
@@ -265,20 +324,25 @@ internal sealed class FlatScreen
     }
 
     /// <summary>
-    /// Redirect every backbuffer game camera into our RT (I1, hardware test #5) and
-    /// keep the stack's lowest-depth camera on an OPAQUE SolidColor clear (P3b — see
-    /// field comment). Cheap per-tick re-assert: game code may rewrite targetTexture
-    /// or clearFlags at any time, and new cameras (MainMenuVideo) appear mid-scene.
-    /// Excluded: our rig head camera and cameras already targeting a different RT
-    /// ('GUI 3D Camera' → character-assembly RT, per the test-#5 camera inventory).
-    /// Originals are recorded on first capture and restored by <see cref="ReleaseStack"/>.
-    /// No per-frame allocations: shared scan buffer + reused list; records allocate
-    /// only when a new camera is first captured.
+    /// Redirect every backbuffer game camera into our RTs (I1, hardware test #5) —
+    /// UI-classified cameras onto the glass RT while the split routes, everything
+    /// else onto the background RT — and keep each stack's lowest-depth camera on
+    /// its forced SolidColor clear (opaque for the background, transparent for the
+    /// UI; P3b — see field comments). Cheap per-tick re-assert: game code may
+    /// rewrite targetTexture or clearFlags at any time, and new cameras
+    /// (MainMenuVideo) appear mid-scene. Excluded: our rig head camera and cameras
+    /// already targeting a different RT ('GUI 3D Camera' → character-assembly RT,
+    /// per the test-#5 camera inventory). Originals are recorded on first capture
+    /// and restored by <see cref="ReleaseStack"/>. No per-frame allocations: shared
+    /// scan buffer + reused list; records allocate only when a new camera is first
+    /// captured.
     /// </summary>
     private void CaptureStack()
     {
         if (_rt == null)
             return;
+
+        TickSplitLifecycle();
 
         Camera? head = Rig.VRRigDriver.HeadCamera;
 
@@ -289,10 +353,11 @@ internal sealed class FlatScreen
             Camera cam = cams[i];
             if (cam == null || (head != null && cam == head))
                 continue;
-            if (CapturedSet.Contains(cam))
+            if (CapturedSet.TryGetValue(cam, out CapturedCamera known))
             {
-                if (cam.targetTexture != _rt) // game code rewrote it — re-assert
-                    cam.targetTexture = _rt;
+                RenderTexture? want = TargetFor(known);
+                if (want != null && cam.targetTexture != want) // game code rewrote it — re-assert
+                    cam.targetTexture = want;
                 continue;
             }
             if (cam.targetTexture != null)
@@ -304,17 +369,18 @@ internal sealed class FlatScreen
                 OriginalClearFlags = cam.clearFlags,
                 OriginalBackground = cam.backgroundColor,
                 WasEnabled = true, // Camera.allCameras only lists enabled cameras
+                IsUi = IsUiCamera(cam),
             };
             _captured.Add(record);
-            CapturedSet.Add(cam);
-            cam.targetTexture = _rt;
+            CapturedSet.Add(cam, record);
+            cam.targetTexture = TargetFor(record);
             // Full disposition line (test #10): rect + clear + depth + mask make the RT
             // composite reconstructable from the log alone.
             Rect r = cam.rect;
             VRLog.Info("WorldUI", $"FlatScreen stack capture: '{cam.name}' → RenderTexture " +
                                   $"(depth {cam.depth:F1}, clear {record.OriginalClearFlags} " +
                                   $"'{record.OriginalBackground}', rect ({r.x:F2},{r.y:F2},{r.width:F2},{r.height:F2}), " +
-                                  $"mask 0x{cam.cullingMask:X8}).");
+                                  $"mask 0x{cam.cullingMask:X8}, {(record.IsUi ? "UI" : "background")} layer).");
         }
 
         // 2. Compact dead entries (scene unloads destroy cameras behind our back).
@@ -324,23 +390,101 @@ internal sealed class FlatScreen
             {
                 if (_captured[i] == _base)
                     _base = null;
+                if (_captured[i] == _uiBase)
+                    _uiBase = null;
                 CapturedSet.Remove(_captured[i].Camera);
                 _captured.RemoveAt(i);
             }
         }
 
-        // 3. The stack's FIRST camera gets the forced opaque clear. Unity renders
-        //    cameras targeting the same RT in ascending depth order, so pick the
-        //    lowest depth. Depth ties exist (test-#5 inventory: 'Main Camera' and
-        //    'UI Camera' both at depth 1.0) — the UICamera-tagged camera always
-        //    composites LAST per game intent (CanvasManager binds all overlay
-        //    canvases to it), so on a tie it must NOT be the base or its forced
-        //    clear would erase the other cameras' output.
+        // 3. Per-stack base selection + clear policy.
+        SelectBases();
+        TickStackClears();
+
+        // 4. Stereo screen (test #15 #7): mirror the captured 3D cameras into the
+        //    right-eye RT — ONLY while the layer split carries the UI on the glass
+        //    (mirrors can never render Screen-Space-Camera canvases; test #18:
+        //    left-eye-only menu). Runs AFTER the clear policy so mirrors copy the
+        //    EFFECTIVE clear flags. Pre-menu scenes engage the stereo intro guard
+        //    (test #17 one-eyed intro: the Intro scene's render path is
+        //    scene-serialized and unverifiable — FlatScreenStereo forces identical
+        //    eyes there unless its video depth layer took the video over, which
+        //    reaches both eyes by construction).
+        bool preMenu = IsPreMenuScene();
+        if (SplitActive)
+        {
+            _stereo.Tick(_rt, _backRenderer, preMenu);
+            if (_stereo.Active)
+            {
+                _stereo.BeginStackSync();
+                for (int i = 0; i < _captured.Count; i++)
+                {
+                    CapturedCamera c = _captured[i];
+                    if (c.Camera != null && !c.IsUi) // UI never mirrors — the glass shows it in both eyes
+                        _stereo.SyncCamera(c.Camera);
+                }
+                _stereo.EndStackSync();
+            }
+
+            // Routing follows the suspension decided THIS tick (EndStackSync):
+            // suspended (intro guard / un-routable video) → the UI rejoins the left
+            // RT so the single suspended image carries everything. Applying the flip
+            // here is still same-frame — cameras render after Update — so no frame
+            // is ever one-eyed or UI-less; bases/clears are recomputed immediately.
+            bool routing = !preMenu && !_stereo.Suspended;
+            if (routing != _splitRouting)
+            {
+                SetSplitRouting(routing, routing
+                    ? "no suspension in effect"
+                    : preMenu ? "pre-menu scene" : "stereo suspended");
+                SelectBases();
+                TickStackClears();
+            }
+            TickNoUiWatchdog();
+        }
+        else if (_stereo.Active)
+        {
+            _stereo.Deactivate("screen layer split inactive");
+        }
+    }
+
+    /// <summary>
+    /// UI-stack classification (class doc SCREEN LAYER SPLIT): the cameras whose
+    /// Screen-Space-Camera canvases hold the 2D UI. UICamera-tagged (CanvasManager
+    /// binds every overlay canvas to the first such camera — PATCH-TARGETS §1.7) or
+    /// orthographic cameras are UI; everything else is 3D background. Identical to
+    /// the pre-split stereo-mirror MONO classification, so the split only MOVES
+    /// layers, it never reclassifies a camera.
+    /// </summary>
+    private static bool IsUiCamera(Camera cam) => cam.CompareTag("UICamera") || cam.orthographic;
+
+    /// <summary>The RT this captured camera should render into under the current routing.</summary>
+    private RenderTexture? TargetFor(CapturedCamera c) =>
+        c.IsUi && _splitRouting && _uiRt != null ? _uiRt : _rt;
+
+    /// <summary>
+    /// Each stack's FIRST camera gets a forced SolidColor clear (fresh RTs have
+    /// undefined color — see field comments): opaque black for the background RT,
+    /// transparent for the glass RT. Unity renders cameras targeting the same RT in
+    /// ascending depth order, so pick the lowest depth per stack. Depth ties exist
+    /// (test-#5 inventory: 'Main Camera' and 'UI Camera' both at depth 1.0) — with
+    /// routing OFF the UICamera-tagged camera always composites LAST per game intent
+    /// (CanvasManager binds all overlay canvases to it), so on a tie it must NOT be
+    /// the background base or its forced clear would erase the other cameras' output.
+    /// </summary>
+    private void SelectBases()
+    {
         CapturedCamera? newBase = null;
+        CapturedCamera? newUiBase = null;
         for (int i = 0; i < _captured.Count; i++)
         {
             CapturedCamera c = _captured[i];
-            if (newBase == null
+            if (c.IsUi && _splitRouting)
+            {
+                if (newUiBase == null || c.Camera.depth < newUiBase.Camera.depth)
+                    newUiBase = c;
+            }
+            else if (newBase == null
                 || c.Camera.depth < newBase.Camera.depth
                 || (c.Camera.depth == newBase.Camera.depth && newBase.Camera.CompareTag("UICamera")))
             {
@@ -362,26 +506,215 @@ internal sealed class FlatScreen
                                       $"clears the RT (clear {_base.OriginalClearFlags} → SolidColor opaque black).");
         }
 
-        TickStackClears();
-
-        // 4. Stereo screen (test #15 #7): mirror the captured stack into the right-eye
-        //    RT. Runs AFTER the clear policy so mirrors copy the EFFECTIVE clear flags.
-        //    Pre-menu scenes engage the stereo intro guard (test #17 one-eyed intro:
-        //    the Intro scene's render path is scene-serialized and unverifiable —
-        //    FlatScreenStereo forces identical eyes there unless its video depth
-        //    layer took the video over, which reaches both eyes by construction).
-        _stereo.Tick(_rt, _quadRenderer, IsPreMenuScene());
-        if (_stereo.Active)
+        if (newUiBase != _uiBase)
         {
-            _stereo.BeginStackSync();
-            for (int i = 0; i < _captured.Count; i++)
+            if (_uiBase != null && _uiBase.Camera != null)
             {
-                Camera cam = _captured[i].Camera;
-                if (cam != null)
-                    _stereo.SyncCamera(cam);
+                _uiBase.Camera.clearFlags = _uiBase.OriginalClearFlags;
+                _uiBase.Camera.backgroundColor = _uiBase.OriginalBackground;
             }
-            _stereo.EndStackSync();
+            _uiBase = newUiBase;
+            if (_uiBase != null)
+                VRLog.Info("WorldUI", $"FlatScreen UI-stack base: '{_uiBase.Camera.name}' " +
+                                      $"(depth {_uiBase.Camera.depth:F1}) clears the glass RT " +
+                                      $"(clear {_uiBase.OriginalClearFlags} → SolidColor transparent).");
         }
+    }
+
+    // ---- screen layer split (class doc SCREEN LAYER SPLIT) ---------------------------------
+
+    /// <summary>True while the split is engaged (glass RT exists; routing may still be off).</summary>
+    private bool SplitActive => _uiRt != null;
+
+    /// <summary>
+    /// Engage/disengage the split per config + failure state (called at the top of
+    /// every capture sweep, so a live [WorldUI] ScreenLayerSplit flip takes effect on
+    /// the next tick). Engaging creates the transparent glass RT, the alpha material
+    /// and the background quad; any creation failure latches <see cref="_splitFailed"/>
+    /// and the single-RT fallback takes over for the rest of this Show.
+    /// </summary>
+    private void TickSplitLifecycle()
+    {
+        bool want = WorldUIConfig.ScreenLayerSplit.Value && !_splitFailed
+                    && _rt != null && _quad != null && _quadRenderer != null;
+        if (want && SplitActive)
+        {
+            EnsureBackQuad(); // rebuilt if an external tool destroyed it (same policy as the screen quad)
+            return;
+        }
+        if (!want)
+        {
+            TeardownSplit("ScreenLayerSplit disabled");
+            return;
+        }
+
+        // Glass RT: same dimensions as the background RT — the pointer pixel mapping
+        // and the quad UVs are shared between the two layers by construction.
+        var uiRt = new RenderTexture(_rt!.width, _rt.height, 24)
+        {
+            name = "GloomhavenVR.FlatScreenRT.UI",
+            antiAliasing = 1,
+        };
+        // Alpha-blended glass shader (both verified shipped — see the Show() shader
+        // comment); the RT alpha is exactly what the UI cameras leave behind, which
+        // is the point: everything they did not draw stays see-through.
+        Shader? glassShader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        if (glassShader == null || !uiRt.Create())
+        {
+            uiRt.Release();
+            Object.Destroy(uiRt);
+            _splitFailed = true;
+            VRLog.Warn("WorldUI", "Screen layer split FAILED to engage (" +
+                                  (glassShader == null ? "no alpha-blended shader found" : "glass RT creation failed") +
+                                  ") — single-RT fallback (mono screen, video suspension; never one-eyed).");
+            return;
+        }
+        _uiRt = uiRt;
+        ClearUiRt(); // fresh RT color is undefined — the glass must start fully transparent
+
+        _glassMaterial = new Material(glassShader) { mainTexture = _uiRt };
+        EnsureBackQuad();
+        _quadRenderer!.sharedMaterial = _glassMaterial;
+
+        _noUiSince = -1f;
+        VRLog.Info("WorldUI", $"Screen layer split ENGAGED: UI cameras → transparent glass RT " +
+                              $"({_uiRt.width}x{_uiRt.height}) on the screen quad (both eyes identical, " +
+                              $"pointer plane); 3D cameras stay on the background RT shown " +
+                              $"{BackplaneGapMeters * 100f:F0} cm behind it.");
+    }
+
+    /// <summary>Create the background quad — or re-create it after an external destroy.</summary>
+    private void EnsureBackQuad()
+    {
+        if (_backQuad != null)
+            return;
+        _backQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        _backQuad.name = "GloomhavenVR.FlatScreen.Background";
+        Object.DontDestroyOnLoad(_backQuad); // survives Single-mode scene loads like the screen quad
+        Object.Destroy(_backQuad.GetComponent<Collider>());
+        _backRenderer = _backQuad.GetComponent<Renderer>();
+        _backRenderer.sharedMaterial = _screenMaterial;
+        VRLayers.Apply(_backQuad);
+        PlaceScreen(instant: true); // the fresh quad needs its pose now, not on the next head move
+    }
+
+    /// <summary>
+    /// Fallback path (class doc): give every UI camera the background RT back
+    /// (single-RT composite, exactly the pre-split behavior), drop the glass state
+    /// and the background quad, and put the opaque single-RT material back on the
+    /// screen quad. FlatScreenStereo is deactivated by the next capture sweep
+    /// (split inactive → mono — mirrors cannot carry the UI).
+    /// </summary>
+    private void TeardownSplit(string reason)
+    {
+        if (!SplitActive)
+            return;
+        SetSplitRouting(false, reason);
+        if (_uiBase != null && _uiBase.Camera != null)
+        {
+            _uiBase.Camera.clearFlags = _uiBase.OriginalClearFlags;
+            _uiBase.Camera.backgroundColor = _uiBase.OriginalBackground;
+        }
+        _uiBase = null;
+        if (_backQuad != null)
+        {
+            Object.Destroy(_backQuad);
+            _backQuad = null;
+            _backRenderer = null;
+        }
+        if (_glassMaterial != null)
+        {
+            Object.Destroy(_glassMaterial);
+            _glassMaterial = null;
+        }
+        if (_uiRt != null)
+        {
+            _uiRt.Release();
+            Object.Destroy(_uiRt);
+            _uiRt = null;
+        }
+        if (_quadRenderer != null && _screenMaterial != null)
+            _quadRenderer.sharedMaterial = _screenMaterial;
+        _noUiSince = -1f;
+        VRLog.Info("WorldUI", $"Screen layer split RELEASED ({reason}) — single-RT path " +
+                              "(all cameras composite the background RT; screen quad opaque).");
+    }
+
+    /// <summary>
+    /// Flip which RT the UI cameras render (class doc): ON = glass RT (UI floats in
+    /// front, both eyes); OFF (stereo suspension / pre-menu) = they rejoin the left
+    /// RT so the single suspended image carries everything — the glass is cleared to
+    /// fully transparent so no stale UI lingers in front of it.
+    /// </summary>
+    private void SetSplitRouting(bool routing, string reason)
+    {
+        if (_splitRouting == routing)
+            return;
+        _splitRouting = routing;
+
+        for (int i = 0; i < _captured.Count; i++)
+        {
+            CapturedCamera c = _captured[i];
+            if (!c.IsUi || c.Camera == null)
+                continue;
+            RenderTexture? want = TargetFor(c);
+            if (want != null && c.Camera.targetTexture != want)
+                c.Camera.targetTexture = want;
+        }
+        if (!routing)
+            ClearUiRt();
+
+        VRLog.Info("WorldUI", routing
+            ? $"Screen layer split routing ON ({reason}) — UI cameras render the glass RT."
+            : $"Screen layer split routing OFF ({reason}) — UI cameras rejoin the background RT " +
+              "(glass cleared transparent).");
+    }
+
+    /// <summary>Clear the glass RT to fully transparent (engage + every routing-off flip).</summary>
+    private void ClearUiRt()
+    {
+        if (_uiRt == null)
+            return;
+        RenderTexture? previous = RenderTexture.active;
+        RenderTexture.active = _uiRt;
+        GL.Clear(clearDepth: true, clearColor: true, backgroundColor: TransparentBlack);
+        RenderTexture.active = previous;
+    }
+
+    /// <summary>
+    /// Split fallback trigger "no UI cameras" (class doc): if the routing stack holds
+    /// captured cameras but none classified UI for a sustained period, the canvases'
+    /// worldCamera is evidently not one we can retarget — release the split so the
+    /// proven single-RT path carries the UI instead of risking a one-eyed screen.
+    /// </summary>
+    private void TickNoUiWatchdog()
+    {
+        if (!_splitRouting || _captured.Count == 0)
+        {
+            _noUiSince = -1f;
+            return;
+        }
+        for (int i = 0; i < _captured.Count; i++)
+        {
+            if (_captured[i].IsUi)
+            {
+                _noUiSince = -1f;
+                return;
+            }
+        }
+        if (_noUiSince < 0f)
+        {
+            _noUiSince = Time.unscaledTime;
+            return;
+        }
+        if (Time.unscaledTime - _noUiSince < NoUiFallbackSeconds)
+            return;
+
+        _splitFailed = true;
+        VRLog.Warn("WorldUI", $"Screen layer split: no UI camera captured for {NoUiFallbackSeconds:F0}s " +
+                              "while routing — falling back to the single-RT path (the UI would " +
+                              "otherwise be invisible to the stereo mirrors).");
+        TeardownSplit("no UI cameras found");
     }
 
     /// <summary>
@@ -444,6 +777,20 @@ internal sealed class FlatScreen
                 continue;
             }
 
+            if (c == _uiBase)
+            {
+                // UI-stack base clears TRANSPARENT — the glass composites over the
+                // background layer, so undrawn pixels must stay see-through.
+                if (cam.clearFlags != CameraClearFlags.SolidColor)
+                    cam.clearFlags = CameraClearFlags.SolidColor;
+                if (cam.backgroundColor != TransparentBlack)
+                    cam.backgroundColor = TransparentBlack;
+                continue;
+            }
+
+            if (c.IsUi && _splitRouting)
+                continue; // non-base UI cameras keep their own flags (overlay demotion is a BACKGROUND policy)
+
             bool fullscreen = cam.rect.width >= 0.99f && cam.rect.height >= 0.99f;
             bool wantDemote = demote && fullscreen && c.OriginalClearFlags == CameraClearFlags.SolidColor;
             if (wantDemote)
@@ -481,12 +828,12 @@ internal sealed class FlatScreen
             Camera cam = _captured[i].Camera;
             if (cam == null)
                 continue;
-            if (cam.targetTexture == _rt)
+            if (cam.targetTexture == _rt || (_uiRt != null && cam.targetTexture == _uiRt))
                 cam.targetTexture = null;
-            // Only the base (forced clear) and demoted overlays (SolidColor → Depth)
-            // had their flags touched — leave everyone else alone (their flags may
-            // have been legitimately changed by game code meanwhile).
-            if (_captured[i] == _base || _captured[i].Demoted)
+            // Only the stack bases (forced clears) and demoted overlays (SolidColor
+            // → Depth) had their flags touched — leave everyone else alone (their
+            // flags may have been legitimately changed by game code meanwhile).
+            if (_captured[i] == _base || _captured[i] == _uiBase || _captured[i].Demoted)
             {
                 cam.clearFlags = _captured[i].OriginalClearFlags;
                 cam.backgroundColor = _captured[i].OriginalBackground;
@@ -497,6 +844,7 @@ internal sealed class FlatScreen
         _captured.Clear();
         CapturedSet.Clear();
         _base = null;
+        _uiBase = null;
     }
 
     /// <summary>
@@ -513,9 +861,14 @@ internal sealed class FlatScreen
         {
             _mirrorLogged = true;
             VRLog.Info("WorldUI", $"Desktop mirror active — FlatScreen RT ({_rt.width}x{_rt.height}) " +
-                                  "blits to the backbuffer at end of frame.");
+                                  "blits to the backbuffer at end of frame" +
+                                  (SplitActive ? " (glass RT alpha-composited on top while routing)." : "."));
         }
         Graphics.Blit(_rt, (RenderTexture?)null);
+        // Split (class doc D): the UI lives on its own RT now — alpha-composite it
+        // over the background so the monitor still shows the complete menu.
+        if (_splitRouting && _uiRt != null && _uiRt.IsCreated() && _glassMaterial != null)
+            Graphics.Blit(_uiRt, (RenderTexture?)null, _glassMaterial);
     }
 
     public void Shutdown()
@@ -723,7 +1076,8 @@ internal sealed class FlatScreen
             Shader? shader = Shader.Find("Hidden/BlitCopy")
                              ?? Shader.Find("Sprites/Default")
                              ?? Shader.Find("UI/Default");
-            _quadRenderer.sharedMaterial = new Material(shader) { mainTexture = _rt };
+            _screenMaterial = new Material(shader) { mainTexture = _rt };
+            _quadRenderer.sharedMaterial = _screenMaterial;
 
             // No FlatScreen-owned reticle: the RayInteractor's beam + dot clamp to
             // the screen hit via UiHitOverride (test #7 — one convergent visual).
@@ -757,6 +1111,8 @@ internal sealed class FlatScreen
             EndPoke("screen hidden");
         ReleaseStack();
         _stereo.Deactivate("screen hidden");
+        TeardownSplit("screen hidden");
+        _splitFailed = false; // a failed split gets a fresh chance on the next Show
 
         if (_quad != null)
         {
@@ -773,6 +1129,11 @@ internal sealed class FlatScreen
                 Object.Destroy(_quad);
                 _quad = null;
                 _quadRenderer = null;
+            }
+            if (_screenMaterial != null)
+            {
+                Object.Destroy(_screenMaterial);
+                _screenMaterial = null;
             }
         }
         if (_visible)
@@ -822,6 +1183,8 @@ internal sealed class FlatScreen
         }
         t.localScale = size;
 
+        PlaceBackQuad(scale, distance);
+
         if (instant)
         {
             _placedHead = head;
@@ -829,6 +1192,24 @@ internal sealed class FlatScreen
             _placedRigPos = rig != null ? rig.position : Vector3.zero;
             LogPlacement(head);
         }
+    }
+
+    /// <summary>
+    /// Background quad (split): derived from the screen quad's CURRENT pose — so it
+    /// stays coherent during the lazy-follow glide — the layer gap behind it along
+    /// +forward (away from the viewer), scaled up so it subtends the same angle from
+    /// the head (no visible edge inset where the glass ends).
+    /// </summary>
+    private void PlaceBackQuad(float scale, float distance)
+    {
+        if (_backQuad == null || _quad == null)
+            return;
+        Transform t = _quad.transform;
+        float grow = 1f + BackplaneGapMeters / Mathf.Max(0.1f, distance);
+        Transform b = _backQuad.transform;
+        b.SetPositionAndRotation(t.position + t.forward * (BackplaneGapMeters * scale), t.rotation);
+        Vector3 size = t.localScale;
+        b.localScale = new Vector3(size.x * grow, size.y * grow, 1f);
     }
 
     /// <summary>
@@ -844,7 +1225,8 @@ internal sealed class FlatScreen
         VRLog.Info("WorldUI",
             $"FlatScreen quad placed: pos={_quad.transform.position}, size={_quad.transform.localScale}, " +
             $"layer={_quad.layer}, shader='{(shader != null ? shader.name : "NULL")}', " +
-            $"RT={( _rt != null ? $"{_rt.width}x{_rt.height}" : "NULL")} | " +
+            $"RT={( _rt != null ? $"{_rt.width}x{_rt.height}" : "NULL")}, " +
+            $"split={(SplitActive ? (_splitRouting ? "routing" : "engaged") : "off")} | " +
             $"head '{head.name}' pos={head.transform.position}, fwd={head.transform.forward}, " +
             $"mask=0x{head.cullingMask:X8}, clear={head.clearFlags}, stereo={head.stereoTargetEye}.");
     }
