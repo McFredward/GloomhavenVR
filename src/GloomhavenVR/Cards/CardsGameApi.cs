@@ -304,22 +304,43 @@ internal static class CardsGameApi
     }
 
     /// <summary>
-    /// Can the Ready/confirm path fire right now? Mirrors the guard at the top of
-    /// <c>ReadyButton.OnClick</c> (ReadyButton.cs:190): ButtonComponent.enabled +
-    /// no warning mask + interactable — plus visibility (canvasGroup.alpha, the
-    /// game's own <c>IsVisibility</c>, ReadyButton.cs:93; canvasGroup assigned in
-    /// Start, ReadyButton.cs:115, publicized protected field).
+    /// Can the Ready/confirm path fire right now? Mirrors EXACTLY the guard at the
+    /// top of <c>ReadyButton.OnClick</c> (ReadyButton.cs:190):
+    /// <c>ButtonComponent.enabled &amp;&amp; !warningMask.gameObject.activeSelf &amp;&amp;
+    /// readyButton.interactable</c>. Deliberately NO visibility gate (test #14): the
+    /// game's own OnClick never checks <c>IsVisibility</c>, and while VR hides the 2D
+    /// UI stack the ReadyButton's canvasGroup alpha can sit at 0 — the old alpha
+    /// check made the tray CONFIRM permanently dead even though the click path was
+    /// fully functional.
     /// </summary>
     internal static bool CanConfirm()
     {
         ReadyButton? b = Ready();
         if (b == null || !b.gameObject.activeInHierarchy)
             return false;
-        if (b.canvasGroup == null || b.canvasGroup.alpha <= 0f)
-            return false;
         return b.ButtonComponent != null && b.ButtonComponent.enabled
                && (b.warningMask == null || !b.warningMask.gameObject.activeSelf)
                && b.IsInteractable;
+    }
+
+    /// <summary>
+    /// One-line diagnostic of every CanConfirm gate input — built ONLY on a rejected
+    /// press (event-driven, never per-frame). Inputs mirror ReadyButton.OnClick's
+    /// guard (ReadyButton.cs:190) plus the game's visibility read
+    /// (<c>IsVisibility =&gt; canvasGroup.alpha &gt; 0</c>, ReadyButton.cs:93) and
+    /// <c>buttonState</c> (ReadyButton.cs:69, publicized) for context.
+    /// </summary>
+    internal static string DescribeConfirmGate()
+    {
+        ReadyButton? b = Ready();
+        if (b == null)
+            return "readyButton=null (no Choreographer.readyButton)";
+        return $"active={b.gameObject.activeInHierarchy} " +
+               $"buttonComponent={(b.ButtonComponent != null ? b.ButtonComponent.enabled.ToString() : "null")} " +
+               $"warningMask={(b.warningMask != null && b.warningMask.gameObject.activeSelf)} " +
+               $"interactable={b.IsInteractable} " +
+               $"state={b.buttonState} " +
+               $"alpha={(b.canvasGroup != null ? b.canvasGroup.alpha.ToString("F2") : "null")}";
     }
 
     /// <summary>
@@ -355,18 +376,28 @@ internal static class CardsGameApi
     }
 
     /// <summary>
-    /// Undo availability — mirrors the guards of <c>UndoButton.OnClick</c>
-    /// (UndoButton.cs:94, <c>m_UndoButton.interactable</c>) plus visibility
-    /// (canvasGroup, assigned UndoButton.cs:66). Fields publicized.
+    /// Undo availability — mirrors EXACTLY the guard of <c>UndoButton.OnClick</c>
+    /// (UndoButton.cs:94: <c>m_UndoButton.interactable</c>). No visibility gate
+    /// (test #14, same reasoning as <see cref="CanConfirm"/>: the 2D stack is hidden
+    /// in VR, so the canvasGroup alpha is not a functional signal). Fields publicized.
     /// </summary>
     internal static bool CanUndo()
     {
         UndoButton? u = Undo();
         if (u == null || !u.gameObject.activeInHierarchy)
             return false;
-        if (u.canvasGroup == null || u.canvasGroup.alpha <= 0f)
-            return false;
         return u.m_UndoButton != null && u.m_UndoButton.interactable;
+    }
+
+    /// <summary>Diagnostic counterpart of <see cref="CanUndo"/> — built only on a rejected press.</summary>
+    internal static string DescribeUndoGate()
+    {
+        UndoButton? u = Undo();
+        if (u == null)
+            return "undoButton=null (no Choreographer.m_UndoButton)";
+        return $"active={u.gameObject.activeInHierarchy} " +
+               $"interactable={(u.m_UndoButton != null ? u.m_UndoButton.interactable.ToString() : "null")} " +
+               $"alpha={(u.canvasGroup != null ? u.canvasGroup.alpha.ToString("F2") : "null")}";
     }
 
     /// <summary>

@@ -220,15 +220,23 @@ internal sealed class PlayTray
     /// (test #13). Returns -1 when outside both radii. With <paramref name="log"/> the
     /// full distance table and the verdict go to the log (drop-time diagnostics).
     /// </summary>
-    internal int SlotNear(Vector3 cardPos, Vector3 handPos, bool log = false)
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos) =>
+        SlotNear(cardPos, handPos, out _, out _, out _);
+
+    /// <summary>
+    /// Same test with the sampled distances exposed so the RELEASE path can log one
+    /// concise line per real drop (test #14) — no logging in here.
+    /// </summary>
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos, out float d0, out float d1, out float radius)
     {
+        d0 = d1 = float.PositiveInfinity;
+        radius = 0f;
         if (_root == null || !IsVisible)
             return -1;
         float scale = _root.lossyScale.x;
-        float radius = SlotCaptureRadius * scale;
+        radius = SlotCaptureRadius * scale;
         int best = -1;
         float bestDist = float.MaxValue;
-        float d0 = float.PositiveInfinity, d1 = float.PositiveInfinity;
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
@@ -243,12 +251,6 @@ internal sealed class PlayTray
                 bestDist = dist;
                 best = i;
             }
-        }
-        if (log)
-        {
-            VRLog.Info("Cards", $"Slot check: slot1 {d0:F3} m, slot2 {d1:F3} m " +
-                                $"(min of card/hand samples), radius {radius:F3} m → " +
-                                (best >= 0 ? $"ACCEPT slot {best + 1}." : "REJECT (out of range)."));
         }
         return best;
     }
@@ -303,8 +305,17 @@ internal sealed class PlayTray
         }
     }
 
-    /// <summary>Visually park a card in a slot (game-state sync happens separately).</summary>
-    internal void PlaceCard(VRCard card, int slot, bool instant = false)
+    /// <summary>
+    /// Visually park a card in a slot (game-state sync happens separately).
+    /// <paramref name="announce"/> is true only on the REAL drop path — the
+    /// game-state sync re-runs on every rebuild and must stay silent (test #14: the
+    /// unconditional log here produced the "card placed" spam without user drops).
+    /// A HELD card is never re-homed: SetHome re-parents, which used to yank the
+    /// card out of the hand mid-grab and pull it onto the slot (the source of the
+    /// phantom ACCEPTs — the card then sat within capture radius at the next
+    /// unrelated grip release). Occupancy still updates; the release path homes it.
+    /// </summary>
+    internal void PlaceCard(VRCard card, int slot, bool instant = false, bool announce = false)
     {
         if (_slots[slot] == null)
             return;
@@ -312,9 +323,13 @@ internal sealed class PlayTray
         if (_occupants[0] == card) _occupants[0] = null;
         if (_occupants[1] == card) _occupants[1] = null;
         _occupants[slot] = card;
-        card.gameObject.SetActive(true);
-        card.SetHome(_slots[slot]!, Vector3.zero, Quaternion.identity, 1f, instant);
-        VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
+        if (!card.IsHeld)
+        {
+            card.gameObject.SetActive(true);
+            card.SetHome(_slots[slot]!, Vector3.zero, Quaternion.identity, 1f, instant);
+        }
+        if (announce)
+            VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
     }
 
     internal void RemoveCard(VRCard card)
@@ -361,13 +376,22 @@ internal sealed class PlayTray
                 want0 ??= card;
         }
 
+        // Re-place ONLY what changed (test #14): this sync runs on every rebuild —
+        // dozens of times per selection phase — and unconditional re-placing both
+        // re-parented held cards and spammed the log with phantom placements.
         bool changed = _occupants[0] != want0 || _occupants[1] != want1;
-        _occupants[0] = null;
-        _occupants[1] = null;
-        if (want0 != null)
-            PlaceCard(want0, 0);
-        if (want1 != null)
-            PlaceCard(want1, 1);
+        if (_occupants[0] != want0)
+        {
+            _occupants[0] = null;
+            if (want0 != null)
+                PlaceCard(want0, 0);
+        }
+        if (_occupants[1] != want1)
+        {
+            _occupants[1] = null;
+            if (want1 != null)
+                PlaceCard(want1, 1);
+        }
         return changed;
     }
 
@@ -627,11 +651,13 @@ internal sealed class PlayTray
         _confirm = BoardButton.Create(confirmParent, new Vector2(0.115f, 0.06f),
             new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
             () => ConfirmRequested?.Invoke());
+        _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
         _undo = BoardButton.Create(undoParent, new Vector2(0.09f, 0.042f),
             new Color(0.45f, 0.32f, 0.2f), "UNDO",
             () => UndoRequested?.Invoke());
+        _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
     }
 
@@ -780,6 +806,12 @@ internal sealed class PlayTray
             return button;
         }
 
+        /// <summary>
+        /// Built ONLY when a press is rejected — explains the disabled state
+        /// (e.g. the CanConfirm gate inputs). Wired by <see cref="BuildButtons"/>.
+        /// </summary>
+        internal System.Func<string>? DisabledReason;
+
         internal void SetState(bool enabled, bool accent)
         {
             if (_enabledState == enabled && _accent == accent)
@@ -815,13 +847,25 @@ internal sealed class PlayTray
             _cap.localPosition = pos;
         }
 
-        public override void OnPoke(VRHand hand)
+        /// <summary>Poke path (P2 PokeInteractor — geometric fingertip test against this collider).</summary>
+        public override void OnPoke(VRHand hand) => Press(hand, "poke");
+
+        /// <summary>
+        /// Single press entry for BOTH input paths (test #14): every attempt is
+        /// logged with its source and, when rejected, the exact gate state — a
+        /// silent dead button can no longer happen.
+        /// </summary>
+        internal void Press(VRHand hand, string source)
         {
             if (!_enabledState)
+            {
+                VRLog.Info("Cards", $"Board: {name} press REJECTED (source={source}, {hand.Side}) — " +
+                                    $"disabled: {(DisabledReason != null ? DisabledReason() : "no reason hook")}.");
                 return;
+            }
             _press = 1f;
             hand.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("Cards", $"Board: {name} pressed ({hand.Side}).");
+            VRLog.Info("Cards", $"Board: {name} pressed (source={source}, {hand.Side}).");
             _onClick?.Invoke();
         }
 
