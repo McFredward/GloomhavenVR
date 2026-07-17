@@ -15,8 +15,8 @@ namespace GloomhavenVR.Hands.Interact;
 /// (<see cref="IsOpen"/>) and edge-observable (<see cref="Changed"/>, main thread).
 ///
 /// P6 (hardware test #8): the gate used the VISUAL rig's palm normal, which includes
-/// the [Hands] GripPitchOffsetDegrees rotation (default -60°) between the tracked
-/// grip pose and the hand model — so opening the fan demanded ~60° of wrist
+/// the [Hands] GripPitchOffsetDegrees rotation (default -30°) between the tracked
+/// grip pose and the hand model — so opening the fan demanded that pitch of wrist
 /// supination BEYOND "palm faces me". <see cref="UseDevicePalmNormal"/> (default on)
 /// evaluates the raw device pose instead (-Y of the grip pose = out of the physical
 /// palm), matching what the wrist actually does. Thresholds are set per frame by the

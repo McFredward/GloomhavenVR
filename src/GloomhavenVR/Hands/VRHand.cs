@@ -56,25 +56,6 @@ internal sealed class VRHand : MonoBehaviour
     private const float HoverHapticMinInterval = 0.05f;
 
     /// <summary>
-    /// Static lateral/depth offset between the OpenXR device (grip) pose and the hand
-    /// frame (wrist, +Z fingers, +Y back of hand): X = lateral (0), Z = the wrist sits
-    /// behind the grip origin. The VERTICAL (Y) half is configurable ([Hands]
-    /// HandVerticalOffset) and the ROTATION half is configurable ([Hands]
-    /// GripPitchOffsetDegrees) — both applied in <see cref="SyncVisualOffset"/>. The
-    /// grip pose points up along the controller handle, not where the hand points —
-    /// hardware test #4 showed the old fixed -40° pitched the hands wrong, and test #24
-    /// showed the authored -0.02 wrist drop plus the down-pitch left the palm several cm
-    /// BELOW the physical controller. Reference: LCVR (DaXcess/LCVR,
-    /// Source/Player/VRPlayer.cs) rotates its controller-relative interact/ray origins
-    /// by Quaternion.Euler(80, 0, 0) — i.e. ~80° DOWN from the tracked controller pose
-    /// in Unity's convention (+X pitch = forward tilts down); its hand-model IK targets
-    /// use model-space compound offsets Euler(0, 90, 168)/(0, 270, 192). Defaults here:
-    /// pitch -60 (config negative = fingers down), vertical +0.045 (seats the palm on
-    /// the controller) — tune on hardware (docs/TESTING-P2.md).
-    /// </summary>
-    private static readonly Vector3 VisualOffsetPosition = new(0f, 0f, -0.06f);
-
-    /// <summary>
     /// OpenXR aim ("pointer") pose feature usages. Verified against the RuntimeDeps
     /// Unity.XR.OpenXR 1.10.0 source (tools/RuntimeDepsBuild/sources): every
     /// controller interaction profile registers a Pose-type ActionConfig named
@@ -93,7 +74,9 @@ internal sealed class VRHand : MonoBehaviour
     private FingerCurler _curler = null!;
     private Transform _handRoot = null!;
     private float _appliedGripPitch = float.NaN;
+    private float _appliedLateralOffset = float.NaN;
     private float _appliedVerticalOffset = float.NaN;
+    private float _appliedForwardOffset = float.NaN;
 
     // Velocity ring buffer (palm position, world) — fixed size, no allocations.
     private const int VelocitySamples = 8;
@@ -288,25 +271,38 @@ internal sealed class VRHand : MonoBehaviour
     // ---- per-frame -------------------------------------------------------------------------
 
     /// <summary>
-    /// Apply the [Hands] offsets between the tracked (grip) pose and the HandRig root:
-    /// GripPitchOffsetDegrees (rotation) and HandVerticalOffset (device-space vertical
-    /// position). Pitch semantics: NEGATIVE = fingertips tilt DOWN from the grip-pose
-    /// forward; Unity pitches down with POSITIVE X Euler, hence the sign flip. Vertical
-    /// semantics: POSITIVE raises the whole hand along the controller up axis so the
-    /// palm seats on the grip pose (the offset is applied to the HandRoot origin, so it
-    /// translates the wrist, palm, grab anchor and index-knuckle laser origin together —
-    /// relative rig geometry is unchanged). Both re-checked per frame (float compare
-    /// only) so the values are live-tunable.
+    /// Apply the four [Hands] seat offsets between the tracked (grip) pose and the
+    /// HandRig root: GripPitchOffsetDegrees (rotation) plus HandLateralOffset (X),
+    /// HandVerticalOffset (Y) and HandForwardOffset (Z) — all device-space, applied to
+    /// the HandRoot origin so wrist, palm, grab anchor and index-knuckle laser origin
+    /// translate/rotate together (relative rig geometry, and the per-hand mirroring in
+    /// <see cref="HandVisuals"/>, are unchanged). Pitch semantics: NEGATIVE = fingertips
+    /// tilt DOWN from the grip-pose forward; Unity pitches down with POSITIVE X Euler,
+    /// hence the sign flip. Position semantics: X = lateral, Y = up (POSITIVE raises the
+    /// hand), Z = forward toward the fingertips (NEGATIVE sits the wrist behind the grip
+    /// origin). Setting position 0/0/0 and pitch 0 places the hand EXACTLY at the tracked
+    /// grip pose. The OpenXR grip pose points up along the controller handle, not where a
+    /// relaxed hand points (hardware tests #4/#24/#27); reference: LCVR (DaXcess/LCVR,
+    /// Source/Player/VRPlayer.cs) rotates its controller-relative interact/ray origins by
+    /// Quaternion.Euler(80, 0, 0) — ~80° down from the tracked pose. All four re-checked
+    /// per frame (float compare only) so the values are live-tunable.
     /// </summary>
     private void SyncVisualOffset()
     {
         float pitch = Plugin.GripPitchOffsetDegrees.Value;
+        float lateral = Plugin.HandLateralOffset.Value;
         float vertical = Plugin.HandVerticalOffset.Value;
-        if (pitch == _appliedGripPitch && vertical == _appliedVerticalOffset)
+        float forward = Plugin.HandForwardOffset.Value;
+        if (pitch == _appliedGripPitch
+            && lateral == _appliedLateralOffset
+            && vertical == _appliedVerticalOffset
+            && forward == _appliedForwardOffset)
             return;
         _appliedGripPitch = pitch;
+        _appliedLateralOffset = lateral;
         _appliedVerticalOffset = vertical;
-        _handRoot.localPosition = new Vector3(VisualOffsetPosition.x, vertical, VisualOffsetPosition.z);
+        _appliedForwardOffset = forward;
+        _handRoot.localPosition = new Vector3(lateral, vertical, forward);
         _handRoot.localRotation = Quaternion.Euler(-pitch, 0f, 0f);
     }
 

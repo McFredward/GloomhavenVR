@@ -164,7 +164,7 @@ internal static class CardsConfig
             "Held card readability (test #13): degrees the card FACE leans from 'flat on the " +
             "palm' (0 = old pose, face along the palm normal — readable only by twisting the " +
             "wrist) back toward the wrist/forearm. In a relaxed controller grip (grip pose " +
-            "~60 deg pitched, see [Hands] GripPitchOffsetDegrees) the fingers point forward " +
+            "pitched, see [Hands] GripPitchOffsetDegrees) the fingers point forward " +
             "and slightly down, so at ~65 the face points up/back at your eyes — like really " +
             "holding a playing card. The card top points to the thumb side (which is world-up " +
             "in a relaxed grip; mirrored automatically for the left hand). The card still " +
