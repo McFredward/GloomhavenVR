@@ -62,7 +62,10 @@ internal sealed class RayUguiDriver
     internal void Tick()
     {
         // Dominant hand only (the off-hand holds the fan); dominance can switch live.
-        if (!_hand.HasPose || !_hand.Ray.Enabled || VRHands.Primary != _hand)
+        // Ray.Active is the level-derived effective state (test #19) — while the hand
+        // holds a grabbable the ray's pick is suppressed and STALE, so gate on it
+        // (not just Enabled) rather than point with a frozen ray.
+        if (!_hand.Ray.Active || VRHands.Primary != _hand)
         {
             Cancel();
             return;

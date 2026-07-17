@@ -14,8 +14,9 @@ namespace GloomhavenVR.Hands.Interact;
 /// "where this controller points", unaffected by grip-pose tilt or the visual hand
 /// offset. Fallback (simulated hands / no aim pose): origin at the index knuckle,
 /// direction = hand forward (+Z, along the fingers). Visual: a subtle LineRenderer
-/// laser plus a reticle dot, shown only while the interactor is enabled
-/// (far-interaction modes / RayAlwaysOn config). Test #14: the visible beam is a
+/// laser plus a reticle dot, shown while the effective state (<see cref="Active"/>)
+/// is on — for the DOMINANT hand that is EVERY mode while the hand has a pose and
+/// holds nothing (test #19). Test #14: the visible beam is a
 /// STRAIGHT segment of the aim ray — hits clamp its length, the reticle sits at
 /// ray ∩ surface on that line, and nothing may re-aim it (see UpdateVisuals).
 ///
@@ -112,28 +113,70 @@ internal sealed class RayInteractor : IPickProvider
     /// <summary>Latest pick (updated once per frame while enabled).</summary>
     public PickPose Current => _current;
 
-    /// <summary>Enable/disable (mode policy). Hides the laser when disabled.</summary>
+    /// <summary>
+    /// Mode-policy input (<see cref="VRHand.SetInteractorMask"/>). ONE input into the
+    /// effective state — <see cref="Active"/> re-derives on/off from live facts every
+    /// frame and <see cref="Tick"/> syncs the visuals (test #19: never edge-latched).
+    /// </summary>
     public bool Enabled
     {
         get => _enabled;
-        set
-        {
-            if (_enabled == value)
-                return;
-            _enabled = value;
-            UpdateVisualActive();
-        }
+        set => _enabled = value;
     }
+
+    /// <summary>
+    /// LASER PERSISTENCE TRUTH TABLE (hardware test #19: the dominant laser silently
+    /// vanished mid-scenario and never returned). Every path that can turn this ray
+    /// or its visuals off — each must be a LEVEL (re-read from live state every
+    /// frame), never an edge-latched flag, so a missed release/mode event can never
+    /// strand the laser off:
+    ///
+    ///   input (re-read per Tick)      | turns off      | can it latch?
+    ///   ------------------------------+----------------+----------------------------------
+    ///   mode mask (Enabled=false)     | pick + visuals | WAS THE #19 LATCH: TableIdle and
+    ///                                 |                | HalfSelection carried no Ray, and
+    ///                                 |                | a single-target attack waits in
+    ///                                 |                | Choreographer state
+    ///                                 |                | WaitingForCardSelection — NOT a
+    ///                                 |                | TargetingStates member — so the
+    ///                                 |                | mode stayed HalfSelection and the
+    ///                                 |                | laser was policy-off for the whole
+    ///                                 |                | attack. Fixed: InteractorsFor ORs
+    ///                                 |                | Ray into the DOMINANT role in
+    ///                                 |                | every mode.
+    ///   !VRHand.HasPose               | pick + visuals | no — device tracking level; the
+    ///                                 |                | visuals return the frame the pose
+    ///                                 |                | returns.
+    ///   Grabber.Held != null          | pick + visuals | no — Held is itself level-derived
+    ///                                 |                | (release re-checks the live button
+    ///                                 |                | state every Tick; CancelAll on
+    ///                                 |                | mode disable and tracking loss).
+    ///   ModalUI cone (VisualsAllowed) | visuals only   | no — recomputed per frame; leaves
+    ///                                 |                | with the mode.
+    ///   UiHitOverride                 | nothing        | no — clamps beam LENGTH only,
+    ///                                 |                | one-frame freshness window.
+    ///   dominance switch              | via mode mask  | no — HandsDriver reapplies masks
+    ///                                 |                | on PrimaryHand.SettingChanged and
+    ///                                 |                | on every hands rebuild.
+    ///   rig/hands rebuild             | visuals die    | no — Build → ApplyMode recreates
+    ///                                 |                | hand, ray and visuals together.
+    /// </summary>
+    public bool Active => _enabled && _hand.HasPose && !IsHolding;
+
+    /// <summary>Transient suppression: the hand is actually holding a grabbable RIGHT NOW.</summary>
+    private bool IsHolding => _hand.Grabber != null && _hand.Grabber.Held != null;
 
     public bool TryGetPick(out PickPose pick)
     {
         pick = _current;
-        return _enabled && _hand.HasPose;
+        return Active;
     }
 
     internal void Tick()
     {
-        if (!_enabled || !_hand.HasPose)
+        bool active = Active;
+        SyncActiveState(active);
+        if (!active)
         {
             _current.HasHit = false;
             return;
@@ -232,10 +275,15 @@ internal sealed class RayInteractor : IPickProvider
             CreateVisuals();
 
         // ModalUI constraint: keep the pick alive but hide the beam unless it points
-        // at a UI surface (MISSION A.5).
+        // at a UI surface (MISSION A.5). Change-deduped log (test #19): every visual
+        // flip must be attributable from the log.
         bool show = VisualsAllowed(origin, direction);
         if (_laser!.gameObject.activeSelf != show)
+        {
             _laser.gameObject.SetActive(show);
+            Core.VRLog.Debug("Hands", $"{_hand.Side} ray visuals {(show ? "shown" : "hidden")} — " +
+                                      "ModalUI UI-surface cone gate.");
+        }
         if (!show)
         {
             if (_reticle!.gameObject.activeSelf)
@@ -328,10 +376,10 @@ internal sealed class RayInteractor : IPickProvider
         _reticle.gameObject.SetActive(false);
 
         // Lazily created AFTER HandsDriver's tree-wide VRLayers.Apply — layer them here.
+        // Only reached from UpdateVisuals, i.e. while Active — the new laser GO's
+        // default-active state is already correct; SyncActiveState keeps it so.
         Core.VRLayers.Apply(laserGo);
         Core.VRLayers.Apply(reticleGo);
-
-        UpdateVisualActive();
     }
 
     private Material CreateBeamMaterial(out Color color)
@@ -353,11 +401,31 @@ internal sealed class RayInteractor : IPickProvider
         return material;
     }
 
-    private void UpdateVisualActive()
+    // ---- effective-state sync ----------------------------------------------------------
+
+    private bool _wasActive;
+    private string _lastReason = "";
+
+    /// <summary>
+    /// Applies the level-derived state to the visuals and emits ONE Debug line per
+    /// state/reason change naming the cause (test #19: a future silent disappearance
+    /// must be attributable from the log). Change-deduped — nothing per-frame.
+    /// </summary>
+    private void SyncActiveState(bool active)
     {
-        if (_laser != null)
-            _laser.gameObject.SetActive(_enabled);
-        if (_reticle != null && !_enabled)
+        string reason = active ? "active"
+            : !_enabled ? $"mode policy — no Ray in the {VRModeStateMachine.CurrentMode} mask"
+            : !_hand.HasPose ? "no pose (tracking lost)"
+            : "hand is holding a grabbable (level-derived, releases with it)";
+        if (active == _wasActive && reason == _lastReason)
+            return;
+        _wasActive = active;
+        _lastReason = reason;
+        Core.VRLog.Debug("Hands", $"{_hand.Side} ray {(active ? "ON" : "OFF")} — {reason}.");
+
+        if (_laser != null && _laser.gameObject.activeSelf != active)
+            _laser.gameObject.SetActive(active);
+        if (_reticle != null && !active)
             _reticle.gameObject.SetActive(false);
     }
 
