@@ -35,7 +35,7 @@ namespace GloomhavenVR.Cards;
 /// LongRestToken/ConfirmButton/UndoButton</c>, see unity/.../Table/README.md) with a
 /// full procedural fallback.
 /// </summary>
-internal sealed class PlayTray
+internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 {
     // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13),
     // widened again in test #15: hardware logs showed releases consistently landing
@@ -290,9 +290,17 @@ internal sealed class PlayTray
 
     // ------------------------------------------------------------------ grab handle --
 
-    private TrayGrabHandle? _handle;
+    private WorldUI.PanelGrabHandle? _handle;
     private BoardButton? _followToggle;
     private BoardButton? _gear;
+
+    // ---- IPanelGrabOwner (test #19: the grab mechanics moved into the shared
+    // WorldUI.PanelGrabHandle core so panels can be grabbed exactly like the tray;
+    // the tray's behavior is unchanged — same carry, resize, persistence, logs).
+    Transform? WorldUI.IPanelGrabOwner.GrabRoot => Root;
+    bool WorldUI.IPanelGrabOwner.GrabVisible => IsVisible;
+    bool WorldUI.IPanelGrabOwner.GrabCarriesYaw => true; // the carry yaws the tray with the hand
+    void WorldUI.IPanelGrabOwner.OnGrabFinished() => PersistPoseToConfig();
 
     /// <summary>
     /// Test #14 ("Controllboard"): a clearly visible handle bar along the tray's
@@ -321,8 +329,8 @@ internal sealed class PlayTray
         box.size = new Vector3(BoardW * 0.62f, 0.05f, 0.05f);
         box.isTrigger = true;
 
-        _handle = handleGo.AddComponent<TrayGrabHandle>();
-        _handle.Init(this, bar.GetComponent<MeshRenderer>());
+        _handle = handleGo.AddComponent<WorldUI.PanelGrabHandle>();
+        _handle.Init(this, bar.GetComponent<MeshRenderer>(), "Cards", "Tray");
     }
 
     // ------------------------------------------------------------------ dashboard controls --
@@ -538,7 +546,7 @@ internal sealed class PlayTray
 
     /// <summary>
     /// Persist the CURRENT root pose back into the config (called by
-    /// <see cref="TrayGrabHandle"/> when the last gripping hand lets go): the inverse
+    /// the shared <see cref="WorldUI.PanelGrabHandle"/> when the last gripping hand lets go): the inverse
     /// of <see cref="PlaceAtHead"/> — head-relative offsets in real meters, yaw
     /// relative to the head's flat forward, and the size multiplier. BepInEx writes
     /// the ConfigFile on set, so the layout survives sessions.

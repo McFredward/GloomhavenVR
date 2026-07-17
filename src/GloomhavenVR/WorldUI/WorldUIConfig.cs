@@ -73,6 +73,22 @@ internal static class WorldUIConfig
     /// <summary>Legacy: world panels re-orient with the rig yaw per frame (HUD-like). Default false (P6).</summary>
     internal static ConfigEntry<bool> PanelsFollowView = null!;
 
+    // ---- combat log panel layout (test #19: movable/scalable/pinnable like the tray) -----
+    /// <summary>Combat log anchor mode: true = re-derive from the seat anchor, false = pinned in the world.</summary>
+    internal static ConfigEntry<bool> CombatLogFollow = null!;
+
+    /// <summary>Combat log offset from the table anchor along the seat forward, real meters.</summary>
+    internal static ConfigEntry<float> CombatLogForward = null!;
+
+    /// <summary>Combat log offset to the seat right, real meters.</summary>
+    internal static ConfigEntry<float> CombatLogRight = null!;
+
+    /// <summary>Combat log height above the table plane, real meters.</summary>
+    internal static ConfigEntry<float> CombatLogUp = null!;
+
+    /// <summary>Combat log size multiplier (two-hand resize; clamped 0.5–2).</summary>
+    internal static ConfigEntry<float> CombatLogScale = null!;
+
     /// <summary>Modal fallback style: "window" (float only the dialog window) | "screen" (full flat screen).</summary>
     internal static ConfigEntry<string> ModalStyle = null!;
 
@@ -198,6 +214,23 @@ internal static class WorldUIConfig
             "'both': both paths (may double-fire — diagnostic use only). Deliberate drags " +
             "always go through the virtual mouse regardless of mode.");
 
+        CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollow", true,
+            "Combat log panel anchor mode (test #19; the panel's own FOLLOW/PINNED pin " +
+            "button flips this). True: the panel re-derives its place from the table anchor " +
+            "+ seat yaw every frame (moves with recenters and the diorama like the other " +
+            "world panels). False (PINNED): the panel keeps its exact world pose; like the " +
+            "tray, a pinned pose re-derives from the persisted offsets once per scenario " +
+            "entry (world poses do not survive sessions).");
+        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", 0.62f,
+            "Combat log panel offset from the table anchor along the seat forward, real " +
+            "meters (default = the old arc slot: azimuth 56° at 1.10 m). Persisted " +
+            "automatically when the panel's grab bar is released.");
+        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", 0.91f,
+            "Combat log panel offset to the seat right, real meters (grab-persisted).");
+        CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", 0.45f,
+            "Combat log panel height above the table plane, real meters (grab-persisted).");
+        CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", 1.0f,
+            "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).");
         PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", false,
             "LEGACY (pre-test-#8) behavior: the world panels (initiative track, element " +
             "board, combat log, objectives, button cluster) re-derive their placement from " +

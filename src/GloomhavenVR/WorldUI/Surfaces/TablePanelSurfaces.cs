@@ -257,24 +257,6 @@ internal sealed class ElementBoardSurface : SlotPanelSurface
 }
 
 /// <summary>
-/// Combat log as a smaller world panel, farther out on the arc.
-/// Verified: <c>[RequireComponent(typeof(UIWindow))] public class CombatLogHandler :
-/// Singleton&lt;CombatLogHandler&gt;, IPointerEnterHandler, ...</c>. The ScrollRect keeps
-/// working — poke drags synthesize real pointer events on the host raycaster.
-/// </summary>
-internal sealed class CombatLogSurface : SlotPanelSurface
-{
-    public override string Name => "CombatLog";
-    protected override bool ConfigEnabled => WorldUIConfig.CombatLog.Value;
-    protected override PanelSlot Slot => PanelSlot.CombatLog;
-
-    protected override RectTransform? FindTarget() =>
-        Singleton<CombatLogHandler>.IsInitialized
-            ? Singleton<CombatLogHandler>.Instance.transform as RectTransform
-            : null;
-}
-
-/// <summary>
 /// Scenario objectives ('das Ziel'), docked to the tray dashboard's LEFT edge
 /// (test #15; floating slot layout only as fallback).
 /// Verified: <c>UIManager.MissionObjectiveContainer</c> property
