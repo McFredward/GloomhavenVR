@@ -1,5 +1,6 @@
 using System.Text;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using ScenarioRuleLibrary;
 using TMPro;
@@ -10,21 +11,38 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>
 /// Compact character status on the non-dominant wrist (ROADMAP P3c #5): HP, XP,
 /// gold, level and condition counts, look-at activated (watch-check gesture).
+/// Test #13: topped by a PROMINENT character identity row — class portrait + name
+/// of the character the player is currently acting for ("whose cards am I picking").
 ///
 /// Data sources (verified via ilspycmd, ScenarioRuleLibrary.dll — the same values
 /// NewPartyDisplayUI/ActorStatPanel render): <c>CActor.Health / MaxHealth
 /// (public int)</c>, <c>public int XP =&gt; m_XP;</c>, <c>public int Gold =&gt; m_Gold;</c>,
 /// <c>CActor.Level</c>, <c>public CTokens Tokens</c> with
-/// <c>GetAllPositiveConditions()/GetAllNegativeConditions()</c>;
-/// actor picked from <c>Choreographer.CurrentPlayerActor</c> (own turn) falling back
-/// to <c>InitiativeTrack.Instance.SelectedActor().Actor</c> (the pattern UndoButton
-/// itself uses). The 2D party HUD canvases are deeply embedded in
-/// <c>NewPartyDisplayUI</c> layout groups, so a minimal TMP panel with live values is
-/// built instead of converting them (documented decision — reuse was evaluated).
+/// <c>GetAllPositiveConditions()/GetAllNegativeConditions()</c>.
 ///
-/// Refresh cadence: the panel text rebuilds at 4 Hz (StringBuilder, only assigned on
-/// change); the per-frame path only does the look-at test and alpha fade —
-/// allocation-free.
+/// Actor resolution (test #13): during <see cref="VRMode.CardSelection"/> the hand
+/// the game presents wins — <c>CardsHandManager.Instance.CurrentHand/GetActiveHand()</c>
+/// (CardsHandManager.cs:127/137/595, via the Cards module's read-only
+/// <c>CardsGameApi.ActiveHand()</c>) → <c>CardsHandUI.PlayerActor</c>
+/// (CardsHandUI.cs:208) — that is the tab-switchable multi-merc hand whose cards are
+/// being selected. Otherwise <c>Choreographer.CurrentPlayerActor</c> (own turn,
+/// Choreographer.cs:474) falling back to
+/// <c>InitiativeTrack.Instance.SelectedActor().Actor</c> (the pattern UndoButton
+/// itself uses). Class portrait: <c>UIInfoTools.Instance (UIInfoTools.cs:465)
+/// .GetNewAdventureCharacterPortrait(ECharacter, …)</c> (UIInfoTools.cs:773) with
+/// <c>CCharacterClass.CharacterModel =&gt; m_CharacterYML.Model</c>
+/// (CCharacterClass.cs:234) — the exact call the game's own card-selection preview
+/// uses (CardsHandManager.ShowPreview, CardsHandManager.cs:776); when the sprite is
+/// unavailable the name stays as gold text without an icon. The 2D party HUD
+/// canvases are deeply embedded in <c>NewPartyDisplayUI</c> layout groups, so a
+/// minimal TMP panel with live values is built instead of converting them
+/// (documented decision — reuse was evaluated).
+///
+/// Refresh cadence: the panel rebuilds at 4 Hz (StringBuilder, only assigned on
+/// change) and IMMEDIATELY on turn/selection changes
+/// (<see cref="VREvents.ChoreographerMessage"/>,
+/// <see cref="VREvents.CardSelectionChanged"/>, mode changes); the per-frame path
+/// only does the look-at test and alpha fade — allocation-free.
 /// </summary>
 internal sealed class WristHud
 {
@@ -42,8 +60,17 @@ internal sealed class WristHud
     private float _nextRefresh;
     private string _lastText = string.Empty;
 
+    // Test #13 identity row.
+    private GameObject? _portraitGo;
+    private UnityEngine.UI.Image? _portrait;
+    private TextMeshProUGUI? _nameText;
+    private CPlayerActor? _identityActor;
+    private string _lastIdentity = string.Empty;
+    private bool _eventsAttached;
+
     public void Tick()
     {
+        EnsureEvents();
         bool want = WorldUIConfig.WristHud.Value && WorldUIConfig.ConversionActive
                     && Choreographer.s_Choreographer != null;
 
@@ -86,13 +113,52 @@ internal sealed class WristHud
 
     public void Shutdown()
     {
+        DetachEvents();
+        DestroyPanel();
+    }
+
+    private void DestroyPanel()
+    {
         if (_root != null)
         {
             Object.Destroy(_root);
             _root = null;
         }
         _hand = null;
+        _portraitGo = null;
+        _portrait = null;
+        _nameText = null;
+        _identityActor = null;
+        _lastIdentity = string.Empty;
     }
+
+    // ---- live update events (test #13) ---------------------------------------------------
+
+    private void EnsureEvents()
+    {
+        if (_eventsAttached)
+            return;
+        _eventsAttached = true;
+        VREvents.ChoreographerMessage += OnGameFlowChanged;
+        VREvents.CardSelectionChanged += OnCardSelectionChanged;
+        VRModeStateMachine.ModeChanged += OnModeChanged;
+    }
+
+    private void DetachEvents()
+    {
+        if (!_eventsAttached)
+            return;
+        _eventsAttached = false;
+        VREvents.ChoreographerMessage -= OnGameFlowChanged;
+        VREvents.CardSelectionChanged -= OnCardSelectionChanged;
+        VRModeStateMachine.ModeChanged -= OnModeChanged;
+    }
+
+    // Turn/round messages, card (de)selection and mode flips all potentially change
+    // whose character the HUD shows — force the next shown tick to refresh at once.
+    private void OnGameFlowChanged(ChoreoMessageEvent e) => _nextRefresh = 0f;
+    private void OnCardSelectionChanged(CardSelectionEvent e) => _nextRefresh = 0f;
+    private void OnModeChanged(VRModeChange e) => _nextRefresh = 0f;
 
     // ---- construction ------------------------------------------------------------------
 
@@ -106,7 +172,7 @@ internal sealed class WristHud
 
     private void Build(VRHand hand)
     {
-        Shutdown();
+        DestroyPanel();
         _hand = hand;
 
         _root = new GameObject("GloomhavenVR.WristHud");
@@ -123,8 +189,8 @@ internal sealed class WristHud
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.worldCamera = CanvasConversion.WorldCamera;
         var rect = (RectTransform)_root.transform;
-        rect.sizeDelta = new Vector2(240f, 150f);
-        rect.localScale = Vector3.one * 0.0004f; // 0.4 mm/px → 9.6 × 6 cm watch face
+        rect.sizeDelta = new Vector2(240f, 196f); // +46 px identity row (test #13)
+        rect.localScale = Vector3.one * 0.0004f; // 0.4 mm/px → 9.6 × 7.8 cm watch face
 
         _group = _root.AddComponent<CanvasGroup>();
         _group.alpha = 0f;
@@ -141,6 +207,38 @@ internal sealed class WristHud
         bgRect.anchorMax = Vector2.one;
         bgRect.sizeDelta = Vector2.zero;
 
+        // Identity row (test #13): class portrait + prominent name at the top.
+        _portraitGo = new GameObject("Portrait");
+        _portraitGo.layer = 5;
+        _portraitGo.transform.SetParent(_root.transform, worldPositionStays: false);
+        _portrait = _portraitGo.AddComponent<UnityEngine.UI.Image>();
+        _portrait.preserveAspect = true;
+        _portrait.raycastTarget = false;
+        var portraitRect = (RectTransform)_portraitGo.transform;
+        portraitRect.anchorMin = new Vector2(0f, 1f);
+        portraitRect.anchorMax = new Vector2(0f, 1f);
+        portraitRect.pivot = new Vector2(0f, 1f);
+        portraitRect.anchoredPosition = new Vector2(8f, -8f);
+        portraitRect.sizeDelta = new Vector2(44f, 44f);
+        _portraitGo.SetActive(false); // enabled once a sprite resolves
+
+        var nameGo = new GameObject("Name");
+        nameGo.layer = 5;
+        nameGo.transform.SetParent(_root.transform, worldPositionStays: false);
+        _nameText = nameGo.AddComponent<TextMeshProUGUI>();
+        _nameText.fontSize = 21f;
+        _nameText.alignment = TextAlignmentOptions.MidlineLeft;
+        _nameText.richText = true;
+        _nameText.enableWordWrapping = false;
+        _nameText.overflowMode = TextOverflowModes.Ellipsis;
+        var nameRect = (RectTransform)nameGo.transform;
+        nameRect.anchorMin = new Vector2(0f, 1f);
+        nameRect.anchorMax = new Vector2(1f, 1f);
+        nameRect.pivot = new Vector2(0f, 1f);
+        nameRect.offsetMin = new Vector2(60f, -52f);
+        nameRect.offsetMax = new Vector2(-8f, -8f);
+        WorldUIAssets.TryAssignGameFont(_nameText);
+
         var textGo = new GameObject("Text");
         textGo.layer = 5;
         textGo.transform.SetParent(_root.transform, worldPositionStays: false);
@@ -151,10 +249,13 @@ internal sealed class WristHud
         var textRect = (RectTransform)textGo.transform;
         textRect.anchorMin = Vector2.zero;
         textRect.anchorMax = Vector2.one;
-        textRect.sizeDelta = new Vector2(-16f, -12f);
+        textRect.offsetMin = new Vector2(8f, 6f);
+        textRect.offsetMax = new Vector2(-8f, -58f);
         WorldUIAssets.TryAssignGameFont(_text);
 
         _lastText = string.Empty;
+        _lastIdentity = string.Empty;
+        _identityActor = null;
         _nextRefresh = 0f;
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
         VRLayers.Apply(_root);
@@ -169,6 +270,8 @@ internal sealed class WristHud
             return;
 
         CPlayerActor? actor = ResolveActor();
+        RefreshIdentity(actor);
+
         _sb.Length = 0;
         if (actor == null)
         {
@@ -176,7 +279,7 @@ internal sealed class WristHud
         }
         else
         {
-            _sb.Append("<b>").Append(actor.CharacterName).Append("</b>  L").Append(actor.Level).Append('\n');
+            _sb.Append("<alpha=#AA>Level ").Append(actor.Level).Append("<alpha=#FF>\n");
             _sb.Append("<color=#ff6a5e>HP ").Append(actor.Health).Append('/').Append(actor.MaxHealth).Append("</color>   ");
             _sb.Append("<color=#7fd4ff>XP ").Append(actor.XP).Append("</color>\n");
             _sb.Append("<color=#ffd45e>Gold ").Append(actor.Gold).Append("</color>\n");
@@ -212,11 +315,85 @@ internal sealed class WristHud
         }
     }
 
+    /// <summary>
+    /// Identity row (test #13): portrait sprite is fetched only when the resolved
+    /// actor changes; the name/context string rebuilds at refresh cadence and is
+    /// only assigned on change (same pattern as the stats text).
+    /// </summary>
+    private void RefreshIdentity(CPlayerActor? actor)
+    {
+        if (_nameText == null)
+            return;
+
+        if (!ReferenceEquals(actor, _identityActor))
+        {
+            _identityActor = actor;
+            Sprite? sprite = null;
+            if (actor != null)
+            {
+                // Verified: UIInfoTools.Instance (UIInfoTools.cs:465),
+                // GetNewAdventureCharacterPortrait (UIInfoTools.cs:773),
+                // CCharacterClass.CharacterModel (CCharacterClass.cs:234) — the call
+                // the game's card-selection preview makes (CardsHandManager.cs:776).
+                // Guarded: modded/custom classes may lack a config → text fallback.
+                try
+                {
+                    UIInfoTools tools = UIInfoTools.Instance;
+                    if (tools != null)
+                        sprite = tools.GetNewAdventureCharacterPortrait(actor.CharacterClass.CharacterModel);
+                }
+                catch (System.Exception ex)
+                {
+                    VRLog.Debug("WorldUI", $"WristHud: no class portrait ({ex.GetType().Name}) — name-only identity.");
+                }
+            }
+            if (_portrait != null && _portraitGo != null)
+            {
+                _portrait.sprite = sprite;
+                _portraitGo.SetActive(sprite != null);
+            }
+        }
+
+        Choreographer choreographer = Choreographer.s_Choreographer;
+        string context =
+            actor == null ? string.Empty :
+            VRModeStateMachine.CurrentMode == VRMode.CardSelection ? "selecting cards" :
+            choreographer != null && ReferenceEquals(actor, choreographer.CurrentPlayerActor) ? "current turn" :
+            "selected";
+        _sb.Length = 0;
+        if (actor == null)
+            _sb.Append("<alpha=#88>—");
+        else
+            _sb.Append("<size=13><alpha=#AA>").Append(context).Append("</size>\n")
+               .Append("<b><color=#ffd45e>").Append(actor.CharacterName).Append("</color></b>");
+
+        string identity = _sb.ToString();
+        if (identity != _lastIdentity)
+        {
+            _lastIdentity = identity;
+            _nameText.text = identity;
+            if (_nameText.font == null)
+                WorldUIAssets.TryAssignGameFont(_nameText);
+        }
+    }
+
     private static CPlayerActor? ResolveActor()
     {
         Choreographer choreographer = Choreographer.s_Choreographer;
         if (choreographer == null)
             return null;
+
+        // Test #13: while cards are being selected, the character the fan belongs to
+        // wins — the tab-switchable hand the game presents. Read-only access through
+        // the Cards module's verified API surface (CardsGameApi.ActiveHand():
+        // CardsHandManager.Instance/CurrentHand/GetActiveHand, CardsHandManager.cs:
+        // 127/137/595; CardsHandUI.PlayerActor, CardsHandUI.cs:208).
+        if (VRModeStateMachine.CurrentMode == VRMode.CardSelection)
+        {
+            CardsHandUI? hand = Cards.CardsGameApi.ActiveHand();
+            if (hand != null && hand.PlayerActor != null)
+                return hand.PlayerActor;
+        }
 
         CPlayerActor? actor = choreographer.CurrentPlayerActor;
         if (actor != null)
