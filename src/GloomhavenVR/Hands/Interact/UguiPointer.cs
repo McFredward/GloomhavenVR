@@ -34,6 +34,7 @@ internal sealed class UguiPointer
     private const int RightHandRayPointerId = -112;
 
     private readonly int _pointerId;
+    private readonly string _sourceTag; // click-log provenance ("laser-L", "poke-R")
     private readonly List<RaycastResult> _hits = new(16);
 
     private PointerEventData? _pointerData;
@@ -46,6 +47,7 @@ internal sealed class UguiPointer
         _pointerId = farRay
             ? (side == HandSide.Left ? LeftHandRayPointerId : RightHandRayPointerId)
             : (side == HandSide.Left ? LeftHandPointerId : RightHandPointerId);
+        _sourceTag = (farRay ? "laser" : "poke") + (side == HandSide.Left ? "-L" : "-R");
     }
 
     /// <summary>Currently hovered uGUI object (topmost raycast hit), if any.</summary>
@@ -130,7 +132,14 @@ internal sealed class UguiPointer
             ? ExecuteEvents.GetEventHandler<IPointerClickHandler>(_hovered)
             : null;
         if (_pressedClickHandler != null && ReferenceEquals(hoveredClickHandler, _pressedClickHandler))
+        {
             ExecuteEvents.Execute(_pressedClickHandler, data, ExecuteEvents.pointerClickHandler);
+            // Test #18 verification: every synthesized uGUI click carries its
+            // provenance in the log — "did the initiative portrait click reach the
+            // game's handler" is answerable from the log alone (the P7 idiom:
+            // every interaction is logged).
+            Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
+        }
 
         data.pointerPress = null;
         data.eligibleForClick = false;

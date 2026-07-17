@@ -25,7 +25,6 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> ElementBoard = null!;
     internal static ConfigEntry<bool> CombatLog = null!;
     internal static ConfigEntry<bool> Objectives = null!;
-    internal static ConfigEntry<bool> PhaseBanner = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> StatPanels = null!;
     internal static ConfigEntry<bool> PropInfoCards = null!;
@@ -135,8 +134,6 @@ internal static class WorldUIConfig
             "Combat log as a world-space panel at the table's far side.");
         Objectives = _file.Bind("WorldUI", "Objectives", true,
             "Scenario objectives as a world-space panel at the table's far side.");
-        PhaseBanner = _file.Bind("WorldUI", "PhaseBanner", true,
-            "Phase banner (round/turn announcements) as a brief HMD-anchored toast.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", true,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no).");
         StatPanels = _file.Bind("WorldUI", "StatPanels", true,

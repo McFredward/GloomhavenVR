@@ -177,6 +177,19 @@ internal static class CardsGameApi
     internal static bool IsSelectionReady(CardsHandUI hand) =>
         hand.PlayerActor != null && hand.PlayerActor.IsCardSelectionReady();
 
+    /// <summary>
+    /// Current scenario round (0 while no scenario state exists). Verified:
+    /// <c>public ScenarioState m_CurrentState</c> (Choreographer.cs:421) with
+    /// <c>public int RoundNumber { get; set; }</c> (ScenarioState.cs:68) — the exact
+    /// value the game feeds <c>PhaseBannerHandler.ShowStartRound</c>
+    /// (Choreographer.cs:3443), i.e. the number the "Runde N" banner shows.
+    /// </summary>
+    internal static int RoundNumber()
+    {
+        Choreographer c = Choreographer.s_Choreographer;
+        return c != null && c.m_CurrentState != null ? c.m_CurrentState.RoundNumber : 0;
+    }
+
     // ------------------------------------------------------------------------ rests --
 
     /// <summary>

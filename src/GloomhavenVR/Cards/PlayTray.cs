@@ -23,7 +23,9 @@ namespace GloomhavenVR.Cards;
 /// - CENTER: two large card slots (slot 0 = initiative, marked by the numbered
 ///   badge; drop to place, grab to take back, physical swap = initiative swap),
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
-///   gear; the PIN follow-toggle sits on the bottom-right frame corner.
+///   gear; the PIN follow-toggle sits on the bottom-right frame corner,
+/// - TOP-RIGHT corner: the round readout (test #18 — replaces the floating
+///   PhaseBanner box; same "Runde N" text, fed from the same game state).
 /// Poke AND laser work on every element: pokes via the P2 registry, laser via
 /// <see cref="LaserTargets"/> which CardsDriver ray-tests geometrically each frame.
 /// Every interaction is logged. Slot order == initiative order:
@@ -43,6 +45,23 @@ internal sealed class PlayTray
     private const float SlotCaptureRadius = 0.25f;
 
     /// <summary>
+    /// Test #18: the card slots read a bit small — the slot ROOTS are scaled 1.3×,
+    /// which uniformly enlarges the frames, the snap-glow highlights, the initiative
+    /// badge and the PARKED cards (cards park at localScale 1 under the slot, so the
+    /// parent scale IS the slot size). Layout stays collision-free at SlotSpacing
+    /// 0.155: enlarged highlight half-width 0.0635·1.24·1.3/2 ≈ 0.051 m → outer
+    /// edges ±0.129, clear of the rest plate (right edge -0.19) and the CONFIRM
+    /// column (base-plate left edge ≈ 0.177); the inter-slot highlight gap stays
+    /// ≈ 0.053 m. Grab/release is unaffected: VRCard.OnGrab re-parents into the
+    /// hand (held scale is hand-defined) and OnRelease restores localScale =
+    /// home scale back under the slot. Slot captions compensate the inherited
+    /// scale (see <see cref="BuildSlotLabels"/>); SlotCaptureRadius stays as-is —
+    /// at 0.25 m it already spans both slots and the glow is the primary accept
+    /// rule anyway.
+    /// </summary>
+    private const float SlotScale = 1.3f;
+
+    /// <summary>
     /// The live tray instance (test #15 dashboard mount seam): WorldUI surfaces read
     /// <see cref="InitiativeMount"/>/<see cref="ObjectivesMount"/> through this to
     /// pose their converted hosts on the tray. Null while no tray exists.
@@ -59,6 +78,7 @@ internal sealed class PlayTray
     private readonly VRCard?[] _occupants = new VRCard?[2];
 
     private TextMeshPro? _badge;
+    private TextMeshPro? _roundLabel;
     private InitiativeBadgeZone? _badgeZone;
     private BoardButton? _confirm;
     private BoardButton? _undo;
@@ -191,12 +211,23 @@ internal sealed class PlayTray
         if (_slots[0] == null || _slots[1] == null)
             BuildProceduralBoard();
 
+        // Bigger card slots (test #18): scale the slot roots BEFORE the dependent
+        // visuals build — frames (already childed), highlights, badge, labels and
+        // the parked cards all inherit the slot scale.
+        for (int i = 0; i < 2; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot != null)
+                slot.localScale *= SlotScale;
+        }
+
         BuildSlotLabels();
         BuildSlotHighlights();
         BuildBadge();
         BuildButtons(confirmAnchor, undoAnchor);
         BuildHandle();
         BuildDashboardControls();
+        BuildRoundReadout();
         BuildMounts();
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
@@ -213,6 +244,39 @@ internal sealed class PlayTray
     /// the free-floating world panel); the objectives panel docks off the left edge.
     /// WorldUI pose-follows these — see the mount seam doc at <see cref="InitiativeMount"/>.
     /// </summary>
+    /// <summary>
+    /// Test #18: the round number ON the board (top-right corner, above the CONFIRM
+    /// column) instead of the floating PhaseBanner box. A small dark plate + gold
+    /// TMP label; the text updates change-gated in <see cref="TickStatus"/>.
+    /// Collision check: plate top edge y≈0.143 &lt; board edge 0.16; bottom edge
+    /// y≈0.107 clears the CONFIRM base plate (top edge y≈0.079).
+    /// </summary>
+    private void BuildRoundReadout()
+    {
+        if (_root == null)
+            return;
+
+        var readoutGo = new GameObject("RoundReadout");
+        readoutGo.transform.SetParent(_root, worldPositionStays: false);
+        readoutGo.transform.localPosition = new Vector3(ButtonZoneX, 0.125f, -0.004f);
+
+        var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        plate.name = "Plate";
+        Object.Destroy(plate.GetComponent<Collider>());
+        plate.transform.SetParent(readoutGo.transform, worldPositionStays: false);
+        plate.transform.localScale = new Vector3(0.13f, 0.036f, 1f);
+        plate.transform.localPosition = new Vector3(0f, 0f, 0.006f); // behind the text, in front of the board
+        Tint(plate, new Color(0.12f, 0.11f, 0.10f));
+
+        _roundLabel = readoutGo.AddComponent<TextMeshPro>();
+        _roundLabel.text = "-";
+        _roundShown = int.MinValue; // keep the change-detection key in sync after a rebuild
+        _roundLabel.alignment = TextAlignmentOptions.Center;
+        _roundLabel.color = new Color(1f, 0.9f, 0.6f);
+        // Single line fitted to the plate ("Runde 12" and longer localizations shrink).
+        Core.TmpFit.Fit(_roundLabel, 0.12f, 0.028f, maxFontSize: 0.32f, wrap: false);
+    }
+
     private void BuildMounts()
     {
         _initiativeMount = new GameObject("InitiativeMount").transform;
@@ -370,6 +434,8 @@ internal sealed class PlayTray
         _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
         _highlightedSlot = -1;
         _badge = null;
+        _roundLabel = null; // child of _root, destroyed with it
+        _roundShown = int.MinValue;
         _badgeZone = null;
         _confirm = null;
         _undo = null;
@@ -781,9 +847,47 @@ internal sealed class PlayTray
     // against its plate (test #13).
     private int _badgeState = int.MinValue;
 
-    /// <summary>Update badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
+    // Last shown round number (change-gated like the badge; int.MinValue = never).
+    private int _roundShown = int.MinValue;
+
+    /// <summary>Update round readout, badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        // Round readout (test #18): the PhaseBanner world conversion is GONE — the
+        // round number lives on the dashboard instead, read from the same state the
+        // banner showed (CardsGameApi.RoundNumber). Change-gated: TMP rewrites
+        // re-trigger auto-size layout (the badge flicker lesson, test #13).
+        if (_roundLabel != null)
+        {
+            int round = CardsGameApi.RoundNumber();
+            if (round != _roundShown)
+            {
+                _roundShown = round;
+                string text;
+                if (round <= 0)
+                {
+                    text = "-";
+                }
+                else
+                {
+                    // The banner's own text: GUI_START_ROUND_BANNER is "Runde {0}"
+                    // (PhaseBannerHandler.ShowStartRound). Guard the Format — a
+                    // malformed localization must not kill the status tick.
+                    try
+                    {
+                        text = string.Format(
+                            CardsGameApi.Localize("GUI_START_ROUND_BANNER", "Round {0}"), round);
+                    }
+                    catch (System.FormatException)
+                    {
+                        text = $"Round {round}";
+                    }
+                }
+                _roundLabel.text = text;
+                VRLog.Info("Cards", $"Board: round readout → '{text}'.");
+            }
+        }
+
         if (_badge == null)
             return;
 
@@ -916,13 +1020,18 @@ internal sealed class PlayTray
         // to the physical order) — label it so the marking is unambiguous.
         // Caption box stays inside one slot pitch (SlotSpacing 0.155) so neighboring
         // captions can never collide; "INITIATIVE" (and longer localizations) shrink
-        // to a single line inside it (TmpFit, test #12).
+        // to a single line inside it (TmpFit, test #12). The captions are children
+        // of the SCALED slots (test #18): the box metrics divide by SlotScale so the
+        // EFFECTIVE caption size stays as designed — an inherited 1.3× would push
+        // the 0.14 box past the 0.155 pitch and collide the neighboring caption.
         AddCaption(_slots[0]!, new Vector3(0f, -h * 0.62f, -0.004f),
             CardsGameApi.Localize("GUI_INITIATIVE", "INITIATIVE"), new Color(1f, 0.9f, 0.6f),
-            maxUpper: true, width: 0.14f, height: 0.024f, maxFontSize: 0.28f);
+            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
+            maxFontSize: 0.28f / SlotScale);
         AddCaption(_slots[1]!, new Vector3(0f, -h * 0.62f, -0.004f),
             "2", new Color(0.75f, 0.73f, 0.7f),
-            maxUpper: true, width: 0.14f, height: 0.024f, maxFontSize: 0.28f);
+            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
+            maxFontSize: 0.28f / SlotScale);
     }
 
     private void BuildBadge()
