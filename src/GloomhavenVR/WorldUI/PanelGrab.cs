@@ -20,10 +20,10 @@ internal interface IPanelGrabOwner
     bool GrabVisible { get; }
 
     /// <summary>
-    /// True (tray): the carry also yaws the root with the hand/pair heading.
-    /// False (billboard panels): the grab drives position + scale ONLY — the owner
-    /// keeps authoring the rotation every tick (a yaw-billboard must not fight the
-    /// carry; two writers on the same rotation would jitter).
+    /// True (tray, combat log): the carry also yaws the root with the hand/pair
+    /// heading. False (owner-rotated panels, e.g. a billboard): the grab drives
+    /// position + scale ONLY — the owner keeps authoring the rotation (two
+    /// writers on the same rotation would jitter).
     /// </summary>
     bool GrabCarriesYaw { get; }
 
