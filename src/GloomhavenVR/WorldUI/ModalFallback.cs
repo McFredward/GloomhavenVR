@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
+using GloomhavenVR.Hands;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -61,6 +62,12 @@ namespace GloomhavenVR.WorldUI;
 /// universal rescue: while it forces the screen, all window conversions are RELEASED
 /// (a converted window would be missing from the screen's RT composite) and re-applied
 /// when the chord toggles the screen off again.
+///
+/// MODAL ESCAPE CHORD (test #17 hard-lock guarantee): while a window FLOATS here,
+/// the same non-dominant A/X hold closes the TOP modal through the game's own escape
+/// path instead — see <see cref="TickEscapeChord"/>. Even under an unknown future
+/// input failure, no modal can hard-lock a session: the chord runs on XR controller
+/// state and the close runs on game methods, independent of the whole pointer stack.
 ///
 /// CONVERTED vs FALLBACK window sets — see docs/TESTING-P3C.md (P6 section). Converted/
 /// passive windows (ConfirmationBox → DialogSurface, ActorStatPanel /
@@ -155,6 +162,10 @@ internal static class ModalFallback
     private static bool _dialogPopupOpen;
     private static bool _lastWant;
 
+    // Modal escape chord state (test #17) — per-press latches, reset on release.
+    private static bool _escapeChordFired;
+    private static bool _escapeArmingLogged;
+
     /// <summary>True while the flat screen must show because a fallback window is open.</summary>
     internal static bool ScreenWanted { get; private set; }
 
@@ -181,6 +192,8 @@ internal static class ModalFallback
         Failed.Clear();
         _storyOpen = _levelMsgOpen = _dialogPopupOpen = false;
         _lastWant = false;
+        _escapeChordFired = false;
+        _escapeArmingLogged = false;
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
     }
@@ -363,6 +376,8 @@ internal static class ModalFallback
         // every pokeable host is fitted after the show animation and periodically
         // re-fitted on content growth.)
 
+        TickEscapeChord(); // test #17: floating modals must always be closable
+
         if (want != _lastWant)
         {
             _lastWant = want;
@@ -379,6 +394,83 @@ internal static class ModalFallback
         // The manual chord path forces the screen inside FlatScreen regardless.
         ScreenWanted = want && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0);
         VRModeStateMachine.SetAuxModal(want); // idempotent — mode flow unchanged by style
+    }
+
+    // ---- modal escape chord (test #17) --------------------------------------------------
+
+    /// <summary>
+    /// Modal escape hatch (test #17 hard-lock guarantee): while a floating modal
+    /// window is open, holding the non-dominant A/X to the manual-chord threshold
+    /// closes the TOP (most recently floated) modal through the game's own escape
+    /// path — <c>UIWindow.Escape()</c> (exactly what the ESC key runs per window,
+    /// honors escapeKeyAction), falling back to the public <c>UIWindow.Hide()</c>
+    /// when the window opts out of escape. Game state observes the close normally
+    /// (OnHide/onHidden fire); nothing is bypassed.
+    ///
+    /// Chord arbitration: this consumer runs BEFORE <see cref="FlatScreen"/> in the
+    /// driver order and CONSUMES the press — one press, one action. While a modal
+    /// floats the chord means "close it"; the flat-screen toggle (and the
+    /// settings-panel short hold) need a fresh press once no modal floats, so the
+    /// universal screen rescue stays reachable.
+    /// </summary>
+    private static void TickEscapeChord()
+    {
+        if (Converted.Count == 0 || NonDominantHold.HeldSeconds <= 0f)
+        {
+            _escapeChordFired = false;
+            _escapeArmingLogged = false;
+            return;
+        }
+        if (NonDominantHold.Consumed || _escapeChordFired)
+            return;
+
+        float threshold = Mathf.Max(0.5f, WorldUIConfig.ManualScreenChordSeconds.Value);
+        if (!_escapeArmingLogged && NonDominantHold.HeldSeconds >= threshold * 0.5f)
+        {
+            _escapeArmingLogged = true;
+            VRLog.Info("WorldUI", $"Modal escape chord ARMING: non-dominant A/X held " +
+                                  $"{NonDominantHold.HeldSeconds:F1}s with a floating modal open — " +
+                                  $"keep holding to {threshold:F1}s to close the top modal window.");
+        }
+        if (NonDominantHold.HeldSeconds < threshold)
+            return;
+
+        _escapeChordFired = true;
+        NonDominantHold.Consumed = true; // one press, one action (screen/settings skip it)
+        NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
+        CloseTopModal(threshold);
+    }
+
+    /// <summary>Close the top (most recently floated) open modal via the game's own path.</summary>
+    private static void CloseTopModal(float heldSeconds)
+    {
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            UIWindow window = Converted[i].Window;
+            if (window == null || !window.IsOpen)
+                continue;
+            string name = window.name;
+            bool escaped = false;
+            try
+            {
+                // Game's per-window ESC path (decompiled UIWindow.cs:706): hides the
+                // window when its escapeKeyAction allows it, returns whether it acted.
+                escaped = window.Escape();
+                if (!escaped && window.IsOpen)
+                    window.Hide(); // public close entry — OnHide/onHidden fire normally
+            }
+            catch (Exception ex)
+            {
+                VRLog.Error("WorldUI", $"MODAL ESCAPE CHORD: closing '{name}' FAILED " +
+                                       $"({ex.GetType().Name}: {ex.Message}).");
+                return;
+            }
+            VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: force-closed top modal '{name}' (ID {window.ID}) " +
+                                  $"via {(escaped ? "UIWindow.Escape()" : "UIWindow.Hide()")} — " +
+                                  $"non-dominant A/X held {heldSeconds:F1}s.");
+            return;
+        }
+        VRLog.Info("WorldUI", "MODAL ESCAPE CHORD: no open floating modal left to close.");
     }
 
     // ---- window gathering helpers (allocation-free) -------------------------------------
@@ -496,6 +588,26 @@ internal static class ModalFallback
                                    "flat screen for this window.");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Presence-regained recovery (test #17): re-place every floating modal window in
+    /// front of the CURRENT head pose. The user may have physically moved while the
+    /// HMD was off — a modal stranded out of view is an un-dismissable lock. Returns
+    /// how many windows were re-floated (for the "[Core] Session resumed" report).
+    /// </summary>
+    internal static int RefloatOpenWindows()
+    {
+        int count = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!wp.Panel.IsAlive)
+                continue;
+            PlaceAtHmd(wp.Panel);
+            count++;
+        }
+        return count;
     }
 
     /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>

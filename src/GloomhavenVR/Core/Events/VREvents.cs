@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Code.State;
 using ScenarioRuleLibrary;
 using UnityEngine.SceneManagement;
@@ -172,6 +173,32 @@ internal readonly struct WindowVisibilityEvent
 }
 
 /// <summary>
+/// User presence / head tracking came back after a gap (HMD doffed and re-donned,
+/// runtime standby — hardware test #17). Raised by <see cref="VRPresenceWatch"/>.
+/// Handlers perform their recovery action synchronously and append a short
+/// description of what they recovered to <see cref="Recovered"/>; the raiser logs
+/// the combined "[Core] Session resumed" line afterwards.
+/// </summary>
+internal readonly struct SessionResumedEvent
+{
+    /// <summary>Approximate seconds the user was away (presence lost / head pose frozen).</summary>
+    public readonly float AwaySeconds;
+
+    /// <summary>Which signal detected the resume ("userPresence" or "head pose").</summary>
+    public readonly string Signal;
+
+    /// <summary>Recovery report: handlers append what they recovered (raiser logs the union).</summary>
+    public readonly List<string> Recovered;
+
+    public SessionResumedEvent(float awaySeconds, string signal, List<string> recovered)
+    {
+        AwaySeconds = awaySeconds;
+        Signal = signal;
+        Recovered = recovered;
+    }
+}
+
+/// <summary>
 /// Static VR event bus (FROZEN Phase-2 API). Feature modules subscribe here instead
 /// of patching game code themselves.
 ///
@@ -222,6 +249,9 @@ internal static class VREvents
     /// <summary>A game UIWindow was shown/hidden (UIWindow transition choke point). P6.</summary>
     public static event Action<WindowVisibilityEvent>? WindowVisibility;
 
+    /// <summary>User presence / head tracking regained after a gap (VRPresenceWatch raises). Test #17.</summary>
+    public static event Action<SessionResumedEvent>? SessionResumed;
+
     // -- publishers (called by the bridge/patches; not part of the frozen surface) --
 
     internal static void Raise(in ChoreoMessageEvent e) => Invoke(ChoreographerMessage, e, nameof(ChoreographerMessage));
@@ -236,6 +266,7 @@ internal static class VREvents
     internal static void Raise(in HandShownEvent e) => Invoke(HandShown, e, nameof(HandShown));
     internal static void Raise(in MiniaturePokedEvent e) => Invoke(MiniaturePoked, e, nameof(MiniaturePoked));
     internal static void Raise(in WindowVisibilityEvent e) => Invoke(WindowVisibility, e, nameof(WindowVisibility));
+    internal static void Raise(in SessionResumedEvent e) => Invoke(SessionResumed, e, nameof(SessionResumed));
 
     /// <summary>
     /// Invoke guard: a subscriber exception must never propagate into the game's

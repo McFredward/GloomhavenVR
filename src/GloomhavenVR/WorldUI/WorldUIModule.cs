@@ -40,6 +40,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
 
         VREvents.UiLockChanged += OnUiLock;
+        VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
         ModalFallback.Attach(); // catch-all modal fallback (P6): UIWindow visibility → ModalUI + screen
 
         _driverGo = new GameObject("GloomhavenVR.WorldUIDriver");
@@ -78,6 +79,7 @@ internal sealed class WorldUIModule : IVRModule
     public void Shutdown()
     {
         VREvents.UiLockChanged -= OnUiLock;
+        VREvents.SessionResumed -= OnSessionResumed;
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -95,6 +97,24 @@ internal sealed class WorldUIModule : IVRModule
     }
 
     private static void OnUiLock(UiLockEvent e) => CanvasConversion.SetUiLocked(e.Locked);
+
+    /// <summary>
+    /// Presence-regained recovery sweep (test #17): the HMD standby can hand pointer
+    /// currency to the frozen physical mouse and leave a floating modal stranded at
+    /// the pre-doff head pose. Re-assert the virtual mouse immediately (the Tick
+    /// keep-alive would also catch it, but the user is looking NOW) and re-float any
+    /// open modal window in front of the current head pose.
+    /// </summary>
+    private static void OnSessionResumed(SessionResumedEvent e)
+    {
+        string? mouse = VirtualMouse.ForceReassert("session resume");
+        if (mouse != null)
+            e.Recovered.Add(mouse);
+
+        int refloated = ModalFallback.RefloatOpenWindows();
+        if (refloated > 0)
+            e.Recovered.Add($"{refloated} modal window(s) re-floated at the current head pose");
+    }
 
     /// <summary>
     /// Per-frame service for all WorldUI features. Update: lifecycle/conversion

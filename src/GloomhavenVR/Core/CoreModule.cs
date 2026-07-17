@@ -41,8 +41,11 @@ internal sealed class CoreModule : IVRModule
             Object.DontDestroyOnLoad(_hostGo);
             _hostGo.hideFlags = HideFlags.HideAndDontSave;
             _hostGo.AddComponent<VRHeartbeat>();
+            _hostGo.AddComponent<VRPresenceWatch>();
             VRLog.Info(Name, "Heartbeat installed — one [Core] status line every 10 s " +
-                             "(frames, rig driver, head pose, display/input subsystems, tracking).");
+                             "(frames, rig driver, head pose, display/input subsystems, tracking). " +
+                             "Presence watch installed — HMD doff/don raises the session-resume " +
+                             "recovery sweep (test #17).");
         }
     }
 
