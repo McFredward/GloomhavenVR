@@ -700,6 +700,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
+        // Accident window (test #19): a pluck FROM a slot means the hand is working
+        // right next to CONFIRM — arm the tray's suppression guard.
+        if (_tray.SlotOf(card) >= 0)
+            _tray.NoteSlotActivity();
         if (_fan.Contains(card))
             _fan.Remove(card);
         // Tray occupancy stays until the release decides select/unselect/swap.
@@ -757,6 +761,12 @@ internal sealed class CardsDriver : MonoBehaviour
                             (slot < 0
                                 ? (wasInTray ? "take back to fan." : "return to fan.")
                                 : (wasInTray ? $"reorder to slot {slot + 1}." : $"play into slot {slot + 1}.")));
+
+        // Accident window (test #19): every drop/take-back touching the slots arms
+        // the tray's CONFIRM guard — the release gesture is exactly what brushed
+        // CONFIRM in the hardware log.
+        if (slot >= 0 || wasInTray)
+            _tray.NoteSlotActivity();
 
         if (slot >= 0 && !wasInTray)
         {
@@ -1003,6 +1013,8 @@ internal sealed class CardsDriver : MonoBehaviour
             slot = highlightSlot; // test #15: what glows is what drops (see OnCardReleased)
         VRLog.Info("Cards", $"Drop ({hand.Side}, fake): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
                             $"rule={rule} → " + (slot >= 0 ? $"slot {slot + 1}." : "fan."));
+        if (slot >= 0 || _tray.ContainsCard(card))
+            _tray.NoteSlotActivity(); // accident window (test #19), fake-mode parity
         if (slot >= 0)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)

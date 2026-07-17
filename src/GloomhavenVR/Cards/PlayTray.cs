@@ -133,6 +133,35 @@ internal sealed class PlayTray
     /// </summary>
     internal const float TrayPixelsPerMeter = 2400f;
 
+    /// <summary>
+    /// Test #19 (deliberate confirm): poke dwell for the right-column buttons
+    /// (CONFIRM/UNDO/SET). Hardware test #19 showed the hand accidentally poking
+    /// CONFIRM while handling cards near the slots (CONFIRM sits right of them) —
+    /// the round started without any conscious confirm. A fingertip contact now only
+    /// STARTS a hold; the tip must stay on the cap this long before the press fires
+    /// (with a visible fill ramp on the cap). Laser+trigger stays immediate —
+    /// pointing at a button and pulling the trigger is already a deliberate act.
+    /// Slot drops and card interactions are deliberately NOT dwelled.
+    /// </summary>
+    private const float PokeDwellSeconds = 0.35f;
+
+    /// <summary>
+    /// Test #19 accident window: ANY CONFIRM activation (poke and laser alike) is
+    /// suppressed this long after a card was dropped into / plucked from a slot —
+    /// the exact gesture that brushed CONFIRM in the log. CardsDriver arms it via
+    /// <see cref="NoteSlotActivity"/> on every real drop/pluck (never on the silent
+    /// game-state sync placements).
+    /// </summary>
+    private const float ConfirmGuardSeconds = 0.7f;
+
+    private float _lastSlotActivity = float.NegativeInfinity;
+
+    /// <summary>Arm the accidental-confirm guard (called by CardsDriver on real slot drops/plucks only).</summary>
+    internal void NoteSlotActivity() => _lastSlotActivity = Time.unscaledTime;
+
+    /// <summary>Seconds left of the confirm suppression window (≤0 = free). Wired as the CONFIRM ActivationGuard.</summary>
+    private float ConfirmGuardRemaining() => _lastSlotActivity + ConfirmGuardSeconds - Time.unscaledTime;
+
     /// <summary>Raised when the initiative badge is poked (CardsDriver queues the swap).</summary>
     internal System.Action? SwapRequested;
 
@@ -353,6 +382,7 @@ internal sealed class PlayTray
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
             new Color(0.4f, 0.42f, 0.5f), "SET",
             () => WorldUI.SettingsPanel.RequestToggle());
+        _gear.DwellSeconds = PokeDwellSeconds; // right column = same accident class (test #19)
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
     }
@@ -447,6 +477,7 @@ internal sealed class PlayTray
         _placed = false;
         _wantVisible = false;
         _placementDeferLogged = false;
+        _lastSlotActivity = float.NegativeInfinity;
     }
 
     /// <summary>
@@ -1089,12 +1120,15 @@ internal sealed class PlayTray
             new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
             () => ConfirmRequested?.Invoke());
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
+        _confirm.DwellSeconds = PokeDwellSeconds; // deliberate poke (test #19)
+        _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
         _undo = BoardButton.Create(undoParent, new Vector2(0.09f, 0.042f),
             new Color(0.45f, 0.32f, 0.2f), "UNDO",
             () => UndoRequested?.Invoke());
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
+        _undo.DwellSeconds = PokeDwellSeconds; // same accident class as CONFIRM (test #19)
         RegisterLaserTarget(_undo.Collider!, _undo);
     }
 
@@ -1180,10 +1214,30 @@ internal sealed class PlayTray
         private bool _accent;
         private float _press; // 0..1 press animation
 
+        // Poke dwell state (test #19): the hand whose fingertip is charging the
+        // press, hold start time, and the count of haptic ramp ticks already sent.
+        private VRHand? _dwellHand;
+        private float _dwellStart;
+        private int _dwellTicks;
+
         internal Collider? Collider { get; private set; }
 
         private static readonly Color DisabledColor = new(0.24f, 0.23f, 0.22f);
         private static readonly Color IdleColor = new(0.35f, 0.34f, 0.32f);
+
+        /// <summary>Charge tint the cap ramps toward while a poke dwell runs (test #19).</summary>
+        private static readonly Color DwellChargeColor = new(1f, 0.95f, 0.75f);
+
+        /// <summary>
+        /// How close the fingertip must stay to the cap for the dwell to keep
+        /// charging — mirror of PokeInteractor.ReleaseRange (the interactor's
+        /// re-arm hysteresis), meters at scale 1 × hand world scale.
+        /// </summary>
+        private const float DwellHoldRange = 0.02f;
+
+        /// <summary>Cap rest position / full 4 mm press travel on the local Z (viewer side is -Z).</summary>
+        private const float CapRestZ = -0.004f;
+        private const float CapTravel = 0.004f;
 
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick)
@@ -1249,6 +1303,23 @@ internal sealed class PlayTray
         /// </summary>
         internal System.Func<string>? DisabledReason;
 
+        /// <summary>
+        /// Deliberate-poke dwell (test #19): &gt; 0 makes a fingertip CONTACT only
+        /// start a hold — the tip must stay on the cap this many seconds before the
+        /// press fires (cap sinks + brightens while charging; retracting cancels).
+        /// 0 (default) keeps the fire-on-contact behavior. Laser presses are never
+        /// dwelled — <see cref="Press"/> with source "laser" stays immediate.
+        /// </summary>
+        internal float DwellSeconds;
+
+        /// <summary>
+        /// Optional activation suppressor: returns the seconds REMAINING of a
+        /// suppression window (≤ 0 = free). Checked for EVERY source at fire time —
+        /// the test #19 accident window after slot drops/plucks. Wired for CONFIRM
+        /// by <see cref="BuildButtons"/>.
+        /// </summary>
+        internal System.Func<float>? ActivationGuard;
+
         internal void SetState(bool enabled, bool accent)
         {
             if (_enabledState == enabled && _accent == accent)
@@ -1264,28 +1335,133 @@ internal sealed class PlayTray
                 _label.text = text;
         }
 
+        /// <summary>Resting cap color for the current state (dwell ramps AWAY from this).</summary>
+        private Color StateColor() => !_enabledState ? DisabledColor : _accent ? _accentColor : IdleColor;
+
         private void UpdateColor()
         {
             if (_capMaterial == null)
                 return;
-            Color color = !_enabledState ? DisabledColor : _accent ? _accentColor : IdleColor;
+            Color color = StateColor();
             if (_capMaterial.color != color)
                 _capMaterial.color = color;
         }
 
         private void Update()
         {
+            if (_dwellHand != null)
+            {
+                TickDwell();
+                return;
+            }
             if (_cap == null || _press <= 0f)
                 return;
             _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f);
             // Cap travel: 4 mm into the board at full press.
             Vector3 pos = _cap.localPosition;
-            pos.z = -0.004f + 0.004f * _press;
+            pos.z = CapRestZ + CapTravel * _press;
             _cap.localPosition = pos;
         }
 
-        /// <summary>Poke path (P2 PokeInteractor — geometric fingertip test against this collider).</summary>
-        public override void OnPoke(VRHand hand) => Press(hand, "poke");
+        /// <summary>
+        /// Poke path (P2 PokeInteractor — geometric fingertip test against this
+        /// collider). Dwell buttons (test #19) start a charge here instead of
+        /// firing; the disabled case still routes to <see cref="Press"/> so every
+        /// rejected attempt keeps its gate log (test #14).
+        /// </summary>
+        public override void OnPoke(VRHand hand)
+        {
+            if (DwellSeconds > 0f && _enabledState)
+            {
+                BeginDwell(hand);
+                return;
+            }
+            Press(hand, "poke");
+        }
+
+        public override void OnPokeExit(VRHand hand)
+        {
+            if (ReferenceEquals(hand, _dwellHand))
+                CancelDwell();
+        }
+
+        private void BeginDwell(VRHand hand)
+        {
+            if (_dwellHand != null)
+                return; // already charging (second hand / re-arm jitter)
+            _dwellHand = hand;
+            _dwellStart = Time.unscaledTime;
+            _dwellTicks = 0;
+            VRLog.Debug("Cards", $"Board: {name} poke dwell started ({hand.Side}) — " +
+                                 $"hold {DwellSeconds:F2} s to press.");
+        }
+
+        /// <summary>
+        /// Per-frame dwell charge: self-tracks the fingertip against the button's
+        /// own collider (same math as PokeInteractor, which has no per-frame stay
+        /// callback — its OnPokeExit only fires when the tip leaves the 3.5 cm
+        /// hover range, too late for a press-intent test). The cap sinks its full
+        /// travel and brightens toward <see cref="DwellChargeColor"/> as the fill
+        /// ramp; a rising haptic tick marks each quarter of the charge.
+        /// </summary>
+        private void TickDwell()
+        {
+            VRHand hand = _dwellHand!;
+            bool holding = _enabledState && Collider != null && hand.HasPose;
+            if (holding)
+            {
+                Vector3 tip = hand.Rig.IndexTip.position;
+                holding = Vector3.Distance(tip, Collider!.ClosestPoint(tip))
+                          <= DwellHoldRange * hand.WorldScale;
+            }
+            if (!holding)
+            {
+                CancelDwell();
+                return;
+            }
+
+            float progress = Mathf.Clamp01((Time.unscaledTime - _dwellStart) / DwellSeconds);
+            if (_cap != null)
+            {
+                Vector3 pos = _cap.localPosition;
+                pos.z = CapRestZ + CapTravel * progress;
+                _cap.localPosition = pos;
+            }
+            if (_capMaterial != null)
+                _capMaterial.color = Color.Lerp(StateColor(), DwellChargeColor, progress);
+
+            int tick = (int)(progress * 4f);
+            if (tick > _dwellTicks)
+            {
+                _dwellTicks = tick;
+                hand.SendHaptic(HapticPreset.HoverTick);
+            }
+
+            if (progress >= 1f)
+            {
+                _dwellHand = null;
+                UpdateColor(); // drop the charge tint (Press animates the spring-back)
+                Press(hand, "poke-dwell");
+            }
+        }
+
+        private void CancelDwell()
+        {
+            if (_dwellHand == null)
+                return;
+            float held = Time.unscaledTime - _dwellStart;
+            _dwellHand = null;
+            _press = 0f;
+            if (_cap != null)
+            {
+                Vector3 pos = _cap.localPosition;
+                pos.z = CapRestZ;
+                _cap.localPosition = pos;
+            }
+            UpdateColor(); // drop the charge tint
+            VRLog.Info("Cards", $"Board: {name} poke dwell cancelled after {held:F2} s " +
+                                $"(needs {DwellSeconds:F2} s — brushing the button no longer presses it).");
+        }
 
         /// <summary>
         /// Single press entry for BOTH input paths (test #14): every attempt is
@@ -1298,6 +1474,14 @@ internal sealed class PlayTray
             {
                 VRLog.Info("Cards", $"Board: {name} press REJECTED (source={source}, {hand.Side}) — " +
                                     $"disabled: {(DisabledReason != null ? DisabledReason() : "no reason hook")}.");
+                return;
+            }
+            float guard = ActivationGuard != null ? ActivationGuard() : 0f;
+            if (guard > 0f)
+            {
+                VRLog.Info("Cards", $"Board: {name} press SUPPRESSED (source={source}, {hand.Side}) — " +
+                                    $"{guard:F2} s left of the slot-activity window " +
+                                    "(accidental press right after handling cards, test #19).");
                 return;
             }
             _press = 1f;
