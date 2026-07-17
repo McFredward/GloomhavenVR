@@ -175,6 +175,62 @@ camera that renders to the backbuffer is captured into `GloomhavenVR.FlatScreenR
   camera, `FlatScreen stack base: '<cam>' … clears the RT`, and the camera inventory
   marks captured cameras with `[RT stack]` plus a stack summary line.
 
+### §6.1 Stereo screen — owner: `WorldUI.FlatScreenStereo` (test #15 #7)
+
+While the FlatScreen is visible in VR (`[WorldUI] StereoScreen`, default on;
+`ScreenDepthStrength` scales it, 0 = mono), the screen renders **with stereo
+depth** — a 3D-movie/window effect. The captured game cameras stay exactly as §6
+describes and keep composing the (left) RT; per-eye rendering is added entirely
+with mod-owned objects:
+
+- **Right-eye RT** `GloomhavenVR.FlatScreenRT.Right` (same dimensions as the left
+  RT — the pointer pixel mapping and desktop mirror keep using the LEFT RT and are
+  untouched; the monitor stays monoscopic).
+- **One mirror camera per captured camera** under the hidden DontDestroyOnLoad root
+  `GloomhavenVR.StereoScreenMirrors`, bare cameras whose state is FIELD-COPIED from
+  the live source every tick: transform, projection matrix, culling mask **minus
+  the mod layer** (they must never see the quad/hands — feedback), the EFFECTIVE
+  clear flags (i.e. after §6's base-clear force and overlay demotion), rect, depth,
+  clip planes, enabled state. Same `depth` ⇒ the right RT replays the stack in the
+  same compositing order. UI cameras are mirrored too (per-RT re-render, zero
+  offset) because depth order interleaves UI and 3D surfaces — a post-hoc UI blit
+  over the right RT would reorder the composite.
+- **Eye geometry:** 3D mirrors (perspective, not tagged UICamera) sit at
+  `source + right × separation` with an off-axis projection (lens) shift that
+  converges at the screen's own distance; UI/orthographic mirrors sit at zero
+  offset (flat UI reads AT the screen plane, where the pointer says it is).
+  `separation = IPD × ScreenDepthStrength × WorldScale` and
+  `convergence = ScreenDistance × WorldScale` — the rig scale is the mod's one
+  canonical real↔game relation (1 in the menu rig), so scene content at the
+  screen-equivalent distance shows zero disparity and scene-infinity stays a few cm
+  under the divergence limit. IPD is sampled from the XR head device (63 mm
+  fallback), plausibility-clamped.
+- **Per-eye quad texture (MultiPass):** a `Camera.onPreRender` hook swaps the quad
+  material's texture per head-camera eye pass via `camera.stereoActiveEye`
+  (Left → RT-L, Right → RT-R), with an automatic per-frame pass-parity fallback if
+  a runtime reports Mono; the observed pattern is logged once per activation.
+- **Near-plane video suspension:** VideoPlayers in CameraNearPlane/FarPlane mode
+  blit only into their HOST camera's target — a mirror can never reproduce them, so
+  while any captured camera hosts an enabled such player ('MainMenuVideo' ambient
+  movies, the campaign 'Video Camera', the intro) stereo is suspended (both eye
+  passes show the left RT, mirrors disabled). Correct by nature: video frames are
+  2D. Logged on every flip.
+- **No policy fights:** mirrors are stereo-None with a targetTexture ⇒ invisible to
+  §1's sweep by construction, and §6's capture sweep skips them
+  (`targetTexture != null`). `XRDevice.DisableAutoXRCameraTracking` is set anyway.
+- **Lifecycle/reversibility:** mirrors die with the captured stack (scene change →
+  rebuild next sweep; late arrivals get a mirror the tick they are captured); hide,
+  VR off, config off and hot reload run the full teardown (mirrors + right RT
+  destroyed, hook unhooked, quad texture back on the left RT). With
+  `StereoScreen=false` or strength 0 nothing is ever created — the §6 mono path is
+  byte-identical.
+- **Perf:** menu-scene rendering doubles while the screen is visible (menu-only
+  surface — acceptable); the video suspension removes the extra cost exactly when a
+  fullscreen video already dominates. No per-frame allocations.
+- **Log lines:** `STEREO SCREEN ACTIVE — …`, `Stereo mirror created for '<cam>':
+  3D/MONO …`, `Stereo screen eye passes observed: Left, Right — …`,
+  `Stereo screen SUSPENDED/RESUMED — …`, `Stereo screen deactivated (<reason>)`.
+
 ## Expected log shape on a healthy run
 
 ```

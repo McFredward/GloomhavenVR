@@ -40,6 +40,16 @@ namespace GloomhavenVR.WorldUI;
 /// exactly <c>targetTexture</c>/clear flags of captured cameras. A camera can be
 /// stereo-None AND render into our RT.
 ///
+/// STEREO SCREEN (hardware test #15, point 7): while shown in VR the screen renders
+/// WITH stereo depth — the game cameras keep composing the (left) RT exactly as
+/// before, and <see cref="FlatScreenStereo"/> shadows every captured camera with a
+/// mod-owned mirror camera into a second right-eye RT (3D cameras eye-offset +
+/// convergence-shifted, UI/ortho cameras zero-offset → screen-plane depth); a
+/// Camera.onPreRender hook swaps the quad texture per MultiPass eye pass. Pointer
+/// mapping, virtual mouse and the desktop mirror below all keep using the LEFT RT —
+/// interaction and the monitor are unaffected. [WorldUI] StereoScreen=false (or
+/// ScreenDepthStrength=0) never engages any of it: single-RT mono path, unchanged.
+///
 /// DESKTOP MIRROR (menu-blackscreen fix): while the RT redirect is active nothing
 /// would reach the desktop backbuffer (the XR mirror shows an HMD eye, which shows
 /// the quad at best). <see cref="OnEndOfFrame"/> — driven by the WorldUI driver's
@@ -156,6 +166,9 @@ internal sealed class FlatScreen
 
     /// <summary>The stack's base (lowest-depth) camera — the only one whose clear we force.</summary>
     private CapturedCamera? _base;
+
+    /// <summary>Per-eye rendering for the screen (test #15 #7) — inert unless [WorldUI] StereoScreen.</summary>
+    private readonly FlatScreenStereo _stereo = new();
 
     /// <summary>Cameras currently captured into the RT (camera-inventory diagnostics).</summary>
     private static readonly System.Collections.Generic.HashSet<Camera> CapturedSet = new();
@@ -350,6 +363,21 @@ internal sealed class FlatScreen
         }
 
         TickStackClears();
+
+        // 4. Stereo screen (test #15 #7): mirror the captured stack into the right-eye
+        //    RT. Runs AFTER the clear policy so mirrors copy the EFFECTIVE clear flags.
+        _stereo.Tick(_rt, _quadRenderer);
+        if (_stereo.Active)
+        {
+            _stereo.BeginStackSync();
+            for (int i = 0; i < _captured.Count; i++)
+            {
+                Camera cam = _captured[i].Camera;
+                if (cam != null)
+                    _stereo.SyncCamera(cam);
+            }
+            _stereo.EndStackSync();
+        }
     }
 
     /// <summary>
@@ -441,6 +469,9 @@ internal sealed class FlatScreen
     /// <summary>Undo everything <see cref="CaptureStack"/> did and drop all references.</summary>
     private void ReleaseStack()
     {
+        // Mirrors shadow captured cameras — they die with the stack and are rebuilt
+        // by the next capture sweep (the stereo RT/hook lifecycle stays with Hide).
+        _stereo.ReleaseMirrors();
         for (int i = 0; i < _captured.Count; i++)
         {
             Camera cam = _captured[i].Camera;
@@ -715,6 +746,7 @@ internal sealed class FlatScreen
         if (_pokePressing)
             EndPoke("screen hidden");
         ReleaseStack();
+        _stereo.Deactivate("screen hidden");
 
         if (_quad != null)
         {
