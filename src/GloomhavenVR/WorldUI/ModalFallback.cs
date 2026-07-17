@@ -66,7 +66,8 @@ namespace GloomhavenVR.WorldUI;
 /// passive windows (ConfirmationBox → DialogSurface, ActorStatPanel /
 /// EnemyCurrentTurnStatPanel → StatPanelSurface, CombatLog panel, CardHolder → Cards
 /// module, QuestTracker/MapObjectiveManager HUD, hover popups TrapInfoPanel /
-/// DoorInfoPanel / MapNodeInfoPanel) deliberately do NOT trigger the fallback.
+/// DoorInfoPanel / MapNodeInfoPanel, and the passive HelpBox hint strip — test #16)
+/// deliberately do NOT trigger the fallback.
 /// </summary>
 internal static class ModalFallback
 {
@@ -86,7 +87,14 @@ internal static class ModalFallback
         // Scenario flow blockers (story/event/tutorial/choice popups).
         UIWindowID.EventsPanel,
         UIWindowID.Message,
-        UIWindowID.HelpBox,
+        // NOT UIWindowID.HelpBox (test #16 root cause of the dead card fan): the
+        // HelpBox is the game's PASSIVE bottom hint strip (HelpBoxLine tooltips —
+        // GUI_TOOLTIP_*, controller tips, HighlightWarning; a ~478x32 px line),
+        // never interactive and never blocking. The game showed it right after hero
+        // placement and it stays open indefinitely — listed here it held the mode
+        // machine in ModalUI for the rest of the session: palm gate disabled (fan
+        // could never open), board pick inactive (clicks dead). Passive HUD → no
+        // fallback, no ModalUI.
         UIWindowID.TextInfoPanel,
         UIWindowID.IntroductionScreen,
         UIWindowID.RewardsPanel,

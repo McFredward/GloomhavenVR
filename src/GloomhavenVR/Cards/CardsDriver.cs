@@ -176,6 +176,43 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
         }
+
+        LogFanState(hand);
+    }
+
+    // ------------------------------------------------------------------ fan diagnostics --
+
+    private (CardHandMode? mode, int widgets, int fanBuffer, bool gateEnabled, bool revealed,
+        bool open, bool boundHand, VRMode vrMode)? _lastFanState;
+
+    /// <summary>
+    /// Test #16 diagnostic (change-deduped Info, [Cards] style): everything the fan's
+    /// visibility depends on, in one line. The #16 hardware log proved the rebuild
+    /// side healthy ("Rebuild: … fan=10" all session) while the user saw NO cards —
+    /// the reveal gating (palm gate disabled by a stuck ModalUI) was only visible in
+    /// Debug lines the LogOutput capture drops. With this line, any future "fan never
+    /// showed" is attributable from LogOutput.log alone.
+    /// </summary>
+    private void LogFanState(CardsHandUI? hand)
+    {
+        CardHandMode? mode = hand != null ? CardsGameApi.Mode(hand) : null;
+        PalmGate? gate = _gateHand != null ? _gateHand.PalmGate : null;
+        bool gateEnabled = gate != null && gate.Enabled;
+        bool revealed = gate != null && (CardsConfig.RevealAlways
+            ? gate.Enabled
+            : gate.Enabled && (gate.IsOpen || _laserHover != null));
+
+        var state = (mode, widgets: _widgetBuffer.Count, fanBuffer: _fanBuffer.Count, gateEnabled,
+            revealed, open: _fan.IsOpen, boundHand: _boundHand != null,
+            vrMode: VRModeStateMachine.CurrentMode);
+        if (_lastFanState.HasValue && _lastFanState.Value == state)
+            return;
+        _lastFanState = state;
+
+        VRLog.Info("Cards", $"fan state: mode={(mode.HasValue ? mode.Value.ToString() : "none")}, " +
+                            $"widgets={state.widgets}, fanBuffer={state.fanBuffer}, " +
+                            $"gateEnabled={gateEnabled}, revealed={revealed}, open={_fan.IsOpen}, " +
+                            $"boundHand={_boundHand != null} (vrMode={state.vrMode}).");
     }
 
     /// <summary>Cards live in the same scaled space as the hands (rig root in VR, sim camera in dev).</summary>
