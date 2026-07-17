@@ -43,12 +43,27 @@ internal static class NativeButtonSkin
     /// <summary>Which visual a face should wear (maps a button's enabled/accent/press state).</summary>
     internal enum FaceState { Idle, Accent, Pressed, Disabled }
 
+    /// <summary>
+    /// Target WORLD thickness of the native 9-slice border on a tray button (~6 mm).
+    /// The game authors its button sprites at a pixels-per-unit tuned for full-screen
+    /// uGUI; <see cref="SpriteRenderer"/> in <see cref="SpriteDrawMode.Sliced"/> draws
+    /// each border at <c>border_px / pixelsPerUnit</c> metres, so on a few-cm tray face
+    /// the border dwarfs the whole button and the nine slices collapse to four
+    /// overlapping corner tiles (test #26: "4 black fields in a grid with a gold frame,
+    /// no text"). <see cref="ReborderForWorld"/> re-expresses each sampled sprite at a
+    /// PPU that renders its border at this thickness.
+    /// </summary>
+    private const float SlicedBorderMeters = 0.006f;
+
     private static bool _sampled;
     private static Sprite? _normalSprite;
     private static Sprite? _pressedSprite;
     private static Sprite? _disabledSprite;
     private static Sprite? _highlightedSprite;
     private static TMP_FontAsset? _font;
+
+    /// <summary>Runtime sprite copies we minted (re-bordered for world scale) — destroyed on Reset.</summary>
+    private static readonly System.Collections.Generic.List<Sprite> _created = new(4);
 
     // Relative dimming the game applies (grayscale ratios off the sampled ColorBlock;
     // uGUI defaults 88/128 ≈ 0.69 pressed, 64/128 = 0.5 disabled).
@@ -180,11 +195,13 @@ internal static class NativeButtonSkin
 
         if (best != null && bestOwner != null)
         {
-            _normalSprite = best;
+            // Re-border for world scale (test #26): the raw uGUI sprite's 9-slice border
+            // would collapse on a small tray face — rescale each to a ~6 mm world frame.
+            _normalSprite = ReborderForWorld(best);
             SpriteState ss = bestOwner.spriteState;
-            _pressedSprite = ss.pressedSprite;
-            _disabledSprite = ss.disabledSprite;
-            _highlightedSprite = ss.highlightedSprite;
+            _pressedSprite = ReborderForWorld(ss.pressedSprite);
+            _disabledSprite = ReborderForWorld(ss.disabledSprite);
+            _highlightedSprite = ReborderForWorld(ss.highlightedSprite);
 
             ColorBlock cb = bestOwner.colors;
             float normal = cb.normalColor.grayscale;
@@ -225,6 +242,39 @@ internal static class NativeButtonSkin
 
     private static Color Grey(float v, float a) => new(v, v, v, a);
 
+    /// <summary>
+    /// A copy of a sampled game button sprite whose 9-slice border is re-expressed at a
+    /// pixels-per-unit that renders it ~<see cref="SlicedBorderMeters"/> thick in WORLD
+    /// space, so a small (few-cm) tray button shows the intact native frame instead of
+    /// collapsing into its four overlapping corner tiles (test #26). Non-sliced sprites
+    /// (no border) and null pass straight through unchanged.
+    /// </summary>
+    private static Sprite? ReborderForWorld(Sprite? src)
+    {
+        if (src == null)
+            return null;
+        Vector4 b = src.border;
+        float maxB = Mathf.Max(Mathf.Max(b.x, b.y), Mathf.Max(b.z, b.w));
+        if (maxB <= 0.5f || src.texture == null)
+            return src; // flat sprite (no 9-slice border) — nothing to rescale
+        try
+        {
+            float ppu = maxB / SlicedBorderMeters; // border_px / ppu == SlicedBorderMeters
+            Rect r = src.rect;
+            var pivot = new Vector2(src.pivot.x / r.width, src.pivot.y / r.height);
+            Sprite s = Sprite.Create(src.texture, r, pivot, ppu, 0, SpriteMeshType.FullRect, b);
+            s.name = src.name + " (VR-sliced)";
+            _created.Add(s);
+            return s;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"NativeButtonSkin: could not re-border '{src.name}' " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — using it as-is.");
+            return src;
+        }
+    }
+
     /// <summary>Drop cached references (hot-reload / scene teardown safe).</summary>
     internal static void Reset()
     {
@@ -233,5 +283,11 @@ internal static class NativeButtonSkin
         _font = null;
         _pressedMul = 0.7f;
         _disabledMul = 0.5f;
+        for (int i = 0; i < _created.Count; i++)
+        {
+            if (_created[i] != null)
+                Object.Destroy(_created[i]);
+        }
+        _created.Clear();
     }
 }

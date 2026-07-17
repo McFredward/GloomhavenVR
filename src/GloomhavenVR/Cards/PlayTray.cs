@@ -1661,6 +1661,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // white otherwise (procedural fallback).
             tmp.color = WorldUI.NativeButtonSkin.HasFont ? WorldUI.NativeButtonSkin.LabelColor : Color.white;
             WorldUI.NativeButtonSkin.ApplyFont(tmp);
+            // Draw the label ABOVE the native sprite face (test #26): both are transparent
+            // renderers with ZWrite off, so sorting order — not the label's nearer z —
+            // decides who wins. The face uses sortingOrder 1; without this the sprite drew
+            // over the text and the button showed no readable label.
+            var labelRenderer = labelGo.GetComponent<MeshRenderer>();
+            if (labelRenderer != null)
+                labelRenderer.sortingOrder = 3;
             // Fit inside the cap face: localized CONFIRM/UNDO strings (SetLabel
             // mirrors the game's texts) shrink/wrap inside the button instead of
             // spilling over its edges (TmpFit, test #12).

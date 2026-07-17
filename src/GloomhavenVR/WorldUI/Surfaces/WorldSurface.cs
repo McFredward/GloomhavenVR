@@ -67,6 +67,24 @@ internal abstract class WorldSurface
 
     protected virtual void OnConverted() { }
 
+    /// <summary>
+    /// Release the current conversion WITHOUT the want-gate flipping — for a surface
+    /// whose <see cref="FindTarget"/> can change to a DIFFERENT target while
+    /// <see cref="WantConverted"/> stays true. The base <see cref="Tick"/> only converts
+    /// while <c>Panel == null</c>, so a changed target would otherwise never re-convert
+    /// (test #26: the decision dock switches prompts YesNoDialog → DialogPopup →
+    /// TakeDamagePanel — the first stuck forever). The caller forces a release here so
+    /// the next Tick re-converts the new target. Returns true if a panel was released.
+    /// </summary>
+    protected bool ReleaseCurrentPanel()
+    {
+        if (Panel == null)
+            return false;
+        CanvasConversion.Release(Panel);
+        Panel = null;
+        return true;
+    }
+
     public virtual void Shutdown()
     {
         if (Panel != null)

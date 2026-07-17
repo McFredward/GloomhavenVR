@@ -421,6 +421,11 @@ internal sealed class ButtonCluster
             // button-text colour when sampled; white otherwise.
             _label.color = NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : Color.white;
             NativeButtonSkin.ApplyFont(_label);
+            // Draw the label above the native sprite face (test #26): both transparent,
+            // ZWrite off — sorting order decides, and the face uses sortingOrder 1.
+            var labelRenderer = labelGo.GetComponent<MeshRenderer>();
+            if (labelRenderer != null)
+                labelRenderer.sortingOrder = 3;
             _label.text = string.Empty;
             // The label mirrors the game's LOCALIZED button texts (SetState), whose
             // length varies per state/language — long strings previously wrapped past
