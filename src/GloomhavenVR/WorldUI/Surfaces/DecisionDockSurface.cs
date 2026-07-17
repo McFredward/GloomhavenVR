@@ -103,6 +103,19 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <summary>Live instance for the static claim query (single instance per driver).</summary>
     internal static DecisionDockSurface? Instance { get; private set; }
 
+    /// <summary>
+    /// True while THIS surface has the <c>TakeDamagePanel</c>'s widget row docked on the
+    /// board (task A). The take-damage widgets carry the game's mouse-hover preview
+    /// handlers (<c>OnMouseEnter*/OnMouseExit*</c> → <c>Preview*/ResetPreviewing</c>),
+    /// authored for a stable desktop cursor. Under a jittering VR laser they fire
+    /// enter/exit dozens of times a second, thrashing the LoseCard preview fan
+    /// (hand↔discard, log test #23) and making the burn pick unusable; the deliberate
+    /// toggle CLICK already drives the preview, so <see cref="Patches.TakeDamagePanelSafety"/>
+    /// stands the hover handlers down while this is set. Read cross-module (guarded by
+    /// null-check on <see cref="Instance"/>); never true unless a live dock holds.
+    /// </summary>
+    internal static bool DockingTakeDamage { get; private set; }
+
     /// <summary>The prompt currently docked (or being docked); null while none is open.</summary>
     private ModalFallback.DecisionDock.Prompt? _active;
 
@@ -237,6 +250,11 @@ internal sealed class DecisionDockSurface : WorldSurface
                 }
             }
         }
+
+        // Hover-thrash guard flag (task A): the take-damage widget row is docked and
+        // driven by the VR laser/poke, so its mouse-hover preview handlers must stand
+        // down (see the property doc). Only ever true while its row is actually docked.
+        DockingTakeDamage = Panel != null && _active != null && _active.Name == "TakeDamagePanel";
     }
 
     /// <summary>
@@ -381,6 +399,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         _wantSince = 0f;
         _targetWarned = false;
         _hmdFloatPlaced = false;
+        DockingTakeDamage = false;
         ModalFallback.DecisionDock.Reset(); // any grace hand-off drops with us
         if (ReferenceEquals(Instance, this))
             Instance = null; // claim drops → generic fallback owns the windows again
