@@ -47,6 +47,20 @@ internal sealed class VRPresenceWatch : MonoBehaviour
     private float _awaySince;
     private string _awaySignal = "head pose";
 
+    /// <summary>
+    /// True while the user demonstrably WEARS the HMD — positive evidence only: the
+    /// runtime's <c>userPresence</c> proximity feature, or a head pose that changed
+    /// within <see cref="FrozenPoseSeconds"/> (a worn HMD never freezes below the
+    /// sensor-jitter epsilon). False before the first pose sample, while the pose is
+    /// frozen (doffed/away) and when no VR head camera exists (desktop/dev mode).
+    /// Consumed by the VirtualMouse keep-alive (test #18): while worn, the virtual
+    /// mouse holds pointer currency unconditionally; the physical-mouse grace only
+    /// applies while this is false.
+    /// </summary>
+    internal static bool UserPresent { get; private set; }
+
+    private void OnDisable() => UserPresent = false;
+
     private void Update()
     {
         float now = Time.realtimeSinceStartup;
@@ -79,6 +93,7 @@ internal sealed class VRPresenceWatch : MonoBehaviour
 
         bool poseFrozen = _poseKnown && now - _lastPoseChange > FrozenPoseSeconds;
         bool away = (presenceKnown && !present) || poseFrozen;
+        UserPresent = (presenceKnown && present) || (_poseKnown && !poseFrozen);
 
         if (away && !_away)
         {

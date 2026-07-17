@@ -73,8 +73,9 @@ namespace GloomhavenVR.WorldUI;
 /// passive windows (ConfirmationBox → DialogSurface, ActorStatPanel /
 /// EnemyCurrentTurnStatPanel → StatPanelSurface, CombatLog panel, CardHolder → Cards
 /// module, QuestTracker/MapObjectiveManager HUD, hover popups TrapInfoPanel /
-/// DoorInfoPanel / MapNodeInfoPanel, and the passive HelpBox hint strip — test #16)
-/// deliberately do NOT trigger the fallback.
+/// DoorInfoPanel / MapNodeInfoPanel, the passive HelpBox hint strip — test #16 —
+/// and the hover prop-info cards TextInfoPanel / UIPropInfoPanel →
+/// Surfaces.PropInfoSurface — test #18) deliberately do NOT trigger the fallback.
 /// </summary>
 internal static class ModalFallback
 {
@@ -88,11 +89,34 @@ internal static class ModalFallback
     /// Window IDs that demand user interaction when opened during a scenario and have
     /// no world-space VR conversion → they float as windows (or raise the screen).
     /// IDs verified against decompiled GH.Runtime/UIWindowID.cs (45 members).
+    ///
+    /// TEST #18 AUDIT: every ID below was re-checked against the decompiled sources
+    /// for the failure class of tests #16/#18 — a passive HOVER/info surface listed
+    /// here becomes a self-sustaining ModalUI lock (ModalUI stops the board hover
+    /// that is the surface's only hide path). Verdict per ID inline: MODAL = shown
+    /// by game flow (turn events, menu buttons, network actions) and carrying
+    /// elements the player must click (buttons/confirm) or game-blocking behavior;
+    /// NONE of them is hover-shown. Panels with internal hover behavior (PartyPanel
+    /// slot dimming NewPartyDisplayUI.cs:396, EquipmentItemsPanel item tooltips)
+    /// only style content — the hover never calls the window's Show. The hover-
+    /// driven passives stay OUT of this set: HelpBox (test #16), TextInfoPanel
+    /// (test #18) and UIPropInfoPanel — the trap/hazard/difficult-terrain/quest-
+    /// item card, ID TrapInfoPanel by name-match (the only class showing trap info
+    /// through a UIWindow; the enum member appears nowhere else in the decompile).
+    /// All four UIPropInfoPanel.Show* methods fire exclusively from hover:
+    /// ShowTrap/ShowHazardousTerrain/ShowDifficultTerrain from IHoverable
+    /// OnCursorEnter (UnityGameEditor{Trap,HazardousTerrain,DifficultTerrain}
+    /// Prop.cs:14, Hide in OnCursorExit) and ShowQuestItem from the hover-tooltip
+    /// path (WorldspaceStarHexDisplay.cs:3602). No buttons, no blockers — rendered
+    /// passively by <see cref="Surfaces.PropInfoSurface"/> instead.
     /// </summary>
     private static readonly HashSet<UIWindowID> FallbackIds = new()
     {
         // Scenario flow blockers (story/event/tutorial/choice popups).
+        // MODAL: UIEventPanel — event choice buttons (EventButton.cs:11, UI_SUBMIT :47).
         UIWindowID.EventsPanel,
+        // MODAL: UIMessage — close/page buttons (UIMessage.cs:22-31, onClick→Hide :45),
+        // queued by the MessageHandler singleton (MessageHandler.cs:30).
         UIWindowID.Message,
         // NOT UIWindowID.HelpBox (test #16 root cause of the dead card fan): the
         // HelpBox is the game's PASSIVE bottom hint strip (HelpBoxLine tooltips —
@@ -102,32 +126,74 @@ internal static class ModalFallback
         // machine in ModalUI for the rest of the session: palm gate disabled (fan
         // could never open), board pick inactive (clicks dead). Passive HUD → no
         // fallback, no ModalUI.
-        UIWindowID.TextInfoPanel,
+        // NOT UIWindowID.TextInfoPanel (test #18 hard lock — the HelpBox lesson
+        // repeated): 'Text Info Panel' is the game's PASSIVE hover-driven prop-info
+        // popup (closed doors, chests… — UITextInfoPanel.cs:58-86 shows/hides its
+        // UIWindow and nothing else; shown and hidden exclusively by the board hover
+        // path, WorldspaceStarHexDisplay.cs:3574/3607/3612 via Update:408/484).
+        // Listed here it was SELF-SUSTAINING: asserting ModalUI stopped our board
+        // pick/hover injection, so the hover-leave path — the ONLY caller of Hide()
+        // — never ran again: panel open forever → ModalUI forever (card fan gate
+        // disabled, board clicks dead; log evidence test #18). It shows as a passive
+        // world card instead (Surfaces.PropInfoSurface) and the game hides it itself
+        // on the next hover change, which keeps running because ModalUI never rises.
+        //
+        // MODAL: FTUE/concept screens shown by flow (UIIntroductionManager via
+        // LevelMessageUILayoutGroup; e.g. UIUnlockLocationFlowManager.cs:121).
         UIWindowID.IntroductionScreen,
+        // MODAL: UIRewardsManager — UIBlackOverlay blocker (:148) + confirm-action
+        // hold (:164/178), waits for the click (:190).
         UIWindowID.RewardsPanel,
+        // MODAL: UIResultsManager — end-of-scenario; its IsShown gates/suppresses
+        // the rest of the UI (CardsHandManager.cs:1214, BaseButtons.cs:68).
         UIWindowID.ResultsPanel,
+        // MODAL: TakeDamagePanel — burn-card choice + confirm button (:60), networked
+        // confirmation (Choreographer.cs:5505, SendGameAction :774).
         UIWindowID.TakeDamagePanel,
+        // UNMAPPED (audit): NO owning class anywhere in the decompile — the string
+        // exists only in UIWindowID.cs, so its behavior is unprovable. Kept MODAL
+        // deliberately: a wrongly-floated window is recoverable (escape chord,
+        // test #17) and attributable (window transition log); a blocking dialog
+        // dropped from this list would be an invisible silent deadlock.
         UIWindowID.DurabilityPanel,
+        // MODAL: UIQuestPopup — confirm-travel flow (UIQuestPopup.cs:19,
+        // UILoadoutManager.cs:321).
         UIWindowID.QuestPopup,
+        // MODAL: unlock flow gated on its continue button (UIUnlockLocationFlow-
+        // Manager.cs:31/78/142, MapChoreographer.ShowUnlockedQuests :3914).
         UIWindowID.UnlockQuestPopup,
+        // MODAL (inferred — no dedicated class): adventure-end results, nearest
+        // owner UINewAdventureResultsManager (a UIResultsManager subclass).
         UIWindowID.AdventureCompletionPanel,
+        // MODAL: UILevelUpWindow — card pick onClick (:120), shown by flow (:166).
         UIWindowID.HeroLevelUpPanel,
-        // Menus reachable mid-scenario.
+        // Menus reachable mid-scenario (all flow/key-driven, fully interactive).
+        // MODAL: ESCMenu — continue/options/exit… buttons (ESCMenu.cs:28-43).
         UIWindowID.ESCMenu,
+        // MODAL: UIOptionsWindow — option tab windows (:188).
         UIWindowID.Options,
+        // MODAL: UISubmenuGOWindow — interactive settings submenu (:62).
         UIWindowID.OptionsSubmenu,
+        // MODAL (name-only mapping): same UISubmenuGOWindow family, scene variant.
         UIWindowID.ViceOptionsSubmenu,
+        // MODAL: UIDifficultySelector — difficulty tabs + selection event (:99).
         UIWindowID.DifficultyPanel,
+        // MODAL: CompendiumWindow — section/back buttons (:67-89/:187).
         UIWindowID.CompendiumPanel,
+        // MODAL: NewPartyDisplayUI — toggle group + per-character selection (:73);
+        // its slot HOVER only dims content (:396), it never Shows the window.
         UIWindowID.PartyPanel,
+        // MODAL: UIPartyItemInventoryDisplay — equip/remove item slots (:136);
+        // internal hover is tooltips only, never the window's Show.
         UIWindowID.EquipmentItemsPanel,
-        // Unconverted confirmation variants + multiplayer panels.
-        UIWindowID.MutiplayerConfirmationBox,
-        UIWindowID.CharacterConfirmationBox,
-        UIWindowID.MainMenuConfirmationBox,
-        UIWindowID.MutiplayerHeroAssignPanel,
-        UIWindowID.MutiplayerPlayerPicker,
-        UIWindowID.MultiplayerFriendList,
+        // Unconverted confirmation variants + multiplayer panels — confirm/cancel
+        // buttons each (audit: all flow/network-shown, none hover-driven).
+        UIWindowID.MutiplayerConfirmationBox,   // MODAL: UIMultiplayerConfirmationBox (:132, buttons :17-23/:155-165)
+        UIWindowID.CharacterConfirmationBox,    // MODAL: UIAdventureCharacterConfirmationBox (:86, UI_SUBMIT :41)
+        UIWindowID.MainMenuConfirmationBox,     // MODAL: ConfirmationBox + MainMenuConfirmationBoxState (:217/:260)
+        UIWindowID.MutiplayerHeroAssignPanel,   // MODAL (scene-only owner): NetworkHeroAssignService.cs:85
+        UIWindowID.MutiplayerPlayerPicker,      // MODAL: UIMultiplayerSelectPlayerScreen (:311)
+        UIWindowID.MultiplayerFriendList,       // MODAL: MultiplayerFriendList (:54)
     };
 
     /// <summary>Fallback windows currently open (tracked instances; pruned per tick).</summary>

@@ -38,6 +38,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(WorldspaceDisplayPanelBase_Patches));
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
+        VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
@@ -134,6 +135,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly DialogSurface _dialogs = new();
         private readonly PhaseBannerSurface _banner = new();
         private readonly StatPanelSurface _statPanels = new();
+        private readonly PropInfoSurface _propInfo = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
@@ -172,6 +174,7 @@ internal sealed class WorldUIModule : IVRModule
             _dialogs.Tick();
             _banner.Tick();
             _statPanels.Tick();
+            _propInfo.Tick();
             _wristHud.Tick();
             _flatScreen.Tick();
             _settingsPanel.Tick();
@@ -196,6 +199,7 @@ internal sealed class WorldUIModule : IVRModule
             _dialogs.Shutdown();
             _banner.Shutdown();
             _statPanels.Shutdown();
+            _propInfo.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();

@@ -28,6 +28,7 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> PhaseBanner = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> StatPanels = null!;
+    internal static ConfigEntry<bool> PropInfoCards = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
     /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
@@ -140,6 +141,9 @@ internal static class WorldUIConfig
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no).");
         StatPanels = _file.Bind("WorldUI", "StatPanels", true,
             "Actor/monster stat panels as world panels near the table (opened by the game / Phase-3a poke).");
+        PropInfoCards = _file.Bind("WorldUI", "PropInfoCards", true,
+            "Hover prop-info cards (closed doors/chests, traps, terrain, quest items — the " +
+            "game's TextInfoPanel/PropInfoPanel popups) as a small passive world panel low in view.");
         ActorBars = _file.Bind("WorldUI", "ActorBars", true,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,

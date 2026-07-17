@@ -11,6 +11,7 @@ internal enum PanelSlot
     Objectives,
     CombatLog,
     StatPanel,
+    PropInfo,
     ButtonCluster,
 }
 
@@ -53,6 +54,9 @@ internal static class PanelLayout
         PanelSlot.Objectives => new Slot { AzimuthDeg = -34f, Distance = 1.05f, Height = 0.50f, PitchDeg = 10f },
         PanelSlot.CombatLog => new Slot { AzimuthDeg = 56f, Distance = 1.10f, Height = 0.45f, PitchDeg = 10f },
         PanelSlot.StatPanel => new Slot { AzimuthDeg = -18f, Distance = 0.70f, Height = 0.30f, PitchDeg = 18f },
+        // Low in view near the player edge, opposite side of the stat panel — out of
+        // the board-hover ray path (test #18: the hover keeps this card alive).
+        PanelSlot.PropInfo => new Slot { AzimuthDeg = 22f, Distance = 0.62f, Height = 0.20f, PitchDeg = 22f },
         PanelSlot.ButtonCluster => new Slot { AzimuthDeg = 12f, Distance = -0.42f, Height = 0.02f, PitchDeg = 0f },
         _ => default,
     };
