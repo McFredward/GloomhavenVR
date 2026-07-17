@@ -52,6 +52,9 @@ internal static class PanelLayout
         PanelSlot.InitiativeTrack => new Slot { AzimuthDeg = 0f, Distance = 0.95f, Height = 0.45f, PitchDeg = 12f },
         PanelSlot.ElementBoard => new Slot { AzimuthDeg = 32f, Distance = 0.90f, Height = 0.35f, PitchDeg = 12f },
         PanelSlot.Objectives => new Slot { AzimuthDeg = -34f, Distance = 1.05f, Height = 0.50f, PitchDeg = 10f },
+        // Dev preview only since test #19 — the live CombatLogSurface places itself
+        // from the persisted [WorldUI] CombatLog* offsets as a yaw-billboard (the
+        // slot rotation faced the table center, which read as skewed text).
         PanelSlot.CombatLog => new Slot { AzimuthDeg = 56f, Distance = 1.10f, Height = 0.45f, PitchDeg = 10f },
         PanelSlot.StatPanel => new Slot { AzimuthDeg = -18f, Distance = 0.70f, Height = 0.30f, PitchDeg = 18f },
         // Low in view near the player edge, opposite side of the stat panel — out of

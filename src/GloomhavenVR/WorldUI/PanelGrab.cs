@@ -3,36 +3,66 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 
-namespace GloomhavenVR.Cards;
+namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Test #14 ("Controllboard"): grip-grab handle for the <see cref="PlayTray"/>.
+/// Owner seam for <see cref="PanelGrabHandle"/> — the shared grip-grab core moves
+/// whatever transform the owner exposes and hands the final release back for
+/// persistence. Implemented by <see cref="Cards.PlayTray"/> (the original test #14
+/// "Controllboard" handle) and by grabbable WorldUI panels (test #19: combat log).
+/// </summary>
+internal interface IPanelGrabOwner
+{
+    /// <summary>Transform the grab moves/scales (null while not built).</summary>
+    Transform? GrabRoot { get; }
+
+    /// <summary>False blocks NEW grips (hidden panel); running grips end via release/pose loss.</summary>
+    bool GrabVisible { get; }
+
+    /// <summary>
+    /// True (tray): the carry also yaws the root with the hand/pair heading.
+    /// False (billboard panels): the grab drives position + scale ONLY — the owner
+    /// keeps authoring the rotation every tick (a yaw-billboard must not fight the
+    /// carry; two writers on the same rotation would jitter).
+    /// </summary>
+    bool GrabCarriesYaw { get; }
+
+    /// <summary>The LAST gripping hand let go — persist the layout.</summary>
+    void OnGrabFinished();
+}
+
+/// <summary>
+/// Grip-grab handle core (test #14 "Controllboard", generalized in test #19 so any
+/// panel can be moved/scaled/persisted exactly like the control board):
 ///
-/// - ONE hand gripping the handle bar carries the tray: position follows the palm,
-///   rotation follows the hand's yaw (yaw-only — the configured tilt is preserved,
-///   the tray can never end up rolled/upside down).
+/// - ONE hand gripping the handle bar carries the owner root: position follows the
+///   palm; with <see cref="IPanelGrabOwner.GrabCarriesYaw"/> the rotation follows
+///   the hand's yaw (yaw-only — the configured tilt is preserved, the root can
+///   never end up rolled/upside down).
 /// - TWO hands gripping resize it (spread = grow, pinch = shrink; clamped 0.5×–2×)
-///   while also moving/yawing with the pair midpoint/heading.
-/// - On final release the pose is persisted (<see cref="PlayTray.PersistPoseToConfig"/>)
-///   so the layout survives sessions.
+///   while also moving (and, with yaw carry, heading-yawing) with the pair midpoint.
+/// - On final release the owner persists the pose
+///   (<see cref="IPanelGrabOwner.OnGrabFinished"/>) so the layout survives sessions.
 ///
 /// Arbitration: this is a plain registered <see cref="IGrabbable"/> — the P2
 /// <see cref="ProximityGrabber"/> only highlights it within palm reach of the handle
 /// collider, and <c>Rig.WorldGrab</c> yields any grip that starts on a highlighted or
-/// held grabbable (its documented grip-contention rule). So the tray grab wins exactly
-/// when the grip starts in the tray's grab zone, and never fights the world grab.
+/// held grabbable (its documented grip-contention rule). So the panel grab wins exactly
+/// when the grip starts in its grab zone, and never fights the world grab.
 /// No re-parenting, no physics; per-frame math only, zero allocations.
 /// </summary>
-internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
+internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
 {
     private const float MinHandDistance = 0.03f;  // world units (already diorama-scaled)
     private const float Smoothing = 18f;          // 1/s exponential
     private const float MinScale = 0.5f;
     private const float MaxScale = 2f;
 
-    private PlayTray? _owner;
+    private IPanelGrabOwner? _owner;
     private MeshRenderer? _bar;
     private Color _barBaseColor;
+    private string _logChannel = "WorldUI";
+    private string _logName = "Panel";
 
     private VRHand? _handA;
     private VRHand? _handB;
@@ -46,16 +76,22 @@ internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
     private float _rootScale0 = 1f;
     private float _lastHeading;        // last valid heading (degenerate-pose fallback)
 
-    internal void Init(PlayTray owner, MeshRenderer bar)
+    /// <summary><paramref name="logName"/>/<paramref name="logChannel"/> keep the owner's log identity ("Tray grab: …" etc.).</summary>
+    internal void Init(IPanelGrabOwner owner, MeshRenderer bar, string logChannel, string logName)
     {
         _owner = owner;
         _bar = bar;
         _barBaseColor = bar.sharedMaterial != null ? bar.sharedMaterial.color : Color.white;
+        _logChannel = logChannel;
+        _logName = logName;
     }
+
+    /// <summary>True while at least one hand grips the handle (owners skip their own pose writes).</summary>
+    internal bool IsGrabbed => _handA != null;
 
     // ------------------------------------------------------------------ IGrabbable --
 
-    public bool CanGrab => _owner != null && _owner.IsVisible && (_handA == null || _handB == null);
+    public bool CanGrab => _owner != null && _owner.GrabVisible && (_handA == null || _handB == null);
 
     public void OnGrab(VRHand hand)
     {
@@ -66,7 +102,7 @@ internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
         else
             return;
         ReAnchor();
-        VRLog.Info("Cards", $"Tray grab: engaged ({hand.Side}, {(_handB != null ? "two-hand resize" : "one-hand move")}).");
+        VRLog.Info(_logChannel, $"{_logName} grab: engaged ({hand.Side}, {(_handB != null ? "two-hand resize" : "one-hand move")}).");
     }
 
     public void OnRelease(VRHand hand, Vector3 velocity)
@@ -88,12 +124,12 @@ internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
         if (_handA != null)
         {
             ReAnchor(); // continue as a one-hand carry from the current pose
-            VRLog.Info("Cards", $"Tray grab: {hand.Side} released — continuing one-hand.");
+            VRLog.Info(_logChannel, $"{_logName} grab: {hand.Side} released — continuing one-hand.");
         }
         else
         {
-            VRLog.Info("Cards", $"Tray grab: released ({hand.Side}).");
-            _owner?.PersistPoseToConfig();
+            VRLog.Info(_logChannel, $"{_logName} grab: released ({hand.Side}).");
+            _owner?.OnGrabFinished();
         }
     }
 
@@ -122,7 +158,7 @@ internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
 
     private void Update()
     {
-        Transform? root = _owner?.Root;
+        Transform? root = _owner?.GrabRoot;
         if (root == null)
             return;
 
@@ -142,38 +178,47 @@ internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
             return;
 
         float k = 1f - Mathf.Exp(-Smoothing * Time.deltaTime);
+        bool carryYaw = _owner!.GrabCarriesYaw;
 
         if (_handB == null)
         {
-            // One hand: rigid yaw-only carry.
+            // One hand: rigid carry (yaw-only spin when the owner lets us rotate).
             Vector3 palm = _handA.Rig.PalmCenter.position;
-            float dYaw = Mathf.DeltaAngle(_anchorHeading, HandHeading(_handA));
-            Quaternion spin = Quaternion.Euler(0f, dYaw, 0f);
+            Quaternion spin = Quaternion.identity;
+            if (carryYaw)
+            {
+                float dYaw = Mathf.DeltaAngle(_anchorHeading, HandHeading(_handA));
+                spin = Quaternion.Euler(0f, dYaw, 0f);
+            }
             Vector3 targetPos = palm + spin * (_rootPos0 - _anchorPos);
-            Quaternion targetRot = spin * _rootRot0;
             root.position = Vector3.Lerp(root.position, targetPos, k);
-            root.rotation = Quaternion.Slerp(root.rotation, targetRot, k);
+            if (carryYaw)
+                root.rotation = Quaternion.Slerp(root.rotation, spin * _rootRot0, k);
         }
         else
         {
-            // Two hands: midpoint carry + pair-heading yaw + pinch scale (0.5×–2×).
+            // Two hands: midpoint carry + pinch scale (0.5×–2×) + optional pair-heading yaw.
             Vector3 pA = _handA.Rig.PalmCenter.position;
             Vector3 pB = _handB.Rig.PalmCenter.position;
             Vector3 mid = (pA + pB) * 0.5f;
             float d = Mathf.Max(Vector3.Distance(pA, pB), MinHandDistance);
-            float dYaw = Mathf.DeltaAngle(_anchorHeading, HeadingDegrees(pB - pA));
+            Quaternion spin = Quaternion.identity;
+            if (carryYaw)
+            {
+                float dYaw = Mathf.DeltaAngle(_anchorHeading, HeadingDegrees(pB - pA));
+                spin = Quaternion.Euler(0f, dYaw, 0f);
+            }
 
             float targetScale = Mathf.Clamp(_rootScale0 * (d / _anchorDistance), MinScale, MaxScale);
             float newScale = Mathf.Lerp(root.localScale.x, targetScale, k);
             float ratio = newScale / _rootScale0;
 
-            Quaternion spin = Quaternion.Euler(0f, dYaw, 0f);
             Vector3 targetPos = mid + spin * ((_rootPos0 - _anchorPos) * ratio);
-            Quaternion targetRot = spin * _rootRot0;
 
             root.localScale = Vector3.one * newScale;
             root.position = Vector3.Lerp(root.position, targetPos, k);
-            root.rotation = Quaternion.Slerp(root.rotation, targetRot, k);
+            if (carryYaw)
+                root.rotation = Quaternion.Slerp(root.rotation, spin * _rootRot0, k);
         }
     }
 
@@ -181,7 +226,7 @@ internal sealed class TrayGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
 
     private void ReAnchor()
     {
-        Transform? root = _owner?.Root;
+        Transform? root = _owner?.GrabRoot;
         if (root == null || _handA == null)
             return;
         _rootPos0 = root.position;
