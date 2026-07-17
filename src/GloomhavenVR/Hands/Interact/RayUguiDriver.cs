@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -93,6 +94,7 @@ internal sealed class RayUguiDriver
             }
             if (!canvas.isActiveAndEnabled)
                 continue;
+            LogCanvasOnce(canvas);
             if (TryIntersect(canvas, pick.Origin, pick.Direction, bestDist, out float dist, out Vector3 point))
             {
                 best = canvas;
@@ -193,26 +195,66 @@ internal sealed class RayUguiDriver
         }
     }
 
+    // Reused corner buffer (GetWorldCorners fills in place — no per-frame allocations).
+    private static readonly Vector3[] Corners = new Vector3[4];
+
+    // One-time world-rect log per registered canvas (instance IDs; survives re-registration).
+    private static readonly HashSet<int> LoggedCanvases = new();
+
+    /// <summary>
+    /// Ray ∩ canvas via the RectTransform's actual WORLD-SPACE corners (test #13):
+    /// pivot/sizeDelta assumptions do not enter — the plane is spanned by the real
+    /// corners (GetWorldCorners: 0=bottom-left, 1=top-left, 2=top-right,
+    /// 3=bottom-right), so converted windows (host rect + re-anchored child, e.g.
+    /// the story window at 1920x1080 with host scale 0.7) intersect over their
+    /// ENTIRE surface, including under parent shear / negative scale.
+    /// </summary>
     private static bool TryIntersect(Canvas canvas, Vector3 origin, Vector3 direction,
         float maxDist, out float dist, out Vector3 point)
     {
         dist = 0f;
         point = default;
 
-        Transform t = canvas.transform;
-        // uGUI faces -forward (viewer side); a ray coming FROM the viewer side travels
-        // along +forward: require denom > 0 (back-side pointing never hits).
-        float denom = Vector3.Dot(direction, t.forward);
+        var rect = (RectTransform)canvas.transform;
+        rect.GetWorldCorners(Corners);
+        Vector3 right = Corners[3] - Corners[0]; // world-space +X edge
+        Vector3 up = Corners[1] - Corners[0];    // world-space +Y edge
+        float rightLen2 = right.sqrMagnitude;
+        float upLen2 = up.sqrMagnitude;
+        if (rightLen2 < 1e-12f || upLen2 < 1e-12f)
+            return false; // degenerate rect (zero size / not laid out yet)
+
+        // uGUI faces -normal (viewer side); a ray coming FROM the viewer side travels
+        // along +normal: require denom > 0 (back-side pointing never hits).
+        Vector3 normal = Vector3.Cross(right, up).normalized; // == canvas forward
+        float denom = Vector3.Dot(direction, normal);
         if (denom < 1e-5f)
             return false;
 
-        dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+        dist = Vector3.Dot(Corners[0] - origin, normal) / denom;
         if (dist <= 0f || dist >= maxDist)
             return false;
 
         point = origin + direction * dist;
-        Vector3 local = t.InverseTransformPoint(point);
-        return ((RectTransform)t).rect.Contains(new Vector2(local.x, local.y));
+        Vector3 d = point - Corners[0];
+        float u = Vector3.Dot(d, right) / rightLen2;
+        float v = Vector3.Dot(d, up) / upLen2;
+        return u >= 0f && u <= 1f && v >= 0f && v <= 1f;
+    }
+
+    /// <summary>One-time verification log per canvas: its actual world rect (test #13).</summary>
+    private static void LogCanvasOnce(Canvas canvas)
+    {
+        if (!LoggedCanvases.Add(canvas.GetInstanceID()))
+            return;
+        var rect = (RectTransform)canvas.transform;
+        rect.GetWorldCorners(Corners);
+        float w = (Corners[3] - Corners[0]).magnitude;
+        float h = (Corners[1] - Corners[0]).magnitude;
+        Core.VRLog.Info("Interact",
+            $"Ray-uGUI canvas '{canvas.name}': world rect {w:F3}x{h:F3} m, " +
+            $"BL={Corners[0]:F3} TL={Corners[1]:F3} TR={Corners[2]:F3} BR={Corners[3]:F3}, " +
+            $"pivot={rect.pivot}, sizeDelta={rect.sizeDelta}, lossyScale={rect.lossyScale:F4}.");
     }
 
     private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)

@@ -199,6 +199,13 @@ internal sealed class RayInteractor : IPickProvider
     {
         if (VRModeStateMachine.CurrentMode != VRMode.ModalUI || Plugin.RayAlwaysOn.Value)
             return true;
+        // Hardware test #13: the ray IS on a UI surface right now (RayUguiDriver /
+        // fan / flat screen clamped the beam) — visuals must always show. The cone
+        // below measures the angle to the canvas CENTER only; on a floated story
+        // window (1920 px × 0.7 scale ≈ 1.3 m wide at 1.2 m) the outer half sat
+        // outside the 25° cone, so the dot vanished while clicks kept landing.
+        if (HasFreshUiHit)
+            return true;
         float cone = Plugin.ModalRayConeDegrees.Value;
         if (cone <= 0f)
             return true;
