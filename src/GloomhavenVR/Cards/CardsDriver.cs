@@ -678,13 +678,14 @@ internal sealed class CardsDriver : MonoBehaviour
             if (held != null && holder != null)
             {
                 slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
-                // Mirror the release-time divert: occupied target diverts a non-tray
-                // card to the free slot (tray→tray stays put — that is a swap).
-                if (slot >= 0 && !_tray.ContainsCard(held) && _tray.Occupant(slot) != null)
-                {
-                    int other = 1 - slot;
-                    slot = _tray.Occupant(other) == null ? other : -1;
-                }
+                // Mirror the release-time targeting (item 27.1):
+                // - a HELD TRAY card never glows its own origin slot — releasing there
+                //   returns it to the fan, so only the OTHER slot (reorder/swap) glows;
+                // - a FAN card hovering an OCCUPIED slot telegraphs a SWAP into that very
+                //   slot (occupant → hand), so the glow stays put — no divert, both-
+                //   occupied included.
+                if (_tray.ContainsCard(held) && slot == _tray.SlotOf(held))
+                    slot = -1;
             }
         }
         _snapHighlightCard = slot >= 0 ? held : null;
@@ -1037,24 +1038,32 @@ internal sealed class CardsDriver : MonoBehaviour
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
-        // Dropping onto an occupied slot diverts to the free one (or bounces).
-        // (The highlight already mirrors this divert while telegraphing.)
-        if (slot >= 0 && !wasInTray && _tray.Occupant(slot) != null)
+        // (a) Return-to-hand: a placed card must NOT be re-pinned to its OWN origin
+        // slot when released away. Neither a highlight latched there at grab/near-
+        // release (test #15's glow-is-drop rule) nor the generous capture radius may
+        // hold it — only the OTHER slot keeps a placed card in the tray (the reorder/
+        // swap below). Everything else, origin included, falls through to the fan.
+        int origin = _tray.SlotOf(card); // -1 for a fan card
+        if (wasInTray)
         {
-            int other = 1 - slot;
-            slot = _tray.Occupant(other) == null ? other : -1;
+            if (highlightSlot == origin) highlightSlot = -1;
+            if (slot == origin) slot = -1;
         }
 
         string rule = highlightSlot >= 0 ? "highlight" : slot >= 0 ? "radius" : "none";
         if (highlightSlot >= 0)
             slot = highlightSlot;
 
-        // THE one log line per real drop (test #14; #15 adds the accepting rule).
+        // THE one log line per real drop (test #14; #15 adds the accepting rule;
+        // item 27.1 adds the fan→occupied swap outcome). A fan card landing on an
+        // occupied slot swaps: the newcomer takes the slot, the occupant → hand.
+        string outcome =
+            slot < 0 ? (wasInTray ? "take back to fan." : "return to fan.")
+            : wasInTray ? $"reorder to slot {slot + 1}."
+            : _tray.Occupant(slot) != null ? $"swap into slot {slot + 1} (occupant → hand)."
+            : $"play into slot {slot + 1}.";
         VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
-                            $"rule={rule} → " +
-                            (slot < 0
-                                ? (wasInTray ? "take back to fan." : "return to fan.")
-                                : (wasInTray ? $"reorder to slot {slot + 1}." : $"play into slot {slot + 1}.")));
+                            $"rule={rule} → {outcome}");
 
         // Accident window (test #19): every drop/take-back touching the slots arms
         // the tray's CONFIRM guard — the release gesture is exactly what brushed
@@ -1062,9 +1071,9 @@ internal sealed class CardsDriver : MonoBehaviour
         if (slot >= 0 || wasInTray)
             _tray.NoteSlotActivity();
 
-        if (slot >= 0 && !wasInTray)
+        if (slot >= 0 && !wasInTray && _tray.Occupant(slot) == null)
         {
-            // Fan → tray: play the card. The snap itself is PlaceCard's SetHome —
+            // Fan → empty slot: play the card. The snap itself is PlaceCard's SetHome —
             // a quick local lerp into the slot (CardLerpSpeed) — plus a click pulse
             // so the zap is felt, not just seen (test #13).
             hand.SendHaptic(HapticPreset.ClickPulse);
@@ -1079,6 +1088,40 @@ internal sealed class CardsDriver : MonoBehaviour
                     if (!CardsGameApi.IsInRound(handRef, ability))
                     {
                         VRLog.Info("Cards", $"Select rejected for {ability.Name} — returning to fan.");
+                        _tray.RemoveCard(card);
+                        _fan.Add(card);
+                    }
+                    ReconcileInitiative(handRef);
+                    _dirty = true;
+                });
+        }
+        else if (slot >= 0 && !wasInTray)
+        {
+            // (b) Fan → OCCUPIED slot: SWAP. The newcomer takes the slot and the card
+            // it displaces returns to the hand — the whole point being a swap even when
+            // BOTH slots are full (trade one of two played cards). Unselect the occupant
+            // FIRST so the round pile (max two) has room, THEN select the newcomer; both
+            // queued so they serialize one-per-frame in that order. Verified against the
+            // authoritative round pile like the plain play, newcomer bounced to the fan
+            // on rejection.
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            VRCard displaced = _tray.Occupant(slot)!;
+            CAbilityCard? displacedAbility = displaced.GameCard?.AbilityCard;
+            _tray.RemoveCard(displaced);
+            _fan.Add(displaced);
+            _tray.PlaceCard(card, slot);
+            CardsHandUI handRef = gameHand;
+            if (displacedAbility != null)
+                CardActionQueue.Enqueue(
+                    () => CardsGameApi.UnselectCard(handRef, displacedAbility),
+                    () => _dirty = true);
+            CardActionQueue.Enqueue(
+                () => CardsGameApi.SelectCard(handRef, ability),
+                () =>
+                {
+                    if (!CardsGameApi.IsInRound(handRef, ability))
+                    {
+                        VRLog.Info("Cards", $"Swap select rejected for {ability.Name} — returning to fan.");
                         _tray.RemoveCard(card);
                         _fan.Add(card);
                     }
