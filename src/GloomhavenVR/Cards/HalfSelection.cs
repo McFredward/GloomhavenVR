@@ -20,9 +20,10 @@ namespace GloomhavenVR.Cards;
 /// buttons) stay reachable because each card's world canvas is registered with the
 /// P2 <c>UguiPokeSurfaces</c> while in this layout (finger poke AND dominant laser
 /// via <c>RayUguiDriver</c>). Laser commits therefore run through the REAL
-/// 'Top button'/'Bottom button' uGUI click path; the mod zones mirror that hover as
-/// a per-half tint (gold = top, teal = bottom) and additionally handle fingertip
-/// pokes. Invalid halves are dimmed using the same query the UI renders from
+/// 'Top button'/'Bottom button' uGUI click path; the mod zones additionally handle
+/// fingertip pokes but stay INVISIBLE on hover (test #20: the game's own on-card
+/// highlight is the only hover feedback — the extra backing tint behind the card
+/// doubled it). Invalid halves are dimmed using the same query the UI renders from
 /// (<c>FullAbilityCard.IsInteractable + isValid</c>). The
 /// <c>CardsActionControlller</c> phase machine (Select1st → Pick1st → Select2nd →
 /// Pick2nd) drives which halves report playable — we only mirror it.
@@ -180,9 +181,6 @@ internal sealed class HalfSelection
         for (int i = _cards.Count - 1; i >= 0; i--)
             DisarmCard(_cards[i]);
         _cards.Clear();
-        if (_laserZone != null)
-            _laserZone.SetLaserHover(false);
-        _laserZone = null;
     }
 
     // ------------------------------------------------------------------ zones --
@@ -252,11 +250,8 @@ internal sealed class HalfSelection
 
     // ------------------------------------------------------------------ per frame --
 
-    /// <summary>
-    /// Refresh valid/invalid dimming from the game's own interactability query and
-    /// mirror the dominant laser's uGUI hover as the per-half tint.
-    /// </summary>
-    internal void Tick(VRHand? dominant)
+    /// <summary>Refresh valid/invalid dimming from the game's own interactability query.</summary>
+    internal void Tick()
     {
         if (!IsVisible)
             return;
@@ -269,56 +264,6 @@ internal sealed class HalfSelection
             set.Top.SetPlayable(full != null && CardsGameApi.IsHalfPlayable(full, CBaseCard.ActionType.TopAction));
             set.Bottom.SetPlayable(full != null && CardsGameApi.IsHalfPlayable(full, CBaseCard.ActionType.BottomAction));
         }
-        UpdateLaserHover(dominant);
-    }
-
-    private HalfZone? _laserZone;
-
-    /// <summary>
-    /// Laser hover feedback (test #19): the card faces are registered with
-    /// <c>UguiPokeSurfaces</c> while in this layout, so the dominant hand's
-    /// <c>RayUguiDriver</c> already hovers AND trigger-clicks the REAL half widgets
-    /// ('Top button'/'Bottom button' — the exact uGUI targets the 2D click path
-    /// uses; the commit stays there, so there is no second laser commit path to
-    /// double-fire). This only MIRRORS that hover as the per-half tint: map the
-    /// hovered widget to its card, split top/bottom on the ray∩card-plane hit
-    /// (same math as <see cref="PlayTray.TryRaycastCards"/>). No allocations.
-    /// </summary>
-    private void UpdateLaserHover(VRHand? dominant)
-    {
-        HalfZone? hit = null;
-        GameObject? hovered = dominant != null && dominant.RayUgui.HasHit
-            ? dominant.RayUgui.Hovered
-            : null;
-        if (dominant != null && hovered != null)
-        {
-            for (int i = 0; i < _cards.Count; i++)
-            {
-                VRCard card = _cards[i];
-                if (card == null || !_zones.TryGetValue(card, out ZoneSet set)
-                    || !hovered.transform.IsChildOf(card.transform))
-                    continue;
-                PickPose pick = dominant.Ray.Current;
-                Transform t = card.transform;
-                float denom = Vector3.Dot(pick.Direction, t.forward);
-                if (denom < 1e-5f)
-                    break;
-                float dist = Vector3.Dot(t.position - pick.Origin, t.forward) / denom;
-                if (dist <= 0f)
-                    break;
-                Vector3 local = t.InverseTransformPoint(pick.Origin + pick.Direction * dist);
-                hit = local.y >= 0f ? set.Top : set.Bottom;
-                break;
-            }
-        }
-
-        if (ReferenceEquals(hit, _laserZone))
-            return;
-        if (_laserZone != null)
-            _laserZone.SetLaserHover(false);
-        _laserZone = hit;
-        if (_laserZone != null)
-            _laserZone.SetLaserHover(true);
     }
 
     internal void RequestPlay(VRCard card, CBaseCard.ActionType type)
@@ -333,7 +278,11 @@ internal sealed class HalfSelection
         }
     }
 
-    /// <summary>One pokeable half zone with a state overlay quad.</summary>
+    /// <summary>
+    /// One pokeable half zone. Its overlay quad only DIMS invalid halves (test #20:
+    /// no hover tint — the game's own on-card highlight is the hover feedback, and
+    /// the extra backing tint behind the card doubled it).
+    /// </summary>
     private sealed class HalfZone : PokeableBehaviour
     {
         private VRCard _card = null!;
@@ -341,14 +290,8 @@ internal sealed class HalfSelection
         private HalfSelection _owner = null!;
         private Material? _overlay;
         private bool _playable;
-        private bool _hovered;
-        private bool _laserHovered;
 
         private static readonly Color InvalidColor = new(0f, 0f, 0f, 0.55f);
-        // Distinct per-half hover tints (test #19): the glow itself says WHICH
-        // action a commit would play — warm gold for top, cool teal for bottom.
-        private static readonly Color TopHoverColor = new(1f, 0.82f, 0.35f, 0.26f);
-        private static readonly Color BottomHoverColor = new(0.35f, 0.75f, 1f, 0.26f);
         private static readonly Color ClearColor = new(0f, 0f, 0f, 0f);
 
         internal static HalfZone Create(Transform parent, VRCard card, CBaseCard.ActionType type,
@@ -362,7 +305,7 @@ internal sealed class HalfSelection
             box.size = new Vector3(size.x, size.y, 0.012f);
             box.isTrigger = true;
 
-            // Overlay quad on the viewer side (-Z): dim when invalid, glow on hover.
+            // Overlay quad on the viewer side (-Z): dims when invalid, clear otherwise.
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad.name = "Overlay";
             Destroy(quad.GetComponent<Collider>());
@@ -394,45 +337,25 @@ internal sealed class HalfSelection
             UpdateOverlay();
         }
 
-        /// <summary>
-        /// Laser hover tint (set by <see cref="UpdateLaserHover"/>). Purely visual —
-        /// the laser COMMIT runs through RayUguiDriver's real uGUI click.
-        /// </summary>
-        internal void SetLaserHover(bool hovered)
-        {
-            if (_laserHovered == hovered)
-                return;
-            _laserHovered = hovered;
-            UpdateOverlay();
-        }
-
         private void UpdateOverlay()
         {
             if (_overlay == null)
                 return;
-            Color color;
-            if (!_playable)
-                color = InvalidColor;
-            else if (_hovered || _laserHovered)
-                color = _type == CBaseCard.ActionType.TopAction ? TopHoverColor : BottomHoverColor;
-            else
-                color = ClearColor;
+            Color color = _playable ? ClearColor : InvalidColor;
             if (_overlay.color != color)
                 _overlay.color = color;
         }
 
+        /// <summary>
+        /// Poke hover feedback (test #20): a haptic tick only — no zone tint. The
+        /// card canvas is registered with <c>UguiPokeSurfaces</c> in this layout, so
+        /// the fingertip already drives the game's own uGUI hover highlight on the
+        /// card face; the zone adds nothing visual.
+        /// </summary>
         public override void OnPokeEnter(VRHand hand)
         {
-            _hovered = true;
-            UpdateOverlay();
             if (_playable)
                 hand.SendHaptic(HapticPreset.HoverTick);
-        }
-
-        public override void OnPokeExit(VRHand hand)
-        {
-            _hovered = false;
-            UpdateOverlay();
         }
 
         public override void OnPoke(VRHand hand)
