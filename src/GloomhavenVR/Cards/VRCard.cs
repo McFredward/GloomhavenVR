@@ -518,8 +518,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         UpdateCanvasCamera();
         _face.Maintain();
         // Keep the game's world-space CardSmoke plume bounded to the card while a burn/
-        // ghost effect runs (test #22, symptom 4c-i). No-op when nothing is burning.
-        _burnFx.Tick(FullCard);
+        // ghost effect runs (test #22, symptom 4c-i) and log the on-card burn lifecycle
+        // (symptom 4c-ii). No-op when nothing is burning.
+        _burnFx.Tick(FullCard, transform);
 
         if (IsHeld)
         {

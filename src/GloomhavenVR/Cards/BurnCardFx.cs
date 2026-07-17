@@ -35,16 +35,40 @@ internal sealed class BurnCardFx
     private ParticleSystemScalingMode _origScaling;
     private bool _logged;
 
+    // Test #22 symptom 4c-ii: change-dedup for the "burn plays ON the card" diagnostic.
+    private bool _effectActive;
+
     /// <summary>
-    /// Per-frame: track the card's live smoke instance and keep it card-bounded. Cheap
-    /// (a reference compare) when nothing is burning — <c>_smokeEffect</c> is null
-    /// outside an active burn/ghost effect.
+    /// Per-frame: keep the card's live smoke instance card-bounded and log the
+    /// on-card burn/ghost lifecycle. Cheap (reference + set membership) when nothing is
+    /// burning — <c>_smokeEffect</c> is null and no effect is toggled outside a burn.
     /// </summary>
-    internal void Tick(FullAbilityCard? full)
+    /// <param name="full">The adopted game card (its <c>cardEffects</c> drives the burn).</param>
+    /// <param name="cardTransform">The world-space VR card the face is kept on — its
+    /// position is logged so the hardware log shows the burn rendered at the dock, not
+    /// as a fullscreen flat presentation.</param>
+    internal void Tick(FullAbilityCard? full, Transform cardTransform)
     {
         CardEffects? effects = full != null ? full.cardEffects : null;
-        ParticleSystem? smoke = effects != null ? effects._smokeEffect : null;
 
+        // Symptom 4c-ii evidence: the burn/ghost timeline runs on the card's OWN uGUI
+        // (face-image dissolve + _uiFxOverlay flame) plus the bounded CardSmoke below —
+        // all on this world card. Because the face is kept on our dock FaceCanvas (see
+        // CardFace), it plays HERE, at the laid card's world position, and the view
+        // returns to the two-card action-selection display once the card resolves.
+        bool active = effects != null && (
+            effects.HasEffect(CardEffects.FXTask.BurnCard)
+            || effects.HasEffect(CardEffects.FXTask.LostMode)
+            || effects.HasEffect(CardEffects.FXTask.DiscardMode));
+        if (active != _effectActive)
+        {
+            _effectActive = active;
+            if (active)
+                VRLog.Info("Cards", "Burn/ghost effect playing ON the dock card at world " +
+                                    $"{cardTransform.position} (card mesh, not a fullscreen flat).");
+        }
+
+        ParticleSystem? smoke = effects != null ? effects._smokeEffect : null;
         if (ReferenceEquals(smoke, _bound))
             return;
 
@@ -55,7 +79,11 @@ internal sealed class BurnCardFx
     }
 
     /// <summary>Restore the tracked instance and drop it (disable/destroy/hot reload).</summary>
-    internal void Detach() => RestoreBound();
+    internal void Detach()
+    {
+        _effectActive = false;
+        RestoreBound();
+    }
 
     private void Bind(ParticleSystem smoke)
     {
