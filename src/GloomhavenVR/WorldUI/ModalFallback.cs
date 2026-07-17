@@ -233,10 +233,11 @@ internal static class ModalFallback
     /// recoverable, a dropped one is a silent deadlock (the DurabilityPanel rule).
     ///
     /// See the report for the SYSTEMATIC dock-vs-float verdict on every scenario
-    /// decision window/popup. Sibling candidates for future entries (small choice
-    /// panel whose follow-up needs the normal interactors): <c>YesNoDialog</c>
-    /// (short-rest yes/no; serialized yesButton/noButton) — dockable but not yet
-    /// wired. Deliberately NOT dockable: <c>UIEventPanel</c> (a scroll-list of
+    /// decision window/popup. Now wired (test #24 item 5): <c>YesNoDialog</c> — the
+    /// short-rest confirmation ("Bist du sicher?"; serialized yesButton/noButton) that
+    /// the game shows next to the 2D short-rest button (a HUD dialogHolder, mislocated
+    /// and unpressable in VR → a deadlock); its Yes/No row now docks at the same board
+    /// spot as every other confirm. Deliberately NOT dockable: <c>UIEventPanel</c> (a scroll-list of
     /// variable event options + rewards — no discrete widget row to isolate; stays
     /// floating), and every passive info popup (no choice row at all).
     /// </summary>
@@ -348,10 +349,42 @@ internal static class ModalFallback
                         RowScratch.Add(p.takeDamageButton.transform);
                     return IsolateRow(p.myWindow, RowScratch);
                 }),
+
+            // YesNoDialog (ID scene-serialized, poll-tracked): the short-rest
+            // confirmation ("GUI_SHORT_REST_CONFIRMATION", ShortRest.cs:100/244 — a
+            // YesNoDialog shown NEXT TO the 2D short-rest button in a HUD dialogHolder,
+            // mislocated + unpressable in VR → the test #24 item 5 deadlock). It carries
+            // serialized yesButton/noButton (ExtendedButton, both under the window's
+            // `box`), and its OnYes/OnNo click handlers run the game's own short-rest
+            // confirm/cancel callbacks (ShortRest.cs:100-119). The actionable row is the
+            // common ancestor of the two buttons — the description text ("Bist du
+            // sicher?") rides along when it shares that ancestor. A modal popup is active
+            // whenever its window is open (window.IsPopUp, nothing layers over it). The
+            // window remainder is suppressed like every docked prompt. Reached via the
+            // active hand's ShortRest.yesNoDialog (CardsGameApi.ShortRestDialog).
+            new("YesNoDialog",
+                static () => { YesNoDialog? d = ShortRestYesNo(); return d != null ? d.window : null; },
+                static () => { YesNoDialog? d = ShortRestYesNo(); return d != null && d.window != null && d.window.IsOpen; },
+                static () => { YesNoDialog? d = ShortRestYesNo(); return d != null && d.window != null && d.window.IsOpen; },
+                static () =>
+                {
+                    YesNoDialog? d = ShortRestYesNo();
+                    if (d == null || d.window == null)
+                        return null;
+                    RowScratch.Clear();
+                    if (d.yesButton != null)
+                        RowScratch.Add(d.yesButton.transform);
+                    if (d.noButton != null)
+                        RowScratch.Add(d.noButton.transform);
+                    return IsolateRow(d.window, RowScratch);
+                }),
         };
 
         private static TakeDamagePanel? TakeDamage() =>
             Singleton<TakeDamagePanel>.IsInitialized ? Singleton<TakeDamagePanel>.Instance : null;
+
+        /// <summary>The active hand's short-rest confirmation YesNoDialog (test #24 item 5), or null.</summary>
+        private static YesNoDialog? ShortRestYesNo() => Cards.CardsGameApi.ShortRestDialog();
 
         private static DialogPopup? DialogPop()
         {

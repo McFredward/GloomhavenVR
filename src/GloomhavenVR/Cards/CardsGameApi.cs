@@ -249,6 +249,27 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// The active hand's short-rest CONFIRMATION dialog (test #24 item 5:
+    /// <see cref="Surfaces.DecisionDockSurface"/> docks its Yes/No row on the control
+    /// board so the "Bist du sicher?" prompt is pressable in VR instead of appearing
+    /// mislocated next to the 2D button and deadlocking). It is a
+    /// <c>YesNoDialog</c> (RequireComponent(UIWindow), serialized <c>yesButton</c>/
+    /// <c>noButton</c> ExtendedButtons) instantiated lazily by <c>ShortRest.Init</c>
+    /// (ShortRest.cs:94-98) as a child of the HUD <c>dialogHolder</c> and reused —
+    /// reached via <c>CardsHandUI.shortRest</c> → <c>ShortRest.yesNoDialog</c> (both
+    /// publicized). Null until the game built it; not gated on the window being open
+    /// (the dock consults the window's own IsOpen). Its Yes/No fire the game's own
+    /// callbacks (Select(false) + shortRestAction → ShortRestConfirmed; No cancels),
+    /// ShortRest.cs:100-119.
+    /// </summary>
+    internal static YesNoDialog? ShortRestDialog()
+    {
+        CardsHandUI? hand = ActiveHand();
+        ShortRest? rest = hand != null ? hand.shortRest : null;
+        return rest != null ? rest.yesNoDialog : null;
+    }
+
+    /// <summary>
     /// Long-rest availability at selection time: the pseudo-card is selectable only
     /// with &gt;1 discarded card (SetMode's <c>longRestAvailable</c> argument,
     /// CardsHandUI.cs:590) — mirrored here for token dimming.
