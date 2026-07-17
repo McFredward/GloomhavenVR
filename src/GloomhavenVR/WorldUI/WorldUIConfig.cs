@@ -214,13 +214,15 @@ internal static class WorldUIConfig
             "'both': both paths (may double-fire — diagnostic use only). Deliberate drags " +
             "always go through the virtual mouse regardless of mode.");
 
-        CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollow", true,
-            "Combat log panel anchor mode (test #19; the panel's own FOLLOW/PINNED pin " +
-            "button flips this). True: the panel re-derives its place from the table anchor " +
-            "+ seat yaw every frame (moves with recenters and the diorama like the other " +
-            "world panels). False (PINNED): the panel keeps its exact world pose; like the " +
-            "tray, a pinned pose re-derives from the persisted offsets once per scenario " +
-            "entry (world poses do not survive sessions).");
+        CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollowSeat", false,
+            "Combat log panel anchor mode (the panel's own FOLLOW/PINNED pin button flips " +
+            "this). False (PINNED, default): the panel is STATIC IN THE WORLD — placed once " +
+            "from the persisted offsets on scenario entry, then frozen until grabbed. " +
+            "True (FOLLOW): the panel re-derives its place from the table anchor + seat " +
+            "yaw (moves with recenters and the diorama like the other world panels; " +
+            "orientation still only re-derives on recenter, never per frame). Replaces " +
+            "the test-#19 'CombatLogFollow' key: its follow default plus the per-tick " +
+            "yaw billboard read as the panel tracking the head (test #20).");
         CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", 0.62f,
             "Combat log panel offset from the table anchor along the seat forward, real " +
             "meters (default = the old arc slot: azimuth 56° at 1.10 m). Persisted " +
