@@ -62,6 +62,18 @@ internal sealed class ConvertedPanel
     /// <summary>Next periodic re-check frame (growth dirty-check throttle).</summary>
     public int FitNextCheckFrame;
 
+    // ---- nested-canvas neutralization (test #19) ---------------------------------------
+    /// <summary>
+    /// Game-owned nested <see cref="Canvas"/> components inside the converted subtree,
+    /// disabled while converted and re-enabled on Release (see
+    /// <see cref="CanvasConversion.NeutralizeNestedCanvases"/> for why they must not
+    /// stay live under the host).
+    /// </summary>
+    public readonly List<Canvas> NeutralizedCanvases = new(2);
+
+    /// <summary>Next frame for the periodic nested-canvas sweep (pooled children can bring canvases late).</summary>
+    public int CanvasSweepNextFrame;
+
     // ---- re-fit churn damping (test #17; see FitHostToContent) -------------------------
     /// <summary>Time of the last APPLIED fit (shrink/re-center rate limit).</summary>
     public float FitLastApplied;
@@ -199,6 +211,8 @@ internal static class CanvasConversion
         panel.HostRaycaster = raycaster;
         panel.HostRect = hostRect;
 
+        NeutralizeNestedCanvases(panel); // test #19: sorting-override + raycast hijack
+
         if (pokeable)
         {
             UguiPokeSurfaces.Register(hostCanvas, pokeTuning); // P5: per-canvas press feel (A.10)
@@ -233,6 +247,64 @@ internal static class CanvasConversion
         t.SetPositionAndRotation(position, rotation);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         t.localScale = Vector3.one * (metersPerPixel * worldScale);
+    }
+
+    // ---- nested-canvas neutralization (test #19) -------------------------------------------
+
+    /// <summary>Periodic sweep throttle (~0.4 s at 72 Hz) for late-appearing nested canvases.</summary>
+    private const int CanvasSweepIntervalFrames = 30;
+
+    // Scratch buffer (sweep time only; reused, no per-call allocations).
+    private static readonly List<Canvas> CanvasScratch = new(8);
+
+    /// <summary>
+    /// Test #19: disable every game-owned <see cref="Canvas"/> COMPONENT inside the
+    /// converted subtree (recorded on the panel, re-enabled by <see cref="Release"/>).
+    /// A nested canvas riding into the host breaks the conversion contract twice —
+    /// the initiative track carries one (verified decompiled InitiativeTrack.cs:
+    /// <c>[SerializeField] private Canvas canvas</c>, <c>sortingOrder = 40</c>,
+    /// toggled live by <c>ToggleSortingOrder</c> — DialogPopup drops it to 0 while
+    /// popups show, which only does anything on an override-sorting canvas):
+    ///
+    /// - RENDERING: an override-sorting nested canvas beats every sortingOrder-0
+    ///   transparent renderer in the view REGARDLESS OF DEPTH — the docked track drew
+    ///   over the hands (Sprites/Default: transparent queue, no depth write) even with
+    ///   a hand held in front of it. Disabled, the subtree renders as plain host
+    ///   content: sortingOrder 0, depth/distance-sorted like every other panel.
+    /// - HIT-TESTING: uGUI Graphics register with their NEAREST enabled parent canvas
+    ///   (GraphicRegistry), so every initiative Graphic belonged to the nested canvas
+    ///   and the HOST GraphicRaycaster — the one registered in UguiPokeSurfaces and
+    ///   queried by UguiPointer.TryRaycast — raycast an EMPTY set: laser/poke hovered
+    ///   nothing and portrait clicks never even started (test #19: zero uGUI-click
+    ///   lines; the ray∩plane intersect was fine, the raycast behind it was hollow).
+    ///
+    /// Disabling (not destroying) is fully reversible and safe: Unity re-registers the
+    /// child Graphics with the host via OnCanvasHierarchyChanged, the game's only use
+    /// of the field is writing <c>sortingOrder</c> (a no-op while disabled), and its
+    /// own GraphicRaycaster simply raycasts nothing. Swept periodically from
+    /// <see cref="Tick"/> too: pooled children (initiative rows) may bring canvases
+    /// of their own after conversion.
+    /// </summary>
+    private static void NeutralizeNestedCanvases(ConvertedPanel panel)
+    {
+        panel.CanvasSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
+        if (panel.Target == null)
+            return;
+
+        CanvasScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: true, CanvasScratch);
+        for (int i = 0; i < CanvasScratch.Count; i++)
+        {
+            Canvas nested = CanvasScratch[i];
+            if (nested == null || !nested.enabled)
+                continue;
+            nested.enabled = false;
+            panel.NeutralizedCanvases.Add(nested);
+            VRLog.Info("WorldUI", $"Neutralized nested canvas '{nested.name}' in '{panel.HostGo.name}' " +
+                                  $"(overrideSorting={nested.overrideSorting}, sortingOrder={nested.sortingOrder}) — " +
+                                  "host canvas owns rendering and raycasts again.");
+        }
+        CanvasScratch.Clear();
     }
 
     // ---- content fit (tests #13/#14) ------------------------------------------------------
@@ -470,6 +542,15 @@ internal static class CanvasConversion
         if (panel.HostCanvas != null)
             UguiPokeSurfaces.Unregister(panel.HostCanvas);
 
+        // Re-enable the game's own nested canvases (test #19) — only those WE disabled;
+        // ones the game had disabled itself stay that way.
+        for (int i = 0; i < panel.NeutralizedCanvases.Count; i++)
+        {
+            if (panel.NeutralizedCanvases[i] != null)
+                panel.NeutralizedCanvases[i].enabled = true;
+        }
+        panel.NeutralizedCanvases.Clear();
+
         if (panel.Target != null)
         {
             RectTransform target = panel.Target;
@@ -526,6 +607,10 @@ internal static class CanvasConversion
             }
             if (panel.HostCanvas.worldCamera != cam)
                 panel.HostCanvas.worldCamera = cam;
+
+            // Test #19: pooled/late children may bring nested canvases after Convert.
+            if (Time.frameCount >= panel.CanvasSweepNextFrame)
+                NeutralizeNestedCanvases(panel);
 
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
         }
