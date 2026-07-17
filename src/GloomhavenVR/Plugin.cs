@@ -62,11 +62,17 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
 
-    /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down).</summary>
+    /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down). One of the four [Hands] seat controls.</summary>
     internal static ConfigEntry<float> GripPitchOffsetDegrees = null!;
 
-    /// <summary>Vertical offset (meters) of the visual hand from the grip pose so its palm sits on the controller (positive = up).</summary>
+    /// <summary>Lateral offset (meters, device-space X) of the visual hand from the grip pose (positive = toward the thumb side). One of the four [Hands] seat controls.</summary>
+    internal static ConfigEntry<float> HandLateralOffset = null!;
+
+    /// <summary>Vertical offset (meters, device-space Y) of the visual hand from the grip pose so its palm sits on the controller (positive = up). One of the four [Hands] seat controls.</summary>
     internal static ConfigEntry<float> HandVerticalOffset = null!;
+
+    /// <summary>Forward offset (meters, device-space Z) of the visual hand from the grip pose (positive = toward the fingertips). One of the four [Hands] seat controls.</summary>
+    internal static ConfigEntry<float> HandForwardOffset = null!;
 
     /// <summary>Visible laser starts at the index fingertip instead of the aim pose (test #6).</summary>
     internal static ConfigEntry<bool> LaserFingerOrigin = null!;
@@ -176,24 +182,51 @@ public class Plugin : BaseUnityPlugin
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
             "for board targeting.");
         GripPitchOffsetDegrees = Config.Bind(
-            "Hands", "GripPitchOffsetDegrees", -60f,
+            "Hands", "GripPitchOffsetDegrees", -30f,
             "Pitch offset (degrees) between the tracked OpenXR grip pose and the visual hand " +
             "model, around the controller's X axis. NEGATIVE tilts the fingertips DOWN from " +
             "the grip-pose forward. The OpenXR grip pose points up along the controller " +
-            "handle, not where a relaxed hand points — most controllers want roughly -40 to " +
-            "-80 (LCVR uses an 80° down-pitch for its controller-relative interact/ray " +
-            "origins). Hot-reloadable: edit while the game runs and the hands re-pose on the " +
-            "next frame. Tuning guide: docs/TESTING-P2.md.");
+            "handle, not where a relaxed hand points. Together with HandLateralOffset / " +
+            "HandVerticalOffset / HandForwardOffset this seats the visual hand ON the " +
+            "physical controller; position 0/0/0 with pitch 0 places the hand EXACTLY at " +
+            "the tracked grip pose. Default -30 keeps the palm wrapped on a HELD controller " +
+            "(a stronger down-pitch reads as a relaxed hand and floats the palm off the " +
+            "device — hardware test #27). Hot-reloadable: edit while the game runs and the " +
+            "hands re-pose on the next frame. Tuning guide: docs/TESTING-P2.md.");
+        HandLateralOffset = Config.Bind(
+            "Hands", "HandLateralOffset", 0f,
+            "Lateral offset (meters) of the visual hand model from the tracked OpenXR grip " +
+            "pose, along the controller's local X axis. POSITIVE shifts the hand toward the " +
+            "thumb side (device-space; the sign is mirrored per hand by the rig geometry). " +
+            "One of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
+            "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
+            "hand ON the physical controller, and position 0/0/0 with pitch 0 puts the hand " +
+            "EXACTLY at the tracked grip pose. Default 0 keeps the hand centred on the " +
+            "controller handle. Hot-reloadable: edit while the game runs and the hands " +
+            "re-seat on the next frame.");
         HandVerticalOffset = Config.Bind(
-            "Hands", "HandVerticalOffset", 0.045f,
-            "Vertical offset (meters) of the visual hand model from the tracked OpenXR " +
-            "grip pose, along the controller's local up axis. POSITIVE raises the hand. " +
-            "The grip pose sits at the controller handle (≈ the palm when gripping), but " +
-            "the authored wrist plus the GripPitchOffsetDegrees down-pitch otherwise drop " +
-            "the palm several cm BELOW the controller — the hand floated low off the " +
-            "physical controller (hardware test #24). Default 0.045 seats the palm on the " +
-            "controller. Hot-reloadable: edit while the game runs and the hands re-seat on " +
-            "the next frame.");
+            "Hands", "HandVerticalOffset", 0f,
+            "Vertical offset (meters) of the visual hand model from the tracked OpenXR grip " +
+            "pose, along the controller's local up (Y) axis. POSITIVE raises the hand. One " +
+            "of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
+            "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
+            "hand ON the physical controller, and position 0/0/0 with pitch 0 puts the hand " +
+            "EXACTLY at the tracked grip pose. Default 0 seats the palm at the grip pose: " +
+            "the modest -30 pitch no longer drops the palm the way the old -60 did, so no " +
+            "vertical lift is needed to start — raise it if the palm still reads low on your " +
+            "controller (hardware tests #24/#27). Hot-reloadable: edit while the game runs " +
+            "and the hands re-seat on the next frame.");
+        HandForwardOffset = Config.Bind(
+            "Hands", "HandForwardOffset", -0.06f,
+            "Forward/depth offset (meters) of the visual hand model from the tracked OpenXR " +
+            "grip pose, along the controller's local forward (Z) axis. POSITIVE pushes the " +
+            "hand toward the fingertips; NEGATIVE sits the wrist behind the grip origin. One " +
+            "of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
+            "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
+            "hand ON the physical controller, and position 0/0/0 with pitch 0 puts the hand " +
+            "EXACTLY at the tracked grip pose. Default -0.06 sits the wrist just behind the " +
+            "grip origin so the palm wraps the controller handle. Hot-reloadable: edit while " +
+            "the game runs and the hands re-seat on the next frame.");
         LaserFingerOrigin = Config.Bind(
             "Hands", "LaserFingerOrigin", true,
             "Start the VISIBLE laser beam at the hand rig's index fingertip (converging on " +
