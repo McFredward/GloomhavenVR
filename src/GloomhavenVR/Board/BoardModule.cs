@@ -44,6 +44,13 @@ namespace GloomhavenVR.Board;
 /// giant unfitted host planes gone, test #14 item 1) the VR hover arms it exactly
 /// like the mouse hover does.
 ///
+/// SECOND hardware-found gate on the same chain: WSHD.Update:425 also requires
+/// !TimeManager.IsPaused, and in VR the pause taken by camera-follow transitions
+/// (SmartFocus(..., pauseDuringTransition: true)) was never released because the
+/// only OnArrivedToPoint call site is the prefix-skipped CameraController.LateUpdate
+/// — see <see cref="CameraArrivalGuard"/> (the fix) and
+/// Patches.Placement_UpdateGate_Diagnostics (the gate-chain evidence ladder).
+///
 /// Active when VR runs, and in Dev mode ([Dev] Enabled) so the whole pick/click
 /// pipeline is exercisable flat via [Dev] SimulateHands (+ [Board] ForceFarMode).
 /// </summary>
@@ -74,6 +81,7 @@ internal sealed class BoardModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
         // TEMPORARY test-#14 item-5 evidence (hero placement) — remove once confirmed.
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Hover_Diagnostics));
+        VRSession.Harmony?.PatchAll(typeof(Patches.Placement_UpdateGate_Diagnostics));
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Click_Diagnostics));
 
         _driverGo = new GameObject("GloomhavenVR.Board");

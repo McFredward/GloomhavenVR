@@ -12,6 +12,8 @@ namespace GloomhavenVR.Board;
 /// - keep both hands' <see cref="Hands.Interact.RayInteractor.Mask"/> synced to the
 ///   game's selection layer (INTERFACES-P2 §2: "Phase-3a sets
 ///   Controller.m_ActiveSelectionRaycastLayer here"),
+/// - tick <see cref="CameraArrivalGuard"/> (complete camera-follow transitions the
+///   VR-parked camera can never finish — releases their TimeManager pause),
 /// - tick <see cref="BoardClickDriver"/> (click commit),
 /// - tick <see cref="AoeControl"/> (thumbstick AoE rotation),
 /// - tick <see cref="TargetingUx"/> (hover haptics).
@@ -23,6 +25,7 @@ internal sealed class BoardDriver : MonoBehaviour
     private void Update()
     {
         SyncRayMask();
+        CameraArrivalGuard.Tick();
         BoardClickDriver.Tick();
         AoeControl.Tick();
         TargetingUx.Tick();
