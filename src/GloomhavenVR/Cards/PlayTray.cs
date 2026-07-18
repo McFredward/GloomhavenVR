@@ -1931,6 +1931,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         private float _dwellStart;
         private int _dwellTicks;
 
+        // Finger-follow press (feature 6a): the hand currently hovering this button
+        // in poke range. While set (and not dwelling) the cap continuously tracks the
+        // fingertip's penetration depth so the puck physically sinks under the finger,
+        // instead of a fire-then-spring flash. Cleared on OnPokeExit / SetVisible(false).
+        private VRHand? _hoverHand;
+
         internal Collider? Collider { get; private set; }
 
         private static readonly Color DisabledColor = new(0.24f, 0.23f, 0.22f);
@@ -1958,18 +1964,65 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         private const float CapRestZ = -0.004f;
         private const float CapTravel = 0.004f;
 
+        /// <summary>
+        /// Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>
+        /// (private there), used by the finger-follow press to turn tip distance into
+        /// a penetration depth. At tip-distance = this the finger just touches (depth 0).
+        /// </summary>
+        private const float FingertipRadius = 0.008f;
+
+        /// <summary>
+        /// Build a pressable board button. Rectangular by default (native 9-slice cap
+        /// or procedural grey cube). Pass <paramref name="round"/> = true to build a
+        /// ROUND disc sized to <paramref name="diameter"/> × <paramref name="thickness"/>
+        /// that seats in the board's round rest-notches (feature 6a): the Base is a
+        /// recessed dark "well" ring, the Cap a palette-tinted pressable puck, both
+        /// flattened <see cref="PrimitiveType.Cylinder"/>s (Unity's cylinder is Y-up and
+        /// 2 units tall → rotate 90° about X so the disc axis lands on the button's local
+        /// Z press axis, then scale radius-X / half-height-Y / radius-Z). Round buttons
+        /// always use the procedural palette cap (the native skin's 9-slice is a rounded
+        /// RECTANGLE, never a circle), so they read as turned-into-the-board discs. The
+        /// existing cap-travel machinery, label and trigger collider are unchanged.
+        /// </summary>
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
-            string fallbackLabel, System.Action onClick)
+            string fallbackLabel, System.Action onClick,
+            bool round = false, float diameter = 0f, float thickness = 0.01f)
         {
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
 
-            var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            basePlate.name = "Base";
-            Object.Destroy(basePlate.GetComponent<Collider>());
-            basePlate.transform.SetParent(go.transform, worldPositionStays: false);
-            basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
-            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            // Round buttons take their footprint from the diameter (square bounds for the
+            // label fit / trigger box); rectangular buttons keep their explicit size.
+            if (round && diameter > 0f)
+                size = new Vector2(diameter, diameter);
+
+            // Cylinder discs stand the mesh axis (Y) up the button's local Z: rotate +90°
+            // about X so the +Y cylinder axis maps to +Z, then localScale (radius, half-
+            // height, radius) — the half-height (0.5 → mesh is 2 tall) becomes the disc
+            // thickness along Z, the radial X/Z become the diameter across the face.
+            var discRot = Quaternion.Euler(90f, 0f, 0f);
+
+            GameObject basePlate;
+            if (round)
+            {
+                basePlate = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                basePlate.name = "Base";
+                Object.Destroy(basePlate.GetComponent<Collider>());
+                basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+                basePlate.transform.localRotation = discRot;
+                // Slightly wider than the cap → a visible recessed well ring around the puck.
+                basePlate.transform.localScale = new Vector3(size.x + 0.006f, 0.003f, size.x + 0.006f);
+                basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            }
+            else
+            {
+                basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                basePlate.name = "Base";
+                Object.Destroy(basePlate.GetComponent<Collider>());
+                basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+                basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
+                basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            }
             Tint(basePlate, new Color(0.10f, 0.09f, 0.08f));
 
             // Native look (test #25 item 3): when a live game button has been sampled,
@@ -1984,21 +2037,42 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             cap.transform.SetParent(go.transform, worldPositionStays: false);
             cap.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
 
-            // Face proud of the base plate (viewer side, -Z), just behind the label.
-            capFace = WorldUI.NativeButtonSkin.CreateFace(cap.transform, size, localZ: -0.004f, sortingOrder: 1);
-            if (capFace == null)
+            if (round)
             {
-                // Procedural fallback: the original squashed grey cube cap.
-                var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                capCube.name = "CapMesh";
-                Object.Destroy(capCube.GetComponent<Collider>());
-                capCube.transform.SetParent(cap.transform, worldPositionStays: false);
-                capCube.transform.localScale = new Vector3(size.x, size.y, 0.008f);
+                // Round pressable puck: a flattened cylinder tinted from the board palette
+                // (StateColor) — no native 9-slice (it can't be circular). Sits proud of
+                // the well toward the viewer (-Z) and travels with the cap holder.
+                var capDisc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                capDisc.name = "CapMesh";
+                Object.Destroy(capDisc.GetComponent<Collider>());
+                capDisc.transform.SetParent(cap.transform, worldPositionStays: false);
+                capDisc.transform.localRotation = discRot;
+                capDisc.transform.localScale = new Vector3(size.x, Mathf.Max(0.001f, thickness * 0.5f), size.x);
                 Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
                 if (shader != null)
                 {
                     capMaterial = new Material(shader) { color = DisabledColor };
-                    capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                    capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                }
+            }
+            else
+            {
+                // Face proud of the base plate (viewer side, -Z), just behind the label.
+                capFace = WorldUI.NativeButtonSkin.CreateFace(cap.transform, size, localZ: -0.004f, sortingOrder: 1);
+                if (capFace == null)
+                {
+                    // Procedural fallback: the original squashed grey cube cap.
+                    var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    capCube.name = "CapMesh";
+                    Object.Destroy(capCube.GetComponent<Collider>());
+                    capCube.transform.SetParent(cap.transform, worldPositionStays: false);
+                    capCube.transform.localScale = new Vector3(size.x, size.y, 0.008f);
+                    Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+                    if (shader != null)
+                    {
+                        capMaterial = new Material(shader) { color = DisabledColor };
+                        capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                    }
                 }
             }
 
@@ -2092,6 +2166,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             if (gameObject.activeSelf != visible)
                 gameObject.SetActive(visible);
+            if (!visible)
+            {
+                _hoverHand = null; // no poke events fire while hidden — drop stale follow
+                if (_dwellHand != null)
+                    CancelDwell();
+            }
         }
 
         /// <summary>Resting cap color for the current state (procedural fallback; dwell ramps AWAY from this).</summary>
@@ -2125,13 +2205,50 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 TickDwell();
                 return;
             }
-            if (_cap == null || _press <= 0f)
+            if (_cap == null)
                 return;
-            _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f);
-            // Cap travel: 4 mm into the board at full press.
+
+            // Spring the click impulse back down (framerate-independent decay).
+            if (_press > 0f)
+                _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f);
+
+            // Finger-follow (feature 6a): while a fingertip hovers this button the cap
+            // tracks how deep the tip has pushed past the face, so the puck sinks under
+            // the finger 1:1 (up to the full travel) and rises as it retracts. When no
+            // finger is present it falls back to the _press spring. The two combine as a
+            // max so a quick laser/click still shows its dip even mid-hover.
+            float follow = _hoverHand != null && _enabledState ? FollowDepth01(_hoverHand) : 0f;
+            float depth01 = Mathf.Max(follow, _press);
+
+            // Nothing to drive and already seated → leave it (avoids per-frame churn).
+            if (depth01 <= 0f && Mathf.Approximately(_cap.localPosition.z, CapRestZ))
+                return;
+
             Vector3 pos = _cap.localPosition;
-            pos.z = CapRestZ + CapTravel * _press;
+            pos.z = CapRestZ + CapTravel * depth01;
             _cap.localPosition = pos;
+        }
+
+        /// <summary>
+        /// Fingertip penetration for the finger-follow press, normalised to 0..1 of the
+        /// cap travel. Same tip/collider probe as <see cref="TickDwell"/> and the
+        /// PokeInteractor contact test: penetration = FingertipRadius·scale − distance
+        /// (tip → nearest surface point). Converted through the button's WORLD depth
+        /// scale so the puck follows the finger in real space (not local units), and
+        /// clamped to one full travel. Framerate-independent — it is a pure function of
+        /// where the fingertip is this frame, no accumulation.
+        /// </summary>
+        private float FollowDepth01(VRHand hand)
+        {
+            if (Collider == null || !hand.HasPose)
+                return 0f;
+            Vector3 tip = hand.Rig.IndexTip.position;
+            float dist = Vector3.Distance(tip, Collider.ClosestPoint(tip));
+            float penetration = FingertipRadius * hand.WorldScale - dist;
+            if (penetration <= 0f)
+                return 0f;
+            float capTravelWorld = CapTravel * Mathf.Abs(transform.lossyScale.z);
+            return capTravelWorld > 1e-6f ? Mathf.Clamp01(penetration / capTravelWorld) : 0f;
         }
 
         /// <summary>
@@ -2154,6 +2271,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             if (ReferenceEquals(hand, _dwellHand))
                 CancelDwell();
+            if (ReferenceEquals(hand, _hoverHand))
+                _hoverHand = null; // stop finger-follow; the cap springs back via Update
         }
 
         private void BeginDwell(VRHand hand)
@@ -2265,6 +2384,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         public override void OnPokeEnter(VRHand hand)
         {
+            _hoverHand = hand; // arm the finger-follow press (feature 6a)
             if (_enabledState)
                 hand.SendHaptic(HapticPreset.HoverTick);
         }
