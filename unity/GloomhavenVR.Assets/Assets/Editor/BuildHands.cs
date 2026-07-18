@@ -116,6 +116,11 @@ namespace GloomhavenVR
 
             var mat = new Material(shader) { name = rootName };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
+            // DEFECT 2 FIX — render the glove double-sided (Cull Off). The AI mesh is
+            // fragmented/non-manifold, so single-sided culling shows missing and back-
+            // facing shells as black voids (worst on the middle finger). BoardLit's
+            // VFACE path lights the back faces, so holes fill with the surface behind.
+            mat.SetFloat("_Cull", 0f); // 0 = CullMode.Off
             // No normal map is embedded in the FBX; BoardLit's flat "bump" default is used.
             string matPath = $"{Hands}/{rootName}.mat";
             AssetDatabase.CreateAsset(mat, matPath);
@@ -124,15 +129,40 @@ namespace GloomhavenVR
             return mat;
         }
 
+        // DEFECT 1 FIX — prefab-root orientation correction.
+        // The rig FBX is authored in Blender's frame (+Z along fingers, +Y back of hand)
+        // and exported with axis_up='Y', axis_forward='-Z'. Unity's FBX importer lands
+        // that content pitched 90° about X: fingers end up along +Y and the back of the
+        // hand faces -Z (render-verified — see hand-rig-report.md §Known risk 1). The mod
+        // mounts the prefab at identity under the OpenXR grip frame (+Z forward, +Y up),
+        // so the wrist frame must have fingers along +Z / back along +Y. We keep the FBX's
+        // internal rig untouched (the FingerCurler axes, palm normal and mirroring all
+        // round-trip correctly) and simply rotate the whole model +90° about X UNDER an
+        // identity prefab root, so the ROOT is the wrist frame (+Z fingers, +Y back) exactly
+        // as the contract (README §Conventions) requires.
+        private static readonly Quaternion OrientationFix = Quaternion.Euler(90f, 0f, 0f);
+
         private static void AssemblePrefab(string fbx, string rootName, Material mat)
         {
             var model = AssetDatabase.LoadAssetAtPath<GameObject>(fbx)
                         ?? throw new System.Exception($"Failed to load model at {fbx}");
+
+            // Identity prefab root = the wrist/grip frame the mod mounts at.
+            var root = new GameObject(rootName);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(model);
-            inst.name = rootName;
+            inst.name = rootName + "_Model";
+            inst.transform.SetParent(root.transform, worldPositionStays: false);
             inst.transform.localPosition = Vector3.zero;
-            inst.transform.localRotation = Quaternion.identity;
+            inst.transform.localRotation = OrientationFix; // pitch the whole hand back onto +Z fingers
             inst.transform.localScale = Vector3.one;
+            // Flatten the model-prefab connection so the whole hierarchy saves as one
+            // self-contained prefab (a nested model-instance under a fresh root does not
+            // SaveAsPrefabAsset cleanly in batch mode).
+            PrefabUtility.UnpackPrefabInstance(inst, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
 
             // The Generic rig import adds an inert Animator (+ Avatar) we don't want: the
             // mod drives the finger joints directly (FingerCurler, "no Animator involved").
@@ -167,7 +197,7 @@ namespace GloomhavenVR
             var missing = ContractBones.Where(n => !found.ContainsKey(n)).ToList();
             if (missing.Count > 0)
             {
-                Object.DestroyImmediate(inst);
+                Object.DestroyImmediate(root);
                 throw new System.Exception(
                     $"{rootName}: contract bones MISSING from the imported FBX: {string.Join(", ", missing)}");
             }
@@ -186,8 +216,8 @@ namespace GloomhavenVR
             Debug.Log($"[GloomhavenVR]   {rootName} palm normal (world +Y of Anchor_Palm) = {palm.up:F3}");
 
             string prefabPath = $"{Hands}/{rootName}.prefab";
-            var saved = PrefabUtility.SaveAsPrefabAsset(inst, prefabPath, out bool ok);
-            Object.DestroyImmediate(inst);
+            var saved = PrefabUtility.SaveAsPrefabAsset(root, prefabPath, out bool ok);
+            Object.DestroyImmediate(root);
             if (!ok || saved == null)
                 throw new System.Exception($"SaveAsPrefabAsset failed for {prefabPath}");
             AssetDatabase.SaveAssets();

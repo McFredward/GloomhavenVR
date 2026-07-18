@@ -22,10 +22,16 @@ Shader "GloomhavenVR/BoardLit"
         _Ambient ("Ambient floor", Range(0,1)) = 0.5
         _LightBoost ("Key light", Range(0,2)) = 0.85
         _NormalStrength ("Normal strength", Range(0,2)) = 1.0
+        // Cull mode: Back (2) for the board (default), Off (0) for the AI-generated
+        // hand glove — its mesh is fragmented (310 shells, non-manifold), so single-
+        // sided culling turns missing/flipped faces into black voids. Rendering both
+        // sides fills those gaps with the shell behind (see HandsBuilder DEFECT 2).
+        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        Cull [_Cull]
         Pass
         {
             CGPROGRAM
@@ -65,12 +71,15 @@ Shader "GloomhavenVR/BoardLit"
                 return o;
             }
 
-            fixed4 frag (v2f i) : SV_Target
+            fixed4 frag (v2f i, fixed facing : VFACE) : SV_Target
             {
                 fixed4 alb = tex2D(_MainTex, i.uv) * _Color;
                 float3 nt = UnpackNormal(tex2D(_BumpMap, i.uv));
                 nt.xy *= _NormalStrength;
                 float3 N = normalize(i.wt * nt.x + i.wb * nt.y + i.wn * nt.z);
+                // Two-sided lighting: when a back face is drawn (Cull Off on the hand),
+                // flip the normal so the interior wall filling a hole is lit, not black.
+                N *= sign(facing);
 
                 // Baked studio rig (world space): a warm key from above-front and a
                 // soft fill from the opposite side, plus a guaranteed ambient floor.

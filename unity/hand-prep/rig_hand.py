@@ -45,6 +45,7 @@
 
 import bpy, bmesh, math, os, sys
 from mathutils import Vector, Matrix
+from mathutils.kdtree import KDTree
 
 SRC = "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb"
 OUT_DIR = "/home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Assets/Bundle/Hands"
@@ -181,13 +182,26 @@ def _seg_dist(p, a, b):
 
 
 def skin(mesh, arm, joints, wrist, palm):
-    """Deterministic proximity skinning.
+    """Deterministic proximity skinning with a KDTree smoothing pass.
 
     The AI mesh is fragmented (~310 disconnected shells, heavily non-manifold), so
     Blender's heat/bone weighting fails outright. Instead every vertex is bound to the
     nearest finger chain (segment distance) blended with a long virtual WRIST segment
     that runs through the palm, so the palm/back/wrist stay rigid while finger verts
     curl with their own 3 joints. <=4 influences by construction, then normalised.
+
+    DEFECT 3 improvement: the raw proximity weights are near-rigid (a hard nearest-
+    finger pick with a cubic falloff), which pinches/collapses the exposed fingertips
+    under curl. Two changes soften the deformation without breaking the flexion
+    invariant:
+      (1) a gentler falloff (P=2 instead of 3) spreads each joint's influence across a
+          wider band, so a bend distributes over several rings of verts instead of
+          creasing at one; and
+      (2) a spatial (position-based) Laplacian smoothing pass — topology is useless on a
+          310-shell mesh, so neighbours are found with a mathutils KDTree inside a small
+          radius. This blends weights ACROSS the disconnected finger shells so they curl
+          as one soft digit rather than tearing shell-from-shell. The radius is kept
+          small (7 mm) so fingers stay separate (MCPs are ~20 mm apart).
     """
     # capture segments (weighting only; the real Wrist bone stays short for correct pose)
     wrist_seg = (wrist, palm + Vector((0.0, 0.005, 0.045)))   # long: wrist -> top of palm
@@ -207,9 +221,14 @@ def skin(mesh, arm, joints, wrist, palm):
     for n in names:
         groups[n] = mesh.vertex_groups.get(n) or mesh.vertex_groups.new(name=n)
 
-    P = 3.0
+    P = 2.0            # gentler than the old cubic -> wider, smoother influence bands
     EPS = 1e-9
-    for v in mesh.data.vertices:
+    verts = mesh.data.vertices
+    nV = len(verts)
+
+    # ---- pass 1: raw proximity weights (dict per vertex) --------------------------------
+    vert_w = [dict() for _ in range(nV)]
+    for v in verts:
         co = v.co
         dW = _seg_dist(co, *wrist_seg)
         # nearest finger by its closest segment
@@ -222,10 +241,46 @@ def skin(mesh, arm, joints, wrist, palm):
         for nm, a, b in finger_segs[best_f]:
             cands.append((nm, _seg_dist(co, a, b)))
         raws = [(nm, 1.0 / (d ** P + EPS)) for nm, d in cands]
-        raws.sort(key=lambda x: -x[1])
-        raws = raws[:4]
         tot = sum(w for _, w in raws)
-        for nm, w in raws:
+        vert_w[v.index] = {nm: w / tot for nm, w in raws}
+
+    # ---- pass 2: position-based Laplacian smoothing (blend across shells) ---------------
+    kd = KDTree(nV)
+    for v in verts:
+        kd.insert(v.co, v.index)
+    kd.balance()
+
+    RADIUS = 0.007     # 7 mm: within a finger, below the ~20 mm inter-finger spacing
+    ALPHA = 0.5        # blend toward the neighbourhood average
+    ITERS = 3
+    for _ in range(ITERS):
+        smoothed = [None] * nV
+        for v in verts:
+            acc = dict(vert_w[v.index])          # start from self
+            near = kd.find_range(v.co, RADIUS)
+            cnt = 0
+            for (_co, ni, _d) in near:
+                if ni == v.index:
+                    continue
+                for nm, w in vert_w[ni].items():
+                    acc[nm] = acc.get(nm, 0.0) + w
+                cnt += 1
+            if cnt == 0:
+                smoothed[v.index] = vert_w[v.index]
+                continue
+            navg = {nm: s / (cnt + 1) for nm, s in acc.items()}  # +1 counts self
+            self_w = vert_w[v.index]
+            blend = {}
+            for nm in set(self_w) | set(navg):
+                blend[nm] = (1.0 - ALPHA) * self_w.get(nm, 0.0) + ALPHA * navg.get(nm, 0.0)
+            smoothed[v.index] = blend
+        vert_w = smoothed
+
+    # ---- write: clamp to <=4 influences, renormalise ------------------------------------
+    for v in verts:
+        items = sorted(vert_w[v.index].items(), key=lambda kv: -kv[1])[:4]
+        tot = sum(w for _, w in items) or 1.0
+        for nm, w in items:
             wn = w / tot
             if wn > 1e-4:
                 groups[nm].add([v.index], wn, 'REPLACE')
