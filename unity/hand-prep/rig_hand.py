@@ -74,6 +74,25 @@ GRAB_L       = Vector((0.008, -0.015, 0.065))   # grip point (fingers close agai
 INDEXTIP_L   = Vector((-0.013, 0.012, 0.178))   # index fingertip point anchor
 TIP_TAIL_LEN = 0.014                            # leaf-bone (Tip) tail length along finger dir
 
+# ---- PRIORITY-3: watertight inner "backing core" (OPT-IN, OFF by default) -------------
+# The AI outer shell is 310 non-manifold shells with small see-through gaps (worst on the
+# curled finger tips). This builds a SECOND skinned mesh: a voxel-remeshed (=> watertight,
+# manifold) copy of the hand, shrunk a few mm INSIDE the outer shell and skinned to the same
+# armature. Unity gives it a dark leather material (see BuildHands.cs) so a residual outer
+# hole reveals the dark core instead of the background.
+#
+# STATUS: DISABLED by default (RIG_HAND_CORE=1 to enable). The AI mesh carries a lot of
+# internal/overlapping non-manifold geometry, so its voxel remesh is lumpy and — at the small
+# inset needed to still back the THIN finger-tip holes — pokes back OUT through the thin outer
+# shell in places (finger tips, wrist strap), speckling the *relaxed* hand with dark spots
+# (a net regression on the pose the player sees most). A larger inset removes the poke-through
+# but then no longer backs the thin tips. Shipping state is the clean two-sided (Cull Off)
+# hand; the residual see-through is minor tip speckling at VR arm's length. Kept here, gated,
+# as a starting point for a better fit (shrinkwrap-constrained or smoothed/per-region core).
+CORE_ENABLE = os.environ.get("RIG_HAND_CORE", "0") != "0"
+CORE_VOXEL = float(os.environ.get("RIG_HAND_CORE_VOXEL", "0.003"))  # voxel size (m)
+CORE_INSET = float(os.environ.get("RIG_HAND_CORE_INSET", "0.0035")) # shrink along normals (m)
+
 
 def log(*a):
     print("[rig_hand]", *a)
@@ -413,9 +432,42 @@ def sample_weights(mesh, joints):
 
 
 # ---------------------------------------------------------------------------------------
-def export_fbx(path, mesh, arm):
+def build_core(src_mesh, arm, joints, wrist, palm, side):
+    """Watertight inset backing core skinned to the same armature (see CORE_* notes)."""
+    me = src_mesh.data.copy()
+    core = bpy.data.objects.new(f"VRHand_{side}_core", me)
+    bpy.context.scene.collection.objects.link(core)
     bpy.ops.object.select_all(action='DESELECT')
-    mesh.select_set(True)
+    core.select_set(True)
+    bpy.context.view_layer.objects.active = core
+
+    # Voxel remesh -> single watertight manifold surface (merges the 310 shells, no UVs).
+    me.remesh_voxel_size = CORE_VOXEL
+    me.remesh_voxel_adaptivity = 0.0
+    me.use_remesh_fix_poles = True
+    bpy.ops.object.voxel_remesh()
+
+    # Shrink along vertex normals so the core sits just inside the textured outer shell.
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.normal_update()
+    for v in bm.verts:
+        v.co -= v.normal * CORE_INSET
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    log(f"core {side}: voxel-remeshed watertight, {len(me.vertices)} verts, inset {CORE_INSET*1000:.1f} mm")
+
+    # Skin the core to the same armature (same deterministic proximity skinning).
+    skin(core, arm, joints, wrist, palm)
+    return core
+
+
+# ---------------------------------------------------------------------------------------
+def export_fbx(path, meshes, arm):
+    bpy.ops.object.select_all(action='DESELECT')
+    for m in meshes:
+        m.select_set(True)
     arm.select_set(True)
     bpy.context.view_layer.objects.active = arm
     bpy.ops.export_scene.fbx(
@@ -466,7 +518,8 @@ def build_hand(side):
     skin(mesh, arm, joints, wrist, palm)
     sample_weights(mesh, joints)
     results = pose_test(mesh, arm, joints, side)
-    return mesh, arm, joints, results
+    core = build_core(mesh, arm, joints, wrist, palm, side) if CORE_ENABLE else None
+    return mesh, arm, joints, results, core
 
 
 def main():
@@ -475,7 +528,7 @@ def main():
 
     for side, fname in (("L", "VRHand_L_rig.fbx"), ("R", "VRHand_R_rig.fbx")):
         log(f"==================== BUILD {side} ====================")
-        mesh, arm, joints, results = build_hand(side)
+        mesh, arm, joints, results, core = build_hand(side)
         allpass = print_table(results, side)
         summary[side] = (results, allpass)
         # ensure rest pose before export
@@ -485,7 +538,8 @@ def main():
             pb.rotation_mode = 'XYZ'
             pb.rotation_euler = (0.0, 0.0, 0.0)
         bpy.ops.object.mode_set(mode='OBJECT')
-        export_fbx(os.path.join(OUT_DIR, fname), mesh, arm)
+        meshes = [mesh] + ([core] if core else [])
+        export_fbx(os.path.join(OUT_DIR, fname), meshes, arm)
         # wipe scene for the next hand
         bpy.ops.wm.read_factory_settings(use_empty=True)
 
