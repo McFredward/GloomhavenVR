@@ -22,10 +22,13 @@ internal sealed class VRCardFactory
     {
         "Assets/Bundle/Table/CardBacking.prefab",
     };
-    private static readonly string[] TrayAssetPaths =
-    {
-        "Assets/Bundle/Table/PlayTray.prefab",
-    };
+    // Enum → bundle prefab path map for the switchable control board. Oak is the
+    // original bundled board (default); Steel/Bronze are the two new boards added to
+    // the bundle in parallel. GetTrayPrefab picks per CardsConfig.Board and falls back
+    // to Oak (then the procedural board) when a selected prefab isn't in the bundle yet.
+    private const string OakTrayPath = "Assets/Bundle/Table/PlayTray.prefab";
+    private const string SteelTrayPath = "Assets/Bundle/Table/PlayTray_9capjqp6.prefab";
+    private const string BronzeTrayPath = "Assets/Bundle/Table/PlayTray_16vm268h.prefab";
 
     private readonly Dictionary<AbilityCardUI, VRCard> _byWidget = new(16);
     private readonly List<VRCard> _all = new(16);
@@ -142,7 +145,47 @@ internal sealed class VRCardFactory
         return _backingPrefab;
     }
 
-    internal GameObject? GetTrayPrefab() => LoadPrefab(TrayAssetPaths);
+    /// <summary>
+    /// Load the control-board prefab for the selected <see cref="ControlBoard"/>. Tries the
+    /// selected board's bundle path first; if it isn't in the bundle yet, falls back to the
+    /// Oak (original) path; if that also fails, returns null so <c>PlayTray.EnsureBuilt</c>'s
+    /// procedural fallback board kicks in. NOTE (per-board tuning seam): SlotCardInset,
+    /// SlotCardFill and RoundButtonDiameter (CardsConfig) are documented as per-board — for
+    /// now they stay single global values; a future per-board descriptor keyed by
+    /// <see cref="ControlBoard"/> may override them once the new boards' recess dimensions land.
+    /// </summary>
+    internal GameObject? GetTrayPrefab()
+    {
+        ControlBoard board = CardsConfig.Board.Value;
+        string selectedPath = board switch
+        {
+            ControlBoard.Steel => SteelTrayPath,
+            ControlBoard.Bronze => BronzeTrayPath,
+            _ => OakTrayPath,
+        };
+
+        GameObject? prefab = LoadPrefab(new[] { selectedPath });
+        if (prefab != null)
+        {
+            VRLog.Info("Cards", $"Control board '{board}' → '{selectedPath}' loaded from bundle.");
+            return prefab;
+        }
+
+        if (selectedPath != OakTrayPath)
+        {
+            prefab = LoadPrefab(new[] { OakTrayPath });
+            if (prefab != null)
+            {
+                VRLog.Info("Cards", $"Control board '{board}' ('{selectedPath}') not in bundle — " +
+                                    $"fell back to Oak ('{OakTrayPath}').");
+                return prefab;
+            }
+        }
+
+        VRLog.Info("Cards", $"Control board '{board}' prefab unavailable in bundle — " +
+                            "using the procedural fallback board.");
+        return null;
+    }
 
     private GameObject? LoadPrefab(string[] candidates)
     {

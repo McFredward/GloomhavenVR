@@ -39,6 +39,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly List<VRCard> _fakeCards = new(12);
 
     private bool _dirty;
+    private bool _boardChanged; // [Cards] Board switched — tear down + rebuild the tray next frame
     private bool _fakeActive;
     private VRHand? _gateHand;
     private CardsHandUI? _boundHand;
@@ -53,6 +54,7 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
+        CardsConfig.Board.SettingChanged += OnBoardChanged;
 
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
@@ -75,6 +77,7 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
+        CardsConfig.Board.SettingChanged -= OnBoardChanged;
     }
 
     private void OnDestroy()
@@ -126,6 +129,22 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
 
     private void OnHandsChanged() => _dirty = true;
+
+    /// <summary>
+    /// Live control-board switch ([Cards] Board, from the VR settings panel). The tray
+    /// early-returns in <see cref="PlayTray.EnsureBuilt"/> while its root exists, so a
+    /// mere <see cref="_dirty"/> rebuild would keep the old board — the switch needs a
+    /// full teardown first. Per the P2 threading rule handlers only set a flag; the
+    /// teardown + rebuild runs on the main thread in <see cref="Update"/>
+    /// (<see cref="RebuildBoard"/>), which also re-parks the seated cards so they survive
+    /// the tray's DestroyImmediate.
+    /// </summary>
+    private void OnBoardChanged(object sender, System.EventArgs e)
+    {
+        _boardChanged = true;
+        VRLog.Info("Cards", $"[Cards] Control board switched to '{CardsConfig.Board.Value}' — " +
+                            "tearing down and rebuilding the tray.");
+    }
 
     private void OnHandDestroying(CardsHandUI hand)
     {
@@ -197,6 +216,12 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
+        }
+
+        if (_boardChanged)
+        {
+            _boardChanged = false;
+            RebuildBoard();
         }
 
         if (_dirty)
@@ -742,6 +767,31 @@ internal sealed class CardsDriver : MonoBehaviour
     }
 
     // ------------------------------------------------------------------ rebuild --
+
+    /// <summary>
+    /// Live board switch executor: re-park every card currently seated ON the tray back
+    /// to the factory pool, THEN tear the tray down so the next <see cref="Rebuild"/>
+    /// loads the newly selected prefab. Slot occupants / pick-field / short-rest cards
+    /// are parented under the tray root, so <see cref="PlayTray.Destroy"/>'s
+    /// DestroyImmediate would otherwise destroy those factory-owned VRCards and orphan
+    /// their adopted game faces — re-parenting them to the pool first keeps them (and
+    /// their faces) alive; the forced rebuild re-seats them from authoritative state.
+    /// </summary>
+    private void RebuildBoard()
+    {
+        Transform? trayRoot = _tray.Root;
+        if (trayRoot != null)
+        {
+            for (int i = 0; i < _factory.All.Count; i++)
+            {
+                VRCard card = _factory.All[i];
+                if (card != null && !card.IsHeld && card.transform.IsChildOf(trayRoot))
+                    _factory.Park(card);
+            }
+        }
+        _tray.Destroy();
+        _dirty = true;
+    }
 
     private void Rebuild(Transform anchor)
     {
