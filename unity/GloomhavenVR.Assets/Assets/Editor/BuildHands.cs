@@ -129,6 +129,28 @@ namespace GloomhavenVR
             return mat;
         }
 
+        // PRIORITY-3 (opt-in) — dark backing-core material. When the rig FBX was built with
+        // RIG_HAND_CORE=1 it carries a second, watertight skinned mesh named
+        // "VRHand_{L,R}_core" (voxel-remeshed, inset a few mm inside the textured outer
+        // shell). It is rendered in a flat dark leather tint (BoardLit with no albedo texture,
+        // just _Color) so any residual see-through hole in the fragmented outer mesh reveals
+        // this dark core rather than the background. Double-sided so it reads from either side.
+        // Only created lazily when a "core" renderer is actually present (default builds have
+        // none, so the prefab is byte-identical to the two-sided-only hand).
+        private static Material BuildCoreMaterial(string rootName)
+        {
+            Shader shader = Shader.Find(ShaderName)
+                            ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
+            var mat = new Material(shader) { name = rootName + "_core" };
+            mat.SetColor("_Color", new Color(0.10f, 0.075f, 0.055f, 1f)); // dark leather
+            mat.SetFloat("_Cull", 0f);
+            string matPath = $"{Hands}/{rootName}_core.mat";
+            AssetDatabase.CreateAsset(mat, matPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[GloomhavenVR] core material written: {matPath}");
+            return mat;
+        }
+
         // DEFECT 1 FIX — prefab-root orientation correction.
         // The rig FBX is authored in Blender's frame (+Z along fingers, +Y back of hand)
         // and exported with axis_up='Y', axis_forward='-Z'. Unity's FBX importer lands
@@ -171,19 +193,29 @@ namespace GloomhavenVR
             foreach (var anim in inst.GetComponentsInChildren<Animator>(true))
                 Object.DestroyImmediate(anim);
 
-            // Bind our bundled-shader material to every skinned/mesh renderer.
+            // Bind our bundled-shader material to every skinned/mesh renderer. The optional
+            // dark backing core (renderer name contains "core") gets its own dark material,
+            // built lazily only if such a renderer is present (see BuildCoreMaterial).
+            Material coreMat = null;
+            System.Func<string, Material> pick = name =>
+            {
+                if (!name.Contains("core")) return mat;
+                return coreMat ??= BuildCoreMaterial(rootName);
+            };
             int rendererCount = 0;
             foreach (var smr in inst.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
+                Material bind = pick(smr.name);
                 var mats = smr.sharedMaterials;
-                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                for (int i = 0; i < mats.Length; i++) mats[i] = bind;
                 smr.sharedMaterials = mats;
                 rendererCount++;
             }
             foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
             {
+                Material bind = pick(mr.name);
                 var mats = mr.sharedMaterials;
-                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                for (int i = 0; i < mats.Length; i++) mats[i] = bind;
                 mr.sharedMaterials = mats;
                 rendererCount++;
             }

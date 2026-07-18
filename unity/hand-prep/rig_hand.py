@@ -48,7 +48,11 @@ from mathutils import Vector, Matrix
 from mathutils.kdtree import KDTree
 
 SRC = "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb"
-OUT_DIR = "/home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Assets/Bundle/Hands"
+# OUT_DIR: overridable via env so this can target an isolated worktree without
+# touching the main checkout. Default remains the main checkout (unchanged behaviour).
+OUT_DIR = os.environ.get(
+    "RIG_HAND_OUT_DIR",
+    "/home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Assets/Bundle/Hands")
 NEG_Y = Vector((0.0, -1.0, 0.0))  # palm-out / flexion reference
 
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
@@ -69,6 +73,25 @@ PALM_L       = Vector((0.010, -0.005, 0.055))   # palm centre
 GRAB_L       = Vector((0.008, -0.015, 0.065))   # grip point (fingers close against palm)
 INDEXTIP_L   = Vector((-0.013, 0.012, 0.178))   # index fingertip point anchor
 TIP_TAIL_LEN = 0.014                            # leaf-bone (Tip) tail length along finger dir
+
+# ---- PRIORITY-3: watertight inner "backing core" (OPT-IN, OFF by default) -------------
+# The AI outer shell is 310 non-manifold shells with small see-through gaps (worst on the
+# curled finger tips). This builds a SECOND skinned mesh: a voxel-remeshed (=> watertight,
+# manifold) copy of the hand, shrunk a few mm INSIDE the outer shell and skinned to the same
+# armature. Unity gives it a dark leather material (see BuildHands.cs) so a residual outer
+# hole reveals the dark core instead of the background.
+#
+# STATUS: DISABLED by default (RIG_HAND_CORE=1 to enable). The AI mesh carries a lot of
+# internal/overlapping non-manifold geometry, so its voxel remesh is lumpy and — at the small
+# inset needed to still back the THIN finger-tip holes — pokes back OUT through the thin outer
+# shell in places (finger tips, wrist strap), speckling the *relaxed* hand with dark spots
+# (a net regression on the pose the player sees most). A larger inset removes the poke-through
+# but then no longer backs the thin tips. Shipping state is the clean two-sided (Cull Off)
+# hand; the residual see-through is minor tip speckling at VR arm's length. Kept here, gated,
+# as a starting point for a better fit (shrinkwrap-constrained or smoothed/per-region core).
+CORE_ENABLE = os.environ.get("RIG_HAND_CORE", "0") != "0"
+CORE_VOXEL = float(os.environ.get("RIG_HAND_CORE_VOXEL", "0.003"))  # voxel size (m)
+CORE_INSET = float(os.environ.get("RIG_HAND_CORE_INSET", "0.0035")) # shrink along normals (m)
 
 
 def log(*a):
@@ -143,11 +166,41 @@ def build_armature(joints, wrist, palm, grab, indextip, name):
             connect = True                          # Mid/Tip connect to their parent
             finger_bones.append(b.name)
 
-    # Finger/thumb roll: local +Z -> -Y  =>  local +X = flexion axis, +X curls into palm.
-    # (align_roll sets local +Z toward the target; secondary_bone_axis='X' at export
-    #  then preserves this local +X as the Unity node's +X — the axis the mod rotates.)
+    # Finger/thumb roll.
+    #
+    # FINGERS (Index/Middle/Ring/Pinky): local +Z -> -Y  =>  local +X = flexion axis and
+    #   +X curls the tip straight into the palm (-Y). This is exact (every finger bone lies
+    #   in the world X-Z plane) and is render- + numerically-verified in Unity (a +local-X
+    #   rotation moves each fingertip purely toward -Y with zero X drift). UNCHANGED.
+    #
+    # THUMB (P2 tuck fix): the thumb mesh is a straight T-pose digit pointing out to the
+    #   side (-X for the left hand). With the plain -Y roll, +local-X flexion just drops the
+    #   thumb straight DOWN its own splayed axis, so on a fist it stays out to the side
+    #   instead of folding across the palm. We instead roll the thumb so its flexion axis
+    #   (local +X) is the world direction FLEX_XD — a 45deg blend of "across the palm"
+    #   (+Y = palm normal, sweeps the tip in the palm plane toward the fingers) and "down"
+    #   (+X, the finger flexion axis). A +local-X rotation then carries the thumb tip both
+    #   ACROSS toward the palm centre and DOWN, i.e. it tucks. FLEX_XD mirrors in X for the
+    #   right hand so L/R stay mirror images. To make the bone's local +X equal a desired
+    #   world axis Xd (given the bone's Y = head->tail direction), align_roll must aim local
+    #   +Z at Xd x boneDir (since Blender sets local +X = boneY x boneZ).
+    side = name[-1]
+    thumb_xd = Vector((1.0, 1.0, 0.0)).normalized()
+    if side == 'R':
+        # The flexion axis is a rotation axis (pseudovector): reflecting the rig across
+        # the X-plane (the L->R mirror) negates its Y,Z and keeps X, so the same +local-X
+        # rotation the mod applies produces the mirror-image tuck on the right hand.
+        thumb_xd = Vector((thumb_xd.x, -thumb_xd.y, -thumb_xd.z))
     for name_ in finger_bones:
-        eb[name_].align_roll(NEG_Y)
+        b = eb[name_]
+        if name_.startswith("Anchor_Thumb_"):
+            bdir = (b.tail - b.head).normalized()
+            z_target = thumb_xd.cross(bdir)
+            if z_target.length < 1e-6:
+                z_target = NEG_Y
+            b.align_roll(z_target.normalized())
+        else:
+            b.align_roll(NEG_Y)
 
     # ----- Anchor bones (non-deforming) -----
     # Kept as BONES (not empties) so they ride the SAME export/axis pipeline as the
@@ -379,9 +432,42 @@ def sample_weights(mesh, joints):
 
 
 # ---------------------------------------------------------------------------------------
-def export_fbx(path, mesh, arm):
+def build_core(src_mesh, arm, joints, wrist, palm, side):
+    """Watertight inset backing core skinned to the same armature (see CORE_* notes)."""
+    me = src_mesh.data.copy()
+    core = bpy.data.objects.new(f"VRHand_{side}_core", me)
+    bpy.context.scene.collection.objects.link(core)
     bpy.ops.object.select_all(action='DESELECT')
-    mesh.select_set(True)
+    core.select_set(True)
+    bpy.context.view_layer.objects.active = core
+
+    # Voxel remesh -> single watertight manifold surface (merges the 310 shells, no UVs).
+    me.remesh_voxel_size = CORE_VOXEL
+    me.remesh_voxel_adaptivity = 0.0
+    me.use_remesh_fix_poles = True
+    bpy.ops.object.voxel_remesh()
+
+    # Shrink along vertex normals so the core sits just inside the textured outer shell.
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.normal_update()
+    for v in bm.verts:
+        v.co -= v.normal * CORE_INSET
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    log(f"core {side}: voxel-remeshed watertight, {len(me.vertices)} verts, inset {CORE_INSET*1000:.1f} mm")
+
+    # Skin the core to the same armature (same deterministic proximity skinning).
+    skin(core, arm, joints, wrist, palm)
+    return core
+
+
+# ---------------------------------------------------------------------------------------
+def export_fbx(path, meshes, arm):
+    bpy.ops.object.select_all(action='DESELECT')
+    for m in meshes:
+        m.select_set(True)
     arm.select_set(True)
     bpy.context.view_layer.objects.active = arm
     bpy.ops.export_scene.fbx(
@@ -394,6 +480,18 @@ def export_fbx(path, mesh, arm):
         axis_forward='-Z',
         axis_up='Y',
         bake_space_transform=True,
+        # PRIORITY-1 FIX (armature 100x): Blender's FBX exporter, with the default
+        # apply_scale_options='FBX_SCALE_NONE', emits the ARMATURE null with
+        # Lcl Scaling = 100 (a cm->m leftover) while leaving bone translations in
+        # metres. Unity then imports that 100x onto the whole bone chain, so every
+        # Anchor_* ends up with lossyScale == WorldScale*100 — which breaks the mod's
+        # palm-anchored card fan and corrupts the skinned bounds. 'FBX_SCALE_ALL'
+        # keeps every object transform at scale 1 and pushes the unit conversion into
+        # the FBX global UnitScaleFactor (=100 / cm) instead; Unity's useFileScale=true
+        # then bakes that 0.01 into the geometry, yielding clean scale-1 transforms and
+        # a real-world ~0.19 m hand. Mesh/bone orientation and rolls are unchanged
+        # (bake_space_transform stays on), so the rig contract is preserved.
+        apply_scale_options='FBX_SCALE_ALL',
         path_mode='COPY',
         embed_textures=True,
         mesh_smooth_type='FACE',
@@ -420,7 +518,8 @@ def build_hand(side):
     skin(mesh, arm, joints, wrist, palm)
     sample_weights(mesh, joints)
     results = pose_test(mesh, arm, joints, side)
-    return mesh, arm, joints, results
+    core = build_core(mesh, arm, joints, wrist, palm, side) if CORE_ENABLE else None
+    return mesh, arm, joints, results, core
 
 
 def main():
@@ -429,7 +528,7 @@ def main():
 
     for side, fname in (("L", "VRHand_L_rig.fbx"), ("R", "VRHand_R_rig.fbx")):
         log(f"==================== BUILD {side} ====================")
-        mesh, arm, joints, results = build_hand(side)
+        mesh, arm, joints, results, core = build_hand(side)
         allpass = print_table(results, side)
         summary[side] = (results, allpass)
         # ensure rest pose before export
@@ -439,7 +538,8 @@ def main():
             pb.rotation_mode = 'XYZ'
             pb.rotation_euler = (0.0, 0.0, 0.0)
         bpy.ops.object.mode_set(mode='OBJECT')
-        export_fbx(os.path.join(OUT_DIR, fname), mesh, arm)
+        meshes = [mesh] + ([core] if core else [])
+        export_fbx(os.path.join(OUT_DIR, fname), meshes, arm)
         # wipe scene for the next hand
         bpy.ops.wm.read_factory_settings(use_empty=True)
 
