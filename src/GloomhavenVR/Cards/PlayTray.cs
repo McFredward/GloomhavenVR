@@ -247,6 +247,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     private float _lastSlotActivity = float.NegativeInfinity;
 
+    /// <summary>True once the bundled board's real MeshCollider is registered as a laser
+    /// target (DEFECT 2) — then <see cref="BuildBoardSurface"/> skips its synthetic plane.</summary>
+    private bool _boardColliderRegistered;
+
     /// <summary>Arm the accidental-confirm guard (called by CardsDriver on real slot drops/plucks only).</summary>
     internal void NoteSlotActivity() => _lastSlotActivity = Time.unscaledTime;
 
@@ -354,6 +358,20 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
                     if (a != null)
                         a.rotation = frame;
+            }
+
+            // DEFECT 2: the bundled board now ships a MeshCollider (BuildBoard). Register
+            // it as a laser target so the index-finger beam STOPS on the REAL board
+            // surface instead of passing through it. Collider.Raycast is geometric and
+            // layer-independent, so the non-convex mesh works directly. This supersedes
+            // the synthetic flat BoardSurface plane (kept only for the procedural
+            // fallback, which has no mesh) — see BuildBoardSurface.
+            foreach (MeshCollider mc in visual.GetComponentsInChildren<MeshCollider>(true))
+            {
+                var t = mc.gameObject.GetComponent<BoardSurfaceTarget>();
+                if (t == null) t = mc.gameObject.AddComponent<BoardSurfaceTarget>();
+                RegisterLaserTarget(mc, t);
+                _boardColliderRegistered = true;
             }
         }
 
@@ -716,6 +734,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _wantVisible = false;
         _placementDeferLogged = false;
         _lastSlotActivity = float.NegativeInfinity;
+        _boardColliderRegistered = false;
     }
 
     /// <summary>
@@ -1600,6 +1619,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private void BuildBoardSurface()
     {
         if (_root == null)
+            return;
+        // The bundled board already registered its real MeshCollider as the laser
+        // surface (DEFECT 2, EnsureBuilt) — the synthetic flat plane below is only for
+        // the procedural fallback board, which has no mesh collider of its own.
+        if (_boardColliderRegistered)
             return;
         var go = new GameObject("BoardSurface");
         go.transform.SetParent(_root, worldPositionStays: false);

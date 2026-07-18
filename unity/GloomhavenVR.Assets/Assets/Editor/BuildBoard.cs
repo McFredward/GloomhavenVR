@@ -184,6 +184,66 @@ namespace GloomhavenVR
                 Debug.Log("[GloomhavenVR] Body was in front of the cards — flipped 180° about Y.");
             }
 
+            // --- board collider (DEFECT 2) ---
+            // The bundle visual ships NO collider, so the mod's index-finger laser
+            // passed straight THROUGH the board. Give the mesh a MeshCollider
+            // (non-convex: it must follow the RECESSED functional face, not a filled
+            // hull) so the laser (Collider.Raycast — geometric, layer-independent)
+            // stops on the real surface; it also lets us project the anchors onto that
+            // surface just below. Static prop → non-convex is correct.
+            var meshColliders = new System.Collections.Generic.List<MeshCollider>();
+            foreach (var mf in inst.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                var mc = mf.gameObject.AddComponent<MeshCollider>();
+                mc.sharedMesh = mf.sharedMesh;
+                mc.convex = false;
+                meshColliders.Add(mc);
+            }
+            Debug.Log($"[GloomhavenVR] Board MeshCollider(s) added: {meshColliders.Count}.");
+
+            // --- seat the anchors ON the functional recess surface (DEFECT 1) ---
+            // The bundle anchors sit ~2 cm BEHIND the recessed functional face (toward
+            // the compass back), so cards/buttons parked at an anchor landed deep and
+            // were only visible from the back. For each anchor, raycast from just in
+            // FRONT of the functional face back toward the board and move the anchor
+            // onto the first surface hit (a hair proud) — so every attached element
+            // (cards, rest tokens, CONFIRM/UNDO) seats IN its recess / on its pad,
+            // flush on the player-facing face. Generalises to any board with anchors.
+            if (meshColliders.Count > 0 && anchors.ContainsKey("Slot1") && anchors.ContainsKey("Slot2")
+                && anchors.ContainsKey("ShortRestToken") && anchors.ContainsKey("LongRestToken"))
+            {
+                Physics.SyncTransforms(); // ensure the just-added colliders match the posed transforms
+                // Functional-face outward normal in WORLD space from the CURRENT anchor
+                // frame (robust to the orientation/flip branches above): n=cross(long,
+                // short) is the UNDECORATED back normal, so -n points out the functional
+                // face (toward the player).
+                Vector3 backN = Vector3.Cross(
+                    anchors["Slot2"].position - anchors["Slot1"].position,
+                    anchors["ShortRestToken"].position - anchors["LongRestToken"].position).normalized;
+                Vector3 outN = -backN;
+                const float standoff = 0.15f; // start well in front of the face
+                const float proud = 0.0005f;  // seat a hair above the recess floor
+                foreach (string name in AnchorNames)
+                {
+                    if (!anchors.TryGetValue(name, out Transform a)) continue;
+                    var ray = new Ray(a.position + outN * standoff, backN); // shoot back toward the board
+                    float best = float.PositiveInfinity;
+                    Vector3 bestPt = default;
+                    foreach (var mc in meshColliders)
+                        if (mc.Raycast(ray, out RaycastHit hit, standoff * 2f) && hit.distance < best)
+                        { best = hit.distance; bestPt = hit.point; }
+                    if (float.IsInfinity(best))
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Anchor '{name}' did not project onto the board face (no mesh hit) — left at its bundle depth.");
+                        continue;
+                    }
+                    Vector3 before = a.position;
+                    a.position = bestPt + outN * proud;
+                    Debug.Log($"[GloomhavenVR]   anchor {name} projected: moved {(a.position - before).magnitude * 1000f:F1} mm onto the functional face.");
+                }
+            }
+
             // --- material onto every renderer ---
             foreach (var r in inst.GetComponentsInChildren<MeshRenderer>(true))
             {
