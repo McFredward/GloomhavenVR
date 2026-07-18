@@ -36,6 +36,32 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static class ActorBars
 {
+    /// <summary>
+    /// Fixed zoom pushed to each adopted panel so its <c>HealthBar</c> segments itself
+    /// (item 5a part 1). The flat game feeds <c>WorldspacePanelUIController.OnUpdatedZoom</c>
+    /// from the RTS camera zoom via a UnityEvent wired only in the prefab/scene — there is
+    /// NO code caller (verified: the only references to <c>OnUpdatedZoom</c> in the
+    /// decompiled sources are the two method definitions). That event never fires in VR, so
+    /// <c>HealthBar.zoom</c> stays at its -1 sentinel and <c>AdjustHealthBarMarks</c>
+    /// early-returns (HealthBar.cs:205) — every bar keeps the prefab-default marks and looks
+    /// identically segmented.
+    ///
+    /// Pushing any zoom >= 0 leaves the sentinel and lets <c>AdjustHealthBarMarks(maxHealth)</c>
+    /// (called from <c>UpdateHealth</c>) pool <c>maxHealth-1</c> division marks, giving the
+    /// per-character segment count the flat game shows. The value must be non-zero: the
+    /// controller's own idempotence guard (<c>Mathf.Abs(_zoom - zoom) &lt; 0.0001f</c>,
+    /// WorldspacePanelUIController.cs:786) skips the call when zoom equals its 0f default.
+    /// 1f also drives the health/shield-root counter-scale in the same method — harmless in
+    /// VR because we prefix-skip the distance-scaling LateUpdate, so the bar transform stays
+    /// at prefab scale and the counter-scale resolves to identity.
+    ///
+    /// The exact zoom only selects which <c>HealthZoomConfigUI</c> styles the marks (widths /
+    /// every-5th emphasis); the segment COUNT is <c>maxHealth-1</c> at any zoom >= 0. A
+    /// constant keeps every VR bar consistent since our board-space bars are a fixed size and
+    /// have no live zoom of their own.
+    /// </summary>
+    private const float BarZoom = 1f;
+
     private sealed class Adopted
     {
         public WorldspacePanelUIController Controller = null!;
@@ -234,6 +260,25 @@ internal static class ActorBars
             AnchorOffsetWU = ComputeAnchorOffsetWU(controller),
         };
         Owned.Add(controller);
+
+        // Item 5a part 1 — segment the HealthBar per max-HP. Push a valid zoom exactly
+        // once at adopt: the RTS-camera UnityEvent that normally does this never fires in
+        // VR (see BarZoom). Once suffices — HealthBar.zoom then holds a valid value and
+        // every later UpdateHealth re-pools maxHealth-1 marks on its own. Idempotent if a
+        // pooled controller is re-adopted (the controller guards on its cached zoom).
+        //
+        // Item 5a part 2 (damage preview) needs NO hook here: it is driven entirely by the
+        // game's Choreographer targeting-focus messages — OnSelectingAttackFocus /
+        // OnSelectingDamageFocus / PreviewDamage → HealthBar.PreviewAttack + Focus(true)
+        // (Choreographer.cs, DistributeDamageService.cs) — off the SHARED game cursor, which
+        // the VR board pick already feeds (BoardPick → MF.FindInteractableAtMousePosition +
+        // InputManager.CursorPosition patches). Because we adopt the game's LIVE panel, any
+        // preview the rules engine drives lands on this same component and billboards with
+        // the bar. If a preview is ever observed missing, the gap is upstream in the
+        // targeting message flow (the VR pick not yielding the target-selection the engine
+        // keys those messages off) — to be fixed in the board pick/click path, never by
+        // fabricating a CAttackSummary here (that would risk showing wrong damage).
+        controller.OnUpdatedZoom(BarZoom);
     }
 
     private static void Release(WorldspacePanelUIController controller)
