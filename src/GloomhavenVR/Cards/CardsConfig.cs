@@ -258,7 +258,7 @@ internal static class CardsConfig
         FanSelectedPopForward = _file.Bind("Cards", "FanSelectedPopForward", 0.035f,
             "Demeo parity (G2): how far (real meters) the hovered/selected card pops toward the " +
             "viewer (along -face normal). Demeo uses ~0.25 scene units; 0.035 m matches our scale.");
-        GrabButton = _file.Bind("Cards", "GrabButton", CardGrabButton.Trigger,
+        GrabButton = _file.Bind("Cards", "GrabButton", CardGrabButton.Grip,
             "Demeo parity (G3): which controller button grabs a card by proximity. Trigger = " +
             "Demeo (index-finger pinch, matches our laser pluck so a card grabbed either way " +
             "releases on trigger-up). Grip = the pre-Demeo behavior.");
