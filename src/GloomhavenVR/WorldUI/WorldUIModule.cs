@@ -148,6 +148,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
+        private readonly OptionsToggle _optionsToggle = new();
         private readonly WorldTooltips _tooltips = new();
         private readonly DevPanels _devPanels = new();
 
@@ -174,8 +175,9 @@ internal sealed class WorldUIModule : IVRModule
             VirtualMouse.Tick();
             InputModeGuard.Tick();
             CameraInventory.Tick();
-            NonDominantHold.Tick();  // before its consumers (settings panel, flat screen)
+            NonDominantHold.Tick();  // before its consumers (settings panel, flat screen, options toggle)
             ModalFallback.Tick();    // before the flat screen reads ScreenWanted
+            _optionsToggle.Tick();   // reads the settled short-tap edge (after the hold arbiters)
 
             _buttons.Tick();
             for (int i = 0; i < _slotSurfaces.Length; i++)
