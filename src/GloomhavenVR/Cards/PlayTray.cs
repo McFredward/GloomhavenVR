@@ -345,10 +345,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 Vector3 sF = (_shortRestAnchor!.position - _longRestAnchor!.position).normalized; // short axis
                 Vector3 nF = Vector3.Cross(uF, sF).normalized;                                    // board face normal
                 Vector3 vF = Vector3.Cross(nF, uF).normalized;                                    // orthonormal short axis
-                // Elements face the anchor's local -Z; we want that out of the TOP
-                // (decorated) face. cross(long, short) points out the BOTTOM here (elements
-                // landed on the underside), so aim -Z along -nF: forward = -nF => -Z = +nF.
-                Quaternion frame = Quaternion.LookRotation(-nF, vF);
+                // Elements face the anchor's local -Z. VERIFIED BY OFFSCREEN RENDER (board
+                // under the mod's real lectern tilt, player POV): LookRotation(nF, vF) lands
+                // the card markers squarely in the two slot recesses on the player-facing
+                // functional face. So forward = +nF => -Z = -nF = out of that face. (Do not
+                // flip to -nF: that hides the cards on the decorative back.)
+                Quaternion frame = Quaternion.LookRotation(nF, vF);
                 foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
                     if (a != null)
                         a.rotation = frame;
