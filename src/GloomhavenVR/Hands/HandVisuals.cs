@@ -79,6 +79,16 @@ internal static class HandVisuals
             // renders the mod layer only) — the hands vanished in front of the menu.
             // Re-layer the whole glove subtree onto the mod layer here.
             Core.VRLayers.Apply(instance);
+            // Force consistent, best skin quality. SkinQuality.Auto follows the game's
+            // per-scene QualitySettings.skinWeights, so the intro (lower quality level)
+            // skinned the fingers with fewer bones than the menu/scenario — the fist/finger
+            // deformation looked worse in the intro. Pin 4 bones/vertex everywhere.
+            // updateWhenOffscreen avoids stale-bounds frustum culling of the hand.
+            foreach (var smr in instance.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                smr.quality = SkinQuality.Bone4;
+                smr.updateWhenOffscreen = true;
+            }
             VRLog.Info("Hands", $"{side}: glove prefab loaded from bundle.");
         }
         else
