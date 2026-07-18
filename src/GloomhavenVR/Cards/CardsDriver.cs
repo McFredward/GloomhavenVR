@@ -834,7 +834,6 @@ internal sealed class CardsDriver : MonoBehaviour
         // during card selection. Cards remain grabbable only in CardsSelection.
         bool trayVisible = true;
         bool halfVisible = false;
-        bool pokeSelect = false;
         bool grabbable = false;
 
         switch (mode)
@@ -868,12 +867,13 @@ internal sealed class CardsDriver : MonoBehaviour
             case CardHandMode.RecoverLostCard:
             case CardHandMode.IncreaseCardLimit:
                 // Modal card picks (long-rest burn, avoid-damage, discards,
-                // recovers): the 2D UI is click-to-select. VR (test #21 B): the
-                // candidates are GRABBABLE — lay one onto the board's drop field to
-                // select it — with poke-to-select kept as the fallback; both paths
-                // commit through the same seam (TryCommitPick →
-                // CardsHandUI.SelectCard).
-                pokeSelect = true;
+                // recovers): the 2D UI is click-to-select. VR (item 10): the
+                // candidates are GRABBABLE ONLY — the card must be PLACED into a
+                // control-board slot to select it. Poke-to-select is deliberately
+                // NOT armed here: merely touching a hand card must never commit it
+                // (a fingertip within 8 mm used to fire SelectCard with no board
+                // placement). The only commit path is the deliberate slot drop
+                // (HandlePickRelease → TryCommitPick → CardsHandUI.SelectCard).
                 grabbable = true;
                 // Field occupants stay valid only while the game still reports them
                 // selected (an undo / "choose other card" returns them to the fan).
@@ -970,7 +970,11 @@ internal sealed class CardsDriver : MonoBehaviour
             // keep it OUT of the park sweep so PresentShortRestCard's centre home holds.
             bool inShortRest = ReferenceEquals(card, _shortRestCard);
 
-            card.PokeSelectEnabled = inFan && pokeSelect;
+            // Item 10: poke-select is never armed on hand cards — touching a card
+            // must not auto-select it; a card is committed only by placing it into a
+            // board slot. Kept as an explicit reset so a previously pokeable card is
+            // disarmed on rebuild.
+            card.PokeSelectEnabled = false;
             // Field occupants stay grabbable: plucking one back off the field and
             // releasing it elsewhere unselects through the game's own seam. Browse
             // cards are grabbable too (item 5) — but purely to pull one close and

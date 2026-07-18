@@ -67,6 +67,22 @@ internal sealed class EnemyRevealSurface
     /// <summary>The fitted host width must hold steady this long before the fit is pinned.</summary>
     private const float FitPinSettleSeconds = 1f;
 
+    /// <summary>
+    /// Item 8: only a growth larger than this FRACTION of the current max width restarts
+    /// the settle dwell. The active monster card's highlight keeps pulsing a pixel or two
+    /// larger, which under the old flat 0.5 px threshold reset the clock every frame so
+    /// the fit never settled — hysteresis lets the small pulse-growth pass without
+    /// resetting, so the reveal actually pins.
+    /// </summary>
+    private const float FitPinGrowthFraction = 0.03f;
+
+    /// <summary>
+    /// Item 8 hard fallback: pin the fit this long after the reveal was first measured,
+    /// regardless of continued pulsing — the full layout is in by then, and a
+    /// never-settling pulse must not leave the content re-fitting/twitching forever.
+    /// </summary>
+    private const float FitPinHardTimeoutSeconds = 2.5f;
+
     // Lazy follow (test #27) — FlatScreen.FollowHead's feel, extended to POSITION as
     // well as yaw: re-centre in front of the head only once the panel has drifted more
     // than FollowDeadzoneDeg off the gaze (head turned / player walked), held for the
@@ -97,7 +113,12 @@ internal sealed class EnemyRevealSurface
     // last grew; the fit freezes once it has held at that max for FitPinSettleSeconds.
     private float _fitMaxWidth = -1f;
     private float _fitAtMaxSince;
+    private float _fitFirstMeasured = -1f; // unscaled time the fit first measured this reveal (hard-timeout base)
     private bool _fitPinned;
+
+    // Placement density cached once the fit pins (item 8): after the host rect is frozen
+    // this holds metersPerPx so a later stray re-measure can never rescale/move the panel.
+    private float _placedMetersPerPx = -1f;
 
     public string Name => "EnemyReveal";
 
@@ -135,7 +156,9 @@ internal sealed class EnemyRevealSurface
                 {
                     _fitMaxWidth = -1f;
                     _fitAtMaxSince = 0f;
+                    _fitFirstMeasured = -1f;
                     _fitPinned = false;
+                    _placedMetersPerPx = -1f;
                     _placed = false; // Place() snaps the first in-view pose on the next tick
                     _easing = false;
                     _offGazeSince = -1f;
@@ -174,19 +197,38 @@ internal sealed class EnemyRevealSurface
     {
         if (_panel == null || _fitPinned || !_panel.FitEnabled || _panel.HostRect == null)
             return;
+        if (_fitFirstMeasured < 0f && _panel.FitMeasuredOnce)
+            _fitFirstMeasured = Time.unscaledTime; // start the hard-timeout clock at first real measure
+
         float width = _panel.HostRect.rect.width;
-        if (width > _fitMaxWidth + 0.5f)
+        float growth = width - _fitMaxWidth;
+        if (growth > 0f)
         {
+            // Hysteresis (item 8): a highlight PULSE growing the width a pixel or two must
+            // NOT restart the settle dwell (that flat 0.5 px reset is why the reveal never
+            // pinned). Only a growth beyond FitPinGrowthFraction of the current max — a
+            // real new card widening the layout — restarts the clock. The max is still
+            // tracked either way so the pin lands strictly at the full extent.
+            bool significant = _fitMaxWidth <= 1f || growth > _fitMaxWidth * FitPinGrowthFraction;
             _fitMaxWidth = width;
-            _fitAtMaxSince = Time.unscaledTime; // grew — restart the settle dwell
+            if (significant)
+                _fitAtMaxSince = Time.unscaledTime;
         }
-        if (_panel.FitMeasuredOnce && _fitMaxWidth > 1f && width >= _fitMaxWidth - 0.5f
-            && Time.unscaledTime - _fitAtMaxSince >= FitPinSettleSeconds)
+
+        bool settled = _panel.FitMeasuredOnce && _fitMaxWidth > 1f && width >= _fitMaxWidth - 0.5f
+                       && Time.unscaledTime - _fitAtMaxSince >= FitPinSettleSeconds;
+        // Hard fallback (item 8): pin regardless of continued pulsing once the reveal has
+        // been up long enough — the full layout is in by then, so a never-settling pulse
+        // must not leave TickFit re-centring/rescaling forever (the ~2 s twitch).
+        bool timedOut = _fitFirstMeasured >= 0f && _fitMaxWidth > 1f
+                        && Time.unscaledTime - _fitFirstMeasured >= FitPinHardTimeoutSeconds;
+        if (settled || timedOut)
         {
             _panel.FitEnabled = false;
             _fitPinned = true;
             VRLog.Info("WorldUI", $"ENEMY REVEAL host rect pinned at {width:F0} px " +
-                                  "(settled full layout) — content re-fit disabled to stop thrashing.");
+                                  (settled ? "(settled full layout)" : "(hard timeout — pulse never settled)") +
+                                  " — content re-fit disabled to stop the ~2 s twitch.");
         }
     }
 
@@ -335,10 +377,25 @@ internal sealed class EnemyRevealSurface
             return; // no head yet — leave the panel where it last sat (world-stable)
 
         float scale = ReferenceScale();
-        float metersPerPx = 1f / (PlayTray.TrayPixelsPerMeter * DensityScale);
-        Rect rect = _panel.HostRect.rect; // content-fitted by CanvasConversion.TickFit
-        if (rect.width > 1f)
-            metersPerPx = Mathf.Min(metersPerPx, MaxWidthMeters / rect.width);
+        // Cache metersPerPx once the fit has PINNED (item 8): the host rect is frozen at
+        // its full-layout max then, so capturing it here guarantees a later stray
+        // re-measure can never rescale/move the panel — the twitch is gone even if some
+        // late fit slips through. Before the pin, track the live rect so the panel scales
+        // naturally with the content as the cards animate in (the appear animation).
+        float metersPerPx;
+        if (_placedMetersPerPx >= 0f)
+        {
+            metersPerPx = _placedMetersPerPx;
+        }
+        else
+        {
+            metersPerPx = 1f / (PlayTray.TrayPixelsPerMeter * DensityScale);
+            Rect rect = _panel.HostRect.rect; // content-fitted by CanvasConversion.TickFit
+            if (rect.width > 1f)
+                metersPerPx = Mathf.Min(metersPerPx, MaxWidthMeters / rect.width);
+            if (_fitPinned)
+                _placedMetersPerPx = metersPerPx; // freeze at the pinned (max) width
+        }
 
         UpdateFollow(head, scale);
 

@@ -162,7 +162,8 @@ internal sealed class ButtonCluster
 
         // Mod layer (render-only — pokes go through the VRInteractables registry).
         VRLayers.Apply(_root);
-        VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip).");
+        VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — overlay draw-on-top applied " +
+                              "(ZTest Always over the opaque control board, item 9).");
     }
 
     /// <summary>
@@ -335,6 +336,11 @@ internal sealed class ButtonCluster
             else
                 button.BuildProcedural(parent, name, localPos, radius);
 
+            // Item 9: force the built renderers to draw OVER the opaque control board so
+            // the docked cluster (Ready/Undo/Skip, incl. attack/confirm during targeting)
+            // is never occluded. Harmless while floating in open space.
+            button.ApplyDrawOnTop();
+
             VRInteractables.RegisterPokeable(button, button._collider);
             return button;
         }
@@ -368,7 +374,9 @@ internal sealed class ButtonCluster
             basePlate.transform.localScale = new Vector3(radius * 2.4f, 0.012f, radius * 2.4f);
             basePlate.transform.localPosition = new Vector3(0f, 0.006f, 0f);
             _baseRenderer = basePlate.GetComponent<Renderer>();
-            _baseRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(new Color(0.16f, 0.14f, 0.12f));
+            // Overlay-capable material (item 9): exposes _ZTest so ApplyDrawOnTop can
+            // force the docked-on-board cluster to draw OVER the opaque board rim.
+            _baseRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(new Color(0.16f, 0.14f, 0.12f), overlay: true);
 
             // Travelling cap (squashed cylinder).
             GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -380,7 +388,7 @@ internal sealed class ButtonCluster
             _cap = cap.transform;
             _capRestY = _cap.localPosition.y;
             _capRenderer = cap.GetComponent<Renderer>();
-            _capRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(_accent);
+            _capRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(_accent, overlay: true);
 
             // Native look (test #25 item 3): lay the game's own 9-sliced button sprite
             // flat on the cap's top face (the viewer side in both the docked and the
@@ -434,6 +442,63 @@ internal sealed class ButtonCluster
             _labelAnchored = anchor != null;
             _labelHomePos = labelGo.transform.localPosition;
             _labelHomeRot = labelGo.transform.localRotation;
+        }
+
+        /// <summary>
+        /// Draw the whole physical button OVER the opaque control board (item 9),
+        /// mirroring <c>PlayTray.RenderOnTop</c> but implemented locally (that method is
+        /// private to PlayTray). For every renderer's INSTANCE materials, force ZTest
+        /// Always (never depth-culled by the board rim) + ZWrite off and push the render
+        /// queue past the opaque scene. Ordering reads base &lt; cap &lt; face &lt; label.
+        /// The base/cap use the bundled <c>GloomhavenVR/Overlay</c> material (exposes
+        /// <c>_ZTest</c>); the native sprite face (Sprites/Default, no <c>_ZTest</c>) is
+        /// re-shaded to Overlay in <see cref="RenderOnTop"/> so it too clears the board;
+        /// the TMP label uses <c>_ZTestMode</c>. Harmless while the cluster floats free.
+        /// </summary>
+        private void ApplyDrawOnTop()
+        {
+            RenderOnTop(_baseRenderer, 4000);
+            RenderOnTop(_capRenderer, 4001);
+            if (_capFace != null)
+                RenderOnTop(_capFace, 4002);
+            RenderOnTop(_label != null ? _label.GetComponent<Renderer>() : null, 4003);
+        }
+
+        /// <summary>
+        /// Force one renderer's instance materials over the board: high render queue,
+        /// ZTest Always, ZWrite off. A material lacking <c>_ZTest</c> AND <c>_ZTestMode</c>
+        /// (the native sprite face's <c>Sprites/Default</c>) is re-shaded to the bundled
+        /// <c>GloomhavenVR/Overlay</c> — preserving its texture — so it can honour ZTest
+        /// too; if the Overlay shader is unavailable it is left as-is (queue bump only).
+        /// </summary>
+        private static void RenderOnTop(Renderer? renderer, int queue)
+        {
+            if (renderer == null)
+                return;
+            Shader? overlay = null;
+            foreach (Material m in renderer.materials) // instance materials (never a shared bundle asset)
+            {
+                if (m == null)
+                    continue;
+                if (!m.HasProperty("_ZTest") && !m.HasProperty("_ZTestMode"))
+                {
+                    overlay ??= Shader.Find("GloomhavenVR/Overlay");
+                    if (overlay != null)
+                    {
+                        Texture? tex = m.mainTexture;
+                        m.shader = overlay;
+                        if (tex != null)
+                            m.mainTexture = tex;
+                    }
+                }
+                m.renderQueue = queue;
+                if (m.HasProperty("_ZTest"))
+                    m.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+                if (m.HasProperty("_ZTestMode"))
+                    m.SetInt("_ZTestMode", (int)UnityEngine.Rendering.CompareFunction.Always); // TMP distance-field
+                if (m.HasProperty("_ZWrite"))
+                    m.SetInt("_ZWrite", 0);
+            }
         }
 
         /// <summary>
