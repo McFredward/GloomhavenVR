@@ -164,8 +164,9 @@ internal sealed class HalfSelection
             {
                 // Docked (test #19): the round cards stay in the SAME tray slots
                 // they were played into — home scale 1 under the slot root, so the
-                // slot's own SlotScale is the card density (test #18 pattern).
-                card.SetHome(slot, Vector3.zero, Quaternion.identity, 1f);
+                // slot's own SlotScale is the card density (test #18 pattern). Seated
+                // into the physical recess with the shared inset (test #28).
+                card.SetHome(slot, PlayTray.SlotHomeOffset, Quaternion.identity, 1f);
             }
             else
             {

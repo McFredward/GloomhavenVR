@@ -81,6 +81,12 @@ internal static class CardsConfig
     /// <summary>Tray anchor mode (test #15): true = follows the player (rig-anchored), false = static in world.</summary>
     internal static ConfigEntry<bool> TrayFollow = null!;
 
+    /// <summary>Card seating depth in the physical slot recesses, real meters toward the viewer (−z). Test #28.</summary>
+    internal static ConfigEntry<float> SlotCardInset = null!;
+
+    /// <summary>Steady "wanted slot" hint glow on the slot(s) the game is waiting to be filled (test #28).</summary>
+    internal static ConfigEntry<bool> WantedSlotHint = null!;
+
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
@@ -206,6 +212,20 @@ internal static class CardsConfig
             "to follow re-anchors it at the configured offsets.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
+        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.004f,
+            "Seating depth of a card inside a physical slot recess, real meters toward the viewer " +
+            "(the board's -Z face). The bundle slot anchors (Slot1/Slot2) sit at the recess CENTRE " +
+            "(the mesh mid-plane); a card parked at 0 would sink halfway into the board. This nudges " +
+            "the card forward so it rests ON the recess surface facing the player. Applies to played " +
+            "cards, docked action cards and the single-card pick/short-rest layouts alike. Does NOT " +
+            "change the card width/height (a separate pass aligns the recess to the card).");
+        WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", true,
+            "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
+            "filled (test #28) — distinct from the transient gold snap glow that previews where a " +
+            "HELD card will drop. During normal card selection it marks the still-empty play slot(s) " +
+            "the round expects a card in; during single-card pick flows (long rest lose-a-card, " +
+            "avoid-damage, recover/discard) it marks the left slot. Clears once the requirement is " +
+            "met or the flow ends. false = no wanted-slot hint.");
         PileViewer = _file.Bind("Cards", "PileViewer", true,
             "Discard/burnt pile stacks on the control board's right edge (hardware test #21 " +
             "wish): each pile shows as a small physical card stack with a count; poking or " +

@@ -208,14 +208,17 @@ internal sealed class CardsDriver : MonoBehaviour
         _browser.Tick(); // held reading fan follows the grabbing hand (item 5)
 
         CardsHandUI? hand = CurrentHand();
+        PollModeChange(_fakeActive ? null : hand); // deadlock safety: rebuild on any game card-mode change
         if (_tray.IsVisible)
         {
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
             _piles.TickStatus(_fakeActive ? null : hand);
         }
+        UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
 
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
+        LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
         LogFanState(hand);
     }
 
@@ -628,7 +631,8 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private int _snapHighlightSlot = -1;
     private VRCard? _snapHighlightCard;
-    private VRCard? _fieldHighlightCard; // pick-field counterpart of _snapHighlightCard (test #21 B)
+    private VRCard? _fieldHighlightCard; // pick counterpart of _snapHighlightCard (test #28)
+    private int _fieldHighlightSlot = -1; // the slot _fieldHighlightCard is telegraphed into
 
     /// <summary>
     /// Test #13: while a card is HELD near the tray, glow the slot it would snap
@@ -641,24 +645,30 @@ internal sealed class CardsDriver : MonoBehaviour
     /// </summary>
     private void UpdateSlotHighlight()
     {
-        // Pick modes (test #21 B): the drop FIELD is the only snap target — same
-        // telegraph contract as the slots (glow-at-release is the primary accept
-        // rule, haptic tick on edge). Slot glow stays off while the field shows.
-        if (_tray.PickFieldVisible)
+        // Pick modes (test #28): the candidate homes into the WANTED slot recess —
+        // same telegraph contract as the play slots (glow-at-release is the primary
+        // accept rule, haptic tick on edge), but the transient gold glow tracks the
+        // wanted (next-empty) pick slot. Only a FRESH candidate telegraphs; a slotted
+        // pick card being re-dropped does not (its release stays/unselects directly).
+        CardsHandUI? pickHand = _fakeActive ? null : CurrentHand();
+        bool pickMode = _tray.IsVisible && pickHand != null && IsPickMode(CardsGameApi.Mode(pickHand));
+        if (pickMode)
         {
-            VRCard? fieldHeld = HeldCard(out VRHand? fieldHolder);
-            bool near = fieldHeld != null && fieldHolder != null
-                && _tray.PickFieldNear(fieldHeld.transform.position,
-                    fieldHolder.Rig.PalmCenter.position, out _, out _);
-            _tray.SetPickFieldHighlight(near);
-            VRCard? target = near ? fieldHeld : null;
+            VRCard? pickHeld = HeldCard(out VRHand? pickHolder);
+            int want = PickTargetSlot();
+            bool onField = pickHeld != null && _fieldCards.Contains(pickHeld);
+            bool near = pickHeld != null && pickHolder != null && !onField && want >= 0
+                && _tray.SlotNear(pickHeld.transform.position, pickHolder.Rig.PalmCenter.position) >= 0;
+            int glowSlot = near ? want : -1;
+            _tray.SetHighlightedSlot(glowSlot);
+            VRCard? target = glowSlot >= 0 ? pickHeld : null;
             if (!ReferenceEquals(target, _fieldHighlightCard))
             {
                 _fieldHighlightCard = target;
-                if (target != null && fieldHolder != null)
-                    fieldHolder.SendHaptic(HapticPreset.HoverTick); // debounced: only on edge
+                _fieldHighlightSlot = glowSlot;
+                if (target != null && pickHolder != null)
+                    pickHolder.SendHaptic(HapticPreset.HoverTick); // debounced: only on edge
             }
-            _tray.SetHighlightedSlot(-1);
             _snapHighlightSlot = -1;
             _snapHighlightCard = null;
             return;
@@ -666,7 +676,7 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_fieldHighlightCard != null)
         {
             _fieldHighlightCard = null;
-            _tray.SetPickFieldHighlight(false);
+            _fieldHighlightSlot = -1;
         }
 
         int slot = -1;
@@ -852,18 +862,21 @@ internal sealed class CardsDriver : MonoBehaviour
         // mode clears its occupants — the zone loop below parks them.
         bool pick = IsPickMode(mode);
 
-        // Short-rest sacrifice overlay (test #25, item 1d): while the game presents the
-        // randomly lost card's burn/redraw choice (ShortRestedCard != null; the choice
-        // itself is the docked DialogPopup), lay that card physically at the board
-        // centre on the SAME centre field the avoid-damage burn uses — DISPLAY-ONLY.
-        // Guarded off during the pick modes (which own the field) so the two flows can
-        // never collide, and off when the tray is hidden. The short-rest random path
-        // stays in CardHandMode.CardsSelection, so this simply overlays the unchanged
-        // hand fan. Rebuild is the sole executor; PollShortRest keeps it live on redraw.
+        // Short-rest sacrifice overlay (test #25, item 1d; test #28 seating): while the
+        // game presents the randomly lost card's burn/redraw choice (ShortRestedCard !=
+        // null; the choice itself is the docked DialogPopup), lay that card physically
+        // in the LEFT slot recess (Slot1) — the same left-slot home the avoid-damage
+        // burn uses — DISPLAY-ONLY. Guarded off during the pick modes (which own the
+        // slots) so the two flows can never collide, and off when the tray is hidden.
+        // The short-rest random path stays in CardHandMode.CardsSelection, so this
+        // simply overlays the unchanged hand fan. Rebuild is the sole executor;
+        // PollShortRest keeps it live on redraw.
         CAbilityCard? shortRested = pick ? null : CardsGameApi.ShortRestedCard(hand);
         bool shortRest = shortRested != null && trayVisible;
 
-        _tray.SetPickFieldVisible((pick || shortRest) && trayVisible);
+        // Slots stay physically visible (fixed asset, test #28) — no field to toggle;
+        // the driver only marks pick flows so CONFIRM mirrors the mode's confirm.
+        _tray.SetPickActive(pick && trayVisible);
         if (shortRest)
             PresentShortRestCard(hand, shortRested!);
         else
@@ -1232,29 +1245,34 @@ internal sealed class CardsDriver : MonoBehaviour
     private bool _pickCommitBusy;
 
     /// <summary>
-    /// Release routing for the modal pick modes (test #21 B). Accept rules mirror
-    /// the play slots (test #15): the glow that telegraphed the drop wins, the
-    /// generous capture radius is the fallback. Accepting a fan card lays it onto
-    /// the field and commits the selection; releasing a FIELD card anywhere else
-    /// takes the pick back through the game's own UnselectCard seam.
+    /// Release routing for the modal pick modes (test #28: the candidate homes into
+    /// the LEFT slot recess, not a centre field). Accept rules mirror the play slots
+    /// (test #15): the glow that telegraphed the drop wins, the generous capture
+    /// radius is the fallback. Accepting a fan card lays it into the wanted slot and
+    /// commits the selection; releasing a SLOTTED pick card anywhere else takes the
+    /// pick back through the game's own UnselectCard seam.
     /// </summary>
     private void HandlePickRelease(VRCard card, VRHand hand, CardsHandUI gameHand)
     {
-        bool highlight = ReferenceEquals(_fieldHighlightCard, card);
-        bool near = _tray.PickFieldNear(card.transform.position, hand.Rig.PalmCenter.position,
-            out float dist, out float radius);
         bool wasOnField = _fieldCards.Contains(card);
-        bool accept = highlight || near;
-        string rule = highlight ? "highlight" : near ? "radius" : "none";
+        int nearSlot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
+            out float d1, out float d2, out float radius);
+        bool highlight = ReferenceEquals(_fieldHighlightCard, card) && _fieldHighlightSlot >= 0;
+        bool accept = highlight || nearSlot >= 0;
+        string rule = highlight ? "highlight" : nearSlot >= 0 ? "radius" : "none";
+        // Landing slot: a fresh candidate goes to the wanted (next empty) slot; a
+        // re-dropped pick card keeps its own index/recess.
+        int target = wasOnField ? _fieldCards.IndexOf(card) : PickTargetSlot();
 
         // THE one log line per real pick drop (the test #14 contract).
-        VRLog.Info("Cards", $"Drop ({hand.Side}): pick field {dist:F2} m, radius {radius:F2} m, rule={rule} → " +
+        string where = target >= 0 ? "slot " + (target + 1) : "the overflow spot beside slot 2";
+        VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, rule={rule} → " +
                             (accept
-                                ? (wasOnField ? "stay on field." : "select onto field.")
+                                ? (wasOnField ? "stay in " + where + "." : "select into " + where + ".")
                                 : (wasOnField ? "take back (unselect)." : "return to fan.")));
 
-        // Accident window (test #19): the field sits directly above the cluster's
-        // Ready and beside the tray CONFIRM — every drop/take-back touching it
+        // Accident window (test #19): the slots sit directly above the cluster's
+        // Ready and beside the tray CONFIRM — every drop/take-back touching them
         // arms the confirm suppression, exactly like the play slots.
         if (accept || wasOnField)
             _tray.NoteSlotActivity();
@@ -1264,7 +1282,7 @@ internal sealed class CardsDriver : MonoBehaviour
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
             PlaceOnField(card);
             if (!wasOnField)
-                TryCommitPick(card, gameHand, "drop-field");
+                TryCommitPick(card, gameHand, "drop-slot");
         }
         else if (wasOnField)
         {
@@ -1279,7 +1297,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 () =>
                 {
                     VRLog.Info("Cards", $"Pick take-back ({CardsGameApi.Mode(handRef)}): '{CardsGameApi.CardName(widget)}' " +
-                                        "via drop-field → CardsHandUI.UnselectCard.");
+                                        "via drop-slot → CardsHandUI.UnselectCard.");
                     _dirty = true;
                 });
         }
@@ -1340,37 +1358,49 @@ internal sealed class CardsDriver : MonoBehaviour
         RelayoutField();
     }
 
+    /// <summary>Dedup key for the &gt;2-pick overflow log (item 28); -1 = not logged.</summary>
+    private int _loggedFieldOverflow = -1;
+
     /// <summary>
-    /// Home the field occupants onto the drop field: one card centered, two (the
-    /// burn-two-from-discard flows) side by side. Held cards are never re-homed
-    /// (the phantom-ACCEPT lesson, see PlayTray.PlaceCard).
+    /// Home the pick candidates into the SLOT RECESSES (test #28): the first into the
+    /// LEFT slot (Slot1), the second into the RIGHT slot (Slot2 — the burn-two-discard
+    /// flows), any rare extra laid BESIDE Slot2 (logged once, never silently capped).
+    /// Held cards are never re-homed (the phantom-ACCEPT lesson, see PlayTray.PlaceCard).
     /// </summary>
     private void RelayoutField()
     {
-        Transform? field = _tray.PickFieldAnchor;
-        if (field == null)
-            return;
         int n = _fieldCards.Count;
-        float w = CardsConfig.CardWidth.Value;
+        if (n <= 2)
+            _loggedFieldOverflow = -1; // back within the two slots — re-arm the overflow log
         for (int i = 0; i < n; i++)
         {
             VRCard card = _fieldCards[i];
             if (card == null || card.IsHeld)
                 continue;
-            card.gameObject.SetActive(true);
-            float x = n > 1 ? (i - (n - 1) * 0.5f) * w * 0.55f : 0f;
-            card.SetHome(field, new Vector3(x, 0f, -0.002f * (i + 1)), Quaternion.identity, 1f);
+            if (_tray.PlacePickCard(card, i) < 0 && i >= 2 && i != _loggedFieldOverflow)
+            {
+                _loggedFieldOverflow = i;
+                VRLog.Info("Cards", $"Pick: {n} cards laid — extra card #{i + 1} placed BESIDE Slot2 " +
+                                    "(both recesses full; graceful fallback, no cap).");
+            }
         }
     }
+
+    /// <summary>
+    /// The slot the next pick candidate should land in (test #28): Slot1 while none is
+    /// laid, Slot2 once the first is (the two-card burn flows). -1 beyond two — extras
+    /// fall back beside Slot2 and get no dedicated slot glow.
+    /// </summary>
+    private int PickTargetSlot() => _fieldCards.Count < 2 ? _fieldCards.Count : -1;
 
     // -------------------------------------------------------------- short rest --
 
     /// <summary>
-    /// Present the short-rested card at the board centre (test #25, item 1d). Adopts
-    /// the sacrifice widget through the SAME <see cref="AdoptedCard"/> path as every
-    /// other physical card and homes it dead-centre on the pick field with the
-    /// identical single-card centring <see cref="RelayoutField"/> uses — so it reads
-    /// exactly like the avoid-damage sacrifice. DISPLAY-ONLY: forced non-grabbable /
+    /// Present the short-rested card in the LEFT slot recess (test #25, item 1d;
+    /// test #28 seating). Adopts the sacrifice widget through the SAME
+    /// <see cref="AdoptedCard"/> path as every other physical card and homes it into
+    /// Slot1 exactly like a single-card pick candidate (<see cref="PlayTray.PlacePickCard"/>)
+    /// — so it reads exactly like the avoid-damage sacrifice. DISPLAY-ONLY: forced non-grabbable /
     /// non-poke (the zone loop resolves the same, this makes the intent explicit and
     /// covers the frames between a poll-driven swap and the next Rebuild). The card's
     /// live face is re-claimed off the docked DialogPopup automatically by
@@ -1400,18 +1430,14 @@ internal sealed class CardsDriver : MonoBehaviour
         card.Grabbable = false;      // display-only — the docked choice commits, not a drop
         card.PokeSelectEnabled = false;
 
-        Transform? field = _tray.PickFieldAnchor;
-        if (field != null)
-        {
-            card.gameObject.SetActive(true);
-            card.SetHome(field, new Vector3(0f, 0f, -0.002f), Quaternion.identity, 1f);
-        }
+        card.gameObject.SetActive(true);
+        _tray.PlacePickCard(card, 0); // LEFT slot recess (test #28) — display-only sacrifice
 
         if (changed)
         {
             bool swap = _shortRestPresented != null;
             VRLog.Info("Cards", $"Short rest: {(swap ? "REDREW —" : "presenting")} sacrificed card " +
-                                $"'{CardsGameApi.CardName(widget)}' at the board centre " +
+                                $"'{CardsGameApi.CardName(widget)}' in the left slot " +
                                 "(display-only; burn/redraw commits via the docked choice).");
             _shortRestPresented = lost;
         }
@@ -1454,6 +1480,105 @@ internal sealed class CardsDriver : MonoBehaviour
             current = CardsGameApi.ShortRestedCard(hand);
         if (!ReferenceEquals(current, _shortRestPresented))
             _dirty = true;
+    }
+
+    // ------------------------------------------------------------- wanted-slot hint --
+
+    /// <summary>
+    /// Steady "wanted slot" hint (test #28, item 2): mark the slot(s) the game is
+    /// currently waiting for. Normal selection → the still-EMPTY play slot(s) the
+    /// round expects a card in (both when none placed, the remaining one after the
+    /// first). Single-card pick flows → the LEFT slot (then Slot2 for the rare
+    /// two-card burn). Cleared once the requirement is met (both filled / readied /
+    /// long or short rest chosen) or the flow ends. Cheap + change-gated in PlayTray.
+    /// </summary>
+    private void UpdateWantedSlots(CardsHandUI? hand)
+    {
+        if (!CardsConfig.WantedSlotHint.Value || !_tray.IsVisible || hand == null)
+        {
+            _tray.SetWantedSlots(0);
+            return;
+        }
+        CardHandMode mode = CardsGameApi.Mode(hand);
+        int mask = 0;
+        if (mode == CardHandMode.CardsSelection)
+        {
+            // The round wants up to two ability cards — mark the still-empty play
+            // slots until they are filled. Off once the player chose long/short rest
+            // (no cards wanted) or already locked the selection in.
+            if (!CardsGameApi.IsLongRestSelected(hand)
+                && !CardsGameApi.IsShortRestSelected(hand)
+                && !CardsGameApi.IsSelectionReady(hand))
+            {
+                if (_tray.Occupant(0) == null) mask |= 1;
+                if (_tray.Occupant(1) == null) mask |= 2;
+            }
+        }
+        else if (IsPickMode(mode))
+        {
+            int want = PickTargetSlot(); // Slot1 first, then Slot2 (two-card burn)
+            if (want >= 0)
+                mask |= 1 << want;
+        }
+        _tray.SetWantedSlots(mask);
+    }
+
+    // ------------------------------------------------------------- long-rest tracing --
+
+    private CardHandMode? _lastPolledMode;
+
+    /// <summary>
+    /// Deadlock safety net (test #28, item 3): the long-rest "lose a card" step enters
+    /// <c>CardHandMode.LoseCard</c> during the actor's OWN turn (the Choreographer's
+    /// perform-long-rest path), which need not raise any of the mod's rebuild events —
+    /// without a rebuild the pick fan would never appear and the flow would deadlock.
+    /// Poll the game's card mode and force a rebuild on any change; the fan/pick zones
+    /// then build exactly as for every other pick mode. One enum read, change-gated.
+    /// </summary>
+    private void PollModeChange(CardsHandUI? hand)
+    {
+        CardHandMode? mode = hand != null ? CardsGameApi.Mode(hand) : (CardHandMode?)null;
+        if (mode != _lastPolledMode)
+        {
+            _lastPolledMode = mode;
+            _dirty = true;
+        }
+    }
+
+    private (bool selected, bool losing, bool done)? _longRestState;
+
+    /// <summary>
+    /// Prove the long-rest state machine from the log alone (test #28, item 3),
+    /// change-deduped:
+    /// (1) long rest SELECTED in card selection (initiative 99, heal pending),
+    /// (2) the BURN step is live — <c>CardHandMode.LoseCard</c> while
+    ///     <c>CharacterClass.LongRest</c> — lay a discarded card into the left slot,
+    /// (3) RESOLVED — <c>HasLongRested</c> (card burnt, +2 heal applied).
+    /// </summary>
+    private void LogLongRestState(CardsHandUI? hand)
+    {
+        if (hand == null)
+        {
+            _longRestState = null;
+            return;
+        }
+        bool selected = CardsGameApi.IsLongRestSelected(hand);
+        bool losing = CardsGameApi.IsLongResting(hand)
+                      && CardsGameApi.Mode(hand) == CardHandMode.LoseCard;
+        bool done = CardsGameApi.HasLongRested(hand);
+        var state = (selected, losing, done);
+        if (_longRestState.HasValue && _longRestState.Value == state)
+            return;
+        _longRestState = state;
+
+        if (losing)
+            VRLog.Info("Cards", "Long rest: BURN step active (CardHandMode.LoseCard, LongRest set) — " +
+                                "lay a discarded card into the left slot to lose it; the docked Confirm commits it.");
+        else if (done)
+            VRLog.Info("Cards", "Long rest: RESOLVED — chosen card burnt, +2 heal applied (HasLongRested).");
+        else if (selected)
+            VRLog.Info("Cards", "Long rest: SELECTED in card selection (initiative 99, heal pending) — " +
+                                "waiting for this actor's turn to choose the card to lose.");
     }
 
     /// <summary>
@@ -1699,7 +1824,8 @@ internal sealed class CardsDriver : MonoBehaviour
         // return with the next active hand).
         _piles.SetVisible(false);
         CloseBrowser(CardsGameApi.InScenario ? "no active hand" : "scenario ended");
-        _tray.SetPickFieldVisible(false);
+        _tray.SetPickActive(false);
+        _tray.SetWantedSlots(0);
         _fieldCards.Clear();
         RemoveShortRestCard(); // sacrifice display never survives losing the active hand (item 1d)
 
