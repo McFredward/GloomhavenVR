@@ -212,11 +212,12 @@ internal static class CardsConfig
             "to follow re-anchors it at the configured offsets.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
-        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.004f,
-            "Seating depth of a card inside a physical slot recess, real meters toward the viewer " +
-            "(the board's -Z face). The bundle slot anchors (Slot1/Slot2) sit at the recess CENTRE " +
-            "(the mesh mid-plane); a card parked at 0 would sink halfway into the board. This nudges " +
-            "the card forward so it rests ON the recess surface facing the player. Applies to played " +
+        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.014f,
+            "How far a card is lifted OUT of a physical slot recess toward the viewer, real meters " +
+            "(the board's -Z face). BuildBoard now projects the slot anchors onto the recess FLOOR, so " +
+            "a card at 0 sits deep inside the recess and reads as 'poking through' — barely visible from " +
+            "the top. This lifts it up to (roughly) the recess rim so it rests visibly ON the board's top " +
+            "surface facing the player. Raise it if cards still look sunken, lower it if they float. Applies to played " +
             "cards, docked action cards and the single-card pick/short-rest layouts alike. Does NOT " +
             "change the card width/height (a separate pass aligns the recess to the card).");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", true,
