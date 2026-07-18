@@ -44,6 +44,7 @@ internal sealed class ActivePileViewer
     private readonly List<VRCard> _cards = new(8);
     private Transform? _root;
     private TextMeshPro? _title;
+    private bool _locHooked;
 
     internal bool IsShown => _root != null && _root.gameObject.activeSelf;
 
@@ -51,8 +52,11 @@ internal sealed class ActivePileViewer
 
     // ------------------------------------------------------------------ lifecycle --
 
-    /// <summary>Localized caption for the area (safe English fallback).</summary>
-    internal static string Caption() => CardsGameApi.Localize("GUI_ACTIVE", "Active");
+    /// <summary>
+    /// Localized caption for the area. No game key exists (GUI_ACTIVE is absent), so this is
+    /// a mod string (English/German table, English fallback).
+    /// </summary>
+    internal static string Caption() => Core.Loc.Mod("active");
 
     internal void EnsureBuilt(PlayTray tray)
     {
@@ -81,6 +85,20 @@ internal sealed class ActivePileViewer
         _title.color = new Color(1f, 0.9f, 0.6f);
         WorldUI.NativeButtonSkin.ApplyFont(_title); // native HUD font, like the pile captions
         Core.TmpFit.Fit(_title, 0.09f, 0.024f, maxFontSize: 0.22f, wrap: false);
+
+        // Live language following: the title is built once — re-read it on a language change.
+        if (!_locHooked)
+        {
+            _locHooked = true;
+            Core.Loc.OnChanged += RefreshLabels;
+        }
+    }
+
+    /// <summary>Re-read the area caption in the current language (live-follow, Loc.OnChanged).</summary>
+    internal void RefreshLabels()
+    {
+        if (_title != null)
+            _title.text = Caption().ToUpperInvariant();
     }
 
     internal void SetVisible(bool visible)
@@ -91,6 +109,11 @@ internal sealed class ActivePileViewer
 
     internal void Destroy()
     {
+        if (_locHooked)
+        {
+            Core.Loc.OnChanged -= RefreshLabels;
+            _locHooked = false;
+        }
         _cards.Clear();
         if (_root != null)
         {

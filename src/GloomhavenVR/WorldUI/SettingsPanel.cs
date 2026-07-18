@@ -93,7 +93,42 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>The driver-owned live instance (single WorldUI driver; null after shutdown).</summary>
     private static SettingsPanel? _instance;
 
-    public SettingsPanel() => _instance = this;
+    public SettingsPanel()
+    {
+        _instance = this;
+        Loc.OnChanged += RefreshLanguage; // live language following: rebuild while open
+    }
+
+    /// <summary>
+    /// Live language following (Loc.OnChanged): the panel's section titles and static
+    /// button/label captions are built once, so a language change is handled by a full
+    /// clear + rebuild WHILE OPEN (the cheapest correct option — every static label then
+    /// re-reads the new language). Closed panels rebuild fresh on the next open.
+    /// </summary>
+    private void RefreshLanguage()
+    {
+        if (!_open)
+            return;
+        SetOpen(false); // unregister poke, drop the mask request, hide the holder
+        if (_holder != null)
+            UnityEngine.Object.Destroy(_holder.gameObject);
+        _holder = null;
+        _frame = null;
+        _bar = null;
+        _grabZone = null;
+        _handle = null;
+        _pin = null;
+        _pinAnchor = null;
+        _laserTray = null;
+        _root = null;
+        _canvas = null;
+        _placedFromConfig = false;
+        _facedPoseVersion = -1;
+        _healLogged = false;
+        _refreshers.Clear();
+        _debugRows.Clear();
+        SetOpen(true); // Build() re-runs with the new language and re-registers everything
+    }
 
     /// <summary>
     /// Test #15: toggle the panel from outside WorldUI — the tray dashboard's gear
@@ -140,6 +175,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     public void Shutdown()
     {
+        Loc.OnChanged -= RefreshLanguage;
         if (ReferenceEquals(_instance, this))
             _instance = null;
         SetOpen(false);
@@ -356,7 +392,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
         bool follow = WorldUIConfig.SettingsFollow.Value;
         _pin.SetState(true, accent: !follow);
-        _pin.SetLabel(follow ? "FOLLOW" : "PINNED");
+        _pin.SetLabel(follow ? Loc.Mod("follow") : Loc.Mod("pinned"));
     }
 
     /// <summary>
@@ -459,10 +495,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(header, "GloomhavenVR", 20f, bold: true, flexible: true);
         Button(header, "X", 40f, () => SetOpen(false));
 
-        Section("Comfort");
+        Section(Loc.Mod("comfort"));
 
         // Table scale: SetScaleMultiplier applies live around the head + persists.
-        Stepper("Table scale",
+        Stepper(Loc.Mod("table_scale"),
             () => $"{CurrentScaleMultiplier():0.00}x",
             delta =>
             {
@@ -472,7 +508,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
         // Turn mode + degrees.
         var turnRow = Row();
-        Label(turnRow, "Turning", 16f, flexible: true);
+        Label(turnRow, Loc.Mod("turning"), 16f, flexible: true);
         CycleButton(turnRow, 86f,
             () => ComfortSettings.IsBound ? ComfortSettings.Turn.Value.ToString() : "-",
             () =>
@@ -489,11 +525,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     Mathf.Clamp(ComfortSettings.SnapTurnDegrees.Value + delta * 15f, 15f, 90f);
             });
 
-        Toggle("Seated mode",
+        Toggle(Loc.Mod("seated_mode"),
             () => ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value,
             v => { if (ComfortSettings.IsBound) ComfortSettings.SeatedMode.Value = v; });
 
-        Stepper("Table height",
+        Stepper(Loc.Mod("table_height"),
             () => ComfortSettings.IsBound ? $"{ComfortSettings.TableHeightOffset.Value:+0.00;-0.00;0.00}m" : "-",
             delta =>
             {
@@ -503,7 +539,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             });
 
         var vignetteRow = Row();
-        Label(vignetteRow, "Vignette", 16f, flexible: true);
+        Label(vignetteRow, Loc.Mod("vignette"), 16f, flexible: true);
         ToggleButton(vignetteRow,
             () => ComfortSettings.IsBound && ComfortSettings.VignetteEnabled.Value,
             v => { if (ComfortSettings.IsBound) ComfortSettings.VignetteEnabled.Value = v; });
@@ -516,12 +552,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     Mathf.Clamp(ComfortSettings.VignetteStrength.Value + delta * 0.1f, 0.2f, 1f);
             });
 
-        Toggle("Free movement",
+        Toggle(Loc.Mod("free_movement"),
             () => ComfortSettings.IsBound && ComfortSettings.FreeMovement.Value,
             v => { if (ComfortSettings.IsBound) ComfortSettings.FreeMovement.Value = v; });
 
         var grabRow = Row();
-        Label(grabRow, "World grab", 16f, flexible: true);
+        Label(grabRow, Loc.Mod("world_grab"), 16f, flexible: true);
         ToggleButton(grabRow,
             () => ComfortSettings.IsBound && ComfortSettings.WorldGrabEnabled.Value,
             v => { if (ComfortSettings.IsBound) ComfortSettings.WorldGrabEnabled.Value = v; });
@@ -535,59 +571,59 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             v => { if (ComfortSettings.IsBound) ComfortSettings.ScaleEnabled.Value = v; });
 
         var recenterRow = Row();
-        Button(recenterRow, "Recenter now", 0f, Comfort.RequestRecenter, flexible: true);
+        Button(recenterRow, Loc.Mod("recenter_now"), 0f, Comfort.RequestRecenter, flexible: true);
 
-        Section("Modules");
+        Section(Loc.Mod("modules"));
 
-        Toggle("Dominant hand right",
+        Toggle(Loc.Mod("dominant_hand_right"),
             () => !string.Equals(Plugin.PrimaryHand.Value, "Left", StringComparison.OrdinalIgnoreCase),
             v => Plugin.PrimaryHand.Value = v ? "Right" : "Left");
 
-        Toggle("Board: far ray only",
+        Toggle(Loc.Mod("board_far_ray"),
             () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
             v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
 
-        Toggle("World UI surfaces",
+        Toggle(Loc.Mod("world_ui_surfaces"),
             () => WorldUIConfig.Master.Value,
             v => WorldUIConfig.Master.Value = v);
 
-        Toggle("Disable post-processing*",
+        Toggle(Loc.Mod("disable_post"),
             () => Plugin.DisablePostProcessing.Value,
             v => Plugin.DisablePostProcessing.Value = v);
 
         var note = Row(22f);
-        Label(note, "* applies on next VR start", 12f, flexible: true);
+        Label(note, Loc.Mod("applies_next_start"), 12f, flexible: true);
 
-        Section("Board");
+        Section(Loc.Mod("board"));
 
         // Control-board model: cycles Oak → Steel → Bronze (mod 3), mirroring the Turn
         // enum cycle above. CardsDriver subscribes to Board.SettingChanged and rebuilds
         // the tray live, so the newly selected board loads without leaving the panel.
         var boardRow = Row();
-        Label(boardRow, "Control board", 16f, flexible: true);
+        Label(boardRow, Loc.Mod("control_board"), 16f, flexible: true);
         CycleButton(boardRow, 100f,
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value =
                 (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
 
-        Section("Anzeige");
+        Section(Loc.Mod("display"));
 
         // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag
         // set by the panel's X button and reconverts it at the persisted pose; HIDE releases
         // it back to its 2D home and keeps it from auto-reappearing.
-        Toggle("Kampflog anzeigen",
+        Toggle(Loc.Mod("show_combat_log"),
             () => CombatLogSurface.UserVisible,
             v => CombatLogSurface.SetUserVisible(v, "settings"));
 
-        Section("Mixed Reality");
+        Section(Loc.Mod("mixed_reality"));
 
         // MR chroma-key mode (item 7): disables all skyboxes and clears the sky/background to
         // the key color so a compositor (Virtual Desktop) can passthrough-composite the room.
-        Toggle("Mixed Reality",
+        Toggle(Loc.Mod("mixed_reality"),
             () => MixedReality.Enabled.Value,
             v => MixedReality.Enabled.Value = v);
         var mrColorRow = Row();
-        Label(mrColorRow, "Key-Farbe", 16f, flexible: true);
+        Label(mrColorRow, Loc.Mod("key_color"), 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
         BuildDebugSection();
@@ -610,9 +646,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private void BuildDebugSection()
     {
-        Section("Debug — Board tuning");
+        Section(Loc.Mod("debug_board_tuning"));
 
-        Toggle("Enable board tuning",
+        Toggle(Loc.Mod("enable_board_tuning"),
             () => CardsConfig.DebugMenu.Value,
             v =>
             {
@@ -624,7 +660,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Board cycle (mirrors the Control-board cycle so the tuning rows key off the ACTIVE board).
         var boardRow = Row();
         _debugRows.Add(boardRow.gameObject);
-        Label(boardRow, "Board", 16f, flexible: true);
+        Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
         CycleButton(boardRow, 100f,
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
@@ -632,9 +668,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Element cycle (Rest, Generic, Overlays, Initiative, Active, Piles, Board).
         var elemRow = Row();
         _debugRows.Add(elemRow.gameObject);
-        Label(elemRow, "Element", 16f, flexible: true);
+        Label(elemRow, Loc.Mod("element"), 16f, flexible: true);
         CycleButton(elemRow, 130f,
-            () => ((DebugElement)_debugElement).ToString(),
+            () => DebugElementLabel((DebugElement)_debugElement),
             () => _debugElement = (_debugElement + 1) % DebugElementCount);
 
         // X / Y / Z offset steppers (mm), each drives the selected element's active-board offset.
@@ -646,35 +682,35 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var sizeRow = Row();
         _debugRows.Add(sizeRow.gameObject);
         GameObject sizeGo = sizeRow.gameObject;
-        Label(sizeRow, "Size", 16f, flexible: true);
+        Label(sizeRow, Loc.Mod("size"), 16f, flexible: true);
         MiniStepper(sizeRow, FormatSize, StepSize);
 
         // Spacing stepper — group gap (Rest disc gap / Confirm-Undo gap / inter-pile gap; Active COL step).
         var spacingRow = Row();
         _debugRows.Add(spacingRow.gameObject);
         GameObject spacingGo = spacingRow.gameObject;
-        Label(spacingRow, "Spacing", 16f, flexible: true);
+        Label(spacingRow, Loc.Mod("spacing"), 16f, flexible: true);
         MiniStepper(spacingRow, FormatSpacing, StepSpacing);
 
         // Active-only ROW step stepper (the grid's vertical spacing).
         var rowGapRow = Row();
         _debugRows.Add(rowGapRow.gameObject);
         GameObject rowGapGo = rowGapRow.gameObject;
-        Label(rowGapRow, "Row gap", 16f, flexible: true);
+        Label(rowGapRow, Loc.Mod("row_gap"), 16f, flexible: true);
         MiniStepper(rowGapRow, FormatActiveRowStep, StepActiveRowStep);
 
         // Shape cycle — shown only for the button GROUPS (Rest / Generic): flip Round <-> Square.
         var shapeRow = Row();
         _debugRows.Add(shapeRow.gameObject);
         GameObject shapeGo = shapeRow.gameObject;
-        Label(shapeRow, "Shape", 16f, flexible: true);
+        Label(shapeRow, Loc.Mod("shape"), 16f, flexible: true);
         CycleButton(shapeRow, 100f, FormatShape, FlipShape);
 
         // Board-only Tilt / Yaw row (shown only when Element == Board).
         var tiltYawRow = Row();
         _debugRows.Add(tiltYawRow.gameObject);
         GameObject tiltYawGo = tiltYawRow.gameObject;
-        Label(tiltYawRow, "Tilt/Yaw", 16f, flexible: true);
+        Label(tiltYawRow, Loc.Mod("tilt_yaw"), 16f, flexible: true);
         MiniStepper(tiltYawRow,
             () => $"{CardsConfig.BoardTilt(CardsConfig.CurrentBoard).Value:0}°",
             d =>
@@ -693,8 +729,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Reset element / Copy Oak→active.
         var actionRow = Row();
         _debugRows.Add(actionRow.gameObject);
-        Button(actionRow, "Reset element", 0f, ResetDebugElement, flexible: true);
-        Button(actionRow, "Copy Oak→active", 0f, CopyOakToActive, flexible: true);
+        Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
+        Button(actionRow, Loc.Mod("copy_oak"), 0f, CopyOakToActive, flexible: true);
 
         // Visibility: show the tuning rows only while DebugMenu is on; the conditional rows
         // (Size, Spacing, Row gap, Shape, Tilt/Yaw) additionally gate on the selected element.
@@ -901,11 +937,28 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         ControlBoard b = CardsConfig.CurrentBoard;
         return (DebugElement)_debugElement switch
         {
-            DebugElement.Rest => CardsConfig.RestButtonShape(b).Value.ToString(),
-            DebugElement.Generic => CardsConfig.GenericButtonShape(b).Value.ToString(),
+            DebugElement.Rest => ShapeLabel(CardsConfig.RestButtonShape(b).Value),
+            DebugElement.Generic => ShapeLabel(CardsConfig.GenericButtonShape(b).Value),
             _ => "-",
         };
     }
+
+    /// <summary>Localized name of a debug-tunable board element (the Element cycle readout).</summary>
+    private static string DebugElementLabel(DebugElement e) => e switch
+    {
+        DebugElement.Rest => Loc.Mod("rest"),
+        DebugElement.Generic => Loc.Mod("generic"),
+        DebugElement.Overlays => Loc.Mod("overlays"),
+        DebugElement.Initiative => Loc.Mod("initiative"),
+        DebugElement.Active => Loc.Mod("active"),
+        DebugElement.Piles => Loc.Mod("piles"),
+        DebugElement.Board => Loc.Mod("board"),
+        _ => e.ToString(),
+    };
+
+    /// <summary>Localized cap-shape name (the Shape cycle readout).</summary>
+    private static string ShapeLabel(ButtonShape shape) =>
+        shape == ButtonShape.Round ? Loc.Mod("round") : Loc.Mod("square");
 
     /// <summary>Flip the selected group's cap shape Round &lt;-&gt; Square (live rebuild via CardsDriver).</summary>
     private void FlipShape()
@@ -1042,7 +1095,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _pinAnchor.SetParent(_frame, worldPositionStays: false);
         _pinAnchor.localPosition = new Vector3(barWidth * 0.5f + 0.05f, 0f, -0.002f);
         _pin = PlayTray.BoardButton.Create(_pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", TogglePin);
+            new Color(0.75f, 0.55f, 0.2f), Loc.Mod("follow"), TogglePin);
         ApplyPinVisual();
 
         VRLog.Info("WorldUI", "Settings panel frame built (grab bar + FOLLOW/PINNED pin).");
@@ -1183,13 +1236,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     private void ToggleButton(RectTransform row, Func<bool> read, Action<bool> write)
     {
-        (Button button, TextMeshProUGUI text) = Button(row, read() ? "On" : "Off", 58f,
+        (Button button, TextMeshProUGUI text) = Button(row, read() ? Loc.Mod("on") : Loc.Mod("off"), 58f,
             () => { write(!read()); RefreshAll(); });
         Image image = (Image)button.targetGraphic;
         _refreshers.Add(() =>
         {
             bool on = read();
-            text.text = on ? "On" : "Off";
+            text.text = on ? Loc.Mod("on") : Loc.Mod("off");
             image.color = on ? new Color(0.20f, 0.42f, 0.26f, 0.95f) : new Color(0.30f, 0.22f, 0.22f, 0.95f);
         });
     }

@@ -36,6 +36,9 @@
     <Reference Include="InControl" HintPath="$(GameManaged)\InControl.dll" Publicize="true" Private="false" />
     <!-- Utilities.dll: VirtualMouseUtilities / InputSystemUtilities (PATCH-TARGETS §2 — separate assembly!) -->
     <Reference Include="Utilities" HintPath="$(GameManaged)\Utilities.dll" Publicize="true" Private="false" />
+    <!-- ThirdParty.dll: defines I2.Loc.LocalizationManager (CurrentLanguage / OnLocalizeEvent) —
+         the engine localization the GLOOM facade wraps; the mod reads + subscribes (never sets). -->
+    <Reference Include="ThirdParty" HintPath="$(GameManaged)\ThirdParty.dll" Private="false" />
     <!-- uGUI: GraphicRaycaster + UnityEngine.EventSystems (ExecuteEvents) live here in 2021.3 -->
     <Reference Include="UnityEngine.UI" HintPath="$(GameManaged)\UnityEngine.UI.dll" Private="false" />
     <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)\Unity.InputSystem.dll" Private="false" />
