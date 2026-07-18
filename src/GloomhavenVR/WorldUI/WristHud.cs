@@ -142,6 +142,7 @@ internal sealed class WristHud
         VREvents.ChoreographerMessage += OnGameFlowChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VRModeStateMachine.ModeChanged += OnModeChanged;
+        Core.Loc.OnChanged += OnLanguageChanged; // live language following
     }
 
     private void DetachEvents()
@@ -152,6 +153,7 @@ internal sealed class WristHud
         VREvents.ChoreographerMessage -= OnGameFlowChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VRModeStateMachine.ModeChanged -= OnModeChanged;
+        Core.Loc.OnChanged -= OnLanguageChanged;
     }
 
     // Turn/round messages, card (de)selection and mode flips all potentially change
@@ -159,6 +161,8 @@ internal sealed class WristHud
     private void OnGameFlowChanged(ChoreoMessageEvent e) => _nextRefresh = 0f;
     private void OnCardSelectionChanged(CardSelectionEvent e) => _nextRefresh = 0f;
     private void OnModeChanged(VRModeChange e) => _nextRefresh = 0f;
+    // Language change: the change-gated strings differ once localized, so a forced refresh re-reads them.
+    private void OnLanguageChanged() => _nextRefresh = 0f;
 
     // ---- construction ------------------------------------------------------------------
 
@@ -295,14 +299,18 @@ internal sealed class WristHud
         _sb.Length = 0;
         if (actor == null)
         {
-            _sb.Append("<alpha=#88>no character");
+            _sb.Append("<alpha=#88>").Append(Core.Loc.Mod("no_character"));
         }
         else
         {
-            _sb.Append("<alpha=#AA>Level ").Append(actor.Level).Append("<alpha=#FF>\n");
-            _sb.Append("<color=#ff6a5e>HP ").Append(actor.Health).Append('/').Append(actor.MaxHealth).Append("</color>   ");
-            _sb.Append("<color=#7fd4ff>XP ").Append(actor.XP).Append("</color>\n");
-            _sb.Append("<color=#ffd45e>Gold ").Append(actor.Gold).Append("</color>\n");
+            _sb.Append("<alpha=#AA>").Append(Core.Loc.Game("GUI_LEVEL", "Level")).Append(' ')
+               .Append(actor.Level).Append("<alpha=#FF>\n");
+            _sb.Append("<color=#ff6a5e>").Append(Core.Loc.Mod("hp")).Append(' ')
+               .Append(actor.Health).Append('/').Append(actor.MaxHealth).Append("</color>   ");
+            _sb.Append("<color=#7fd4ff>").Append(Core.Loc.Mod("xp")).Append(' ')
+               .Append(actor.XP).Append("</color>\n");
+            _sb.Append("<color=#ffd45e>").Append(Core.Loc.Mod("gold")).Append(' ')
+               .Append(actor.Gold).Append("</color>\n");
 
             CTokens tokens = actor.Tokens;
             if (tokens != null)
@@ -320,7 +328,7 @@ internal sealed class WristHud
                 }
                 else
                 {
-                    _sb.Append("<alpha=#88>no conditions");
+                    _sb.Append("<alpha=#88>").Append(Core.Loc.Mod("no_conditions"));
                 }
             }
         }
@@ -377,9 +385,9 @@ internal sealed class WristHud
         Choreographer choreographer = Choreographer.s_Choreographer;
         string context =
             actor == null ? string.Empty :
-            VRModeStateMachine.CurrentMode == VRMode.CardSelection ? "selecting cards" :
-            choreographer != null && ReferenceEquals(actor, choreographer.CurrentPlayerActor) ? "current turn" :
-            "selected";
+            VRModeStateMachine.CurrentMode == VRMode.CardSelection ? Core.Loc.Mod("selecting_cards") :
+            choreographer != null && ReferenceEquals(actor, choreographer.CurrentPlayerActor) ? Core.Loc.Mod("current_turn") :
+            Core.Loc.Mod("selected");
         _sb.Length = 0;
         if (actor == null)
             _sb.Append("<alpha=#88>—");

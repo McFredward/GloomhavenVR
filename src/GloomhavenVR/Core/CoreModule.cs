@@ -21,6 +21,12 @@ internal sealed class CoreModule : IVRModule
 
     public void Init()
     {
+        // Localization helper: subscribe to the engine's language-change event and fan out
+        // to Loc.OnChanged so all mod-authored VR text follows the game's language live.
+        // Runs regardless of VR availability (safe before I2 is loaded) so it is always
+        // torn down cleanly on hot-reload.
+        Loc.Init();
+
         // Order matters: nothing referencing Unity.XR.* types may be JIT-compiled
         // before LoadAll() has put those assemblies into the AppDomain. Init() itself
         // only *calls* the (non-inlined) methods that use them.
@@ -51,6 +57,8 @@ internal sealed class CoreModule : IVRModule
 
     public void Shutdown()
     {
+        Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
+
         if (_hostGo != null)
         {
             Object.Destroy(_hostGo);

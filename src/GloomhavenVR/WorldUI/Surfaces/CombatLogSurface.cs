@@ -138,6 +138,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private bool _placedFromConfig;
     private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
     private bool _healLogged;           // change-dedup for the out-of-view heal log
+    private bool _locHooked;            // subscribed to Loc.OnChanged (live language following)
 
     protected override RectTransform? FindTarget() =>
         Singleton<CombatLogHandler>.IsInitialized
@@ -195,6 +196,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     public override void Shutdown()
     {
         base.Shutdown();
+        if (_locHooked)
+        {
+            Loc.OnChanged -= ApplyPinVisual;
+            _locHooked = false;
+        }
         if (_holder != null)
             Object.Destroy(_holder.gameObject);
         _holder = null;
@@ -441,8 +447,16 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _pinAnchor.SetParent(_frame, worldPositionStays: false);
         _pinAnchor.localPosition = new Vector3(0.22f, 0f, -0.002f);
         _pin = PlayTray.BoardButton.Create(_pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", TogglePin);
+            new Color(0.75f, 0.55f, 0.2f), Loc.Mod("follow"), TogglePin);
         ApplyPinVisual();
+
+        // Live language following: the FOLLOW/PINNED pin label is set at events only, so
+        // re-apply it whenever the game language changes (subscribe once; Shutdown detaches).
+        if (!_locHooked)
+        {
+            _locHooked = true;
+            Loc.OnChanged += ApplyPinVisual;
+        }
 
         // X close button at the panel's TOP-RIGHT corner (item 6): same BoardButton
         // vocabulary as the pin. Hides the log (releases the conversion to 2D) and
@@ -495,7 +509,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             return;
         bool follow = WorldUIConfig.CombatLogFollow.Value;
         _pin.SetState(true, accent: !follow);
-        _pin.SetLabel(follow ? "FOLLOW" : "PINNED");
+        _pin.SetLabel(follow ? Loc.Mod("follow") : Loc.Mod("pinned"));
     }
 
     /// <summary>

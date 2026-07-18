@@ -1183,7 +1183,8 @@ internal sealed class FlatScreen
             _indicator = new GameObject("GloomhavenVR.StartingIndicator");
             Object.DontDestroyOnLoad(_indicator);
             var text = _indicator.AddComponent<TextMeshPro>();
-            text.text = "GloomhavenVR\n<size=60%>starting… (intro plays on the desktop)</size>";
+            // Brand stays literal; the status line follows the game language (mod string).
+            text.text = "GloomhavenVR\n<size=60%>" + Loc.Mod("starting_desktop") + "</size>";
             text.fontSize = 1f; // 3D TMP: ~0.1 m line height, comfortable at 1.5 m
             text.alignment = TextAlignmentOptions.Center;
             text.color = new Color(0.75f, 0.75f, 0.78f, 1f);

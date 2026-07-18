@@ -24,6 +24,7 @@ internal sealed class RestControls
 {
     private PlayTray.BoardButton? _shortButton;
     private PlayTray.BoardButton? _longButton;
+    private bool _locHooked;
 
     /// <summary>Raised on press; CardsDriver queues the actual game call.</summary>
     internal System.Action? ShortRestRequested;
@@ -51,7 +52,8 @@ internal sealed class RestControls
         {
             _shortButton = PlayTray.BoardButton.Create(tray.ShortRestAnchor, size,
                 new Color(0.72f, 0.6f, 0.28f), // warm gold accent when selected
-                CardsGameApi.Localize("GUI_SHORT_REST", "Short rest"),
+                // No game key exists for a short rest button (GUI_SHORT_REST is absent) — mod string.
+                Core.Loc.Mod("short_rest"),
                 () => ShortRestRequested?.Invoke(),
                 round: round, diameter: diameter, thickness: thickness, boxy: !round);
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
@@ -61,7 +63,7 @@ internal sealed class RestControls
         {
             _longButton = PlayTray.BoardButton.Create(tray.LongRestAnchor, size,
                 new Color(0.4f, 0.55f, 0.85f), // cool blue accent when selected
-                CardsGameApi.Localize("GUI_LONG_REST", "Long rest"),
+                Core.Loc.Game("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
                 round: round, diameter: diameter, thickness: thickness, boxy: !round);
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
@@ -69,6 +71,14 @@ internal sealed class RestControls
         }
 
         SetOffset(offset, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
+
+        // Live language following: the rest-button captions are built once, so re-read them
+        // whenever the game language changes (subscribe once; Destroy detaches).
+        if (!_locHooked)
+        {
+            _locHooked = true;
+            Core.Loc.OnChanged += RefreshLabels;
+        }
 
         if (built > 0)
             Core.VRLog.Info("Cards", $"RestControls: built {built} {(round ? "ROUND" : "SQUARE")} rest button(s) " +
@@ -89,8 +99,20 @@ internal sealed class RestControls
             _longButton.transform.localPosition = offset + new Vector3(0f, -spacing * 0.5f, 0f);
     }
 
+    /// <summary>Re-read the rest-button captions in the current language (live-follow, Loc.OnChanged).</summary>
+    internal void RefreshLabels()
+    {
+        _shortButton?.SetLabel(Core.Loc.Mod("short_rest"));
+        _longButton?.SetLabel(Core.Loc.Game("GUI_LONG_REST", "Long rest"));
+    }
+
     internal void Destroy()
     {
+        if (_locHooked)
+        {
+            Core.Loc.OnChanged -= RefreshLabels;
+            _locHooked = false;
+        }
         if (_shortButton != null)
             Object.DestroyImmediate(_shortButton.gameObject);
         if (_longButton != null)

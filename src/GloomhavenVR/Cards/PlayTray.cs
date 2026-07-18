@@ -719,15 +719,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Transform pinAnchor = NewAnchor("FollowToggle",
             new Vector3(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.002f));
         _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow);
+            new Color(0.75f, 0.55f, 0.2f), Core.Loc.Mod("follow"), ToggleFollow);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
         Transform gearAnchor = NewAnchor("SettingsGear",
             new Vector3(ButtonZoneX, -0.125f, -0.006f));
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
-            new Color(0.4f, 0.42f, 0.5f), "SET",
+            new Color(0.4f, 0.42f, 0.5f), Core.Loc.Mod("set"),
             () => WorldUI.SettingsPanel.RequestToggle());
+
+        // Baseline for the TickStatus language-change guard: the follow/gear labels self-heal
+        // there on an actual language change (round/confirm/undo re-read every tick already).
+        _labelLang = Core.Loc.CurrentLanguage;
         _gear.DwellSeconds = PokeDwellSeconds; // right column = same accident class (test #19)
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
@@ -795,7 +799,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (_followToggle != null)
         {
             _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
-            _followToggle.SetLabel(CardsConfig.TrayFollow.Value ? "FOLLOW" : "PINNED");
+            _followToggle.SetLabel(CardsConfig.TrayFollow.Value ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
         }
     }
 
@@ -1334,7 +1338,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         // Caption under the field (box metrics divide by SlotScale — test #18 pattern).
         AddCaption(_pickField, new Vector3(0f, -h * 0.62f, -0.004f),
-            CardsGameApi.Localize("GUI_SELECT", "SELECT"), new Color(1f, 0.85f, 0.55f),
+            Core.Loc.Game("GUI_SELECT", "SELECT"), new Color(1f, 0.85f, 0.55f),
             maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
             maxFontSize: 0.28f / SlotScale);
 
@@ -1726,9 +1730,30 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     // frame and the concat would allocate every tick (badge/round lesson, test #13).
     private string? _confirmedLabel;
 
+    // Language the follow/gear labels + cached round/confirmed strings were built in.
+    // The TickStatus guard re-localizes them on an actual game-language change (live follow).
+    private string _labelLang = string.Empty;
+
     /// <summary>Update round readout, badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        // Live language following: the follow/gear labels are set at events only and the
+        // round/confirmed strings are cached, so on an ACTUAL language change re-label the
+        // frame buttons and invalidate the caches (the per-tick logic below re-localizes the
+        // round readout + confirm/undo labels via CardsGameApi/Loc.Game). Change-gated so the
+        // TMP writes never happen per frame.
+        string lang = Core.Loc.CurrentLanguage;
+        if (lang != _labelLang)
+        {
+            _labelLang = lang;
+            _confirmedLabel = null;     // rebuild "✓ READY" in the new language
+            _roundShown = int.MinValue; // force the round readout to re-localize
+            if (_followToggle != null)
+                _followToggle.SetLabel(CardsConfig.TrayFollow.Value
+                    ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
+            _gear?.SetLabel(Core.Loc.Mod("set"));
+        }
+
         // Round readout (test #18): the PhaseBanner world conversion is GONE — the
         // round number lives on the dashboard instead, read from the same state the
         // banner showed (CardsGameApi.RoundNumber). Change-gated: TMP rewrites
@@ -1752,7 +1777,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     try
                     {
                         text = string.Format(
-                            CardsGameApi.Localize("GUI_START_ROUND_BANNER", "Round {0}"), round);
+                            Core.Loc.Game("GUI_START_ROUND_BANNER", "Round {0}"), round);
                     }
                     catch (System.FormatException)
                     {
@@ -1810,10 +1835,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             _confirm.SetState(canConfirm || confirmed,
                 accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
             _confirm.SetLabel(confirmed
-                ? _confirmedLabel ??= "✓ " + CardsGameApi.Localize("GUI_READY", "READY")
+                ? _confirmedLabel ??= "✓ " + Core.Loc.Game("GUI_READY", "READY")
                 : hand == null ? "-"
                 : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
-                    ? CardsGameApi.Localize("GUI_END_SELECTION", "END SELECTION")
+                    ? Core.Loc.Game("GUI_END_SELECTION", "END SELECTION")
                     : CardsGameApi.ConfirmLabel());
         }
         if (_undo != null && WorldUI.Surfaces.TrayControlDockSurface.UndoDocked)
@@ -1985,8 +2010,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
 
+        // Initial labels are overwritten by the live game-widget label each TickStatus
+        // (ConfirmLabel()/UndoLabel()); route the fallback literals through the game keys.
         _confirm = BoardButton.Create(confirmParent, rectSize,
-            new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
+            new Color(0.22f, 0.52f, 0.25f), Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
             round: round, diameter: side, thickness: 0.014f, boxy: !round);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
@@ -1995,7 +2022,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
         _undo = BoardButton.Create(undoParent, rectSize,
-            new Color(0.45f, 0.32f, 0.2f), "UNDO",
+            new Color(0.45f, 0.32f, 0.2f), Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
             round: round, diameter: side, thickness: 0.014f, boxy: !round);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;

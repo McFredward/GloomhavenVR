@@ -23,6 +23,7 @@ internal sealed class PileViewer
 {
     private PileStack? _discard;
     private PileStack? _burnt;
+    private bool _locHooked;
     private (int discard, int burnt) _loggedCounts = (int.MinValue, int.MinValue);
 
     /// <summary>Stack poked (finger/laser) — CardsDriver toggles the browse fan.</summary>
@@ -38,10 +39,10 @@ internal sealed class PileViewer
 
     // ------------------------------------------------------------------ lifecycle --
 
-    /// <summary>Local caption for one pile (game terms with safe fallbacks).</summary>
+    /// <summary>Local caption for one pile (real game loc keys with safe English fallbacks).</summary>
     internal static string Caption(PileKind kind) => kind == PileKind.Discard
-        ? CardsGameApi.Localize("GUI_TAKE_DAMAGE_DISCARD", "Discard")
-        : CardsGameApi.Localize("GUI_TAKE_DAMAGE_BURN", "Burnt");
+        ? Core.Loc.Game("GUI_TAKE_DAMAGE_DISCARD", "Discard")
+        : Core.Loc.Game("GUI_TAKE_DAMAGE_BURN", "Burnt");
 
     internal void EnsureBuilt(PlayTray tray)
     {
@@ -67,6 +68,21 @@ internal sealed class PileViewer
             tray.RegisterLaserTarget(_burnt.GetComponent<Collider>(), _burnt);
         }
         ApplyLayout(); // seat the per-board scale + spacing (both stacks)
+
+        // Live language following: the pile captions are built once — re-read them on a
+        // language change (subscribe once; Destroy detaches).
+        if (!_locHooked)
+        {
+            _locHooked = true;
+            Core.Loc.OnChanged += RefreshLabels;
+        }
+    }
+
+    /// <summary>Re-read both pile captions in the current language (live-follow, Loc.OnChanged).</summary>
+    internal void RefreshLabels()
+    {
+        _discard?.SetCaption(Caption(PileKind.Discard));
+        _burnt?.SetCaption(Caption(PileKind.Burnt));
     }
 
     /// <summary>
@@ -101,6 +117,11 @@ internal sealed class PileViewer
 
     internal void Destroy()
     {
+        if (_locHooked)
+        {
+            Core.Loc.OnChanged -= RefreshLabels;
+            _locHooked = false;
+        }
         if (_discard != null)
             Object.DestroyImmediate(_discard.gameObject);
         if (_burnt != null)
@@ -149,6 +170,7 @@ internal sealed class PileViewer
         private PileViewer _owner = null!;
         private PileKind _kind;
         private TextMeshPro? _count;
+        private TextMeshPro? _captionTmp;
         private Material? _topMaterial;
         private Color _baseColor;
         private int _shown = int.MinValue;
@@ -227,10 +249,18 @@ internal sealed class PileViewer
             stack._owner = owner;
             stack._kind = kind;
             stack._count = count;
+            stack._captionTmp = captionTmp;
             stack._topMaterial = topMaterial;
             stack._baseColor = color;
             Core.VRLayers.Apply(go); // mod layer (render-only; poke/grab via registries)
             return stack;
+        }
+
+        /// <summary>Re-read the pile caption in the current language (live-follow).</summary>
+        internal void SetCaption(string caption)
+        {
+            if (_captionTmp != null)
+                _captionTmp.text = caption.ToUpperInvariant();
         }
 
         internal void SetCount(int count)
