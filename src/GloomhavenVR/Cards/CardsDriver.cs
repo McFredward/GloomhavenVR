@@ -102,11 +102,13 @@ internal sealed class CardsDriver : MonoBehaviour
     // Debug-menu / hand-edited per-board offsets live-apply through a dirty-flag consumed in
     // Update (the P2 threading rule: handlers only set flags). Position changes apply in place;
     // size/diameter changes rebuild just the affected buttons.
-    private bool _applyControlOffsets;   // rest + confirm/undo X/Y/Z offset (instant)
-    private bool _applyControlRebuild;   // rest diameter / confirm-undo size (rebuild the buttons)
+    private bool _applyControlOffsets;   // rest + confirm/undo X/Y/Z offset + group spacing (instant)
+    private bool _applyControlRebuild;   // rest diameter / confirm-undo size / button SHAPE (rebuild the buttons)
     private bool _applyOverlayOffset;    // slot/wanted glow offset
     private bool _applyInitiativeOffset; // initiative-track mount position
     private bool _applyOrientation;      // board tilt / yaw / scale / pos-offset
+    private bool _applyActive;           // active-cards mount offset / card scale / grid spacing
+    private bool _applyPiles;            // discard/burn pile mount offset / scale / inter-pile spacing
 
     /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
     private void SubscribeBoardTuning(bool subscribe)
@@ -117,27 +119,47 @@ internal sealed class CardsDriver : MonoBehaviour
             {
                 CardsConfig.RestButtonOffset(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.ConfirmUndoOffset(b).SettingChanged += OnControlOffsetChanged;
+                CardsConfig.RestButtonSpacing(b).SettingChanged += OnControlOffsetChanged;   // spacing = in-place move
+                CardsConfig.GenericButtonSpacing(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged += OnControlSizeChanged;
                 CardsConfig.ConfirmUndoSize(b).SettingChanged += OnControlSizeChanged;
+                CardsConfig.RestButtonShape(b).SettingChanged += OnControlSizeChanged;        // shape = rebuild the caps
+                CardsConfig.GenericButtonShape(b).SettingChanged += OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
                 CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
                 CardsConfig.BoardTilt(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardPosOffset(b).SettingChanged += OnOrientationChanged;
+                CardsConfig.ActiveOffset(b).SettingChanged += OnActiveTuningChanged;
+                CardsConfig.ActiveCardScale(b).SettingChanged += OnActiveTuningChanged;
+                CardsConfig.ActiveGridSpacing(b).SettingChanged += OnActiveTuningChanged;
+                CardsConfig.PileOffset(b).SettingChanged += OnPilesTuningChanged;
+                CardsConfig.PileScale(b).SettingChanged += OnPilesTuningChanged;
+                CardsConfig.PileSpacing(b).SettingChanged += OnPilesTuningChanged;
             }
             else
             {
                 CardsConfig.RestButtonOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ConfirmUndoOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.RestButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.GenericButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.ConfirmUndoSize(b).SettingChanged -= OnControlSizeChanged;
+                CardsConfig.RestButtonShape(b).SettingChanged -= OnControlSizeChanged;
+                CardsConfig.GenericButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
                 CardsConfig.InitiativeOffset(b).SettingChanged -= OnInitiativeOffsetChanged;
                 CardsConfig.BoardTilt(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardPosOffset(b).SettingChanged -= OnOrientationChanged;
+                CardsConfig.ActiveOffset(b).SettingChanged -= OnActiveTuningChanged;
+                CardsConfig.ActiveCardScale(b).SettingChanged -= OnActiveTuningChanged;
+                CardsConfig.ActiveGridSpacing(b).SettingChanged -= OnActiveTuningChanged;
+                CardsConfig.PileOffset(b).SettingChanged -= OnPilesTuningChanged;
+                CardsConfig.PileScale(b).SettingChanged -= OnPilesTuningChanged;
+                CardsConfig.PileSpacing(b).SettingChanged -= OnPilesTuningChanged;
             }
         }
     }
@@ -147,6 +169,8 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnOverlayOffsetChanged(object sender, System.EventArgs e) => _applyOverlayOffset = true;
     private void OnInitiativeOffsetChanged(object sender, System.EventArgs e) => _applyInitiativeOffset = true;
     private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
+    private void OnActiveTuningChanged(object sender, System.EventArgs e) => _applyActive = true;
+    private void OnPilesTuningChanged(object sender, System.EventArgs e) => _applyPiles = true;
 
     /// <summary>
     /// PART F: consume the per-board tuning dirty flags on the main thread and re-apply the
@@ -166,17 +190,18 @@ internal sealed class CardsDriver : MonoBehaviour
             _rest.Destroy();
             _tray.RebuildAttachedControls(); // rebuilds Confirm/Undo AND purges the dead rest laser targets
             _rest.EnsureBuilt(_tray);
-            VRLog.Info("Cards", $"Debug live-apply [{b}]: rebuilt Confirm/Undo (size " +
-                                $"{CardsConfig.ConfirmUndoSize(b).Value:F3} m) + rest discs (diameter " +
-                                $"{CardsConfig.RestButtonDiameter(b).Value:F3} m).");
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: rebuilt Generic Confirm/Undo ({CardsConfig.GenericButtonShape(b).Value}, " +
+                                $"size {CardsConfig.ConfirmUndoSize(b).Value:F3} m) + Rest buttons ({CardsConfig.RestButtonShape(b).Value}, " +
+                                $"diameter {CardsConfig.RestButtonDiameter(b).Value:F3} m).");
         }
         if (_applyControlOffsets)
         {
             _applyControlOffsets = false;
-            _rest.SetOffset(CardsConfig.RestButtonOffset(b).Value);
-            _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(b).Value);
-            VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset(b).Value}, " +
-                                $"confirm/undo offset {CardsConfig.ConfirmUndoOffset(b).Value}.");
+            _rest.SetOffset(CardsConfig.RestButtonOffset(b).Value, CardsConfig.RestButtonSpacing(b).Value);
+            _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(b).Value, CardsConfig.GenericButtonSpacing(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset(b).Value} " +
+                                $"(spacing {CardsConfig.RestButtonSpacing(b).Value:F3} m), confirm/undo offset " +
+                                $"{CardsConfig.ConfirmUndoOffset(b).Value} (spacing {CardsConfig.GenericButtonSpacing(b).Value:F3} m).");
         }
         if (_applyOverlayOffset)
         {
@@ -197,6 +222,22 @@ internal sealed class CardsDriver : MonoBehaviour
             VRLog.Info("Cards", $"Debug live-apply [{b}]: orientation tilt {CardsConfig.BoardTilt(b).Value:F0}°, " +
                                 $"yaw {CardsConfig.BoardYaw(b).Value:F0}°, scale {CardsConfig.BoardScale(b).Value:F2}×, " +
                                 $"posOffset {CardsConfig.BoardPosOffset(b).Value}.");
+        }
+        if (_applyActive)
+        {
+            _applyActive = false;
+            _tray.SetActiveOffset(CardsConfig.ActiveOffset(b).Value); // move the mount in place
+            _active.ApplyLayout();                                    // re-lay from the per-board scale + grid step
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: active offset {CardsConfig.ActiveOffset(b).Value}, " +
+                                $"card scale {CardsConfig.ActiveCardScale(b).Value:F2}×, grid step {CardsConfig.ActiveGridSpacing(b).Value}.");
+        }
+        if (_applyPiles)
+        {
+            _applyPiles = false;
+            _tray.SetPileOffset(CardsConfig.PileOffset(b).Value); // move the mount in place
+            _piles.ApplyLayout();                                 // re-seat both stacks (scale + inter-pile spacing)
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: pile offset {CardsConfig.PileOffset(b).Value}, " +
+                                $"scale {CardsConfig.PileScale(b).Value:F2}×, spacing {CardsConfig.PileSpacing(b).Value:F3} m.");
         }
     }
 

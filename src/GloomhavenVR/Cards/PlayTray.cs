@@ -634,7 +634,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // upper cell bottom -0.003 vs lower cell top -0.027 → no overlap.
         _pileMount = new GameObject("PileMount").transform;
         _pileMount.SetParent(_root, worldPositionStays: false);
-        _pileMount.localPosition = new Vector3(BoardW * 0.5f + 0.012f, 0f, -0.004f);
+        // Round-2: the pile mount position is PER-BOARD (debug-menu tunable), base + PileOffset (seeded 0).
+        _pileMount.localPosition = PileMountBase + CardsConfig.PileOffset(CardsConfig.CurrentBoard).Value;
 
         // Feature 6: the ACTIVE CARDS area docks to the RIGHT of the pile stacks — the
         // only spot on that edge still free (the pile stacks' worst-case right edge is
@@ -646,8 +647,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // areas sit side by side. Off-board: nothing else docks out here.
         _activeMount = new GameObject("ActiveMount").transform;
         _activeMount.SetParent(_root, worldPositionStays: false);
-        _activeMount.localPosition = new Vector3(
-            BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
+        // Round-2: the active mount position is PER-BOARD (debug-menu tunable), base + ActiveOffset (seeded 0).
+        _activeMount.localPosition = ActiveMountBase + CardsConfig.ActiveOffset(CardsConfig.CurrentBoard).Value;
     }
 
     // ------------------------------------------------------------------ grab handle --
@@ -979,14 +980,38 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             _initiativeMount.localPosition = offset;
     }
 
-    /// <summary>PART F live-apply: move the square Confirm/Undo buttons to a new per-board offset (instant).</summary>
-    internal void SetConfirmUndoOffset(Vector3 offset)
+    /// <summary>
+    /// PART F live-apply: move the generic Confirm/Undo buttons to a new per-board offset +
+    /// inter-button spacing (instant). Confirm (upper) takes +spacing/2 along the board's short
+    /// axis, Undo (lower) −spacing/2.
+    /// </summary>
+    internal void SetConfirmUndoOffset(Vector3 offset, float spacing)
     {
         if (_confirm != null)
-            _confirm.transform.localPosition = offset;
+            _confirm.transform.localPosition = offset + new Vector3(0f, spacing * 0.5f, 0f);
         if (_undo != null)
-            _undo.transform.localPosition = offset;
+            _undo.transform.localPosition = offset + new Vector3(0f, -spacing * 0.5f, 0f);
     }
+
+    /// <summary>PART F live-apply: move the discard/burn pile mount to a new per-board offset (instant).</summary>
+    internal void SetPileOffset(Vector3 offset)
+    {
+        if (_pileMount != null)
+            _pileMount.localPosition = PileMountBase + offset;
+    }
+
+    /// <summary>PART F live-apply: move the ACTIVE-cards mount to a new per-board offset (instant).</summary>
+    internal void SetActiveOffset(Vector3 offset)
+    {
+        if (_activeMount != null)
+            _activeMount.localPosition = ActiveMountBase + offset;
+    }
+
+    /// <summary>Fixed base local position of the discard/burn pile mount (per-board PileOffset adds on top).</summary>
+    private static Vector3 PileMountBase => new(BoardW * 0.5f + 0.012f, 0f, -0.004f);
+
+    /// <summary>Fixed base local position of the ACTIVE-cards mount (per-board ActiveOffset adds on top).</summary>
+    private static Vector3 ActiveMountBase => new(BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
 
     /// <summary>
     /// PART F live-apply: recompute the board rotation + scale from the ACTIVE board's config
@@ -1948,21 +1973,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Transform confirmParent = confirmAnchor != null ? confirmAnchor : NewAnchor("ConfirmButton", new Vector3(ButtonZoneX, 0.045f, -0.006f));
         Transform undoParent = undoAnchor != null ? undoAnchor : NewAnchor("UndoButton", new Vector3(ButtonZoneX, -0.06f, -0.006f));
 
-        // PART B + C: Confirm/Undo are REAL 3D square keycaps (boxy: true — a lit cube cap with
-        // genuine thickness whose side walls shade, not a flat sprite), sized and positioned from
-        // the ACTIVE board's config. The full X/Y/Z offset (X/Y in plane, Z = proud toward the
-        // player) REPLACES the old inset + raycast reseat, so the buttons seat at a predictable
-        // depth per board (debug-menu tunable).
+        // PART B + C: Confirm/Undo are real 3D keycaps, sized and positioned from the ACTIVE
+        // board's config. The full X/Y/Z offset (X/Y in plane, Z = proud toward the player)
+        // REPLACES the old inset + raycast reseat, so the buttons seat at a predictable depth per
+        // board (debug-menu tunable). Round-2: the cap SHAPE is per-board (Square boxy keycap by
+        // default, or Round disc), and a per-board SPACING spreads Confirm/Undo apart.
         ControlBoard active = CardsConfig.CurrentBoard;
         float side = CardsConfig.ConfirmUndoSize(active).Value;
         var rectSize = new Vector2(side, side);
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
+        float spacing = CardsConfig.GenericButtonSpacing(active).Value;
+        bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
 
         _confirm = BoardButton.Create(confirmParent, rectSize,
             new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
             () => ConfirmRequested?.Invoke(),
-            boxy: true, thickness: 0.014f);
-        _confirm.transform.localPosition = off; // per-board X/Y in plane, Z proud (Part B)
+            round: round, diameter: side, thickness: 0.014f, boxy: !round);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.DwellSeconds = PokeDwellSeconds; // deliberate poke (test #19)
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
@@ -1971,13 +1997,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _undo = BoardButton.Create(undoParent, rectSize,
             new Color(0.45f, 0.32f, 0.2f), "UNDO",
             () => UndoRequested?.Invoke(),
-            boxy: true, thickness: 0.014f);
-        _undo.transform.localPosition = off; // per-board X/Y in plane, Z proud (Part B)
+            round: round, diameter: side, thickness: 0.014f, boxy: !round);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         _undo.DwellSeconds = PokeDwellSeconds; // same accident class as CONFIRM (test #19)
         RegisterLaserTarget(_undo.Collider!, _undo);
-        VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D square keycaps {side:F3} m for {active} " +
-                            $"(offset {off}).");
+
+        SetConfirmUndoOffset(off, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
+        VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
+                            $"{side:F3} m for {active} (offset {off}, spacing {spacing:F3} m).");
     }
 
     private Transform NewAnchor(string name, Vector3 localPos)

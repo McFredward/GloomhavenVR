@@ -48,21 +48,46 @@ internal sealed class PileViewer
         Transform? mount = tray.PileMount;
         if (mount == null)
             return;
+        // Round-2: the inter-stack gap is PER-BOARD (debug-menu tunable), seeded 0.116 (Oak).
+        float spacing = CardsConfig.PileSpacing(CardsConfig.CurrentBoard).Value;
         // A tray teardown destroys the stacks with the mount — the Unity fake-null
         // makes the == checks below true and the stacks rebuild from scratch.
         if (_discard == null)
         {
             _discard = PileStack.Create(mount, PileKind.Discard,
                 new Color(0.55f, 0.48f, 0.34f), Caption(PileKind.Discard), this,
-                new Vector3(PlayTray.PileStackOffsetX, PlayTray.PileStackSpacing * 0.5f, 0f));
+                new Vector3(PlayTray.PileStackOffsetX, spacing * 0.5f, 0f));
             tray.RegisterLaserTarget(_discard.GetComponent<Collider>(), _discard);
         }
         if (_burnt == null)
         {
             _burnt = PileStack.Create(mount, PileKind.Burnt,
                 new Color(0.45f, 0.22f, 0.16f), Caption(PileKind.Burnt), this,
-                new Vector3(PlayTray.PileStackOffsetX, -PlayTray.PileStackSpacing * 0.5f, 0f));
+                new Vector3(PlayTray.PileStackOffsetX, -spacing * 0.5f, 0f));
             tray.RegisterLaserTarget(_burnt.GetComponent<Collider>(), _burnt);
+        }
+        ApplyLayout(); // seat the per-board scale + spacing (both stacks)
+    }
+
+    /// <summary>
+    /// Round-2 live-apply: re-seat both pile stacks from the active board's per-board SCALE and
+    /// inter-stack SPACING (discard upper at +spacing/2, burn lower at −spacing/2). Called from
+    /// <see cref="EnsureBuilt"/> and by CardsDriver when the debug menu / cfg edits either.
+    /// </summary>
+    internal void ApplyLayout()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        float scale = CardsConfig.PileScale(b).Value;
+        float spacing = CardsConfig.PileSpacing(b).Value;
+        if (_discard != null)
+        {
+            _discard.transform.localScale = Vector3.one * scale;
+            _discard.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, spacing * 0.5f, 0f);
+        }
+        if (_burnt != null)
+        {
+            _burnt.transform.localScale = Vector3.one * scale;
+            _burnt.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, -spacing * 0.5f, 0f);
         }
     }
 

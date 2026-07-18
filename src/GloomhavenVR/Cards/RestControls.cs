@@ -29,63 +29,64 @@ internal sealed class RestControls
     internal System.Action? ShortRestRequested;
     internal System.Action? LongRestRequested;
 
-    /// <summary>Comfortable rest-button footprint, tray-local meters (fits the 0.14-wide rest plate).</summary>
-    private static readonly Vector2 RestButtonSize = new(0.115f, 0.04f);
-
     internal void EnsureBuilt(PlayTray tray)
     {
-        // Feature 6a: the rest controls are ROUND discs that drop into the board's two
-        // round rest-notches ("kurze/lange Rast" einkerbungen). PER-BOARD (Part B): the
-        // diameter AND the full X/Y/Z offset come from the active board's config (the debug
-        // menu tunes them live) — this REPLACES the old unreliable raycast auto-seating, so
-        // the discs seat at a PREDICTABLE anchor + per-board offset depth.
+        // Feature 6a: the rest controls seat in the board's two rest-notches. PER-BOARD: the
+        // diameter/side, the full X/Y/Z offset AND the cap SHAPE (Round disc / Square keycap)
+        // come from the active board's config (the debug menu tunes them live) — this REPLACES
+        // the old unreliable raycast auto-seating, so the buttons seat at a PREDICTABLE anchor +
+        // per-board offset depth. Round-2: an extra per-board SPACING spreads the two apart.
         ControlBoard active = CardsConfig.CurrentBoard;
         float diameter = CardsConfig.RestButtonDiameter(active).Value;
         float thickness = CardsConfig.RoundButtonThickness.Value;
+        bool round = CardsConfig.RestButtonShape(active).Value == ButtonShape.Round;
+        var size = new Vector2(diameter, diameter); // round overrides from diameter; square uses this side
         // Per-board disc offset: X/Y in the board plane, Z = proud depth toward the player
         // (NEGATIVE = prouder). Replaces the old localPosition(insetX,0,0) + raycast reseat.
         Vector3 offset = CardsConfig.RestButtonOffset(active).Value;
+        float spacing = CardsConfig.RestButtonSpacing(active).Value;
         int built = 0;
 
         if (_shortButton == null && tray.ShortRestAnchor != null)
         {
-            _shortButton = PlayTray.BoardButton.Create(tray.ShortRestAnchor, RestButtonSize,
+            _shortButton = PlayTray.BoardButton.Create(tray.ShortRestAnchor, size,
                 new Color(0.72f, 0.6f, 0.28f), // warm gold accent when selected
                 CardsGameApi.Localize("GUI_SHORT_REST", "Short rest"),
                 () => ShortRestRequested?.Invoke(),
-                round: true, diameter: diameter, thickness: thickness);
-            _shortButton.transform.localPosition = offset; // per-board X/Y in plane, Z proud (Part B)
+                round: round, diameter: diameter, thickness: thickness, boxy: !round);
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
         }
         if (_longButton == null && tray.LongRestAnchor != null)
         {
-            _longButton = PlayTray.BoardButton.Create(tray.LongRestAnchor, RestButtonSize,
+            _longButton = PlayTray.BoardButton.Create(tray.LongRestAnchor, size,
                 new Color(0.4f, 0.55f, 0.85f), // cool blue accent when selected
                 CardsGameApi.Localize("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
-                round: true, diameter: diameter, thickness: thickness);
-            _longButton.transform.localPosition = offset; // per-board X/Y in plane, Z proud (Part B)
+                round: round, diameter: diameter, thickness: thickness, boxy: !round);
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
         }
 
+        SetOffset(offset, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
+
         if (built > 0)
-            Core.VRLog.Info("Cards", $"RestControls: built {built} ROUND rest button(s) for {active} " +
-                $"(diameter {diameter:F3} m, thickness {thickness:F3} m, offset {offset}) — " +
-                "feature 6a notch discs (per-board predictable seat, no raycast).");
+            Core.VRLog.Info("Cards", $"RestControls: built {built} {(round ? "ROUND" : "SQUARE")} rest button(s) " +
+                $"for {active} (size {diameter:F3} m, thickness {thickness:F3} m, offset {offset}, " +
+                $"spacing {spacing:F3} m) — per-board predictable seat, no raycast.");
     }
 
     /// <summary>
-    /// Live-apply (Part F): move both rest discs to a new per-board X/Y/Z offset in place
-    /// (no rebuild) when the debug menu / hand-edited cfg changes the offset.
+    /// Live-apply (Part F): move both rest buttons to a new per-board X/Y/Z offset + inter-button
+    /// spacing in place (no rebuild). The short (upper) button takes +spacing/2 along the board's
+    /// short axis, the long (lower) button −spacing/2.
     /// </summary>
-    internal void SetOffset(Vector3 offset)
+    internal void SetOffset(Vector3 offset, float spacing)
     {
         if (_shortButton != null)
-            _shortButton.transform.localPosition = offset;
+            _shortButton.transform.localPosition = offset + new Vector3(0f, spacing * 0.5f, 0f);
         if (_longButton != null)
-            _longButton.transform.localPosition = offset;
+            _longButton.transform.localPosition = offset + new Vector3(0f, -spacing * 0.5f, 0f);
     }
 
     internal void Destroy()
