@@ -184,11 +184,26 @@ internal sealed class WristHud
         _root.transform.localPosition = new Vector3(0f, 0.015f, -0.05f);
         // Wrist frame: +Z along fingers, +Y out of the back of the hand, +X shared by
         // both hands (HandRig contract). The panel lies FLAT in the back-of-hand plane
-        // (like the flat open hand). Readable face (canvas -Z) out the BACK of the hand
-        // (+Y, toward the HMD); text top (canvas +Y) toward the forearm (wrist -Z).
-        // (+Z canvas -> -Y wrist, so readable -Z -> +Y out the back of the hand; +Y
-        // canvas -> -Z wrist forearm; panel plane spans wrist X and Z = flat.)
-        _root.transform.localRotation = Quaternion.LookRotation(Vector3.down, Vector3.back);
+        // (like the flat open hand); the viewer/HMD is on the wrist +Y side (same axis
+        // the look-at gate above uses, hand.Rig.Root.up).
+        //
+        // Empirical calibration (headset screenshot): unlike the repo's card/tray
+        // canvases whose READABLE face is local -Z (PanelPlacement.Facing: "+Z away
+        // from viewer", VRCard "viewer on the -Z side"), THIS TMP canvas reads from
+        // local +Z. Proof: the previous LookRotation(down, back) put canvas +Z -> wrist
+        // -Y (into the palm) and rendered FLAT but MIRRORED (we saw the back face) — so
+        // the readable front is the +Z face, which was pointing away from the viewer.
+        //
+        // LookRotation(forward=+Y, up=+Z) = the previous frame rotated 180 deg about the
+        // in-plane wrist-X axis (X preserved, Y & Z flipped) — flips the normal to the
+        // viewer while keeping the plane. Axis decomposition (verified):
+        //   canvas +Z (readable front) -> wrist +Y  (out the back of the hand, toward
+        //                                             the HMD => readable, NOT mirrored)
+        //   canvas +Y (text top)       -> wrist +Z  (along the fingers => upright,
+        //                                             text-top on the finger side)
+        //   canvas +X (text right)     -> wrist -X
+        // Panel normal is along wrist Y and the plane spans wrist X and Z = FLAT.
+        _root.transform.localRotation = Quaternion.LookRotation(Vector3.up, Vector3.forward);
 
         var canvas = _root.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
