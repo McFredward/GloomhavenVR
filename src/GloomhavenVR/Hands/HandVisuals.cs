@@ -74,6 +74,11 @@ internal static class HandVisuals
             GameObject instance = Object.Instantiate(prefab, handRoot, worldPositionStays: false);
             instance.name = $"Glove_{side}";
             MapPrefabRig(instance.transform, rig, side);
+            // The glove is instantiated AFTER HandsDriver's tree-wide VRLayers.Apply, so
+            // it would stay on layer 0 and get CULLED by the menu head camera (which
+            // renders the mod layer only) — the hands vanished in front of the menu.
+            // Re-layer the whole glove subtree onto the mod layer here.
+            Core.VRLayers.Apply(instance);
             VRLog.Info("Hands", $"{side}: glove prefab loaded from bundle.");
         }
         else

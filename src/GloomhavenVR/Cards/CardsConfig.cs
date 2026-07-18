@@ -212,7 +212,7 @@ internal static class CardsConfig
             "to follow re-anchors it at the configured offsets.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
-        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.014f,
+        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.024f,
             "How far a card is lifted OUT of a physical slot recess toward the viewer, real meters " +
             "(the board's -Z face). BuildBoard now projects the slot anchors onto the recess FLOOR, so " +
             "a card at 0 sits deep inside the recess and reads as 'poking through' — barely visible from " +

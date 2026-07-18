@@ -251,6 +251,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// target (DEFECT 2) — then <see cref="BuildBoardSurface"/> skips its synthetic plane.</summary>
     private bool _boardColliderRegistered;
 
+    /// <summary>The board's functional-face frame (−Z out of the decorated face toward the
+    /// player), derived from the bundle anchor axes in <see cref="EnsureBuilt"/>. Mod-built
+    /// board elements adopt it so they face the player like the slots/buttons. Identity for
+    /// the procedural fallback board (its localPositions already assume that convention).</summary>
+    private Quaternion _boardFaceFrame = Quaternion.identity;
+
     /// <summary>Arm the accidental-confirm guard (called by CardsDriver on real slot drops/plucks only).</summary>
     internal void NoteSlotActivity() => _lastSlotActivity = Time.unscaledTime;
 
@@ -354,10 +360,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 // the card markers squarely in the two slot recesses on the player-facing
                 // functional face. So forward = +nF => -Z = -nF = out of that face. (Do not
                 // flip to -nF: that hides the cards on the decorative back.)
-                Quaternion frame = Quaternion.LookRotation(nF, vF);
+                // Store the board-face frame so the mod-BUILT elements (round readout,
+                // settings gear, follow toggle, procedural button fallbacks) face the
+                // SAME way as the bundle anchors — otherwise they inherit _root's raw
+                // axes and render on the board's BACK (test: "Runde 2"/gear only visible
+                // from behind). _root is identity here, so a world frame doubles as the
+                // local-to-_root frame the children keep as _root later tilts.
+                _boardFaceFrame = Quaternion.LookRotation(nF, vF);
                 foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
                     if (a != null)
-                        a.rotation = frame;
+                        a.rotation = _boardFaceFrame;
             }
 
             // DEFECT 2: the bundled board now ships a MeshCollider (BuildBoard). Register
@@ -428,6 +440,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         var readoutGo = new GameObject("RoundReadout");
         readoutGo.transform.SetParent(_root, worldPositionStays: false);
         readoutGo.transform.localPosition = new Vector3(ButtonZoneX, 0.125f, -0.004f);
+        readoutGo.transform.localRotation = _boardFaceFrame; // face the player like the slots ("Runde N" was on the back)
 
         var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
         plate.name = "Plate";
@@ -1689,6 +1702,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         var t = new GameObject(name).transform;
         t.SetParent(_root, worldPositionStays: false);
         t.localPosition = localPos;
+        t.localRotation = _boardFaceFrame; // face the functional board face like the bundle anchors
         return t;
     }
 
