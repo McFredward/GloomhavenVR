@@ -126,6 +126,28 @@ internal static class NonDominantHold
                 tapMax = TapFallbackSeconds;
             ShortTapThisFrame = ReleasedAfterSeconds < tapMax;
         }
+
+        // SELF-HEAL after a pose dropout (X-menu reopen bug). A dropout that STRADDLES
+        // a press strands this tracker: the pose-loss freeze above leaves _wasDown and
+        // Consumed untouched, so if the button was down (or the press began) during the
+        // gap, no later press ever reads as a FRESH edge (down && !_wasDown) — Consumed
+        // is therefore never re-cleared and every subsequent release is gated out at the
+        // tap check above (!Consumed). Result: the pause menu could be opened exactly
+        // once. Once the hand is back and the button is observed GENUINELY up on a frame
+        // that is NOT ending a real observed press, clear the stranded latch so the next
+        // genuine press is a fresh edge again and its release yields a tap.
+        //
+        // ReleasedThisFrame guards the consumed-hold release frame (Consumed must stay
+        // true through that frame's tap check so the hold's release never emits a phantom
+        // tap); the heal then runs on the following settled-up frame, harmlessly, since
+        // the press is already over. The pose-hiccup freeze still suppresses phantom taps
+        // DURING the dropout — this only fires once the hand has settled back (ButtonIsUp
+        // is false during a hiccup), so it does not reintroduce the reopen flicker.
+        if (ButtonIsUp && !ReleasedThisFrame && (_wasDown || Consumed))
+        {
+            _wasDown = false;
+            Consumed = false;
+        }
     }
 
     /// <summary>Hot-reload / driver teardown reset.</summary>

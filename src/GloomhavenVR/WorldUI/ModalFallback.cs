@@ -943,6 +943,41 @@ internal static class ModalFallback
     /// logged) when the window cannot be converted — the caller then raises the full
     /// flat screen for it instead.
     /// </summary>
+    /// <summary>
+    /// True when <paramref name="window"/> is one of the full-screen menus (ESC / options
+    /// family) AND its root rect genuinely fills the screen. Only these are exempted from
+    /// the central content fit (P6 flicker fix): they are meant to float as a whole screen,
+    /// so their host must stay fixed at the window's own rect rather than being re-measured
+    /// and re-centered every ~30 frames as their fade/focus animations cross the fit's
+    /// alpha threshold. The ID gate keeps every other modal (confirmation boxes, message,
+    /// rewards/results, the story box) on the fit path; the geometry gate guards against a
+    /// non-full-screen variant of a menu ID being wrongly exempted.
+    /// </summary>
+    private static bool IsFullScreenMenu(UIWindowID id, RectTransform rect)
+    {
+        if (id != UIWindowID.ESCMenu && id != UIWindowID.Options
+            && id != UIWindowID.OptionsSubmenu && id != UIWindowID.ViceOptionsSubmenu)
+            return false;
+
+        // Stretch anchors filling the parent → a full-screen root (resolution-independent).
+        Vector2 aMin = rect.anchorMin;
+        Vector2 aMax = rect.anchorMax;
+        if (aMin.x <= 0.01f && aMin.y <= 0.01f && aMax.x >= 0.99f && aMax.y >= 0.99f)
+            return true;
+
+        // Or the rect covers (near) the whole root canvas.
+        Canvas? canvas = rect.GetComponentInParent<Canvas>();
+        var canvasRect = canvas != null ? canvas.rootCanvas.transform as RectTransform : null;
+        if (canvasRect != null)
+        {
+            Vector2 cs = canvasRect.rect.size;
+            Vector2 ws = rect.rect.size;
+            if (cs.x > 1f && cs.y > 1f && ws.x >= cs.x * 0.9f && ws.y >= cs.y * 0.9f)
+                return true;
+        }
+        return false;
+    }
+
     private static bool TryConvertWindow(UIWindow window)
     {
         string name = window.name;
@@ -980,7 +1015,22 @@ internal static class ModalFallback
                 }
             }
 
-            ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true);
+            // FLICKER FIX (P6): a FULL-SCREEN menu (ESC / options) is meant to float as a
+            // whole screen in front of the player — its 1920x1080 stretch root IS the
+            // content. Enrolling it in the central content-FIT is actively wrong: as its
+            // LeanTween background fade + button-focus animations cross the fit's alpha
+            // threshold, the measured visible-Graphic union alternates between the full
+            // frame and the smaller button cluster, and each accepted fit re-centers +
+            // resizes the host in place → a visible per-frame flicker/jump. Exempt these
+            // windows from the fit (host stays fixed at the window's own rect); strip-style
+            // windows that genuinely need the fit (story box via contentRoot below, and any
+            // non-full-screen dialog) keep it.
+            bool fullScreenMenu = IsFullScreenMenu(window.ID, rect);
+            ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
+                fitContent: fullScreenMenu ? (bool?)false : null);
+            if (fullScreenMenu)
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
+                                      "exempted from the per-frame content fit (fixed host rect, no flicker).");
             if (panel == null)
             {
                 VRLog.Warn("WorldUI", $"MODAL WINDOW: conversion of '{name}' (ID {window.ID}) returned " +
