@@ -95,10 +95,18 @@ internal sealed class OptionsToggle
         {
             // ESCMenu has no public Show; its opener is just myWindow.Show(). Calling the
             // window's Show() fires ESCMenu.OnShow via its onTransitionBegin listener.
-            menu.GetComponent<UIWindow>().Show();
+            // Belt-and-suspenders re-openability: re-activate the window GameObject if a
+            // previous close left it inactive, so Show() never depends on the window
+            // having stayed active since the last open.
+            var w = menu.GetComponent<UIWindow>();
+            if (!w.gameObject.activeSelf)
+                w.gameObject.SetActive(true);
+            w.Show();
             _open = true;
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player in VR.");
+            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player " +
+                                  $"in VR (activeInHierarchy={w.gameObject.activeInHierarchy}, " +
+                                  $"shortTap={NonDominantHold.ShortTapThisFrame}).");
         }
 
         // Disarm: no re-toggle until the button is observed genuinely up again.
