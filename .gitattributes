@@ -1,0 +1,28 @@
+# Binary assets — NEVER apply text/line-ending conversion. On Windows,
+# core.autocrlf would insert CRLF into these and corrupt them; for the asset
+# bundle that shows up at runtime as:
+#   "Unable to read header from archive file ... gloomhavenvr.bundle"
+#   AssetBundle.LoadFromFile failed -> procedural visuals
+# `binary` = `-text -diff`, so the bytes are checked out verbatim on every platform.
+*.bundle binary
+*.fbx    binary
+*.glb    binary
+*.gltf   binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.tga    binary
+*.psd    binary
+*.dll    binary
+*.so     binary
+*.pdb    binary
+*.zip    binary
+*.tar    binary
+*.xz     binary
+*.7z     binary
+*.pdf    binary
+*.alf    binary
+*.ulf    binary
+
+# Unity YAML assets stay TEXT (diffable, and CRLF-safe for Unity): *.prefab, *.mat,
+# *.asset, *.meta, *.unity — left to default handling on purpose.
