@@ -851,6 +851,98 @@ internal static class CardsGameApi
         }
     }
 
+    // -------------------------------------------------------------- active cards --
+
+    /// <summary>
+    /// Fill <paramref name="buffer"/> with the live widgets of the ACTIVE pile — the
+    /// character's currently-active ability cards (round-long or persistent). Mirrors
+    /// <see cref="GetPileWidgets"/> but sourced from the active pile: the exact
+    /// membership test the 2D hand uses to tag its widgets is
+    /// <c>AbilityCardUI.CardType == CardPileType.Active</c> (the filter
+    /// <c>CardsHandUI.GetActiveAbilityCards</c> uses, CardsHandUI.cs:1285-1288), which
+    /// tracks the model list <c>CCharacterClass.ActivatedAbilityCards</c>. Resolved
+    /// straight off <c>cardsUI</c> (one AbilityCardUI per card of EVERY pile) so no LINQ
+    /// list is allocated. Read-only: no game state is touched. No allocation — caller
+    /// owns the buffer.
+    /// </summary>
+    internal static void GetActivePileWidgets(CardsHandUI hand, List<AbilityCardUI> buffer)
+    {
+        buffer.Clear();
+        if (hand.PlayerActor == null)
+            return;
+        List<AbilityCardUI> cards = hand.cardsUI;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            AbilityCardUI card = cards[i];
+            if (card != null && card.AbilityCard != null && card.CardType == CardPileType.Active)
+                buffer.Add(card);
+        }
+    }
+
+    /// <summary>
+    /// Number of currently-active ability cards (the ACTIVE pile size) — cheap
+    /// per-frame change-gate counterpart to <see cref="GetActivePileWidgets"/>. Counts
+    /// <c>cardsUI</c> widgets tagged <c>CardPileType.Active</c> (see there).
+    /// </summary>
+    internal static int ActiveCount(CardsHandUI hand)
+    {
+        if (hand.PlayerActor == null)
+            return 0;
+        int n = 0;
+        List<AbilityCardUI> cards = hand.cardsUI;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            AbilityCardUI card = cards[i];
+            if (card != null && card.CardType == CardPileType.Active)
+                n++;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// Which action HALVES of an active ability <paramref name="card"/> are the source
+    /// of a live bonus right now (feature 6 highlight). Resolves the caster's active
+    /// bonuses — <c>CCharacterClass.FindCasterActiveBonuses(actor)</c>
+    /// (CCharacterClass.cs:723, the exact list PersistentAbilitiesUI reads,
+    /// PersistentAbilitiesUI.cs:135) — and maps each bonus whose <c>BaseCard</c> is this
+    /// card to its half via <c>CAbilityCard.GetAbilityActionType(bonus.Ability)</c>
+    /// (CAbilityCard.cs:98 → <c>ActionType.TopAction</c>/<c>BottomAction</c>/<c>NA</c>).
+    /// A whole-card / unresolvable (NA) active bonus highlights BOTH halves, and a card
+    /// that is active but whose bonuses do not resolve to a half falls back to the whole
+    /// card — so an active card is never left un-highlighted. Read-only. Allocates the
+    /// bonus list (game-side) — call on the change-gated active rebuild, not per frame.
+    /// </summary>
+    internal static void GetActiveHalves(CardsHandUI hand, CAbilityCard card, out bool top, out bool bottom)
+    {
+        top = false;
+        bottom = false;
+        CPlayerActor? actor = hand.PlayerActor;
+        if (actor == null || card == null)
+            return;
+        List<CActiveBonus> bonuses = actor.CharacterClass.FindCasterActiveBonuses(actor);
+        for (int i = 0; i < bonuses.Count; i++)
+        {
+            CActiveBonus bonus = bonuses[i];
+            if (bonus == null || !ReferenceEquals(bonus.BaseCard, card))
+                continue;
+            CBaseCard.ActionType type = card.GetAbilityActionType(bonus.Ability);
+            if (type == CBaseCard.ActionType.TopAction)
+                top = true;
+            else if (type == CBaseCard.ActionType.BottomAction)
+                bottom = true;
+            else
+            {
+                top = true; // whole-card / NA bonus → highlight the whole card
+                bottom = true;
+            }
+        }
+        if (!top && !bottom) // active card with no resolvable half → highlight the whole card
+        {
+            top = true;
+            bottom = true;
+        }
+    }
+
     // ---------------------------------------------------------------------- misc --
 
     /// <summary>Verified: <c>public static Choreographer s_Choreographer</c> — alive only inside a scenario.</summary>

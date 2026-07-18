@@ -125,6 +125,9 @@ internal static class CardsConfig
     /// <summary>Discard/burnt pile stacks on the control board + the browse fan (hardware test #21 wish).</summary>
     internal static ConfigEntry<bool> PileViewer = null!;
 
+    /// <summary>ACTIVE CARDS area on the control board's right edge (feature 6): the currently-active ability cards, permanently shown + grabbable.</summary>
+    internal static ConfigEntry<bool> ActivePile = null!;
+
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
     internal static ConfigEntry<ControlBoard> Board = null!;
 
@@ -304,6 +307,14 @@ internal static class CardsConfig
             "wish): each pile shows as a small physical card stack with a count; poking or " +
             "pinch-grabbing a stack raises a readable browse fan of that pile's cards " +
             "(informational — release/poke again to dismiss). false = no pile furniture at all.");
+        ActivePile = _file.Bind("Cards", "ActivePile", true,
+            "ACTIVE CARDS area (feature 6): the character's currently-active ability cards " +
+            "(round-long or persistent) shown PERMANENTLY as a small column just to the RIGHT " +
+            "of the discard/burnt pile stacks. The cards read slightly smaller than the hand " +
+            "fan and each stays grabbable so you can pluck one out to read it (it returns to " +
+            "the column on release); the active HALF of each card is highlighted. Purely " +
+            "informational — grabbing an active card never selects or commits it. Empty when " +
+            "no card is active. false = no active-cards area at all.");
         Board = _file.Bind("Cards", "Board", ControlBoard.Oak,
             "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
             "live from the VR settings panel. Oak = the original bundled board (default); Steel " +

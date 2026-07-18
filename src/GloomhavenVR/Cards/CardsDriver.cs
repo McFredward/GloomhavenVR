@@ -29,14 +29,18 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly HalfSelection _half = new();
     private readonly PileViewer _piles = new();
     private readonly PileBrowser _browser = new();
+    private readonly ActivePileViewer _active = new();
 
     // Reused buffers (no per-frame allocations).
     private readonly List<AbilityCardUI> _widgetBuffer = new(24);
     private readonly List<AbilityCardUI> _pileWidgetBuffer = new(16);
+    private readonly List<AbilityCardUI> _activeWidgetBuffer = new(8);
     private readonly List<VRCard> _fanBuffer = new(24);
     private readonly List<VRCard> _halfBuffer = new(4);
     private readonly List<VRCard> _browseBuffer = new(16);
+    private readonly List<VRCard> _activeBuffer = new(8);
     private readonly List<VRCard> _fakeCards = new(12);
+    private int _activeSignature = int.MinValue; // change-gate for the active-card set (feature 6)
 
     private bool _dirty;
     // Item 4: previous VRMode transition, to detect the laundered ModalUI→TableIdle→HalfSelection
@@ -94,6 +98,7 @@ internal sealed class CardsDriver : MonoBehaviour
         _browser.Destroy();
         _half.Destroy();
         _rest.Destroy();
+        _active.Destroy(); // before the tray — the column lives under its ActiveMount
         _piles.Destroy(); // before the tray — the stacks live under its PileMount
         _tray.Destroy();
         _factory.Dispose(); // restores every adopted face
@@ -199,6 +204,8 @@ internal sealed class CardsDriver : MonoBehaviour
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _browser.Remove(card);
+            _active.Remove(card); // feature 6: drop from the active column if the widget recycled
+            card.SetActiveHighlight(false, false);
             if (_fieldCards.Remove(card))
                 RelayoutField();
             if (ReferenceEquals(card, _shortRestCard)) // sacrifice widget recycled under us
@@ -268,6 +275,7 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
             _piles.TickStatus(_fakeActive ? null : hand);
+            PollActive(_fakeActive ? null : hand); // feature 6: rebuild the active area when its set changes
         }
         UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
 
@@ -971,6 +979,11 @@ internal sealed class CardsDriver : MonoBehaviour
         // below so freshly closed browse cards park in this same pass.
         UpdateBrowser(hand, mode);
 
+        // ACTIVE CARDS area (feature 6): refresh the permanently-shown active-card column
+        // — BEFORE the zone flags below so its cards are marked in-zone and kept out of the
+        // park sweep (like the browse arc), and their active-half highlight is set here.
+        UpdateActive(hand);
+
         // Configure cards per zone; everything else parks invisibly.
         for (int i = 0; i < _factory.All.Count; i++)
         {
@@ -982,6 +995,7 @@ internal sealed class CardsDriver : MonoBehaviour
             bool inTray = _tray.SlotOf(card) >= 0;
             bool inBrowse = _browser.Contains(card);
             bool inField = _fieldCards.Contains(card);
+            bool inActive = _active.Contains(card); // feature 6: shown in the active-cards column
             // Short-rest sacrifice card: its own zone. Never in any of the above, so
             // its Grabbable/PokeSelect resolve to false here (display-only) — we only
             // keep it OUT of the park sweep so PresentShortRestCard's centre home holds.
@@ -996,11 +1010,15 @@ internal sealed class CardsDriver : MonoBehaviour
             // releasing it elsewhere unselects through the game's own seam. Browse
             // cards are grabbable too (item 5) — but purely to pull one close and
             // read it; the release routes back to the arc, never to a game seam.
-            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse;
+            // Active cards (feature 6) are grabbable for the same read-only reason:
+            // pluck one to read it, release returns it to the column, never a game seam.
+            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse || inActive;
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
+            if (!inActive)
+                card.SetActiveHighlight(false, false); // clear any stale active-half tint on reused cards
 
-            if (!inFan && !inHalf && !inTray && !inBrowse && !inField && !inShortRest)
+            if (!inFan && !inHalf && !inTray && !inBrowse && !inField && !inShortRest && !inActive)
                 _factory.Park(card);
         }
 
@@ -1103,6 +1121,16 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_browser.IsOpen && _browser.Contains(card))
         {
             _browser.Add(card);
+            return;
+        }
+
+        // Active-card (feature 6): plucked out to read close — return it to the active
+        // column, NEVER into the select/slot seams below (active cards are informational,
+        // not selectable; committing one would be wrong). Same read-only contract as the
+        // pile browse arc.
+        if (_active.IsShown && _active.Contains(card))
+        {
+            _active.Add(card);
             return;
         }
 
@@ -1898,6 +1926,88 @@ internal sealed class CardsDriver : MonoBehaviour
         _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({_browseBuffer.Count})");
     }
 
+    // ------------------------------------------------------------------ active cards --
+
+    // The active-card set last shown, for the change-deduped Info line (feature 6).
+    private int _loggedActiveCount = int.MinValue;
+
+    /// <summary>
+    /// Rebuild-time refresh of the ACTIVE CARDS column (feature 6): mirror the character's
+    /// active-ability pile (<c>CardPileType.Active</c>) into the permanently-shown column
+    /// off the board's right edge. Cards are adopted read-only through the SAME
+    /// <see cref="AdoptedCard"/> path as the pile browse; the active HALF/halves of each
+    /// are resolved (<see cref="CardsGameApi.GetActiveHalves"/>) and highlighted. Empty /
+    /// [Cards] ActivePile off → the area shows nothing. The zone-flag loop keeps these
+    /// cards grabbable-to-read and out of the park sweep; their release routes back to the
+    /// column (never a game seam). Logs the active count change-deduped.
+    /// </summary>
+    private void UpdateActive(CardsHandUI hand)
+    {
+        if (!CardsConfig.ActivePile.Value)
+        {
+            _active.SetVisible(false);
+            _activeBuffer.Clear();
+            _active.SetCards(_activeBuffer); // clear its list so Contains()/park stay accurate
+            if (_loggedActiveCount != -1)
+                _loggedActiveCount = -1;
+            return;
+        }
+
+        _active.EnsureBuilt(_tray);
+        CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
+        _activeBuffer.Clear();
+        for (int i = 0; i < _activeWidgetBuffer.Count; i++)
+        {
+            AbilityCardUI widget = _activeWidgetBuffer[i];
+            if (widget.AbilityCard == null || widget.IsLongRest)
+                continue;
+            VRCard card = AdoptedCard(widget);
+            CardsGameApi.GetActiveHalves(hand, widget.AbilityCard, out bool top, out bool bottom);
+            card.SetActiveHighlight(top, bottom); // highlight the active region(s)
+            _activeBuffer.Add(card);
+        }
+
+        _active.SetCards(_activeBuffer);
+        _active.SetVisible(_activeBuffer.Count > 0);
+
+        if (_loggedActiveCount != _activeBuffer.Count)
+        {
+            _loggedActiveCount = _activeBuffer.Count;
+            VRLog.Info("Cards", $"Active cards: {_activeBuffer.Count} shown in the ACTIVE area " +
+                                "(authoritative CardPileType.Active pile; active halves highlighted).");
+        }
+    }
+
+    /// <summary>
+    /// Active-set watchdog (feature 6): active cards/halves change during a turn (a bonus
+    /// starts or expires) without any of the mod's rebuild events. Poll a cheap signature
+    /// of the active pile + round and flip dirty on any edge; <see cref="UpdateActive"/> is
+    /// the sole executor. Allocation-free, no-op when steady.
+    /// </summary>
+    private void PollActive(CardsHandUI? hand)
+    {
+        int sig = ActiveSignature(hand);
+        if (sig != _activeSignature)
+        {
+            _activeSignature = sig;
+            _dirty = true;
+        }
+    }
+
+    /// <summary>Cheap change-gate hash of the active-card set (ids) + round. 0 = none / disabled.</summary>
+    private int ActiveSignature(CardsHandUI? hand)
+    {
+        if (hand == null || !CardsConfig.ActivePile.Value)
+            return 0;
+        CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
+        int sig = 17;
+        for (int i = 0; i < _activeWidgetBuffer.Count; i++)
+            sig = sig * 31 + _activeWidgetBuffer[i].CardID;
+        // Bonus half-activity can shift at a round boundary without the card set changing.
+        sig = sig * 31 + CardsGameApi.RoundNumber();
+        return sig;
+    }
+
     // ------------------------------------------------------------------ dev fake hand --
 
     private void RebuildFakeOrClear(Transform anchor)
@@ -1906,6 +2016,10 @@ internal sealed class CardsDriver : MonoBehaviour
         // C — the stacks hide, an open browse closes, field occupants clear; all
         // return with the next active hand).
         _piles.SetVisible(false);
+        _active.SetVisible(false); // feature 6: no active hand → no active-cards area
+        _activeBuffer.Clear();
+        _active.SetCards(_activeBuffer);
+        _loggedActiveCount = int.MinValue;
         CloseBrowser(CardsGameApi.InScenario ? "no active hand" : "scenario ended");
         _tray.SetPickActive(false);
         _tray.SetWantedSlots(0);

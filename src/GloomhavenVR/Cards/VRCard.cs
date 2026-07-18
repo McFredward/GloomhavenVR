@@ -41,6 +41,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private BoxCollider? _box;
     private Vector3 _fullColliderSize;
 
+    // Feature 6 (ACTIVE CARDS): translucent gold overlays marking the active HALF/halves
+    // of an active-ability card (top and/or bottom). Built lazily by SetActiveHighlight,
+    // toggled per state; children of this card so they inherit its pose/scale and are
+    // hidden automatically when the card is parked (deactivated).
+    private GameObject? _activeHighlightTop;
+    private GameObject? _activeHighlightBottom;
+
+    /// <summary>Feature 6: the "active region" tint — a clear, non-garish semi-transparent gold.</summary>
+    private static readonly Color ActiveHighlightColor = new(1f, 0.82f, 0.28f, 0.30f);
+
     // Home pose (local space of the current parent).
     private Vector3 _homePos;
     private Quaternion _homeRot = Quaternion.identity;
@@ -330,6 +340,62 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             return;
         _box.size = _fullColliderSize;
         _box.center = Vector3.zero;
+    }
+
+    /// <summary>
+    /// Feature 6 (ACTIVE CARDS): overlay a translucent "active" tint on the top and/or
+    /// bottom half of the card face — the region whose ability is currently the source
+    /// of a live bonus (resolved by CardsGameApi.GetActiveHalves via
+    /// <c>CAbilityCard.GetAbilityActionType</c>). Sized to the LIVE visible face rect
+    /// (<see cref="_fullColliderSize"/>, kept in sync by <see cref="SetCanvasSize"/>) and
+    /// laid a hair in front of the uGUI face, drawn on top (ZTest Always, high queue) so
+    /// the gold reads over the art without hiding the numbers. Pass (false, false) to
+    /// clear it (also the safe reset when a pooled card is reused for another zone). The
+    /// half-quads are children of the card, so a parked/inactive card hides them for free.
+    /// </summary>
+    internal void SetActiveHighlight(bool topActive, bool bottomActive)
+    {
+        float faceW = _fullColliderSize.x;
+        float faceH = _fullColliderSize.y;
+        SetHalfHighlight(ref _activeHighlightTop, "ActiveHighlightTop", +1f, topActive, faceW, faceH);
+        SetHalfHighlight(ref _activeHighlightBottom, "ActiveHighlightBottom", -1f, bottomActive, faceW, faceH);
+    }
+
+    private void SetHalfHighlight(ref GameObject? quad, string name, float sign, bool active, float faceW, float faceH)
+    {
+        if (!active)
+        {
+            if (quad != null && quad.activeSelf)
+                quad.SetActive(false);
+            return;
+        }
+        if (quad == null)
+        {
+            quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = name;
+            Destroy(quad.GetComponent<Collider>());
+            quad.transform.SetParent(transform, worldPositionStays: false);
+            var renderer = quad.GetComponent<MeshRenderer>();
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            // Alpha-blended tint that draws OVER the world-space uGUI face: a high render
+            // queue + ZTest Always (the module's RenderOnTop recipe) so the recessed board
+            // never occludes it and the face art shows through the low alpha.
+            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+            if (shader != null)
+            {
+                var material = new Material(shader) { color = ActiveHighlightColor };
+                material.renderQueue = 4000;
+                if (material.HasProperty("_ZTest"))
+                    material.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+                renderer.sharedMaterial = material;
+            }
+            Core.VRLayers.Apply(quad); // mod layer (render-only)
+        }
+        // Size/place each call — the visible face rect can change on a face re-adopt.
+        quad.transform.localScale = new Vector3(faceW * 0.96f, faceH * 0.49f, 1f);
+        quad.transform.localPosition = new Vector3(0f, sign * faceH * 0.25f, -0.0016f); // in front of the face canvas (-0.0012)
+        if (!quad.activeSelf)
+            quad.SetActive(true);
     }
 
     // -------------------------------------------------------------- interaction --
