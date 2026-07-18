@@ -16,19 +16,28 @@ namespace GloomhavenVR.Cards;
 /// stays grabbable so the player can pluck one out to read it, then it returns to the
 /// column on release (the driver routes both, exactly like the browse arc). Purely
 /// informational: adopting/plucking an active card never commits or selects it. The
-/// active HALF/halves of each card carry a translucent highlight (VRCard.SetActiveHighlight,
-/// driven from CardsGameApi.GetActiveHalves) so what is active is visible at a glance.
-/// Layout only; content, highlight and lifecycle are driven by <see cref="CardsDriver"/>.
+/// active HALF/halves of each card carry the game's OWN action-region highlight (the
+/// native FullAbilityCard.ToggleHighlightHover, driven by CardsDriver from
+/// CardsGameApi.GetActiveHalves) so what is active is visible at a glance. Cards are laid
+/// out in a matrix (up to 3 per row) recentered on the mount; laser hit-testing (browse-
+/// style TryRaycast) makes them hover/pluck-to-read. Layout + ray only; content,
+/// highlight and lifecycle are driven by <see cref="CardsDriver"/>.
 /// </summary>
 internal sealed class ActivePileViewer
 {
     /// <summary>Active cards read slightly smaller than the hand/browse fan (PileBrowser.CardScale = 1.3).</summary>
     internal const float CardScale = 0.82f;
 
-    // Vertical column geometry: cards stack downward with a slight overlap (the lower a
-    // card, the nearer the viewer, so its top covers the card above's bottom cleanly).
-    private const float RowSpacingFactor = 0.7f; // fraction of the scaled card height between rows
-    private const float ZStagger = 0.004f;       // render-order stagger, same as CardFan/PileBrowser
+    // Matrix geometry (feature 6 grid): up to Columns cards side-by-side per row; a full
+    // row starts the next one. Rows overlap vertically slightly (the lower a row, the
+    // nearer the viewer, so its tops cover the row above cleanly); columns clear one full
+    // card width so neighbours never overlap horizontally. The whole grid is symmetric
+    // about the mount x and vertically centered, so its midpoint holds at a consistent
+    // height and it stays balanced as rows are added.
+    private const int Columns = 3;               // active cards per row
+    private const float ColSpacingFactor = 1.06f; // horizontal step: just over one scaled card width
+    private const float RowSpacingFactor = 0.7f;  // vertical step: fraction of the scaled card height
+    private const float ZStagger = 0.004f;        // render-order stagger, same as CardFan/PileBrowser
 
     private readonly List<VRCard> _cards = new(8);
     private Transform? _root;
@@ -124,6 +133,9 @@ internal sealed class ActivePileViewer
 
     // ------------------------------------------------------------------ layout --
 
+    // Change-gate for the grid-shape Info line ((rows, cols) key); int.MinValue = unlogged.
+    private int _loggedLayout = int.MinValue;
+
     private void Relayout(bool instant)
     {
         if (_root == null)
@@ -132,8 +144,10 @@ internal sealed class ActivePileViewer
         if (n == 0)
             return;
 
-        float step = CardsConfig.CardHeight * CardScale * RowSpacingFactor;
-        float start = step * (n - 1) * 0.5f; // centered column, first card highest
+        float colStep = CardsConfig.CardWidth.Value * CardScale * ColSpacingFactor;
+        float rowStep = CardsConfig.CardHeight * CardScale * RowSpacingFactor;
+        int rows = (n + Columns - 1) / Columns; // ceil(n / Columns)
+        float yTop = rowStep * (rows - 1) * 0.5f; // vertically centered block (midpoint at y = 0)
 
         for (int i = 0; i < n; i++)
         {
@@ -143,10 +157,83 @@ internal sealed class ActivePileViewer
             if (!card.gameObject.activeSelf)
                 card.gameObject.SetActive(true);
 
-            // Lower cards sit nearer the viewer (-Z) so their tops overlap the card above.
-            var pos = new Vector3(0f, start - step * i, -ZStagger * i);
+            int row = i / Columns;
+            int col = i % Columns;
+            int colsInRow = Mathf.Min(Columns, n - row * Columns);
+            // Symmetric about the mount x; a partial last row centers on its own width.
+            float x = (col - (colsInRow - 1) * 0.5f) * colStep;
+            float y = yTop - row * rowStep;
+            // Lower rows sit nearer the viewer (-Z) so their tops overlap the row above.
+            var pos = new Vector3(x, y, -ZStagger * row);
             card.SetHome(_root, pos, Quaternion.identity, CardScale, instant);
             card.ResetColliderRegion(); // active cards are not fan-stripped
         }
+
+        int layoutKey = rows * 100 + Mathf.Min(n, Columns);
+        if (_loggedLayout != layoutKey)
+        {
+            _loggedLayout = layoutKey;
+            VRLog.Info("Cards", $"Active grid: {n} card(s) in {rows} row(s) × up to {Columns} col(s), " +
+                                "recentered on the mount.");
+        }
+    }
+
+    // ------------------------------------------------------------------ laser pick --
+
+    /// <summary>
+    /// Geometric ray hit-test over the active grid (feature 6, laser-hover to read /
+    /// pluck close) — the active-area counterpart of <see cref="PileBrowser.TryRaycast"/>.
+    /// Same per-card plane+local-rect test, scale-aware (the grid's cards read smaller via
+    /// <see cref="CardScale"/>), same sticky-hover hysteresis so overlap between rows does
+    /// not flip the highlight. No allocations.
+    /// </summary>
+    internal bool TryRaycast(Vector3 origin, Vector3 direction, VRCard? sticky,
+        out VRCard? card, out Vector3 point, out float distance)
+    {
+        card = null;
+        point = default;
+        distance = float.PositiveInfinity;
+
+        if (!IsShown || _root == null)
+            return false;
+
+        float halfW = CardsConfig.CardWidth.Value * 0.5f;
+        float halfH = CardsConfig.CardHeight * 0.5f;
+
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard c = _cards[i];
+            if (c == null || c.IsHeld || !c.gameObject.activeInHierarchy)
+                continue;
+
+            Transform t = c.transform;
+            float denom = Vector3.Dot(direction, t.forward);
+            if (denom < 1e-5f)
+                continue;
+            float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+            if (dist <= 0f)
+                continue;
+
+            Vector3 hit = origin + direction * dist;
+            Vector3 local = t.InverseTransformPoint(hit); // scale-aware (smaller cards)
+            if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
+                continue;
+
+            if (ReferenceEquals(c, sticky))
+            {
+                card = c;
+                point = hit;
+                distance = dist;
+                return true;
+            }
+
+            if (dist >= distance)
+                continue;
+            card = c;
+            point = hit;
+            distance = dist;
+        }
+
+        return card != null;
     }
 }

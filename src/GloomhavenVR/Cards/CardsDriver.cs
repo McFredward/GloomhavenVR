@@ -92,6 +92,8 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         ClearLaserHover();
         ClearBoardHover();
+        ClearBrowseHover();
+        ClearActiveHover();
         _liveGrabs.Clear();
         VRCard.InteractionBlockedHand = null;
         _fan.Destroy();
@@ -201,11 +203,13 @@ internal sealed class CardsDriver : MonoBehaviour
                 ClearLaserHover();
             if (ReferenceEquals(card, _browseHover))
                 ClearBrowseHover();
+            if (ReferenceEquals(card, _activeHover))
+                ClearActiveHover();
             _half.DestroyZonesFor(card);
             _fan.Remove(card);
             _browser.Remove(card);
-            _active.Remove(card); // feature 6: drop from the active column if the widget recycled
-            card.SetActiveHighlight(false, false);
+            _active.Remove(card); // feature 6: drop from the active grid if the widget recycled
+            ClearActiveHighlight(card);
             if (_fieldCards.Remove(card))
                 RelayoutField();
             if (ReferenceEquals(card, _shortRestCard)) // sacrifice widget recycled under us
@@ -237,6 +241,7 @@ internal sealed class CardsDriver : MonoBehaviour
             ClearLaserHover();
             ClearBoardHover();
             ClearBrowseHover();
+            ClearActiveHover();
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
@@ -263,6 +268,7 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdateFanHoverSplit();
         UpdateBoardLaser();
         UpdateBrowseLaser();
+        UpdateActiveLaser();
         UpdateSlotHighlight();
         _fan.Tick();
         _half.Tick();
@@ -689,6 +695,65 @@ internal sealed class CardsDriver : MonoBehaviour
         _browseHover = null;
     }
 
+    // ------------------------------------------------------------------ active laser --
+
+    private VRCard? _activeHover;
+
+    /// <summary>
+    /// Feature 6 (laser-interactable active cards): the dominant hand's ray highlights the
+    /// active grid's cards and TriggerDown plucks the pointed card into the hand to read it
+    /// close (released on TriggerUp → returns to the grid, no game state — see
+    /// <see cref="OnCardReleased"/>). Lowest priority of the laser paths: yields to the fan
+    /// (<see cref="_laserHover"/>), the tray cards/board (<see cref="_trayCardHover"/>/
+    /// <see cref="_boardHover"/>) and the pile browse (<see cref="_browseHover"/>) — the
+    /// active grid is a passive read layered on top, like the browse arc. Mirrors
+    /// <see cref="UpdateBrowseLaser"/>.
+    /// </summary>
+    private void UpdateActiveLaser()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (!_active.IsShown || dom == null || dom == _gateHand || !dom.HasPose
+            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || _laserHover != null || _trayCardHover != null || _boardHover != null || _browseHover != null)
+        {
+            ClearActiveHover();
+            return;
+        }
+
+        PickPose pick = dom.Ray.Current;
+        if (!_active.TryRaycast(pick.Origin, pick.Direction, _activeHover, out VRCard? card, out Vector3 point, out float dist)
+            || card == null
+            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        {
+            ClearActiveHover();
+            return;
+        }
+
+        if (!ReferenceEquals(card, _activeHover))
+        {
+            ClearActiveHover();
+            _activeHover = card;
+            card.SetLaserHover(true);
+            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
+        }
+
+        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        if (dom.TriggerDown && card.CanGrab)
+        {
+            VRCard grab = card;
+            ClearActiveHover();
+            dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
+        }
+    }
+
+    private void ClearActiveHover()
+    {
+        if (_activeHover == null)
+            return;
+        _activeHover.SetLaserHover(false);
+        _activeHover = null;
+    }
+
     // ------------------------------------------------------------------ slot snap preview --
 
     private int _snapHighlightSlot = -1;
@@ -1016,7 +1081,7 @@ internal sealed class CardsDriver : MonoBehaviour
             if (!inFan)
                 card.ResetColliderRegion(); // fan strips only apply while fanned
             if (!inActive)
-                card.SetActiveHighlight(false, false); // clear any stale active-half tint on reused cards
+                ClearActiveHighlight(card); // clear any stale active-region highlight on reused cards
 
             if (!inFan && !inHalf && !inTray && !inBrowse && !inField && !inShortRest && !inActive)
                 _factory.Park(card);
@@ -1499,10 +1564,14 @@ internal sealed class CardsDriver : MonoBehaviour
 
     /// <summary>
     /// The slot the next pick candidate should land in (test #28): Slot1 while none is
-    /// laid, Slot2 once the first is (the two-card burn flows). -1 beyond two — extras
-    /// fall back beside Slot2 and get no dedicated slot glow.
+    /// laid, Slot2 once the first is (the two-card burn flows). -1 once the game's
+    /// authoritative wanted count (<see cref="CardsGameApi.PickCardsWanted"/>) is met —
+    /// so a ONE-card burn stops pulsing/telegraphing the right slot the moment the left
+    /// one is filled, while a two-card burn still wants both. Extras fall back beside
+    /// Slot2 and get no dedicated slot glow.
     /// </summary>
-    private int PickTargetSlot() => _fieldCards.Count < 2 ? _fieldCards.Count : -1;
+    private int PickTargetSlot() =>
+        _fieldCards.Count < CardsGameApi.PickCardsWanted() ? _fieldCards.Count : -1;
 
     // -------------------------------------------------------------- short rest --
 
@@ -1963,7 +2032,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 continue;
             VRCard card = AdoptedCard(widget);
             CardsGameApi.GetActiveHalves(hand, widget.AbilityCard, out bool top, out bool bottom);
-            card.SetActiveHighlight(top, bottom); // highlight the active region(s)
+            SetActiveHighlight(card, top, bottom); // native game action-region highlight
             _activeBuffer.Add(card);
         }
 
@@ -1976,6 +2045,41 @@ internal sealed class CardsDriver : MonoBehaviour
             VRLog.Info("Cards", $"Active cards: {_activeBuffer.Count} shown in the ACTIVE area " +
                                 "(authoritative CardPileType.Active pile; active halves highlighted).");
         }
+    }
+
+    /// <summary>
+    /// Drive the NATIVE game action-region highlight on a card's active half/halves
+    /// (feature 6) — the exact mouse-over visual. The mod re-parents the live
+    /// <see cref="FullAbilityCard"/> rect onto the VR card's world canvas, so
+    /// <c>FullAbilityCard.ToggleHighlightHover</c> (the animated <c>CardActionHighlight</c>
+    /// pulse) / <c>UntoggleHighlightHover</c> render on the VR card automatically. A side
+    /// resolved active shows its region; an inactive side is explicitly untoggled so a
+    /// reused card carries no stale highlight. <c>isDefault:false</c> = a normal ability
+    /// region.
+    /// </summary>
+    private static void SetActiveHighlight(VRCard card, bool top, bool bottom)
+    {
+        FullAbilityCard? full = card.FullCard;
+        if (full == null)
+            return;
+        if (top)
+            full.ToggleHighlightHover(active: true, isTopSide: true, isDefault: false);
+        else
+            full.UntoggleHighlightHover(isTopSide: true);
+        if (bottom)
+            full.ToggleHighlightHover(active: true, isTopSide: false, isDefault: false);
+        else
+            full.UntoggleHighlightHover(isTopSide: false);
+    }
+
+    /// <summary>Clear the native action-region highlight on both halves (feature 6).</summary>
+    private static void ClearActiveHighlight(VRCard card)
+    {
+        FullAbilityCard? full = card.FullCard;
+        if (full == null)
+            return;
+        full.UntoggleHighlightHover(isTopSide: true);
+        full.UntoggleHighlightHover(isTopSide: false);
     }
 
     /// <summary>
