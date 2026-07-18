@@ -179,13 +179,16 @@ internal sealed class WristHud
         _root.layer = 5; // UI
         Transform wrist = hand.Rig.Wrist;
         _root.transform.SetParent(wrist, worldPositionStays: false);
-        // Watch position: slightly toward the forearm, floating just above the skin.
-        _root.transform.localPosition = new Vector3(0f, 0.02f, -0.05f);
+        // Panel position: hugs UNDER the hand — 1.5 cm proud of the back of the hand,
+        // 5 cm toward the forearm.
+        _root.transform.localPosition = new Vector3(0f, 0.015f, -0.05f);
         // Wrist frame: +Z along fingers, +Y out of the back of the hand, +X shared by
-        // both hands (HandRig contract). The HMD views the watch from the back-of-hand
-        // (+Y) side, so aim the Canvas' readable +Z face there and put its up-axis (+Y)
-        // toward the forearm (wrist -Z) for a natural watch "up".
-        _root.transform.localRotation = Quaternion.LookRotation(Vector3.up, Vector3.back);
+        // both hands (HandRig contract). The panel lies FLAT in the back-of-hand plane
+        // (like the flat open hand). Readable face (canvas -Z) out the BACK of the hand
+        // (+Y, toward the HMD); text top (canvas +Y) toward the forearm (wrist -Z).
+        // (+Z canvas -> -Y wrist, so readable -Z -> +Y out the back of the hand; +Y
+        // canvas -> -Z wrist forearm; panel plane spans wrist X and Z = flat.)
+        _root.transform.localRotation = Quaternion.LookRotation(Vector3.down, Vector3.back);
 
         var canvas = _root.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
