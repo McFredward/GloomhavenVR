@@ -43,6 +43,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private int _activeSignature = int.MinValue; // change-gate for the active-card set (feature 6)
 
     private bool _dirty;
+    private bool _modalInputBlocked; // menu-open gate: while set, cards are inert + card/board laser picks are off
     // Item 4: previous VRMode transition, to detect the laundered ModalUI→TableIdle→HalfSelection
     // reveal-confirm round-trip (see OnModeChanged) and NOT re-seat the board on it.
     private VRMode _prevFrom = VRMode.Menu2D;
@@ -378,11 +379,47 @@ internal sealed class CardsDriver : MonoBehaviour
         ApplyBoardTuning();
 
         UpdatePalmGate();
-        UpdateFanLaser();
+
+        // Modal input-block (menu open): while a modal window floats
+        // (ModalFallback.WindowModalActive — the floated-window authority the BoardPick
+        // gate already trusts), NOTHING behind the menu may be clicked. Force every card
+        // non-poke/non-grab and skip all card/board/browse/active laser picks (clearing any
+        // live hover). Exemptions live OUTSIDE this driver and stay untouched: the tray's
+        // PanelGrabHandle / panel-grab (on the Grab interactor, still in the ModalUI mask)
+        // and the modal window host itself (its own uGUI path). Releases automatically when
+        // the menu closes — the next Rebuild restores each card's zone poke/grab flags.
+        bool modalBlock = WorldUI.ModalFallback.WindowModalActive;
+        if (modalBlock != _modalInputBlocked)
+        {
+            _modalInputBlocked = modalBlock;
+            if (modalBlock)
+            {
+                VRLog.Info("Cards", "Modal input-block ENGAGED — menu open: cards made " +
+                                    "non-poke/non-grab and all card/board laser picks gated off.");
+            }
+            else
+            {
+                VRLog.Info("Cards", "Modal input-block RELEASED — menu closed: restoring card poke/grab + laser picks.");
+                _dirty = true; // Rebuild re-applies each card's zone Grabbable/PokeSelectEnabled next frame
+            }
+        }
+
+        if (modalBlock)
+        {
+            BlockCardInteractions();
+            ClearLaserHover();
+            ClearBoardHover();
+            ClearBrowseHover();
+            ClearActiveHover();
+        }
+        else
+        {
+            UpdateFanLaser();
+            UpdateBoardLaser();
+            UpdateBrowseLaser();
+            UpdateActiveLaser();
+        }
         UpdateFanHoverSplit();
-        UpdateBoardLaser();
-        UpdateBrowseLaser();
-        UpdateActiveLaser();
         UpdateSlotHighlight();
         _fan.Tick();
         _half.Tick();
@@ -866,6 +903,29 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         _activeHover.SetLaserHover(false);
         _activeHover = null;
+    }
+
+    // ------------------------------------------------------------------ modal input-block --
+
+    /// <summary>
+    /// Menu-open gate (see <see cref="Update"/>): while a modal window floats
+    /// (<see cref="WorldUI.ModalFallback.WindowModalActive"/>) force EVERY card
+    /// non-poke/non-grab so nothing behind the menu can be plucked or fingertip-selected.
+    /// A card already HELD when the menu opens is left alone (it stays held, like the
+    /// dialog-open grab gate in <see cref="VRCard.CanGrab"/>). The normal per-card flags
+    /// are restored by the next <see cref="Rebuild"/> once the menu closes.
+    /// </summary>
+    private void BlockCardInteractions()
+    {
+        IReadOnlyList<VRCard> all = _factory.All;
+        for (int i = 0; i < all.Count; i++)
+        {
+            VRCard card = all[i];
+            if (card == null || card.IsHeld)
+                continue;
+            card.PokeSelectEnabled = false;
+            card.Grabbable = false;
+        }
     }
 
     // ------------------------------------------------------------------ slot snap preview --
