@@ -29,12 +29,20 @@ internal static class WorldUIAssets
         return bundle != null ? bundle.LoadAsset<GameObject>(assetPath) : null;
     }
 
-    /// <summary>Simple single-color material (game-shipped shaders only, no bundle dependency).</summary>
-    internal static Material CreateFlatMaterial(Color color)
+    /// <summary>
+    /// Simple single-color material. Default path uses game-shipped shaders only (no
+    /// bundle dependency). When <paramref name="overlay"/> is set (item 9), the bundled
+    /// <c>GloomhavenVR/Overlay</c> shader is used instead — it EXPOSES <c>_ZTest</c>/
+    /// <c>_ZWrite</c> so the renderer can be forced to draw OVER the opaque control
+    /// board (a plain <c>Sprites/Default</c> material has no <c>_ZTest</c> and cannot).
+    /// Falls back to the flat shaders if the bundle (hence the Overlay shader) is absent.
+    /// </summary>
+    internal static Material CreateFlatMaterial(Color color, bool overlay = false)
     {
-        Shader? shader = Shader.Find("Sprites/Default")
-                         ?? Shader.Find("Legacy Shaders/Diffuse")
-                         ?? Shader.Find("Hidden/InternalErrorShader");
+        Shader? shader = overlay ? Shader.Find("GloomhavenVR/Overlay") : null;
+        shader ??= Shader.Find("Sprites/Default")
+                   ?? Shader.Find("Legacy Shaders/Diffuse")
+                   ?? Shader.Find("Hidden/InternalErrorShader");
         var material = new Material(shader) { color = color };
         return material;
     }
