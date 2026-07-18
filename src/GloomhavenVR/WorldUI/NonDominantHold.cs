@@ -50,7 +50,19 @@ internal static class NonDominantHold
     /// <summary>The tracked non-dominant hand (for haptic confirms), null without a pose.</summary>
     internal static VRHand? Hand { get; private set; }
 
+    /// <summary>
+    /// True only when the button is OBSERVABLY up this frame: the hand has a pose AND
+    /// its PrimaryButton is not pressed. False while the button is held AND false during
+    /// a pose hiccup (we cannot confirm "up" without a pose). The press-cycle latch in
+    /// <see cref="OptionsToggle"/> re-arms only on this signal, so a held/hiccuping button
+    /// can never re-toggle without a genuine, observed physical release.
+    /// </summary>
+    internal static bool ButtonIsUp { get; private set; }
+
     private static bool _wasDown;
+
+    /// <summary>Whether the non-dominant hand had a pose LAST frame (phantom-edge guard).</summary>
+    private static bool _hadHand;
 
     internal static void Tick()
     {
@@ -58,21 +70,39 @@ internal static class NonDominantHold
         VRHand? hand = primary == null ? null
             : VRHands.Get(primary.Side == HandSide.Left ? HandSide.Right : HandSide.Left);
         Hand = hand != null && hand.HasPose ? hand : null;
+        bool handPresent = Hand != null;
 
-        bool down = Hand != null && Hand.PrimaryButton;
         ReleasedThisFrame = false;
         ReleasedAfterSeconds = 0f;
         ShortTapThisFrame = false;
+
+        if (!handPresent)
+        {
+            // POSE HICCUP (or ClearInput, which only fires alongside loss of tracking):
+            // FREEZE the press. Do NOT manufacture a release edge — the physical button
+            // may still be held, and a phantom release would be re-pressed the instant
+            // the pose returns and read as a spurious tap (this was the real source of the
+            // X-menu flicker). Leave HeldSeconds and _wasDown untouched so the press
+            // resumes seamlessly. Not observably up, so the latch cannot re-arm here.
+            ButtonIsUp = false;
+            _hadHand = false;
+            return;
+        }
+
+        bool down = Hand!.PrimaryButton;
 
         if (down)
         {
             if (!_wasDown)
                 Consumed = false; // a fresh press starts unconsumed
-            HeldSeconds += Time.deltaTime;
+            HeldSeconds += Time.unscaledDeltaTime; // unscaled: a paused modal (timeScale 0) must not freeze tap/hold timing
         }
         else
         {
-            if (_wasDown)
+            // Fire a release ONLY when the hand was present this frame AND last frame; a
+            // release on the frame the pose returns is a phantom (button state during the
+            // gap is unknown) — suppress it and just resync HeldSeconds.
+            if (_wasDown && _hadHand)
             {
                 ReleasedThisFrame = true;
                 ReleasedAfterSeconds = HeldSeconds;
@@ -80,6 +110,8 @@ internal static class NonDominantHold
             HeldSeconds = 0f;
         }
         _wasDown = down;
+        ButtonIsUp = !down;
+        _hadHand = true;
 
         // Short-TAP edge: a fresh press released BELOW the settings-panel hold
         // threshold and NOT consumed by a hold chord. Consumed reflects the hold
@@ -105,6 +137,8 @@ internal static class NonDominantHold
         ShortTapThisFrame = false;
         Consumed = false;
         Hand = null;
+        ButtonIsUp = false;
         _wasDown = false;
+        _hadHand = false;
     }
 }
