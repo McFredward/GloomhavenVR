@@ -138,9 +138,18 @@ internal sealed class CardFan
             return;
 
         // The palm target: FanPalmOffset up the palm normal, in world space. FanPalmOffset is
-        // "real meters"; the palm's lossyScale is the diorama WorldScale, so multiply through
-        // to land in world units (the same product the rigid PalmCenter-parented offset gives).
-        float scale = palm.lossyScale.x;
+        // "real meters" and must be multiplied by the DIORAMA scale (WorldScale) to land in
+        // world units.
+        //
+        // INVISIBLE-FAN FIX: we must NOT read palm.lossyScale here. For the procedural hand the
+        // palm anchor is a direct child of the hand root, so palm.lossyScale == WorldScale and
+        // this used to be equivalent — but the bundle GLOVE prefab hangs its anchors under an
+        // armature transform authored at localScale 100 (fbx cm→m), so palm.lossyScale ==
+        // WorldScale * 100. Scaling the standoff by that put the fan ~9 m (× WorldScale) up the
+        // palm normal instead of 0.09 m — metres out of view, i.e. the fan "did not render where
+        // the player looks". _hand.WorldScale is the true diorama scale (VRHand transform, ABOVE
+        // the glove's 100× armature) and reproduces the procedural distance exactly for both hands.
+        float scale = _hand.WorldScale;
         Vector3 target = palm.position + palm.up * (CardsConfig.FanPalmOffset.Value * scale);
 
         float smoothing = CardsConfig.FanFollowSmoothing.Value;
@@ -176,6 +185,11 @@ internal sealed class CardFan
         {
             // Rigid (pre-Demeo, FanFollowSmoothing == 0): welded to the palm. Parent to
             // PalmCenter and sit at the offset — exactly the previous behaviour.
+            // NOTE: this NON-default path parents the fan directly under PalmCenter, so with the
+            // bundle glove (100× armature scale on the anchors) both this offset AND the card
+            // sizes inherit that 100× — it is only correct for the procedural hand / an unscaled
+            // glove rig. The shipped default is the eased branch above (FanFollowSmoothing = 16),
+            // which parents to the rig root and uses _hand.WorldScale, so it is glove-correct.
             if (_root.parent != palm)
             {
                 _root.SetParent(palm, worldPositionStays: true);
