@@ -1078,9 +1078,22 @@ internal sealed class FlatScreen
         // Otherwise, in a plain UI-lock modal, the world-space confirmation surface
         // owns simple dialogs; everything else falls back 2D too.
         if (mode == VRMode.ModalUI)
-            return ModalFallback.ScreenWanted
-                   || (!ModalFallback.WindowModalActive
-                       && (!WorldUIConfig.Dialogs.Value || !IsConfirmationBoxOpen()));
+        {
+            // A genuinely floated modal always shows (its own window/composite is wanted).
+            if (ModalFallback.ScreenWanted)
+                return true;
+            // Item 5b (test #23): burning a card UI-locks the game (→ ModalUI), but the burn
+            // plays on the WORLD card (BurnCardFx) and the burn-confirm is a DialogPopup, not
+            // a UIConfirmationBox — so IsConfirmationBoxOpen() is false and the catch-all below
+            // would raise the full desktop-mirror quad over an EMPTY UI-lock composite (the
+            // ~1 s flat-screen flash). HandSuppression.BurnActive is ref-counted across the
+            // whole burn/lost/discard window; suppress ONLY the empty catch-all while it holds.
+            // A truly floated modal (ScreenWanted above / WindowModalActive below) is untouched.
+            if (Cards.Patches.HandSuppression.BurnActive)
+                return false;
+            return !ModalFallback.WindowModalActive
+                   && (!WorldUIConfig.Dialogs.Value || !IsConfirmationBoxOpen());
+        }
 
         return false;
     }
