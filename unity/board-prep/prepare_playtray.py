@@ -109,5 +109,5 @@ fbx = os.path.splitext(dst)[0] + ".fbx"
 bpy.ops.export_scene.fbx(filepath=fbx, use_selection=True, apply_unit_scale=True,
                          apply_scale_options='FBX_SCALE_ALL', bake_space_transform=True,
                          axis_forward='-Z', axis_up='Y', object_types={'MESH', 'EMPTY'},
-                         path_mode='COPY', embed_textures=False, mesh_smooth_type='FACE')
+                         path_mode='COPY', embed_textures=True, mesh_smooth_type='FACE')
 print("WROTE", dst, "and", fbx, "| tris~", TARGET_TRIS, "size", tuple(round(x,3) for x in board.dimensions))

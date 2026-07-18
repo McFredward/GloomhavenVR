@@ -72,6 +72,17 @@ Copy-Item $preloader -Destination $patcherDir -Force
 $runtimeDeps | Copy-Item -Destination $runtimeDepsDir -Force
 $natives     | Copy-Item -Destination $nativesDir     -Force
 
+# Asset bundle (control board 3D asset + future props): deploy the freshly built one
+# if a local Unity build produced it, else the committed prebuilt copy. The mod probes
+# <pluginDir>\gloomhavenvr.bundle at runtime (VRCardFactory/WorldUIAssets/HandVisuals);
+# without it the procedural fallback visuals are used.
+$bundleFresh    = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
+$bundlePrebuilt = Join-Path $root "prebuilt\gloomhavenvr.bundle"
+$bundle = if (Test-Path $bundleFresh) { $bundleFresh } elseif (Test-Path $bundlePrebuilt) { $bundlePrebuilt } else { $null }
+if ($bundle) {
+    Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
+}
+
 # Clean up the Phase-0 flat-preloader location if present (moved into a subfolder).
 $legacyPreloader = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dll"
 if (Test-Path $legacyPreloader) {
@@ -84,3 +95,5 @@ Write-Host "  $pluginDir\GloomhavenVR.dll"
 Write-Host "  $runtimeDepsDir\  ($(@($runtimeDeps).Count) RuntimeDeps DLLs)"
 Write-Host "  $patcherDir\GloomhavenVR.Preload.dll"
 Write-Host "  $nativesDir\  ($(@($natives).Count) native DLLs)"
+if ($bundle) { Write-Host "  $pluginDir\gloomhavenvr.bundle  (source: $bundle)" }
+else         { Write-Host "  (no gloomhavenvr.bundle — procedural visuals used)" }

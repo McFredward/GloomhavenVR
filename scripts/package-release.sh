@@ -73,8 +73,10 @@ cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
 cp "${NATIVES[@]}" "$PATCHDIR/Natives/"
 
-# Asset bundle: ship it when built, else a placeholder README at the probe location.
+# Asset bundle: prefer a freshly built one, else the committed prebuilt copy, else a
+# placeholder README at the probe location.
 BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
+[[ -f "$BUNDLE" ]] || BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 if [[ -f "$BUNDLE" ]]; then
     cp "$BUNDLE" "$PLUGDIR/gloomhavenvr.bundle"
 else
