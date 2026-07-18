@@ -204,10 +204,10 @@ internal sealed class DecisionDockSurface : WorldSurface
             // since the claim keeps the generic path down. Tear the old conversion down
             // here (restore its suppression + release its row) so base.Tick re-converts
             // the new target THIS tick.
-            if (Panel != null)
+            if (Panel != null || _suppressedWindow != null)
             {
                 RestoreSuppression();
-                if (ReleaseCurrentPanel())
+                if (Panel != null && ReleaseCurrentPanel())
                     VRLog.Info("WorldUI", "DECISION DOCK: active prompt changed — previous row " +
                                           "released so the next prompt's row can dock in its place.");
             }
@@ -221,6 +221,20 @@ internal sealed class DecisionDockSurface : WorldSurface
             _activeWindow = null;
             _active = null;
         }
+
+        // 2D-FLASH FIX (burn-confirm): alpha-0 the flat window the MOMENT the prompt is claimed
+        // and open, before/independent of the row docking. The DialogPopup that confirms a card
+        // burn re-parents the LIVE fullAbilityCard into itself and activates (DialogPopup.Show ->
+        // gameObject.SetActive(true)); its CanvasGroup fades the whole popup (backdrop + full card)
+        // in. Previously the window was suppressed only once the widget row had been isolated and
+        // docked (Panel != null), so during the convert grace (>= 1 frame, up to ClaimGraceSeconds
+        // if the row is not yet pooled) the raw popup rendered in the HMD as a brief 2D flash.
+        // Doing the cheap CanvasGroup suppression up-front removes it; the nested-canvas (vignette)
+        // suppression stays in the docked branch, where the row is already outside the window.
+        if (_activeWindow != null)
+            SuppressWindowGroup(_activeWindow);
+        else if (_suppressedWindow != null)
+            RestoreSuppression(); // claimed window closed without ever docking a row
 
         bool hadPanel = Panel != null;
         base.Tick(); // convert / release / Place (level-triggered on WantConverted)
@@ -334,11 +348,15 @@ internal sealed class DecisionDockSurface : WorldSurface
     // ---- window-remainder suppression (HandSuppression pattern; nothing destroyed) -----
 
     /// <summary>
-    /// Re-asserted every docked tick: the game rewrites the CanvasGroup alpha
-    /// (Show, ToggleVisibility) and could re-enable canvases live. The converted
-    /// row is OUTSIDE the window subtree while docked, so neither touches it.
+    /// Cheap, idempotent alpha-0 of the window's root CanvasGroup (+ blocksRaycasts off),
+    /// re-asserted every claimed tick. Applied the instant a decision prompt is claimed and
+    /// open — even before its widget row is isolated/docked — so the raw flat window (the
+    /// burn-confirm DialogPopup and its full card) never flashes in the HMD during the convert
+    /// grace (2D-flash-on-burn fix). Records the window/group so <see cref="RestoreSuppression"/>
+    /// hands them back. The nested-canvas (vignette/backdrop) suppression is applied separately
+    /// in <see cref="ApplySuppression"/> once the row is docked and therefore outside the window.
     /// </summary>
-    private void ApplySuppression(UIWindow window)
+    private void SuppressWindowGroup(UIWindow window)
     {
         _suppressedWindow = window;
 
@@ -353,6 +371,18 @@ internal sealed class DecisionDockSurface : WorldSurface
             if (group.blocksRaycasts)
                 group.blocksRaycasts = false;
         }
+    }
+
+    /// <summary>
+    /// Full docked-tick suppression: the cheap CanvasGroup alpha-0 (via
+    /// <see cref="SuppressWindowGroup"/>) PLUS disabling the window's nested vignette/backdrop
+    /// canvases. Re-asserted every docked tick (the game rewrites the CanvasGroup alpha on
+    /// Show/ToggleVisibility and could re-enable canvases live). The converted row is OUTSIDE the
+    /// window subtree while docked, so neither touches it.
+    /// </summary>
+    private void ApplySuppression(UIWindow window)
+    {
+        SuppressWindowGroup(window);
 
         // Backdrops/vignettes are often NESTED CANVASES (adopted with
         // overrideSorting=true when the whole window floated) — a nested canvas
