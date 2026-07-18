@@ -18,7 +18,7 @@ game still fully mouse-playable in parallel.*
 1. Gloomhaven v1.1.8307.0 + **BepInEx 5.4.23.5 x64** installed, game boots with
    `BepInEx/LogOutput.log` created. Recommended `BepInEx.cfg`: `[Logging.Console] Enabled = true`.
 2. On the dev machine: `scripts/fetch-natives.sh && scripts/build-runtimedeps.sh && dotnet build GloomhavenVR.sln -c Release`.
-3. `scripts/deploy.ps1 -GamePath "C:\...\Gloomhaven"` → resulting game-dir layout:
+3. `scripts/install.ps1 -GamePath "C:\...\Gloomhaven"` → resulting game-dir layout:
 
    ```
    BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll

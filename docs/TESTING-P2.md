@@ -1,7 +1,7 @@
 # Phase 2 — Windows/HMD validation checklist (hands & interaction primitives)
 
 > Prereq: Phase-1 validation passed (stereo diorama, head tracking — docs/TESTING-P1.md).
-> Deploy as for P1 (`scripts/deploy.ps1`), Quest 3 over Link / Virtual Desktop / Steam
+> Deploy as for P1 (`scripts/install.ps1`), Quest 3 over Link / Virtual Desktop / Steam
 > Link, or any OpenXR HMD with Touch-style controllers.
 
 ## 0. Desktop smoke test first (no HMD needed)

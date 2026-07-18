@@ -6,7 +6,7 @@ Unity **2021.3.45f1**, TypeTrees ON (loads in the game's 2021.3.5f1 runtime — 
 2021.3.x serialization layout is stable and forward-compatible).
 
 Deployed to `BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle` automatically by
-`scripts/deploy.ps1` and `scripts/package-release.sh` (a freshly built
+`scripts/install.ps1` and `scripts/package-release.sh` (a freshly built
 `unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle` is preferred when
 present; this committed copy is the fallback).
 
