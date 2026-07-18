@@ -330,6 +330,26 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             _longRestAnchor = FindDeep(visual.transform, "LongRestToken");
             confirmAnchor = FindDeep(visual.transform, "ConfirmButton");
             undoAnchor = FindDeep(visual.transform, "UndoButton");
+
+            // The bundled PlayTray anchors carry a 90° twist from the FBX empty export
+            // (their local -Z ends up along the board's in-plane axis instead of out of
+            // the decorated face), which stood every attached element — cards, slot
+            // frames/highlights, the confirm/undo buttons — UPRIGHT on the board. Re-align
+            // all anchors to ONE board frame derived from their own positions: -Z points
+            // out of the decorated face (the card/element facing), +Y up the short axis.
+            // Children attach with worldPositionStays:false, so they inherit this frame.
+            if (_slots[0] != null && _slots[1] != null
+                && _shortRestAnchor != null && _longRestAnchor != null)
+            {
+                Vector3 uF = (_slots[1]!.position - _slots[0]!.position).normalized;              // long axis
+                Vector3 sF = (_shortRestAnchor!.position - _longRestAnchor!.position).normalized; // short axis
+                Vector3 nF = Vector3.Cross(uF, sF).normalized;                                    // board back normal
+                Vector3 vF = Vector3.Cross(nF, uF).normalized;                                    // orthonormal short axis
+                Quaternion frame = Quaternion.LookRotation(nF, vF);   // +Z = back normal => -Z faces out of the decorated face
+                foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
+                    if (a != null)
+                        a.rotation = frame;
+            }
         }
 
         if (_slots[0] == null || _slots[1] == null)
