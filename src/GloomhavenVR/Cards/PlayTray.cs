@@ -434,20 +434,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 _boardColliderRegistered = true;
             }
 
-            // CORE FIX: seat the BUNDLE control anchors PROUD of the TRUE top surface. They were
-            // baked onto the recess FLOOR (Confirm/Undo only 0.5 mm proud of a recessed pad → buried;
-            // the rest discs sank below the notch rim). Raycast the just-registered board mesh at each
-            // anchor's own XY and re-seat it a few mm proud of the real surface so every attached
-            // element (button pads, rest discs) sits at/above rim level. Gear/follow-toggle/round-readout
-            // seat the same way through NewAnchor / BuildRoundReadout below.
-            if (_boardColliders.Count > 0)
-            {
-                Physics.SyncTransforms(); // the freshly-instantiated colliders must match their posed transforms before Collider.Raycast
-                ReseatProud(confirmAnchor, "Confirm");
-                ReseatProud(undoAnchor, "Undo");
-                ReseatProud(_shortRestAnchor, "ShortRest");
-                ReseatProud(_longRestAnchor, "LongRest");
-            }
+            // PART B: the old unreliable raycast reseat (ReseatProud) is GONE. Every attached
+            // element (rest discs, Confirm/Undo, gear/toggle/readout) now seats at anchor +
+            // PER-BOARD offset with a predictable proud Z — no more −50 mm surprises. The bundle
+            // anchors stay at their authored positions; the per-board offset supplies the proud
+            // depth toward the player (RestControls / BuildButtons / NewAnchor / BuildRoundReadout).
         }
 
         if (_slots[0] == null || _slots[1] == null)
@@ -501,10 +492,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         var readoutGo = new GameObject("RoundReadout");
         readoutGo.transform.SetParent(_root, worldPositionStays: false);
-        // ITEM 2: seat it on the functional face plane (defined by the slots) and lift it
-        // proud toward the viewer like a seated card — the raw −0.004 z sat at _root depth,
-        // which on the bundle board is BEHIND the recessed face ("Runde N" too deep).
-        readoutGo.transform.localPosition = SeatOnBoardFace(new Vector3(ButtonZoneX, 0.125f, 0f));
+        // PART B: seat the readout at a FIXED small proud depth toward the player (predictable,
+        // depth-correct) instead of the old unreliable raycast — it never floats off the board now.
+        readoutGo.transform.localPosition = new Vector3(ButtonZoneX, 0.125f, -FixedProudZ);
         readoutGo.transform.localRotation = _boardFaceFrame; // face the player like the slots ("Runde N" was on the back)
 
         var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -548,7 +538,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         _initiativeMount = new GameObject("InitiativeMount").transform;
         _initiativeMount.SetParent(_root, worldPositionStays: false);
-        _initiativeMount.localPosition = new Vector3(0f, InitiativeMountY, -0.004f);
+        // PART B: the initiative-track mount position is PER-BOARD (debug-menu tunable);
+        // seeded from the old fixed (0, InitiativeMountY, −0.004) so Oak is unchanged.
+        _initiativeMount.localPosition = CardsConfig.InitiativeOffset(CardsConfig.CurrentBoard).Value;
 
         _objectivesMount = new GameObject("ObjectivesMount").transform;
         _objectivesMount.SetParent(_root, worldPositionStays: false);
@@ -920,23 +912,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         flatForward.Normalize();
         Vector3 right = Vector3.Cross(Vector3.up, flatForward);
 
+        ControlBoard board = CardsConfig.CurrentBoard;
         float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
         Vector3 offset = CardsConfig.TrayOffset; // (right, -down, forward), real meters
+        // PART B: per-board BoardPosOffset is ADDED (in the head frame) on top of the tray offset.
+        Vector3 boardPos = CardsConfig.BoardPosOffset(board).Value;
         Vector3 pos = headT.position
-                      + flatForward * (offset.z * scale)
-                      + right * (offset.x * scale)
-                      + Vector3.up * (offset.y * scale);
+                      + flatForward * ((offset.z + boardPos.z) * scale)
+                      + right * ((offset.x + boardPos.x) * scale)
+                      + Vector3.up * ((offset.y + boardPos.y) * scale);
 
         _root.position = pos;
-        // TrayYaw/TrayScale are the persisted tray-grab layout (test #14 wish:
-        // "Controllboard" the player can grip-move/resize; survives sessions).
-        _root.rotation = Quaternion.Euler(0f, CardsConfig.TrayYaw.Value, 0f)
-                         * Quaternion.LookRotation(flatForward, Vector3.up)
-                         * Quaternion.Euler(90f - CardsConfig.TrayTilt.Value, 0f, 0f);
-        _root.localScale = Vector3.one * CardsConfig.ClampedTrayScale;
+        _root.rotation = ComputeBoardRotation(flatForward, board);
+        _root.localScale = Vector3.one * ComputeBoardScale(board);
         _placed = true;
-        VRLog.Info("Cards", $"Control board placed (tilt {CardsConfig.TrayTilt.Value}°, " +
-                            $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.ClampedTrayScale:F2}×).");
+        VRLog.Info("Cards", $"Control board placed ({board}: tilt {CardsConfig.BoardTilt(board).Value}°, " +
+                            $"yaw {CardsConfig.TrayYaw.Value + CardsConfig.BoardYaw(board).Value:F0}°, " +
+                            $"scale {ComputeBoardScale(board):F2}×).");
         // A persisted PINNED mode re-engages only NOW, at the just-placed
         // head-relative pose (test #17): the tray always spawns in front of the
         // player, pinned or not.
@@ -944,6 +936,153 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             ApplyFollowMode();
 
         LogBoardFaceDiagnostics(); // ITEM 2 ground truth in the final placed pose (once per board)
+    }
+
+    /// <summary>
+    /// PART B: the board's world rotation from the head's flat forward + the per-board
+    /// tilt/yaw. BoardTilt REPLACES the old global TrayTilt (seeded 30 so Oak is unchanged);
+    /// BoardYaw is ADDED on top of the grab-written TrayYaw (seeded 0). Shared by
+    /// <see cref="PlaceAtHead"/> and <see cref="ReapplyOrientation"/>.
+    /// </summary>
+    private static Quaternion ComputeBoardRotation(Vector3 flatForward, ControlBoard board) =>
+        Quaternion.Euler(0f, CardsConfig.TrayYaw.Value + CardsConfig.BoardYaw(board).Value, 0f)
+        * Quaternion.LookRotation(flatForward, Vector3.up)
+        * Quaternion.Euler(90f - CardsConfig.BoardTilt(board).Value, 0f, 0f);
+
+    /// <summary>PART B: the board's local scale = grab-written TrayScale × per-board BoardScale (seeded 1).</summary>
+    private static float ComputeBoardScale(ControlBoard board) =>
+        CardsConfig.ClampedTrayScale * CardsConfig.BoardScale(board).Value;
+
+    // ------------------------------------------------------------------ debug-menu live apply --
+
+    /// <summary>
+    /// PART F live-apply: move the slot snap-glow / wanted-glow overlays to a new per-board
+    /// offset in place (no rebuild). Base local-Z is preserved; the offset adds on top.
+    /// </summary>
+    internal void SetOverlayOffset(Vector3 offset)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            if (_slotHighlights[i] != null)
+                _slotHighlights[i]!.transform.localPosition =
+                    new Vector3(offset.x, offset.y, SlotGlowBaseZ + offset.z);
+            if (_wantedHighlights[i] != null)
+                _wantedHighlights[i]!.transform.localPosition =
+                    new Vector3(offset.x, offset.y, WantedGlowBaseZ + offset.z);
+        }
+    }
+
+    /// <summary>PART F live-apply: move the initiative-track mount to a new per-board local position.</summary>
+    internal void SetInitiativeOffset(Vector3 offset)
+    {
+        if (_initiativeMount != null)
+            _initiativeMount.localPosition = offset;
+    }
+
+    /// <summary>PART F live-apply: move the square Confirm/Undo buttons to a new per-board offset (instant).</summary>
+    internal void SetConfirmUndoOffset(Vector3 offset)
+    {
+        if (_confirm != null)
+            _confirm.transform.localPosition = offset;
+        if (_undo != null)
+            _undo.transform.localPosition = offset;
+    }
+
+    /// <summary>
+    /// PART F live-apply: recompute the board rotation + scale from the ACTIVE board's config
+    /// (BoardTilt/Yaw/Scale/PosOffset). FOLLOW mode re-derives the full pose (incl. posOffset)
+    /// from the head; PINNED KEEPS the world position and only re-orients + rescales in place.
+    /// </summary>
+    internal void ReapplyOrientation()
+    {
+        if (_root == null)
+            return;
+        if (CardsConfig.TrayFollow.Value)
+        {
+            PlaceAtHead(); // re-derives position (incl. BoardPosOffset), rotation and scale
+            return;
+        }
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return;
+        Vector3 flatForward = head.transform.forward;
+        flatForward.y = 0f;
+        if (flatForward.sqrMagnitude < 1e-4f)
+            flatForward = Vector3.forward;
+        flatForward.Normalize();
+        ControlBoard board = CardsConfig.CurrentBoard;
+        _root.rotation = ComputeBoardRotation(flatForward, board); // KEEP position (pinned)
+        _root.localScale = Vector3.one * ComputeBoardScale(board);
+    }
+
+    /// <summary>
+    /// PART F live-apply: rebuild the square Confirm/Undo buttons in place (size changes need a
+    /// rebuilt cap). Re-parents onto the SAME anchors, purges the dead laser targets and rebuilds
+    /// them from current config. The rest discs are rebuilt separately by CardsDriver
+    /// (<c>RestControls.Destroy(); EnsureBuilt(...)</c>).
+    /// </summary>
+    internal void RebuildAttachedControls()
+    {
+        if (_root == null)
+            return;
+        Transform? confirmAnchor = _confirm != null ? _confirm.transform.parent : _confirmAnchor;
+        Transform? undoAnchor = _undo != null ? _undo.transform.parent : _undoAnchor;
+        if (_confirm != null)
+        {
+            Object.DestroyImmediate(_confirm.gameObject);
+            _confirm = null;
+        }
+        if (_undo != null)
+        {
+            Object.DestroyImmediate(_undo.gameObject);
+            _undo = null;
+        }
+        LaserTargets.RemoveAll(static t => t.Collider == null); // drop the just-destroyed (and any other dead) targets
+        BuildButtons(confirmAnchor, undoAnchor);
+    }
+
+    /// <summary>Remove laser targets whose collider was destroyed (e.g. a rest-button rebuild).</summary>
+    internal void PurgeDeadLaserTargets() => LaserTargets.RemoveAll(static t => t.Collider == null);
+
+    // ------------------------------------------------------------------ board-switch pose --
+
+    /// <summary>
+    /// PART D: capture the live board's world pose so a board SWITCH can re-apply it to the
+    /// new board (instead of re-anchoring to the head). Returns false when no board exists.
+    /// </summary>
+    internal bool TryCapturePose(out Vector3 position, out Quaternion rotation, out Vector3 localScale)
+    {
+        if (_root == null)
+        {
+            position = default;
+            rotation = Quaternion.identity;
+            localScale = Vector3.one;
+            return false;
+        }
+        position = _root.position;
+        rotation = _root.rotation;
+        localScale = _root.localScale;
+        return true;
+    }
+
+    /// <summary>
+    /// PART D: re-apply a captured world pose to a freshly built board on a SWITCH — the new
+    /// board spawns in the EXACT same place instead of re-placing at the head. Marks the tray
+    /// placed and re-pins it (PINNED) at the preserved pose.
+    /// </summary>
+    internal void RestorePose(Vector3 position, Quaternion rotation, Vector3 localScale)
+    {
+        if (_root == null)
+            return;
+        _root.position = position;
+        _root.rotation = rotation;
+        _root.localScale = localScale;
+        _placed = true;
+        _placementDeferLogged = false;
+        if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
+            ApplyFollowMode(); // re-pin at the preserved world pose (worldPositionStays)
+        VRLog.Info("Cards", "Control board switch: preserved the previous board's world pose (no re-place at head).");
+        LogBoardFaceDiagnostics();
     }
 
     /// <summary>
@@ -977,17 +1116,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         CardsConfig.TrayRight.Value = Vector3.Dot(delta, right) / scale;
         CardsConfig.TrayDown.Value = -delta.y / scale;
 
-        // Yaw: heading of the tray's flat forward relative to the head's.
-        Vector3 trayFlat = _root.rotation * Quaternion.Euler(-(90f - CardsConfig.TrayTilt.Value), 0f, 0f)
+        // Yaw: heading of the tray's flat forward relative to the head's. PART B: the pose now
+        // uses the per-board tilt for the pitch and adds BoardYaw on top of TrayYaw, so undo both
+        // here to recover the grab-written TrayYaw (BoardYaw/Tilt seeded so Oak is unchanged).
+        ControlBoard board = CardsConfig.CurrentBoard;
+        Vector3 trayFlat = _root.rotation * Quaternion.Euler(-(90f - CardsConfig.BoardTilt(board).Value), 0f, 0f)
                            * Vector3.forward;
         trayFlat.y = 0f;
         if (trayFlat.sqrMagnitude > 1e-4f)
         {
             float headHeading = Mathf.Atan2(flatForward.x, flatForward.z) * Mathf.Rad2Deg;
             float trayHeading = Mathf.Atan2(trayFlat.x, trayFlat.z) * Mathf.Rad2Deg;
-            CardsConfig.TrayYaw.Value = Mathf.DeltaAngle(headHeading, trayHeading);
+            CardsConfig.TrayYaw.Value = Mathf.DeltaAngle(headHeading, trayHeading) - CardsConfig.BoardYaw(board).Value;
         }
-        CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x, 0.5f, 2f);
+        // Divide out the per-board multiplier so TrayScale keeps its raw 0.5–2 grab semantics.
+        float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
+        CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x / boardScale, 0.5f, 2f);
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.TrayScale.Value:F2}×.");
@@ -1253,6 +1397,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
+        Vector3 ov = CardsConfig.SlotOverlayOffset(CardsConfig.CurrentBoard).Value; // PART B: per-board overlay offset
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
@@ -1263,7 +1408,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             Object.Destroy(quad.GetComponent<Collider>());
             quad.transform.SetParent(slot, worldPositionStays: false);
             quad.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
-            quad.transform.localPosition = new Vector3(0f, 0f, -0.006f); // PROUD of the top (toward the player), rim past the frame
+            quad.transform.localPosition = new Vector3(ov.x, ov.y, SlotGlowBaseZ + ov.z); // PROUD toward the player + per-board offset
             // Emissive gold via the Overlay shader (additive) so it reads as light ADDED over the
             // board. CORE FIX: moved to NEGATIVE local-Z (proud of the recess/top toward the player)
             // and NO RenderOnTop — the glow is depth-correct now (occludes naturally, no shine-through).
@@ -1298,6 +1443,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
+        Vector3 ov = CardsConfig.SlotOverlayOffset(CardsConfig.CurrentBoard).Value; // PART B: per-board overlay offset
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
@@ -1308,10 +1454,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             Object.Destroy(quad.GetComponent<Collider>());
             quad.transform.SetParent(slot, worldPositionStays: false);
             // Larger rim than the snap glow (1.24×) so the teal reads AROUND the gold when both
-            // show; sits a hair less proud (z -0.004) than the snap glow (-0.006) so the gold snap
-            // draws in front of the teal, preserving the old ordering.
+            // show; sits a hair less proud (base z -0.004) than the snap glow (-0.006) so the gold
+            // snap draws in front of the teal, preserving the old ordering.
             quad.transform.localScale = new Vector3(w * 1.36f, h * 1.36f, 1f);
-            quad.transform.localPosition = new Vector3(0f, 0f, -0.004f); // PROUD of the top (toward the player)
+            quad.transform.localPosition = new Vector3(ov.x, ov.y, WantedGlowBaseZ + ov.z); // PROUD toward the player + per-board offset
             var renderer = quad.GetComponent<MeshRenderer>();
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
             // Emissive teal via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud, toward the
@@ -1802,18 +1948,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Transform confirmParent = confirmAnchor != null ? confirmAnchor : NewAnchor("ConfirmButton", new Vector3(ButtonZoneX, 0.045f, -0.006f));
         Transform undoParent = undoAnchor != null ? undoAnchor : NewAnchor("UndoButton", new Vector3(ButtonZoneX, -0.06f, -0.006f));
 
-        // Item 3 (Oak-tuned): Confirm/Undo are RECTANGULAR (square) buttons resized to sit
-        // on the Oak board's two ~0.066 m metal button pads, and nudged inward along the
-        // anchor's local +X (== board long axis; the ButtonZone anchors sit on the RIGHT at
-        // +X, so board-center is -X) so they center on the pads. Config-tunable per board.
-        float side = CardsConfig.ConfirmUndoSize.Value;
+        // PART B + C: Confirm/Undo are REAL 3D square keycaps (boxy: true — a lit cube cap with
+        // genuine thickness whose side walls shade, not a flat sprite), sized and positioned from
+        // the ACTIVE board's config. The full X/Y/Z offset (X/Y in plane, Z = proud toward the
+        // player) REPLACES the old inset + raycast reseat, so the buttons seat at a predictable
+        // depth per board (debug-menu tunable).
+        ControlBoard active = CardsConfig.CurrentBoard;
+        float side = CardsConfig.ConfirmUndoSize(active).Value;
         var rectSize = new Vector2(side, side);
-        float inX = -CardsConfig.ConfirmUndoInsetX.Value; // reduce |X| toward board center
+        Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
 
         _confirm = BoardButton.Create(confirmParent, rectSize,
             new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
-            () => ConfirmRequested?.Invoke());
-        _confirm.transform.localPosition = new Vector3(inX, 0f, 0f); // item 3 inward nudge onto the pad
+            () => ConfirmRequested?.Invoke(),
+            boxy: true, thickness: 0.014f);
+        _confirm.transform.localPosition = off; // per-board X/Y in plane, Z proud (Part B)
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.DwellSeconds = PokeDwellSeconds; // deliberate poke (test #19)
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
@@ -1821,29 +1970,46 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         _undo = BoardButton.Create(undoParent, rectSize,
             new Color(0.45f, 0.32f, 0.2f), "UNDO",
-            () => UndoRequested?.Invoke());
-        _undo.transform.localPosition = new Vector3(inX, 0f, 0f); // item 3 inward nudge onto the pad
+            () => UndoRequested?.Invoke(),
+            boxy: true, thickness: 0.014f);
+        _undo.transform.localPosition = off; // per-board X/Y in plane, Z proud (Part B)
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         _undo.DwellSeconds = PokeDwellSeconds; // same accident class as CONFIRM (test #19)
         RegisterLaserTarget(_undo.Collider!, _undo);
-        VRLog.Info("Cards", $"Board: Confirm/Undo built square {side:F3} m (item 3 Oak pads), " +
-                            $"inset {CardsConfig.ConfirmUndoInsetX.Value:F3} m inward.");
+        VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D square keycaps {side:F3} m for {active} " +
+                            $"(offset {off}).");
     }
 
     private Transform NewAnchor(string name, Vector3 localPos)
     {
         var t = new GameObject(name).transform;
         t.SetParent(_root, worldPositionStays: false);
-        // CORE FIX: seat proud on the TRUE surface (SeatOnBoardFace raycasts the board mesh at
-        // this XY) so the gear / follow toggle rest ON the player-facing surface — the raised
-        // rim included — not sunk on the flat slot-floor plane where a widget over a rim buried.
-        Vector3 seated = SeatOnBoardFace(localPos);
+        // PART B: seat the gear / follow-toggle at a FIXED small proud depth toward the player,
+        // in place of the old raycast (which floated them up to 5 cm off the board). Predictable
+        // and depth-correct; the debug menu does not expose these individually, so a fixed proud
+        // keeps them consistent across every board.
+        Vector3 seated = new(localPos.x, localPos.y, -FixedProudZ);
         t.localPosition = seated;
         t.localRotation = _boardFaceFrame; // face the functional board face like the bundle anchors
-        VRLog.Info("Cards", $"Board: '{name}' seated proud at local-Z {seated.z * 1000f:F1} mm " +
-                            $"({(localPos.z - seated.z) * 1000f:F1} mm toward the player vs the authored plane) — depth-correct, no shine-through.");
+        VRLog.Info("Cards", $"Board: '{name}' seated at a fixed proud local-Z {seated.z * 1000f:F1} mm " +
+                            "toward the player (predictable, no raycast).");
         return t;
     }
+
+    /// <summary>
+    /// PART B: fixed predictable proud depth (toward the player, −Z) at which the mod-built
+    /// HUD widgets the debug menu does NOT expose individually — the settings gear, the
+    /// follow-toggle and the round readout — seat, in place of the old unreliable raycast.
+    /// Small and depth-correct: they rest just in front of the authored plane, always the
+    /// same amount, so they never float 5 cm off the board again.
+    /// </summary>
+    private const float FixedProudZ = 0.005f;
+
+    /// <summary>Base local-Z of the slot snap-glow (per-board SlotOverlayOffset.z adds on top).</summary>
+    private const float SlotGlowBaseZ = -0.006f;
+
+    /// <summary>Base local-Z of the wanted-slot glow (per-board SlotOverlayOffset.z adds on top).</summary>
+    private const float WantedGlowBaseZ = -0.004f;
 
     /// <summary>Ray start standoff in front of the functional face, <c>_root</c>-local meters (mirrors BuildBoard.cs standoff 0.15).</summary>
     private const float SeatStandoff = 0.15f;
@@ -2237,7 +2403,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick,
             bool round = false, float diameter = 0f, float thickness = 0.01f,
-            bool overlay = false)
+            bool overlay = false, bool boxy = false)
         {
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
@@ -2290,6 +2456,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             var cap = new GameObject("Cap");
             cap.transform.SetParent(go.transform, worldPositionStays: false);
             cap.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
+            float labelZ = -0.007f; // default: proud of the flat cap face (viewer side, -Z)
 
             if (round)
             {
@@ -2308,6 +2475,28 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     capMaterial = new Material(shader) { color = DisabledColor };
                     capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                 }
+            }
+            else if (boxy)
+            {
+                // PART C: a REAL 3D square keycap. Mirror the round puck's approach (a Cylinder
+                // has sides) with a lit Cube of genuine thickness — its SIDE WALLS are visible and
+                // shade under the scene lights, unlike the old flat 9-slice sprite ("no sides, just
+                // a floating element"). Standard-lit, NO RenderOnTop; the cube front protrudes proud
+                // of the base plate toward the viewer (-Z) and travels inward on press with the cap.
+                float capThick = Mathf.Max(0.006f, thickness);
+                var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                capCube.name = "CapMesh";
+                Object.Destroy(capCube.GetComponent<Collider>());
+                capCube.transform.SetParent(cap.transform, worldPositionStays: false);
+                capCube.transform.localScale = new Vector3(size.x, size.y, capThick);
+                capCube.transform.localPosition = new Vector3(0f, 0f, -capThick * 0.5f); // front proud toward viewer
+                Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+                if (shader != null)
+                {
+                    capMaterial = new Material(shader) { color = DisabledColor };
+                    capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                }
+                labelZ = -(capThick + 0.002f); // proud of the protruding cube front (front face sits at -capThick)
             }
             else
             {
@@ -2347,7 +2536,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // face on the viewer side (-Z), above it by sortingOrder so it never clips.
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(cap.transform, worldPositionStays: false);
-            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.007f); // proud of the cap face (viewer side, -Z)
+            labelGo.transform.localPosition = new Vector3(0f, 0f, labelZ); // proud of the cap face (viewer side, -Z)
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.text = fallbackLabel;
             tmp.alignment = TextAlignmentOptions.Center;

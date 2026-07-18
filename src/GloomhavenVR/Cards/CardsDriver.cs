@@ -48,6 +48,12 @@ internal sealed class CardsDriver : MonoBehaviour
     private VRMode _prevFrom = VRMode.Menu2D;
     private VRMode _prevTo = VRMode.Menu2D;
     private bool _boardChanged; // [Cards] Board switched — tear down + rebuild the tray next frame
+    // PART D: the outgoing board's world pose, captured on a SWITCH so the new board re-appears
+    // in the EXACT same place instead of re-anchoring to the head.
+    private bool _hasSwitchPose;
+    private Vector3 _switchPos;
+    private Quaternion _switchRot = Quaternion.identity;
+    private Vector3 _switchScale = Vector3.one;
     private bool _fakeActive;
     private VRHand? _gateHand;
     private CardsHandUI? _boundHand;
@@ -63,6 +69,7 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
         CardsConfig.Board.SettingChanged += OnBoardChanged;
+        SubscribeBoardTuning(true); // PART F: per-board tuning entries live-apply (menu + hand-edited cfg)
 
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
@@ -86,6 +93,110 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
         CardsConfig.Board.SettingChanged -= OnBoardChanged;
+        SubscribeBoardTuning(false);
+    }
+
+    // ------------------------------------------------------------------ board tuning (Part F) --
+
+    // Debug-menu / hand-edited per-board offsets live-apply through a dirty-flag consumed in
+    // Update (the P2 threading rule: handlers only set flags). Position changes apply in place;
+    // size/diameter changes rebuild just the affected buttons.
+    private bool _applyControlOffsets;   // rest + confirm/undo X/Y/Z offset (instant)
+    private bool _applyControlRebuild;   // rest diameter / confirm-undo size (rebuild the buttons)
+    private bool _applyOverlayOffset;    // slot/wanted glow offset
+    private bool _applyInitiativeOffset; // initiative-track mount position
+    private bool _applyOrientation;      // board tilt / yaw / scale / pos-offset
+
+    /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
+    private void SubscribeBoardTuning(bool subscribe)
+    {
+        foreach (ControlBoard b in System.Enum.GetValues(typeof(ControlBoard)))
+        {
+            if (subscribe)
+            {
+                CardsConfig.RestButtonOffset(b).SettingChanged += OnControlOffsetChanged;
+                CardsConfig.ConfirmUndoOffset(b).SettingChanged += OnControlOffsetChanged;
+                CardsConfig.RestButtonDiameter(b).SettingChanged += OnControlSizeChanged;
+                CardsConfig.ConfirmUndoSize(b).SettingChanged += OnControlSizeChanged;
+                CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
+                CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
+                CardsConfig.BoardTilt(b).SettingChanged += OnOrientationChanged;
+                CardsConfig.BoardYaw(b).SettingChanged += OnOrientationChanged;
+                CardsConfig.BoardScale(b).SettingChanged += OnOrientationChanged;
+                CardsConfig.BoardPosOffset(b).SettingChanged += OnOrientationChanged;
+            }
+            else
+            {
+                CardsConfig.RestButtonOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.ConfirmUndoOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.RestButtonDiameter(b).SettingChanged -= OnControlSizeChanged;
+                CardsConfig.ConfirmUndoSize(b).SettingChanged -= OnControlSizeChanged;
+                CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
+                CardsConfig.InitiativeOffset(b).SettingChanged -= OnInitiativeOffsetChanged;
+                CardsConfig.BoardTilt(b).SettingChanged -= OnOrientationChanged;
+                CardsConfig.BoardYaw(b).SettingChanged -= OnOrientationChanged;
+                CardsConfig.BoardScale(b).SettingChanged -= OnOrientationChanged;
+                CardsConfig.BoardPosOffset(b).SettingChanged -= OnOrientationChanged;
+            }
+        }
+    }
+
+    private void OnControlOffsetChanged(object sender, System.EventArgs e) => _applyControlOffsets = true;
+    private void OnControlSizeChanged(object sender, System.EventArgs e) => _applyControlRebuild = true;
+    private void OnOverlayOffsetChanged(object sender, System.EventArgs e) => _applyOverlayOffset = true;
+    private void OnInitiativeOffsetChanged(object sender, System.EventArgs e) => _applyInitiativeOffset = true;
+    private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
+
+    /// <summary>
+    /// PART F: consume the per-board tuning dirty flags on the main thread and re-apply the
+    /// matching element to the live board (offsets in place, sizes by rebuild, orientation via
+    /// ReapplyOrientation). Every apply logs the element + the new value. No-op with no board.
+    /// </summary>
+    private void ApplyBoardTuning()
+    {
+        if (_tray.Root == null)
+            return;
+        ControlBoard b = CardsConfig.CurrentBoard;
+
+        if (_applyControlRebuild)
+        {
+            _applyControlRebuild = false;
+            _applyControlOffsets = false; // the rebuild re-reads the offsets from config
+            _rest.Destroy();
+            _tray.RebuildAttachedControls(); // rebuilds Confirm/Undo AND purges the dead rest laser targets
+            _rest.EnsureBuilt(_tray);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: rebuilt Confirm/Undo (size " +
+                                $"{CardsConfig.ConfirmUndoSize(b).Value:F3} m) + rest discs (diameter " +
+                                $"{CardsConfig.RestButtonDiameter(b).Value:F3} m).");
+        }
+        if (_applyControlOffsets)
+        {
+            _applyControlOffsets = false;
+            _rest.SetOffset(CardsConfig.RestButtonOffset(b).Value);
+            _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset(b).Value}, " +
+                                $"confirm/undo offset {CardsConfig.ConfirmUndoOffset(b).Value}.");
+        }
+        if (_applyOverlayOffset)
+        {
+            _applyOverlayOffset = false;
+            _tray.SetOverlayOffset(CardsConfig.SlotOverlayOffset(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: slot overlay offset {CardsConfig.SlotOverlayOffset(b).Value}.");
+        }
+        if (_applyInitiativeOffset)
+        {
+            _applyInitiativeOffset = false;
+            _tray.SetInitiativeOffset(CardsConfig.InitiativeOffset(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: initiative offset {CardsConfig.InitiativeOffset(b).Value}.");
+        }
+        if (_applyOrientation)
+        {
+            _applyOrientation = false;
+            _tray.ReapplyOrientation();
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: orientation tilt {CardsConfig.BoardTilt(b).Value:F0}°, " +
+                                $"yaw {CardsConfig.BoardYaw(b).Value:F0}°, scale {CardsConfig.BoardScale(b).Value:F2}×, " +
+                                $"posOffset {CardsConfig.BoardPosOffset(b).Value}.");
+        }
     }
 
     private void OnDestroy()
@@ -262,6 +373,9 @@ internal sealed class CardsDriver : MonoBehaviour
         // Deferred initial placement (test #17): retries until the head has a
         // real tracked pose — the tray stays hidden meanwhile.
         _tray.TickPlacement();
+
+        // Debug-menu / hand-edited per-board tuning live-applies here (Part F).
+        ApplyBoardTuning();
 
         UpdatePalmGate();
         UpdateFanLaser();
@@ -879,6 +993,9 @@ internal sealed class CardsDriver : MonoBehaviour
                     _factory.Park(card);
             }
         }
+        // PART D: capture the outgoing board's world pose BEFORE Destroy so the new board keeps
+        // the EXACT same location (Rebuild re-applies it after EnsureBuilt instead of PlaceAtHead).
+        _hasSwitchPose = _tray.TryCapturePose(out _switchPos, out _switchRot, out _switchScale);
         _tray.Destroy();
         _dirty = true;
     }
@@ -889,6 +1006,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
         if (hand == null)
         {
+            _hasSwitchPose = false; // no board to re-pose without a hand
             RebuildFakeOrClear(anchor);
             return;
         }
@@ -897,6 +1015,14 @@ internal sealed class CardsDriver : MonoBehaviour
         _boundHand = hand;
 
         _tray.EnsureBuilt(_factory, anchor);
+        // PART D: on a board SWITCH, re-apply the captured pose (the new board spawns in the exact
+        // same place) instead of PlaceAtHead. A genuine first build has no captured pose and places
+        // at the head as usual.
+        if (_hasSwitchPose)
+        {
+            _hasSwitchPose = false;
+            _tray.RestorePose(_switchPos, _switchRot, _switchScale);
+        }
         _rest.EnsureBuilt(_tray);
         _half.EnsureBuilt(anchor);
         _half.DockTo(_tray); // action selection lives on the control board (test #19)

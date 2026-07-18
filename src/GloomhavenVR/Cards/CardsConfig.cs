@@ -113,9 +113,6 @@ internal static class CardsConfig
     /// <summary>Item 2 (Oak-tuned): inward local-X nudge (real meters) centering the round rest discs in the notches.</summary>
     internal static ConfigEntry<float> RestButtonInsetX = null!;
 
-    /// <summary>Item 3 (Oak-tuned): side length (real meters) of the square Confirm/Undo buttons fitting the metal pads.</summary>
-    internal static ConfigEntry<float> ConfirmUndoSize = null!;
-
     /// <summary>Item 3 (Oak-tuned): inward local-X nudge (real meters) centering Confirm/Undo on the metal pads.</summary>
     internal static ConfigEntry<float> ConfirmUndoInsetX = null!;
 
@@ -130,6 +127,27 @@ internal static class CardsConfig
 
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
     internal static ConfigEntry<ControlBoard> Board = null!;
+
+    /// <summary>Feature (in-VR debug menu): gate the "Debug — Board tuning" section of the settings panel. Default OFF.</summary>
+    internal static ConfigEntry<bool> DebugMenu = null!;
+
+    // ---- Per-board board-element tuning (in-VR debug menu, indexed by (int)ControlBoard) ----
+    // These REPLACE the old unreliable raycast auto-seating (SeatOnBoardFace/ReseatProud):
+    // every board-attached element seats at anchor + PER-BOARD offset, so the depth is
+    // PREDICTABLE (no more −50 mm surprises) and dial-able PER BOARD from the debug menu.
+    // Offset convention: X/Y lie in the board plane, Z is the "proud" depth toward the
+    // player (the board's −Z face) — NEGATIVE Z = toward the player (prouder). Seeded from
+    // the current global Oak values so Oak keeps today's look minus the raycast wobble.
+    private static readonly ConfigEntry<Vector3>[] _restButtonOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _restButtonDiameter = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector3>[] _confirmUndoOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _confirmUndoSize = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector3>[] _slotOverlayOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _boardYaw = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _boardScale = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector3>[] _boardPosOffset = new ConfigEntry<Vector3>[3];
 
     // ---- Demeo-parity fan/grab tuning (test #22 blueprint DEMEO-HANDS-CARDS.md) ----
 
@@ -290,10 +308,6 @@ internal static class CardsConfig
             "the discs sit too far right, lower the value (into the negatives) until they drop into the " +
             "notches; too far left, raise it. Default 0.024 (Oak: bundle anchors sit ~0.02 m too far " +
             "toward the edge). PER-BOARD: a future per-board descriptor overrides this (see RestControls.EnsureBuilt).");
-        ConfirmUndoSize = _file.Bind("Cards", "ConfirmUndoSize", 0.073f,
-            "Item 3 (Oak-tuned): side length (real meters) of the SQUARE Confirm/Undo buttons so they " +
-            "sit on the Oak board's two ~0.066 m metal button pads (were 0.115x0.06 / 0.09x0.042). " +
-            "PER-BOARD: differs per control board.");
         ConfirmUndoInsetX = _file.Bind("Cards", "ConfirmUndoInsetX", 0.014f,
             "Item 3 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied to " +
             "Confirm/Undo so they center on the Oak metal pads (the ButtonZone anchor X ~+0.235 sits " +
@@ -326,6 +340,55 @@ internal static class CardsConfig
             "board falls back to Oak, and if Oak is also missing the procedural board is used, " +
             "so any selection is safe. Changing this tears down and rebuilds the tray live " +
             "(CardsDriver), re-seating the cards on the newly loaded board.");
+
+        DebugMenu = _file.Bind("Cards", "DebugMenu", false,
+            "In-VR DEBUG MENU: show the 'Debug — Board tuning' section in the settings panel. " +
+            "It live-tunes every board-attached element PER BOARD (round rest buttons, square " +
+            "Confirm/Undo, slot overlays, initiative track, whole-board tilt/yaw/scale/pos) and " +
+            "writes the per-board offsets below (BepInEx persists on every change — no save button). " +
+            "Default OFF; toggle it on from the panel when you want to dial a board in.");
+
+        // ---- Per-board element tuning (Part A) ----
+        // Bound with one entry per board (loop over the ControlBoard enum). All boards seed
+        // from the CURRENT global Oak values so Oak is unchanged; Steel/Bronze start identical
+        // and are dialed in from the debug menu. Offsets: X/Y in the board plane, Z = proud
+        // depth toward the player (NEGATIVE = prouder / closer to you).
+        foreach (ControlBoard board in System.Enum.GetValues(typeof(ControlBoard)))
+        {
+            int i = (int)board;
+            _restButtonOffset[i] = _file.Bind("Cards", $"RestButtonOffset_{board}",
+                new Vector3(0.024f, 0f, -0.005f),
+                $"[{board}] ROUND rest-disc offset from the rest anchor, board-local meters. " +
+                "X/Y lie in the board plane (+X toward board center), Z = proud depth toward the " +
+                "player (NEGATIVE = prouder). Replaces the raycast seat — dial Z until the discs " +
+                "rest cleanly in the notches. Seeded from Oak (RestButtonInsetX 0.024, proud −5 mm).");
+            _restButtonDiameter[i] = _file.Bind("Cards", $"RestButtonDiameter_{board}", 0.105f,
+                $"[{board}] diameter (meters) of the round short/long-rest discs. Seeded from Oak (0.105).");
+            _confirmUndoOffset[i] = _file.Bind("Cards", $"ConfirmUndoOffset_{board}",
+                new Vector3(-0.014f, 0f, -0.005f),
+                $"[{board}] SQUARE Confirm/Undo offset from their button anchors, board-local meters. " +
+                "X/Y in plane (−X toward board center from the right column), Z = proud depth toward " +
+                "the player (NEGATIVE = prouder). Seeded from Oak (ConfirmUndoInsetX −0.014, proud −5 mm).");
+            _confirmUndoSize[i] = _file.Bind("Cards", $"ConfirmUndoSize_{board}", 0.073f,
+                $"[{board}] side length (meters) of the square Confirm/Undo buttons. Seeded from Oak (0.073).");
+            _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the slot snap-glow / wanted-glow local position, board-local " +
+                "meters. X/Y in plane, Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 (Oak).");
+            _initiativeOffset[i] = _file.Bind("Cards", $"InitiativeOffset_{board}",
+                new Vector3(0f, 0.10f, -0.004f),
+                $"[{board}] initiative-track mount local position (replaces the fixed mount pos), " +
+                "board-local meters. Seeded from Oak (0, 0.10, −0.004).");
+            _boardTilt[i] = _file.Bind("Cards", $"BoardTilt_{board}", 30f,
+                $"[{board}] board tilt from horizontal toward the player, degrees (0 = flat desk, " +
+                "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
+            _boardYaw[i] = _file.Bind("Cards", $"BoardYaw_{board}", 0f,
+                $"[{board}] extra board yaw ADDED on top of the grab-written TrayYaw, degrees. Seeded 0 (Oak).");
+            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 1f,
+                $"[{board}] board size MULTIPLIER applied on top of the grab-written TrayScale. Seeded 1 (Oak).");
+            _boardPosOffset[i] = _file.Bind("Cards", $"BoardPosOffset_{board}", Vector3.zero,
+                $"[{board}] board position offset ADDED on top of the tray head-relative offset, real " +
+                "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
+        }
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
         FanCurveByFill = _file.Bind("Cards", "FanCurveByFill", true,
@@ -395,4 +458,22 @@ internal static class CardsConfig
     internal static float SupinationExitThreshold => Mathf.Max(-0.6f, SupinationThreshold.Value - 0.35f);
 
     internal static Vector3 TrayOffset => new(TrayRight.Value, -TrayDown.Value, TrayForward.Value);
+
+    // ---- Per-board resolver accessors (Part A) ----
+    // Return the ConfigEntry so callers can both READ (.Value) and WRITE (.Value = …, which
+    // BepInEx persists and fires SettingChanged on — the debug menu's live-apply hook).
+
+    /// <summary>The board the tray currently uses (drives every per-board resolver below).</summary>
+    internal static ControlBoard CurrentBoard => Board.Value;
+
+    internal static ConfigEntry<Vector3> RestButtonOffset(ControlBoard b) => _restButtonOffset[(int)b];
+    internal static ConfigEntry<float> RestButtonDiameter(ControlBoard b) => _restButtonDiameter[(int)b];
+    internal static ConfigEntry<Vector3> ConfirmUndoOffset(ControlBoard b) => _confirmUndoOffset[(int)b];
+    internal static ConfigEntry<float> ConfirmUndoSize(ControlBoard b) => _confirmUndoSize[(int)b];
+    internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
+    internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
+    internal static ConfigEntry<float> BoardTilt(ControlBoard b) => _boardTilt[(int)b];
+    internal static ConfigEntry<float> BoardYaw(ControlBoard b) => _boardYaw[(int)b];
+    internal static ConfigEntry<float> BoardScale(ControlBoard b) => _boardScale[(int)b];
+    internal static ConfigEntry<Vector3> BoardPosOffset(ControlBoard b) => _boardPosOffset[(int)b];
 }

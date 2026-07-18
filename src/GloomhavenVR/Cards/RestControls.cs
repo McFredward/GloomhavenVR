@@ -35,21 +35,16 @@ internal sealed class RestControls
     internal void EnsureBuilt(PlayTray tray)
     {
         // Feature 6a: the rest controls are ROUND discs that drop into the board's two
-        // round rest-notches ("kurze/lange Rast" einkerbungen). Diameter/thickness are
-        // config-tunable so the fit can be dialed in from a hardware test without a
-        // recompile (no baked notch dimension exists in code).
-        // PER-BOARD SEAM: two more control boards are coming with differently sized
-        // notches. When a per-board descriptor lands, resolve diameter/thickness from it
-        // here (e.g. tray.BoardDescriptor?.RestNotchDiameter ?? config default) instead of
-        // the flat CardsConfig value below.
-        float diameter = CardsConfig.RoundButtonDiameter.Value;
+        // round rest-notches ("kurze/lange Rast" einkerbungen). PER-BOARD (Part B): the
+        // diameter AND the full X/Y/Z offset come from the active board's config (the debug
+        // menu tunes them live) — this REPLACES the old unreliable raycast auto-seating, so
+        // the discs seat at a PREDICTABLE anchor + per-board offset depth.
+        ControlBoard active = CardsConfig.CurrentBoard;
+        float diameter = CardsConfig.RestButtonDiameter(active).Value;
         float thickness = CardsConfig.RoundButtonThickness.Value;
-        // Nudge each built disc sideways along the anchor's local X so the discs center in the
-        // round rest notches. DIRECTION: +X == the board long axis (slot0→slot1), which from the
-        // left-side rest zone heads toward board CENTER (right); NEGATIVE X heads toward the board
-        // EDGE ('nach links'). The correct sign is board-dependent and uncertain, so RestButtonInsetX
-        // is a LIVE fit knob (may be negative) — see its config doc. Oak-tuned default, config-per-board.
-        float insetX = CardsConfig.RestButtonInsetX.Value;
+        // Per-board disc offset: X/Y in the board plane, Z = proud depth toward the player
+        // (NEGATIVE = prouder). Replaces the old localPosition(insetX,0,0) + raycast reseat.
+        Vector3 offset = CardsConfig.RestButtonOffset(active).Value;
         int built = 0;
 
         if (_shortButton == null && tray.ShortRestAnchor != null)
@@ -59,7 +54,7 @@ internal sealed class RestControls
                 CardsGameApi.Localize("GUI_SHORT_REST", "Short rest"),
                 () => ShortRestRequested?.Invoke(),
                 round: true, diameter: diameter, thickness: thickness);
-            _shortButton.transform.localPosition = new Vector3(insetX, 0f, 0f); // item 2 inward nudge
+            _shortButton.transform.localPosition = offset; // per-board X/Y in plane, Z proud (Part B)
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
         }
@@ -70,15 +65,27 @@ internal sealed class RestControls
                 CardsGameApi.Localize("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
                 round: true, diameter: diameter, thickness: thickness);
-            _longButton.transform.localPosition = new Vector3(insetX, 0f, 0f); // item 2 inward nudge
+            _longButton.transform.localPosition = offset; // per-board X/Y in plane, Z proud (Part B)
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
         }
 
         if (built > 0)
-            Core.VRLog.Info("Cards", $"RestControls: built {built} ROUND rest button(s) " +
-                $"(diameter {diameter:F3} m, thickness {thickness:F3} m, insetX {insetX:F3} m) — " +
-                "feature 6a notch discs (item 2 Oak sizing).");
+            Core.VRLog.Info("Cards", $"RestControls: built {built} ROUND rest button(s) for {active} " +
+                $"(diameter {diameter:F3} m, thickness {thickness:F3} m, offset {offset}) — " +
+                "feature 6a notch discs (per-board predictable seat, no raycast).");
+    }
+
+    /// <summary>
+    /// Live-apply (Part F): move both rest discs to a new per-board X/Y/Z offset in place
+    /// (no rebuild) when the debug menu / hand-edited cfg changes the offset.
+    /// </summary>
+    internal void SetOffset(Vector3 offset)
+    {
+        if (_shortButton != null)
+            _shortButton.transform.localPosition = offset;
+        if (_longButton != null)
+            _longButton.transform.localPosition = offset;
     }
 
     internal void Destroy()
