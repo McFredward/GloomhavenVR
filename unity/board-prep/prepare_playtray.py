@@ -82,17 +82,35 @@ for img in bpy.data.images:
     if img.size[0] > TEX_MAX or img.size[1] > TEX_MAX:
         img.scale(min(TEX_MAX, img.size[0]), min(TEX_MAX, img.size[1]))
 
-# --- add the six named anchor empties on the card plane (z=0), positioned for a 0.64 x 0.32 board.
-# Coordinates are the mod's expected layout (slots centre, rest LEFT, confirm/undo RIGHT). Nudge in
-# Blender/Unity so each sits over the matching painted recess — the mod finds them by NAME anywhere.
-anchors = {
-    "Slot1":         (-0.093, 0.00, 0.0),   # left card slot (initiative) — measured recess centre
-    "Slot2":         ( 0.101, 0.00, 0.0),   # right card slot — measured recess centre
-    "ShortRestToken":(-0.255, 0.055, 0.0),  # left rest zone, upper pad
-    "LongRestToken": (-0.255,-0.055, 0.0),  # left rest zone, lower pad
-    "ConfirmButton": ( 0.255, 0.055, 0.0),  # right button pad, upper
-    "UndoButton":    ( 0.255,-0.055, 0.0),  # right button pad, lower
+# --- add the six named anchor empties on the card plane (z=0). Per-board layouts measured from
+# an offscreen render of each prepped board's decorated (-Z) face (render_board.py). The mod finds
+# anchors by NAME anywhere; BuildBoard.cs then projects each onto the real recess surface. The board
+# frame is derived as u=Slot1->Slot2 (long axis), s=LongRest->ShortRest (+Y short axis), n=uxs — so
+# Slot1 must be the local -X slot and ShortRest.y>LongRest.y on every board, regardless of which X
+# side the rest/pad clusters sit on.
+ANCHOR_SETS = {
+    # board A (original oak) — the historical default layout.
+    "oak": {
+        "Slot1":         (-0.093, 0.00, 0.0), "Slot2":         ( 0.101, 0.00, 0.0),
+        "ShortRestToken":(-0.255, 0.055, 0.0),"LongRestToken": (-0.255,-0.055, 0.0),
+        "ConfirmButton": ( 0.255, 0.055, 0.0),"UndoButton":    ( 0.255,-0.055, 0.0),
+    },
+    # 9capjqp6 (0.64x0.369): 2 central card slots; square button pads on -X; emblem panel on +X (rest).
+    "9capjqp6": {
+        "Slot1":         (-0.089, 0.000, 0.0),"Slot2":         ( 0.073, 0.000, 0.0),
+        "ConfirmButton": (-0.221, 0.037, 0.0),"UndoButton":    (-0.221,-0.051, 0.0),
+        "ShortRestToken":( 0.211, 0.080, 0.0),"LongRestToken": ( 0.211,-0.080, 0.0),
+    },
+    # 16vm268h (0.64x0.218): 2 central parchment slots; stacked pads on -X; round dial recess on +X (rest).
+    "16vm268h": {
+        "Slot1":         (-0.080, 0.000, 0.0),"Slot2":         ( 0.083, 0.000, 0.0),
+        "ConfirmButton": (-0.219, 0.025, 0.0),"UndoButton":    (-0.219,-0.030, 0.0),
+        "ShortRestToken":( 0.226, 0.040, 0.0),"LongRestToken": ( 0.226,-0.040, 0.0),
+    },
 }
+board_key = argv[2] if len(argv) > 2 else "oak"
+anchors = ANCHOR_SETS.get(board_key, ANCHOR_SETS["oak"])
+print("ANCHORSET", board_key, "->", {k: tuple(round(c,3) for c in v) for k, v in anchors.items()})
 for name, pos in anchors.items():
     e = bpy.data.objects.new(name, None); e.empty_display_size = 0.02
     bpy.context.scene.collection.objects.link(e)

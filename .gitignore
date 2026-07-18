@@ -35,3 +35,4 @@ dist/
 # harness worktrees/session data
 .claude/
 decompiled-demeo/
+unity/board-prep/out/

@@ -27,13 +27,31 @@ namespace GloomhavenVR
     public static class BoardBuilder
     {
         private const string Table = "Assets/Bundle/Table";
-        private const string Fbx = Table + "/PlayTray_prepped.fbx";
         private const string ShaderName = "GloomhavenVR/BoardLit";
-        private const string MatPath = Table + "/PlayTray.mat";
-        private const string PrefabPath = Table + "/PlayTray.prefab";
-        private const string AlbedoPath = Table + "/PlayTray_albedo.png";
-        private const string NormalPath = Table + "/PlayTray_normal.png";
         private const string PreviewPng = "board-unity-preview.png";
+
+        // One entry per switchable control board. The runtime picks a prefab by name
+        // (CardsConfig.ControlBoard: Oak/Steel/Bronze -> these prefab paths). Each board
+        // ships its own prepped FBX + loose albedo/normal PNGs (extracted from the source
+        // GLB). All three carry the SAME six named anchors, so the assembly below is
+        // board-agnostic. Board A (oak) keeps its original unsuffixed asset names.
+        private struct BoardDef
+        {
+            public string Fbx, Mat, Prefab, Albedo, Normal;
+        }
+
+        private static readonly BoardDef[] Boards =
+        {
+            new BoardDef { Fbx = Table + "/PlayTray_prepped.fbx",   Mat = Table + "/PlayTray.mat",
+                           Prefab = Table + "/PlayTray.prefab",     Albedo = Table + "/PlayTray_albedo.png",
+                           Normal = Table + "/PlayTray_normal.png" },
+            new BoardDef { Fbx = Table + "/PlayTray_9capjqp6.fbx",  Mat = Table + "/PlayTray_9capjqp6.mat",
+                           Prefab = Table + "/PlayTray_9capjqp6.prefab", Albedo = Table + "/PlayTray_9capjqp6_albedo.png",
+                           Normal = Table + "/PlayTray_9capjqp6_normal.png" },
+            new BoardDef { Fbx = Table + "/PlayTray_16vm268h.fbx",  Mat = Table + "/PlayTray_16vm268h.mat",
+                           Prefab = Table + "/PlayTray_16vm268h.prefab", Albedo = Table + "/PlayTray_16vm268h_albedo.png",
+                           Normal = Table + "/PlayTray_16vm268h_normal.png" },
+        };
 
         private static readonly string[] AnchorNames =
             { "Slot1", "Slot2", "ShortRestToken", "LongRestToken", "ConfirmButton", "UndoButton" };
@@ -43,10 +61,20 @@ namespace GloomhavenVR
             try
             {
                 AssetDatabase.Refresh();
-                ImportModel();
-                Material mat = BuildMaterial();
-                GameObject prefab = AssemblePrefab(mat);
-                TryRenderPreview(prefab);
+                GameObject lastPrefab = null;
+                foreach (var board in Boards)
+                {
+                    if (AssetImporter.GetAtPath(board.Fbx) == null)
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Board FBX '{board.Fbx}' not in project — skipping (bundle will omit this board).");
+                        continue;
+                    }
+                    Debug.Log($"[GloomhavenVR] === Assembling board: {board.Prefab} ===");
+                    ImportModel(board);
+                    Material mat = BuildMaterial(board);
+                    lastPrefab = AssemblePrefab(board, mat);
+                }
+                if (lastPrefab != null) TryRenderPreview(lastPrefab);
                 AssetsBuilder.BuildAll(); // exits the editor (0/1)
             }
             catch (System.Exception e)
@@ -57,11 +85,11 @@ namespace GloomhavenVR
             }
         }
 
-        private static void ImportModel()
+        private static void ImportModel(BoardDef board)
         {
-            var importer = (ModelImporter)AssetImporter.GetAtPath(Fbx);
+            var importer = (ModelImporter)AssetImporter.GetAtPath(board.Fbx);
             if (importer == null)
-                throw new FileNotFoundException($"Model importer not found for {Fbx} — is the FBX in the project?");
+                throw new FileNotFoundException($"Model importer not found for {board.Fbx} — is the FBX in the project?");
             importer.useFileScale = true;          // FBX is authored in metres
             importer.globalScale = 1f;
             importer.importCameras = false;
@@ -75,7 +103,7 @@ namespace GloomhavenVR
 
             // The albedo/normal are loose PNGs next to the FBX (extracted from the GLB).
             // Mark the normal map so the shader's tangent-space unpack is correct.
-            var nti = (TextureImporter)AssetImporter.GetAtPath(NormalPath);
+            var nti = (TextureImporter)AssetImporter.GetAtPath(board.Normal);
             if (nti != null && nti.textureType != TextureImporterType.NormalMap)
             {
                 nti.textureType = TextureImporterType.NormalMap;
@@ -83,17 +111,17 @@ namespace GloomhavenVR
             }
         }
 
-        private static Material BuildMaterial()
+        private static Material BuildMaterial(BoardDef board)
         {
             Shader shader = Shader.Find(ShaderName)
                             ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
 
-            var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(AlbedoPath);
-            var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPath);
+            var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(board.Albedo);
+            var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(board.Normal);
             if (albedo == null)
-                Debug.LogWarning("[GloomhavenVR] Albedo not found at " + AlbedoPath + " — board will be untextured tint.");
+                Debug.LogWarning("[GloomhavenVR] Albedo not found at " + board.Albedo + " — board will be untextured tint.");
 
-            var mat = new Material(shader) { name = "PlayTray" };
+            var mat = new Material(shader) { name = Path.GetFileNameWithoutExtension(board.Prefab) };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
             if (normal != null) mat.SetTexture("_BumpMap", normal);
             // WATERTIGHT FIX — render the board double-sided (Cull Off). The AI board mesh is
@@ -106,16 +134,16 @@ namespace GloomhavenVR
             // px, all 5 POVs). Purely a render-state change: the mesh, the six anchors, the
             // recessed functional face and the MeshCollider the mod raycasts are all untouched.
             mat.SetFloat("_Cull", 0f); // 0 = CullMode.Off
-            AssetDatabase.CreateAsset(mat, MatPath);
+            AssetDatabase.CreateAsset(mat, board.Mat);
             AssetDatabase.SaveAssets();
             Debug.Log($"[GloomhavenVR] Material built: albedo={(albedo ? albedo.name : "none")}, normal={(normal ? normal.name : "none")}");
             return mat;
         }
 
-        private static GameObject AssemblePrefab(Material mat)
+        private static GameObject AssemblePrefab(BoardDef board, Material mat)
         {
-            var model = AssetDatabase.LoadAssetAtPath<GameObject>(Fbx);
-            if (model == null) throw new System.Exception($"Failed to load model at {Fbx}");
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(board.Fbx);
+            if (model == null) throw new System.Exception($"Failed to load model at {board.Fbx}");
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(model);
             inst.name = "Board";
 
@@ -232,8 +260,16 @@ namespace GloomhavenVR
                     anchors["Slot2"].position - anchors["Slot1"].position,
                     anchors["ShortRestToken"].position - anchors["LongRestToken"].position).normalized;
                 Vector3 outN = -backN;
-                const float standoff = 0.15f; // start well in front of the face
-                const float proud = 0.0005f;  // seat a hair above the recess floor
+                const float standoff = 0.15f;    // start well in front of the face
+                const float proud = 0.0005f;      // seat a hair above the recess floor
+                // Projection is a SMALL refinement that seats an anchor onto its recess
+                // floor (e.g. cards sink into a slot). It is only trustworthy as a small
+                // correction: the prep already places every anchor on the decorated-face
+                // plane, so a big move means the ray hit an unrelated raised ornament or a
+                // deep back protrusion (the 16vm268h board is a chunky 3D object, not a
+                // flat plate) — that would float the element centimetres proud. Reject any
+                // move beyond MaxProject and keep the authored face-plane position instead.
+                const float maxProject = 0.045f; // accept up to 45 mm (board A ≤28 mm, 9capjqp6 slots ~25 mm)
                 foreach (string name in AnchorNames)
                 {
                     if (!anchors.TryGetValue(name, out Transform a)) continue;
@@ -245,12 +281,18 @@ namespace GloomhavenVR
                         { best = hit.distance; bestPt = hit.point; }
                     if (float.IsInfinity(best))
                     {
-                        Debug.LogWarning($"[GloomhavenVR] Anchor '{name}' did not project onto the board face (no mesh hit) — left at its bundle depth.");
+                        Debug.LogWarning($"[GloomhavenVR] Anchor '{name}' did not project (no mesh hit) — kept on the authored face plane.");
                         continue;
                     }
-                    Vector3 before = a.position;
-                    a.position = bestPt + outN * proud;
-                    Debug.Log($"[GloomhavenVR]   anchor {name} projected: moved {(a.position - before).magnitude * 1000f:F1} mm onto the functional face.");
+                    Vector3 target = bestPt + outN * proud;
+                    float move = (target - a.position).magnitude;
+                    if (move > maxProject)
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Anchor '{name}' projection {move * 1000f:F1} mm exceeds {maxProject * 1000f:F0} mm (irregular geometry) — kept on the authored face plane.");
+                        continue;
+                    }
+                    a.position = target;
+                    Debug.Log($"[GloomhavenVR]   anchor {name} projected: moved {move * 1000f:F1} mm onto the functional face.");
                 }
             }
 
@@ -272,11 +314,11 @@ namespace GloomhavenVR
                 if (anchors.ContainsKey(n))
                     Debug.Log($"[GloomhavenVR]   anchor {n} local = {root.transform.InverseTransformPoint(anchors[n].position)}");
 
-            var saved = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath, out bool ok);
-            if (!ok) throw new System.Exception($"SaveAsPrefabAsset failed for {PrefabPath}");
+            var saved = PrefabUtility.SaveAsPrefabAsset(root, board.Prefab, out bool ok);
+            if (!ok) throw new System.Exception($"SaveAsPrefabAsset failed for {board.Prefab}");
             Object.DestroyImmediate(root);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[GloomhavenVR] Prefab written: {PrefabPath}");
+            Debug.Log($"[GloomhavenVR] Prefab written: {board.Prefab}");
             return saved;
         }
 
