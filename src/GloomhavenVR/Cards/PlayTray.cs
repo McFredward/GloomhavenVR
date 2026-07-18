@@ -343,9 +343,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             {
                 Vector3 uF = (_slots[1]!.position - _slots[0]!.position).normalized;              // long axis
                 Vector3 sF = (_shortRestAnchor!.position - _longRestAnchor!.position).normalized; // short axis
-                Vector3 nF = Vector3.Cross(uF, sF).normalized;                                    // board back normal
+                Vector3 nF = Vector3.Cross(uF, sF).normalized;                                    // board face normal
                 Vector3 vF = Vector3.Cross(nF, uF).normalized;                                    // orthonormal short axis
-                Quaternion frame = Quaternion.LookRotation(nF, vF);   // +Z = back normal => -Z faces out of the decorated face
+                // Elements face the anchor's local -Z; we want that out of the TOP
+                // (decorated) face. cross(long, short) points out the BOTTOM here (elements
+                // landed on the underside), so aim -Z along -nF: forward = -nF => -Z = +nF.
+                Quaternion frame = Quaternion.LookRotation(-nF, vF);
                 foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
                     if (a != null)
                         a.rotation = frame;
