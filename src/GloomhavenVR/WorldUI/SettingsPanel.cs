@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
@@ -77,6 +78,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private PlayTray? _laserTray;
     private bool _placedFromConfig;
     private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
+
+    // ---- Debug — Board tuning (Part E) ---------------------------------------------------
+    /// <summary>Which board-attached element the debug X/Y/Z/Size steppers currently drive.</summary>
+    private enum DebugElement { RoundButtons, SquareButtons, Overlays, Initiative, Board }
+    private int _debugElement;
+    private readonly List<GameObject> _debugRows = new(8);
     private bool _healLogged;           // change-dedup for the out-of-view heal log
     private bool _respawnRequested;     // every OPEN drops the panel in view in front of the head
 
@@ -152,6 +159,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _healLogged = false;
         _respawnRequested = false;
         _refreshers.Clear();
+        _debugRows.Clear();
     }
 
     // ---- open/close ----------------------------------------------------------------------
@@ -581,11 +589,235 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(mrColorRow, "Key-Farbe", 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
+        BuildDebugSection();
+
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
         if (_holder == null)
             return;
         VRLayers.Apply(_holder.gameObject);
         _holder.gameObject.SetActive(false);
+    }
+
+    // ---- Debug — Board tuning (Part E) ---------------------------------------------------------
+
+    /// <summary>
+    /// The in-VR DEBUG MENU (Part E): live-tune every board-attached element PER BOARD and save
+    /// to config. Built from the existing panel helpers; every stepper closes over the per-board
+    /// <see cref="CardsConfig"/> entries, so writing a value both persists (BepInEx) AND live-applies
+    /// (CardsDriver subscribes to each entry's SettingChanged). Gated behind [Cards] DebugMenu — the
+    /// rows are built once but shown only while the toggle is on (the 0.25 s refresher flips them).
+    /// </summary>
+    private void BuildDebugSection()
+    {
+        Section("Debug — Board tuning");
+
+        Toggle("Enable board tuning",
+            () => CardsConfig.DebugMenu.Value,
+            v =>
+            {
+                CardsConfig.DebugMenu.Value = v;
+                if (v)
+                    VRLog.Info("Cards", "Debug board-tuning menu enabled — live per-board element tuning is now visible.");
+            });
+
+        // Board cycle (mirrors the Control-board cycle so the tuning rows key off the ACTIVE board).
+        var boardRow = Row();
+        _debugRows.Add(boardRow.gameObject);
+        Label(boardRow, "Board", 16f, flexible: true);
+        CycleButton(boardRow, 100f,
+            () => CardsConfig.Board.Value.ToString(),
+            () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
+
+        // Element cycle.
+        var elemRow = Row();
+        _debugRows.Add(elemRow.gameObject);
+        Label(elemRow, "Element", 16f, flexible: true);
+        CycleButton(elemRow, 130f,
+            () => ((DebugElement)_debugElement).ToString(),
+            () => _debugElement = (_debugElement + 1) % 5);
+
+        // X / Y / Z offset steppers (mm), each drives the selected element's active-board offset.
+        AddOffsetStepper("X", 0);
+        AddOffsetStepper("Y", 1);
+        AddOffsetStepper("Z (proud)", 2);
+
+        // Size / Scale stepper (rest diameter / confirm-undo side in mm; BoardScale as ×).
+        var sizeRow = Row();
+        _debugRows.Add(sizeRow.gameObject);
+        Label(sizeRow, "Size", 16f, flexible: true);
+        MiniStepper(sizeRow, FormatSize, StepSize);
+
+        // Board-only Tilt / Yaw row (shown only when Element == Board).
+        var tiltYawRow = Row();
+        _debugRows.Add(tiltYawRow.gameObject);
+        GameObject tiltYawGo = tiltYawRow.gameObject;
+        Label(tiltYawRow, "Tilt/Yaw", 16f, flexible: true);
+        MiniStepper(tiltYawRow,
+            () => $"{CardsConfig.BoardTilt(CardsConfig.CurrentBoard).Value:0}°",
+            d =>
+            {
+                ConfigEntry<float> e = CardsConfig.BoardTilt(CardsConfig.CurrentBoard);
+                e.Value = Mathf.Clamp(e.Value + d * 1f, 0f, 90f);
+            });
+        MiniStepper(tiltYawRow,
+            () => $"{CardsConfig.BoardYaw(CardsConfig.CurrentBoard).Value:0}°",
+            d =>
+            {
+                ConfigEntry<float> e = CardsConfig.BoardYaw(CardsConfig.CurrentBoard);
+                e.Value += d * 5f;
+            });
+
+        // Reset element / Copy Oak→active.
+        var actionRow = Row();
+        _debugRows.Add(actionRow.gameObject);
+        Button(actionRow, "Reset element", 0f, ResetDebugElement, flexible: true);
+        Button(actionRow, "Copy Oak→active", 0f, CopyOakToActive, flexible: true);
+
+        // Visibility: show the tuning rows only while DebugMenu is on; the Tilt/Yaw row only for Board.
+        _refreshers.Add(() =>
+        {
+            bool on = CardsConfig.DebugMenu.Value;
+            for (int i = 0; i < _debugRows.Count; i++)
+            {
+                GameObject go = _debugRows[i];
+                bool show = on && (!ReferenceEquals(go, tiltYawGo) || _debugElement == (int)DebugElement.Board);
+                if (go.activeSelf != show)
+                    go.SetActive(show);
+            }
+        });
+    }
+
+    private void AddOffsetStepper(string label, int axis)
+    {
+        var row = Row();
+        _debugRows.Add(row.gameObject);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row, () => FormatOffset(axis), d => StepOffset(axis, d));
+    }
+
+    /// <summary>The offset ConfigEntry the selected element edits (all board-local Vector3s).</summary>
+    private ConfigEntry<Vector3>? ElementOffsetEntry()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        return (DebugElement)_debugElement switch
+        {
+            DebugElement.RoundButtons => CardsConfig.RestButtonOffset(b),
+            DebugElement.SquareButtons => CardsConfig.ConfirmUndoOffset(b),
+            DebugElement.Overlays => CardsConfig.SlotOverlayOffset(b),
+            DebugElement.Initiative => CardsConfig.InitiativeOffset(b),
+            DebugElement.Board => CardsConfig.BoardPosOffset(b),
+            _ => null,
+        };
+    }
+
+    private string FormatOffset(int axis)
+    {
+        ConfigEntry<Vector3>? e = ElementOffsetEntry();
+        if (e == null)
+            return "-";
+        Vector3 v = e.Value;
+        float c = axis == 0 ? v.x : axis == 1 ? v.y : v.z;
+        return $"{c * 1000f:0}mm";
+    }
+
+    private void StepOffset(int axis, int delta)
+    {
+        ConfigEntry<Vector3>? e = ElementOffsetEntry();
+        if (e == null)
+            return;
+        Vector3 v = e.Value;
+        float s = delta * 0.002f; // 2 mm per press
+        if (axis == 0) v.x += s;
+        else if (axis == 1) v.y += s;
+        else v.z += s;
+        e.Value = v; // persists + fires SettingChanged → CardsDriver live-applies
+    }
+
+    private string FormatSize()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        return (DebugElement)_debugElement switch
+        {
+            DebugElement.RoundButtons => $"{CardsConfig.RestButtonDiameter(b).Value * 1000f:0}mm",
+            DebugElement.SquareButtons => $"{CardsConfig.ConfirmUndoSize(b).Value * 1000f:0}mm",
+            DebugElement.Board => $"{CardsConfig.BoardScale(b).Value:0.00}x",
+            _ => "-",
+        };
+    }
+
+    private void StepSize(int delta)
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        switch ((DebugElement)_debugElement)
+        {
+            case DebugElement.RoundButtons:
+            {
+                ConfigEntry<float> e = CardsConfig.RestButtonDiameter(b);
+                e.Value = Mathf.Max(0.01f, e.Value + delta * 0.002f);
+                break;
+            }
+            case DebugElement.SquareButtons:
+            {
+                ConfigEntry<float> e = CardsConfig.ConfirmUndoSize(b);
+                e.Value = Mathf.Max(0.01f, e.Value + delta * 0.002f);
+                break;
+            }
+            case DebugElement.Board:
+            {
+                ConfigEntry<float> e = CardsConfig.BoardScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
+                break;
+            }
+        }
+    }
+
+    private void ResetDebugElement()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        ConfigEntry<Vector3>? off = ElementOffsetEntry();
+        if (off != null)
+            off.Value = (Vector3)off.DefaultValue;
+        switch ((DebugElement)_debugElement)
+        {
+            case DebugElement.RoundButtons:
+            {
+                ConfigEntry<float> e = CardsConfig.RestButtonDiameter(b);
+                e.Value = (float)e.DefaultValue;
+                break;
+            }
+            case DebugElement.SquareButtons:
+            {
+                ConfigEntry<float> e = CardsConfig.ConfirmUndoSize(b);
+                e.Value = (float)e.DefaultValue;
+                break;
+            }
+            case DebugElement.Board:
+            {
+                CardsConfig.BoardTilt(b).Value = (float)CardsConfig.BoardTilt(b).DefaultValue;
+                CardsConfig.BoardYaw(b).Value = (float)CardsConfig.BoardYaw(b).DefaultValue;
+                CardsConfig.BoardScale(b).Value = (float)CardsConfig.BoardScale(b).DefaultValue;
+                break;
+            }
+        }
+        VRLog.Info("Cards", $"Debug: reset {(DebugElement)_debugElement} for {b} to defaults.");
+    }
+
+    private void CopyOakToActive()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        if (b == ControlBoard.Oak)
+            return;
+        CardsConfig.RestButtonOffset(b).Value = CardsConfig.RestButtonOffset(ControlBoard.Oak).Value;
+        CardsConfig.RestButtonDiameter(b).Value = CardsConfig.RestButtonDiameter(ControlBoard.Oak).Value;
+        CardsConfig.ConfirmUndoOffset(b).Value = CardsConfig.ConfirmUndoOffset(ControlBoard.Oak).Value;
+        CardsConfig.ConfirmUndoSize(b).Value = CardsConfig.ConfirmUndoSize(ControlBoard.Oak).Value;
+        CardsConfig.SlotOverlayOffset(b).Value = CardsConfig.SlotOverlayOffset(ControlBoard.Oak).Value;
+        CardsConfig.InitiativeOffset(b).Value = CardsConfig.InitiativeOffset(ControlBoard.Oak).Value;
+        CardsConfig.BoardTilt(b).Value = CardsConfig.BoardTilt(ControlBoard.Oak).Value;
+        CardsConfig.BoardYaw(b).Value = CardsConfig.BoardYaw(ControlBoard.Oak).Value;
+        CardsConfig.BoardScale(b).Value = CardsConfig.BoardScale(ControlBoard.Oak).Value;
+        CardsConfig.BoardPosOffset(b).Value = CardsConfig.BoardPosOffset(ControlBoard.Oak).Value;
+        VRLog.Info("Cards", $"Debug: copied Oak's board tuning onto {b}.");
     }
 
     // ---- grab frame (bar + FOLLOW/PINNED pin) -------------------------------------------------
