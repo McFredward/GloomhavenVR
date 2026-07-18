@@ -132,10 +132,15 @@ namespace GloomhavenVR
                 // Re-orthogonalize s against u (guard against non-perpendicular anchors).
                 Vector3 v = Vector3.Cross(n, u).normalized;
 
+                // n = cross(u,v) points out the UNDECORATED back (verified by render):
+                // the decorated face (slots/pads) is -n, and the contract wants it
+                // toward -Z (the viewer). So map n -> +Z, which puts -n (decorated) -> -Z.
+                // (u -> +X keeps the rest zone left / buttons right; v -> +Y then follows
+                // as a proper rotation.)
                 var src = new Matrix4x4();
                 src.SetColumn(0, u); src.SetColumn(1, v); src.SetColumn(2, n); src.SetColumn(3, new Vector4(0,0,0,1));
                 var dst = new Matrix4x4();
-                dst.SetColumn(0, Vector3.right); dst.SetColumn(1, Vector3.down); dst.SetColumn(2, Vector3.back);
+                dst.SetColumn(0, Vector3.right); dst.SetColumn(1, Vector3.up); dst.SetColumn(2, Vector3.forward);
                 dst.SetColumn(3, new Vector4(0,0,0,1));
                 Quaternion rot = (dst * src.transpose).rotation;
                 inst.transform.rotation = rot;
