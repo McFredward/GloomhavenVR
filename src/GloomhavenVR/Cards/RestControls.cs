@@ -44,10 +44,11 @@ internal sealed class RestControls
         // the flat CardsConfig value below.
         float diameter = CardsConfig.RoundButtonDiameter.Value;
         float thickness = CardsConfig.RoundButtonThickness.Value;
-        // Item 2: the ShortRest/LongRest bundle anchors sit ~2 cm too far toward the board
-        // edge; nudge each built disc inward along the anchor's local +X (== the board long
-        // axis, slot0→slot1, so +X heads toward board center from the left-side rest zone)
-        // so the discs center in the Oak round notches. Oak-tuned, config-per-board.
+        // Nudge each built disc sideways along the anchor's local X so the discs center in the
+        // round rest notches. DIRECTION: +X == the board long axis (slot0→slot1), which from the
+        // left-side rest zone heads toward board CENTER (right); NEGATIVE X heads toward the board
+        // EDGE ('nach links'). The correct sign is board-dependent and uncertain, so RestButtonInsetX
+        // is a LIVE fit knob (may be negative) — see its config doc. Oak-tuned default, config-per-board.
         float insetX = CardsConfig.RestButtonInsetX.Value;
         int built = 0;
 

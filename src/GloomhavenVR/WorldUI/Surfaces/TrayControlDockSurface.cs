@@ -59,35 +59,29 @@ internal sealed class TrayControlDockSurface
     /// <summary>Live instance for the static docked-state queries (single instance per driver).</summary>
     internal static TrayControlDockSurface? Instance { get; private set; }
 
-    private readonly DockedControl _undo;
     private readonly DockedControl[] _controls;
 
     public TrayControlDockSurface()
     {
         Instance = this;
-        // Target sizes in tray-local meters (× mount lossy scale), matching the
-        // footprint the mod UNDO button occupies: 0.09×0.042.
-        _undo = new DockedControl("Undo", CardsGameApi.UndoWidget,
-            static () => PlayTray.Current?.UndoDockMount, 0.10f, 0.052f, postDropGuard: false);
-        // Item 1: the native "Kurze Rast" widget is NO LONGER docked. It docked/undocked
-        // as the game toggled its active/visible state, and the mod-drawn round short-rest
-        // disc flickered against it (shown only while undocked). The round disc is now the
-        // SOLE short-rest control (always visible, see RestControls.TickStatus), so we drop
-        // the ShortRest DockedControl entirely — ShortRestDocked is permanently false.
+        // No native controls dock on the tray any more — every turn-flow control is now the
+        // mod-drawn, depth-correct board button (Confirm/Undo on the right pads, short/long
+        // rest discs in the notches). Reasons, in order they were pulled:
         //
-        // Item 2 (test #23): the native Continue/ReadyButton is NO LONGER docked either,
-        // for the SAME reason short-rest was pulled. Docked flat on the opaque control
-        // board with no draw-on-top, its pixels never reach the headset (occluded), yet
-        // the game reports its CanvasGroup.alpha≈1 — so the alpha-based ContinueVisible
-        // check could not distinguish "docked+shown" from "docked+invisible" and the
-        // mod-drawn Confirm stayed hidden with nothing visible, while the docked host's
-        // raycaster stayed live (pressable). Dropping the Continue DockedControl makes
-        // ContinueDocked permanently false, so PlayTray always shows the mod-drawn Confirm
-        // (which fully mirrors native state/label and fires the real confirm path), and the
-        // ButtonCluster "Ready" twin (which stands down only while the native is docked)
-        // comes back. The mod Confirm is drawn-on-top and always visible — the sole
-        // always-visible confirm control.
-        _controls = new[] { _undo };
+        // - Short rest (item 1): the native "Kurze Rast" widget docked/undocked as the game
+        //   toggled its active/visible state and flickered against the mod round disc. The
+        //   round disc is now the SOLE short-rest control (RestControls.TickStatus). ShortRestDocked = false.
+        // - Continue/Ready (item 2): docked flat on the opaque board its pixels never reached
+        //   the headset (occluded) yet the game reported CanvasGroup.alpha≈1, so an alpha check
+        //   could not tell "docked+shown" from "docked+invisible" and the mod Confirm stayed
+        //   hidden with nothing visible while the docked raycaster stayed live. ContinueDocked = false.
+        // - Undo (this pass): SAME occlusion bug — the docked UndoButton read alpha≈1 while
+        //   occluded, so the mod Undo was hidden-but-pressable (invisible). The Undo DockedControl
+        //   is removed so UndoDocked is permanently false; PlayTray always shows the depth-correct
+        //   mod Undo, which appears exactly when CardsGameApi.CanUndo() (no visibility gate).
+        //
+        // With every control mod-drawn there is nothing left to dock, so the control set is empty.
+        _controls = System.Array.Empty<DockedControl>();
     }
 
     /// <summary>
@@ -101,8 +95,12 @@ internal sealed class TrayControlDockSurface
     /// <summary>Item 2: native Continue no longer docks — nothing native to render; always false.</summary>
     internal static bool ContinueVisible => false;
 
-    /// <summary>True while the REAL Undo (UndoButton) is docked on the tray.</summary>
-    internal static bool UndoDocked => Instance != null && Instance._undo.Panel != null;
+    /// <summary>
+    /// The native Undo (UndoButton) no longer docks (see the constructor) — always false.
+    /// The mod-drawn Undo is the sole always-visible undo control (docked flat on the opaque
+    /// board it read alpha≈1 yet was occluded, so it was invisible-but-pressable).
+    /// </summary>
+    internal static bool UndoDocked => false;
 
     /// <summary>Item 1: native short-rest no longer docks (see the constructor) — always false.</summary>
     internal static bool ShortRestDocked => false;

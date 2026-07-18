@@ -185,8 +185,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     internal Transform? ActiveMount => _activeMount;
 
-    /// <summary>Distance (tray-local meters) the active-card mount sits to the RIGHT of the pile mount.</summary>
-    internal const float ActiveMountOffsetX = 0.10f;
+    /// <summary>
+    /// Distance (tray-local meters) the active-card mount sits to the RIGHT of the pile mount.
+    /// Raised from 0.10 to 0.17: at 0.10 the active column crowded the discard/burn pile stacks
+    /// (worst-case pile right edge ≈ 0.408 tray-local), so this opens a clear gap between them.
+    /// </summary>
+    internal const float ActiveMountOffsetX = 0.17f;
 
     /// <summary>Stack center X in PileMount-local meters (see BuildMounts collision math).</summary>
     internal const float PileStackOffsetX = 0.05f;
@@ -264,6 +268,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>True once the bundled board's real MeshCollider is registered as a laser
     /// target (DEFECT 2) — then <see cref="BuildBoardSurface"/> skips its synthetic plane.</summary>
     private bool _boardColliderRegistered;
+
+    /// <summary>
+    /// The bundled board's real MeshCollider(s), stored in <see cref="EnsureBuilt"/> (they are
+    /// also pushed into <see cref="LaserTargets"/>). <see cref="SeatOnBoardFace"/> raycasts these
+    /// from the player side at each widget's own XY so mod-built widgets seat PROUD of the TRUE
+    /// local top surface (the raised rim/ornaments), not the flat slot-floor plane — the runtime
+    /// equivalent of BuildBoard.cs's per-anchor projection. Empty for the procedural fallback
+    /// board (no mesh), where <see cref="SeatOnBoardFace"/> falls back to the slot-plane projection.
+    /// </summary>
+    private readonly List<Collider> _boardColliders = new(2);
 
     /// <summary>The board's functional-face frame in <c>_root</c>-LOCAL space (a child's
     /// localRotation = this reproduces the same world facing the bundle slot anchors get:
@@ -416,7 +430,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 var t = mc.gameObject.GetComponent<BoardSurfaceTarget>();
                 if (t == null) t = mc.gameObject.AddComponent<BoardSurfaceTarget>();
                 RegisterLaserTarget(mc, t);
+                _boardColliders.Add(mc); // CORE FIX: SeatOnBoardFace raycasts these to seat widgets proud
                 _boardColliderRegistered = true;
+            }
+
+            // CORE FIX: seat the BUNDLE control anchors PROUD of the TRUE top surface. They were
+            // baked onto the recess FLOOR (Confirm/Undo only 0.5 mm proud of a recessed pad → buried;
+            // the rest discs sank below the notch rim). Raycast the just-registered board mesh at each
+            // anchor's own XY and re-seat it a few mm proud of the real surface so every attached
+            // element (button pads, rest discs) sits at/above rim level. Gear/follow-toggle/round-readout
+            // seat the same way through NewAnchor / BuildRoundReadout below.
+            if (_boardColliders.Count > 0)
+            {
+                Physics.SyncTransforms(); // the freshly-instantiated colliders must match their posed transforms before Collider.Raycast
+                ReseatProud(confirmAnchor, "Confirm");
+                ReseatProud(undoAnchor, "Undo");
+                ReseatProud(_shortRestAnchor, "ShortRest");
+                ReseatProud(_longRestAnchor, "LongRest");
             }
         }
 
@@ -482,8 +512,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Object.Destroy(plate.GetComponent<Collider>());
         plate.transform.SetParent(readoutGo.transform, worldPositionStays: false);
         plate.transform.localScale = new Vector3(0.13f, 0.036f, 1f);
-        plate.transform.localPosition = new Vector3(0f, 0f, 0.006f); // behind the text, in front of the board
-        Tint(plate, new Color(0.12f, 0.11f, 0.10f), overlay: true); // item 5: draw over the opaque board (RenderOnTop needs _ZTest)
+        plate.transform.localPosition = new Vector3(0f, 0f, 0.006f); // behind the text, toward the board body
+        // CORE FIX: the readout now seats PROUD of the true surface (SeatOnBoardFace raycast), so it is
+        // depth-correct — drop the RenderOnTop shine-through. Lit (Standard) plate so it shades like a
+        // real object instead of the flat unlit Overlay.
+        Tint(plate, new Color(0.12f, 0.11f, 0.10f));
 
         _roundLabel = readoutGo.AddComponent<TextMeshPro>();
         _roundLabel.text = "-";
@@ -492,16 +525,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _roundLabel.color = new Color(1f, 0.9f, 0.6f);
         // Single line fitted to the plate ("Runde 12" and longer localizations shrink).
         Core.TmpFit.Fit(_roundLabel, 0.12f, 0.028f, maxFontSize: 0.32f, wrap: false);
-
-        // Item 5: the round readout sits in the recessed plane the opaque board rim now
-        // occludes — draw the whole readout (plate + text) on top of the board. Plate at
-        // 4000, text nudged to 4001 so under ZTest Always the label always wins over its
-        // own dark plate (equal-queue draw order is otherwise undefined between them).
-        RenderOnTop(readoutGo, 4000);
-        var labelRenderer = _roundLabel.GetComponent<Renderer>();
-        if (labelRenderer != null)
-            foreach (Material m in labelRenderer.materials)
-                if (m != null) m.renderQueue = 4001;
+        // No RenderOnTop: the readout is depth-correct now (seated proud). The TMP text draws
+        // in the transparent queue after the opaque plate, and sits proud of it (text z 0 vs
+        // plate z +0.006 toward the board), so the label reads over its own dark backing plate.
     }
 
     /// <summary>Cluster dock scale: the cluster's real-meter layout shrunk onto the button strip.</summary>
@@ -510,11 +536,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>Cluster mount board-Y (collision math in <see cref="BuildMounts"/>).</summary>
     private const float ButtonClusterMountY = -0.115f;
 
+    /// <summary>
+    /// Initiative-track mount board-Y (tray-local meters). +Y = the board's BACK/far edge;
+    /// the old +0.012 past the top edge (y ≈ 0.172) OVERHUNG the far edge. Pulled FORWARD
+    /// (toward the player-front) to BoardH*0.5 − 0.06 ≈ 0.10 so the track sits just in front
+    /// of the top edge, still above the board face.
+    /// </summary>
+    private const float InitiativeMountY = BoardH * 0.5f - 0.06f;
+
     private void BuildMounts()
     {
         _initiativeMount = new GameObject("InitiativeMount").transform;
         _initiativeMount.SetParent(_root, worldPositionStays: false);
-        _initiativeMount.localPosition = new Vector3(0f, BoardH * 0.5f + 0.012f, -0.004f);
+        _initiativeMount.localPosition = new Vector3(0f, InitiativeMountY, -0.004f);
 
         _objectivesMount = new GameObject("ObjectivesMount").transform;
         _objectivesMount.SetParent(_root, worldPositionStays: false);
@@ -612,10 +646,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         // Feature 6: the ACTIVE CARDS area docks to the RIGHT of the pile stacks — the
         // only spot on that edge still free (the pile stacks' worst-case right edge is
-        // x ≈ 0.408; see the pile collision note above). ActiveMountOffsetX (0.10) pushes
-        // this mount to x = 0.34 + 0.10 = 0.44, so the active cards — laid at mount-local
+        // x ≈ 0.408; see the pile collision note above). ActiveMountOffsetX (0.17) pushes
+        // this mount to x = 0.34 + 0.17 = 0.51, so the active cards — laid at mount-local
         // x = 0 and slightly SMALLER than hand/browse cards (ActivePileViewer.CardScale
-        // ≈ 0.82 → half-width ≈ 0.026) — span x ≈ 0.414..0.466, clear of the pile column.
+        // ≈ 0.82 → half-width ≈ 0.026) — span x ≈ 0.484..0.536, a clear gap past the pile column.
         // Same left-center/grow-right convention, y and z as the pile mount so the two
         // areas sit side by side. Off-board: nothing else docks out here.
         _activeMount = new GameObject("ActiveMount").transform;
@@ -685,25 +719,25 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (_root == null)
             return;
 
+        // CORE FIX: gear + follow-toggle now seat PROUD of the true surface (NewAnchor →
+        // SeatOnBoardFace raycast) and are LIT (overlay:false → Standard base + cap), so their
+        // side walls shade and they read as solid protruding buttons. Drop the RenderOnTop
+        // shine-through — they are depth-correct and self-occlude like real buttons now.
         Transform pinAnchor = NewAnchor("FollowToggle",
             new Vector3(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.002f));
         _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow, overlay: true); // item 6: draw over the opaque board
+            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
-        RenderOnTop(_followToggle.gameObject); // item 3: keep the follow/pin toggle above the opaque board rim
 
         Transform gearAnchor = NewAnchor("SettingsGear",
             new Vector3(ButtonZoneX, -0.125f, -0.006f));
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
             new Color(0.4f, 0.42f, 0.5f), "SET",
-            () => WorldUI.SettingsPanel.RequestToggle(), overlay: true); // item 6: draw over the opaque board
+            () => WorldUI.SettingsPanel.RequestToggle());
         _gear.DwellSeconds = PokeDwellSeconds; // right column = same accident class (test #19)
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
-        // Item 3: the VR-settings gear is PRESSABLE but was invisible (collider fine,
-        // only the visual sank behind the opaque board rim) — draw it on top.
-        RenderOnTop(_gear.gameObject);
     }
 
     private void ToggleFollow()
@@ -820,6 +854,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _placementDeferLogged = false;
         _lastSlotActivity = float.NegativeInfinity;
         _boardColliderRegistered = false;
+        _boardColliders.Clear(); // mesh colliders were children of _root, destroyed with it
     }
 
     /// <summary>
@@ -1119,12 +1154,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Object.Destroy(glow.GetComponent<Collider>());
         glow.transform.SetParent(_pickField, worldPositionStays: false);
         glow.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
-        glow.transform.localPosition = new Vector3(0f, 0f, 0.0035f);
-        // Item 5: emissive gold via Overlay (additive) + _ZTest for RenderOnTop.
+        glow.transform.localPosition = new Vector3(0f, 0f, -0.006f); // PROUD of the top (toward the player)
+        // Emissive gold via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud) and NO
+        // RenderOnTop — the pick-field insert telegraph is depth-correct now, no shine-through.
         Material? glowMat = MakeGlowMaterial(new Color(1f, 0.85f, 0.3f, 0.95f));
         if (glowMat != null)
             glow.GetComponent<MeshRenderer>().sharedMaterial = glowMat;
-        RenderOnTop(glow); // item 5/7: the pick-field insert telegraph must clear the opaque board rim
         glow.SetActive(false);
         _pickFieldHighlight = glow;
 
@@ -1228,13 +1263,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             Object.Destroy(quad.GetComponent<Collider>());
             quad.transform.SetParent(slot, worldPositionStays: false);
             quad.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
-            quad.transform.localPosition = new Vector3(0f, 0f, 0.0035f); // behind card, rim past the frame
-            // Item 5: emissive gold via the Overlay shader (additive) so it reads as light
-            // ADDED over the board, and — crucially — exposes _ZTest so RenderOnTop works.
+            quad.transform.localPosition = new Vector3(0f, 0f, -0.006f); // PROUD of the top (toward the player), rim past the frame
+            // Emissive gold via the Overlay shader (additive) so it reads as light ADDED over the
+            // board. CORE FIX: moved to NEGATIVE local-Z (proud of the recess/top toward the player)
+            // and NO RenderOnTop — the glow is depth-correct now (occludes naturally, no shine-through).
             Material? mat = MakeGlowMaterial(new Color(1f, 0.85f, 0.3f, 0.95f));
             if (mat != null)
                 quad.GetComponent<MeshRenderer>().sharedMaterial = mat;
-            RenderOnTop(quad); // item 5/7: the insert telegraph must clear the opaque board rim
             quad.SetActive(false);
             _slotHighlights[i] = quad;
         }
@@ -1272,18 +1307,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             quad.name = "WantedHighlight";
             Object.Destroy(quad.GetComponent<Collider>());
             quad.transform.SetParent(slot, worldPositionStays: false);
-            // Larger rim than the snap glow (1.24×) so the teal reads AROUND the gold
-            // when both show; sits further behind the card (z 0.005) than the snap glow.
+            // Larger rim than the snap glow (1.24×) so the teal reads AROUND the gold when both
+            // show; sits a hair less proud (z -0.004) than the snap glow (-0.006) so the gold snap
+            // draws in front of the teal, preserving the old ordering.
             quad.transform.localScale = new Vector3(w * 1.36f, h * 1.36f, 1f);
-            quad.transform.localPosition = new Vector3(0f, 0f, 0.005f);
+            quad.transform.localPosition = new Vector3(0f, 0f, -0.004f); // PROUD of the top (toward the player)
             var renderer = quad.GetComponent<MeshRenderer>();
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
-            // Item 5: emissive teal via Overlay (additive) + _ZTest for RenderOnTop.
+            // Emissive teal via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud, toward the
+            // player) and NO RenderOnTop — depth-correct, no shine-through.
             Material? mat = MakeGlowMaterial(baseColor);
             if (mat != null)
                 renderer.sharedMaterial = mat;
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
-            RenderOnTop(quad); // item 5/7: the "wanted slot" pulse must clear the opaque board rim
             quad.SetActive(false);
             _wantedHighlights[i] = quad;
         }
@@ -1798,33 +1834,102 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         var t = new GameObject(name).transform;
         t.SetParent(_root, worldPositionStays: false);
-        // ITEM 2: seat proud on the functional face (see SeatOnBoardFace) so the gear /
-        // follow toggle rest ON the player-facing surface, not sunk at _root depth.
-        t.localPosition = SeatOnBoardFace(localPos);
+        // CORE FIX: seat proud on the TRUE surface (SeatOnBoardFace raycasts the board mesh at
+        // this XY) so the gear / follow toggle rest ON the player-facing surface — the raised
+        // rim included — not sunk on the flat slot-floor plane where a widget over a rim buried.
+        Vector3 seated = SeatOnBoardFace(localPos);
+        t.localPosition = seated;
         t.localRotation = _boardFaceFrame; // face the functional board face like the bundle anchors
+        VRLog.Info("Cards", $"Board: '{name}' seated proud at local-Z {seated.z * 1000f:F1} mm " +
+                            $"({(localPos.z - seated.z) * 1000f:F1} mm toward the player vs the authored plane) — depth-correct, no shine-through.");
         return t;
     }
 
+    /// <summary>Ray start standoff in front of the functional face, <c>_root</c>-local meters (mirrors BuildBoard.cs standoff 0.15).</summary>
+    private const float SeatStandoff = 0.15f;
+
+    /// <summary>How far PROUD (toward the player, −normal) of the TRUE surface a widget is seated, <c>_root</c>-local meters.</summary>
+    private const float SeatProud = 0.003f;
+
     /// <summary>
-    /// ITEM 2 depth fix: map an authored <c>_root</c>-local position onto the board's
-    /// functional-face plane (the plane the slot anchors sit in) and lift it proud toward
-    /// the viewer by <see cref="CardsConfig.SlotCardInset"/> — the same amount a slotted
-    /// card is lifted — so mod-built elements rest ON the player-facing face instead of
-    /// at raw <c>_root</c> depth (which on the bundle board is BEHIND the recessed face).
-    /// The in-plane (x/y) component is preserved; only the along-normal depth is corrected.
-    /// For the procedural board (identity frame, slots at z 0) this is simply
-    /// z → −SlotCardInset, coplanar with the seated cards.
+    /// Re-seat a bundle anchor (a child of the bundled TrayVisual, NOT a direct <c>_root</c>
+    /// child) proud of the TRUE surface: convert its world position into <c>_root</c>-local,
+    /// run it through <see cref="SeatOnBoardFace"/>, and write the seated world position back.
+    /// No-op when the anchor or the root is missing. Logged (next test-log ground truth).
+    /// </summary>
+    private void ReseatProud(Transform? anchor, string label)
+    {
+        if (anchor == null || _root == null)
+            return;
+        Vector3 before = _root.InverseTransformPoint(anchor.position);
+        Vector3 after = SeatOnBoardFace(before);
+        anchor.position = _root.TransformPoint(after);
+        VRLog.Info("Cards", $"Board: '{label}' anchor re-seated {(after - before).magnitude * 1000f:F1} mm " +
+                            $"proud of the true surface (was {before.z * 1000f:F1} mm, now {after.z * 1000f:F1} mm local-Z).");
+    }
+
+    /// <summary>
+    /// CORE FIX (depth): map an authored <c>_root</c>-local position onto the board's TRUE
+    /// local top surface at that point and lift it a few mm PROUD toward the player, so
+    /// mod-built widgets (round readout, gear, follow-toggle, re-seated Confirm/Undo/rest
+    /// anchors) rest ON the real surface — the raised rim/ornaments — instead of the flat
+    /// slot-floor plane (where widgets over a rim were buried and only shone through via
+    /// RenderOnTop). Raycasts the stored board MeshCollider(s) from the player side at the
+    /// point's OWN XY (the runtime twin of BuildBoard.cs:243-296); only the along-normal
+    /// depth is corrected, the in-plane (x/y) component is preserved.
+    ///
+    /// Fallback when the ray misses or the board has no mesh (procedural board): the previous
+    /// slot-floor-plane projection lifted by <see cref="CardsConfig.SlotCardInset"/>. For the
+    /// procedural board (identity frame, slots at z 0) that is simply z → −SlotCardInset.
     /// </summary>
     private Vector3 SeatOnBoardFace(Vector3 authoredLocal)
     {
+        // nLocal = +Z away from the viewer (INTO the board), in _root-local space; −nLocal = toward the player.
+        Vector3 nLocal = _boardFaceFrame * Vector3.forward;
+
+        if (_root != null && _boardColliders.Count > 0)
+        {
+            // Shoot from SeatStandoff in FRONT of the point (toward the player, −nLocal) straight
+            // INTO the board (+nLocal), and take the nearest hit — the true local surface at this XY.
+            // Collider.Raycast is world-space + geometric (layer-independent, non-convex OK), so build
+            // the ray in world space from _root and convert the hit back to local. Scale-correct: the
+            // segment length carries the tray lossyScale through _root.TransformPoint.
+            Vector3 startWorld = _root.TransformPoint(authoredLocal - nLocal * SeatStandoff);
+            Vector3 endWorld = _root.TransformPoint(authoredLocal + nLocal * SeatStandoff);
+            Vector3 segment = endWorld - startWorld;
+            float maxDist = segment.magnitude;
+            if (maxDist > 1e-5f)
+            {
+                var ray = new Ray(startWorld, segment / maxDist);
+                float best = float.PositiveInfinity;
+                Vector3 bestPt = default;
+                foreach (Collider c in _boardColliders)
+                {
+                    if (c == null)
+                        continue;
+                    if (c.Raycast(ray, out RaycastHit hit, maxDist) && hit.distance < best)
+                    {
+                        best = hit.distance;
+                        bestPt = hit.point;
+                    }
+                }
+                if (!float.IsInfinity(best))
+                {
+                    Vector3 hitLocal = _root.InverseTransformPoint(bestPt);
+                    // Keep the authored XY; move ONLY along the normal onto the hit surface, then proud.
+                    float depthToSurface = Vector3.Dot(hitLocal - authoredLocal, nLocal);
+                    return authoredLocal + nLocal * depthToSurface - nLocal * SeatProud;
+                }
+            }
+        }
+
+        // Fallback: slot-floor plane projection lifted by SlotCardInset (missed ray / procedural board).
         float inset = CardsConfig.SlotCardInset.Value;
-        Vector3 nLocal = _boardFaceFrame * Vector3.forward; // +Z away from the viewer, _root-local
         if (_root == null || _slots[0] == null || _slots[1] == null)
             return authoredLocal - nLocal * inset;
         Vector3 s0 = _root.InverseTransformPoint(_slots[0]!.position);
         Vector3 s1 = _root.InverseTransformPoint(_slots[1]!.position);
         Vector3 faceCenter = (s0 + s1) * 0.5f;
-        // Slide the authored point along the normal onto the slot-floor plane, then proud.
         float depthDiff = Vector3.Dot(faceCenter - authoredLocal, nLocal);
         return authoredLocal + nLocal * depthDiff - nLocal * inset;
     }
@@ -1977,6 +2082,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             var m = new Material(s) { color = color };
             m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One); // additive
             m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            // CORE FIX: the glows no longer RenderOnTop (which used to set these). Keep them
+            // as proper depth-tested transparent additive: never write depth, draw in the
+            // transparent queue after the opaque board so they occlude naturally.
+            if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
+            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             return m;
         }
         Shader? fb = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
