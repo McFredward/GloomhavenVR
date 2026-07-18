@@ -201,7 +201,15 @@ internal sealed class RayInteractor : IPickProvider
         _current.Origin = origin;
         _current.Direction = direction;
 
-        if (Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, Mask))
+        // Modal input-block (menu open): while a modal window floats
+        // (ModalFallback.WindowModalActive) or we are in ModalUI, the ray PICK must not hit
+        // non-modal targets. Board hexes, cards and tray buttons all live on physics
+        // colliders; the modal window and every registered modal surface (the WorldUI flat
+        // screen quad) are collider-less uGUI reached through the virtual-mouse path — so
+        // suppressing the physics pick leaves ONLY the menu clickable. Visuals (the ModalUI
+        // cone) are unaffected. Recomputed + logged once per frame, shared by both hands.
+        UpdateModalPickBlock();
+        if (!_modalPickBlocked && Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, Mask))
         {
             _current.HasHit = true;
             _current.HitPoint = hit.point;
@@ -265,6 +273,34 @@ internal sealed class RayInteractor : IPickProvider
     {
         Vector3 to = target - origin;
         return to.sqrMagnitude > 1e-8f && Vector3.Angle(direction, to) <= coneDegrees;
+    }
+
+    // ---- modal input-block: gate the physics pick to the menu only ---------------------
+
+    /// <summary>
+    /// True while a modal menu is open — the ray physics pick is suppressed so nothing
+    /// behind the menu (board hexes / cards / tray buttons) is pickable. Static because
+    /// it is a global mode fact shared by both hands; recomputed once per frame in
+    /// <see cref="UpdateModalPickBlock"/>. The modal window itself stays clickable through
+    /// its own uGUI (virtual-mouse) path, which this never touches.
+    /// </summary>
+    private static bool _modalPickBlocked;
+    private static int _modalPickFrame = -1;
+
+    /// <summary>Recompute the modal pick-block once per frame (shared by both hands) and log each transition.</summary>
+    private static void UpdateModalPickBlock()
+    {
+        if (Time.frameCount == _modalPickFrame)
+            return;
+        _modalPickFrame = Time.frameCount;
+        bool blocked = WorldUI.ModalFallback.WindowModalActive
+                       || VRModeStateMachine.CurrentMode == VRMode.ModalUI;
+        if (blocked == _modalPickBlocked)
+            return;
+        _modalPickBlocked = blocked;
+        Core.VRLog.Info("Hands", blocked
+            ? "Modal input-block ENGAGED — ray physics pick gated to the modal menu; non-modal board/card/tray targets ignored."
+            : "Modal input-block RELEASED — ray physics pick restored to all targets.");
     }
 
     // ---- visuals -----------------------------------------------------------------------
