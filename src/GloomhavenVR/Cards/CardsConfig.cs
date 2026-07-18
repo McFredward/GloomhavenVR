@@ -87,6 +87,9 @@ internal static class CardsConfig
     /// <summary>Steady "wanted slot" hint glow on the slot(s) the game is waiting to be filled (test #28).</summary>
     internal static ConfigEntry<bool> WantedSlotHint = null!;
 
+    /// <summary>Item 3: multiplier that scales a slotted card UP to (nearly) fill the physical slot recess.</summary>
+    internal static ConfigEntry<float> SlotCardFill = null!;
+
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
@@ -220,6 +223,15 @@ internal static class CardsConfig
             "surface facing the player. Raise it if cards still look sunken, lower it if they float. Applies to played " +
             "cards, docked action cards and the single-card pick/short-rest layouts alike. Does NOT " +
             "change the card width/height (a separate pass aligns the recess to the card).");
+        SlotCardFill = _file.Bind("Cards", "SlotCardFill", 1.45f,
+            "Item 3: how much a card laid in a board slot scales UP to fill the physical slot " +
+            "recess. Multiplies the card's in-slot size (on top of the slot frame's own 1.3x " +
+            "SlotScale). 1.0 = the pre-fix size (visibly smaller than the recess). PER-BOARD: " +
+            "raise toward the recess/card ratio of the ACTIVE control-board asset until the card " +
+            "nearly fills the recess without overflowing the rim; the default is tuned for the " +
+            "current bundled PlayTray. Applies to played cards, single-card pick candidates and " +
+            "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
+            "(that is SlotCardInset).");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", true,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
             "filled (test #28) — distinct from the transient gold snap glow that previews where a " +
