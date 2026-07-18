@@ -44,6 +44,11 @@ internal sealed class RestControls
         // the flat CardsConfig value below.
         float diameter = CardsConfig.RoundButtonDiameter.Value;
         float thickness = CardsConfig.RoundButtonThickness.Value;
+        // Item 2: the ShortRest/LongRest bundle anchors sit ~2 cm too far toward the board
+        // edge; nudge each built disc inward along the anchor's local +X (== the board long
+        // axis, slot0→slot1, so +X heads toward board center from the left-side rest zone)
+        // so the discs center in the Oak round notches. Oak-tuned, config-per-board.
+        float insetX = CardsConfig.RestButtonInsetX.Value;
         int built = 0;
 
         if (_shortButton == null && tray.ShortRestAnchor != null)
@@ -53,6 +58,7 @@ internal sealed class RestControls
                 CardsGameApi.Localize("GUI_SHORT_REST", "Short rest"),
                 () => ShortRestRequested?.Invoke(),
                 round: true, diameter: diameter, thickness: thickness);
+            _shortButton.transform.localPosition = new Vector3(insetX, 0f, 0f); // item 2 inward nudge
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
         }
@@ -63,13 +69,15 @@ internal sealed class RestControls
                 CardsGameApi.Localize("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
                 round: true, diameter: diameter, thickness: thickness);
+            _longButton.transform.localPosition = new Vector3(insetX, 0f, 0f); // item 2 inward nudge
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
         }
 
         if (built > 0)
             Core.VRLog.Info("Cards", $"RestControls: built {built} ROUND rest button(s) " +
-                $"(diameter {diameter:F3} m, thickness {thickness:F3} m) — feature 6a notch discs.");
+                $"(diameter {diameter:F3} m, thickness {thickness:F3} m, insetX {insetX:F3} m) — " +
+                "feature 6a notch discs (item 2 Oak sizing).");
     }
 
     internal void Destroy()
@@ -85,13 +93,12 @@ internal sealed class RestControls
     /// <summary>Refresh availability/selected state + short-button visibility (per frame while the tray shows).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
-        // Test #23 item 4: the REAL ShortRest widget docks on the tray (native
-        // "Kurze Rast" style) when the native-controls surface is active — hide the
-        // mod short-rest button while it holds; it reappears (with full state) when
-        // the native widget undocks. Long rest has NO discrete uGUI widget (card-fan
-        // selection + Continue), so its button STAYS mod-drawn.
-        bool shortDocked = WorldUI.Surfaces.TrayControlDockSurface.ShortRestDocked;
-        _shortButton?.SetVisible(!shortDocked);
+        // Item 1: the native "Kurze Rast" widget NO LONGER docks (it undocked/redocked as
+        // the game toggled it, flickering against this round button). The round short-rest
+        // disc is now the SOLE short-rest control and is ALWAYS shown — no dock gate, no
+        // flicker (TrayControlDockSurface.ShortRestDocked is permanently false). Long rest
+        // never had a discrete uGUI widget, so it was always mod-drawn.
+        _shortButton?.SetVisible(true);
 
         bool canShort = false, canLong = false, shortSelected = false, longSelected = false;
         if (hand != null)
@@ -101,8 +108,7 @@ internal sealed class RestControls
             shortSelected = CardsGameApi.IsShortRestSelected(hand);
             longSelected = CardsGameApi.IsLongRestSelected(hand);
         }
-        if (!shortDocked)
-            _shortButton?.SetState(canShort, accent: shortSelected);
+        _shortButton?.SetState(canShort, accent: shortSelected);
         _longButton?.SetState(canLong, accent: longSelected);
     }
 }

@@ -110,6 +110,15 @@ internal static class CardsConfig
     /// <summary>Feature 6a: thickness (real meters) of the round rest-button pressable puck.</summary>
     internal static ConfigEntry<float> RoundButtonThickness = null!;
 
+    /// <summary>Item 2 (Oak-tuned): inward local-X nudge (real meters) centering the round rest discs in the notches.</summary>
+    internal static ConfigEntry<float> RestButtonInsetX = null!;
+
+    /// <summary>Item 3 (Oak-tuned): side length (real meters) of the square Confirm/Undo buttons fitting the metal pads.</summary>
+    internal static ConfigEntry<float> ConfirmUndoSize = null!;
+
+    /// <summary>Item 3 (Oak-tuned): inward local-X nudge (real meters) centering Confirm/Undo on the metal pads.</summary>
+    internal static ConfigEntry<float> ConfirmUndoInsetX = null!;
+
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
@@ -255,19 +264,34 @@ internal static class CardsConfig
             "current bundled PlayTray. Applies to played cards, single-card pick candidates and " +
             "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
             "(that is SlotCardInset).");
-        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.05f,
-            "Feature 6a: diameter (real meters) of the ROUND short-rest / long-rest " +
-            "buttons that seat in the control board's two round rest-notches. Dial this in " +
-            "from a hardware test until the discs drop cleanly into the notches without " +
-            "overhanging the rim — NO baked notch dimension exists in code, so this is the " +
-            "fit knob. PER-BOARD: the two upcoming control boards have differently sized " +
-            "notches; this default is tuned for the current bundled PlayTray and a future " +
-            "per-board descriptor will override it (see RestControls.EnsureBuilt).");
+        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.085f,
+            "Feature 6a / item 2: diameter (real meters) of the ROUND short-rest / long-rest " +
+            "buttons that seat in the control board's two round rest-notches. Measured from an " +
+            "Oak-decorated-face render the notches are ~0.088 m across, so the default is 0.085 " +
+            "(was 0.05, too small). Dial this in from a hardware test until the discs drop cleanly " +
+            "into the notches without overhanging the rim — NO baked notch dimension exists in code, " +
+            "so this is the fit knob. PER-BOARD: the two upcoming control boards have differently " +
+            "sized notches; this default is Oak-tuned and a future per-board descriptor will override " +
+            "it (see RestControls.EnsureBuilt).");
         RoundButtonThickness = _file.Bind("Cards", "RoundButtonThickness", 0.012f,
             "Feature 6a: thickness (real meters) of the round rest-button pressable puck " +
             "along the press axis. Higher = a chunkier disc that stands prouder of the notch " +
             "floor; the puck still travels the same fixed 4 mm on press. May differ per " +
             "control board (see RoundButtonDiameter).");
+        RestButtonInsetX = _file.Bind("Cards", "RestButtonInsetX", 0.02f,
+            "Item 2 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied " +
+            "to the round short/long-rest discs so they center in the Oak board's round rest notches. " +
+            "The bundle rest anchors sit ~0.02 m too far toward the board edge (anchor X ~-0.26, notch " +
+            "center X ~-0.239), so this pulls the built disc back in. PER-BOARD: the upcoming boards " +
+            "have differently placed notches; a future per-board descriptor overrides this.");
+        ConfirmUndoSize = _file.Bind("Cards", "ConfirmUndoSize", 0.066f,
+            "Item 3 (Oak-tuned): side length (real meters) of the SQUARE Confirm/Undo buttons so they " +
+            "sit on the Oak board's two ~0.066 m metal button pads (were 0.115x0.06 / 0.09x0.042). " +
+            "PER-BOARD: differs per control board.");
+        ConfirmUndoInsetX = _file.Bind("Cards", "ConfirmUndoInsetX", 0.015f,
+            "Item 3 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied to " +
+            "Confirm/Undo so they center on the Oak metal pads (the ButtonZone anchor X ~+0.235 sits " +
+            "~0.015 m too far toward the board edge; pad center X ~+0.235... nudged in). PER-BOARD.");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", true,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
             "filled (test #28) — distinct from the transient gold snap glow that previews where a " +

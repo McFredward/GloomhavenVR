@@ -469,7 +469,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         plate.transform.SetParent(readoutGo.transform, worldPositionStays: false);
         plate.transform.localScale = new Vector3(0.13f, 0.036f, 1f);
         plate.transform.localPosition = new Vector3(0f, 0f, 0.006f); // behind the text, in front of the board
-        Tint(plate, new Color(0.12f, 0.11f, 0.10f));
+        Tint(plate, new Color(0.12f, 0.11f, 0.10f), overlay: true); // item 5: draw over the opaque board (RenderOnTop needs _ZTest)
 
         _roundLabel = readoutGo.AddComponent<TextMeshPro>();
         _roundLabel.text = "-";
@@ -661,7 +661,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Transform pinAnchor = NewAnchor("FollowToggle",
             new Vector3(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.002f));
         _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow);
+            new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow, overlay: true); // item 6: draw over the opaque board
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
         RenderOnTop(_followToggle.gameObject); // item 3: keep the follow/pin toggle above the opaque board rim
@@ -670,7 +670,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Vector3(ButtonZoneX, -0.125f, -0.006f));
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
             new Color(0.4f, 0.42f, 0.5f), "SET",
-            () => WorldUI.SettingsPanel.RequestToggle());
+            () => WorldUI.SettingsPanel.RequestToggle(), overlay: true); // item 6: draw over the opaque board
         _gear.DwellSeconds = PokeDwellSeconds; // right column = same accident class (test #19)
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
@@ -1092,13 +1092,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         glow.transform.SetParent(_pickField, worldPositionStays: false);
         glow.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
         glow.transform.localPosition = new Vector3(0f, 0f, 0.0035f);
-        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
-        if (shader != null)
-        {
-            glow.GetComponent<MeshRenderer>().sharedMaterial =
-                new Material(shader) { color = new Color(1f, 0.85f, 0.3f, 0.95f) };
-        }
-        RenderOnTop(glow); // item 7: the pick-field insert telegraph must clear the opaque board rim
+        // Item 5: emissive gold via Overlay (additive) + _ZTest for RenderOnTop.
+        Material? glowMat = MakeGlowMaterial(new Color(1f, 0.85f, 0.3f, 0.95f));
+        if (glowMat != null)
+            glow.GetComponent<MeshRenderer>().sharedMaterial = glowMat;
+        RenderOnTop(glow); // item 5/7: the pick-field insert telegraph must clear the opaque board rim
         glow.SetActive(false);
         _pickFieldHighlight = glow;
 
@@ -1203,13 +1201,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             quad.transform.SetParent(slot, worldPositionStays: false);
             quad.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
             quad.transform.localPosition = new Vector3(0f, 0f, 0.0035f); // behind card, rim past the frame
-            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
-            if (shader != null)
-            {
-                quad.GetComponent<MeshRenderer>().sharedMaterial =
-                    new Material(shader) { color = new Color(1f, 0.85f, 0.3f, 0.95f) };
-            }
-            RenderOnTop(quad); // item 7: the insert telegraph must clear the opaque board rim
+            // Item 5: emissive gold via the Overlay shader (additive) so it reads as light
+            // ADDED over the board, and — crucially — exposes _ZTest so RenderOnTop works.
+            Material? mat = MakeGlowMaterial(new Color(1f, 0.85f, 0.3f, 0.95f));
+            if (mat != null)
+                quad.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            RenderOnTop(quad); // item 5/7: the insert telegraph must clear the opaque board rim
             quad.SetActive(false);
             _slotHighlights[i] = quad;
         }
@@ -1252,12 +1249,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             quad.transform.localScale = new Vector3(w * 1.36f, h * 1.36f, 1f);
             quad.transform.localPosition = new Vector3(0f, 0f, 0.005f);
             var renderer = quad.GetComponent<MeshRenderer>();
-            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
-            if (shader != null)
-                renderer.sharedMaterial = new Material(shader) { color = baseColor };
+            // Item 5: emissive teal via Overlay (additive) + _ZTest for RenderOnTop.
+            Material? mat = MakeGlowMaterial(baseColor);
+            if (mat != null)
+                renderer.sharedMaterial = mat;
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
-            RenderOnTop(quad); // item 7: the "wanted slot" pulse must clear the opaque board rim
+            RenderOnTop(quad); // item 5/7: the "wanted slot" pulse must clear the opaque board rim
             quad.SetActive(false);
             _wantedHighlights[i] = quad;
         }
@@ -1298,10 +1296,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             if (_renderer == null || _renderer.sharedMaterial == null)
                 return;
-            // Breathe the alpha between ~0.30 and ~0.85 — a calm "waiting" pulse.
+            // Breathe between ~0.30 and ~0.85 — a calm "waiting" pulse. Item 5: the glow
+            // now uses the ADDITIVE Overlay shader (where rgb IS the emitted brightness and
+            // alpha is unused), so scale the rgb by the breath; also breathe alpha so the
+            // alpha-blended Sprites/Default fallback (Overlay absent) still pulses.
             float t = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3.2f);
+            float k = Mathf.Lerp(0.30f, 0.85f, t);
             Color c = _base;
-            c.a = Mathf.Lerp(0.30f, 0.85f, t);
+            c.r *= k;
+            c.g *= k;
+            c.b *= k;
+            c.a = k;
             _renderer.sharedMaterial.color = c;
         }
     }
@@ -1536,7 +1541,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // widget holds, its mod-drawn twin hides (they overlap) and its state mirror
         // is skipped; when it undocks (feature off / widget hidden / no tray) the mod
         // button reappears with its full state logic — never a missing control.
-        if (_confirm != null && WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked)
+        // Item 7: hide the mod Confirm ONLY when a REAL, VISIBLE native Continue replaces
+        // it. In the "all cards of all characters placed" state the native ReadyButton
+        // stays docked + interactable while the game drives its canvasGroup alpha to ~0
+        // (VR hides the 2D stack) — docked but not rendering. Gating on ContinueDocked
+        // alone hid the mod Confirm too, leaving nothing visible yet still pressable
+        // (the docked host's raycaster). Gate on docked AND visible so the mod Confirm
+        // shows whenever it is the only thing the player can actually see/press; the
+        // docked-but-invisible host's raycaster is stood down in TrayControlDockSurface.
+        if (_confirm != null
+            && WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked
+            && WorldUI.Surfaces.TrayControlDockSurface.ContinueVisible)
         {
             _confirm.SetVisible(false);
         }
@@ -1723,20 +1738,32 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Transform confirmParent = confirmAnchor != null ? confirmAnchor : NewAnchor("ConfirmButton", new Vector3(ButtonZoneX, 0.045f, -0.006f));
         Transform undoParent = undoAnchor != null ? undoAnchor : NewAnchor("UndoButton", new Vector3(ButtonZoneX, -0.06f, -0.006f));
 
-        _confirm = BoardButton.Create(confirmParent, new Vector2(0.115f, 0.06f),
+        // Item 3 (Oak-tuned): Confirm/Undo are RECTANGULAR (square) buttons resized to sit
+        // on the Oak board's two ~0.066 m metal button pads, and nudged inward along the
+        // anchor's local +X (== board long axis; the ButtonZone anchors sit on the RIGHT at
+        // +X, so board-center is -X) so they center on the pads. Config-tunable per board.
+        float side = CardsConfig.ConfirmUndoSize.Value;
+        var rectSize = new Vector2(side, side);
+        float inX = -CardsConfig.ConfirmUndoInsetX.Value; // reduce |X| toward board center
+
+        _confirm = BoardButton.Create(confirmParent, rectSize,
             new Color(0.22f, 0.52f, 0.25f), "CONFIRM",
             () => ConfirmRequested?.Invoke());
+        _confirm.transform.localPosition = new Vector3(inX, 0f, 0f); // item 3 inward nudge onto the pad
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.DwellSeconds = PokeDwellSeconds; // deliberate poke (test #19)
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
-        _undo = BoardButton.Create(undoParent, new Vector2(0.09f, 0.042f),
+        _undo = BoardButton.Create(undoParent, rectSize,
             new Color(0.45f, 0.32f, 0.2f), "UNDO",
             () => UndoRequested?.Invoke());
+        _undo.transform.localPosition = new Vector3(inX, 0f, 0f); // item 3 inward nudge onto the pad
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         _undo.DwellSeconds = PokeDwellSeconds; // same accident class as CONFIRM (test #19)
         RegisterLaserTarget(_undo.Collider!, _undo);
+        VRLog.Info("Cards", $"Board: Confirm/Undo built square {side:F3} m (item 3 Oak pads), " +
+                            $"inset {CardsConfig.ConfirmUndoInsetX.Value:F3} m inward.");
     }
 
     private Transform NewAnchor(string name, Vector3 localPos)
@@ -1835,12 +1862,80 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Core.TmpFit.Fit(tmp, width, height, maxFontSize, wrap: false);
     }
 
-    private static void Tint(GameObject go, Color color)
+    private static void Tint(GameObject go, Color color, bool overlay = false)
     {
         var renderer = go.GetComponent<MeshRenderer>();
-        Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+        // Items 5/6: board-docked HUD widgets (round-readout plate, gear/follow-toggle
+        // bodies) route to the bundled GloomhavenVR/Overlay shader, the ONLY one that
+        // exposes _ZTest — so RenderOnTop's SetInt("_ZTest", Always) actually takes and
+        // the widget draws over the now-OPAQUE board. Everything else keeps Standard so it
+        // stays normally depth-tested. Overlay missing (bundle not updated) → fall back to
+        // Standard (widget may be occluded until the new bundle ships).
+        Shader? shader = overlay ? OverlayShader() : null;
+        shader ??= Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
         if (shader != null)
             renderer.sharedMaterial = new Material(shader) { color = color };
+    }
+
+    // ---- Overlay shader (items 5/6) --------------------------------------------------
+    private static Shader? _overlayShader;
+    private static bool _overlayFoundLogged;
+    private static bool _overlayMissLogged;
+
+    /// <summary>
+    /// The bundled <c>GloomhavenVR/Overlay</c> shader (loaded from the asset bundle at
+    /// runtime): an unlit shader that — unlike <c>Sprites/Default</c> and <c>Standard</c>
+    /// — EXPOSES <c>_ZTest</c>, so <see cref="RenderOnTop"/> can force a board-HUD widget
+    /// to draw over the opaque control board (the root cause of the invisible readout /
+    /// gear / toggle / glows). Cached; re-found until present so a late bundle load still
+    /// resolves. Null when the bundle lacks it — callers fall back to Standard/Sprites and
+    /// the widget may be occluded until the new bundle ships. Logged once each way.
+    /// </summary>
+    internal static Shader? OverlayShader()
+    {
+        if (_overlayShader == null)
+            _overlayShader = Shader.Find("GloomhavenVR/Overlay");
+        if (_overlayShader != null && !_overlayFoundLogged)
+        {
+            _overlayFoundLogged = true;
+            VRLog.Info("Cards", "Overlay shader 'GloomhavenVR/Overlay' loaded — board HUD widgets " +
+                                "(round readout, gear/follow-toggle, slot glows) will draw over the opaque board.");
+        }
+        else if (_overlayShader == null && !_overlayMissLogged)
+        {
+            _overlayMissLogged = true;
+            VRLog.Warn("Cards", "Overlay shader 'GloomhavenVR/Overlay' NOT found (bundle not updated yet) — " +
+                                "board HUD widgets fall back to Standard/Sprites and may be occluded by the board.");
+        }
+        return _overlayShader;
+    }
+
+    /// <summary>An Overlay-shader material tinted <paramref name="color"/>, or null when the shader is absent.</summary>
+    private static Material? OverlayMaterial(Color color)
+    {
+        Shader? s = OverlayShader();
+        return s != null ? new Material(s) { color = color } : null;
+    }
+
+    /// <summary>
+    /// Item 5: an emissive glow material for the slot/pick insert telegraphs. Overlay with
+    /// ADDITIVE blend (_SrcBlend=One,_DstBlend=One) so the gold/teal read as light ADDED
+    /// over the board (the emissive look the code comments intend), keeping the caller's
+    /// <c>_Color</c>. Falls back to the old alpha-blended Sprites/Default when Overlay is
+    /// absent. Null only if even the fallback shader is missing.
+    /// </summary>
+    private static Material? MakeGlowMaterial(Color color)
+    {
+        Shader? s = OverlayShader();
+        if (s != null)
+        {
+            var m = new Material(s) { color = color };
+            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One); // additive
+            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            return m;
+        }
+        Shader? fb = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        return fb != null ? new Material(fb) { color = color } : null;
     }
 
     /// <summary>
@@ -1986,7 +2081,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// </summary>
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick,
-            bool round = false, float diameter = 0f, float thickness = 0.01f)
+            bool round = false, float diameter = 0f, float thickness = 0.01f,
+            bool overlay = false)
         {
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
@@ -2023,7 +2119,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
                 basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
             }
-            Tint(basePlate, new Color(0.10f, 0.09f, 0.08f));
+            // Item 5/6: board-HUD buttons (gear / follow-toggle) route their body to the
+            // Overlay shader so RenderOnTop can force it over the opaque board; CONFIRM /
+            // UNDO / rest buttons keep Standard (they stay depth-correct, no RenderOnTop).
+            Tint(basePlate, new Color(0.10f, 0.09f, 0.08f), overlay: overlay);
 
             // Native look (test #25 item 3): when a live game button has been sampled,
             // the travelling cap is an EMPTY holder carrying the game's own 9-sliced
@@ -2058,7 +2157,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             else
             {
                 // Face proud of the base plate (viewer side, -Z), just behind the label.
-                capFace = WorldUI.NativeButtonSkin.CreateFace(cap.transform, size, localZ: -0.004f, sortingOrder: 1);
+                // Item 5/6: the native 9-slice face renders through the Overlay material
+                // (a SpriteRenderer samples the sprite via _MainTex) so a board-HUD button
+                // cap (gear/toggle, RenderOnTop'd) can be forced ZTest-Always over the
+                // board. CONFIRM/UNDO get the same material but look identical (LEqual)
+                // since they are not RenderOnTop'd. Null (Overlay absent) → default sprite
+                // material, the pre-fix look.
+                capFace = WorldUI.NativeButtonSkin.CreateFace(cap.transform, size, localZ: -0.004f,
+                    sortingOrder: 1, overrideMaterial: OverlayMaterial(Color.white));
                 if (capFace == null)
                 {
                     // Procedural fallback: the original squashed grey cube cap.
@@ -2067,7 +2173,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     Object.Destroy(capCube.GetComponent<Collider>());
                     capCube.transform.SetParent(cap.transform, worldPositionStays: false);
                     capCube.transform.localScale = new Vector3(size.x, size.y, 0.008f);
-                    Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+                    // Item 5/6: board-HUD button (gear/toggle) procedural cap routes to
+                    // Overlay so RenderOnTop's _ZTest takes; others keep Standard.
+                    Shader? shader = overlay ? OverlayShader() : null;
+                    shader ??= Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
                     if (shader != null)
                     {
                         capMaterial = new Material(shader) { color = DisabledColor };
@@ -2076,11 +2185,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 }
             }
 
-            // Label parented to the (unit-scale) button root, floating just in front
-            // of the cap — a child of the non-uniformly scaled cap would distort.
+            // Item 4: the label is parented to the CAP HOLDER (which is unit scale — only
+            // its child mesh/face is non-uniformly scaled, so no distortion) so it TRAVELS
+            // WITH the cap when the button is pressed (it used to hang off the static root
+            // while only the cap sank, reading as detached). Held slightly proud of the cap
+            // face on the viewer side (-Z), above it by sortingOrder so it never clips.
             var labelGo = new GameObject("Label");
-            labelGo.transform.SetParent(go.transform, worldPositionStays: false);
-            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.010f); // viewer side (-Z)
+            labelGo.transform.SetParent(cap.transform, worldPositionStays: false);
+            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.007f); // proud of the cap face (viewer side, -Z)
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.text = fallbackLabel;
             tmp.alignment = TextAlignmentOptions.Center;

@@ -61,7 +61,6 @@ internal sealed class TrayControlDockSurface
 
     private readonly DockedControl _continue;
     private readonly DockedControl _undo;
-    private readonly DockedControl _shortRest;
     private readonly DockedControl[] _controls;
 
     public TrayControlDockSurface()
@@ -69,33 +68,53 @@ internal sealed class TrayControlDockSurface
         Instance = this;
         // Target sizes in tray-local meters (× mount lossy scale), matching the
         // footprints the mod buttons occupy: CONFIRM 0.115×0.06, UNDO 0.09×0.042.
-        // Test #24 item 3: the native "Kurze Rast" widget is a wide, short bar
-        // (~335×30 px) — the fit binds on WIDTH, so the target width sets its size.
-        // Fill the widened 0.14 rest plate's button footprint (0.115×0.04) with a
-        // little vertical headroom so it reads comfortably, not tiny.
         _continue = new DockedControl("Continue", CardsGameApi.ReadyWidget,
             static () => PlayTray.Current?.ContinueMount, 0.12f, 0.062f, postDropGuard: true);
         _undo = new DockedControl("Undo", CardsGameApi.UndoWidget,
             static () => PlayTray.Current?.UndoDockMount, 0.10f, 0.052f, postDropGuard: false);
-        // Test #25 item 1a: the native "Kurze Rast" bar is the ONLY control the player
-        // wants (no mod-drawn fallback flicker), and it should read comfortably BIGGER —
-        // width bumped 0.13→0.16 (the bar is width-bound, ~335x30 px, so a wider target
-        // scales the whole widget up). It also holds its dock through transient hides
-        // (holdOnTransientNull) so it never rapid-cycles against the mod button.
-        _shortRest = new DockedControl("ShortRest", CardsGameApi.ShortRestWidget,
-            static () => PlayTray.Current?.ShortRestAnchor, 0.16f, 0.055f, postDropGuard: false,
-            holdOnTransientNull: true);
-        _controls = new[] { _continue, _undo, _shortRest };
+        // Item 1: the native "Kurze Rast" widget is NO LONGER docked. It docked/undocked
+        // as the game toggled its active/visible state, and the mod-drawn round short-rest
+        // disc flickered against it (shown only while undocked). The round disc is now the
+        // SOLE short-rest control (always visible, see RestControls.TickStatus), so we drop
+        // the ShortRest DockedControl entirely — ShortRestDocked is permanently false.
+        _controls = new[] { _continue, _undo };
     }
 
     /// <summary>True while the REAL Continue/Confirm (ReadyButton) is docked on the tray.</summary>
     internal static bool ContinueDocked => Instance != null && Instance._continue.Panel != null;
 
+    /// <summary>
+    /// Item 7: true only while the docked Continue is not just present but actually
+    /// RENDERING (its CanvasGroup alpha &gt; 0). In the "all cards of all characters
+    /// placed" state the native ReadyButton stays docked + interactable while the game
+    /// drives its canvasGroup alpha to ~0 (VR hides the 2D stack) — a docked-but-invisible
+    /// click-catcher. The mod-drawn Confirm must reappear then, so <see cref="PlayTray"/>
+    /// gates its own suppression on this, not on <see cref="ContinueDocked"/> alone.
+    /// </summary>
+    internal static bool ContinueVisible =>
+        Instance != null && Instance._continue.Panel != null && HostRendering(Instance._continue.Panel);
+
     /// <summary>True while the REAL Undo (UndoButton) is docked on the tray.</summary>
     internal static bool UndoDocked => Instance != null && Instance._undo.Panel != null;
 
-    /// <summary>True while the REAL short-rest (ShortRest) widget is docked on the tray.</summary>
-    internal static bool ShortRestDocked => Instance != null && Instance._shortRest.Panel != null;
+    /// <summary>Item 1: native short-rest no longer docks (see the constructor) — always false.</summary>
+    internal static bool ShortRestDocked => false;
+
+    /// <summary>
+    /// Item 7: is the converted widget behind <paramref name="panel"/> actually rendering?
+    /// The ReadyButton (and the other docked HUD widgets) carry their own
+    /// <see cref="CanvasGroup"/>; the game drives its alpha to 0 to hide the control while
+    /// leaving it active/interactable. A docked host whose widget alpha is ~0 is an
+    /// invisible click-catcher — its raycaster is stood down (see <see cref="Place"/>) and,
+    /// for Continue, the mod-drawn twin takes over. No CanvasGroup = treat as visible.
+    /// </summary>
+    private static bool HostRendering(ConvertedPanel panel)
+    {
+        if (panel.Target == null)
+            return false;
+        var cg = panel.Target.GetComponent<CanvasGroup>();
+        return cg == null || cg.alpha > 0.01f;
+    }
 
     /// <summary>
     /// Feature gate: config on, conversion live, in a scenario, a control board
@@ -212,14 +231,20 @@ internal sealed class TrayControlDockSurface
             host.localScale = Vector3.one * (metersPerPx * mount.lossyScale.x);
         }
 
-        // Test #19 accident guard on the docked Continue button: while the post-drop
-        // suppression window runs (a card was just dropped/plucked near the slots),
-        // AND while the game UI is locked, the host must not accept a click. Other
-        // controls follow the plain lock mirror (CanvasConversion re-applies it).
-        if (ctl.PostDropGuard && panel.HostRaycaster != null)
+        // Item 7: a docked host must never accept a click while its widget is not
+        // rendering — the native ReadyButton can sit docked + interactable with its
+        // canvasGroup alpha at ~0 (VR hides the 2D stack in the "all cards placed"
+        // state), an invisible click-catcher. Stand the raycaster down whenever the
+        // widget is not visibly rendering, so a docked collider never outlives its
+        // renderer. Test #19 accident guard (post-drop CONFIRM suppression) AND the
+        // mirrored UI lock also stand the Continue raycaster down.
+        if (panel.HostRaycaster != null)
         {
-            bool allow = !CanvasConversion.IsLockedNow
-                         && (PlayTray.Current == null || PlayTray.Current.ConfirmGuardRemaining() <= 0f);
+            bool allow = HostRendering(panel)
+                         && !CanvasConversion.IsLockedNow
+                         && (!ctl.PostDropGuard
+                             || PlayTray.Current == null
+                             || PlayTray.Current.ConfirmGuardRemaining() <= 0f);
             if (panel.HostRaycaster.enabled != allow)
                 panel.HostRaycaster.enabled = allow;
         }

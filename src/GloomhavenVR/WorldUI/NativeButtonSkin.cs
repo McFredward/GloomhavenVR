@@ -89,8 +89,16 @@ internal static class NativeButtonSkin
     /// Returns null when no native sprite has been sampled yet, so the caller falls
     /// back to its procedural cap. <paramref name="localZ"/> places the face on the
     /// viewer side; <paramref name="sortingOrder"/> lifts it above the backing plate.
+    /// <paramref name="overrideMaterial"/> (item 5/6): when non-null the face renders
+    /// through it instead of the default Sprites/Default sprite material — the tray
+    /// passes the bundled <c>GloomhavenVR/Overlay</c> material (which samples the
+    /// sprite through <c>_MainTex</c> and exposes <c>_ZTest</c>) so a board-HUD button
+    /// cap (gear / follow-toggle) can be forced ZTest-Always by RenderOnTop and draw
+    /// over the opaque board; CONFIRM/UNDO pass it too but look identical (default
+    /// ZTest LEqual) until they are RenderOnTop'd (they are not).
     /// </summary>
-    internal static SpriteRenderer? CreateFace(Transform parent, Vector2 size, float localZ, int sortingOrder)
+    internal static SpriteRenderer? CreateFace(Transform parent, Vector2 size, float localZ, int sortingOrder,
+        Material? overrideMaterial = null)
     {
         if (!HasSprite)
             return null;
@@ -103,6 +111,8 @@ internal static class NativeButtonSkin
         sr.size = size;
         sr.color = Color.white;
         sr.sortingOrder = sortingOrder;
+        if (overrideMaterial != null)
+            sr.sharedMaterial = overrideMaterial;
         return sr;
     }
 
