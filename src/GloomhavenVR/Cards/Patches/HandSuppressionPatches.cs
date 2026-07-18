@@ -104,12 +104,33 @@ internal static class HandSuppression
 {
     private static bool _armed;
     private static bool _lifted;
+    private static int _burnCount;
 
     /// <summary>Master switch, owned by CardsModule (true while VR/dev cards run).</summary>
     internal static bool Active { get; set; }
 
     /// <summary>Called from Show postfixes: a scenario hand exists, start enforcing.</summary>
     internal static void Arm() => _armed = true;
+
+    /// <summary>
+    /// True while at least one card burn/lose/discard animation is playing (ref-counted
+    /// from <see cref="BurnCardFx"/>, one registration per burning card). ITEM 2: the flat
+    /// 2D burn dissolve/flame is the game's screen-space uGUI on its hand canvas; the burn
+    /// -confirm dialog below normally LIFTS suppression, un-hiding that canvas, and
+    /// <c>FlatScreen</c> then mirrors the burning card into the VR modal quad. While a burn
+    /// is active we keep the lift DOWN so nothing composites onto FlatScreen — the
+    /// world-space smoke plume (bounded by <see cref="BurnCardFx"/>) still signals the burn.
+    /// </summary>
+    internal static bool BurnActive => _burnCount > 0;
+
+    /// <summary>Register/unregister a live burn animation (balanced by BurnCardFx).</summary>
+    internal static void BeginBurn() => _burnCount++;
+
+    internal static void EndBurn()
+    {
+        if (_burnCount > 0)
+            _burnCount--;
+    }
 
     /// <summary>
     /// Enforce alpha-0 on the hand window each frame; lift while a game dialog lives
@@ -142,9 +163,14 @@ internal static class HandSuppression
         // Dialog rescue: PerformShortRest / lose-card flows re-parent the popup under
         // CardsHandManager.transform. If it ends up inside the window subtree, keep
         // the window visible while the dialog is open.
+        // ITEM 2: while a burn animation plays, do NOT lift — otherwise the game's flat
+        // screen-space burning card leaks onto the FlatScreen modal mirror. The confirm
+        // itself happens BEFORE the burn effect starts, so the dialog is still visible
+        // when the player commits; only the post-confirm burn stays flat-suppressed.
         bool lift = false;
         UIManager uiManager = UIManager.Instance;
-        if (uiManager != null && uiManager.dialogPopup != null && uiManager.dialogPopup.IsOpen()
+        if (!BurnActive
+            && uiManager != null && uiManager.dialogPopup != null && uiManager.dialogPopup.IsOpen()
             && uiManager.dialogPopup.transform.IsChildOf(window.transform))
         {
             lift = true;
@@ -178,6 +204,7 @@ internal static class HandSuppression
     internal static void Restore()
     {
         _lifted = false;
+        _burnCount = 0;
         if (!_armed)
             return;
         _armed = false;

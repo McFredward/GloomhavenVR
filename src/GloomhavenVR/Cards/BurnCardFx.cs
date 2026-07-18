@@ -64,8 +64,19 @@ internal sealed class BurnCardFx
         {
             _effectActive = active;
             if (active)
+            {
+                // ITEM 2: hold the game's flat screen-space hand/card down for the whole
+                // burn so the 2D dissolve/flame can't leak onto the FlatScreen modal
+                // mirror (see HandSuppression.BurnActive). The world-space smoke plume
+                // bounded below still plays in VR to signal the burn.
+                Patches.HandSuppression.BeginBurn();
                 VRLog.Info("Cards", "Burn/ghost effect playing ON the dock card at world " +
                                     $"{cardTransform.position} (card mesh, not a fullscreen flat).");
+            }
+            else
+            {
+                Patches.HandSuppression.EndBurn();
+            }
         }
 
         ParticleSystem? smoke = effects != null ? effects._smokeEffect : null;
@@ -81,7 +92,11 @@ internal sealed class BurnCardFx
     /// <summary>Restore the tracked instance and drop it (disable/destroy/hot reload).</summary>
     internal void Detach()
     {
-        _effectActive = false;
+        if (_effectActive)
+        {
+            _effectActive = false;
+            Patches.HandSuppression.EndBurn(); // balance the BeginBurn from Tick
+        }
         RestoreBound();
     }
 
