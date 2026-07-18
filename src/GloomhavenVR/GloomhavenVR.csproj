@@ -63,4 +63,33 @@
     <Error Condition="!Exists('$(RepoRoot)libs\RuntimeDeps\Unity.XR.OpenXR.dll')"
            Text="libs/RuntimeDeps is not populated — run scripts/build-runtimedeps.sh first (see libs/RuntimeDeps/README.md)." />
   </Target>
+
+  <!-- Stamp the git commit + build time INTO the DLL so the running build is identifiable
+       from the log (no more "did I test the right version?"). Regenerated every build. -->
+  <Target Name="GenerateBuildInfo" BeforeTargets="BeforeCompile;CoreCompile">
+    <Exec Command="git rev-parse --short=9 HEAD" ConsoleToMSBuild="true" ContinueOnError="true"
+          WorkingDirectory="$(MSBuildProjectDirectory)" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitHash" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitExit" />
+    </Exec>
+    <Exec Command="git status --porcelain --untracked-files=no" ConsoleToMSBuild="true" ContinueOnError="true"
+          WorkingDirectory="$(MSBuildProjectDirectory)" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitDirty" />
+    </Exec>
+    <PropertyGroup>
+      <_GitHash Condition="'$(_GitExit)' != '0' or '$(_GitHash)' == ''">unknown</_GitHash>
+      <_GitHash Condition="'$(_GitDirty)' != ''">$(_GitHash)-dirty</_GitHash>
+      <_BuildTime>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss'))</_BuildTime>
+      <_BuildInfoFile>$(IntermediateOutputPath)BuildInfo.g.cs</_BuildInfoFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_L Include="namespace GloomhavenVR { internal static class BuildInfo {" />
+      <_L Include="public const string GitHash = &quot;$(_GitHash)&quot;%3B" />
+      <_L Include="public const string BuildTimeUtc = &quot;$(_BuildTime) UTC&quot;%3B } }" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_BuildInfoFile)" Lines="@(_L)" Overwrite="true" WriteOnlyWhenDifferent="false" />
+    <ItemGroup>
+      <Compile Include="$(_BuildInfoFile)" />
+    </ItemGroup>
+  </Target>
 </Project>

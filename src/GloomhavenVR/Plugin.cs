@@ -315,7 +315,8 @@ public class Plugin : BaseUnityPlugin
     }
 
     private void LogStartupSummary() =>
-        VRLog.Info($"v{MyPluginInfo.PLUGIN_VERSION} loaded — {_modules.Count} modules initialized, " +
+        VRLog.Info($"v{MyPluginInfo.PLUGIN_VERSION} build {BuildInfo.GitHash} ({BuildInfo.BuildTimeUtc}) loaded — " +
+                   $"{_modules.Count} modules initialized, " +
                    $"VR {(VRSession.IsRunning ? $"RUNNING on '{VRSession.RuntimeName}'" : "not running")}.");
 
     /// <summary>
