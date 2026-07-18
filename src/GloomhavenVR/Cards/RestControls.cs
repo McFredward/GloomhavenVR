@@ -34,22 +34,42 @@ internal sealed class RestControls
 
     internal void EnsureBuilt(PlayTray tray)
     {
+        // Feature 6a: the rest controls are ROUND discs that drop into the board's two
+        // round rest-notches ("kurze/lange Rast" einkerbungen). Diameter/thickness are
+        // config-tunable so the fit can be dialed in from a hardware test without a
+        // recompile (no baked notch dimension exists in code).
+        // PER-BOARD SEAM: two more control boards are coming with differently sized
+        // notches. When a per-board descriptor lands, resolve diameter/thickness from it
+        // here (e.g. tray.BoardDescriptor?.RestNotchDiameter ?? config default) instead of
+        // the flat CardsConfig value below.
+        float diameter = CardsConfig.RoundButtonDiameter.Value;
+        float thickness = CardsConfig.RoundButtonThickness.Value;
+        int built = 0;
+
         if (_shortButton == null && tray.ShortRestAnchor != null)
         {
             _shortButton = PlayTray.BoardButton.Create(tray.ShortRestAnchor, RestButtonSize,
                 new Color(0.72f, 0.6f, 0.28f), // warm gold accent when selected
                 CardsGameApi.Localize("GUI_SHORT_REST", "Short rest"),
-                () => ShortRestRequested?.Invoke());
+                () => ShortRestRequested?.Invoke(),
+                round: true, diameter: diameter, thickness: thickness);
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
+            built++;
         }
         if (_longButton == null && tray.LongRestAnchor != null)
         {
             _longButton = PlayTray.BoardButton.Create(tray.LongRestAnchor, RestButtonSize,
                 new Color(0.4f, 0.55f, 0.85f), // cool blue accent when selected
                 CardsGameApi.Localize("GUI_LONG_REST", "Long rest"),
-                () => LongRestRequested?.Invoke());
+                () => LongRestRequested?.Invoke(),
+                round: true, diameter: diameter, thickness: thickness);
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
+            built++;
         }
+
+        if (built > 0)
+            Core.VRLog.Info("Cards", $"RestControls: built {built} ROUND rest button(s) " +
+                $"(diameter {diameter:F3} m, thickness {thickness:F3} m) — feature 6a notch discs.");
     }
 
     internal void Destroy()

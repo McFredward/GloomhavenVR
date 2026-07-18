@@ -90,6 +90,12 @@ internal static class CardsConfig
     /// <summary>Item 3: multiplier that scales a slotted card UP to (nearly) fill the physical slot recess.</summary>
     internal static ConfigEntry<float> SlotCardFill = null!;
 
+    /// <summary>Feature 6a: diameter (real meters) of the ROUND rest-notch buttons (short/long rest discs).</summary>
+    internal static ConfigEntry<float> RoundButtonDiameter = null!;
+
+    /// <summary>Feature 6a: thickness (real meters) of the round rest-button pressable puck.</summary>
+    internal static ConfigEntry<float> RoundButtonThickness = null!;
+
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
@@ -232,6 +238,19 @@ internal static class CardsConfig
             "current bundled PlayTray. Applies to played cards, single-card pick candidates and " +
             "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
             "(that is SlotCardInset).");
+        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.05f,
+            "Feature 6a: diameter (real meters) of the ROUND short-rest / long-rest " +
+            "buttons that seat in the control board's two round rest-notches. Dial this in " +
+            "from a hardware test until the discs drop cleanly into the notches without " +
+            "overhanging the rim — NO baked notch dimension exists in code, so this is the " +
+            "fit knob. PER-BOARD: the two upcoming control boards have differently sized " +
+            "notches; this default is tuned for the current bundled PlayTray and a future " +
+            "per-board descriptor will override it (see RestControls.EnsureBuilt).");
+        RoundButtonThickness = _file.Bind("Cards", "RoundButtonThickness", 0.012f,
+            "Feature 6a: thickness (real meters) of the round rest-button pressable puck " +
+            "along the press axis. Higher = a chunkier disc that stands prouder of the notch " +
+            "floor; the puck still travels the same fixed 4 mm on press. May differ per " +
+            "control board (see RoundButtonDiameter).");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", true,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
             "filled (test #28) — distinct from the transient gold snap glow that previews where a " +
