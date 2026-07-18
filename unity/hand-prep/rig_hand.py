@@ -48,7 +48,11 @@ from mathutils import Vector, Matrix
 from mathutils.kdtree import KDTree
 
 SRC = "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb"
-OUT_DIR = "/home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Assets/Bundle/Hands"
+# OUT_DIR: overridable via env so this can target an isolated worktree without
+# touching the main checkout. Default remains the main checkout (unchanged behaviour).
+OUT_DIR = os.environ.get(
+    "RIG_HAND_OUT_DIR",
+    "/home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Assets/Bundle/Hands")
 NEG_Y = Vector((0.0, -1.0, 0.0))  # palm-out / flexion reference
 
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
@@ -143,11 +147,41 @@ def build_armature(joints, wrist, palm, grab, indextip, name):
             connect = True                          # Mid/Tip connect to their parent
             finger_bones.append(b.name)
 
-    # Finger/thumb roll: local +Z -> -Y  =>  local +X = flexion axis, +X curls into palm.
-    # (align_roll sets local +Z toward the target; secondary_bone_axis='X' at export
-    #  then preserves this local +X as the Unity node's +X — the axis the mod rotates.)
+    # Finger/thumb roll.
+    #
+    # FINGERS (Index/Middle/Ring/Pinky): local +Z -> -Y  =>  local +X = flexion axis and
+    #   +X curls the tip straight into the palm (-Y). This is exact (every finger bone lies
+    #   in the world X-Z plane) and is render- + numerically-verified in Unity (a +local-X
+    #   rotation moves each fingertip purely toward -Y with zero X drift). UNCHANGED.
+    #
+    # THUMB (P2 tuck fix): the thumb mesh is a straight T-pose digit pointing out to the
+    #   side (-X for the left hand). With the plain -Y roll, +local-X flexion just drops the
+    #   thumb straight DOWN its own splayed axis, so on a fist it stays out to the side
+    #   instead of folding across the palm. We instead roll the thumb so its flexion axis
+    #   (local +X) is the world direction FLEX_XD — a 45deg blend of "across the palm"
+    #   (+Y = palm normal, sweeps the tip in the palm plane toward the fingers) and "down"
+    #   (+X, the finger flexion axis). A +local-X rotation then carries the thumb tip both
+    #   ACROSS toward the palm centre and DOWN, i.e. it tucks. FLEX_XD mirrors in X for the
+    #   right hand so L/R stay mirror images. To make the bone's local +X equal a desired
+    #   world axis Xd (given the bone's Y = head->tail direction), align_roll must aim local
+    #   +Z at Xd x boneDir (since Blender sets local +X = boneY x boneZ).
+    side = name[-1]
+    thumb_xd = Vector((1.0, 1.0, 0.0)).normalized()
+    if side == 'R':
+        # The flexion axis is a rotation axis (pseudovector): reflecting the rig across
+        # the X-plane (the L->R mirror) negates its Y,Z and keeps X, so the same +local-X
+        # rotation the mod applies produces the mirror-image tuck on the right hand.
+        thumb_xd = Vector((thumb_xd.x, -thumb_xd.y, -thumb_xd.z))
     for name_ in finger_bones:
-        eb[name_].align_roll(NEG_Y)
+        b = eb[name_]
+        if name_.startswith("Anchor_Thumb_"):
+            bdir = (b.tail - b.head).normalized()
+            z_target = thumb_xd.cross(bdir)
+            if z_target.length < 1e-6:
+                z_target = NEG_Y
+            b.align_roll(z_target.normalized())
+        else:
+            b.align_roll(NEG_Y)
 
     # ----- Anchor bones (non-deforming) -----
     # Kept as BONES (not empties) so they ride the SAME export/axis pipeline as the
@@ -394,6 +428,18 @@ def export_fbx(path, mesh, arm):
         axis_forward='-Z',
         axis_up='Y',
         bake_space_transform=True,
+        # PRIORITY-1 FIX (armature 100x): Blender's FBX exporter, with the default
+        # apply_scale_options='FBX_SCALE_NONE', emits the ARMATURE null with
+        # Lcl Scaling = 100 (a cm->m leftover) while leaving bone translations in
+        # metres. Unity then imports that 100x onto the whole bone chain, so every
+        # Anchor_* ends up with lossyScale == WorldScale*100 — which breaks the mod's
+        # palm-anchored card fan and corrupts the skinned bounds. 'FBX_SCALE_ALL'
+        # keeps every object transform at scale 1 and pushes the unit conversion into
+        # the FBX global UnitScaleFactor (=100 / cm) instead; Unity's useFileScale=true
+        # then bakes that 0.01 into the geometry, yielding clean scale-1 transforms and
+        # a real-world ~0.19 m hand. Mesh/bone orientation and rolls are unchanged
+        # (bake_space_transform stays on), so the rig contract is preserved.
+        apply_scale_options='FBX_SCALE_ALL',
         path_mode='COPY',
         embed_textures=True,
         mesh_smooth_type='FACE',
