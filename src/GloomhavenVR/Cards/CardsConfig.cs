@@ -27,6 +27,19 @@ internal enum ControlBoard
 }
 
 /// <summary>
+/// Cap shape of a control-board button group (in-VR debug menu, per board). Round = the
+/// flattened-cylinder puck that drops into a round notch (today's Rest look); Square = the
+/// boxy 3D keycap (today's Confirm/Undo look). Selectable per group so a board with square
+/// rest pads or round confirm buttons can match its art. Drives which cap
+/// <see cref="PlayTray.BoardButton.Create"/> builds (round vs boxy) instead of hardcoding it.
+/// </summary>
+internal enum ButtonShape
+{
+    Round,
+    Square,
+}
+
+/// <summary>
 /// Phase-3b config. Plugin.cs is frozen shared surface, so the Cards module binds its
 /// own ConfigFile (<c>BepInEx/config/dev.gloomhavenvr.cards.cfg</c>) instead of adding
 /// entries to the main plugin config.
@@ -148,6 +161,22 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _boardYaw = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _boardPosOffset = new ConfigEntry<Vector3>[3];
+
+    // ---- Per-board GROUP spacing + SHAPE + Active/Piles tuning (in-VR debug menu, round 2) ----
+    // Every group's inter-element GAP is now dial-able (rest disc gap, confirm/undo gap, the two
+    // pile stacks' gap, the active grid col/row step), each button GROUP carries a per-board SHAPE
+    // (Round/Square), and the Active area + the Discard/Burn piles have their own per-board
+    // offset/scale. All seeded so the current look is unchanged until tuned.
+    private static readonly ConfigEntry<float>[] _restButtonSpacing = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _genericButtonSpacing = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<ButtonShape>[] _restButtonShape = new ConfigEntry<ButtonShape>[3];
+    private static readonly ConfigEntry<ButtonShape>[] _genericButtonShape = new ConfigEntry<ButtonShape>[3];
+    private static readonly ConfigEntry<Vector3>[] _activeOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _activeCardScale = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector2>[] _activeGridSpacing = new ConfigEntry<Vector2>[3];
+    private static readonly ConfigEntry<Vector3>[] _pileOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _pileScale = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _pileSpacing = new ConfigEntry<float>[3];
 
     // ---- Demeo-parity fan/grab tuning (test #22 blueprint DEMEO-HANDS-CARDS.md) ----
 
@@ -388,6 +417,38 @@ internal static class CardsConfig
             _boardPosOffset[i] = _file.Bind("Cards", $"BoardPosOffset_{board}", Vector3.zero,
                 $"[{board}] board position offset ADDED on top of the tray head-relative offset, real " +
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
+
+            // Round-2 group spacing + shape + Active/Piles (all seeded so today's look is unchanged).
+            _restButtonSpacing[i] = _file.Bind("Cards", $"RestButtonSpacing_{board}", 0f,
+                $"[{board}] EXTRA gap (board-local meters) ADDED between the short/long REST buttons " +
+                "along the board's short axis — the short (upper) disc moves +½, the long (lower) −½. " +
+                "Seeded 0 (the bundle anchors already space them; positive spreads them apart).");
+            _genericButtonSpacing[i] = _file.Bind("Cards", $"GenericButtonSpacing_{board}", 0f,
+                $"[{board}] EXTRA gap (board-local meters) ADDED between the GENERIC Confirm/Undo buttons " +
+                "along the board's short axis — Confirm (upper) +½, Undo (lower) −½. Seeded 0.");
+            _restButtonShape[i] = _file.Bind("Cards", $"RestButtonShape_{board}", ButtonShape.Round,
+                $"[{board}] cap SHAPE of the REST button group (short/long rest). Round = notch discs " +
+                "(today's look); Square = boxy keycaps. Seeded Round.");
+            _genericButtonShape[i] = _file.Bind("Cards", $"GenericButtonShape_{board}", ButtonShape.Square,
+                $"[{board}] cap SHAPE of the GENERIC button group (Confirm/Undo/etc). Square = boxy keycaps " +
+                "(today's look); Round = notch discs. Seeded Square.");
+            _activeOffset[i] = _file.Bind("Cards", $"ActiveOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the ACTIVE-cards mount local position (on top of the fixed base " +
+                "just past the pile stacks), board-local meters. Seeded 0 (Oak).");
+            _activeCardScale[i] = _file.Bind("Cards", $"ActiveCardScale_{board}", 0.82f,
+                $"[{board}] scale of the ACTIVE-cards column (× card size). Seeded 0.82 — slightly smaller " +
+                "than the hand/browse fan.");
+            _activeGridSpacing[i] = _file.Bind("Cards", $"ActiveGridSpacing_{board}", new Vector2(1.06f, 0.7f),
+                $"[{board}] ACTIVE-cards grid step FACTORS: X = column step (× scaled card width), Y = row " +
+                "step (× scaled card height). Seeded (1.06, 0.70).");
+            _pileOffset[i] = _file.Bind("Cards", $"PileOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the discard/burn PILE mount local position (on top of the fixed " +
+                "right-edge base), board-local meters. Seeded 0 (Oak).");
+            _pileScale[i] = _file.Bind("Cards", $"PileScale_{board}", 1f,
+                $"[{board}] size MULTIPLIER of the two discard/burn pile stacks. Seeded 1 (Oak).");
+            _pileSpacing[i] = _file.Bind("Cards", $"PileSpacing_{board}", PlayTray.PileStackSpacing,
+                $"[{board}] vertical gap (board-local meters) between the discard (upper) and burn (lower) " +
+                "pile stack centers. Seeded 0.116 (Oak).");
         }
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
@@ -476,4 +537,16 @@ internal static class CardsConfig
     internal static ConfigEntry<float> BoardYaw(ControlBoard b) => _boardYaw[(int)b];
     internal static ConfigEntry<float> BoardScale(ControlBoard b) => _boardScale[(int)b];
     internal static ConfigEntry<Vector3> BoardPosOffset(ControlBoard b) => _boardPosOffset[(int)b];
+
+    // ---- Round-2 group spacing / shape / Active / Piles resolvers ----
+    internal static ConfigEntry<float> RestButtonSpacing(ControlBoard b) => _restButtonSpacing[(int)b];
+    internal static ConfigEntry<float> GenericButtonSpacing(ControlBoard b) => _genericButtonSpacing[(int)b];
+    internal static ConfigEntry<ButtonShape> RestButtonShape(ControlBoard b) => _restButtonShape[(int)b];
+    internal static ConfigEntry<ButtonShape> GenericButtonShape(ControlBoard b) => _genericButtonShape[(int)b];
+    internal static ConfigEntry<Vector3> ActiveOffset(ControlBoard b) => _activeOffset[(int)b];
+    internal static ConfigEntry<float> ActiveCardScale(ControlBoard b) => _activeCardScale[(int)b];
+    internal static ConfigEntry<Vector2> ActiveGridSpacing(ControlBoard b) => _activeGridSpacing[(int)b];
+    internal static ConfigEntry<Vector3> PileOffset(ControlBoard b) => _pileOffset[(int)b];
+    internal static ConfigEntry<float> PileScale(ControlBoard b) => _pileScale[(int)b];
+    internal static ConfigEntry<float> PileSpacing(ControlBoard b) => _pileSpacing[(int)b];
 }

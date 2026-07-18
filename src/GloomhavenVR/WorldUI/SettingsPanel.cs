@@ -80,8 +80,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
 
     // ---- Debug — Board tuning (Part E) ---------------------------------------------------
-    /// <summary>Which board-attached element the debug X/Y/Z/Size steppers currently drive.</summary>
-    private enum DebugElement { RoundButtons, SquareButtons, Overlays, Initiative, Board }
+    /// <summary>Which board-attached element the debug X/Y/Z/Size/Spacing/Shape steppers currently drive.</summary>
+    private enum DebugElement { Rest, Generic, Overlays, Initiative, Active, Piles, Board }
+    private const int DebugElementCount = 7;
     private int _debugElement;
     private readonly List<GameObject> _debugRows = new(8);
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -628,24 +629,46 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
 
-        // Element cycle.
+        // Element cycle (Rest, Generic, Overlays, Initiative, Active, Piles, Board).
         var elemRow = Row();
         _debugRows.Add(elemRow.gameObject);
         Label(elemRow, "Element", 16f, flexible: true);
         CycleButton(elemRow, 130f,
             () => ((DebugElement)_debugElement).ToString(),
-            () => _debugElement = (_debugElement + 1) % 5);
+            () => _debugElement = (_debugElement + 1) % DebugElementCount);
 
         // X / Y / Z offset steppers (mm), each drives the selected element's active-board offset.
         AddOffsetStepper("X", 0);
         AddOffsetStepper("Y", 1);
         AddOffsetStepper("Z (proud)", 2);
 
-        // Size / Scale stepper (rest diameter / confirm-undo side in mm; BoardScale as ×).
+        // Size / Scale stepper — hidden for elements with no size (Overlays, Initiative).
         var sizeRow = Row();
         _debugRows.Add(sizeRow.gameObject);
+        GameObject sizeGo = sizeRow.gameObject;
         Label(sizeRow, "Size", 16f, flexible: true);
         MiniStepper(sizeRow, FormatSize, StepSize);
+
+        // Spacing stepper — group gap (Rest disc gap / Confirm-Undo gap / inter-pile gap; Active COL step).
+        var spacingRow = Row();
+        _debugRows.Add(spacingRow.gameObject);
+        GameObject spacingGo = spacingRow.gameObject;
+        Label(spacingRow, "Spacing", 16f, flexible: true);
+        MiniStepper(spacingRow, FormatSpacing, StepSpacing);
+
+        // Active-only ROW step stepper (the grid's vertical spacing).
+        var rowGapRow = Row();
+        _debugRows.Add(rowGapRow.gameObject);
+        GameObject rowGapGo = rowGapRow.gameObject;
+        Label(rowGapRow, "Row gap", 16f, flexible: true);
+        MiniStepper(rowGapRow, FormatActiveRowStep, StepActiveRowStep);
+
+        // Shape cycle — shown only for the button GROUPS (Rest / Generic): flip Round <-> Square.
+        var shapeRow = Row();
+        _debugRows.Add(shapeRow.gameObject);
+        GameObject shapeGo = shapeRow.gameObject;
+        Label(shapeRow, "Shape", 16f, flexible: true);
+        CycleButton(shapeRow, 100f, FormatShape, FlipShape);
 
         // Board-only Tilt / Yaw row (shown only when Element == Board).
         var tiltYawRow = Row();
@@ -673,19 +696,39 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Button(actionRow, "Reset element", 0f, ResetDebugElement, flexible: true);
         Button(actionRow, "Copy Oak→active", 0f, CopyOakToActive, flexible: true);
 
-        // Visibility: show the tuning rows only while DebugMenu is on; the Tilt/Yaw row only for Board.
+        // Visibility: show the tuning rows only while DebugMenu is on; the conditional rows
+        // (Size, Spacing, Row gap, Shape, Tilt/Yaw) additionally gate on the selected element.
         _refreshers.Add(() =>
         {
             bool on = CardsConfig.DebugMenu.Value;
+            var el = (DebugElement)_debugElement;
             for (int i = 0; i < _debugRows.Count; i++)
             {
                 GameObject go = _debugRows[i];
-                bool show = on && (!ReferenceEquals(go, tiltYawGo) || _debugElement == (int)DebugElement.Board);
+                bool show = on;
+                if (ReferenceEquals(go, sizeGo)) show = on && ElementHasSize(el);
+                else if (ReferenceEquals(go, spacingGo)) show = on && ElementHasSpacing(el);
+                else if (ReferenceEquals(go, rowGapGo)) show = on && el == DebugElement.Active;
+                else if (ReferenceEquals(go, shapeGo)) show = on && ElementHasShape(el);
+                else if (ReferenceEquals(go, tiltYawGo)) show = on && el == DebugElement.Board;
                 if (go.activeSelf != show)
                     go.SetActive(show);
             }
         });
     }
+
+    /// <summary>Elements that expose a Size/Scale stepper (Rest disc, Generic side, Active/Pile scale, Board scale).</summary>
+    private static bool ElementHasSize(DebugElement e) =>
+        e is DebugElement.Rest or DebugElement.Generic or DebugElement.Active
+        or DebugElement.Piles or DebugElement.Board;
+
+    /// <summary>Group elements that expose a Spacing stepper (both button groups, the piles, the active grid).</summary>
+    private static bool ElementHasSpacing(DebugElement e) =>
+        e is DebugElement.Rest or DebugElement.Generic or DebugElement.Piles or DebugElement.Active;
+
+    /// <summary>The two button GROUPS carry a Round/Square shape toggle.</summary>
+    private static bool ElementHasShape(DebugElement e) =>
+        e is DebugElement.Rest or DebugElement.Generic;
 
     private void AddOffsetStepper(string label, int axis)
     {
@@ -701,10 +744,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         ControlBoard b = CardsConfig.CurrentBoard;
         return (DebugElement)_debugElement switch
         {
-            DebugElement.RoundButtons => CardsConfig.RestButtonOffset(b),
-            DebugElement.SquareButtons => CardsConfig.ConfirmUndoOffset(b),
+            DebugElement.Rest => CardsConfig.RestButtonOffset(b),
+            DebugElement.Generic => CardsConfig.ConfirmUndoOffset(b),
             DebugElement.Overlays => CardsConfig.SlotOverlayOffset(b),
             DebugElement.Initiative => CardsConfig.InitiativeOffset(b),
+            DebugElement.Active => CardsConfig.ActiveOffset(b),
+            DebugElement.Piles => CardsConfig.PileOffset(b),
             DebugElement.Board => CardsConfig.BoardPosOffset(b),
             _ => null,
         };
@@ -738,8 +783,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         ControlBoard b = CardsConfig.CurrentBoard;
         return (DebugElement)_debugElement switch
         {
-            DebugElement.RoundButtons => $"{CardsConfig.RestButtonDiameter(b).Value * 1000f:0}mm",
-            DebugElement.SquareButtons => $"{CardsConfig.ConfirmUndoSize(b).Value * 1000f:0}mm",
+            DebugElement.Rest => $"{CardsConfig.RestButtonDiameter(b).Value * 1000f:0}mm",
+            DebugElement.Generic => $"{CardsConfig.ConfirmUndoSize(b).Value * 1000f:0}mm",
+            DebugElement.Active => $"{CardsConfig.ActiveCardScale(b).Value:0.00}x",
+            DebugElement.Piles => $"{CardsConfig.PileScale(b).Value:0.00}x",
             DebugElement.Board => $"{CardsConfig.BoardScale(b).Value:0.00}x",
             _ => "-",
         };
@@ -750,22 +797,132 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         ControlBoard b = CardsConfig.CurrentBoard;
         switch ((DebugElement)_debugElement)
         {
-            case DebugElement.RoundButtons:
+            case DebugElement.Rest:
             {
                 ConfigEntry<float> e = CardsConfig.RestButtonDiameter(b);
                 e.Value = Mathf.Max(0.01f, e.Value + delta * 0.002f);
                 break;
             }
-            case DebugElement.SquareButtons:
+            case DebugElement.Generic:
             {
                 ConfigEntry<float> e = CardsConfig.ConfirmUndoSize(b);
                 e.Value = Mathf.Max(0.01f, e.Value + delta * 0.002f);
+                break;
+            }
+            case DebugElement.Active:
+            {
+                ConfigEntry<float> e = CardsConfig.ActiveCardScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.02f, 0.3f, 2f);
+                break;
+            }
+            case DebugElement.Piles:
+            {
+                ConfigEntry<float> e = CardsConfig.PileScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
                 break;
             }
             case DebugElement.Board:
             {
                 ConfigEntry<float> e = CardsConfig.BoardScale(b);
                 e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
+                break;
+            }
+        }
+    }
+
+    // ---- Spacing / Row-gap / Shape steppers (round 2) --------------------------------------
+
+    /// <summary>Spacing readout for the selected group element (mm for meter gaps, factor for the active COL step).</summary>
+    private string FormatSpacing()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        return (DebugElement)_debugElement switch
+        {
+            DebugElement.Rest => $"{CardsConfig.RestButtonSpacing(b).Value * 1000f:0}mm",
+            DebugElement.Generic => $"{CardsConfig.GenericButtonSpacing(b).Value * 1000f:0}mm",
+            DebugElement.Piles => $"{CardsConfig.PileSpacing(b).Value * 1000f:0}mm",
+            DebugElement.Active => $"{CardsConfig.ActiveGridSpacing(b).Value.x:0.00}",
+            _ => "-",
+        };
+    }
+
+    private void StepSpacing(int delta)
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        switch ((DebugElement)_debugElement)
+        {
+            case DebugElement.Rest:
+            {
+                ConfigEntry<float> e = CardsConfig.RestButtonSpacing(b);
+                e.Value += delta * 0.002f; // 2 mm per press (may go negative — pulls the pair together)
+                break;
+            }
+            case DebugElement.Generic:
+            {
+                ConfigEntry<float> e = CardsConfig.GenericButtonSpacing(b);
+                e.Value += delta * 0.002f;
+                break;
+            }
+            case DebugElement.Piles:
+            {
+                ConfigEntry<float> e = CardsConfig.PileSpacing(b);
+                e.Value = Mathf.Max(0f, e.Value + delta * 0.002f);
+                break;
+            }
+            case DebugElement.Active:
+            {
+                ConfigEntry<Vector2> e = CardsConfig.ActiveGridSpacing(b);
+                Vector2 v = e.Value;
+                v.x = Mathf.Max(0.1f, v.x + delta * 0.02f);
+                e.Value = v;
+                break;
+            }
+        }
+    }
+
+    /// <summary>Active grid ROW step factor (only shown for the Active element).</summary>
+    private string FormatActiveRowStep()
+    {
+        ConfigEntry<Vector2> e = CardsConfig.ActiveGridSpacing(CardsConfig.CurrentBoard);
+        return $"{e.Value.y:0.00}";
+    }
+
+    private void StepActiveRowStep(int delta)
+    {
+        ConfigEntry<Vector2> e = CardsConfig.ActiveGridSpacing(CardsConfig.CurrentBoard);
+        Vector2 v = e.Value;
+        v.y = Mathf.Max(0.1f, v.y + delta * 0.02f);
+        e.Value = v;
+    }
+
+    /// <summary>Cap-shape readout for the selected button group (Rest / Generic).</summary>
+    private string FormatShape()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        return (DebugElement)_debugElement switch
+        {
+            DebugElement.Rest => CardsConfig.RestButtonShape(b).Value.ToString(),
+            DebugElement.Generic => CardsConfig.GenericButtonShape(b).Value.ToString(),
+            _ => "-",
+        };
+    }
+
+    /// <summary>Flip the selected group's cap shape Round &lt;-&gt; Square (live rebuild via CardsDriver).</summary>
+    private void FlipShape()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        switch ((DebugElement)_debugElement)
+        {
+            case DebugElement.Rest:
+            {
+                ConfigEntry<ButtonShape> e = CardsConfig.RestButtonShape(b);
+                e.Value = e.Value == ButtonShape.Round ? ButtonShape.Square : ButtonShape.Round;
+                break;
+            }
+            case DebugElement.Generic:
+            {
+                ConfigEntry<ButtonShape> e = CardsConfig.GenericButtonShape(b);
+                e.Value = e.Value == ButtonShape.Round ? ButtonShape.Square : ButtonShape.Round;
                 break;
             }
         }
@@ -779,16 +936,30 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             off.Value = (Vector3)off.DefaultValue;
         switch ((DebugElement)_debugElement)
         {
-            case DebugElement.RoundButtons:
+            case DebugElement.Rest:
             {
-                ConfigEntry<float> e = CardsConfig.RestButtonDiameter(b);
-                e.Value = (float)e.DefaultValue;
+                CardsConfig.RestButtonDiameter(b).Value = (float)CardsConfig.RestButtonDiameter(b).DefaultValue;
+                CardsConfig.RestButtonSpacing(b).Value = (float)CardsConfig.RestButtonSpacing(b).DefaultValue;
+                CardsConfig.RestButtonShape(b).Value = (ButtonShape)CardsConfig.RestButtonShape(b).DefaultValue;
                 break;
             }
-            case DebugElement.SquareButtons:
+            case DebugElement.Generic:
             {
-                ConfigEntry<float> e = CardsConfig.ConfirmUndoSize(b);
-                e.Value = (float)e.DefaultValue;
+                CardsConfig.ConfirmUndoSize(b).Value = (float)CardsConfig.ConfirmUndoSize(b).DefaultValue;
+                CardsConfig.GenericButtonSpacing(b).Value = (float)CardsConfig.GenericButtonSpacing(b).DefaultValue;
+                CardsConfig.GenericButtonShape(b).Value = (ButtonShape)CardsConfig.GenericButtonShape(b).DefaultValue;
+                break;
+            }
+            case DebugElement.Active:
+            {
+                CardsConfig.ActiveCardScale(b).Value = (float)CardsConfig.ActiveCardScale(b).DefaultValue;
+                CardsConfig.ActiveGridSpacing(b).Value = (Vector2)CardsConfig.ActiveGridSpacing(b).DefaultValue;
+                break;
+            }
+            case DebugElement.Piles:
+            {
+                CardsConfig.PileScale(b).Value = (float)CardsConfig.PileScale(b).DefaultValue;
+                CardsConfig.PileSpacing(b).Value = (float)CardsConfig.PileSpacing(b).DefaultValue;
                 break;
             }
             case DebugElement.Board:
@@ -809,10 +980,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
         CardsConfig.RestButtonOffset(b).Value = CardsConfig.RestButtonOffset(ControlBoard.Oak).Value;
         CardsConfig.RestButtonDiameter(b).Value = CardsConfig.RestButtonDiameter(ControlBoard.Oak).Value;
+        CardsConfig.RestButtonSpacing(b).Value = CardsConfig.RestButtonSpacing(ControlBoard.Oak).Value;
+        CardsConfig.RestButtonShape(b).Value = CardsConfig.RestButtonShape(ControlBoard.Oak).Value;
         CardsConfig.ConfirmUndoOffset(b).Value = CardsConfig.ConfirmUndoOffset(ControlBoard.Oak).Value;
         CardsConfig.ConfirmUndoSize(b).Value = CardsConfig.ConfirmUndoSize(ControlBoard.Oak).Value;
+        CardsConfig.GenericButtonSpacing(b).Value = CardsConfig.GenericButtonSpacing(ControlBoard.Oak).Value;
+        CardsConfig.GenericButtonShape(b).Value = CardsConfig.GenericButtonShape(ControlBoard.Oak).Value;
         CardsConfig.SlotOverlayOffset(b).Value = CardsConfig.SlotOverlayOffset(ControlBoard.Oak).Value;
         CardsConfig.InitiativeOffset(b).Value = CardsConfig.InitiativeOffset(ControlBoard.Oak).Value;
+        CardsConfig.ActiveOffset(b).Value = CardsConfig.ActiveOffset(ControlBoard.Oak).Value;
+        CardsConfig.ActiveCardScale(b).Value = CardsConfig.ActiveCardScale(ControlBoard.Oak).Value;
+        CardsConfig.ActiveGridSpacing(b).Value = CardsConfig.ActiveGridSpacing(ControlBoard.Oak).Value;
+        CardsConfig.PileOffset(b).Value = CardsConfig.PileOffset(ControlBoard.Oak).Value;
+        CardsConfig.PileScale(b).Value = CardsConfig.PileScale(ControlBoard.Oak).Value;
+        CardsConfig.PileSpacing(b).Value = CardsConfig.PileSpacing(ControlBoard.Oak).Value;
         CardsConfig.BoardTilt(b).Value = CardsConfig.BoardTilt(ControlBoard.Oak).Value;
         CardsConfig.BoardYaw(b).Value = CardsConfig.BoardYaw(ControlBoard.Oak).Value;
         CardsConfig.BoardScale(b).Value = CardsConfig.BoardScale(ControlBoard.Oak).Value;

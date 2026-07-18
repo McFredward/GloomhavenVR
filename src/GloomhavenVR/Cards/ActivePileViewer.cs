@@ -25,18 +25,20 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class ActivePileViewer
 {
-    /// <summary>Active cards read slightly smaller than the hand/browse fan (PileBrowser.CardScale = 1.3).</summary>
-    internal const float CardScale = 0.82f;
+    /// <summary>
+    /// Active cards read slightly smaller than the hand/browse fan (PileBrowser.CardScale = 1.3).
+    /// Round-2: the scale is now PER-BOARD (debug-menu tunable), seeded 0.82.
+    /// </summary>
+    internal static float CardScale => CardsConfig.ActiveCardScale(CardsConfig.CurrentBoard).Value;
 
     // Matrix geometry (feature 6 grid): up to Columns cards side-by-side per row; a full
     // row starts the next one. Rows overlap vertically slightly (the lower a row, the
     // nearer the viewer, so its tops cover the row above cleanly); columns clear one full
     // card width so neighbours never overlap horizontally. The whole grid is symmetric
     // about the mount x and vertically centered, so its midpoint holds at a consistent
-    // height and it stays balanced as rows are added.
+    // height and it stays balanced as rows are added. Round-2: the col/row step FACTORS are
+    // per-board (debug-menu tunable, CardsConfig.ActiveGridSpacing — seeded (1.06, 0.70)).
     private const int Columns = 3;               // active cards per row
-    private const float ColSpacingFactor = 1.06f; // horizontal step: just over one scaled card width
-    private const float RowSpacingFactor = 0.7f;  // vertical step: fraction of the scaled card height
     private const float ZStagger = 0.004f;        // render-order stagger, same as CardFan/PileBrowser
 
     private readonly List<VRCard> _cards = new(8);
@@ -136,6 +138,12 @@ internal sealed class ActivePileViewer
     // Change-gate for the grid-shape Info line ((rows, cols) key); int.MinValue = unlogged.
     private int _loggedLayout = int.MinValue;
 
+    /// <summary>
+    /// Round-2 live-apply: re-lay the grid from the active board's per-board card scale + col/row
+    /// step factors when the debug menu / cfg edits either. No-op when the column is empty.
+    /// </summary>
+    internal void ApplyLayout() => Relayout(instant: false);
+
     private void Relayout(bool instant)
     {
         if (_root == null)
@@ -144,8 +152,11 @@ internal sealed class ActivePileViewer
         if (n == 0)
             return;
 
-        float colStep = CardsConfig.CardWidth.Value * CardScale * ColSpacingFactor;
-        float rowStep = CardsConfig.CardHeight * CardScale * RowSpacingFactor;
+        ControlBoard board = CardsConfig.CurrentBoard;
+        float cardScale = CardsConfig.ActiveCardScale(board).Value;
+        Vector2 grid = CardsConfig.ActiveGridSpacing(board).Value; // (col factor, row factor)
+        float colStep = CardsConfig.CardWidth.Value * cardScale * grid.x;
+        float rowStep = CardsConfig.CardHeight * cardScale * grid.y;
         int rows = (n + Columns - 1) / Columns; // ceil(n / Columns)
         float yTop = rowStep * (rows - 1) * 0.5f; // vertically centered block (midpoint at y = 0)
 
@@ -165,7 +176,7 @@ internal sealed class ActivePileViewer
             float y = yTop - row * rowStep;
             // Lower rows sit nearer the viewer (-Z) so their tops overlap the row above.
             var pos = new Vector3(x, y, -ZStagger * row);
-            card.SetHome(_root, pos, Quaternion.identity, CardScale, instant);
+            card.SetHome(_root, pos, Quaternion.identity, cardScale, instant);
             card.ResetColliderRegion(); // active cards are not fan-stripped
         }
 
