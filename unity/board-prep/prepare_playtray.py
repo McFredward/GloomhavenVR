@@ -86,8 +86,8 @@ for img in bpy.data.images:
 # Coordinates are the mod's expected layout (slots centre, rest LEFT, confirm/undo RIGHT). Nudge in
 # Blender/Unity so each sits over the matching painted recess — the mod finds them by NAME anywhere.
 anchors = {
-    "Slot1":         (-0.085, 0.00, 0.0),   # left card slot (initiative slot)
-    "Slot2":         ( 0.085, 0.00, 0.0),   # right card slot
+    "Slot1":         (-0.093, 0.00, 0.0),   # left card slot (initiative) — measured recess centre
+    "Slot2":         ( 0.101, 0.00, 0.0),   # right card slot — measured recess centre
     "ShortRestToken":(-0.255, 0.055, 0.0),  # left rest zone, upper pad
     "LongRestToken": (-0.255,-0.055, 0.0),  # left rest zone, lower pad
     "ConfirmButton": ( 0.255, 0.055, 0.0),  # right button pad, upper
