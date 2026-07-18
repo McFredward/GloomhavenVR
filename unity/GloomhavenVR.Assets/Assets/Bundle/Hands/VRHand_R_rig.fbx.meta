@@ -1,11 +1,11 @@
 fileFormatVersion: 2
-guid: 5ed0aad1bf08f2dc4b18ba7b5f7525d9
+guid: 1de199c0daa47b94e882a7fcd4337221
 ModelImporter:
   serializedVersion: 21300
   internalIDToNameTable: []
   externalObjects: {}
   materials:
-    materialImportMode: 0
+    materialImportMode: 2
     materialName: 0
     materialSearch: 1
     materialLocation: 1
@@ -32,7 +32,7 @@ ModelImporter:
     extraExposedTransformPaths: []
     extraUserProperties: []
     clipAnimations: []
-    isReadable: 1
+    isReadable: 0
   meshes:
     lODScreenPercentages: []
     globalScale: 1
@@ -41,9 +41,9 @@ ModelImporter:
     useSRGBMaterialColor: 1
     sortHierarchyByName: 1
     importVisibility: 1
-    importBlendShapes: 0
-    importCameras: 0
-    importLights: 0
+    importBlendShapes: 1
+    importCameras: 1
+    importLights: 1
     nodeNameCollisionStrategy: 1
     fileIdsGeneration: 2
     swapUVChannels: 0
@@ -67,6 +67,7 @@ ModelImporter:
     secondaryUVMinObjectScale: 1
     secondaryUVPackMargin: 4
     useFileScale: 1
+    strictVertexDataChecks: 0
   tangentSpace:
     normalSmoothAngle: 60
     normalImportMode: 0
