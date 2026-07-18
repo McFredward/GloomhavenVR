@@ -4,21 +4,24 @@
 real 3D visuals without a Unity install. Built for **StandaloneWindows64**,
 Unity **2021.3.45f1**, TypeTrees ON.
 
-**Archive format: UnityFS version 7** (post-processed). The 2021.3.45f1 editor emits
-a format-**8** archive wrapper (with the `BlockInfoNeedPaddingAtStart` flag), which the
-game's older **2021.3.5f1** runtime CANNOT read — it fails at load with
-`Unable to read header from archive file` and the mod falls back to procedural visuals.
-So after building we re-wrap the archive down to format 7 with
-`unity/repack-bundle/repack_fmt7.py` (UnityPy). The inner SerializedFile + `.resS` bytes
-are copied **verbatim** — only the outer container changes — so the assets are exactly
-what 2021.3.45 produced, now in a container 2021.3.5 accepts. The inner 2021.3.x
-serialization layout itself is stable and reads fine.
+**Now built NATIVELY with Unity 2021.3.5f1** (the game's exact version) → UnityFS archive
+**format 7** and shaders compiled for the game runtime. This is the primary path since the
+headless license for 2021.3.5 was solved (mint a Personal ULF from Hub's token — see
+`.planning/debug/mint-ulf.sh` and `unity-license-headless.md`).
 
-(Why not just build with 2021.3.5f1? On the headless clawmachine builder the fresh
-2021.3.5 editor demands an online license re-activation that never completes — the box
-has no OS keyring, so Unity Hub's access token never reaches the licensing daemon
-(`Error: Access token is unavailable`). Only the already-activated 2021.3.45 editor
-builds headlessly. Hence: build with 2021.3.45 → repack to format 7.)
+Two failure modes this fixes, both seen in-game before:
+- **Format 8 → "Unable to read header from archive file"**: the 2021.3.45f1 editor emits a
+  format-8 wrapper (`BlockInfoNeedPaddingAtStart` flag) the older 2021.3.5f1 runtime cannot
+  read → procedural fallback. A native 2021.3.5 build writes format 7 directly.
+- **Pink board**: a custom shader compiled by 2021.3.45 fails in the 2021.3.5 runtime
+  (`Shader GloomhavenVR/BoardLit is not supported on this GPU`) → magenta. Compiling the
+  shader with 2021.3.5 fixes it.
+
+**Fallback** if only the 2021.3.45 editor is available: build with it, then downgrade the
+wrapper to format 7 with `unity/repack-bundle/repack_fmt7.py` (UnityPy, copies inner bytes
+verbatim). NOTE the repack cannot fix the pink shader — only a native 2021.3.5 build does —
+so the native path is strongly preferred. Verify either way: `head -c12 gloomhavenvr.bundle | xxd`
+→ offset 8 must read `00000007`.
 
 Deployed to `BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle` automatically by
 `scripts/install.ps1` and `scripts/package-release.sh` (a freshly built

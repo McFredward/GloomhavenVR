@@ -144,6 +144,17 @@ namespace GloomhavenVR
                 dst.SetColumn(3, new Vector4(0,0,0,1));
                 Quaternion rot = (dst * src.transpose).rotation;
                 inst.transform.rotation = rot;
+
+                // GUARANTEE the anchor plane is the local XY plane with the decorated
+                // face toward -Z (the viewer). The matrix above can leave a residual 90°
+                // (the FBX Y-up import lands the plane in XZ, normal along Y) which made
+                // cards stand UPRIGHT on the board instead of lying flat. Snap the
+                // decorated-back normal exactly onto +Z; the shortest-arc rotation keeps
+                // the long axis (Slot1->Slot2) in place.
+                Vector3 nCur = Vector3.Cross(
+                    anchors["Slot2"].position - anchors["Slot1"].position,
+                    anchors["ShortRestToken"].position - anchors["LongRestToken"].position).normalized;
+                inst.transform.rotation = Quaternion.FromToRotation(nCur, Vector3.forward) * inst.transform.rotation;
             }
             else
             {
