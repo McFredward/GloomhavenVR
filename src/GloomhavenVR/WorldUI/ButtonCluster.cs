@@ -113,15 +113,14 @@ internal sealed class ButtonCluster
             return;
 
         bool locked = CanvasConversion.IsLockedNow;
-        // Test #23 item 4: when the REAL ReadyButton/UndoButton are docked natively on
-        // the control board (TrayControlDockSurface), this cluster's mirrored Ready/
-        // Undo would be a second copy — stand them down (null → hidden) while the
-        // native dock holds. Skip is not in that native set, so it stays mirrored
-        // (the no-tray floating fallback keeps mirroring all three).
-        bool nativeReady = Surfaces.TrayControlDockSurface.ContinueDocked;
-        bool nativeUndo = Surfaces.TrayControlDockSurface.UndoDocked;
-        _ready!.MirrorReady(nativeReady ? null : choreographer!.readyButton, locked);
-        _undo!.MirrorUndo(nativeUndo ? null : choreographer!.m_UndoButton, locked);
+        // Button layout policy: confirmations/undo live ONLY on the right-hand board pads now
+        // (the mod Confirm/Undo on the control board). The center cluster's Ready + Undo twins
+        // are forced permanently OFF (null → hidden) so there is never a duplicate "Fortfahren"/
+        // Undo here. ONLY Skip stays mirrored (it has no right-pad equivalent and only appears
+        // when the game marks the step skippable). The no-tray floating fallback is unaffected —
+        // it still shows this cluster, but Ready/Undo are intentionally hidden there too.
+        _ready!.MirrorReady(null, locked);
+        _undo!.MirrorUndo(null, locked);
         _skip!.MirrorSkip(choreographer!.m_SkipButton, locked);
 
         _ready.Animate();

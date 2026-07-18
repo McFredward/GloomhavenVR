@@ -267,26 +267,29 @@ internal static class CardsConfig
             "current bundled PlayTray. Applies to played cards, single-card pick candidates and " +
             "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
             "(that is SlotCardInset).");
-        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.096f,
+        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.105f,
             "Feature 6a / item 2: diameter (real meters) of the ROUND short-rest / long-rest " +
-            "buttons that seat in the control board's two round rest-notches. Measured from an " +
-            "Oak-decorated-face render the notches are ~0.088 m across, so the default is 0.085 " +
-            "(was 0.05, too small). Dial this in from a hardware test until the discs drop cleanly " +
-            "into the notches without overhanging the rim — NO baked notch dimension exists in code, " +
-            "so this is the fit knob. PER-BOARD: the two upcoming control boards have differently " +
-            "sized notches; this default is Oak-tuned and a future per-board descriptor will override " +
-            "it (see RestControls.EnsureBuilt).");
+            "buttons that seat in the control board's two round rest-notches. Raised to 0.105 " +
+            "(from 0.096) — the user wanted the rest discs BIGGER so they fill the round notches. " +
+            "Dial this in from a hardware test until the discs drop cleanly into the notches without " +
+            "overhanging the rim — NO baked notch dimension exists in code, so this is the fit knob. " +
+            "PER-BOARD: the two upcoming control boards have differently sized notches; this default " +
+            "is Oak-tuned and a future per-board descriptor will override it (see RestControls.EnsureBuilt).");
         RoundButtonThickness = _file.Bind("Cards", "RoundButtonThickness", 0.012f,
             "Feature 6a: thickness (real meters) of the round rest-button pressable puck " +
             "along the press axis. Higher = a chunkier disc that stands prouder of the notch " +
             "floor; the puck still travels the same fixed 4 mm on press. May differ per " +
             "control board (see RoundButtonDiameter).");
         RestButtonInsetX = _file.Bind("Cards", "RestButtonInsetX", 0.024f,
-            "Item 2 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied " +
-            "to the round short/long-rest discs so they center in the Oak board's round rest notches. " +
-            "The bundle rest anchors sit ~0.02 m too far toward the board edge (anchor X ~-0.26, notch " +
-            "center X ~-0.239), so this pulls the built disc back in. PER-BOARD: the upcoming boards " +
-            "have differently placed notches; a future per-board descriptor overrides this.");
+            "LIVE FIT KNOB (dial in dev.gloomhavenvr.cards.cfg without a rebuild): sideways nudge of " +
+            "the round short/long-rest discs along the rest anchor's LOCAL X, real meters. DIRECTION: " +
+            "POSITIVE = toward the board CENTER (the anchor local +X == the slot0->slot1 long axis; the " +
+            "rest zone sits on the LEFT, so +X moves the discs RIGHT/inward). NEGATIVE = toward the " +
+            "board EDGE, i.e. 'nach links' (further out from center) — this value MAY be negative. The " +
+            "correct sign depends on the board frame, which is uncertain per board, so tune it live: if " +
+            "the discs sit too far right, lower the value (into the negatives) until they drop into the " +
+            "notches; too far left, raise it. Default 0.024 (Oak: bundle anchors sit ~0.02 m too far " +
+            "toward the edge). PER-BOARD: a future per-board descriptor overrides this (see RestControls.EnsureBuilt).");
         ConfirmUndoSize = _file.Bind("Cards", "ConfirmUndoSize", 0.073f,
             "Item 3 (Oak-tuned): side length (real meters) of the SQUARE Confirm/Undo buttons so they " +
             "sit on the Oak board's two ~0.066 m metal button pads (were 0.115x0.06 / 0.09x0.042). " +
