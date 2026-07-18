@@ -549,6 +549,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var note = Row(22f);
         Label(note, "* applies on next VR start", 12f, flexible: true);
 
+        Section("Board");
+
+        // Control-board model: cycles Oak → Steel → Bronze (mod 3), mirroring the Turn
+        // enum cycle above. CardsDriver subscribes to Board.SettingChanged and rebuilds
+        // the tray live, so the newly selected board loads without leaving the panel.
+        var boardRow = Row();
+        Label(boardRow, "Control board", 16f, flexible: true);
+        CycleButton(boardRow, 100f,
+            () => CardsConfig.Board.Value.ToString(),
+            () => CardsConfig.Board.Value =
+                (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
+
         Section("Anzeige");
 
         // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag

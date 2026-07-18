@@ -13,6 +13,20 @@ internal enum CardGrabButton
 }
 
 /// <summary>
+/// Which control-board (PlayTray) prefab is loaded from the asset bundle. Switchable
+/// live from the VR settings panel; the bundle asset paths are mapped in
+/// <see cref="VRCardFactory.GetTrayPrefab"/>. Oak is the original bundled board (default);
+/// a selected prefab that is not yet in the bundle falls back to Oak, then to the
+/// procedural board, so this compiles and runs before the new bundle ships.
+/// </summary>
+internal enum ControlBoard
+{
+    Oak,
+    Steel,
+    Bronze,
+}
+
+/// <summary>
 /// Phase-3b config. Plugin.cs is frozen shared surface, so the Cards module binds its
 /// own ConfigFile (<c>BepInEx/config/dev.gloomhavenvr.cards.cfg</c>) instead of adding
 /// entries to the main plugin config.
@@ -101,6 +115,9 @@ internal static class CardsConfig
 
     /// <summary>Discard/burnt pile stacks on the control board + the browse fan (hardware test #21 wish).</summary>
     internal static ConfigEntry<bool> PileViewer = null!;
+
+    /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
+    internal static ConfigEntry<ControlBoard> Board = null!;
 
     // ---- Demeo-parity fan/grab tuning (test #22 blueprint DEMEO-HANDS-CARDS.md) ----
 
@@ -263,6 +280,14 @@ internal static class CardsConfig
             "wish): each pile shows as a small physical card stack with a count; poking or " +
             "pinch-grabbing a stack raises a readable browse fan of that pile's cards " +
             "(informational — release/poke again to dismiss). false = no pile furniture at all.");
+        Board = _file.Bind("Cards", "Board", ControlBoard.Oak,
+            "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
+            "live from the VR settings panel. Oak = the original bundled board (default); Steel " +
+            "and Bronze are the two new boards. The enum→bundle-path map lives in " +
+            "VRCardFactory.GetTrayPrefab. If the selected prefab is not in the bundle yet the " +
+            "board falls back to Oak, and if Oak is also missing the procedural board is used, " +
+            "so any selection is safe. Changing this tears down and rebuilds the tray live " +
+            "(CardsDriver), re-seating the cards on the newly loaded board.");
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
         FanCurveByFill = _file.Bind("Cards", "FanCurveByFill", true,
