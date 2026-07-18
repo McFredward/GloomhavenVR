@@ -1,7 +1,7 @@
 # Phase 3a — Windows/HMD validation checklist (board touch targeting)
 
 > Prereq: Phase-2 validation passed (hands articulated, poke clicks Ready, ray hovers
-> a hex — docs/TESTING-P2.md). Deploy as for P1/P2 (`scripts/deploy.ps1`).
+> a hex — docs/TESTING-P2.md). Deploy as for P1/P2 (`scripts/install.ps1`).
 >
 > What Phase 3a adds: the game's entire pick/hover/click pipeline follows the VR
 > hands. **Far mode** = the primary hand's index ray (laser visible in BoardTargeting

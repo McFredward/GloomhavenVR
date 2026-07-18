@@ -33,4 +33,4 @@ echo
 echo "Install into a game dir (full layout in docs/TESTING-P1.md):"
 echo "  plugin + libs/RuntimeDeps -> BepInEx/plugins/GloomhavenVR/{,RuntimeDeps/}"
 echo "  preloader + libs/Natives  -> BepInEx/patchers/GloomhavenVR/{,Natives/}"
-echo "(Windows: scripts/deploy.ps1 -GamePath 'C:\\...\\Gloomhaven' does the copy.)"
+echo "(Windows: scripts/install.ps1 -GamePath 'C:\\...\\Gloomhaven' does the copy.)"

@@ -129,7 +129,7 @@ needed at build time; game DLLs are never committed).
 3. Deploy into your game install:
 
    ```powershell
-   .\scripts\deploy.ps1 -GamePath "C:\...\Gloomhaven"
+   .\scripts\install.ps1 -GamePath "C:\...\Gloomhaven"
    ```
 
 ### Dev loop
@@ -161,8 +161,9 @@ GloomhavenVR.sln
 ├── libs/                       Natives/ (fetched OpenXR natives) + RuntimeDeps/ (Unity XR
 │                               assemblies) — populated by scripts, never committed
 ├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
-├── scripts/                    build.sh, fetch-natives.sh, build-runtimedeps.sh,
-│                               deploy.ps1, package-release.sh, build-bundles.sh
+├── scripts/                    install.ps1 (one-shot Windows install+deploy),
+│                               build.sh, fetch-natives.sh, build-runtimedeps.sh,
+│                               package-release.sh, build-bundles.sh
 ├── docs/                       testing checklists, interface contracts, patch inventory
 └── .planning/                  roadmap, architecture, research notes
 ```

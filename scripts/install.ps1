@@ -171,9 +171,52 @@ Step "Building GloomhavenVR ($Configuration)"
 dotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 
-# --- 7. deploy ---------------------------------------------------------------
+# --- 7. deploy into the game ------------------------------------------------
+# Everything lands where the runtime probes it:
+#   plugin      -> BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
+#   RuntimeDeps -> BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
+#   bundle      -> BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
+#   preloader   -> BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
+#   natives     -> BepInEx\patchers\GloomhavenVR\Natives\*.dll
 Step "Deploying into game"
-& (Join-Path $PSScriptRoot "deploy.ps1") -GamePath $GamePath -Configuration $Configuration
+$plugin    = Join-Path $root "src\GloomhavenVR\bin\$Configuration\net472\GloomhavenVR.dll"
+$preloader = Join-Path $root "src\GloomhavenVR.Preload\bin\$Configuration\net472\GloomhavenVR.Preload.dll"
+foreach ($artifact in @($plugin, $preloader)) {
+    if (-not (Test-Path $artifact)) { Write-Error "Missing build artifact '$artifact' - build step failed?" }
+}
+
+$pluginDir      = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
+$runtimeDepsDst = Join-Path $pluginDir "RuntimeDeps"
+$patcherDir     = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"
+$nativesDst     = Join-Path $patcherDir "Natives"
+foreach ($dir in @($pluginDir, $runtimeDepsDst, $patcherDir, $nativesDst)) {
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+}
+
+Copy-Item $plugin    -Destination $pluginDir  -Force
+Copy-Item $preloader -Destination $patcherDir -Force
+Get-ChildItem (Join-Path $runtimeDepsDir "*.dll") | Copy-Item -Destination $runtimeDepsDst -Force
+Get-ChildItem (Join-Path $nativesDir     "*.dll") | Copy-Item -Destination $nativesDst     -Force
+if (Test-Path (Join-Path $runtimeDepsDir "versions.json")) {
+    Copy-Item (Join-Path $runtimeDepsDir "versions.json") $runtimeDepsDst -Force
+}
+
+# Asset bundle (control board 3D asset + future props): a freshly built one is
+# preferred, else the committed prebuilt copy. Without it the mod uses procedural
+# fallback visuals.
+$bundleFresh    = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
+$bundlePrebuilt = Join-Path $root "prebuilt\gloomhavenvr.bundle"
+$bundle = if (Test-Path $bundleFresh) { $bundleFresh } elseif (Test-Path $bundlePrebuilt) { $bundlePrebuilt } else { $null }
+if ($bundle) { Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force }
+
+# Clean up the Phase-0 flat-preloader location if a stale copy is present.
+$legacyPreloader = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dll"
+if (Test-Path $legacyPreloader) {
+    Remove-Item $legacyPreloader -Force
+    Write-Host "    removed legacy preloader at BepInEx\patchers\GloomhavenVR.Preload.dll"
+}
+
+Write-Host "    plugin + RuntimeDeps + preloader + natives$(if ($bundle) { ' + gloomhavenvr.bundle' }) deployed"
 
 Write-Host ""
 Write-Host "Done. Launch Gloomhaven and check BepInEx\LogOutput.log." -ForegroundColor Green

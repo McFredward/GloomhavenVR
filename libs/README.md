@@ -9,7 +9,7 @@ the repo-root `.gitignore` excludes `*.dll` and the generated `versions.json`):
 | `RuntimeDeps/` | `Unity.XR.Management.dll` 4.5.0, `Unity.XR.CoreUtils.dll` 2.2.3, `Unity.XR.OpenXR.dll` 1.10.0 | `scripts/build-runtimedeps.sh` (provisional, from needle-mirror source) — or the Unity editor harvest (`unity/HARVESTING.md`), which replaces the provisional set 1:1 |
 
 See the README inside each directory for details (hashes, defines, provenance,
-replacement rules). Deploy targets (via `scripts/deploy.ps1`):
+replacement rules). Deploy targets (via `scripts/install.ps1`):
 
 ```
 libs/RuntimeDeps/*.dll -> <Game>/BepInEx/plugins/GloomhavenVR/RuntimeDeps/
