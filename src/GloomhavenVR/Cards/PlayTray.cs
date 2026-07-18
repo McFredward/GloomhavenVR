@@ -23,11 +23,14 @@ namespace GloomhavenVR.Cards;
 ///   the REAL native short-rest widget docks over the short button when available),
 ///   with the element infusion board (<see cref="ElementMount"/>) docked directly
 ///   below it (test #20 — no longer a free-floating world panel),
-/// - CENTER: two large card slots (slot 0 = initiative; drop to place, grab to take
-///   back, physical swap = initiative swap — the redundant numbered badge was
-///   removed in test #24 item 3, the initiative already reads on the docked track);
-///   during the modal pick modes the slot visuals yield to the PICK DROP FIELD
-///   (test #21 B, see <see cref="BuildPickField"/>),
+/// - CENTER: two large card slots baked into the fixed asset as physical recesses
+///   (slot 0 = initiative; drop to place, grab to take back, physical swap =
+///   initiative swap — the redundant numbered badge was removed in test #24 item 3,
+///   the initiative already reads on the docked track); the modal single-card pick
+///   flows now home their candidate into the LEFT recess (Slot1) instead of a
+///   centre field (test #28) — the old <see cref="BuildPickField"/> centre field is
+///   retained but unused. A steady pulsing "wanted slot" hint marks the recess the
+///   game is waiting for (<see cref="SetWantedSlots"/>),
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
 ///   gear; the PIN follow-toggle sits on the bottom-right frame corner,
 /// - RIGHT EDGE (off-board, mirror of the objectives dock): the discard/burnt pile
@@ -344,6 +347,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         BuildSlotLabels();
         BuildSlotHighlights();
+        BuildWantedHighlights();
         BuildButtons(confirmAnchor, undoAnchor);
         BuildHandle();
         BuildDashboardControls();
@@ -660,6 +664,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _slots = new Transform?[2];
         _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
         _highlightedSlot = -1;
+        _wantedHighlights[0] = _wantedHighlights[1] = null; // children of _root, destroyed with it
+        _wantedMask = -1;
+        _pickActive = false;
         _pickField = null; // child of _root, destroyed with it
         _pickFieldHighlight = null;
         _pickFieldVisible = false;
@@ -833,6 +840,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     // ------------------------------------------------------------------ slots --
 
     internal VRCard? Occupant(int slot) => _occupants[slot];
+
+    /// <summary>
+    /// Home offset that seats a card ON the physical recess surface instead of at the
+    /// bundle anchor's mid-plane centre (test #28): a small push toward the viewer
+    /// (the board's -Z face), tuned by [Cards] SlotCardInset. Shared by every path
+    /// that parks a card in a slot — <see cref="PlaceCard"/>, <see cref="PlacePickCard"/>
+    /// and HalfSelection's docked action cards — so the seating is consistent and
+    /// tunable in one place. The slot itself carries the tray tilt/scale; the card
+    /// inherits both.
+    /// </summary>
+    internal static Vector3 SlotHomeOffset => new(0f, 0f, -CardsConfig.SlotCardInset.Value);
 
     /// <summary>
     /// Slot anchor transform (test #19: HalfSelection docks the round cards into
@@ -1035,6 +1053,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private readonly GameObject?[] _slotHighlights = new GameObject?[2];
     private int _highlightedSlot = -1;
 
+    // ---- steady "wanted slot" hint (test #28) ------------------------------------------
+    // A softly PULSING accent behind a slot marks where the game is currently waiting
+    // for a card — the still-empty play slot(s) during selection, or the LEFT slot
+    // during a single-card pick flow. Deliberately distinct from the transient gold
+    // snap glow above (_slotHighlights): a different hue (teal), a larger rim, and it
+    // pulses so a steady "drop here" hint never reads as the "card will land here on
+    // release" preview. The driver toggles it via SetWantedSlots; PlayTray owns only
+    // the visuals (pulse is self-animated by SlotPulse, no PlayTray Update needed).
+    private readonly GameObject?[] _wantedHighlights = new GameObject?[2];
+    private int _wantedMask = -1;
+
+    /// <summary>True while a modal single-card pick flow is live (drives the CONFIRM accent, test #28).</summary>
+    private bool _pickActive;
+
+    /// <summary>The driver marks pick flows so CONFIRM accents as the mode's mirrored confirm affordance.</summary>
+    internal void SetPickActive(bool active) => _pickActive = active;
+
     /// <summary>
     /// Glow frame behind each slot — shown while a HELD card is within snap range
     /// (test #13: telegraph exactly where the card will zap on release). Unlit
@@ -1081,6 +1116,82 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     }
 
     /// <summary>
+    /// Steady "wanted slot" hint (test #28): a larger teal rim behind the slot that
+    /// PULSES via <see cref="SlotPulse"/> — distinct from the gold snap glow. Built as
+    /// a slot child so it inherits the slot's SlotScale and pose, hidden by default.
+    /// </summary>
+    private void BuildWantedHighlights()
+    {
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+        for (int i = 0; i < 2; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot == null || _wantedHighlights[i] != null)
+                continue;
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = "WantedHighlight";
+            Object.Destroy(quad.GetComponent<Collider>());
+            quad.transform.SetParent(slot, worldPositionStays: false);
+            // Larger rim than the snap glow (1.24×) so the teal reads AROUND the gold
+            // when both show; sits further behind the card (z 0.005) than the snap glow.
+            quad.transform.localScale = new Vector3(w * 1.36f, h * 1.36f, 1f);
+            quad.transform.localPosition = new Vector3(0f, 0f, 0.005f);
+            var renderer = quad.GetComponent<MeshRenderer>();
+            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+            var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
+            if (shader != null)
+                renderer.sharedMaterial = new Material(shader) { color = baseColor };
+            quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
+            quad.SetActive(false);
+            _wantedHighlights[i] = quad;
+        }
+    }
+
+    /// <summary>
+    /// Set which slots the game currently WANTS filled (bit 0 = Slot1, bit 1 = Slot2);
+    /// 0 = none. The driver computes the mask from game state each frame; PlayTray
+    /// dedupes the visual toggle so a rebuild never restarts the pulse.
+    /// </summary>
+    internal void SetWantedSlots(int mask)
+    {
+        if (mask == _wantedMask)
+            return;
+        _wantedMask = mask;
+        for (int i = 0; i < 2; i++)
+        {
+            GameObject? go = _wantedHighlights[i];
+            bool on = (mask & (1 << i)) != 0;
+            if (go != null && go.activeSelf != on)
+                go.SetActive(on);
+        }
+    }
+
+    /// <summary>Self-animated soft pulse for a wanted-slot hint quad (no PlayTray Update).</summary>
+    private sealed class SlotPulse : MonoBehaviour
+    {
+        private MeshRenderer? _renderer;
+        private Color _base;
+
+        internal void Init(MeshRenderer? renderer, Color baseColor)
+        {
+            _renderer = renderer;
+            _base = baseColor;
+        }
+
+        private void Update()
+        {
+            if (_renderer == null || _renderer.sharedMaterial == null)
+                return;
+            // Breathe the alpha between ~0.30 and ~0.85 — a calm "waiting" pulse.
+            float t = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3.2f);
+            Color c = _base;
+            c.a = Mathf.Lerp(0.30f, 0.85f, t);
+            _renderer.sharedMaterial.color = c;
+        }
+    }
+
+    /// <summary>
     /// Visually park a card in a slot (game-state sync happens separately).
     /// <paramref name="announce"/> is true only on the REAL drop path — the
     /// game-state sync re-runs on every rebuild and must stay silent (test #14: the
@@ -1101,10 +1212,40 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (!card.IsHeld)
         {
             card.gameObject.SetActive(true);
-            card.SetHome(_slots[slot]!, Vector3.zero, Quaternion.identity, 1f, instant);
+            card.SetHome(_slots[slot]!, SlotHomeOffset, Quaternion.identity, 1f, instant);
         }
         if (announce)
             VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
+    }
+
+    /// <summary>
+    /// Home a single-card PICK candidate into a slot recess (test #28): pick 0 → the
+    /// LEFT slot (Slot1), pick 1 → the RIGHT slot (Slot2, the burn-two-discarded
+    /// flows). Deliberately does NOT touch <see cref="_occupants"/> — pick cards are
+    /// tracked by the driver's <c>_fieldCards</c>, not the played-card slot occupancy
+    /// (the slots stay logically empty so <see cref="SyncFromGameState"/> /
+    /// <see cref="SlotOf"/> keep their CardsSelection meaning). A HELD card is never
+    /// re-homed (the phantom-ACCEPT lesson, see <see cref="PlaceCard"/>). Returns the
+    /// slot index used, or -1 when it fell back BESIDE Slot2 (index ≥ 2 — rare; the
+    /// caller logs the fallback).
+    /// </summary>
+    internal int PlacePickCard(VRCard card, int index)
+    {
+        int slotIndex = index < 2 ? index : 1;
+        Transform? slot = _slots[slotIndex];
+        if (slot == null || card.IsHeld)
+            return slotIndex < index ? -1 : slotIndex; // held: skip; caller re-runs on release
+        card.gameObject.SetActive(true);
+        if (index < 2)
+        {
+            card.SetHome(slot, SlotHomeOffset, Quaternion.identity, 1f);
+            return slotIndex;
+        }
+        // Graceful fallback for a 3rd+ pick card (no silent cap): lay it beside Slot2.
+        float w = CardsConfig.CardWidth.Value;
+        Vector3 off = SlotHomeOffset + new Vector3((index - 1) * w * 1.15f, 0f, 0f);
+        card.SetHome(slot, off, Quaternion.identity, 1f);
+        return -1;
     }
 
     internal void RemoveCard(VRCard card)
@@ -1298,11 +1439,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             bool confirmed = hand != null && CardsGameApi.IsConfirmed(hand);
             bool canConfirm = hand != null
                               && (CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable());
-            // Pick flows (test #21 B): while the drop field shows, CONFIRM is the
-            // mode's mirrored confirm affordance (the ReadyButton path the recover
-            // flows arm) — accent it as soon as the game reports it fireable.
+            // Pick flows (test #28): during a single-card pick, CONFIRM is the mode's
+            // mirrored confirm affordance (the ReadyButton path the recover flows arm) —
+            // accent it as soon as the game reports it fireable.
             _confirm.SetState(canConfirm || confirmed,
-                accent: (ready || _pickFieldVisible) && canConfirm && !confirmed, confirmed: confirmed);
+                accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
             _confirm.SetLabel(confirmed
                 ? _confirmedLabel ??= "✓ " + CardsGameApi.Localize("GUI_READY", "READY")
                 : hand == null ? "-"

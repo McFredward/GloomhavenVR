@@ -118,6 +118,28 @@ internal static class CardsGameApi
     internal static bool IsLongRestSelected(CardsHandUI hand) => hand.IsLongRestSelected();
 
     /// <summary>
+    /// The authoritative long-rest flag: set the moment long rest is committed in
+    /// selection (<c>OnCardSelected</c> long-rest branch sets
+    /// <c>CharacterClass.LongRest = true</c>, CardsHandUI.cs:1953) and cleared inside
+    /// <c>GameState.PlayerLongRested</c> once the burn resolves (GameState.cs:2569).
+    /// A <c>CardHandMode.LoseCard</c> while this is true is unambiguously the long-rest
+    /// "lose one card" step (vs an avoid-damage / discard pick). Verified:
+    /// <c>public bool LongRest</c> (CCharacterClass.cs:156, publicized).
+    /// </summary>
+    internal static bool IsLongResting(CardsHandUI hand) =>
+        hand.PlayerActor != null && hand.PlayerActor.CharacterClass.LongRest;
+
+    /// <summary>
+    /// True once a long rest has RESOLVED this round (heal +2 applied, chosen card
+    /// burnt) — <c>GameState.PlayerLongRested</c> sets <c>HasLongRested = true</c>
+    /// (GameState.cs:2545) and it is cleared on the next round
+    /// (CCharacterClass.cs:1183). Verified: <c>public bool HasLongRested</c>
+    /// (CCharacterClass.cs:168, publicized).
+    /// </summary>
+    internal static bool HasLongRested(CardsHandUI hand) =>
+        hand.PlayerActor != null && hand.PlayerActor.CharacterClass.HasLongRested;
+
+    /// <summary>
     /// Is this CAbilityCard currently one of the round (played) cards?
     /// Verified: <c>public List&lt;CAbilityCard&gt; RoundAbilityCards</c> (get-only,
     /// CCharacterClass — PATCH-TARGETS §3.2).
