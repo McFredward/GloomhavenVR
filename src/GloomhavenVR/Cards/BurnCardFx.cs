@@ -19,21 +19,42 @@ namespace GloomhavenVR.Cards;
 /// full-size screen-space card: left in <c>World</c> simulation space with
 /// <c>Local</c>/<c>Shape</c> scaling it sprays smoke at screen-pixel scale ACROSS THE
 /// WHOLE DIORAMA. This clamp forces it card-local:
+/// - REPARENT onto the world VR card (passed in as <c>cardTransform</c>): the smoke is
+///   authored under the game's full-size SCREEN card, so <c>scalingMode = Hierarchy</c>
+///   alone multiplies the plume by that huge screen-card scale (still diorama-covering).
+///   Moving it under the small world card makes Hierarchy size the plume to the world card
+///   AND anchors it at the burning card's world position.
 /// - <c>simulationSpace = Local</c> — particles ride the tiny card instead of being
 ///   emitted into world space and left behind at authored size.
 /// - <c>scalingMode = Hierarchy</c> — start size/velocity inherit the card's world
 ///   scale, so the plume is sized to the card, not the play field.
+/// - start size/speed multipliers clamped down for extra shrink so the sparks stay small
+///   and localized around the lying card.
 ///
-/// Fully reversible: the pre-change module values are recorded per live instance and
-/// put back when the instance changes/recycles or on <see cref="Detach"/> (widget
-/// disable/destroy, module shutdown, hot reload). One card owns one of these.
+/// Fully reversible: the pre-change parent + module values are recorded per live instance
+/// and put back when the instance changes/recycles or on <see cref="Detach"/> (widget
+/// disable/destroy, module shutdown, hot reload) — balanced across bind/unbind so a pooled
+/// instance is left exactly as found. One card owns one of these.
 /// </summary>
 internal sealed class BurnCardFx
 {
     private ParticleSystem? _bound;
     private ParticleSystemSimulationSpace _origSpace;
     private ParticleSystemScalingMode _origScaling;
+    private Transform? _origParent;      // the smoke's parent before we reparented it (restored on unbind)
+    private float _origStartSize;        // pre-clamp main.startSizeMultiplier
+    private float _origStartSpeed;       // pre-clamp main.startSpeedMultiplier
+    private bool _reparented;            // true while _bound lives under the world card
     private bool _logged;
+
+    /// <summary>
+    /// Extra shrink applied on top of the Hierarchy scaling: the game authors the plume
+    /// for its full-size screen card, so even sized to the small world card the sparks
+    /// read big. Clamp the start size/speed multipliers to keep them small and localized
+    /// around the lying card. Restored verbatim on unbind.
+    /// </summary>
+    private const float StartSizeMultiplier = 0.35f;
+    private const float StartSpeedMultiplier = 0.35f;
 
     // Test #22 symptom 4c-ii: change-dedup for the "burn plays ON the card" diagnostic.
     private bool _effectActive;
@@ -86,7 +107,7 @@ internal sealed class BurnCardFx
         // The card's smoke instance changed (spawned, recycled, or swapped by the pool).
         RestoreBound();
         if (smoke != null)
-            Bind(smoke);
+            Bind(smoke, cardTransform);
     }
 
     /// <summary>Restore the tracked instance and drop it (disable/destroy/hot reload).</summary>
@@ -100,30 +121,42 @@ internal sealed class BurnCardFx
         RestoreBound();
     }
 
-    private void Bind(ParticleSystem smoke)
+    private void Bind(ParticleSystem smoke, Transform cardTransform)
     {
         _bound = smoke;
         ParticleSystem.MainModule main = smoke.main;
         _origSpace = main.simulationSpace;
         _origScaling = main.scalingMode;
+        _origStartSize = main.startSizeMultiplier;
+        _origStartSpeed = main.startSpeedMultiplier;
 
-        bool changed = false;
+        // ROOT CAUSE (test #22): the smoke stays a child of the game's full-size SCREEN-
+        // SPACE card (CardEffects.transform), so scalingMode=Hierarchy multiplies the plume
+        // by that huge screen-card scale → it covers the whole diorama. Reparent it onto the
+        // small world VR card: Hierarchy then sizes the plume to the world card AND anchors
+        // it at the burning card's world position. worldPositionStays:false lets it inherit
+        // the world card's transform cleanly. Recorded so RestoreBound puts it back.
+        if (cardTransform != null && smoke.transform.parent != cardTransform)
+        {
+            _origParent = smoke.transform.parent;
+            smoke.transform.SetParent(cardTransform, worldPositionStays: false);
+            _reparented = true;
+        }
+
         if (main.simulationSpace != ParticleSystemSimulationSpace.Local)
-        {
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
-            changed = true;
-        }
         if (main.scalingMode != ParticleSystemScalingMode.Hierarchy)
-        {
             main.scalingMode = ParticleSystemScalingMode.Hierarchy;
-            changed = true;
-        }
+        // Extra shrink so the sparks stay small and localized around the lying card.
+        main.startSizeMultiplier = _origStartSize * StartSizeMultiplier;
+        main.startSpeedMultiplier = _origStartSpeed * StartSpeedMultiplier;
 
-        if (changed && !_logged)
+        if (!_logged)
         {
             _logged = true;
-            VRLog.Info("Cards", "Bounded burn CardSmoke particle to the card " +
-                                $"(simulationSpace {_origSpace}->Local, scalingMode {_origScaling}->Hierarchy) " +
+            VRLog.Info("Cards", "Bounded burn CardSmoke particle to the world card " +
+                                $"(reparented {_reparented}, simulationSpace {_origSpace}->Local, " +
+                                $"scalingMode {_origScaling}->Hierarchy, size/speed ×{StartSizeMultiplier:F2}) " +
                                 "— was spraying at screen scale across the diorama.");
         }
     }
@@ -132,7 +165,8 @@ internal sealed class BurnCardFx
     {
         if (_bound == null)
         {
-            _bound = null;
+            _reparented = false;
+            _origParent = null;
             return;
         }
         // Restore even if the pool has since disabled the instance — writing module
@@ -140,6 +174,14 @@ internal sealed class BurnCardFx
         ParticleSystem.MainModule main = _bound.main;
         main.simulationSpace = _origSpace;
         main.scalingMode = _origScaling;
+        main.startSizeMultiplier = _origStartSize;
+        main.startSpeedMultiplier = _origStartSpeed;
+        // Put the smoke back under its original card parent so the pooled instance is left
+        // exactly as we found it (balanced with the reparent in Bind — no leak on recycle).
+        if (_reparented)
+            _bound.transform.SetParent(_origParent, worldPositionStays: false);
+        _reparented = false;
+        _origParent = null;
         _bound = null;
     }
 }

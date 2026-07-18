@@ -98,17 +98,24 @@ internal sealed class EnemyRevealSurface
     private const float FollowSettledDeg = 5f;
     private const float FollowEaseRate = 3f;
 
-    // Item 3 (test #23) — downward gaze bias. PanelPlacement.Spawn flattens the head-
-    // forward to the HORIZON and drops only SpawnDrop (0.12*scale) below eye level —
-    // comfortable for a STANDING viewer, but the player looks DOWN ~30-40° at the
-    // diorama, so a horizon-planted reveal floats ABOVE the actual gaze (and the lazy
-    // follow re-targets the same horizon height, stranding it high). Bias the spawned
-    // target DOWNWARD into the real gaze: a small always-on drop plus a component
-    // proportional to how far the head is pitched below the horizon. Looking straight
-    // ahead adds only RevealBaseDrop (panel stays well inside the deadzone — never sinks
-    // into the board); a downward table gaze adds up to ~RevealGazeDrop more, pulling the
-    // panel down along the gaze so it lands comfortably in view AND the panel tracks the
-    // gaze (drift stays small → no follow self-trigger). Both scale with the diorama.
+    // Item 3 (test #23) — BOARD-ANCHORED height. PanelPlacement.Spawn flattens the head-
+    // forward to the HORIZON for the target HEIGHT — comfortable for a STANDING viewer,
+    // but the player looks DOWN ~30-40° at the diorama, so a horizon-planted reveal floats
+    // far ABOVE the actual gaze (and the lazy follow re-targets that same horizon height,
+    // stranding it high — the earlier head-relative drop was only a fraction of the horizon
+    // anchor, so at a level-ish gaze it barely moved). The reliable fix is to stop letting
+    // the head decide the HEIGHT at all: override only the world Y to a fixed offset above
+    // the control BOARD (tabletop) — the same board the initiative/objectives docks mount
+    // to (PlayTray.Current.Root) — while keeping Spawn's in-view x/z + facing so the panel
+    // still faces the player and follows azimuth via the lazy deadzone. RevealBoardHeight
+    // is that offset above the board root, in reference meters (× diorama scale), so it
+    // zooms with the board. Tune here.
+    private const float RevealBoardHeight = 0.25f;
+
+    // Fallback ONLY when no board exists (e.g. the menu, PlayTray.Current == null): the
+    // previous head-relative downward gaze bias — a small always-on drop plus a component
+    // proportional to how far the head is pitched below the horizon (0 at the horizon, 1
+    // looking straight down). Both scale with the diorama.
     private const float RevealBaseDrop = 0.06f;
     private const float RevealGazeDrop = 0.55f;
 
@@ -321,23 +328,42 @@ internal sealed class EnemyRevealSurface
         // the reference scale so the distance is world-fixed (zooms with the board).
         PanelPlacement.Spawn(head, scale, out Vector3 desiredPos, out Quaternion desiredRot);
 
-        // Item 3 (test #23): drop the target DOWN into the actual downward table gaze.
-        // The Spawn target sits at the horizon minus SpawnDrop — too high when the player
-        // is looking down at the diorama. pitchDown is 0 at the horizon and 1 looking
-        // straight down, so a level gaze only takes the small RevealBaseDrop (stays inside
-        // the follow deadzone, never sinks into the board) while a downward gaze adds up to
-        // RevealGazeDrop more, pulling the panel down along the line of sight. The extra
-        // drop scales with the diorama exactly like the Spawn drop it augments.
-        float pitchDown = Mathf.Clamp01(-head.transform.forward.y);
-        float extraDrop = (RevealBaseDrop + RevealGazeDrop * pitchDown) * scale;
-        desiredPos += Vector3.down * extraDrop;
-        if (!_dropLogged)
+        // Item 3 (test #23) rework: the Spawn target's HEIGHT is the head-forward horizon,
+        // which floats far above the downward table gaze. Clamp ONLY the world Y to a fixed
+        // offset above the control board (tabletop) — the same board the initiative/
+        // objectives docks mount to — keeping Spawn's in-view x/z + facing so the panel
+        // still faces the player and follows azimuth via the lazy deadzone. Falls back to
+        // the previous head-relative drop when no board exists (menu, PlayTray.Current null).
+        Transform? board = PlayTray.Current?.Root;
+        if (board != null)
         {
-            _dropLogged = true;
-            VRLog.Info("WorldUI", $"ENEMY REVEAL downward gaze bias: head pitch {pitchDown:F2} " +
-                                  $"(0=horizon,1=straight down) → dropped target {extraDrop:F3} m " +
-                                  $"(base {RevealBaseDrop:F2}+gaze {RevealGazeDrop:F2}×pitch, ×{scale:F2} scale) " +
-                                  "below the Spawn point so the reveal lands in the downward table gaze.");
+            desiredPos.y = board.position.y + RevealBoardHeight * scale;
+            if (!_dropLogged)
+            {
+                _dropLogged = true;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL height board-anchored to y={desiredPos.y:F3} m " +
+                                      $"(board root {board.position.y:F3} + {RevealBoardHeight:F2} × {scale:F2} scale) " +
+                                      "— world Y clamped above the control board so the reveal lands in the downward table gaze.");
+            }
+        }
+        else
+        {
+            // No board (e.g. menu): drop the target DOWN into the actual downward gaze.
+            // pitchDown is 0 at the horizon and 1 looking straight down, so a level gaze
+            // only takes the small RevealBaseDrop (stays inside the follow deadzone) while a
+            // downward gaze adds up to RevealGazeDrop more, pulling the panel down along the
+            // line of sight. The drop scales with the diorama like the Spawn drop it augments.
+            float pitchDown = Mathf.Clamp01(-head.transform.forward.y);
+            float extraDrop = (RevealBaseDrop + RevealGazeDrop * pitchDown) * scale;
+            desiredPos += Vector3.down * extraDrop;
+            if (!_dropLogged)
+            {
+                _dropLogged = true;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL downward gaze bias (no board): head pitch {pitchDown:F2} " +
+                                      $"(0=horizon,1=straight down) → dropped target {extraDrop:F3} m " +
+                                      $"(base {RevealBaseDrop:F2}+gaze {RevealGazeDrop:F2}×pitch, ×{scale:F2} scale) " +
+                                      "below the Spawn point.");
+            }
         }
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
