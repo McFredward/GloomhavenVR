@@ -81,6 +81,24 @@ internal static class CardsGameApi
         }
     }
 
+    /// <summary>
+    /// How many cards the current modal pick actually expects — the game's
+    /// authoritative <c>maxCardsSelected</c> (private <c>CardsHandManager</c> field
+    /// CardsHandManager.cs:107, set from the <c>Show(..., maxCardsSelected, ...)</c>
+    /// parameter :745; publicized). A single-card burn/avoid-damage pick reports 1, the
+    /// two-card burn reports 2. Falls back to 2 when the manager is unavailable or the
+    /// field reads 0 (the previous hardcoded cap) so the wanted-slot hint never over- or
+    /// under-shoots.
+    /// </summary>
+    internal static int PickCardsWanted()
+    {
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null)
+            return 2;
+        int max = manager.maxCardsSelected;
+        return max > 0 ? max : 2;
+    }
+
     // ---------------------------------------------------- selection (spin-wait path) --
 
     /// <summary>
