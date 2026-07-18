@@ -13,6 +13,7 @@ internal enum PanelSlot
     StatPanel,
     PropInfo,
     ButtonCluster,
+    Tooltip,
 }
 
 /// <summary>
@@ -61,6 +62,11 @@ internal static class PanelLayout
         // the board-hover ray path (test #18: the hover keeps this card alive).
         PanelSlot.PropInfo => new Slot { AzimuthDeg = 22f, Distance = 0.62f, Height = 0.20f, PitchDeg = 22f },
         PanelSlot.ButtonCluster => new Slot { AzimuthDeg = 12f, Distance = -0.42f, Height = 0.02f, PitchDeg = 0f },
+        // Card-action hover tooltip: a FIXED spot top-right above the initiative order
+        // (WorldTooltips), never at the fingertip. Based on InitiativeTrack but nudged
+        // RIGHT (+18° azimuth) and a bit HIGHER (0.55 m) so it sits above/right of the
+        // initiative track, facing the player like every other panel.
+        PanelSlot.Tooltip => new Slot { AzimuthDeg = 18f, Distance = 0.95f, Height = 0.55f, PitchDeg = 12f },
         _ => default,
     };
 

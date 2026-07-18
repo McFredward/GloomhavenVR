@@ -1,7 +1,8 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
-using GloomhavenVR.Hands;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -23,8 +24,22 @@ namespace GloomhavenVR.WorldUI;
 /// <c>UITooltipTarget.OnPointerEnter/Exit</c> → the static <c>UITooltip</c> API —
 /// no patches needed. What this class owns is PRESENTATION: the tooltip lives on the
 /// dedicated persistent <c>tooltipCanvas</c> (Screen-Space-Camera), which is useless
-/// in the HMD; while active the canvas is flipped to WorldSpace and parked near the
-/// currently poking fingertip, facing the player.
+/// in the HMD; while active the canvas is flipped to WorldSpace and parked at a FIXED
+/// table-anchored spot (top-right, above the initiative order — <see cref="PanelSlot.Tooltip"/>),
+/// facing the player. It is NOT anchored to the fingertip (the hover can come from the
+/// laser too, and the user wants a stable reading spot, not a spot that jumps around).
+///
+/// FLAT 2D (part A): the game tooltip's content carries baked local-z / local rotation
+/// (subtle styling under the perspective UI camera) that becomes literal geometry on a
+/// world-space host — the text protruded in 3D past the panel. Routing this SHARED,
+/// game-repositioned canvas through <see cref="CanvasConversion.Convert"/> (reparent +
+/// content-fit, the DamageTooltip path) would be too invasive for a persistent canvas
+/// the game lays out internally, so we apply the same <see cref="CanvasConversion.FlattenSubtree"/>
+/// idea in place — zero the baked local-z / rotation on every descendant every frame
+/// (tooltip lines are pooled/rebuilt per hover, and the game rewrites them) — and add a
+/// <see cref="RectMask2D"/> on the tooltip frame so any 2D overflow is clipped inside the
+/// panel. Both are fully reversed on <see cref="Restore"/> (originals restored; a mask we
+/// added is destroyed) so the vanilla 2D menu tooltip keeps its styling.
 ///
 /// Scale sanity (I2): world scale = <see cref="WorldUIConfig.CanvasScaleMm"/> (mm per
 /// uGUI pixel, default 1) × 0.001 × diorama scale × 0.5 — half the panel framework's
@@ -46,6 +61,15 @@ internal sealed class WorldTooltips
     /// <summary>Unanchored world-space parking spot (out of every camera's view).</summary>
     private static readonly Vector3 ParkPosition = new(0f, -1000f, 0f);
 
+    /// <summary>Local rotation counts as 3D beyond this angle (degrees) off identity.</summary>
+    private const float FlattenAngleEpsilon = 0.05f;
+
+    /// <summary>Local z counts as 3D beyond this many uGUI pixels.</summary>
+    private const float FlattenZEpsilon = 0.01f;
+
+    /// <summary>Tooltip content is only "shown" (worth placing) above this CanvasGroup alpha.</summary>
+    private const float ShownAlphaEpsilon = 0.05f;
+
     private Canvas? _canvas;
     private bool _converted;
 
@@ -54,6 +78,26 @@ internal sealed class WorldTooltips
     private Camera? _originalCamera;
     private float _originalPlaneDistance;
     private Vector3 _originalScale;
+
+    // ---- 2D flatten + frame clip (part A) ---------------------------------------------
+    /// <summary>The persistent tooltip content singleton under the canvas (frame + text lines).</summary>
+    private UITooltip? _tooltip;
+
+    /// <summary>A RectMask2D WE added to the tooltip frame (null when none / the frame already had one).</summary>
+    private RectMask2D? _addedMask;
+
+    /// <summary>Descendant transforms flattened this session (original local z + rotation for Restore).</summary>
+    private readonly List<FlattenEntry> _flattened = new(32);
+
+    /// <summary>Reused per-frame scan buffer (no steady-state allocation).</summary>
+    private static readonly List<RectTransform> RectScratch = new(64);
+
+    private struct FlattenEntry
+    {
+        public Transform Transform;
+        public float OriginalLocalZ;
+        public Quaternion OriginalLocalRotation;
+    }
 
     public void LateTick()
     {
@@ -103,33 +147,117 @@ internal sealed class WorldTooltips
             _canvas.worldCamera = head;
 
         // Re-assert the scale every frame (config/diorama scale are live; the game
-        // may rewrite the transform) — independent of anchor presence.
+        // may rewrite the transform) — independent of placement.
         if (_canvas.transform.localScale != worldScale)
             _canvas.transform.localScale = worldScale;
 
-        // Anchor near whichever fingertip is currently hovering converted UI.
-        Vector3? anchor = FindPokeAnchor();
-        if (!anchor.HasValue)
-            return; // tooltip is hidden anyway; leave the canvas where it is
+        // Resolve the persistent tooltip content (singleton under the canvas) for the
+        // flatten pass, frame clip and visibility gate.
+        if (_tooltip == null)
+            _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
 
-        Vector3 pos = anchor.Value + Vector3.up * (0.07f * scale);
-        Vector3 fromHead = pos - head.transform.position;
-        if (fromHead.sqrMagnitude < 1e-6f)
+        // FLATTEN + CLIP (part A): kill the baked local-z / rotation that renders as 3D
+        // depth on a world-space host, and clip 2D overflow inside the frame. Both are
+        // undone on Restore().
+        FlattenSubtree();
+        EnsureFrameClip();
+
+        // FIXED PLACEMENT (part A): while a tooltip is actually shown, park the canvas at
+        // the fixed table-anchored spot (top-right, above the initiative order), facing
+        // the player. Otherwise leave it out of view — never at the fingertip.
+        bool shown = _tooltip != null && _tooltip.IsActive() && _tooltip.alpha > ShownAlphaEpsilon;
+        if (!shown || !PanelLayout.TryGetPose(PanelSlot.Tooltip, out Vector3 pos, out Quaternion rot))
+        {
+            if (_canvas.transform.position != ParkPosition)
+                _canvas.transform.position = ParkPosition;
             return;
+        }
 
-        Transform t = _canvas.transform;
-        t.SetPositionAndRotation(pos, Quaternion.LookRotation(fromHead.normalized, Vector3.up));
+        _canvas.transform.SetPositionAndRotation(pos, rot);
     }
 
-    private static Vector3? FindPokeAnchor()
+    /// <summary>
+    /// Neutralize REAL 3D inside the tooltip subtree (part A): every descendant carrying a
+    /// non-identity local rotation or non-zero local z is recorded once and clamped
+    /// (rotation → identity, z → 0). X/Y are never touched (the game's fade/slide
+    /// animations keep playing flat). Re-run every frame — tooltip lines are pooled and
+    /// rebuilt per hover and the game rewrites them — with destroyed entries pruned so the
+    /// record list stays bounded to the live subtree. Mirrors
+    /// <see cref="CanvasConversion.FlattenSubtree"/> for this shared, un-converted canvas.
+    /// </summary>
+    private void FlattenSubtree()
     {
-        VRHand? left = VRHands.Left;
-        if (left != null && left.Poke.HoveredUi != null)
-            return left.Rig.IndexTip.position;
-        VRHand? right = VRHands.Right;
-        if (right != null && right.Poke.HoveredUi != null)
-            return right.Rig.IndexTip.position;
-        return null;
+        if (_canvas == null)
+            return;
+
+        // Prune destroyed entries (pooled tooltip lines come and go per hover).
+        for (int i = _flattened.Count - 1; i >= 0; i--)
+        {
+            if (_flattened[i].Transform == null)
+                _flattened.RemoveAt(i);
+        }
+
+        RectScratch.Clear();
+        _canvas.GetComponentsInChildren(includeInactive: true, RectScratch);
+        Transform canvasTf = _canvas.transform;
+        for (int i = 0; i < RectScratch.Count; i++)
+        {
+            RectTransform rect = RectScratch[i];
+            // The canvas root's own pose is ours (scale + placement above) — flatten only
+            // the content below it.
+            if (rect == null || ReferenceEquals(rect, canvasTf))
+                continue;
+
+            Vector3 lp = rect.localPosition;
+            Quaternion lr = rect.localRotation;
+            bool tiltedRot = Quaternion.Angle(lr, Quaternion.identity) > FlattenAngleEpsilon;
+            bool tiltedZ = Mathf.Abs(lp.z) > FlattenZEpsilon;
+            if (!tiltedRot && !tiltedZ)
+                continue;
+
+            if (!IsFlattenRecorded(rect))
+            {
+                _flattened.Add(new FlattenEntry
+                {
+                    Transform = rect,
+                    OriginalLocalZ = lp.z,
+                    OriginalLocalRotation = lr,
+                });
+            }
+            if (tiltedRot)
+                rect.localRotation = Quaternion.identity;
+            if (tiltedZ)
+                rect.localPosition = new Vector3(lp.x, lp.y, 0f);
+        }
+        RectScratch.Clear();
+    }
+
+    private bool IsFlattenRecorded(Transform rect)
+    {
+        for (int i = 0; i < _flattened.Count; i++)
+        {
+            if (ReferenceEquals(_flattened[i].Transform, rect))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Add a <see cref="RectMask2D"/> on the tooltip frame so text is clipped inside the
+    /// panel (part A). Idempotent; if the frame already carries one we leave it alone and
+    /// never destroy it on Restore.
+    /// </summary>
+    private void EnsureFrameClip()
+    {
+        if (_tooltip == null || _addedMask != null)
+            return;
+        var frame = _tooltip.transform as RectTransform;
+        if (frame == null)
+            return;
+        RectMask2D existing = frame.GetComponent<RectMask2D>();
+        if (existing != null)
+            return; // game already clips this frame — don't touch/destroy it
+        _addedMask = frame.gameObject.AddComponent<RectMask2D>();
     }
 
     private void Restore()
@@ -138,13 +266,34 @@ internal sealed class WorldTooltips
             return;
         _converted = false;
         CanvasConversion.RemoveMaskRequest();
+
+        // Un-flatten: original local z + rotation back per live recorded transform.
+        for (int i = 0; i < _flattened.Count; i++)
+        {
+            Transform tf = _flattened[i].Transform;
+            if (tf == null)
+                continue;
+            Vector3 lp = tf.localPosition;
+            tf.localPosition = new Vector3(lp.x, lp.y, _flattened[i].OriginalLocalZ);
+            tf.localRotation = _flattened[i].OriginalLocalRotation;
+        }
+        _flattened.Clear();
+
+        // Remove only a mask we added.
+        if (_addedMask != null)
+        {
+            Object.Destroy(_addedMask);
+            _addedMask = null;
+        }
+        _tooltip = null;
+
         if (_canvas != null)
         {
             _canvas.renderMode = _originalMode;
             _canvas.worldCamera = _originalCamera;
             _canvas.planeDistance = _originalPlaneDistance;
             _canvas.transform.localScale = _originalScale;
-            VRLog.Info("WorldUI", "Tooltip canvas restored to screen space.");
+            VRLog.Info("WorldUI", "Tooltip canvas restored to screen space (flatten + frame clip reverted).");
         }
     }
 
