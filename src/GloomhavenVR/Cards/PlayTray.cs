@@ -90,6 +90,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _clusterMount;
     private Transform? _decisionMount;
     private Transform? _pileMount;
+    private Transform? _activeMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
     private Transform? _longRestAnchor;
@@ -173,6 +174,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// Null until built.
     /// </summary>
     internal Transform? PileMount => _pileMount;
+
+    /// <summary>
+    /// Feature 6 (ACTIVE CARDS area): mount for the permanently-visible active-ability
+    /// card column (<see cref="ActivePileViewer"/>), docked further off the RIGHT edge —
+    /// just past the discard/burnt pile stacks (see the collision math in
+    /// <see cref="BuildMounts"/>). Left-center origin growing right, the same convention
+    /// as <see cref="PileMount"/>, and — like the pile mount — it hosts mod-owned
+    /// factory cards directly (no live game UI re-parenting). Null until built.
+    /// </summary>
+    internal Transform? ActiveMount => _activeMount;
+
+    /// <summary>Distance (tray-local meters) the active-card mount sits to the RIGHT of the pile mount.</summary>
+    internal const float ActiveMountOffsetX = 0.10f;
 
     /// <summary>Stack center X in PileMount-local meters (see BuildMounts collision math).</summary>
     internal const float PileStackOffsetX = 0.05f;
@@ -595,6 +609,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _pileMount = new GameObject("PileMount").transform;
         _pileMount.SetParent(_root, worldPositionStays: false);
         _pileMount.localPosition = new Vector3(BoardW * 0.5f + 0.012f, 0f, -0.004f);
+
+        // Feature 6: the ACTIVE CARDS area docks to the RIGHT of the pile stacks — the
+        // only spot on that edge still free (the pile stacks' worst-case right edge is
+        // x ≈ 0.408; see the pile collision note above). ActiveMountOffsetX (0.10) pushes
+        // this mount to x = 0.34 + 0.10 = 0.44, so the active cards — laid at mount-local
+        // x = 0 and slightly SMALLER than hand/browse cards (ActivePileViewer.CardScale
+        // ≈ 0.82 → half-width ≈ 0.026) — span x ≈ 0.414..0.466, clear of the pile column.
+        // Same left-center/grow-right convention, y and z as the pile mount so the two
+        // areas sit side by side. Off-board: nothing else docks out here.
+        _activeMount = new GameObject("ActiveMount").transform;
+        _activeMount.SetParent(_root, worldPositionStays: false);
+        _activeMount.localPosition = new Vector3(
+            BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
     }
 
     // ------------------------------------------------------------------ grab handle --
@@ -787,6 +814,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _clusterMount = null; // child of _root, destroyed with it
         _decisionMount = null;
         _pileMount = null; // child of _root, destroyed with it (incl. the pile stacks)
+        _activeMount = null; // child of _root, destroyed with it (incl. the active-card column)
         _placed = false;
         _wantVisible = false;
         _placementDeferLogged = false;
