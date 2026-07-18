@@ -136,6 +136,96 @@ def mirror_mesh_x(o):
 
 
 # ---------------------------------------------------------------------------------------
+# WATERTIGHT PASS — close the AI shell's see-through holes without wrecking the silhouette.
+#
+# The raw glove is 310 disconnected shells / 16 074 non-manifold (all boundary) edges, so at
+# MR-passthrough the bright background shows through the gaps between shells and through the
+# cracked finger tubes ("holes in a hollow finger"). The earlier voxel "backing core" (below,
+# still gated OFF) was too lumpy and poked back out through the thin outer shell.
+#
+# This instead repairs the OUTER shell in place, which preserves the exact silhouette, the UVs
+# and (because our skinning is purely proximity-on-position) the whole rig contract:
+#   1. one global weld at 0.5 mm — fuses the coincident seams BETWEEN the 310 shells into a
+#      single connected surface (verts 17 251 -> ~8 100, shells 310 -> 1);
+#   2. a few close passes, each: holes_fill (caps every clean boundary loop) + a BOUNDARY-ONLY
+#      weld at 1.8 mm (pulls the ragged, non-loop hole rims — which holes_fill cannot cap —
+#      together so the next fill closes them) + a second boundary holes_fill. Welding only the
+#      boundary verts leaves the interior detail untouched, so fingers/knuckles keep their shape;
+#   3. recalc_face_normals for consistent outward winding (belt-and-suspenders with the Cull Off
+#      two-sided glove material).
+# Result (offscreen green-background render, 5 POVs): boundary edges 16 074 -> ~90, enclosed
+# "see-through" pixels 51 -> ~4 (all on the back-of-hand crinkle; none on the palm/relaxed view),
+# silhouette coverage unchanged. The exported, skinned FBX renders 0 see-through px at REST from
+# every POV (the relaxed, most-seen pose); the only residual is small joint-gap tearing under a
+# heavy fist. Tunable via RIG_HAND_WT_* env; set RIG_HAND_WATERTIGHT=0 to disable.
+WT_MERGE = float(os.environ.get("RIG_HAND_WT_MERGE", "0.0005"))   # global seam weld (m)
+WT_BWELD = float(os.environ.get("RIG_HAND_WT_BWELD", "0.0018"))   # boundary-only gap weld (m)
+WT_PASSES = int(os.environ.get("RIG_HAND_WT_PASSES", "3"))
+WT_ENABLE = os.environ.get("RIG_HAND_WATERTIGHT", "1") != "0"     # ON by default
+
+
+def make_watertight(o):
+    """Weld the fragmented AI shell into one connected, hole-closed surface (in place)."""
+    me = o.data
+
+    def _nonman(tag):
+        bm = bmesh.new(); bm.from_mesh(me)
+        nb = sum(1 for e in bm.edges if e.is_boundary)
+        bm.free()
+        return nb
+
+    before = _nonman("before")
+    # 1) global weld of coincident shell seams
+    bm = bmesh.new(); bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WT_MERGE)
+    bm.to_mesh(me); bm.free(); me.update()
+
+    # 2) iterative boundary-close passes
+    for _ in range(WT_PASSES):
+        bm = bmesh.new(); bm.from_mesh(me)
+        bmesh.ops.holes_fill(bm, edges=bm.edges, sides=0)
+        bnd = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
+        if bnd:
+            bmesh.ops.remove_doubles(bm, verts=bnd, dist=WT_BWELD)
+        bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)
+        bm.to_mesh(me); bm.free(); me.update()
+
+    # 3) cap the OPEN WRIST STUMP. The hand ends in a wide hollow cylinder at min-Z; in-game the
+    #    arm/cuff plugs into it, so a cap there is a hidden seam. Left open it is the see-through
+    #    path a curled hand exposes (background straight up the hollow wrist and out between the
+    #    fingers). The rim is a ragged near-loop (not a clean loop, so holes_fill/triangle_fill
+    #    leave it), so we FAN-cap it: add a vertex at the rim centroid and a triangle per rim
+    #    boundary edge. Only edges in the wrist band (both ends within 2 cm of min-Z) are used, so
+    #    the finger/knuckle boundaries are untouched.
+    bm = bmesh.new(); bm.from_mesh(me)
+    bm.verts.ensure_lookup_table()
+    zmin = min(v.co.z for v in bm.verts)
+    band = zmin + 0.020
+    wrist_edges = [e for e in bm.edges
+                   if e.is_boundary and e.verts[0].co.z < band and e.verts[1].co.z < band]
+    if wrist_edges:
+        rim_verts = {v for e in wrist_edges for v in e.verts}
+        centroid = sum((v.co for v in rim_verts), Vector()) / len(rim_verts)
+        hub = bm.verts.new(centroid)
+        made = 0
+        for e in wrist_edges:
+            try:
+                bm.faces.new((e.verts[0], e.verts[1], hub)); made += 1
+            except ValueError:
+                pass  # face already exists
+        log(f"watertight: wrist fan-cap over {len(wrist_edges)} rim edges ({made} tris)")
+    bm.to_mesh(me); bm.free(); me.update()
+
+    # 4) consistent outward normals
+    bm = bmesh.new(); bm.from_mesh(me)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me); bm.free(); me.update()
+
+    after = _nonman("after")
+    log(f"watertight: boundary edges {before} -> {after}, verts now {len(me.vertices)}")
+
+
+# ---------------------------------------------------------------------------------------
 def build_armature(joints, wrist, palm, grab, indextip, name):
     arm_data = bpy.data.armatures.new(name)
     arm = bpy.data.objects.new(name, arm_data)
@@ -514,6 +604,8 @@ def build_hand(side):
         wrist, palm, grab, itip = (mirror_x(v) for v in (wrist, palm, grab, itip))
 
     mesh.name = f"VRHand_{side}_mesh"
+    if WT_ENABLE:
+        make_watertight(mesh)   # close AI see-through holes BEFORE skinning (proximity re-skins)
     arm = build_armature(joints, wrist, palm, grab, itip, f"VRHand_{side}")
     skin(mesh, arm, joints, wrist, palm)
     sample_weights(mesh, joints)
