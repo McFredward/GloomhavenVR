@@ -21,10 +21,12 @@ namespace GloomhavenVR.Cards;
 /// P2 <c>UguiPokeSurfaces</c> while in this layout (finger poke AND dominant laser
 /// via <c>RayUguiDriver</c>). Laser commits therefore run through the REAL
 /// 'Top button'/'Bottom button' uGUI click path; the mod zones additionally handle
-/// fingertip pokes but stay INVISIBLE on hover (test #20: the game's own on-card
-/// highlight is the only hover feedback — the extra backing tint behind the card
-/// doubled it). Invalid halves are dimmed using the same query the UI renders from
-/// (<c>FullAbilityCard.IsInteractable + isValid</c>). The
+/// fingertip pokes but stay INVISIBLE (test #20 + ITEM 9: the game's own on-card
+/// highlight is the only hover/selection feedback — the mod paints no backing quad;
+/// the earlier per-half "invalid" dim read as a black semi-transparent sheet over the
+/// cards). Half validity is still mirrored from the game's own query
+/// (<c>FullAbilityCard.IsInteractable + isValid</c>) so an invalid half's poke is a
+/// no-op, but it is never visualised. The
 /// <c>CardsActionControlller</c> phase machine (Select1st → Pick1st → Select2nd →
 /// Pick2nd) drives which halves report playable — we only mirror it.
 /// </summary>
@@ -208,7 +210,7 @@ internal sealed class HalfSelection
             new Vector3(0f, h * 0.27f, 0f), new Vector2(w * 0.96f, h * 0.42f), this);
         set.Bottom = HalfZone.Create(set.Root.transform, card, CBaseCard.ActionType.BottomAction,
             new Vector3(0f, -h * 0.27f, 0f), new Vector2(w * 0.96f, h * 0.42f), this);
-        Core.VRLayers.Apply(set.Root); // mod layer (render-only; zones poke via registries)
+        Core.VRLayers.Apply(set.Root); // mod layer (zones poke via registries; no renderer)
 
         _zones[card] = set;
         RegisterCanvas(card, set);
@@ -252,7 +254,8 @@ internal sealed class HalfSelection
 
     // ------------------------------------------------------------------ per frame --
 
-    /// <summary>Refresh valid/invalid dimming from the game's own interactability query.</summary>
+    /// <summary>Mirror each half's playability from the game's own interactability query
+    /// (drives whether a poke commits; ITEM 9 — no longer any visual dim).</summary>
     internal void Tick()
     {
         if (!IsVisible)
@@ -281,20 +284,18 @@ internal sealed class HalfSelection
     }
 
     /// <summary>
-    /// One pokeable half zone. Its overlay quad only DIMS invalid halves (test #20:
-    /// no hover tint — the game's own on-card highlight is the hover feedback, and
-    /// the extra backing tint behind the card doubled it).
+    /// One pokeable half zone: a fingertip trigger volume only, INVISIBLE (ITEM 9 — the
+    /// game already draws its own mouse-over/selection highlight on the card, so the mod
+    /// no longer paints any backing quad; the earlier per-half "invalid" dim read as a
+    /// black semi-transparent sheet over the cards). Validity is still tracked so an
+    /// invalid half's poke is a no-op, but it is never visualised.
     /// </summary>
     private sealed class HalfZone : PokeableBehaviour
     {
         private VRCard _card = null!;
         private CBaseCard.ActionType _type;
         private HalfSelection _owner = null!;
-        private Material? _overlay;
         private bool _playable;
-
-        private static readonly Color InvalidColor = new(0f, 0f, 0f, 0.55f);
-        private static readonly Color ClearColor = new(0f, 0f, 0f, 0f);
 
         internal static HalfZone Create(Transform parent, VRCard card, CBaseCard.ActionType type,
             Vector3 localPos, Vector2 size, HalfSelection owner)
@@ -303,50 +304,24 @@ internal sealed class HalfSelection
             go.transform.SetParent(parent, worldPositionStays: false);
             go.transform.localPosition = localPos;
 
+            // Poke selection volume only — no renderer (ITEM 9): the game's own on-card
+            // highlight is the sole hover/selection feedback.
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(size.x, size.y, 0.012f);
             box.isTrigger = true;
-
-            // Overlay quad on the viewer side (-Z): dims when invalid, clear otherwise.
-            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "Overlay";
-            Destroy(quad.GetComponent<Collider>());
-            quad.transform.SetParent(go.transform, worldPositionStays: false);
-            quad.transform.localPosition = new Vector3(0f, 0f, -0.0018f); // viewer side (-Z)
-            quad.transform.localScale = new Vector3(size.x, size.y, 1f);
-
-            Material? overlay = null;
-            Shader? shader = Shader.Find("Sprites/Default");
-            if (shader != null)
-            {
-                overlay = new Material(shader) { color = ClearColor };
-                quad.GetComponent<MeshRenderer>().sharedMaterial = overlay;
-            }
 
             var zone = go.AddComponent<HalfZone>();
             zone._card = card;
             zone._type = type;
             zone._owner = owner;
-            zone._overlay = overlay;
             return zone;
         }
 
-        internal void SetPlayable(bool playable)
-        {
-            if (_playable == playable && _overlay == null)
-                return;
-            _playable = playable;
-            UpdateOverlay();
-        }
-
-        private void UpdateOverlay()
-        {
-            if (_overlay == null)
-                return;
-            Color color = _playable ? ClearColor : InvalidColor;
-            if (_overlay.color != color)
-                _overlay.color = color;
-        }
+        /// <summary>
+        /// Track whether this half may be committed. No visual (ITEM 9) — an invalid
+        /// half simply refuses the poke below.
+        /// </summary>
+        internal void SetPlayable(bool playable) => _playable = playable;
 
         /// <summary>
         /// Poke hover feedback (test #20): a haptic tick only — no zone tint. The
