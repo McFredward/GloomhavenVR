@@ -446,16 +446,25 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     }
 
     /// <summary>
-    /// Fly-in to the in-hand pose (P7): a short LOCAL-space lerp toward the captured
-    /// held pose. Local space means the card follows the wrist 1:1 even while still
-    /// converging; once converged it is simply parented — zero per-frame head math,
-    /// no auto-facing, no allocations.
+    /// Fly-in to the in-hand pose: the card sits at the pinch point (position lerped
+    /// in GrabAnchor-local space, so it tracks the wrist 1:1) but per-frame BILLBOARDS
+    /// its face to the head — same convention as CardFan.Tick — so a grabbed card is
+    /// readable without twisting the wrist. The initial grab snap (_heldRot) still
+    /// orients the card the instant it is picked up; this override then eases the face
+    /// toward the viewer. Scale lerps as before.
     /// </summary>
     private void TickHeldPose()
     {
         float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
         transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
-        transform.localRotation = Quaternion.Slerp(transform.localRotation, _heldRot, t);
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head != null)
+        {
+            Vector3 away = transform.position - head.transform.position; // cards' +Z away from viewer (uGUI reads from -Z)
+            if (away.sqrMagnitude > 1e-6f)
+                transform.rotation = Quaternion.Slerp(transform.rotation,
+                    Quaternion.LookRotation(away.normalized, head.transform.up), t);
+        }
         transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
     }
 
