@@ -39,6 +39,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly List<VRCard> _fakeCards = new(12);
 
     private bool _dirty;
+    // Item 4: previous VRMode transition, to detect the laundered ModalUI→TableIdle→HalfSelection
+    // reveal-confirm round-trip (see OnModeChanged) and NOT re-seat the board on it.
+    private VRMode _prevFrom = VRMode.Menu2D;
+    private VRMode _prevTo = VRMode.Menu2D;
     private bool _boardChanged; // [Cards] Board switched — tear down + rebuild the tray next frame
     private bool _fakeActive;
     private VRHand? _gateHand;
@@ -112,12 +116,25 @@ internal sealed class CardsDriver : MonoBehaviour
         // still re-anchoring FOLLOW mode on a real new turn (From = TableIdle/Menu2D)
         // or the CardSelection → HalfSelection turn-start progression (From =
         // CardSelection). InvalidatePlacement is already a no-op when pinned.
+        // Item 4: confirming the enemy-info reveal LAUNDERS the modal round-trip — the
+        // game ReadyButton unlocks the UI (ModalUI → TableIdle) and THEN calls Pass()
+        // (TableIdle → HalfSelection), two synchronous transitions. By the time
+        // HalfSelection arrives, From has been rewritten from ModalUI to TableIdle, so the
+        // `From != ModalUI` guard above no longer catches it and the board glitched to the
+        // mid-camera-move head pose. Detect the laundered case (previous transition was
+        // ModalUI → TableIdle, this one is TableIdle → *) and treat it like the direct
+        // modal round-trip: do NOT re-seat. The user requires the board NEVER glitch.
+        bool modalRoundTrip = change.From == VRMode.TableIdle
+                              && _prevFrom == VRMode.ModalUI && _prevTo == VRMode.TableIdle;
         if ((change.To == VRMode.CardSelection || change.To == VRMode.HalfSelection)
-            && change.From != VRMode.BoardTargeting && change.From != VRMode.ModalUI)
+            && change.From != VRMode.BoardTargeting && change.From != VRMode.ModalUI
+            && !modalRoundTrip)
         {
             _tray.InvalidatePlacement();
             _half.InvalidatePlacement();
         }
+        _prevFrom = change.From;
+        _prevTo = change.To;
         // A dialog owns the scene (test #21 C): an open pile browse would float
         // behind/through it — close, the stacks stay for re-opening afterwards.
         if (change.To == VRMode.ModalUI)
