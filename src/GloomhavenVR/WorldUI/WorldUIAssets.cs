@@ -39,7 +39,9 @@ internal static class WorldUIAssets
     /// </summary>
     internal static Material CreateFlatMaterial(Color color, bool overlay = false)
     {
-        Shader? shader = overlay ? Shader.Find("GloomhavenVR/Overlay") : null;
+        // Load the bundled Overlay shader via the bundle (Shader.Find can't see a bundled
+        // shader nothing has loaded — see Cards.PlayTray.OverlayShader).
+        Shader? shader = overlay ? Cards.PlayTray.OverlayShader() : null;
         shader ??= Shader.Find("Sprites/Default")
                    ?? Shader.Find("Legacy Shaders/Diffuse")
                    ?? Shader.Find("Hidden/InternalErrorShader");

@@ -264,7 +264,7 @@ internal static class CardsConfig
             "current bundled PlayTray. Applies to played cards, single-card pick candidates and " +
             "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
             "(that is SlotCardInset).");
-        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.085f,
+        RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.096f,
             "Feature 6a / item 2: diameter (real meters) of the ROUND short-rest / long-rest " +
             "buttons that seat in the control board's two round rest-notches. Measured from an " +
             "Oak-decorated-face render the notches are ~0.088 m across, so the default is 0.085 " +
@@ -278,17 +278,17 @@ internal static class CardsConfig
             "along the press axis. Higher = a chunkier disc that stands prouder of the notch " +
             "floor; the puck still travels the same fixed 4 mm on press. May differ per " +
             "control board (see RoundButtonDiameter).");
-        RestButtonInsetX = _file.Bind("Cards", "RestButtonInsetX", 0.02f,
+        RestButtonInsetX = _file.Bind("Cards", "RestButtonInsetX", 0.024f,
             "Item 2 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied " +
             "to the round short/long-rest discs so they center in the Oak board's round rest notches. " +
             "The bundle rest anchors sit ~0.02 m too far toward the board edge (anchor X ~-0.26, notch " +
             "center X ~-0.239), so this pulls the built disc back in. PER-BOARD: the upcoming boards " +
             "have differently placed notches; a future per-board descriptor overrides this.");
-        ConfirmUndoSize = _file.Bind("Cards", "ConfirmUndoSize", 0.066f,
+        ConfirmUndoSize = _file.Bind("Cards", "ConfirmUndoSize", 0.073f,
             "Item 3 (Oak-tuned): side length (real meters) of the SQUARE Confirm/Undo buttons so they " +
             "sit on the Oak board's two ~0.066 m metal button pads (were 0.115x0.06 / 0.09x0.042). " +
             "PER-BOARD: differs per control board.");
-        ConfirmUndoInsetX = _file.Bind("Cards", "ConfirmUndoInsetX", 0.015f,
+        ConfirmUndoInsetX = _file.Bind("Cards", "ConfirmUndoInsetX", 0.014f,
             "Item 3 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied to " +
             "Confirm/Undo so they center on the Oak metal pads (the ButtonZone anchor X ~+0.235 sits " +
             "~0.015 m too far toward the board edge; pad center X ~+0.235... nudged in). PER-BOARD.");

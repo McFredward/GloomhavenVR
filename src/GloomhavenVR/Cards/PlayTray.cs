@@ -1894,7 +1894,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal static Shader? OverlayShader()
     {
         if (_overlayShader == null)
+        {
+            // A bundled shader is NOT discoverable via Shader.Find until something loads it
+            // into memory. BoardLit resolves only because a bundle PREFAB's material
+            // references it; GloomhavenVR/Overlay is referenced ONLY by runtime C#, so it is
+            // never loaded and Shader.Find returns null (root cause of the STILL-invisible
+            // gear/glows in build 0258fbb). Load it explicitly from whichever loaded bundle
+            // holds it (the tray/hands bundle is already loaded by the time widgets build).
             _overlayShader = Shader.Find("GloomhavenVR/Overlay");
+            if (_overlayShader == null)
+            {
+                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+                {
+                    if (b == null) continue;
+                    var s = b.LoadAsset<Shader>("Assets/Bundle/Table/Overlay.shader");
+                    if (s != null) { _overlayShader = s; break; }
+                }
+            }
+        }
         if (_overlayShader != null && !_overlayFoundLogged)
         {
             _overlayFoundLogged = true;
