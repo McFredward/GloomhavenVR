@@ -198,6 +198,14 @@ internal sealed class FlatScreen
     private bool _pressing;
     private bool _mirrorLogged;
 
+    // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
+    /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>
+    private int _screenMaterialQueueDefault = -1;
+    /// <summary>Last render-queue policy applied to the backdrop material (menu vs scenario).</summary>
+    private bool _backdropMenuQueue;
+    /// <summary>One-shot ground-truth log of the hands' render state while the menu screen is shown.</summary>
+    private bool _handsDiagLogged;
+
     // ---- click latch (test #6, requirement 1) --------------------------------------------
     /// <summary>True while the held press is frozen at its press pixel (click, not drag).</summary>
     private bool _latched;
@@ -344,6 +352,102 @@ internal sealed class FlatScreen
 
         FollowHead();
         TickPointer();
+        TickBackdropDepth();
+    }
+
+    // ---- ITEM 1: hands visible in front of the menu / intro screen --------------------------
+
+    /// <summary>
+    /// ITEM 1 FIX + DIAGNOSTIC. In MENU/INTRO the rig head camera renders the mod layer
+    /// ONLY, so the only things it draws are the flat-screen quads and the mod's own
+    /// hands. The opaque backdrop (single-RT screen quad in fallback; background quad in
+    /// split) uses <c>Hidden/BlitCopy</c> — ZTest Always / ZWrite Off — which IGNORES
+    /// depth and, rendering LATER than the (physically closer) hands inside the Geometry
+    /// queue, overwrote them: the screen appeared to cover hands held in front of it.
+    ///
+    /// Fix: in menu-like modes push the backdrop material into the <c>Background</c>
+    /// queue so it renders BEFORE the hands — the opaque glove then depth/paints over
+    /// it and the transparent glass (Sprites/Default, ZTest LEqual) already respects the
+    /// closer hand's depth — so the hands regain their place in front. Outside menu
+    /// modes the summoned screen must stay ON TOP of the 3D world, so the shader default
+    /// queue is restored (scenario behaviour unchanged).
+    ///
+    /// The glass quad needs no change: it is genuinely transparent (ZTest LEqual), so an
+    /// opaque hand that wrote depth already occludes it, and a transparent (procedural)
+    /// hand sorts in front of it by distance.
+    /// </summary>
+    private void TickBackdropDepth()
+    {
+        if (_screenMaterial == null)
+            return;
+
+        bool menuLike = VRModeStateMachine.CurrentMode == VRMode.Menu2D || IsPreMenuScene();
+        int wantQueue = menuLike
+            ? (int)UnityEngine.Rendering.RenderQueue.Background
+            : _screenMaterialQueueDefault >= 0
+                ? _screenMaterialQueueDefault
+                : (int)UnityEngine.Rendering.RenderQueue.Geometry;
+        if (_screenMaterial.renderQueue != wantQueue)
+        {
+            _screenMaterial.renderQueue = wantQueue;
+            _backdropMenuQueue = menuLike;
+            VRLog.Info("WorldUI", $"ITEM1: flat-screen backdrop render queue → {wantQueue} " +
+                                  (menuLike
+                                      ? "(menu/intro — renders before the mod hands so hands held in front show)."
+                                      : "(scenario — shader default; summoned screen stays over the 3D world)."));
+        }
+
+        if (menuLike && !_handsDiagLogged && (VRHands.Left != null || VRHands.Right != null))
+        {
+            _handsDiagLogged = true;
+            LogHandsVisibilityDiagnostic();
+        }
+    }
+
+    /// <summary>
+    /// ITEM 1 ground truth (menu screen shown): logs the flat-screen material state
+    /// (render queue + shader, from which its ZTest is known) and each hand glove
+    /// renderer's enabled/isVisible/layer/bounds — so an in-game log reveals whether the
+    /// hands were rendered-but-occluded (queue), culled (layer/enabled) or off-screen
+    /// (bounds), even without an HMD capture.
+    /// </summary>
+    private void LogHandsVisibilityDiagnostic()
+    {
+        Shader? backShader = _screenMaterial != null ? _screenMaterial.shader : null;
+        Shader? glassShader = _glassMaterial != null ? _glassMaterial.shader : null;
+        VRLog.Info("WorldUI", "ITEM1 diag — flat-screen materials: backdrop shader " +
+            $"'{(backShader != null ? backShader.name : "null")}' queue " +
+            $"{(_screenMaterial != null ? _screenMaterial.renderQueue : -1)} " +
+            "(Hidden/BlitCopy = ZTest Always / ZWrite Off), glass shader " +
+            $"'{(glassShader != null ? glassShader.name : "null")}' queue " +
+            $"{(_glassMaterial != null ? _glassMaterial.renderQueue : -1)} " +
+            "(Sprites/Default = ZTest LEqual / ZWrite Off), split " +
+            $"{(SplitActive ? (_splitRouting ? "routing" : "engaged") : "off")}, mod layer {Core.VRLayers.ModLayer}.");
+        LogHandRenderers(VRHands.Left, "Left");
+        LogHandRenderers(VRHands.Right, "Right");
+    }
+
+    private static void LogHandRenderers(VRHand? hand, string label)
+    {
+        if (hand == null || hand.Rig == null || hand.Rig.Root == null)
+        {
+            VRLog.Info("Hands", $"ITEM1 diag — {label} glove: no hand/rig present.");
+            return;
+        }
+        Renderer[] renderers = hand.Rig.Root.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            VRLog.Info("Hands", $"ITEM1 diag — {label} glove: rig root '{hand.Rig.Root.name}' has NO renderers.");
+            return;
+        }
+        Renderer r = renderers[0];
+        Material? m = r.sharedMaterial;
+        VRLog.Info("Hands", $"ITEM1 diag — {label} glove ({renderers.Length} renderer(s)); first '{r.name}': " +
+            $"enabled={r.enabled}, isVisible={r.isVisible}, layer={r.gameObject.layer} " +
+            $"(mod layer {Core.VRLayers.ModLayer}), activeInHierarchy={r.gameObject.activeInHierarchy}, " +
+            $"bounds c={r.bounds.center} e={r.bounds.extents}, " +
+            $"shader='{(m != null && m.shader != null ? m.shader.name : "null")}', " +
+            $"queue={(m != null ? m.renderQueue : -1)}.");
     }
 
     /// <summary>
@@ -1135,6 +1239,9 @@ internal sealed class FlatScreen
                              ?? Shader.Find("Sprites/Default")
                              ?? Shader.Find("UI/Default");
             _screenMaterial = new Material(shader) { mainTexture = _rt };
+            // ITEM 1: remember the shader's own queue so the menu/scenario depth policy
+            // (TickBackdropDepth) can restore it outside menu modes.
+            _screenMaterialQueueDefault = _screenMaterial.renderQueue;
             _quadRenderer.sharedMaterial = _screenMaterial;
 
             // No FlatScreen-owned reticle: the RayInteractor's beam + dot clamp to
@@ -1199,6 +1306,7 @@ internal sealed class FlatScreen
             VRLog.Info("WorldUI", "FlatScreen hidden — captured cameras restored to the backbuffer.");
         _visible = false;
         _mirrorLogged = false;
+        _handsDiagLogged = false;
         _placedHead = null;
         _offGazeSince = -1f;
         _gliding = false;

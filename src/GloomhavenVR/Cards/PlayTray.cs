@@ -251,11 +251,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// target (DEFECT 2) — then <see cref="BuildBoardSurface"/> skips its synthetic plane.</summary>
     private bool _boardColliderRegistered;
 
-    /// <summary>The board's functional-face frame (−Z out of the decorated face toward the
-    /// player), derived from the bundle anchor axes in <see cref="EnsureBuilt"/>. Mod-built
-    /// board elements adopt it so they face the player like the slots/buttons. Identity for
-    /// the procedural fallback board (its localPositions already assume that convention).</summary>
+    /// <summary>The board's functional-face frame in <c>_root</c>-LOCAL space (a child's
+    /// localRotation = this reproduces the same world facing the bundle slot anchors get:
+    /// readable −Z toward the player). Derived from the bundle anchor axes in
+    /// <see cref="EnsureBuilt"/>. Identity for the procedural fallback board (its
+    /// localPositions already assume that convention).
+    /// ITEM 2 FIX: previously this stored a WORLD LookRotation and was applied as a child
+    /// localRotation — but <c>_root</c> is parented under the rig/hands root
+    /// (CardsDriver.AnchorParent) and is NOT identity in world, so the readout/gear were
+    /// double-rotated onto the board's BACK. It is now stored in <c>_root</c>-local space.</summary>
     private Quaternion _boardFaceFrame = Quaternion.identity;
+
+    /// <summary>ITEM 2 diagnostic: the board functional-face outward (away-from-viewer, +Z)
+    /// normal in WORLD space at build time (nF). −this points toward the player.</summary>
+    private Vector3 _boardFaceNormalWorld = Vector3.forward;
+
+    /// <summary>One-shot ground-truth log of each board element's facing after placement.</summary>
+    private bool _boardDiagLogged;
 
     /// <summary>Arm the accidental-confirm guard (called by CardsDriver on real slot drops/plucks only).</summary>
     internal void NoteSlotActivity() => _lastSlotActivity = Time.unscaledTime;
@@ -326,6 +338,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _root = new GameObject("GloomhavenVR.PlayTray").transform;
         _root.SetParent(anchorParent, worldPositionStays: false);
         Current = this;
+        _boardDiagLogged = false; // re-log the board-facing ground truth for this fresh board
 
         Transform? confirmAnchor = null;
         Transform? undoAnchor = null;
@@ -360,16 +373,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 // the card markers squarely in the two slot recesses on the player-facing
                 // functional face. So forward = +nF => -Z = -nF = out of that face. (Do not
                 // flip to -nF: that hides the cards on the decorative back.)
-                // Store the board-face frame so the mod-BUILT elements (round readout,
-                // settings gear, follow toggle, procedural button fallbacks) face the
-                // SAME way as the bundle anchors — otherwise they inherit _root's raw
-                // axes and render on the board's BACK (test: "Runde 2"/gear only visible
-                // from behind). _root is identity here, so a world frame doubles as the
-                // local-to-_root frame the children keep as _root later tilts.
-                _boardFaceFrame = Quaternion.LookRotation(nF, vF);
+                // ITEM 2 FIX: the mod-BUILT elements (round readout, settings gear, follow
+                // toggle, procedural button fallbacks) are children of _root and take this
+                // frame as their localRotation; the bundle anchors below are aligned in
+                // WORLD space. _root is NOT identity in world — it is parented under the
+                // rig/hands root (CardsDriver.AnchorParent) which carries the diorama
+                // rotation — so a world LookRotation applied as a child localRotation was
+                // double-rotated by _root.rotation and put "Runde N"/the gear on the board
+                // BACK (the prior fix "did not work"). Store the face frame in _root-LOCAL
+                // space so a child localRotation reproduces exactly the world facing the
+                // slots get, and stays consistent as PlaceAtHead later tilts _root.
+                Quaternion faceWorld = Quaternion.LookRotation(nF, vF);
+                _boardFaceNormalWorld = nF;
+                _boardFaceFrame = Quaternion.Inverse(_root.rotation) * faceWorld;
                 foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
                     if (a != null)
-                        a.rotation = _boardFaceFrame;
+                        a.rotation = faceWorld;
             }
 
             // DEFECT 2: the bundled board now ships a MeshCollider (BuildBoard). Register
@@ -439,7 +458,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         var readoutGo = new GameObject("RoundReadout");
         readoutGo.transform.SetParent(_root, worldPositionStays: false);
-        readoutGo.transform.localPosition = new Vector3(ButtonZoneX, 0.125f, -0.004f);
+        // ITEM 2: seat it on the functional face plane (defined by the slots) and lift it
+        // proud toward the viewer like a seated card — the raw −0.004 z sat at _root depth,
+        // which on the bundle board is BEHIND the recessed face ("Runde N" too deep).
+        readoutGo.transform.localPosition = SeatOnBoardFace(new Vector3(ButtonZoneX, 0.125f, 0f));
         readoutGo.transform.localRotation = _boardFaceFrame; // face the player like the slots ("Runde N" was on the back)
 
         var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -835,6 +857,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // player, pinned or not.
         if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
             ApplyFollowMode();
+
+        LogBoardFaceDiagnostics(); // ITEM 2 ground truth in the final placed pose (once per board)
     }
 
     /// <summary>
@@ -908,6 +932,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// inherits both.
     /// </summary>
     internal static Vector3 SlotHomeOffset => new(0f, 0f, -CardsConfig.SlotCardInset.Value);
+
+    /// <summary>
+    /// ITEM 3: the home scale a card takes when it seats in a slot — it grows to (nearly)
+    /// fill the recess. Multiplies on top of the slot frame's inherited 1.3× SlotScale;
+    /// tuned per board via <c>[Cards] SlotCardFill</c>. Shared by every slot-home path
+    /// (<see cref="PlaceCard"/>, <see cref="PlacePickCard"/>, HalfSelection docked cards)
+    /// so a slotted card is the same size regardless of how it got there.
+    /// </summary>
+    internal static float SlotCardScale => Mathf.Max(0.1f, CardsConfig.SlotCardFill.Value);
 
     /// <summary>
     /// Slot anchor transform (test #19: HalfSelection docks the round cards into
@@ -1269,7 +1302,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (!card.IsHeld)
         {
             card.gameObject.SetActive(true);
-            card.SetHome(_slots[slot]!, SlotHomeOffset, Quaternion.identity, 1f, instant);
+            card.SetHome(_slots[slot]!, SlotHomeOffset, Quaternion.identity, SlotCardScale, instant); // ITEM 3: fill the recess
         }
         if (announce)
             VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
@@ -1295,13 +1328,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         card.gameObject.SetActive(true);
         if (index < 2)
         {
-            card.SetHome(slot, SlotHomeOffset, Quaternion.identity, 1f);
+            card.SetHome(slot, SlotHomeOffset, Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess
             return slotIndex;
         }
         // Graceful fallback for a 3rd+ pick card (no silent cap): lay it beside Slot2.
         float w = CardsConfig.CardWidth.Value;
         Vector3 off = SlotHomeOffset + new Vector3((index - 1) * w * 1.15f, 0f, 0f);
-        card.SetHome(slot, off, Quaternion.identity, 1f);
+        card.SetHome(slot, off, Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess
         return -1;
     }
 
@@ -1701,9 +1734,81 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         var t = new GameObject(name).transform;
         t.SetParent(_root, worldPositionStays: false);
-        t.localPosition = localPos;
+        // ITEM 2: seat proud on the functional face (see SeatOnBoardFace) so the gear /
+        // follow toggle rest ON the player-facing surface, not sunk at _root depth.
+        t.localPosition = SeatOnBoardFace(localPos);
         t.localRotation = _boardFaceFrame; // face the functional board face like the bundle anchors
         return t;
+    }
+
+    /// <summary>
+    /// ITEM 2 depth fix: map an authored <c>_root</c>-local position onto the board's
+    /// functional-face plane (the plane the slot anchors sit in) and lift it proud toward
+    /// the viewer by <see cref="CardsConfig.SlotCardInset"/> — the same amount a slotted
+    /// card is lifted — so mod-built elements rest ON the player-facing face instead of
+    /// at raw <c>_root</c> depth (which on the bundle board is BEHIND the recessed face).
+    /// The in-plane (x/y) component is preserved; only the along-normal depth is corrected.
+    /// For the procedural board (identity frame, slots at z 0) this is simply
+    /// z → −SlotCardInset, coplanar with the seated cards.
+    /// </summary>
+    private Vector3 SeatOnBoardFace(Vector3 authoredLocal)
+    {
+        float inset = CardsConfig.SlotCardInset.Value;
+        Vector3 nLocal = _boardFaceFrame * Vector3.forward; // +Z away from the viewer, _root-local
+        if (_root == null || _slots[0] == null || _slots[1] == null)
+            return authoredLocal - nLocal * inset;
+        Vector3 s0 = _root.InverseTransformPoint(_slots[0]!.position);
+        Vector3 s1 = _root.InverseTransformPoint(_slots[1]!.position);
+        Vector3 faceCenter = (s0 + s1) * 0.5f;
+        // Slide the authored point along the normal onto the slot-floor plane, then proud.
+        float depthDiff = Vector3.Dot(faceCenter - authoredLocal, nLocal);
+        return authoredLocal + nLocal * depthDiff - nLocal * inset;
+    }
+
+    /// <summary>
+    /// ITEM 2 ground truth (logged once per board, after placement): for the round
+    /// readout, gear, follow toggle, a reference slot and its card — world position, the
+    /// readable-face direction (−forward), and how it compares to the board functional-
+    /// face normal and the head direction — so an in-game log SHOWS which way each element
+    /// faces and whether it sits proud, even without an HMD capture.
+    /// </summary>
+    private void LogBoardFaceDiagnostics()
+    {
+        if (_boardDiagLogged || _root == null)
+            return;
+        _boardDiagLogged = true;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        Vector3 headPos = head != null ? head.transform.position : Vector3.zero;
+        Vector3 headDir = head != null ? head.transform.forward : Vector3.forward;
+        // Functional face normal toward the viewer, in the CURRENT (placed) world pose.
+        Vector3 faceTowardViewer = (_root.rotation * _boardFaceFrame) * Vector3.back;
+        VRLog.Info("Cards", $"ITEM2 diag — board face: toward-viewer normal {faceTowardViewer}, " +
+            $"head dir {headDir}, head→board {(_root.position - headPos).normalized}, " +
+            $"root pos {_root.position}, buildNormal(nF world) {_boardFaceNormalWorld}.");
+        LogElementFacing("RoundReadout", _roundLabel != null ? _roundLabel.transform : null, faceTowardViewer, headPos);
+        LogElementFacing("SettingsGear", _gear != null ? _gear.transform : null, faceTowardViewer, headPos);
+        LogElementFacing("FollowToggle", _followToggle != null ? _followToggle.transform : null, faceTowardViewer, headPos);
+        LogElementFacing("Slot0", _slots[0], faceTowardViewer, headPos);
+        LogElementFacing("Slot0Card", _occupants[0] != null ? _occupants[0]!.transform : null, faceTowardViewer, headPos);
+    }
+
+    private static void LogElementFacing(string label, Transform? t, Vector3 faceTowardViewer, Vector3 headPos)
+    {
+        if (t == null)
+        {
+            VRLog.Info("Cards", $"ITEM2 diag — {label}: not present.");
+            return;
+        }
+        // TMP / quad / card all read on their LOCAL −Z. The readable face points at the
+        // player when −forward aligns with the toward-viewer face normal (dot ~ +1) and
+        // back toward the head (headDot > 0).
+        Vector3 readable = -t.forward;
+        float faceDot = Vector3.Dot(readable, faceTowardViewer);
+        Vector3 toElem = (t.position - headPos).normalized;
+        float headDot = Vector3.Dot(readable, -toElem);
+        VRLog.Info("Cards", $"ITEM2 diag — {label}: pos {t.position}, readable(-Z) {readable}, " +
+            $"vs faceNormal dot {faceDot:F2} (want ~+1), vs head dot {headDot:F2} (want >0) → " +
+            $"{(headDot > 0.2f ? "FACES the player" : "faces AWAY from the player")}.");
     }
 
     private static void AddCaption(Transform parent, Vector3 localPos, string text,
