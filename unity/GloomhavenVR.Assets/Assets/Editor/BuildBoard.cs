@@ -96,6 +96,16 @@ namespace GloomhavenVR
             var mat = new Material(shader) { name = "PlayTray" };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
             if (normal != null) mat.SetTexture("_BumpMap", normal);
+            // WATERTIGHT FIX — render the board double-sided (Cull Off). The AI board mesh is
+            // fragmented (1064 shells, 20 268 non-manifold edges), so with the default Back
+            // culling its many small holes reveal the CULLED interior and, in MR passthrough,
+            // the bright green background shows through (offscreen render: ~140 see-through px
+            // across 5 POVs). Every hole here has a wall behind it, so Cull Off — with BoardLit's
+            // VFACE two-sided lighting flipping the normal so that inner wall is lit, not black —
+            // fills every hole with board surface instead of background (verified: 0 see-through
+            // px, all 5 POVs). Purely a render-state change: the mesh, the six anchors, the
+            // recessed functional face and the MeshCollider the mod raycasts are all untouched.
+            mat.SetFloat("_Cull", 0f); // 0 = CullMode.Off
             AssetDatabase.CreateAsset(mat, MatPath);
             AssetDatabase.SaveAssets();
             Debug.Log($"[GloomhavenVR] Material built: albedo={(albedo ? albedo.name : "none")}, normal={(normal ? normal.name : "none")}");
