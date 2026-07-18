@@ -98,7 +98,19 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnModeChanged(VRModeChange change)
     {
         _dirty = true;
-        if (change.To == VRMode.CardSelection || change.To == VRMode.HalfSelection)
+        // Item 8: re-anchor the tray only on a GENUINELY new decision point — a new
+        // turn/round arriving from a spectate/flow state — NOT when merely RETURNING
+        // to HalfSelection (or CardSelection) from a targeting/modal round-trip. Marking
+        // an attack hex ends BoardTargeting → HalfSelection; a modal confirm ends
+        // ModalUI → HalfSelection. Neither is a fresh turn, yet the old unconditional
+        // InvalidatePlacement forced PlaceAtHead to re-seat the board on the next frame
+        // ("the board clips to a different position" after marking a target). Skipping
+        // the two "returning" sources leaves the placed board exactly where it is while
+        // still re-anchoring FOLLOW mode on a real new turn (From = TableIdle/Menu2D)
+        // or the CardSelection → HalfSelection turn-start progression (From =
+        // CardSelection). InvalidatePlacement is already a no-op when pinned.
+        if ((change.To == VRMode.CardSelection || change.To == VRMode.HalfSelection)
+            && change.From != VRMode.BoardTargeting && change.From != VRMode.ModalUI)
         {
             _tray.InvalidatePlacement();
             _half.InvalidatePlacement();

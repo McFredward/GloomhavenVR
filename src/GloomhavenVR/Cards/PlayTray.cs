@@ -419,7 +419,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 slot.localScale *= SlotScale;
         }
 
-        BuildSlotLabels();
         BuildSlotHighlights();
         BuildWantedHighlights();
         BuildButtons(confirmAnchor, undoAnchor);
@@ -479,6 +478,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _roundLabel.color = new Color(1f, 0.9f, 0.6f);
         // Single line fitted to the plate ("Runde 12" and longer localizations shrink).
         Core.TmpFit.Fit(_roundLabel, 0.12f, 0.028f, maxFontSize: 0.32f, wrap: false);
+
+        // Item 5: the round readout sits in the recessed plane the opaque board rim now
+        // occludes — draw the whole readout (plate + text) on top of the board. Plate at
+        // 4000, text nudged to 4001 so under ZTest Always the label always wins over its
+        // own dark plate (equal-queue draw order is otherwise undefined between them).
+        RenderOnTop(readoutGo, 4000);
+        var labelRenderer = _roundLabel.GetComponent<Renderer>();
+        if (labelRenderer != null)
+            foreach (Material m in labelRenderer.materials)
+                if (m != null) m.renderQueue = 4001;
     }
 
     /// <summary>Cluster dock scale: the cluster's real-meter layout shrunk onto the button strip.</summary>
@@ -655,6 +664,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.75f, 0.55f, 0.2f), "FOLLOW", ToggleFollow);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
+        RenderOnTop(_followToggle.gameObject); // item 3: keep the follow/pin toggle above the opaque board rim
 
         Transform gearAnchor = NewAnchor("SettingsGear",
             new Vector3(ButtonZoneX, -0.125f, -0.006f));
@@ -664,6 +674,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _gear.DwellSeconds = PokeDwellSeconds; // right column = same accident class (test #19)
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
+        // Item 3: the VR-settings gear is PRESSABLE but was invisible (collider fine,
+        // only the visual sank behind the opaque board rim) — draw it on top.
+        RenderOnTop(_gear.gameObject);
     }
 
     private void ToggleFollow()
@@ -695,7 +708,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             if (_anchorParent != null && _root.parent != _anchorParent)
                 _root.SetParent(_anchorParent, worldPositionStays: true);
-            PlaceAtHead();
+            // Item 4: toggling INTO follow must NOT zap the tray to the head-relative
+            // config pose. The re-parent above already preserved the tray's current
+            // world pose; leave it there and just mark it placed so TickPlacement
+            // won't re-seat it. Only the very-first placement (the tray has never had a
+            // valid pose yet) still seats it once from the head — a user-initiated
+            // toggle always happens on an already-placed tray, so it stays put.
+            if (!_placed)
+                PlaceAtHead();
+            else
+                _placed = true; // keep the current pose (explicit: no re-seat on toggle)
             if (_pinRoot != null)
             {
                 Object.Destroy(_pinRoot.gameObject);
@@ -1076,6 +1098,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             glow.GetComponent<MeshRenderer>().sharedMaterial =
                 new Material(shader) { color = new Color(1f, 0.85f, 0.3f, 0.95f) };
         }
+        RenderOnTop(glow); // item 7: the pick-field insert telegraph must clear the opaque board rim
         glow.SetActive(false);
         _pickFieldHighlight = glow;
 
@@ -1186,6 +1209,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 quad.GetComponent<MeshRenderer>().sharedMaterial =
                     new Material(shader) { color = new Color(1f, 0.85f, 0.3f, 0.95f) };
             }
+            RenderOnTop(quad); // item 7: the insert telegraph must clear the opaque board rim
             quad.SetActive(false);
             _slotHighlights[i] = quad;
         }
@@ -1233,6 +1257,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (shader != null)
                 renderer.sharedMaterial = new Material(shader) { color = baseColor };
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
+            RenderOnTop(quad); // item 7: the "wanted slot" pulse must clear the opaque board rim
             quad.SetActive(false);
             _wantedHighlights[i] = quad;
         }
@@ -1683,28 +1708,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         RegisterLaserTarget(box, target);
     }
 
-    private void BuildSlotLabels()
-    {
-        if (_root == null || _slots[0] == null || _slots[1] == null)
-            return;
-        float h = CardsConfig.CardHeight;
-        // Slot 0 is ALWAYS the initiative slot (CardsDriver reconciles the game state
-        // to the physical order) — label it so the marking is unambiguous.
-        // Caption box stays inside one slot pitch (SlotSpacing 0.155) so neighboring
-        // captions can never collide; "INITIATIVE" (and longer localizations) shrink
-        // to a single line inside it (TmpFit, test #12). The captions are children
-        // of the SCALED slots (test #18): the box metrics divide by SlotScale so the
-        // EFFECTIVE caption size stays as designed — an inherited 1.3× would push
-        // the 0.14 box past the 0.155 pitch and collide the neighboring caption.
-        AddCaption(_slots[0]!, new Vector3(0f, -h * 0.62f, -0.004f),
-            CardsGameApi.Localize("GUI_INITIATIVE", "INITIATIVE"), new Color(1f, 0.9f, 0.6f),
-            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
-            maxFontSize: 0.28f / SlotScale);
-        AddCaption(_slots[1]!, new Vector3(0f, -h * 0.62f, -0.004f),
-            "2", new Color(0.75f, 0.73f, 0.7f),
-            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
-            maxFontSize: 0.28f / SlotScale);
-    }
+    // Item 6 (test #29): the card-slot captions ("INITIATIVE", "2") are GONE. They
+    // sat in the recessed slot-floor plane and clipped THROUGH the seated card at the
+    // player's oblique angle; the initiative already reads on the docked track and the
+    // second slot needs no label. BuildSlotLabels + its call in EnsureBuilt were
+    // removed outright (no no-op stub) — AddCaption stays live for the pick field's
+    // "SELECT" caption, so nothing goes unused.
 
     private void BuildButtons(Transform? confirmAnchor, Transform? undoAnchor)
     {
@@ -1832,6 +1841,42 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
         if (shader != null)
             renderer.sharedMaterial = new Material(shader) { color = color };
+    }
+
+    /// <summary>
+    /// Items 3/5/7: draw a board-mounted HUD widget ON TOP of the now-OPAQUE two-sided
+    /// control board, immune to recess occlusion. The board was made opaque (_Cull=0)
+    /// to fill MR passthrough holes; these readout widgets (round number, settings
+    /// gear, follow toggle, slot insert-telegraph glows) sit in the recessed slot-floor
+    /// plane, BELOW the board's raised outer rim, which now hides them at the player's
+    /// oblique angle. Push them past every scene depth: a high render queue (drawn after
+    /// the opaque scene) PLUS ZTest Always (never depth-culled by the board rim) and
+    /// ZWrite off. The property names differ per shader — the quad/Tint (Standard) path
+    /// uses <c>_ZTest</c>, TextMeshPro's distance-field material uses <c>_ZTestMode</c>
+    /// — so both are set under HasProperty guards (a shader lacking one is left alone,
+    /// never crashes). Uses <c>.materials</c> (per-renderer INSTANCES) so no shared
+    /// bundle material is mutated globally. The user has explicitly accepted these as
+    /// always-visible board readouts. NOT applied to the seated cards (they stay
+    /// normally depth-tested).
+    /// </summary>
+    private static void RenderOnTop(GameObject go, int queueBase = 4000)
+    {
+        if (go == null)
+            return;
+        foreach (Renderer r in go.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null)
+                continue;
+            foreach (Material m in r.materials) // instance materials (never the shared bundle asset)
+            {
+                if (m == null)
+                    continue;
+                m.renderQueue = queueBase;
+                if (m.HasProperty("_ZTest")) m.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+                if (m.HasProperty("_ZTestMode")) m.SetInt("_ZTestMode", (int)UnityEngine.Rendering.CompareFunction.Always); // TMP distance-field
+                if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
+            }
+        }
     }
 
     private static Transform? FindDeep(Transform root, string name)
