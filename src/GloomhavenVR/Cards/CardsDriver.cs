@@ -74,6 +74,12 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsConfig.Board.SettingChanged += OnBoardChanged;
         SubscribeBoardTuning(true); // PART F: per-board tuning entries live-apply (menu + hand-edited cfg)
 
+        // GLOBAL hand-fan geometry ("Fan" debug category) — not per-board, so subscribed once.
+        CardsConfig.FanPerCardStepDegrees.SettingChanged += OnFanTuningChanged;
+        CardsConfig.FanArcSweepDegrees.SettingChanged += OnFanTuningChanged;
+        CardsConfig.FanEffectiveRadius.SettingChanged += OnFanTuningChanged;
+        CardsConfig.FanHoverSplitScale.SettingChanged += OnFanTuningChanged;
+
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
         _tray.UndoRequested += OnUndoRequested;
@@ -98,6 +104,11 @@ internal sealed class CardsDriver : MonoBehaviour
         VRHands.HandsChanged -= OnHandsChanged;
         CardsConfig.Board.SettingChanged -= OnBoardChanged;
         SubscribeBoardTuning(false);
+
+        CardsConfig.FanPerCardStepDegrees.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.FanArcSweepDegrees.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.FanEffectiveRadius.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.FanHoverSplitScale.SettingChanged -= OnFanTuningChanged;
     }
 
     // ------------------------------------------------------------------ board tuning (Part F) --
@@ -116,6 +127,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private bool _applyElements;         // items 4/6: element infusion ('Elemente') dock offset / scale
     private bool _applyHudWidgets;       // items 4/6: gear / follow-pin / round-readout offsets (in place)
     private bool _applyCluster;          // items 4/6: turn-flow ButtonCluster offset / scale
+    private bool _applyFan;              // GLOBAL hand-fan geometry (step / arc / radius / hover-split)
 
     /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
     private void SubscribeBoardTuning(bool subscribe)
@@ -202,6 +214,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnElementsTuningChanged(object sender, System.EventArgs e) => _applyElements = true;
     private void OnHudWidgetTuningChanged(object sender, System.EventArgs e) => _applyHudWidgets = true;
     private void OnClusterTuningChanged(object sender, System.EventArgs e) => _applyCluster = true;
+    private void OnFanTuningChanged(object sender, System.EventArgs e) => _applyFan = true;
 
     /// <summary>
     /// PART F: consume the per-board tuning dirty flags on the main thread and re-apply the
@@ -508,6 +521,19 @@ internal sealed class CardsDriver : MonoBehaviour
 
         // Debug-menu / hand-edited per-board tuning live-applies here (Part F).
         ApplyBoardTuning();
+
+        // GLOBAL hand-fan geometry live-apply ("Fan" debug category): re-lay the open fan at the
+        // new step/arc/radius/hover-split. Independent of the control board (fan is not tray-bound),
+        // so it runs even with no tray. The relayout re-reads the config, so grab/hover geometry
+        // (which derives from the SAME radius/step) stays aligned with the new width.
+        if (_applyFan)
+        {
+            _applyFan = false;
+            _fan.ApplyLayout();
+            VRLog.Info("Cards", $"Debug live-apply [Fan]: step {CardsConfig.FanPerCardStepDegrees.Value:F0}°, " +
+                                $"arc {CardsConfig.FanArcSweepDegrees.Value:F0}°, radius {CardsConfig.FanEffectiveRadius.Value:F3} m, " +
+                                $"split ×{CardsConfig.FanHoverSplitScale.Value:F2}.");
+        }
 
         UpdatePalmGate();
 

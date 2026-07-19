@@ -235,6 +235,26 @@ internal static class CardsConfig
     /// <summary>G5: suppress the reveal gate on the hand that is currently grabbing something (Demeo CardHandController.cs:475).</summary>
     internal static ConfigEntry<bool> RevealIgnoreWhenGrabbing = null!;
 
+    // ---- GLOBAL hand-fan geometry (in-VR debug menu, "Fan" category) ----------------------
+    // Item 8's four LOCAL consts in CardFan (per-card step cap 14°, arc scale ×1.3, radius scale
+    // ×1.12, hover-split scale ×1.45) are now LIVE-TUNABLE global ConfigEntries so the hand fan's
+    // width/roundness/spacing can be dialed in-VR. GLOBAL (not per-board): the palm fan is the
+    // same for every control board. Seeded to the CURRENT effective values so the fan is unchanged
+    // until tuned. CardFan.Relayout/SplitOffset read these instead of the removed consts, keeping
+    // the count-scaling: small hands stay narrow (step cap), big hands round out (arc cap).
+
+    /// <summary>Fan (global): per-card angular step cap in degrees — the dominant knob for small/medium hands (each added card fans out this far until the total sweep hits the arc cap).</summary>
+    internal static ConfigEntry<float> FanPerCardStepDegrees = null!;
+
+    /// <summary>Fan (global): total fan arc sweep in degrees — governs big hands (how far a full hand wraps once the step cap is reached). Effective total arc; seeded to the old FanArcDegrees × 1.3.</summary>
+    internal static ConfigEntry<float> FanArcSweepDegrees = null!;
+
+    /// <summary>Fan (global): effective hand-fan arc radius in real meters (seeded to the old FanRadius × 1.12). Opens real space between card centers as it grows.</summary>
+    internal static ConfigEntry<float> FanEffectiveRadius = null!;
+
+    /// <summary>Fan (global): hover-split scale — multiplies FanSplitMultiplier so the hover gap stays proportional to the (wider) card spacing. Seeded to the old local 1.45.</summary>
+    internal static ConfigEntry<float> FanHoverSplitScale = null!;
+
     internal static void Bind()
     {
         if (_file != null)
@@ -547,6 +567,35 @@ internal static class CardsConfig
         RevealIgnoreWhenGrabbing = _file.Bind("Cards", "RevealIgnoreWhenGrabbing", true,
             "Demeo parity (G5): don't open the fan on the hand that is currently grabbing " +
             "something (Demeo suppresses the reveal on the busy hand). false = the old behavior.");
+
+        // ---- GLOBAL hand-fan geometry (in-VR "Fan" debug category) ----
+        FanPerCardStepDegrees = _file.Bind("Cards", "FanPerCardStepDegrees", 14f,
+            new ConfigDescription(
+                "Hand fan (global, in-VR debug 'Fan' category): per-card angular step cap in " +
+                "degrees. Dominant knob for small/medium hands — each added card fans out this far " +
+                "until the total sweep hits FanArcSweepDegrees. Larger = adjacent cards sit farther " +
+                "apart (easier to aim at one). Seeded 14° (the old item-8 local const).",
+                new AcceptableValueRange<float>(2f, 40f)));
+        FanArcSweepDegrees = _file.Bind("Cards", "FanArcSweepDegrees", 91f,
+            new ConfigDescription(
+                "Hand fan (global): total fan arc sweep in degrees — governs BIG hands (once there " +
+                "are enough cards to reach the step cap, this sets how far the full hand wraps: " +
+                "higher = a rounder, more circular fan). Seeded 91° (the old FanArcDegrees 70 × the " +
+                "1.3 arc scale).",
+                new AcceptableValueRange<float>(20f, 180f)));
+        FanEffectiveRadius = _file.Bind("Cards", "FanEffectiveRadius", 0.1792f,
+            new ConfigDescription(
+                "Hand fan (global): effective arc radius in real meters. Opens real space between " +
+                "card centers (chord ∝ radius·sin(step/2)) and enlarges the exposed grab strip in " +
+                "step. Seeded 0.1792 m (the old FanRadius 0.16 × the 1.12 radius scale). Supersedes " +
+                "FanRadius for the hand fan only (the pile browse-fan keeps its own).",
+                new AcceptableValueRange<float>(0.05f, 0.4f)));
+        FanHoverSplitScale = _file.Bind("Cards", "FanHoverSplitScale", 1.45f,
+            new ConfigDescription(
+                "Hand fan (global): hover-split scale — multiplies FanSplitMultiplier so the gap the " +
+                "fan opens around a hovered card stays proportional to the (wider) card spacing. " +
+                "Seeded 1.45 (the old item-8 local const).",
+                new AcceptableValueRange<float>(0.5f, 3f)));
     }
 
     /// <summary>True when the Demeo reveal preset is selected ([Cards] RevealPreset = demeo).</summary>
