@@ -339,6 +339,10 @@ internal sealed class CardsDriver : MonoBehaviour
         ClearActiveHover();
         ClearInitiativeTodo(); // item 6: clear any lingering initiative to-do glow on teardown
         _liveGrabs.Clear();
+        _fanOriginCards.Clear();
+        _fanOrder.Clear();
+        _insertGap = -1;
+        _insertHighlightCard = null;
         VRCard.InteractionBlockedHand = null;
         _fan.Destroy();
         _browser.Destroy();
@@ -443,6 +447,11 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         _factory.ReleaseHand(hand);
         _tray.ClearSlots();
+        // Hand reorder: the hand's cards died — drop the persisted VR order + any pending reorder
+        // (session-only; ids don't survive a hand teardown).
+        _fanOrder.Clear();
+        _fanOriginCards.Clear();
+        ClearFanInsertion();
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
@@ -478,6 +487,8 @@ internal sealed class CardsDriver : MonoBehaviour
             }
             _tray.RemoveCard(card);
             _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
+            if (_fanOriginCards.Remove(card) && ReferenceEquals(_insertHighlightCard, card))
+                ClearFanInsertion(); // reorder subject recycled under us
         }
         _factory.ReleaseWidget(widget);
         _dirty = true;
@@ -496,6 +507,7 @@ internal sealed class CardsDriver : MonoBehaviour
             // Hands (and rig) are down — nothing physical can exist.
             if (_fan.IsOpen)
                 _fan.Close();
+            ClearFanInsertion();
             CloseBrowser("hands down");
             ClearLaserHover();
             ClearBoardHover();
@@ -620,6 +632,7 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         UpdateFanHoverSplit();
         UpdateSlotHighlight();
+        UpdateFanInsertion(); // after the slot highlight so its precedence check reads a fresh slot
         _fan.Tick();
         _half.Tick();
         _browser.Tick(); // held reading fan follows the grabbing hand (item 5)
@@ -1326,6 +1339,162 @@ internal sealed class CardsDriver : MonoBehaviour
         return null;
     }
 
+    // ------------------------------------------------------------- hand fan reorder --
+
+    // Persisted VR fan order (session-only), keyed by AbilityCardUI.CardInstanceID. Applied to
+    // _fanBuffer every Rebuild (before _fan.SetCards) so it OVERRIDES the game's own SortCards
+    // re-sort — a pure VR-presentation reorder with zero gameplay effect. Pruned to the present
+    // hand each Rebuild so stale ids (id reuse across scenarios) never accumulate.
+    private readonly List<int> _fanOrder = new(24);
+    private readonly List<VRCard> _fanReorderScratch = new(24);
+
+    // Cards plucked OUT of the fan and still held — eligible for a reorder commit on release.
+    private readonly HashSet<VRCard> _fanOriginCards = new();
+
+    // Live insertion telegraph while a fan-originating card is held (mirrors _snapHighlightSlot):
+    // the open gap (0..n, -1 = none) and the card it belongs to, so "what glows is what drops."
+    private int _insertGap = -1;
+    private VRCard? _insertHighlightCard;
+
+    /// <summary>Stable CardInstanceID key for a fan card (int.MinValue = no game card).</summary>
+    private static int FanId(VRCard? card) =>
+        card != null && card.GameCard != null ? card.GameCard.CardInstanceID : int.MinValue;
+
+    /// <summary>
+    /// Stage A: stable-reorder <see cref="_fanBuffer"/> to match the persisted <see cref="_fanOrder"/>
+    /// just before <c>_fan.SetCards</c>. Any card whose id is not yet tracked keeps its game-relative
+    /// order and is registered (appended); tracked ids no longer in the hand are pruned. This is the
+    /// single seam that overrides the game's re-sort. Allocation-free steady state (reused scratch).
+    /// </summary>
+    private void ReorderFanBuffer()
+    {
+        int n = _fanBuffer.Count;
+        if (n == 0)
+            return;
+
+        // Register newcomers (append, preserving current game-relative order among unknowns).
+        for (int i = 0; i < n; i++)
+        {
+            int id = FanId(_fanBuffer[i]);
+            if (id != int.MinValue && !_fanOrder.Contains(id))
+                _fanOrder.Add(id);
+        }
+        // Prune tracked ids absent from the current hand (id reuse / hand change hygiene).
+        for (int k = _fanOrder.Count - 1; k >= 0; k--)
+        {
+            int id = _fanOrder[k];
+            bool present = false;
+            for (int i = 0; i < n; i++)
+            {
+                if (FanId(_fanBuffer[i]) == id) { present = true; break; }
+            }
+            if (!present)
+                _fanOrder.RemoveAt(k);
+        }
+
+        // Emit in _fanOrder order (stable), then any leftover (null-id) card in original order.
+        _fanReorderScratch.Clear();
+        _fanReorderScratch.AddRange(_fanBuffer);
+        _fanBuffer.Clear();
+        for (int k = 0; k < _fanOrder.Count; k++)
+        {
+            int id = _fanOrder[k];
+            for (int i = 0; i < _fanReorderScratch.Count; i++)
+            {
+                VRCard c = _fanReorderScratch[i];
+                if (c != null && FanId(c) == id) { _fanBuffer.Add(c); break; }
+            }
+        }
+        for (int i = 0; i < _fanReorderScratch.Count; i++)
+        {
+            VRCard c = _fanReorderScratch[i];
+            if (c != null && !_fanBuffer.Contains(c))
+                _fanBuffer.Add(c);
+        }
+    }
+
+    /// <summary>
+    /// Stage D: while a fan-originating card is held over the OPEN fan and NOT over a board slot,
+    /// resolve the nearest inter-card gap and telegraph it (open the gap + gold overlay + a
+    /// debounced haptic on edge), caching it for the release commit. Board-slot telegraph wins so
+    /// slot-play and fan-reorder never both glow. Clears whenever nothing eligible is held.
+    /// </summary>
+    private void UpdateFanInsertion()
+    {
+        // Only the REAL hand fan reorders (CardsSelection). Pick-mode "fans" (discard/burnt piles)
+        // reuse the same _fan but must not telegraph a reorder gap — their releases route through
+        // HandlePickRelease, never the commit path.
+        CardsHandUI? reorderHand = _fakeActive ? null : CurrentHand();
+        if (!_fan.IsOpen || reorderHand == null || CardsGameApi.Mode(reorderHand) != CardHandMode.CardsSelection)
+        {
+            ClearFanInsertion();
+            return;
+        }
+        VRCard? held = HeldCard(out VRHand? holder);
+        // Board slot telegraph (UpdateSlotHighlight ran first) wins outright.
+        if (held == null || holder == null || !_fanOriginCards.Contains(held) || _snapHighlightSlot >= 0)
+        {
+            ClearFanInsertion();
+            return;
+        }
+
+        int gap = _fan.NearestGap(held.transform.position);
+        _insertHighlightCard = gap >= 0 ? held : null;
+        if (gap != _insertGap)
+        {
+            _insertGap = gap;
+            _fan.SetInsertionGap(gap);
+            if (gap >= 0)
+                holder.SendHaptic(HapticPreset.HoverTick); // debounced: only on gap change
+        }
+    }
+
+    /// <summary>Drop any live insertion telegraph (fan closed / nothing eligible held / committed).</summary>
+    private void ClearFanInsertion()
+    {
+        if (_insertGap != -1)
+        {
+            _insertGap = -1;
+            _fan.SetInsertionGap(-1);
+        }
+        _insertHighlightCard = null;
+    }
+
+    /// <summary>
+    /// Stage E commit: insert the held card's id into <see cref="_fanOrder"/> at the visual gap
+    /// (translated to the persisted order, preserving slotted-card ids), then re-add it to the fan
+    /// and rebuild so <see cref="ReorderFanBuffer"/> reproduces the new order everywhere. Session-only.
+    /// </summary>
+    private void CommitFanInsertion(VRCard card, int gap)
+    {
+        int id = FanId(card);
+        if (id == int.MinValue)
+        {
+            _fan.Add(card);
+            return;
+        }
+        IReadOnlyList<VRCard> fan = _fan.Cards; // current fan order (the held card is already out)
+        _fanOrder.Remove(id);
+        int insertAt = _fanOrder.Count;
+        if (fan.Count == 0)
+        {
+            insertAt = _fanOrder.Count;
+        }
+        else if (gap < fan.Count)
+        {
+            int idx = _fanOrder.IndexOf(FanId(fan[gap]));      // before the card now to its right
+            insertAt = idx >= 0 ? idx : _fanOrder.Count;
+        }
+        else
+        {
+            int idx = _fanOrder.IndexOf(FanId(fan[fan.Count - 1])); // after the last fan card
+            insertAt = idx >= 0 ? idx + 1 : _fanOrder.Count;
+        }
+        _fanOrder.Insert(insertAt, id);
+        _fan.Add(card);
+        _dirty = true;
+    }
+
     // ------------------------------------------------------------------ rebuild --
 
     /// <summary>
@@ -1588,6 +1757,11 @@ internal sealed class CardsDriver : MonoBehaviour
                 _factory.Park(card);
         }
 
+        // Hand reorder (Stage A): apply the persisted VR order to the real hand fan only —
+        // overrides the game's SortCards. Pick-mode "fans" (discard/burnt piles) are transient
+        // and keep game order.
+        if (mode == CardHandMode.CardsSelection)
+            ReorderFanBuffer();
         _fan.SetCards(_fanBuffer);
         _tray.SetVisible(trayVisible);
         _half.SetVisible(halfVisible);
@@ -1669,7 +1843,10 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_tray.SlotOf(card) >= 0 || _fieldCards.Contains(card))
             _tray.NoteSlotActivity();
         if (_fan.Contains(card))
+        {
+            _fanOriginCards.Add(card); // reorder: eligible for a fan-gap commit on release
             _fan.Remove(card);
+        }
         // Tray occupancy stays until the release decides select/unselect/swap.
     }
 
@@ -1680,6 +1857,10 @@ internal sealed class CardsDriver : MonoBehaviour
             VRLog.Warn("Cards", $"Release without live grab ignored ({card.name}) — drop path is once-per-release.");
             return;
         }
+
+        // Hand reorder: was this card plucked out of the fan? (consumed here, used by the void
+        // release branch below to commit into a gap or cancel to origin).
+        bool fanOrigin = _fanOriginCards.Remove(card);
 
         if (_fakeActive)
         {
@@ -1854,9 +2035,25 @@ internal sealed class CardsDriver : MonoBehaviour
                 () => CardsGameApi.UnselectCard(handRef, ability),
                 () => _dirty = true);
         }
+        else if (fanOrigin && ReferenceEquals(_insertHighlightCard, card) && _insertGap >= 0)
+        {
+            // Hand reorder COMMIT: released over an open gap — insert at that index. "What glows
+            // is what drops," identical to the slot rule. Pure VR presentation (no game call).
+            int gap = _insertGap;
+            ClearFanInsertion();
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            CommitFanInsertion(card, gap);
+            VRLog.Info("Cards", $"Fan reorder ({hand.Side}): card committed to fan gap {gap} (session-only VR order).");
+        }
         else
         {
-            _fan.Add(card); // released in the void: animated return
+            // Released in the void. A fan-originating card NOT over a gap CANCELS: _fanOrder still
+            // holds its original position, so the rebuild re-seats it at its origin index (return-
+            // to-origin). Non-fan cards just animate back into the fan as before.
+            ClearFanInsertion();
+            _fan.Add(card); // animated return
+            if (fanOrigin)
+                _dirty = true; // rebuild re-applies _fanOrder → snaps back to the original index
         }
     }
 

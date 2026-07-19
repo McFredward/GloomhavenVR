@@ -33,6 +33,12 @@ internal sealed class CardFan
     // palm once instead of easing in from a stale position.
     private bool _followInit;
 
+    // Hand reorder: the active insertion GAP (0..n, -1 = none) while a fan-originating card is
+    // held over the fan. Cards on either side slide apart to open room and a board-slot-style
+    // glow overlay marks the drop point. Driven by the driver via SetInsertionGap each frame.
+    private int _insertGap = -1;
+    private GameObject? _overlay; // the gold gap glow (shared CardGlow recipe); child of _root
+
     internal bool IsOpen { get; private set; }
 
     /// <summary>Cards currently owned by the fan (read-only view).</summary>
@@ -61,6 +67,9 @@ internal sealed class CardFan
     {
         IsOpen = false;
         ClearFingertipHover(); // test #9: drop any fingertip pop/split
+        _insertGap = -1;       // hand reorder: drop any open gap so a reopen starts closed
+        if (_overlay != null)
+            _overlay.SetActive(false);
         if (_root != null)
             _root.gameObject.SetActive(false);
     }
@@ -69,6 +78,8 @@ internal sealed class CardFan
     {
         ClearFingertipHover();
         _cards.Clear();
+        _insertGap = -1;
+        _overlay = null; // destroyed with _root (its parent) below
         if (_root != null)
         {
             Object.DestroyImmediate(_root.gameObject);
@@ -83,6 +94,9 @@ internal sealed class CardFan
     internal void SetCards(List<VRCard> cards)
     {
         ClearFingertipHover(); // card set/indices change — re-resolve on the next Tick scan
+        _insertGap = -1;       // reorder: card set changed; the driver re-pushes the gap next frame
+        if (_overlay != null)
+            _overlay.SetActive(false);
         _cards.Clear();
         for (int i = 0; i < cards.Count; i++)
             _cards.Add(cards[i]);
@@ -140,6 +154,102 @@ internal sealed class CardFan
         _hoveredIndex = index;
         if (IsOpen)
             Relayout(instant: false);
+    }
+
+    // ------------------------------------------------------------------ insertion gap (reorder) --
+
+    /// <summary>How wide the opened insertion gap is, as a fraction of a card width (each side
+    /// slides half of this). ~one card so a full card visibly fits. Local until the orchestrator
+    /// wires a live-tunable <c>FanInsertGapWidth</c> config (see the worker report).</summary>
+    private const float FanInsertGapFactor = 0.9f;
+
+    /// <summary>The gap glow overlay sits this far proud (toward the viewer, negative local Z) of
+    /// the neighbouring card so it reads over them without z-fighting. Mirrors the board slot
+    /// overlay's <c>SlotGlowBaseZ</c> (-0.006).</summary>
+    private const float OverlayProudZ = -0.006f;
+
+    /// <summary>
+    /// Hand reorder: open (or move) the insertion GAP at <paramref name="gap"/> (0..n; -1 = none).
+    /// Mirrors <see cref="SetHovered"/> — records the gap and relayouts so the fan slides apart
+    /// around it and the board-slot-style glow appears there. Pushed by the driver each frame
+    /// while a fan-originating card is held over the fan (<c>CardsDriver.UpdateFanInsertion</c>).
+    /// </summary>
+    public void SetInsertionGap(int gap)
+    {
+        int n = _cards.Count;
+        if (gap < 0 || gap > n)
+            gap = -1;
+        if (gap == _insertGap)
+            return;
+        _insertGap = gap;
+        if (IsOpen)
+            Relayout(instant: false);
+    }
+
+    /// <summary>
+    /// Hand reorder: map a world point (the held card's position) to the nearest inter-card gap
+    /// index (0..n). Projects the point into fan-local space and counts the cards whose base
+    /// centre sits left of it. Returns -1 when the point is NOT near the fan (outside the
+    /// reorder zone) — the driver treats that as "no gap", so a release there cancels
+    /// (return-to-origin) rather than committing. Allocation-free.
+    /// </summary>
+    internal int NearestGap(Vector3 worldPoint)
+    {
+        if (!IsOpen || _root == null)
+            return -1;
+        int n = _cards.Count;
+        if (n == 0)
+            return -1;
+
+        // Same layout geometry as Relayout (base arc, no split/gap offsets).
+        float radius = Mathf.Max(0.02f, CardsConfig.FanEffectiveRadius.Value);
+        float maxArc = Mathf.Clamp(CardsConfig.FanArcSweepDegrees.Value, 5f, 180f);
+        float stepCap = Mathf.Clamp(CardsConfig.FanPerCardStepDegrees.Value, 1f, 60f);
+        float archFactor = CardsConfig.FanFlatCurvatureFactor.Value;
+        if (CardsConfig.FanCurveByFill.Value)
+            archFactor *= Mathf.Clamp01((float)n / Mathf.Max(1, CardsConfig.FanMaxHandForCurve.Value));
+        float step = n > 1 ? Mathf.Min(stepCap, maxArc / (n - 1)) : 0f;
+        float start = -step * (n - 1) * 0.5f;
+
+        Vector3 local = _root.InverseTransformPoint(worldPoint);
+
+        // Reorder zone: reject points farther than one card from the nearest card centre (in the
+        // fan plane) so a release well away from the fan cancels. Generous — tune on hardware.
+        float reach = Mathf.Max(CardsConfig.CardWidth.Value, CardsConfig.CardHeight) * 1.25f;
+        int gap = 0;
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < n; i++)
+        {
+            float rad = (start + step * i) * Mathf.Deg2Rad;
+            float cx = Mathf.Sin(rad) * radius;
+            float cy = (Mathf.Cos(rad) - 1f) * radius * archFactor;
+            float cz = -ZStagger * i;
+            if (cx < local.x)
+                gap++;
+            float dx = cx - local.x, dy = cy - local.y, dz = cz - local.z;
+            float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < best)
+                best = d2;
+        }
+        return best <= reach * reach ? gap : -1;
+    }
+
+    /// <summary>
+    /// Reorder gap-open push (real meters, fan-local X) for card <paramref name="i"/> given the
+    /// active <paramref name="gap"/>: cards left of the gap slide left, right of it slide right,
+    /// most for the immediate neighbours and decaying outward (gaussian in slot-distance, reusing
+    /// <see cref="CardsConfig.FanSplitFalloff"/>), opening a card-width slot for the incoming card.
+    /// </summary>
+    private static float GapOffset(int i, int gap)
+    {
+        int d;
+        float side;
+        if (i < gap) { d = gap - i; side = -1f; }
+        else { d = i - gap + 1; side = 1f; }
+        float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
+        float x = (d - 1) / falloff;
+        float half = CardsConfig.CardWidth.Value * FanInsertGapFactor * 0.5f;
+        return side * half * Mathf.Exp(-x * x);
     }
 
     // ------------------------------------------------------------------ fingertip hover --
@@ -411,6 +521,12 @@ internal sealed class CardFan
             if (hovered >= 0 && i != hovered)
                 pos += rot * new Vector3(SplitOffset(i - hovered), 0f, 0f);
 
+            // Hand reorder: when an insertion gap is open, shift the cards on each side apart to
+            // make room for the incoming card + its overlay (independent of the hover split;
+            // while a card is HELD the hover source is inactive so these never fight).
+            if (_insertGap >= 0)
+                pos += rot * new Vector3(GapOffset(i, _insertGap), 0f, 0f);
+
             card.SetHome(_root, pos, rot, 1f, instant);
 
             if (i == n - 1)
@@ -418,6 +534,42 @@ internal sealed class CardFan
             else
                 card.SetColliderRegion(strip, -(w - strip) * 0.5f);
         }
+
+        // Hand reorder: place + show the board-slot-style glow at the open gap, or hide it. The
+        // gap slot sits at the arc angle midway between cards gap-1 and gap (extending past the
+        // ends for gap==0/gap==n), proud of the neighbour so it reads over the fan.
+        if (_insertGap >= 0)
+        {
+            EnsureOverlay();
+            float gapAngle = start + step * (_insertGap - 0.5f);
+            float gapRad = gapAngle * Mathf.Deg2Rad;
+            _overlay!.transform.localRotation = Quaternion.Euler(0f, 0f, -gapAngle * tiltFactor);
+            _overlay.transform.localPosition = new Vector3(
+                Mathf.Sin(gapRad) * radius,
+                (Mathf.Cos(gapRad) - 1f) * radius * archFactor,
+                -ZStagger * _insertGap + OverlayProudZ);
+            if (!_overlay.activeSelf)
+                _overlay.SetActive(true);
+        }
+        else if (_overlay != null && _overlay.activeSelf)
+        {
+            _overlay.SetActive(false);
+        }
+    }
+
+    /// <summary>Lazily build the gap glow overlay (gold, card-shaped) via the SHARED
+    /// <see cref="CardGlow"/> recipe so it looks IDENTICAL to the board slot overlay. Created
+    /// inactive as a child of the fan root; <see cref="Relayout"/> poses + toggles it.</summary>
+    private void EnsureOverlay()
+    {
+        if (_overlay != null || _root == null)
+            return;
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+        _overlay = CardGlow.CreateGlowQuad("FanInsertHighlight", _root,
+            new Vector3(w * 1.24f, h * 1.24f, 1f), Vector3.zero,
+            new Color(1f, 0.85f, 0.3f, 0.95f)); // same gold as the board slot glow
+        Core.VRLayers.Apply(_overlay);
     }
 
     /// <summary>

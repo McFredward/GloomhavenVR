@@ -1712,20 +1712,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (slot == null || _slotHighlights[i] != null)
                 continue;
             float xSpread = (i == 0 ? -0.5f : 0.5f) * ovSpacing; // spread the overlay pair apart along the slot axis
-            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "SlotHighlight";
-            Object.Destroy(quad.GetComponent<Collider>());
-            quad.transform.SetParent(slot, worldPositionStays: false);
-            quad.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
-            quad.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, SlotGlowBaseZ + ov.z); // PROUD toward the player + per-board offset + pair spacing
-            // Emissive gold via the Overlay shader (additive) so it reads as light ADDED over the
-            // board. CORE FIX: moved to NEGATIVE local-Z (proud of the recess/top toward the player)
-            // and NO RenderOnTop — the glow is depth-correct now (occludes naturally, no shine-through).
-            Material? mat = MakeGlowMaterial(new Color(1f, 0.85f, 0.3f, 0.95f));
-            if (mat != null)
-                quad.GetComponent<MeshRenderer>().sharedMaterial = mat;
-            quad.SetActive(false);
-            _slotHighlights[i] = quad;
+            // Emissive gold via the shared glow-quad helper (Overlay additive): reads as light
+            // ADDED over the board, NEGATIVE local-Z (proud toward the player), depth-correct (no
+            // RenderOnTop, occludes naturally). The hand-fan insertion overlay uses this SAME
+            // helper so the two telegraphs look identical.
+            _slotHighlights[i] = CardGlow.CreateGlowQuad("SlotHighlight",
+                slot!,
+                new Vector3(w * 1.24f, h * 1.24f, 1f),
+                new Vector3(ov.x + xSpread, ov.y, SlotGlowBaseZ + ov.z),
+                new Color(1f, 0.85f, 0.3f, 0.95f));
         }
     }
 
@@ -2707,30 +2702,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
 
     /// <summary>
-    /// Item 5: an emissive glow material for the slot/pick insert telegraphs. Overlay with
-    /// ADDITIVE blend (_SrcBlend=One,_DstBlend=One) so the gold/teal read as light ADDED
-    /// over the board (the emissive look the code comments intend), keeping the caller's
-    /// <c>_Color</c>. Falls back to the old alpha-blended Sprites/Default when Overlay is
-    /// absent. Null only if even the fallback shader is missing.
+    /// Item 5: an emissive glow material for the slot/pick insert telegraphs. Now delegates to
+    /// the shared <see cref="CardGlow.MakeGlowMaterial"/> so the board slot glow and the hand-fan
+    /// insertion glow are produced by the SAME recipe (identical look). Behaviour unchanged.
     /// </summary>
-    private static Material? MakeGlowMaterial(Color color)
-    {
-        Shader? s = OverlayShader();
-        if (s != null)
-        {
-            var m = new Material(s) { color = color };
-            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One); // additive
-            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);
-            // CORE FIX: the glows no longer RenderOnTop (which used to set these). Keep them
-            // as proper depth-tested transparent additive: never write depth, draw in the
-            // transparent queue after the opaque board so they occlude naturally.
-            if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
-            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-            return m;
-        }
-        Shader? fb = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
-        return fb != null ? new Material(fb) { color = color } : null;
-    }
+    private static Material? MakeGlowMaterial(Color color) => CardGlow.MakeGlowMaterial(color);
 
     /// <summary>
     /// Items 3/5/7: draw a board-mounted HUD widget ON TOP of the now-OPAQUE two-sided
