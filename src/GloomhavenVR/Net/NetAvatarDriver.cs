@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -26,13 +27,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private INetTransport _transport = new NullNetTransport();
     private IBoardAnchor _anchor = WorldAnchor.Instance;
 
-    private readonly byte[] _sendBuffer = new byte[AvatarSerializer.MaxSize];
+    // One buffer serves both packet types; sized to the larger of the two so either fits.
+    private readonly byte[] _sendBuffer = new byte[Mathf.Max(AvatarSerializer.MaxSize, PresenceSerializer.MaxSize)];
     private float _sendAccumulator;
+    private float _extrasAccumulator;
 
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
     private readonly Dictionary<int, AvatarState> _pending = new();
+    // Latest world-frame EXTRAS (board + hand count) per sender, same dedup contract.
+    private readonly Dictionary<int, PresenceState> _pendingExtras = new();
     private readonly List<int> _scratchIds = new();
 
     /// <summary>Wire the driver to its transport + anchor. Call once before enabling.</summary>
@@ -51,6 +56,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     {
         _transport.PacketReceived -= OnPacketReceived;
         _pending.Clear();
+        _pendingExtras.Clear();
         DestroyAllAvatars();
     }
 
@@ -61,6 +67,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         ApplyPending();
         TickAvatars(dt);
         TickSend(dt);
+        TickExtrasSend(dt);
+        NetFigures.Tick();
     }
 
     // ---- send ---------------------------------------------------------------------------
@@ -91,6 +99,43 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _transport.Send(_sendBuffer, len);
     }
 
+    // ---- extras send (board pose + hand count, slower) ----------------------------------
+
+    private void TickExtrasSend(float dt)
+    {
+        if (!VRSession.IsRunning || !_transport.IsOnline || _transport.LocalPlayerId <= 0)
+        {
+            _extrasAccumulator = 0f;
+            return;
+        }
+
+        _extrasAccumulator += dt;
+        float interval = 1f / NetProtocol.ExtrasSendRateHz;
+        if (_extrasAccumulator < interval)
+            return;
+        _extrasAccumulator = 0f;
+
+        var extras = default(PresenceState);
+
+        Transform? board = PlayTray.Current?.Root;
+        if (board != null)
+        {
+            _anchor.ToAnchor(board.position, board.rotation, out Vector3 bp, out Quaternion br);
+            extras.HasBoard = true;
+            extras.Board.Position = bp;
+            extras.Board.Rotation = br;
+            float scale = board.lossyScale.x;
+            extras.BoardScale = scale > 0f ? scale : 1f;
+        }
+
+        int count = CardFan.Current?.Count ?? 0;
+        extras.HandCardCount = (byte)Mathf.Clamp(count, 0, 255);
+        extras.DominantRight = LocalRigSampler.LocalDominantRight();
+
+        int len = PresenceSerializer.Write(in extras, _sendBuffer);
+        _transport.Send(_sendBuffer, len);
+    }
+
     // ---- receive ------------------------------------------------------------------------
 
     private void OnPacketReceived(int senderId, byte[] buffer, int length)
@@ -98,26 +143,59 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // Ignore our own echo and unparseable/foreign packets.
         if (senderId != 0 && senderId == _transport.LocalPlayerId)
             return;
-        if (!AvatarSerializer.TryRead(buffer, length, out AvatarState state))
-            return;
 
-        // Convert the shared-frame poses to world here so RemoteAvatar stays world-only.
-        ToWorld(ref state);
-        _pending[senderId] = state; // dedup: keep only the newest
+        // Route by message type without fully parsing (also rejects magic/version mismatches).
+        int type = NetPacket.PeekType(buffer, length);
+        switch (type)
+        {
+            case NetProtocol.MsgRig:
+                if (AvatarSerializer.TryRead(buffer, length, out AvatarState state))
+                {
+                    // Convert the shared-frame poses to world here so RemoteAvatar stays world-only.
+                    ToWorld(ref state);
+                    _pending[senderId] = state; // dedup: keep only the newest
+                }
+                break;
+
+            case NetProtocol.MsgExtras:
+                if (PresenceSerializer.TryRead(buffer, length, out PresenceState extras))
+                {
+                    ExtrasToWorld(ref extras);
+                    _pendingExtras[senderId] = extras; // dedup: keep only the newest
+                }
+                break;
+        }
     }
 
     private void ApplyPending()
     {
-        if (_pending.Count == 0)
-            return;
-
-        foreach (KeyValuePair<int, AvatarState> kv in _pending)
+        if (_pending.Count > 0)
         {
-            RemoteAvatar avatar = GetOrCreate(kv.Key);
-            AvatarState s = kv.Value;
-            avatar.SetTarget(in s);
+            foreach (KeyValuePair<int, AvatarState> kv in _pending)
+            {
+                RemoteAvatar avatar = GetOrCreate(kv.Key);
+                AvatarState s = kv.Value;
+                avatar.SetTarget(in s);
+
+                // Cosmetic figure sync: mirror the sender's held figure (no-op stub in foundation).
+                if (s.HasHeldFigure)
+                    NetFigures.ApplyRemoteHeld(kv.Key, s.HeldFigureActorId, s.HeldFigurePose.Position, s.HeldFigurePose.Rotation);
+                else
+                    NetFigures.ReleaseRemote(kv.Key);
+            }
+            _pending.Clear();
         }
-        _pending.Clear();
+
+        if (_pendingExtras.Count > 0)
+        {
+            foreach (KeyValuePair<int, PresenceState> kv in _pendingExtras)
+            {
+                RemoteAvatar avatar = GetOrCreate(kv.Key);
+                PresenceState p = kv.Value;
+                avatar.SetExtras(in p);
+            }
+            _pendingExtras.Clear();
+        }
     }
 
     private RemoteAvatar GetOrCreate(int playerId)
@@ -154,6 +232,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             {
                 avatar.Destroy();
                 _avatars.Remove(id);
+                NetFigures.ReleaseRemote(id); // drop any figure this peer was holding
             }
         }
     }
@@ -163,17 +242,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     public void RemovePlayer(int playerId)
     {
         _pending.Remove(playerId);
+        _pendingExtras.Remove(playerId);
         if (_avatars.TryGetValue(playerId, out RemoteAvatar avatar))
         {
             avatar.Destroy();
             _avatars.Remove(playerId);
+            NetFigures.ReleaseRemote(playerId);
         }
     }
 
     private void DestroyAllAvatars()
     {
         foreach (KeyValuePair<int, RemoteAvatar> kv in _avatars)
+        {
             kv.Value.Destroy();
+            NetFigures.ReleaseRemote(kv.Key);
+        }
         _avatars.Clear();
     }
 
@@ -200,6 +284,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _anchor.ToWorld(state.Right.Pose.Position, state.Right.Pose.Rotation, out Vector3 p, out Quaternion r);
             state.Right.Pose.Position = p;
             state.Right.Pose.Rotation = r;
+        }
+        if (state.HasHeldFigure)
+        {
+            _anchor.ToWorld(state.HeldFigurePose.Position, state.HeldFigurePose.Rotation, out Vector3 p, out Quaternion r);
+            state.HeldFigurePose.Position = p;
+            state.HeldFigurePose.Rotation = r;
+        }
+    }
+
+    private void ExtrasToWorld(ref PresenceState p)
+    {
+        if (p.HasBoard)
+        {
+            _anchor.ToWorld(p.Board.Position, p.Board.Rotation, out Vector3 wp, out Quaternion wr);
+            p.Board.Position = wp;
+            p.Board.Rotation = wr;
         }
     }
 }

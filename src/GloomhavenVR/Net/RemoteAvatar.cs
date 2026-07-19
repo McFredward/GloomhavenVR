@@ -36,6 +36,9 @@ internal sealed class RemoteAvatar
     private readonly FingerCurler? _leftCurler;
     private readonly FingerCurler? _rightCurler;
 
+    private readonly RemoteHandFan _handFan;
+    private readonly RemoteControlBoard _controlBoard;
+
     private AvatarState _target;
     private bool _hasTarget;
     private float _appliedScale = -1f;
@@ -45,6 +48,63 @@ internal sealed class RemoteAvatar
     public float TimeSinceUpdate { get; private set; }
 
     public int PlayerId { get; }
+
+    // ---- PUBLIC SEAM (read-only) — the feature workers (ghost fan / control board) build off
+    //      these holders + received data without reaching into RemoteAvatar's privates. -------
+
+    /// <summary>The avatar's root transform (world origin of the whole proxy).</summary>
+    public Transform Root => _root.transform;
+
+    /// <summary>Head-mask holder transform.</summary>
+    public Transform HeadHolder => _headHolder;
+
+    /// <summary>Left-hand holder transform.</summary>
+    public Transform LeftHandHolder => _leftHolder;
+
+    /// <summary>Right-hand holder transform.</summary>
+    public Transform RightHandHolder => _rightHolder;
+
+    /// <summary>The holder for the sender's NON-dominant hand (where the card fan sits). When the
+    /// sender is right-dominant the non-dominant hand is the Left hand, and vice versa.</summary>
+    public Transform NonDominantHandHolder => DominantRight ? LeftHandHolder : RightHandHolder;
+
+    /// <summary>Stable per-player tint (matches the head/hand tint).</summary>
+    public Color Tint => _tint;
+
+    /// <summary>The sender-scale currently applied to the part holders (1 until the first packet).</summary>
+    public float AppliedScale => _appliedScale > 0f ? _appliedScale : 1f;
+
+    // ---- received extras / rig data (world frame) --------------------------------------------
+
+    /// <summary>True when the sender broadcast a control-board world pose.</summary>
+    public bool HasBoard { get; private set; }
+
+    /// <summary>Control-board world position (valid when <see cref="HasBoard"/>).</summary>
+    public Vector3 BoardPosition { get; private set; }
+
+    /// <summary>Control-board world rotation (valid when <see cref="HasBoard"/>).</summary>
+    public Quaternion BoardRotation { get; private set; } = Quaternion.identity;
+
+    /// <summary>Control-board uniform scale (valid when <see cref="HasBoard"/>).</summary>
+    public float BoardScale { get; private set; } = 1f;
+
+    /// <summary>How many cards are in the sender's hand fan (rendered as backs only).</summary>
+    public int HandCardCount { get; private set; }
+
+    /// <summary>True when the sender's dominant hand is the RIGHT hand (default true).</summary>
+    public bool DominantRight { get; private set; } = true;
+
+    /// <summary>True when the sender is physically holding a figure this frame.</summary>
+    public bool HasHeldFigure { get; private set; }
+
+    /// <summary>Stable id of the held figure (valid when <see cref="HasHeldFigure"/>).</summary>
+    public int HeldFigureActorId { get; private set; }
+
+    /// <summary>Held-figure world position (valid when <see cref="HasHeldFigure"/>).</summary>
+    public Vector3 HeldFigurePosition { get; private set; }
+
+    /// <summary>Held-figure world rotation (valid when <see cref="HasHeldFigure"/>).</summary>
+    public Quaternion HeldFigureRotation { get; private set; } = Quaternion.identity;
 
     public RemoteAvatar(int playerId)
     {
@@ -80,6 +140,12 @@ internal sealed class RemoteAvatar
         // VR is not running, exactly like the local hands).
         VRLayers.Apply(_root);
 
+        // Cosmetic add-ons built off the public seam (ghost card fan + read-only control board).
+        // Foundation stubs today; the feature workers fill their bodies. Owned here: ticked from
+        // Tick and torn down from Destroy.
+        _handFan = new RemoteHandFan(this);
+        _controlBoard = new RemoteControlBoard(this);
+
         VRLog.Info("Net", $"Remote avatar created for player {playerId}.");
     }
 
@@ -89,6 +155,21 @@ internal sealed class RemoteAvatar
         _target = state;
         _hasTarget = true;
         TimeSinceUpdate = 0f;
+
+        // Carry the rig packet's held-figure + dominant-hand data onto the seam (world frame:
+        // the driver has already converted the poses). Consumed by the feature workers.
+        DominantRight = state.DominantRight;
+        HasHeldFigure = state.HasHeldFigure;
+        if (state.HasHeldFigure)
+        {
+            HeldFigureActorId = state.HeldFigureActorId;
+            HeldFigurePosition = state.HeldFigurePose.Position;
+            HeldFigureRotation = state.HeldFigurePose.Rotation;
+        }
+        else
+        {
+            HeldFigureActorId = 0;
+        }
 
         // Swap the head mask when the sender's choice changes (cheap; only on change).
         if (state.MaskId != _appliedMaskId)
@@ -105,21 +186,43 @@ internal sealed class RemoteAvatar
         }
     }
 
+    /// <summary>Accept a freshly-decoded EXTRAS packet (board pose + hand count + dominant hand).
+    /// Poses are already in world frame (converted by the driver).</summary>
+    public void SetExtras(in PresenceState p)
+    {
+        HasBoard = p.HasBoard;
+        if (p.HasBoard)
+        {
+            BoardPosition = p.Board.Position;
+            BoardRotation = p.Board.Rotation;
+            BoardScale = p.BoardScale > 0f ? p.BoardScale : 1f;
+        }
+        HandCardCount = p.HandCardCount;
+        DominantRight = p.DominantRight;
+    }
+
     /// <summary>Per-frame interpolation toward the latest target. Call from the driver's Update.</summary>
     public void Tick(float deltaTime)
     {
         TimeSinceUpdate += deltaTime;
         // Defensive: if our root was destroyed out from under us (should not happen — it is
         // DontDestroyOnLoad + HideAndDontSave and owned solely by us) skip rather than throw.
-        if (_root == null || !_hasTarget)
+        if (_root == null)
             return;
 
         float dt = Mathf.Max(deltaTime, 0f);
-        float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
 
-        UpdatePart(_headHolder, _target.HeadValid, in _target.Head, k);
-        UpdateHand(_leftHolder, _leftCurler, in _target.Left, _target.HasFingers, k, dt);
-        UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt);
+        if (_hasTarget)
+        {
+            float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
+            UpdatePart(_headHolder, _target.HeadValid, in _target.Head, k);
+            UpdateHand(_leftHolder, _leftCurler, in _target.Left, _target.HasFingers, k, dt);
+            UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt);
+        }
+
+        // Cosmetic add-ons (own their own guards; stubs today).
+        _handFan.Tick(dt);
+        _controlBoard.Tick(dt);
     }
 
     private static void UpdatePart(Transform holder, bool valid, in RigPose pose, float k)
@@ -159,6 +262,8 @@ internal sealed class RemoteAvatar
 
     public void Destroy()
     {
+        _handFan.Destroy();
+        _controlBoard.Destroy();
         if (_root != null)
             Object.Destroy(_root);
         VRLog.Info("Net", $"Remote avatar destroyed for player {PlayerId}.");

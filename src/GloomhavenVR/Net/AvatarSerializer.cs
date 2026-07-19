@@ -15,23 +15,26 @@ namespace GloomhavenVR.Net;
 /// offset the board per client, swap the identity conversion here for a board-anchor
 /// transform (see <see cref="IBoardAnchor"/>) — the wire format does not change.
 ///
-/// Layout (little-endian), total 11 + 20·(#poses) [+ 5·(#hands) with fingers], &lt;= ~81 B:
+/// Layout (little-endian), wire v3:
 ///   [0..3]  uint32  magic  (NetProtocol.Magic)
 ///   [4]     byte    version
-///   [5]     byte    flags   (head/left/right tracked, hasFingers)
-///   [6]     byte    maskId  (chosen head mask 0..2)
-///   [7..10] float32 worldScale
+///   [5]     byte    type    (== NetProtocol.MsgRig for this serializer)
+///   [6]     byte    flags   (head/left/right tracked, hasFingers, heldFigure, dominantRight)
+///   [7]     byte    maskId  (chosen head mask 0..2)
+///   [8..11] float32 worldScale
 ///   then, in order, for each present part (head, left, right):
 ///     pose = pos(3×float32=12) + rot(4×int16 quantized = 8)   → 20 bytes
 ///     if the part is a hand AND hasFingers: 5×byte curls        → 5 bytes
+///   if FlagHeldFigure: actorId(int32=4) + pose(20)              → 24 bytes
 /// Rotation quantization: each quaternion component q∈[-1,1] → round(q·32767) as int16;
 /// reconstructed and re-normalized on read (≈ 0.006 rad worst case — imperceptible for a
 /// floating hand).
 /// </summary>
 internal static unsafe class AvatarSerializer
 {
-    /// <summary>Upper bound on an encoded packet (header + head + 2 hands + fingers).</summary>
-    public const int MaxSize = 11 + 3 * 20 + 2 * 5; // 81
+    /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
+    /// held-figure block (4+20) = 106, rounded up to 112 for headroom.</summary>
+    public const int MaxSize = 112;
 
     private const float QuatScale = 32767f;
 
@@ -46,12 +49,15 @@ internal static unsafe class AvatarSerializer
         int i = 0;
         WriteU32(buffer, ref i, NetProtocol.Magic);
         buffer[i++] = NetProtocol.Version;
+        buffer[i++] = NetProtocol.MsgRig; // message type byte (v3)
 
         byte flags = 0;
         if (state.HeadValid) flags |= NetProtocol.FlagHeadValid;
         if (state.Left.Tracked) flags |= NetProtocol.FlagLeftTracked;
         if (state.Right.Tracked) flags |= NetProtocol.FlagRightTracked;
         if (state.HasFingers) flags |= NetProtocol.FlagHasFingers;
+        if (state.HasHeldFigure) flags |= NetProtocol.FlagHeldFigure;
+        if (state.DominantRight) flags |= NetProtocol.FlagDominantRight;
         buffer[i++] = flags;
 
         // Head mask id (0..2). Clamp defensively so a stray value never confuses the receiver.
@@ -71,6 +77,12 @@ internal static unsafe class AvatarSerializer
         {
             WritePose(buffer, ref i, in state.Right.Pose);
             if (state.HasFingers) WriteFingers(buffer, ref i, in state.Right);
+        }
+
+        if (state.HasHeldFigure)
+        {
+            WriteI32(buffer, ref i, state.HeldFigureActorId);
+            WritePose(buffer, ref i, in state.HeldFigurePose);
         }
         return i;
     }
@@ -112,12 +124,13 @@ internal static unsafe class AvatarSerializer
     public static bool TryRead(byte[] buffer, int length, out AvatarState state)
     {
         state = default;
-        if (buffer == null || length < 11)
+        if (buffer == null || length < 12)
             return false;
 
         int i = 0;
         if (ReadU32(buffer, ref i) != NetProtocol.Magic) return false;
         if (buffer[i++] != NetProtocol.Version) return false;
+        if (buffer[i++] != NetProtocol.MsgRig) return false; // wrong message type for this serializer
 
         byte flags = buffer[i++];
         state.MaskId = (byte)Mathf.Clamp(buffer[i++], 0, HeadMaskLibrary.MaskCount - 1);
@@ -129,9 +142,12 @@ internal static unsafe class AvatarSerializer
         bool left = (flags & NetProtocol.FlagLeftTracked) != 0;
         bool right = (flags & NetProtocol.FlagRightTracked) != 0;
         bool fingers = (flags & NetProtocol.FlagHasFingers) != 0;
+        bool held = (flags & NetProtocol.FlagHeldFigure) != 0;
         state.HasFingers = fingers;
+        state.DominantRight = (flags & NetProtocol.FlagDominantRight) != 0;
 
-        int need = (head ? 20 : 0) + (left ? 20 + (fingers ? 5 : 0) : 0) + (right ? 20 + (fingers ? 5 : 0) : 0);
+        int need = (head ? 20 : 0) + (left ? 20 + (fingers ? 5 : 0) : 0) + (right ? 20 + (fingers ? 5 : 0) : 0)
+                   + (held ? 24 : 0);
         if (length < i + need)
             return false;
 
@@ -151,6 +167,12 @@ internal static unsafe class AvatarSerializer
             state.Right.Tracked = true;
             ReadPose(buffer, ref i, out state.Right.Pose);
             if (fingers) ReadFingers(buffer, ref i, ref state.Right);
+        }
+        if (held)
+        {
+            state.HasHeldFigure = true;
+            state.HeldFigureActorId = ReadI32(buffer, ref i);
+            ReadPose(buffer, ref i, out state.HeldFigurePose);
         }
         return true;
     }
@@ -178,40 +200,55 @@ internal static unsafe class AvatarSerializer
     }
 
     // ---- little-endian primitives (allocation-free) -------------------------------------
+    // internal so PresenceSerializer (the type-1 extras packet) can reuse the exact same
+    // encoding without duplicating the unsafe/quantization helpers.
 
-    private static void WriteU32(byte[] b, ref int i, uint v)
+    internal static void WriteU32(byte[] b, ref int i, uint v)
     {
         b[i++] = (byte)v; b[i++] = (byte)(v >> 8); b[i++] = (byte)(v >> 16); b[i++] = (byte)(v >> 24);
     }
 
-    private static uint ReadU32(byte[] b, ref int i)
+    internal static uint ReadU32(byte[] b, ref int i)
     {
         uint v = (uint)(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
         i += 4;
         return v;
     }
 
-    private static void WriteI16(byte[] b, ref int i, short v)
+    internal static void WriteI32(byte[] b, ref int i, int v) => WriteU32(b, ref i, (uint)v);
+
+    internal static int ReadI32(byte[] b, ref int i) => (int)ReadU32(b, ref i);
+
+    internal static void WriteI16(byte[] b, ref int i, short v)
     {
         b[i++] = (byte)v; b[i++] = (byte)(v >> 8);
     }
 
-    private static short ReadI16(byte[] b, ref int i)
+    internal static short ReadI16(byte[] b, ref int i)
     {
         short v = (short)(b[i] | (b[i + 1] << 8));
         i += 2;
         return v;
     }
 
-    private static void WriteF32(byte[] b, ref int i, float v)
+    internal static void WriteF32(byte[] b, ref int i, float v)
     {
         uint bits = *(uint*)&v;
         WriteU32(b, ref i, bits);
     }
 
-    private static float ReadF32(byte[] b, ref int i)
+    internal static float ReadF32(byte[] b, ref int i)
     {
         uint bits = ReadU32(b, ref i);
         return *(float*)&bits;
     }
+
+    // ---- pose primitives (internal for PresenceSerializer's board pose) ------------------
+
+    /// <summary>Write a rigid pose (pos 12B + quantized rot 8B = 20B). Shared with the extras
+    /// serializer so both packets encode poses identically.</summary>
+    internal static void WritePoseShared(byte[] b, ref int i, in RigPose p) => WritePose(b, ref i, in p);
+
+    /// <summary>Read a rigid pose written by <see cref="WritePoseShared"/> (20B).</summary>
+    internal static void ReadPoseShared(byte[] b, ref int i, out RigPose p) => ReadPose(b, ref i, out p);
 }

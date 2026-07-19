@@ -31,8 +31,25 @@ internal static class NetProtocol
     public const uint Magic = 0x47565231u; // 'G' 'V' 'R' '1'
 
     /// <summary>Wire format version (bump on any layout change; readers reject mismatches).
-    /// v2 added the 1-byte head-mask id (0..2) to the fixed header.</summary>
-    public const byte Version = 2;
+    /// v2 added the 1-byte head-mask id (0..2) to the fixed header.
+    /// v3 inserts a 1-byte MESSAGE TYPE (<see cref="MsgRig"/>/<see cref="MsgExtras"/>) right after
+    /// the version, extends the rig packet with an optional held-figure block + a dominant-hand
+    /// flag, and adds a second EXTRAS packet (board pose + hand-card count).</summary>
+    public const byte Version = 3;
+
+    // ---- message types (byte right after the version) -------------------------------------
+
+    /// <summary>Rig packet (head + two hands, ~15 Hz). Extended in v3 with an optional held-figure
+    /// block and a dominant-hand mirror flag. This is the original v2 avatar packet.</summary>
+    public const byte MsgRig = 0;
+
+    /// <summary>Extras packet (~5 Hz + on-change): remote control-board world pose + hand-card
+    /// count + dominant-hand flag. Purely cosmetic; carries NO card identities.</summary>
+    public const byte MsgExtras = 1;
+
+    /// <summary>Extras (board + hand-count) send rate (Hz). Slower than the rig stream — the board
+    /// moves rarely and the hand count changes on card play only.</summary>
+    public const float ExtrasSendRateHz = 5f;
 
     /// <summary>
     /// Sentinel GameActionType id carried by our side actions. Deliberately far outside the
@@ -65,4 +82,20 @@ internal static class NetProtocol
     public const byte FlagLeftTracked  = 1 << 1;
     public const byte FlagRightTracked = 1 << 2;
     public const byte FlagHasFingers   = 1 << 3;
+
+    /// <summary>Rig packet: a held-figure block (actorId + world pose) follows the hand poses.</summary>
+    public const byte FlagHeldFigure    = 1 << 4;
+
+    /// <summary>Rig / extras packet: the sender's dominant hand is the RIGHT hand (mirror flag so
+    /// remote card fans / boards sit on the correct non-dominant side).</summary>
+    public const byte FlagDominantRight = 1 << 5;
+
+    // ---- extras (type 1) flag bits --------------------------------------------------------
+
+    /// <summary>Extras packet: a control-board pose (pos+rot+scale) is present.</summary>
+    public const byte FlagHasBoard = 1 << 0;
+
+    /// <summary>Extras packet: the sender's dominant hand is the RIGHT hand (mirror of the rig
+    /// <see cref="FlagDominantRight"/>, laid out at bit1 in the extras flag byte per the wire spec).</summary>
+    public const byte FlagExtrasDominantRight = 1 << 1;
 }

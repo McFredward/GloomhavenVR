@@ -1,5 +1,6 @@
 using GloomhavenVR.Hands;
 using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
@@ -40,9 +41,30 @@ internal static class LocalRigSampler
         SampleHand(anchor, VRHands.Left, includeFingers, ref state.Left);
         SampleHand(anchor, VRHands.Right, includeFingers, ref state.Right);
 
+        // Which hand is dominant (mirror flag so remotes place the card fan on the correct side).
+        state.DominantRight = LocalDominantRight();
+
+        // Held figure (cosmetic): the figure the local player physically holds, in the shared
+        // frame. NetFigures is a no-op stub in the foundation, so this is false until worker C.
+        state.HasHeldFigure = NetFigures.TrySampleHeld(out state.HeldFigureActorId, out Vector3 fp, out Quaternion fr);
+        if (state.HasHeldFigure)
+        {
+            anchor.ToAnchor(fp, fr, out Vector3 ap, out Quaternion ar);
+            state.HeldFigurePose.Position = ap;
+            state.HeldFigurePose.Rotation = ar;
+        }
+
         // Nothing to say if we have neither a head nor a tracked hand.
         return state.HeadValid || state.Left.Tracked || state.Right.Tracked;
     }
+
+    /// <summary>
+    /// Which hand is the local player's DOMINANT hand: the RIGHT hand unless the tracked
+    /// non-dominant hand is the Right hand. Defaults true (right-dominant) when the non-dominant
+    /// hand is unknown (controller absent / hot reload). Exposed so the driver can stamp the same
+    /// value onto the extras packet.
+    /// </summary>
+    public static bool LocalDominantRight() => NonDominantHold.Hand?.Side != HandSide.Left;
 
     /// <summary>The locally-chosen mask id, clamped to [0, MaskCount-1]. Guarded so an unbound
     /// config (net module never inited) falls back to mask 0 rather than throwing.</summary>
