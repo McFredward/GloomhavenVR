@@ -150,6 +150,9 @@ internal sealed class WorldUIModule : IVRModule
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
         private readonly SettingsPanel _settingsPanel = new();
+        // Local self-preview mirror (Net feature, but ticked here so it works even with the
+        // networking hook off — it is a purely local cosmetic, independent of the net send).
+        private readonly AvatarMirror _avatarMirror = new();
         private readonly OptionsToggle _optionsToggle = new();
         private readonly WorldTooltips _tooltips = new();
         private readonly DevPanels _devPanels = new();
@@ -207,6 +210,7 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("WristHud", _wristHud.Tick));
             update.Add(("FlatScreen", _flatScreen.Tick));
             update.Add(("SettingsPanel", _settingsPanel.Tick));
+            update.Add(("AvatarMirror", _avatarMirror.Tick));
             update.Add(("DevPanels", _devPanels.Tick));
             update.Add(("CanvasConversion", CanvasConversion.Tick));
             _updateSteps = update.ToArray();
@@ -260,6 +264,7 @@ internal sealed class WorldUIModule : IVRModule
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();
+            _avatarMirror.Shutdown();
             _tooltips.Shutdown();
             _devPanels.Shutdown();
             ActorBars.ReleaseAll();

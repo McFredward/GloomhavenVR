@@ -30,8 +30,9 @@ internal static class NetProtocol
     /// <summary>Payload magic: ASCII "GVR1" (Gloomhaven VR, wire rev 1). First 4 bytes of every packet.</summary>
     public const uint Magic = 0x47565231u; // 'G' 'V' 'R' '1'
 
-    /// <summary>Wire format version (bump on any layout change; readers reject mismatches).</summary>
-    public const byte Version = 1;
+    /// <summary>Wire format version (bump on any layout change; readers reject mismatches).
+    /// v2 added the 1-byte head-mask id (0..2) to the fixed header.</summary>
+    public const byte Version = 2;
 
     /// <summary>
     /// Sentinel GameActionType id carried by our side actions. Deliberately far outside the

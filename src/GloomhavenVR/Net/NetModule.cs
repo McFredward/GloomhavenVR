@@ -42,17 +42,56 @@ internal sealed class NetModule : IVRModule
     /// </summary>
     internal static ConfigEntry<bool> Enabled = null!;
 
+    /// <summary>
+    /// Which of the three head "masks" the LOCAL player wears (0..2). Stamped onto every outgoing
+    /// rig packet so other VR players render the right mask, and read by the local
+    /// <see cref="WorldUI.AvatarMirror"/> preview. Bound independently of <see cref="Enabled"/> so
+    /// the mask picker + mirror work even with the networking hook turned off.
+    /// </summary>
+    internal static ConfigEntry<int> MaskId = null!;
+
+    /// <summary>
+    /// Show the local player their own avatar in a mirror floating in front of the head (a local
+    /// cosmetic preview — independent of the net send, works in single-player). Default off.
+    /// </summary>
+    internal static ConfigEntry<bool> MirrorEnabled = null!;
+
+    private static ConfigFile? _config;
+
     private GameObject? _driverGo;
     private INetTransport? _transport;
     private NetAvatarDriver? _driver;
 
-    public void Init()
+    /// <summary>
+    /// Bind the [Net] config entries (bind-once). Separated from <see cref="Init"/> so the mask
+    /// picker + mirror can force it even in scenarios where the networking hook is off; the
+    /// entries always exist for <see cref="LocalRigSampler"/>, <see cref="SettingsPanel"/> and
+    /// <see cref="WorldUI.AvatarMirror"/> to read.
+    /// </summary>
+    internal static void BindConfig()
     {
-        Enabled ??= ModuleConfig.Create("net").Bind("Net", "Enabled", true,
+        if (_config != null)
+            return;
+        _config = ModuleConfig.Create("net");
+        Enabled = _config.Bind("Net", "Enabled", true,
             "Multiplayer VR embodiment sync: broadcast your head + hands over the game's own " +
             "netcode so other VR players see you (Demeo style), and render remote VR players. " +
             "Cosmetic only, never affects game state; a no-op in single-player and safe with " +
             "flat/non-modded players. Turn OFF to fully remove the networking hook.");
+        MaskId = _config.Bind("Net", "MaskId", 0,
+            new ConfigDescription(
+                "Which head mask the local player wears (0..2). Picked in the in-VR settings panel; " +
+                "synchronized so other VR players see the right mask on you.",
+                new AcceptableValueRange<int>(0, HeadMaskLibrary.MaskCount - 1)));
+        MirrorEnabled = _config.Bind("Net", "MirrorEnabled", false,
+            "Show yourself in a mirror floating in front of your head so you can see your chosen " +
+            "mask + hands. Local cosmetic preview only — independent of networking, works in " +
+            "single-player. Toggle in the in-VR settings panel.");
+    }
+
+    public void Init()
+    {
+        BindConfig();
         if (!Enabled.Value)
         {
             VRLog.Info(Name, "VR embodiment sync disabled by config — networking hook not installed.");
@@ -94,5 +133,8 @@ internal sealed class NetModule : IVRModule
             _driverGo = null;
         }
         _driver = null;
+
+        // Drop the mask-prefab cache so a hot-reloaded / freshly-shipped bundle is re-probed.
+        HeadMaskLibrary.Reset();
     }
 }

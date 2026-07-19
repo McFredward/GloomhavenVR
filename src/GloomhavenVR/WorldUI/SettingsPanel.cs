@@ -704,6 +704,22 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(mrColorRow, Loc.Mod("key_color"), 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
+        Section(Loc.Mod("avatar"));
+
+        // Multiplayer avatar (always visible while the panel is open, NOT debug-gated): pick one of
+        // the three head masks (writes [Net] MaskId — synchronized so other VR players see it) and
+        // toggle a local self-preview mirror (writes [Net] MirrorEnabled). Both live-apply:
+        // LocalRigSampler stamps MaskId on every send and AvatarMirror reads MirrorEnabled each tick.
+        // Force the [Net] entries bound so the picker works even with the networking hook off.
+        Net.NetModule.BindConfig();
+        var maskRow = Row();
+        Label(maskRow, Loc.Mod("head_mask"), 16f, flexible: true);
+        CycleButton(maskRow, 120f, MaskLabel, CycleMask);
+
+        Toggle(Loc.Mod("mirror"),
+            () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
+            v => { if (Net.NetModule.MirrorEnabled != null) Net.NetModule.MirrorEnabled.Value = v; });
+
         BuildDebugSection();
 
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
@@ -1286,6 +1302,23 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         ApplyPinVisual();
 
         VRLog.Info("WorldUI", "Settings panel frame built (grab bar + FOLLOW/PINNED pin).");
+    }
+
+    /// <summary>Cycle-button readout for the head-mask picker: "Mask 1".."Mask 3" (id 0..2 + 1).</summary>
+    private static string MaskLabel()
+    {
+        int id = Net.NetModule.MaskId != null ? Net.NetModule.MaskId.Value : 0;
+        id = Mathf.Clamp(id, 0, Net.HeadMaskLibrary.MaskCount - 1);
+        return $"{Loc.Mod("mask")} {id + 1}";
+    }
+
+    /// <summary>Advance the local head mask 0→1→2→0 (writes [Net] MaskId; BepInEx persists on set).</summary>
+    private static void CycleMask()
+    {
+        if (Net.NetModule.MaskId == null)
+            return;
+        int cur = Mathf.Clamp(Net.NetModule.MaskId.Value, 0, Net.HeadMaskLibrary.MaskCount - 1);
+        Net.NetModule.MaskId.Value = (cur + 1) % Net.HeadMaskLibrary.MaskCount;
     }
 
     private static bool BoardConfigSafe(Func<bool> read)

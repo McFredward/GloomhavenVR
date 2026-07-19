@@ -12,10 +12,12 @@ namespace GloomhavenVR.Net;
 /// and destroyed on player-left or staleness.
 ///
 /// Hands reuse the mod's own <see cref="HandVisuals"/> (bundle glove or procedural fallback)
-/// so remote hands look exactly like the local ones. The head mask loads
-/// <c>Assets/Bundle/Head/VRHeadMask.prefab</c> from the ALREADY-LOADED mod bundle when the
-/// user ships one (see PLAN.md "mask asset contract"); until then a low-poly placeholder head
-/// stands in so the feature is testable now.
+/// so remote hands look exactly like the local ones. The head mask is the one the SENDER
+/// picked in their VR settings (<see cref="AvatarState.MaskId"/>): it loads
+/// <c>Assets/Bundle/Head/Mask_&lt;id&gt;.prefab</c> from the ALREADY-LOADED mod bundle via
+/// <see cref="HeadMaskLibrary"/> (see PLAN.md "mask asset contract"); until the masks ship, a
+/// low-poly placeholder head stands in so the feature is testable now. A peer changing their
+/// mask at runtime rebuilds only the head (cheap; only on change).
 ///
 /// Sender scale: each part holder is scaled by the sender's rig <c>WorldScale</c> so a remote
 /// player's 15 cm hand reads the same physical size above the shared board regardless of the
@@ -23,12 +25,11 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class RemoteAvatar
 {
-    private const string HeadMaskPrefabPath = "Assets/Bundle/Head/VRHeadMask.prefab";
-
     private readonly GameObject _root;
     private readonly Transform _headHolder;
     private readonly Transform _leftHolder;
     private readonly Transform _rightHolder;
+    private readonly Color _tint;
 
     private readonly HandRig? _leftRig;
     private readonly HandRig? _rightRig;
@@ -38,6 +39,7 @@ internal sealed class RemoteAvatar
     private AvatarState _target;
     private bool _hasTarget;
     private float _appliedScale = -1f;
+    private int _appliedMaskId = -1; // which HeadMaskLibrary mask the head currently shows
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -55,11 +57,11 @@ internal sealed class RemoteAvatar
         _root.transform.rotation = Quaternion.identity;
         _root.transform.localScale = Vector3.one;
 
-        Color tint = TintFor(playerId);
+        _tint = TintFor(playerId);
 
         _headHolder = new GameObject("Head").transform;
         _headHolder.SetParent(_root.transform, worldPositionStays: false);
-        BuildHeadMask(_headHolder, tint);
+        BuildHeadMask(0); // mask 0 until the first packet reports the sender's real choice
         _headHolder.gameObject.SetActive(false);
 
         _leftHolder = new GameObject("Hand_Left").transform;
@@ -87,6 +89,10 @@ internal sealed class RemoteAvatar
         _target = state;
         _hasTarget = true;
         TimeSinceUpdate = 0f;
+
+        // Swap the head mask when the sender's choice changes (cheap; only on change).
+        if (state.MaskId != _appliedMaskId)
+            BuildHeadMask(state.MaskId);
 
         // Apply sender scale to the part holders when it changes (cosmetic sizing only).
         float scale = state.WorldScale > 0f ? state.WorldScale : 1f;
@@ -160,69 +166,23 @@ internal sealed class RemoteAvatar
 
     // ---- head mask ----------------------------------------------------------------------
 
-    private static void BuildHeadMask(Transform parent, Color tint)
+    /// <summary>(Re)build the head mask for the given mask id: clears any existing head visual,
+    /// instantiates the chosen <see cref="HeadMaskLibrary"/> prefab, or stands in the placeholder
+    /// head when that mask has not shipped yet. Re-applies the mod layer so the head camera renders
+    /// the new mesh.</summary>
+    private void BuildHeadMask(int maskId)
     {
-        GameObject? prefab = TryLoadHeadPrefab();
-        if (prefab != null)
-        {
-            GameObject inst = Object.Instantiate(prefab, parent, worldPositionStays: false);
-            inst.name = "HeadMask";
-            return;
-        }
-        BuildPlaceholderHead(parent, tint);
-    }
+        maskId = Mathf.Clamp(maskId, 0, HeadMaskLibrary.MaskCount - 1);
+        _appliedMaskId = maskId;
 
-    /// <summary>Load the head-mask prefab from the mod bundle if it is already loaded (never
-    /// re-open the file — <see cref="HandVisuals"/> owns the single handle).</summary>
-    private static GameObject? TryLoadHeadPrefab()
-    {
-        foreach (AssetBundle bundle in AssetBundle.GetAllLoadedAssetBundles())
-        {
-            if (bundle == null)
-                continue;
-            try
-            {
-                if (bundle.Contains(HeadMaskPrefabPath))
-                    return bundle.LoadAsset<GameObject>(HeadMaskPrefabPath);
-            }
-            catch { /* not our bundle / API quirk — ignore */ }
-        }
-        return null;
-    }
+        // Clear any existing head visual (children of the holder).
+        for (int i = _headHolder.childCount - 1; i >= 0; i--)
+            Object.Destroy(_headHolder.GetChild(i).gameObject);
 
-    /// <summary>Low-poly placeholder head: a cranium sphere + a flatter "visor" plate facing
-    /// +Z (the mask's forward / where the eyes look), unlit so it reads in the lightless void.</summary>
-    private static void BuildPlaceholderHead(Transform parent, Color tint)
-    {
-        Material mat = UnlitMaterial(tint);
-        Material visorMat = UnlitMaterial(tint * new Color(0.6f, 0.65f, 0.75f, 1f));
+        HeadMaskLibrary.BuildHead(_headHolder, maskId, _tint);
 
-        GameObject cranium = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        Object.Destroy(cranium.GetComponent<Collider>());
-        cranium.name = "Cranium";
-        cranium.transform.SetParent(parent, worldPositionStays: false);
-        cranium.transform.localPosition = Vector3.zero;
-        cranium.transform.localScale = new Vector3(0.17f, 0.20f, 0.21f); // ~human head, +Z long
-        cranium.GetComponent<Renderer>().sharedMaterial = mat;
-
-        // Visor/mask plate on the face (+Z forward) — a landmark so orientation reads clearly.
-        GameObject visor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        Object.Destroy(visor.GetComponent<Collider>());
-        visor.name = "Visor";
-        visor.transform.SetParent(parent, worldPositionStays: false);
-        visor.transform.localPosition = new Vector3(0f, 0.01f, 0.10f);
-        visor.transform.localScale = new Vector3(0.14f, 0.055f, 0.03f);
-        visor.GetComponent<Renderer>().sharedMaterial = visorMat;
-    }
-
-    private static Material UnlitMaterial(Color color)
-    {
-        // Same rationale as HandVisuals: the void/menu have no lights, so use an unlit shader.
-        Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default")
-                        ?? Shader.Find("Hidden/InternalErrorShader");
-        var m = new Material(shader);
-        m.color = new Color(Mathf.Clamp01(color.r), Mathf.Clamp01(color.g), Mathf.Clamp01(color.b), 1f);
-        return m;
+        // Keep the whole subtree on the mod layer so the owned head camera renders it.
+        VRLayers.Apply(_root);
     }
 
     /// <summary>Stable per-player tint so avatars are distinguishable at a glance.</summary>
