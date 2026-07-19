@@ -32,7 +32,7 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// wired to each entry's SettingChanged in <see cref="FigureGrabConfig.Bind"/>), so the
 /// in-headset debug-menu steppers nudge the mini in your hand in real time.
 /// </summary>
-internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
+internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHandFilter
 {
     /// <summary>Every grabbable currently held in a hand — the live-tune broadcast target.</summary>
     private static readonly HashSet<FigureGrabbable> Live = new();
@@ -40,6 +40,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     private readonly ActorBehaviour _actor;
 
     private VRHand? _holder;
+
+    // Item 3 — offset-anchor nearest selection. When the hand hovers over MULTIPLE figures in
+    // proximity reach, only the one nearest the OFFSET ANCHOR (where the held mini will appear)
+    // should be grabbable; the losers are suppressed for THAT hand so the ProximityGrabber (which
+    // otherwise picks nearest-to-palm) can only highlight/grab the offset-anchor winner. Set every
+    // frame per hand by FigureGrabDriver.SelectByOffsetAnchor; consumed by AllowsHand below.
+    private bool _suppressLeft;
+    private bool _suppressRight;
     private Transform? _origParent;
     private Vector3 _origLocalPos;
     private Quaternion _origLocalRot;
@@ -95,6 +103,26 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     /// </summary>
     public bool GrabWithGrip => false;
 
+    /// <summary>
+    /// Item 3: per-hand gate (<see cref="IGrabbableHandFilter"/>). Returns false while this figure
+    /// is a proximity-grab LOSER for <paramref name="hand"/> — i.e. another figure sits nearer the
+    /// hand's offset anchor (the point where the held mini appears). Set each frame by
+    /// <see cref="FigureGrabDriver"/>; the <see cref="ProximityGrabber"/> then skips the losers,
+    /// leaving only the offset-anchor-nearest figure grabbable. Uncontested figures (single figure,
+    /// or a far laser target out of proximity reach) are never suppressed, so far-grab is untouched.
+    /// </summary>
+    public bool AllowsHand(VRHand hand)
+        => !(hand.Side == HandSide.Left ? _suppressLeft : _suppressRight);
+
+    /// <summary>Driver hook: mark this figure suppressed (proximity loser) for a hand, or clear it.</summary>
+    internal void SetProximitySuppressed(HandSide side, bool suppressed)
+    {
+        if (side == HandSide.Left)
+            _suppressLeft = suppressed;
+        else
+            _suppressRight = suppressed;
+    }
+
     public void OnGrabHighlight(VRHand hand, bool highlighted)
     {
         // Reuse the game's own actor highlight ring — no new outline plumbing.
@@ -149,17 +177,23 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     private void ApplyHeldPose()
     {
         GameObject? root = Root;
-        if (!_attached || root == null || _anchor == null)
+        if (!_attached || root == null || _anchor == null || _holder == null)
             return;
         Transform t = root.transform;
 
-        // Pinch position: a small grab-anchor-local offset toward the thumb–index fingertips.
-        t.localPosition = FigureGrabConfig.HeldOffset;
+        // Item 2: the tuned offsets/rotation are canonical for the RIGHT hand; the LEFT hand gets
+        // the MIRROR IMAGE (lateral offset + yaw/roll flip sign; forward/up/tilt unchanged) so the
+        // user only tunes once and the mini sits in the left hand exactly mirrored.
+        HandSide side = _holder.Side;
+
+        // Pinch position: a small grab-anchor-local offset toward the thumb–index fingertips
+        // (mirrored across the hand's left-right axis for the left hand).
+        t.localPosition = FigureGrabConfig.HeldOffsetFor(side);
 
         if (FigureGrabConfig.HeldUpright.Value)
-            ApplyUprightPose(t, _anchor, _heldBoardRot);
+            ApplyUprightPose(t, _anchor, _heldBoardRot, side);
         else
-            t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler); // legacy flat-on-palm
+            t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler); // legacy flat-on-palm (tilt only, mirror-invariant)
 
         t.localScale = _heldBaseScale * FigureGrabConfig.HeldScale.Value;
     }
@@ -173,7 +207,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     /// it into localRotation. Baked once, so the mini still tracks natural wrist rotation while
     /// inspecting (like turning a chess piece in your fingers).
     /// </summary>
-    private static void ApplyUprightPose(Transform t, Transform anchor, Quaternion boardRot)
+    private static void ApplyUprightPose(Transform t, Transform anchor, Quaternion boardRot, HandSide side)
     {
         // boardRot: the upright pose the mini stands in on its cell, captured at grab so live
         // re-tuning re-derives the facing from the true board rotation (never from an already
@@ -206,10 +240,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
         Quaternion worldRot = faceYaw * boardRot;
 
         // User inspection adjustments, in the mini's own frame: tilt tips it toward the face,
-        // yaw spins the readable front toward the player.
+        // yaw spins the readable front toward the player. Item 2: the yaw is MIRRORED for the left
+        // hand (negated) while the tilt (pitch about X) is mirror-invariant, so the left-hand pose
+        // is the mirror image of the tuned right-hand pose. The auto-facing above is world-geometry
+        // (faces the head regardless of hand), so it needs no mirroring.
         worldRot *= Quaternion.Euler(
             FigureGrabConfig.HeldTiltDegrees.Value,
-            FigureGrabConfig.HeldFaceYawDegrees.Value,
+            FigureGrabConfig.HeldFaceYawFor(side),
             0f);
 
         t.rotation = worldRot; // baked into localRotation (child of the moving anchor)
