@@ -136,8 +136,18 @@ internal sealed class CardFace
 
     // ------------------------------------------------------- silhouette capture --
 
-    /// <summary>Session-wide one-shot guard for <see cref="TryCaptureSilhouette"/>.</summary>
+    /// <summary>Session-wide guard for <see cref="TryCaptureSilhouette"/>: latched only once
+    /// the silhouette is successfully applied (or the retry budget is spent). Card art loads
+    /// ASYNC (ImageAddressableLoader.LoadAsync), so the first adopted card usually has no
+    /// sprites yet — a plain one-shot burned on that first attempt would permanently block
+    /// every later card whose art HAS loaded. We instead retry across the next few adoptions
+    /// until one yields a valid footprint.</summary>
     private static bool s_silhouetteTried;
+
+    /// <summary>Bounded retry budget so a genuinely rectangular / never-capturable card set
+    /// stops re-blitting after a handful of adoptions.</summary>
+    private static int s_silhouetteAttempts;
+    private const int MaxSilhouetteAttempts = 16;
 
     /// <summary>Footprint resolution (card-space). ~224 px wide keeps the ornate curve
     /// crisp at fan distance while the one-shot CPU cost stays trivial.</summary>
@@ -153,7 +163,10 @@ internal sealed class CardFace
     /// </summary>
     private static void TryCaptureSilhouette(AbilityCardUI owner)
     {
-        s_silhouetteTried = true;
+        // Retry across adoptions until a footprint applies; latch off only when the budget
+        // is exhausted (see s_silhouetteTried doc) so async-loaded art still gets captured.
+        if (++s_silhouetteAttempts >= MaxSilhouetteAttempts)
+            s_silhouetteTried = true;
         var readbacks = new List<Texture2D>();
         try
         {
@@ -253,6 +266,8 @@ internal sealed class CardFace
                 return;
 
             bool applied = CardMesh.SetSilhouette(alpha, fw, fh);
+            if (applied)
+                s_silhouetteTried = true; // success — stop retrying regardless of budget
             VRLog.Info("Cards", applied
                 ? $"CardFace captured the card-art silhouette ({fw}x{fh}) — 3D card body " +
                   "now clipped to the artistic outline (test #25)."
