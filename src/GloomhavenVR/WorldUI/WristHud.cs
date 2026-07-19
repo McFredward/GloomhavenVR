@@ -499,6 +499,33 @@ internal sealed class WristHud
         if (choreographer == null)
             return null;
 
+        // Multiplayer compat (audit R1): this HUD is the LOCAL player's own watch face. When
+        // ONLINE it must ALWAYS show the character THIS client controls, never whoever's turn it
+        // currently is — during a REMOTE player's turn Choreographer.CurrentPlayerActor and the
+        // active card hand are the remote character, so the offline resolution below would leak
+        // their Level/HP/XP/Gold/conditions onto the local wrist. Ownership test is
+        // CPlayerActor.IsUnderMyControl, the SAME guard CardsGameApi.IsLocalHand and
+        // Net/RevealGate use. Offline (single-player) there is exactly one local player who owns
+        // every merc, so this whole block is skipped and the original behaviour below runs
+        // byte-for-byte.
+        if (FFSNetwork.IsOnline)
+        {
+            // During CardSelection the tab-switchable hand identifies WHICH of the local
+            // player's own mercs is currently being viewed — honour it, but only when it is a
+            // hand we actually control (IsLocalHand is IsUnderMyControl-gated while online, and
+            // guarantees a non-null PlayerActor), so a remote's fan can never win.
+            if (VRModeStateMachine.CurrentMode == VRMode.CardSelection)
+            {
+                CardsHandUI? hand = Cards.CardsGameApi.ActiveHand();
+                if (hand != null && Cards.CardsGameApi.IsLocalHand(hand))
+                    return hand.PlayerActor;
+            }
+            // Otherwise resolve straight to the local player's own character, independent of the
+            // active turn. A null result (spectator / no assigned actor) makes RefreshText hide
+            // the HUD rather than fall through to a remote actor's stats.
+            return LocalPlayerActor();
+        }
+
         // Test #13: while cards are being selected, the character the fan belongs to
         // wins — the tab-switchable hand the game presents. Read-only access through
         // the Cards module's verified API surface (CardsGameApi.ActiveHand():
@@ -521,6 +548,33 @@ internal sealed class WristHud
             InitiativeTrackActorBehaviour selected = track.SelectedActor();
             if (selected != null && selected.Actor is CPlayerActor selectedPlayer)
                 return selectedPlayer;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Multiplayer compat (audit R1): the LOCAL player's own <see cref="CPlayerActor"/> — the
+    /// character THIS client controls — independent of whose turn it is. Ownership is
+    /// <c>CPlayerActor.IsUnderMyControl</c>, the same test <c>CardsGameApi.IsLocalHand</c> and
+    /// <c>Net/RevealGate</c> use; the actor list is the scenario's own
+    /// <c>CScenario.PlayerActors</c>. Returns null when no local-controlled actor exists
+    /// (spectator / not yet assigned), so the HUD hides rather than showing a remote's stats.
+    /// Only meaningful while <c>FFSNetwork.IsOnline</c> (offline every merc is under my control).
+    /// </summary>
+    private static CPlayerActor? LocalPlayerActor()
+    {
+        CScenario scenario = ScenarioManager.Scenario;
+        if (scenario == null)
+            return null;
+        var players = scenario.PlayerActors;
+        if (players != null)
+        {
+            for (int i = 0; i < players.Count; i++)
+            {
+                CPlayerActor player = players[i];
+                if (player != null && player.IsUnderMyControl)
+                    return player;
+            }
         }
         return null;
     }
