@@ -41,6 +41,26 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private BoxCollider? _box;
     private Vector3 _fullColliderSize;
 
+    // Render-on-top (Bug #2): a card shown in FRONT of the opaque control board was painted
+    // over by the board's action-button TMP label (ButtonCluster, queue 4003, ZTest Always +
+    // ZWrite Off) — its text bled through the card. While a VRCard is visible we push BOTH the
+    // opaque backing slab AND the world-space face-art graphics past those widgets
+    // (CardMesh.HeldCardRenderQueue), using PER-INSTANCE materials so the shared card / live
+    // game-UI materials (and the remote opponent hand backs) are never mutated. ZTest/ZWrite
+    // are left at the shader defaults (LEqual + on), so the card still self-occludes and stays
+    // hidden behind real geometry — only the draw ORDER changes. Mirrors FigureGrabbable's
+    // ApplyRenderOnTop/RestoreRenderers. Instances are destroyed on restore (no leak).
+    private bool _renderOnTop;
+    private bool _renderOnTopLogged;
+    private Renderer[]? _backingRenderers;
+    private Material[][]? _backingOrigShared;
+    private UnityEngine.UI.Graphic[]? _faceGraphics;
+    private Material?[]? _faceOrigMats;
+    private bool _canvasOrigOverrideSorting;
+    private int _canvasOrigSortingOrder;
+    private readonly System.Collections.Generic.List<Material> _renderOnTopInstances = new();
+    private const int HeldCardSortingOrder = 200;
+
     // Home pose (local space of the current parent).
     private Vector3 _homePos;
     private Quaternion _homeRot = Quaternion.identity;
@@ -278,12 +298,17 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         GameCard = card;
         SetCanvasSize(_face.FaceSize, CardsConfig.CardWidth.Value, CardsConfig.CardHeight);
         name = $"VRCard_{CardsGameApi.CardName(card)}";
+        // Bug #2: the live face art is now hosted under our canvas — push it (and the slab)
+        // over the control-board button widgets so the button text can't bleed through.
+        SetRenderOnTop(true);
         return true;
     }
 
     /// <summary>Give the face back to the game (pool-safe). Idempotent.</summary>
     internal void DetachGameCard()
     {
+        // Restore the game's own materials/sorting BEFORE handing the face back to the game.
+        SetRenderOnTop(false);
         if (_face.IsAdopted)
             _face.Restore();
         GameCard = null;
@@ -317,6 +342,145 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         tmp.alignment = TMPro.TextAlignmentOptions.Center;
         tmp.color = new Color(0.1f, 0.1f, 0.1f);
         name = $"VRCard_Fake{index + 1}";
+        // Bug #2: keep the dev placeholder on top of the board widgets too.
+        SetRenderOnTop(true);
+    }
+
+    // ------------------------------------------------------------ render-on-top --
+
+    /// <summary>
+    /// Bug #2: draw this visible card OVER the control board's on-top HUD widgets (chiefly the
+    /// ButtonCluster action-button label at queue 4003, ZTest Always + ZWrite Off, which
+    /// otherwise bled its text THROUGH the card). <paramref name="on"/> = true pushes the
+    /// backing slab AND the face-art canvas graphics to <see cref="CardMesh.HeldCardRenderQueue"/>
+    /// via per-instance materials (never the shared card / game materials) and raises the face
+    /// canvas' sorting so the art draws over the slab; false restores everything and frees the
+    /// instances. Idempotent. Mirrors <see cref="Board.FigureGrab.FigureGrabbable"/>.
+    /// </summary>
+    internal void SetRenderOnTop(bool on)
+    {
+        if (on)
+            ApplyRenderOnTop();
+        else
+            RestoreRenderOnTop();
+    }
+
+    private void ApplyRenderOnTop()
+    {
+        bool wasOn = _renderOnTop;
+        RestoreRenderOnTop(); // drop any prior instances first (face graphics may have changed)
+        int queue = CardMesh.HeldCardRenderQueue;
+
+        // (1) Backing slab — per-renderer INSTANCE materials, queue bumped past the button
+        // widgets. ZTest/ZWrite are left at the shader defaults (LEqual + on) so the slab still
+        // self-occludes and hides behind real geometry; only the draw order changes.
+        if (_backing != null)
+        {
+            _backingRenderers = _backing.GetComponentsInChildren<Renderer>(true);
+            _backingOrigShared = new Material[_backingRenderers.Length][];
+            for (int i = 0; i < _backingRenderers.Length; i++)
+            {
+                Renderer r = _backingRenderers[i];
+                if (r == null)
+                    continue;
+                _backingOrigShared[i] = r.sharedMaterials;   // snapshot the ORIGINAL shared assets
+                Material[] instances = r.materials;          // per-renderer INSTANCES (no shared mutation)
+                for (int m = 0; m < instances.Length; m++)
+                {
+                    if (instances[m] == null)
+                        continue;
+                    instances[m].renderQueue = queue;
+                    _renderOnTopInstances.Add(instances[m]);
+                }
+            }
+        }
+
+        // (2) Face-art world-space canvas — override sorting + high order so the art draws over
+        // the slab, AND bump the graphics' MATERIAL renderQueue (queue dominates across renderer
+        // types, so this is what actually beats the queue-4003 label MeshRenderer). Per-instance
+        // materials so the live FullAbilityCard / game-UI materials are never mutated.
+        if (_canvas != null)
+        {
+            _canvasOrigOverrideSorting = _canvas.overrideSorting;
+            _canvasOrigSortingOrder = _canvas.sortingOrder;
+            _canvas.overrideSorting = true;
+            _canvas.sortingOrder = HeldCardSortingOrder;
+        }
+        if (_canvasRect != null)
+        {
+            _faceGraphics = _canvasRect.GetComponentsInChildren<UnityEngine.UI.Graphic>(true);
+            _faceOrigMats = new Material?[_faceGraphics.Length];
+            for (int i = 0; i < _faceGraphics.Length; i++)
+            {
+                UnityEngine.UI.Graphic g = _faceGraphics[i];
+                if (g == null)
+                    continue;
+                Material orig = g.material;
+                _faceOrigMats[i] = orig;
+                if (orig == null)
+                    continue;
+                var instance = new Material(orig) { renderQueue = queue };
+                g.material = instance;
+                _renderOnTopInstances.Add(instance);
+            }
+        }
+
+        _renderOnTop = true;
+        if (!wasOn && !_renderOnTopLogged)
+        {
+            _renderOnTopLogged = true;
+            Core.VRLog.Info("Cards",
+                $"VRCard render-on-top ON for '{name}' (queue {queue}, canvas sortingOrder " +
+                $"{HeldCardSortingOrder}) — slab + face art now draw over the control-board " +
+                "button widgets; ZTest LEqual kept so the card still hides behind real geometry.");
+        }
+    }
+
+    private void RestoreRenderOnTop()
+    {
+        if (!_renderOnTop && _backingRenderers == null && _faceGraphics == null)
+            return;
+
+        // Face graphics back to their captured materials (may be null → default material).
+        if (_faceGraphics != null && _faceOrigMats != null)
+        {
+            for (int i = 0; i < _faceGraphics.Length; i++)
+            {
+                UnityEngine.UI.Graphic g = _faceGraphics[i];
+                if (g != null)
+                    g.material = _faceOrigMats[i];
+            }
+        }
+        if (_canvas != null)
+        {
+            _canvas.overrideSorting = _canvasOrigOverrideSorting;
+            _canvas.sortingOrder = _canvasOrigSortingOrder;
+        }
+
+        // Backing renderers back to their ORIGINAL shared assets.
+        if (_backingRenderers != null && _backingOrigShared != null)
+        {
+            for (int i = 0; i < _backingRenderers.Length; i++)
+            {
+                Renderer r = _backingRenderers[i];
+                if (r != null && _backingOrigShared[i] != null)
+                    r.sharedMaterials = _backingOrigShared[i];
+            }
+        }
+
+        // Free the orphaned per-instance materials.
+        for (int i = 0; i < _renderOnTopInstances.Count; i++)
+        {
+            if (_renderOnTopInstances[i] != null)
+                Destroy(_renderOnTopInstances[i]);
+        }
+        _renderOnTopInstances.Clear();
+
+        _backingRenderers = null;
+        _backingOrigShared = null;
+        _faceGraphics = null;
+        _faceOrigMats = null;
+        _renderOnTop = false;
     }
 
     // ------------------------------------------------------------------ layout --
@@ -582,6 +746,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         UpdateCanvasCamera();
         _face.Maintain();
+        // Bug #2: if Maintain YIELDED the face to a game dialog (it now belongs to the game
+        // again), drop our per-instance material overrides so the game's face renders normally.
+        // Re-applied on the next AttachGameCard when the face is re-adopted.
+        if (_renderOnTop && NeedsFace)
+            SetRenderOnTop(false);
         // Keep the game's world-space CardSmoke plume bounded to the card while a burn/
         // ghost effect runs (test #22, symptom 4c-i) and log the on-card burn lifecycle
         // (symptom 4c-ii). No-op when nothing is burning.

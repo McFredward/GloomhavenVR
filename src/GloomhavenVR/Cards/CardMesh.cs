@@ -59,6 +59,24 @@ internal static class CardMesh
     // of straddling the ~0.5 alpha boundary. ~2 % ≈ 1.3 mm on a 63.5 mm card.
     private const float RimUvInset = 0.02f;
 
+    /// <summary>
+    /// Render queue for a VR card that is CURRENTLY VISIBLE to the player (fanned in hand /
+    /// held / in the browse view). Bug #2: the control board's action-button TMP label is
+    /// force-drawn "on top" at queue 4003 with ZTest Always + ZWrite Off (ButtonCluster) so
+    /// it clears the opaque board rim — which ALSO made it unconditionally overpaint any
+    /// ability card in front of the board (button text bleeding through the card). A visible
+    /// card pushes BOTH its opaque backing slab AND its world-space face-art graphics to THIS
+    /// queue — above the button's 4003, and at/above the held-mini's 4100
+    /// (<see cref="Board.FigureGrab.FigureGrabbable"/>) — via PER-INSTANCE materials, while
+    /// KEEPING the shader's ZTest LEqual + ZWrite On. The card therefore wins DRAW ORDER over
+    /// the ZWrite-off button widget (which never owns depth), yet still self-occludes and
+    /// stays correctly hidden behind real walls / board geometry (LEqual). See
+    /// <see cref="VRCard.SetRenderOnTop"/>; this mirrors the held-mini render-on-top fix.
+    /// NOTE: applied per-instance on the card renderers, NEVER on the shared card materials
+    /// (which <see cref="Net.RemoteHandFan"/> reuses for the opponent's hand backs).
+    /// </summary>
+    internal const int HeldCardRenderQueue = 4200;
+
     private static Mesh? _sharedMesh;
     private static Vector2 _sharedMeshSize;
     private static Texture2D? _backTexture;
