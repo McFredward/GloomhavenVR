@@ -324,11 +324,21 @@ internal static class CanvasConversion
     /// (the floated-modal FLICKER, see ModalFallback). A dominant order lifts a host out of
     /// that ambiguity; adopted nested canvases keep <c>overrideSorting</c> cleared, so they
     /// inherit this order and stay ordered with the host.
+    /// <paramref name="capHeightToCanvas"/> (bug #7, ESC/Options full-screen-menu family ONLY):
+    /// cap the captured height to the root canvas REFERENCE height (~1080 — the compact
+    /// first-open height) so the panel height stops depending on the game's post-layout root
+    /// growth. The scenario ESC menu has a tall content column (~2040 px, only the top ~1080
+    /// populated); a COLD first open reads the root before layout expands it (~1080), every WARM
+    /// reopen reads the settled ~2040 → a ~1.9x taller panel with an empty bottom. Clamping the
+    /// height here (before it becomes the host size AND the pinned target frame the content fit
+    /// clamps to) makes every open land the same compact height. Width and scale are untouched.
+    /// Guarded to full-screen menus by the caller (<c>ModalFallback.IsFullScreenMenu</c>);
+    /// normal floated modals/tooltips/cards keep their exact captured size.
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
-        bool transparentBackground = false, bool fitOneShot = false)
+        bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false)
     {
         if (target == null)
         {
@@ -376,6 +386,35 @@ internal static class CanvasConversion
         bool degenerate = size.x < 1f || size.y < 1f;
         if (degenerate)
             size = new Vector2(Mathf.Max(size.x, 100f), Mathf.Max(size.y, 100f));
+
+        // Bug #7 (pause-menu height): a full-screen menu (ESC / Options family) captures its
+        // HEIGHT verbatim from the game window rect here. The scenario ESC menu has a TALL
+        // content column (~2040 px, only the top ~1080 populated) — a COLD first open reads the
+        // root before the game layout expands it (~1080), every WARM reopen reads the settled
+        // ~2040, so the panel opened ~1.9x taller with an empty bottom. Cap the captured height
+        // to the root canvas REFERENCE height (its RectTransform rect height — the compact
+        // first-open height, ~1080) BEFORE it becomes the host size (:sizeDelta below) AND the
+        // pinned target frame (:target.sizeDelta) the one-shot content fit clamps to. Cold is
+        // already <= the cap (unchanged); warm is clamped down to the same compact height →
+        // identical every open. Width and scale are untouched. Read from the SAME root canvas the
+        // conversion resolves (target still under its original parent here); if it cannot be
+        // resolved, the cap is skipped rather than guessing a magic number. Guarded to the
+        // ESC/Options full-screen-menu family via capHeightToCanvas — normal modals never enter.
+        float heightCapFrom = 0f, heightCapTo = 0f;
+        bool heightCapped = false;
+        if (capHeightToCanvas)
+        {
+            Canvas? rootCanvas = target.GetComponentInParent<Canvas>();
+            var canvasRect = rootCanvas != null ? rootCanvas.rootCanvas.transform as RectTransform : null;
+            float refHeight = canvasRect != null ? canvasRect.rect.size.y : 0f;
+            if (refHeight > 1f && size.y > refHeight)
+            {
+                heightCapFrom = size.y;
+                heightCapTo = refHeight;
+                size.y = refHeight;
+                heightCapped = true;
+            }
+        }
 
         var hostGo = new GameObject($"GloomhavenVR.Panel_{name}");
         hostGo.layer = UiLayer;
@@ -490,7 +529,8 @@ internal static class CanvasConversion
         Active.Add(panel);
         EnsureCameraMask();
         VRLog.Info("WorldUI", $"Converted '{name}' to world space ({size.x:F0}x{size.y:F0} px, " +
-                              $"sortingOrder={sortingOrder}).");
+                              $"sortingOrder={sortingOrder})" +
+                              (heightCapped ? $" (height capped {heightCapFrom:F0}->{heightCapTo:F0})." : "."));
         if (diagnostic)
             DiagnoseModal(panel, force: true); // one-shot baseline (host state + camera scan) at float time
         return panel;

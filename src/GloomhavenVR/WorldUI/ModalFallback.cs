@@ -1587,11 +1587,17 @@ internal static class ModalFallback
             // flicker from recurring (the opaque backing is already hidden, so the fit measures only
             // the stable foreground content). The reveal waits for that single fit, so it pops in
             // already compact rather than flashing at the full rect.
+            // Bug #7 (pause-menu height): the ESC/Options full-screen menus have a tall content
+            // column that the game grows over the first open, so a WARM reopen captured ~2040 px
+            // (panel ~1.9x taller with an empty bottom) while a COLD first open captured ~1080.
+            // Cap the captured height to the root canvas reference height (~1080) for exactly this
+            // full-screen-menu family so every open lands the same compact height — width/scale and
+            // all non-menu modals are unaffected (capHeightToCanvas is false for them).
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
                 fitContent: null, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
                 useModLayer: true, transparentBackground: transparentBg,
-                fitOneShot: fullScreenMenu);
+                fitOneShot: fullScreenMenu, capHeightToCanvas: fullScreenMenu);
 
             if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
