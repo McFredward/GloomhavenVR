@@ -77,6 +77,17 @@ internal sealed class ButtonCluster
 {
     private const float CapPressDepth = 0.008f; // 8 mm cap travel (real meters)
 
+    // DEPTH-CORRECT proud seat (replaces the old ZTest-Always shine-through). When docked
+    // the cluster is lifted this far toward the player along the board-face normal so its
+    // base plate clears the RAISED board rim instead of z-fighting/sinking into the slab.
+    // A CONSTANT (not per-board): CardsConfig has no cluster-proud tunable of its own — the
+    // per-board ClusterOffset is already consumed by PlayTray to place ButtonClusterMount, so
+    // reading it here would double-apply it. 10 mm matches PlayTray's proud magnitude
+    // (FixedProudZ = 5 mm) with generous headroom over the mount's own 6 mm; the caps already
+    // stand ~24 mm proud so this never reads as "floating". Scaled by the mount's world scale
+    // (rig × grab × 0.7 dock) so it tracks the cluster's rendered size on every board variant.
+    private const float ClusterProudOffset = 0.010f;
+
     private GameObject? _root;
     private PhysicalButton? _ready;
     private PhysicalButton? _undo;
@@ -161,8 +172,9 @@ internal sealed class ButtonCluster
 
         // Mod layer (render-only — pokes go through the VRInteractables registry).
         VRLayers.Apply(_root);
-        VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — overlay draw-on-top applied " +
-                              "(ZTest Always over the opaque control board, item 9).");
+        VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — DEPTH-CORRECT: lit opaque " +
+                              $"BoardLit caps at natural ZTest LEqual, seated {ClusterProudOffset * 1000f:0} mm " +
+                              "proud of the board face (occluded by walls in front, no more ZTest-Always shine-through).");
     }
 
     /// <summary>
@@ -187,11 +199,20 @@ internal sealed class ButtonCluster
                 return false; // tray hidden (deferred placement) → cluster hides with it
             // Same frame semantics as the floating branch: the mount's +Z points
             // "away from the player" (up the board), so the standard 180° yaw puts
-            // the cluster's +Z toward the player; +Y comes out of the board (cap
-            // travel presses into the board). Mount lossy scale carries tray grab
-            // scale, rig scale AND the 0.7× dock shrink.
-            t.SetPositionAndRotation(mount.position, mount.rotation * Quaternion.Euler(0f, 180f, 0f));
-            t.localScale = Vector3.one * mount.lossyScale.x;
+            // the cluster's +Z toward the player; +Y (mount.up in world) comes OUT of
+            // the board toward the viewer (cap travel presses into the board). Mount
+            // lossy scale carries tray grab scale, rig scale AND the 0.7× dock shrink.
+            //
+            // DEPTH-CORRECT proud seat: lift the whole cluster ClusterProudOffset along
+            // mount.up (toward the player / board-face normal) so the lit opaque caps and
+            // base plate stand clear of the raised board rim at the player's oblique angle.
+            // The caps now depth-TEST LEqual (no ZTest Always), so without this lift they
+            // would z-fight with / be buried by the rim (the failure that recurred 3×).
+            float mountScale = mount.lossyScale.x;
+            Vector3 proud = mount.up * (ClusterProudOffset * mountScale);
+            t.SetPositionAndRotation(mount.position + proud,
+                mount.rotation * Quaternion.Euler(0f, 180f, 0f));
+            t.localScale = Vector3.one * mountScale;
             return true;
         }
 
@@ -335,11 +356,10 @@ internal sealed class ButtonCluster
             else
                 button.BuildProcedural(parent, name, localPos, radius);
 
-            // Item 9: force the built renderers to draw OVER the opaque control board so
-            // the docked cluster (Ready/Undo/Skip, incl. attack/confirm during targeting)
-            // is never occluded. Harmless while floating in open space.
-            button.ApplyDrawOnTop();
-
+            // DEPTH-CORRECT: no draw-on-top. The base/cap are lit opaque BoardLit meshes and
+            // the label/native face keep their default ZTest LEqual, so the cluster depth-tests
+            // like every other solid object — occluded by walls/geometry in FRONT of it, yet
+            // fully visible sitting PROUD of the board face (see ClusterProudOffset in PlaceCluster).
             VRInteractables.RegisterPokeable(button, button._collider);
             return button;
         }
@@ -373,9 +393,10 @@ internal sealed class ButtonCluster
             basePlate.transform.localScale = new Vector3(radius * 2.4f, 0.012f, radius * 2.4f);
             basePlate.transform.localPosition = new Vector3(0f, 0.006f, 0f);
             _baseRenderer = basePlate.GetComponent<Renderer>();
-            // Overlay-capable material (item 9): exposes _ZTest so ApplyDrawOnTop can
-            // force the docked-on-board cluster to draw OVER the opaque board rim.
-            _baseRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(new Color(0.16f, 0.14f, 0.12f), overlay: true);
+            // DEPTH-CORRECT: lit opaque BoardLit (the PlayTray solid-keycap path) — writes depth
+            // and depth-tests LEqual, so the base is occluded by walls in front and self-occludes
+            // like a real object, instead of the old unlit Overlay forced to ZTest Always.
+            _baseRenderer.sharedMaterial = CreateLitMaterial(new Color(0.16f, 0.14f, 0.12f));
 
             // Travelling cap (squashed cylinder).
             GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -387,7 +408,7 @@ internal sealed class ButtonCluster
             _cap = cap.transform;
             _capRestY = _cap.localPosition.y;
             _capRenderer = cap.GetComponent<Renderer>();
-            _capRenderer.sharedMaterial = WorldUIAssets.CreateFlatMaterial(_accent, overlay: true);
+            _capRenderer.sharedMaterial = CreateLitMaterial(_accent); // lit opaque, depth-correct (see base)
 
             // Native look (test #25 item 3): lay the game's own 9-sliced button sprite
             // flat on the cap's top face (the viewer side in both the docked and the
@@ -444,60 +465,20 @@ internal sealed class ButtonCluster
         }
 
         /// <summary>
-        /// Draw the whole physical button OVER the opaque control board (item 9),
-        /// mirroring <c>PlayTray.RenderOnTop</c> but implemented locally (that method is
-        /// private to PlayTray). For every renderer's INSTANCE materials, force ZTest
-        /// Always (never depth-culled by the board rim) + ZWrite off and push the render
-        /// queue past the opaque scene. Ordering reads base &lt; cap &lt; face &lt; label.
-        /// The base/cap use the bundled <c>GloomhavenVR/Overlay</c> material (exposes
-        /// <c>_ZTest</c>); the native sprite face (Sprites/Default, no <c>_ZTest</c>) is
-        /// re-shaded to Overlay in <see cref="RenderOnTop"/> so it too clears the board;
-        /// the TMP label uses <c>_ZTestMode</c>. Harmless while the cluster floats free.
+        /// Lit, opaque, depth-writing material for the button base/cap — the same
+        /// <c>GloomhavenVR/BoardLit</c> path PlayTray uses for its solid board keycaps
+        /// (gear / follow-toggle / Confirm / Undo). Opaque Geometry queue + default ZTest
+        /// LEqual + ZWrite on means the cluster depth-tests and self-occludes like every
+        /// other solid object: occluded by walls/geometry in FRONT of it, visible sitting
+        /// PROUD of the board face, and it no longer overpaints a card held before it.
+        /// Falls back to the flat material if the BoardLit shader is unavailable.
         /// </summary>
-        private void ApplyDrawOnTop()
+        private static Material CreateLitMaterial(Color color)
         {
-            RenderOnTop(_baseRenderer, 4000);
-            RenderOnTop(_capRenderer, 4001);
-            if (_capFace != null)
-                RenderOnTop(_capFace, 4002);
-            RenderOnTop(_label != null ? _label.GetComponent<Renderer>() : null, 4003);
-        }
-
-        /// <summary>
-        /// Force one renderer's instance materials over the board: high render queue,
-        /// ZTest Always, ZWrite off. A material lacking <c>_ZTest</c> AND <c>_ZTestMode</c>
-        /// (the native sprite face's <c>Sprites/Default</c>) is re-shaded to the bundled
-        /// <c>GloomhavenVR/Overlay</c> — preserving its texture — so it can honour ZTest
-        /// too; if the Overlay shader is unavailable it is left as-is (queue bump only).
-        /// </summary>
-        private static void RenderOnTop(Renderer? renderer, int queue)
-        {
-            if (renderer == null)
-                return;
-            Shader? overlay = null;
-            foreach (Material m in renderer.materials) // instance materials (never a shared bundle asset)
-            {
-                if (m == null)
-                    continue;
-                if (!m.HasProperty("_ZTest") && !m.HasProperty("_ZTestMode"))
-                {
-                    overlay ??= Shader.Find("GloomhavenVR/Overlay");
-                    if (overlay != null)
-                    {
-                        Texture? tex = m.mainTexture;
-                        m.shader = overlay;
-                        if (tex != null)
-                            m.mainTexture = tex;
-                    }
-                }
-                m.renderQueue = queue;
-                if (m.HasProperty("_ZTest"))
-                    m.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
-                if (m.HasProperty("_ZTestMode"))
-                    m.SetInt("_ZTestMode", (int)UnityEngine.Rendering.CompareFunction.Always); // TMP distance-field
-                if (m.HasProperty("_ZWrite"))
-                    m.SetInt("_ZWrite", 0);
-            }
+            Shader? lit = Cards.PlayTray.BoardLitShader();
+            if (lit != null)
+                return new Material(lit) { color = color };
+            return WorldUIAssets.CreateFlatMaterial(color); // overlay:false → Standard/Sprites fallback
         }
 
         /// <summary>
