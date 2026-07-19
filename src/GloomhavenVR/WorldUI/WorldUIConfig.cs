@@ -52,6 +52,14 @@ internal static class WorldUIConfig
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
 
+    /// <summary>Item 10: wrist overview HUD pose, live-tunable in the debug menu's "Wrist" category.</summary>
+    internal static ConfigEntry<float> WristHudPitch = null!;
+    internal static ConfigEntry<float> WristHudYaw = null!;
+    internal static ConfigEntry<float> WristHudRoll = null!;
+    internal static ConfigEntry<float> WristHudOffsetX = null!;
+    internal static ConfigEntry<float> WristHudOffsetY = null!;
+    internal static ConfigEntry<float> WristHudOffsetZ = null!;
+
     /// <summary>Show the intro (pre-menu scenes) on the floating screen in VR too.</summary>
     internal static ConfigEntry<bool> ShowIntro = null!;
 
@@ -233,6 +241,24 @@ internal static class WorldUIConfig
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
             "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
             "uncontrolled default XR mirror otherwise).");
+        WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", 0f,
+            "Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base.");
+        WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", 0f, "Wrist overview HUD yaw (degrees).");
+        WristHudRoll = _file.Bind("WorldUI", "WristHudRoll", 0f, "Wrist overview HUD roll (degrees).");
+        WristHudOffsetX = _file.Bind("WorldUI", "WristHudOffsetX", 0f,
+            "Wrist overview HUD offset along wrist X, real meters.");
+        WristHudOffsetY = _file.Bind("WorldUI", "WristHudOffsetY", 0.015f,
+            "Wrist overview HUD offset out the back of the hand (wrist +Y), real meters.");
+        WristHudOffsetZ = _file.Bind("WorldUI", "WristHudOffsetZ", 0.01f,
+            "Wrist overview HUD offset toward the fingers (wrist +Z), real meters.");
+        // NB: the WristHud CLASS is shadowed here by the WristHud config field (bool toggle),
+        // so qualify the type to reach its static pose-config refs (item 10 wiring).
+        global::GloomhavenVR.WorldUI.WristHud.PitchEntry = WristHudPitch;
+        global::GloomhavenVR.WorldUI.WristHud.YawEntry = WristHudYaw;
+        global::GloomhavenVR.WorldUI.WristHud.RollEntry = WristHudRoll;
+        global::GloomhavenVR.WorldUI.WristHud.OffsetXEntry = WristHudOffsetX;
+        global::GloomhavenVR.WorldUI.WristHud.OffsetYEntry = WristHudOffsetY;
+        global::GloomhavenVR.WorldUI.WristHud.OffsetZEntry = WristHudOffsetZ;
         ShowIntro = _file.Bind("WorldUI", "ShowIntro", true,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +
             "too. Off = old behavior: intro plays on the desktop only and the HMD shows a " +

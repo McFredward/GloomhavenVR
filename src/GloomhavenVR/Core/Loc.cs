@@ -242,6 +242,15 @@ internal static class Loc
         ["fig_yaw"] = Pair("Face Yaw", "Drehung"),
         ["fig_scale"] = Pair("Scale", "Größe"),
 
+        // ---- wrist HUD debug tuning (item 10) ----
+        ["cat_wrist"] = Pair("Wrist", "Handgelenk"),
+        ["wrist_pitch"] = Pair("Pitch", "Neigung"),
+        ["wrist_yaw"] = Pair("Yaw", "Drehung"),
+        ["wrist_roll"] = Pair("Roll", "Rollen"),
+        ["wrist_x"] = Pair("Offset X", "Versatz X"),
+        ["wrist_y"] = Pair("Offset Y", "Versatz Y"),
+        ["wrist_z"] = Pair("Offset Z", "Versatz Z"),
+
         // ---- WristHud ----
         ["no_character"] = Pair("no character", "kein Charakter"),
         ["hp"] = Pair("HP", "LP"),
