@@ -210,45 +210,100 @@ internal static class CardMesh
     }
 
     /// <summary>
-    /// Item 3 (visible button walls): return a TWO-submesh copy of a box mesh so a keycap
-    /// can render its top face and its side WALLS with two different materials — a bright
-    /// top and a distinctly darker wall band — making the 20 mm side walls unmistakable at
-    /// the board's near-top-down angle (where BoardLit, shading by normal only, otherwise
-    /// lights the walls almost the same as the top). Submesh 0 = the faces whose outward
-    /// normal points toward the viewer (local −Z, the "top" the player looks at); submesh
-    /// 1 = every other face (the four side walls + the hidden back). Winding is inherited
-    /// unchanged from <paramref name="source"/> (Unity's primitive cube), so no culling
-    /// surprises. The source's arrays are COPIED — the shared built-in cube mesh is never
-    /// mutated. Faces are grouped by each triangle's first-vertex normal (the cube is
-    /// flat-shaded: all three verts of a face share the same normal).
+    /// Item 4 (make the button side walls actually VISIBLE): build a real 3D keycap with a
+    /// CHAMFERED front edge, authored at its REAL size in meters so the owning transform can
+    /// stay unit-scaled (uniform scale keeps the 45° bevel normal a true 45° in world space,
+    /// which is what lets it catch light). Three submeshes, coloured by the caller as a bright
+    /// top / a BRIGHT parchment-lit bevel ring / a dark warm wall band, so a huge top→bevel→wall
+    /// value gradient reads the cap as unmistakably RAISED even viewed near top-down against a
+    /// dark board (the old flat-dark walls, ×0.45 of an already-dark top, vanished):
+    ///   • submesh 0 — the TOP plateau (flat, faces the viewer at local −Z), inset by
+    ///     <paramref name="bevel"/> from the outer edge;
+    ///   • submesh 1 — the BEVEL RING: four ~45° chamfer quads bridging the inset plateau edge
+    ///     (at z = −thickness) out to the full-size top edge (at z = −thickness + bevel). Angled
+    ///     halfway between top and wall, so it is always partly visible AND shades distinctly
+    ///     under BoardLit — the primary "this is 3D" cue;
+    ///   • submesh 2 — the four vertical side WALLS + the hidden back.
+    /// The cap spans local z = −<paramref name="thickness"/> (front/top, viewer side) to 0
+    /// (back), matching the old cube placement, so the label offset and press travel are
+    /// unchanged. Each face carries its own flat-shaded vertices/normal; triangle winding is
+    /// derived from the outward normal so every face is front-facing regardless of corner order.
     /// </summary>
-    internal static Mesh SplitTopAndWalls(Mesh source)
+    internal static Mesh BuildBeveledKeycap(float width, float height, float thickness, float bevel)
     {
-        Vector3[] verts = source.vertices;
-        Vector3[] normals = source.normals;
-        Vector2[] uv = source.uv;
-        int[] tris = source.triangles;
+        float hw = width * 0.5f, hh = height * 0.5f;
+        bevel = Mathf.Clamp(bevel, 0f, Mathf.Min(Mathf.Min(hw, hh) * 0.9f, thickness * 0.9f));
+        float iw = hw - bevel, ih = hh - bevel;   // inset plateau half-extents
+        float zTop = -thickness;                  // frontmost plane (the plateau)
+        float zBev = -thickness + bevel;          // where the bevel meets the vertical wall
+        float zBack = 0f;                          // hidden back
 
+        var verts = new System.Collections.Generic.List<Vector3>(24);
+        var norms = new System.Collections.Generic.List<Vector3>(24);
+        var uvs = new System.Collections.Generic.List<Vector2>(24);
         var top = new System.Collections.Generic.List<int>(6);
-        var walls = new System.Collections.Generic.List<int>(tris.Length);
-        for (int i = 0; i + 2 < tris.Length; i += 3)
+        var ring = new System.Collections.Generic.List<int>(24);
+        var walls = new System.Collections.Generic.List<int>(30);
+
+        // Add a quad (a,b,c,d looping the rim) to submesh <sm> with flat normal <n>. Winding is
+        // chosen from the outward normal so the face is always visible from its +n side (Unity
+        // front-face = clockwise seen from outside ⇒ the CCW right-hand normal must point −n).
+        void AddQuad(System.Collections.Generic.List<int> sm,
+                     Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n)
         {
-            int a = tris[i], b = tris[i + 1], c = tris[i + 2];
-            // Viewer-facing face = normal pointing along local −Z (the cap protrudes toward
-            // the viewer at −Z; its front face is the "top" the player sees straight on).
-            bool isTop = a < normals.Length && normals[a].z < -0.5f;
-            var target = isTop ? top : walls;
-            target.Add(a); target.Add(b); target.Add(c);
+            int b0 = verts.Count;
+            verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
+            for (int i = 0; i < 4; i++) { norms.Add(n); uvs.Add(new Vector2(0.5f, 0.5f)); }
+            Vector3 rh = Vector3.Cross(b - a, c - a);
+            if (Vector3.Dot(rh, n) < 0f)
+            {
+                sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2);
+                sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 3);
+            }
+            else
+            {
+                sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 1);
+                sm.Add(b0); sm.Add(b0 + 3); sm.Add(b0 + 2);
+            }
         }
 
-        var mesh = new Mesh { name = "GloomhavenVR.KeycapSplit" };
-        mesh.vertices = verts;
-        mesh.normals = normals;
-        if (uv != null && uv.Length == verts.Length)
-            mesh.uv = uv;
-        mesh.subMeshCount = 2;
+        // Top plateau (faces the viewer, −Z).
+        AddQuad(top, new(-iw, ih, zTop), new(iw, ih, zTop), new(iw, -ih, zTop), new(-iw, -ih, zTop),
+                Vector3.back);
+
+        // Bevel ring — four 45° chamfers (normal = outward + toward viewer). Corner folds are
+        // shared edges (plateau corner → outer corner), so the ring is watertight.
+        const float s = 0.70710678f;
+        AddQuad(ring, new(-iw, ih, zTop), new(iw, ih, zTop), new(hw, hh, zBev), new(-hw, hh, zBev),
+                new Vector3(0f, s, -s));   // +Y edge
+        AddQuad(ring, new(iw, ih, zTop), new(iw, -ih, zTop), new(hw, -hh, zBev), new(hw, hh, zBev),
+                new Vector3(s, 0f, -s));   // +X edge
+        AddQuad(ring, new(iw, -ih, zTop), new(-iw, -ih, zTop), new(-hw, -hh, zBev), new(hw, -hh, zBev),
+                new Vector3(0f, -s, -s));  // −Y edge
+        AddQuad(ring, new(-iw, -ih, zTop), new(-iw, ih, zTop), new(-hw, hh, zBev), new(-hw, -hh, zBev),
+                new Vector3(-s, 0f, -s));  // −X edge
+
+        // Vertical side walls (outward normals) from the bevel base back to z = 0.
+        AddQuad(walls, new(-hw, hh, zBev), new(hw, hh, zBev), new(hw, hh, zBack), new(-hw, hh, zBack),
+                Vector3.up);
+        AddQuad(walls, new(hw, hh, zBev), new(hw, -hh, zBev), new(hw, -hh, zBack), new(hw, hh, zBack),
+                Vector3.right);
+        AddQuad(walls, new(hw, -hh, zBev), new(-hw, -hh, zBev), new(-hw, -hh, zBack), new(hw, -hh, zBack),
+                Vector3.down);
+        AddQuad(walls, new(-hw, -hh, zBev), new(-hw, hh, zBev), new(-hw, hh, zBack), new(-hw, -hh, zBack),
+                Vector3.left);
+        // Hidden back (kept so the solid never shows a hole if seen edge-on).
+        AddQuad(walls, new(-hw, hh, zBack), new(hw, hh, zBack), new(hw, -hh, zBack), new(-hw, -hh, zBack),
+                Vector3.forward);
+
+        var mesh = new Mesh { name = "GloomhavenVR.BeveledKeycap" };
+        mesh.SetVertices(verts);
+        mesh.SetNormals(norms);
+        mesh.SetUVs(0, uvs);
+        mesh.subMeshCount = 3;
         mesh.SetTriangles(top, 0);
-        mesh.SetTriangles(walls, 1);
+        mesh.SetTriangles(ring, 1);
+        mesh.SetTriangles(walls, 2);
         mesh.RecalculateBounds();
         return mesh;
     }

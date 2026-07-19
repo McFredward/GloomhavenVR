@@ -2369,7 +2369,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         SetConfirmUndoOffset(off, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
                             $"{side:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
-                            (round ? "." : " — square caps split into top + darker side-wall submeshes for visible walls."));
+                            (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
     }
 
     private Transform NewAnchor(string name, Vector3 localPos)
@@ -2398,13 +2398,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private const float FixedProudZ = 0.005f;
 
     /// <summary>
-    /// Item A: local-Z thickness (meters) of the SQUARE Confirm/Undo keycaps. Raised from the old
-    /// 0.014 (a thin slab whose side walls read as a flat rim at the board's oblique angle) to a
-    /// genuine keycap depth so the walls have real area and shade solid via BoardLit. The press
-    /// travel (4 mm) is unchanged. The exact real-world protrusion is logged per cap by
-    /// <see cref="BoardButton.LogCapDiagnostics"/> for conclusive tuning.
+    /// Item A/4: local-Z thickness (meters) of the SQUARE Confirm/Undo keycaps — the total
+    /// protrusion toward the player. Raised over successive passes (0.014 → 0.03 → 0.036) so the
+    /// side walls + bevel have real area at the board's oblique angle; taller = physically more
+    /// side visible (item 4 lever c). Press travel (4 mm) is unchanged. Exact real-world
+    /// protrusion is logged per cap by <see cref="BoardButton.LogCapDiagnostics"/>.
     /// </summary>
-    private const float SquareCapThickness = 0.03f;
+    private const float SquareCapThickness = 0.036f;
+
+    /// <summary>
+    /// Item 4: width (meters) of the lit 45° CHAMFER ring around the front edge of the square
+    /// keycaps — the bright "catch-light" bevel that makes the cap read as raised even viewed
+    /// near top-down. It consumes this much of both the front plateau inset AND the front depth
+    /// (a true 45°). Clamped in <see cref="CardMesh.BuildBeveledKeycap"/> to ≤ 90 % of the cap's
+    /// half-size and depth. One line to retune how chunky the lit edge reads (~7 mm ≈ a fat,
+    /// clearly-visible chamfer on a ~120 mm cap).
+    /// </summary>
+    private const float SquareCapBevel = 0.007f;
 
     /// <summary>Base local-Z of the slot snap-glow (per-board SlotOverlayOffset.z adds on top).</summary>
     private const float SlotGlowBaseZ = -0.006f;
@@ -2794,21 +2804,55 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal sealed class BoardButton : PokeableBehaviour
     {
         private System.Action? _onClick;
-        private Material? _capMaterial;
-        private Material? _capWallMaterial; // item 3: the darker side-wall material (boxy caps); null otherwise
+        private Material? _capMaterial;      // item 4: the TOP-plateau material (carries the state colour)
+        private Material? _capBevelMaterial; // item 4: the BRIGHT parchment-lit bevel-ring material (boxy caps); null otherwise
+        private Material? _capWallMaterial;  // item 4: the dark warm side-wall material (boxy caps); null otherwise
         private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on the procedural fallback
         private Renderer? _capMeshRenderer; // item A diagnostic: the cap body renderer (cube/disc/sprite)
 
-        /// <summary>
-        /// Item 3: how much darker the keycap SIDE WALLS render than its top face — a
-        /// per-submesh material tint so the walls read as unmistakable dark bands at the
-        /// board's near-top-down angle (BoardLit alone lights walls almost like the top).
-        /// </summary>
-        private const float WallTintFactor = 0.45f;
+        // ---- Item 4: keycap TOP / BEVEL / WALL contrast (all one-line tunable) --------------
+        // The 3D square cap renders as three submeshes, all driven together from the button
+        // STATE colour (disabled / accent / confirmed / dwell) so state signalling is preserved:
+        //   • TOP   — the state colour itself (semantic: grey disabled, green accent, gold readied…).
+        //   • BEVEL — a BRIGHT parchment/brass 45° chamfer ring framing the top. This is the
+        //             "catch-light" edge: bright against everything else, angled so it stays
+        //             visible even near top-down. The primary "this button is RAISED" cue.
+        //   • WALL  — a dark, WARM-hued side band so the cap separates from the dark neutral board
+        //             by both value AND hue (a dark-grey wall on a dark-grey board was invisible).
+        // Previous attempts only made the walls "slightly darker" (×0.45) — both top and wall
+        // stayed dark → no contrast. The fix is a big top→bevel→wall value jump + a lit bevel.
 
-        /// <summary>Item 3: the wall colour for a given top/state colour (RGB × <see cref="WallTintFactor"/>).</summary>
-        private static Color WallTint(Color top) =>
-            new(top.r * WallTintFactor, top.g * WallTintFactor, top.b * WallTintFactor, top.a);
+        /// <summary>How dark the side WALLS start relative to the top (before the warm lean).</summary>
+        private const float WallTintFactor = 0.42f;
+
+        /// <summary>Hue the walls lean toward so they read distinct from the dark neutral board.</summary>
+        private static readonly Color WallWarm = new(0.16f, 0.10f, 0.05f);
+
+        /// <summary>How far (0..1) the wall leans from "darker top" toward <see cref="WallWarm"/>.</summary>
+        private const float WallWarmLerp = 0.45f;
+
+        /// <summary>The bright parchment/brass tone the lit bevel ring is pulled toward.</summary>
+        private static readonly Color BevelHighlight = new(0.90f, 0.82f, 0.60f);
+
+        /// <summary>How far (0..1) the bevel is brightened from the top toward <see cref="BevelHighlight"/>.</summary>
+        private const float BevelLerp = 0.62f;
+
+        /// <summary>Item 4: dark, warm side-wall colour for a given top/state colour.</summary>
+        private static Color WallTint(Color top)
+        {
+            var dark = new Color(top.r * WallTintFactor, top.g * WallTintFactor, top.b * WallTintFactor, top.a);
+            Color w = Color.Lerp(dark, WallWarm, WallWarmLerp);
+            w.a = top.a;
+            return w;
+        }
+
+        /// <summary>Item 4: bright parchment-lit bevel-ring colour for a given top/state colour.</summary>
+        private static Color BevelTint(Color top)
+        {
+            Color b = Color.Lerp(top, BevelHighlight, BevelLerp);
+            b.a = top.a;
+            return b;
+        }
 
         /// <summary>
         /// Item A conclusive diagnostic (logged once per board, in the placed pose so lossyScale is
@@ -2826,29 +2870,33 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 return;
             }
             Transform ct = _capMeshRenderer.transform;
-            Vector3 ls = ct.localScale;
             Vector3 lossy = ct.lossyScale;
-            float mmThick = Mathf.Abs(ls.z * lossy.z) * 1000f;
-            float mmW = Mathf.Abs(ls.x * lossy.x) * 1000f;
-            float mmH = Mathf.Abs(ls.y * lossy.y) * 1000f;
+            // Item 4: the cap mesh is now authored at REAL size with a UNIT-scaled holder, so read
+            // the physical extent from the mesh bounds (× world lossyScale), not localScale.
+            Mesh? sm = _capMeshRenderer is MeshRenderer meshR && meshR.GetComponent<MeshFilter>() is { sharedMesh: { } fm }
+                ? fm : null;
+            Vector3 bounds = sm != null ? sm.bounds.size : Vector3.zero;
+            float mmThick = Mathf.Abs(bounds.z * lossy.z) * 1000f;
+            float mmW = Mathf.Abs(bounds.x * lossy.x) * 1000f;
+            float mmH = Mathf.Abs(bounds.y * lossy.y) * 1000f;
             Material? m = _capMeshRenderer.sharedMaterial;
             string shaderName = m != null && m.shader != null ? m.shader.name : "<none>";
             int queue = m != null ? m.renderQueue : -1;
-            // Item 3: report the two-submesh split (top vs darker walls). A split cap has
-            // subMeshCount 2, a distinct wall material instance, and a wall _Color that is
-            // WallTintFactor darker than the top — this is what makes the side walls read
-            // as unmistakable dark bands rather than blending into the top face.
-            int subMeshes = _capMeshRenderer is MeshRenderer mr && mr.GetComponent<MeshFilter>() is { sharedMesh: { } sm }
-                ? sm.subMeshCount : -1;
-            bool split = _capWallMaterial != null && subMeshes >= 2;
-            string wallInfo = _capWallMaterial != null
-                ? $"wall tint {_capWallMaterial.color} (top {(m != null ? m.color.ToString() : "<none>")}, factor {WallTintFactor:F2})"
-                : "no wall material (single-material cap)";
-            VRLog.Info("Cards", $"ITEMA cap diag — {label}: real cap size {mmW:F1}×{mmH:F1}×{mmThick:F1} mm " +
-                $"(localScale {ls}, lossyScale {lossy}), shader '{shaderName}', renderQueue {queue}. " +
+            // Item 4: report the THREE-submesh split (top / bright bevel / dark warm wall). A
+            // beveled cap has subMeshCount 3 plus distinct bevel + wall material instances — the
+            // big top→bevel→wall value+hue gradient is what makes the raised shape unmistakable.
+            int subMeshes = sm != null ? sm.subMeshCount : -1;
+            bool split = _capBevelMaterial != null && _capWallMaterial != null && subMeshes >= 3;
+            float bevelMm = SquareCapBevel * Mathf.Abs(lossy.z) * 1000f;
+            string tintInfo = _capWallMaterial != null
+                ? $"top {(m != null ? m.color.ToString() : "<none>")}, bevel {(_capBevelMaterial != null ? _capBevelMaterial.color.ToString() : "<none>")} (lerp {BevelLerp:F2} → parchment), " +
+                  $"wall {_capWallMaterial.color} (factor {WallTintFactor:F2}, warm lerp {WallWarmLerp:F2})"
+                : "single-material cap (no bevel/wall split)";
+            VRLog.Info("Cards", $"ITEMA cap diag — {label}: real cap size {mmW:F1}×{mmH:F1}×{mmThick:F1} mm, " +
+                $"bevel ≈ {bevelMm:F1} mm (lossyScale {lossy}), shader '{shaderName}', renderQueue {queue}. " +
                 $"Walls read {(mmThick >= 6f ? "SOLID (thickness OK)" : "FLAT (too thin)")}; material is " +
-                $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades walls)" : "NOT BoardLit — wall shading may be wrong")}. " +
-                $"Two-material split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {wallInfo}.");
+                $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades by normal → lit bevel)" : "NOT BoardLit — bevel/wall shading may be wrong")}. " +
+                $"Three-material bevel split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {tintInfo}.");
         }
 
         private TextMeshPro? _label;
@@ -2970,7 +3018,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // procedural grey cube cap. Either way the holder sits at CapRestZ and
             // travels on press; the collider (on go) is independent of it.
             Material? capMaterial = null;
-            Material? capWallMaterial = null; // item 3: the darker side-wall material instance (boxy caps only)
+            Material? capBevelMaterial = null; // item 4: the bright bevel-ring material instance (boxy caps only)
+            Material? capWallMaterial = null;  // item 4: the dark warm side-wall material instance (boxy caps only)
             SpriteRenderer? capFace = null;
             Renderer? capMeshRenderer = null; // item A diagnostic: the cap body renderer (cube/disc/sprite)
             var cap = new GameObject("Cap");
@@ -2999,51 +3048,43 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             }
             else if (boxy)
             {
-                // PART C / item 5: a REAL 3D square keycap. Mirror the round puck's approach (a
-                // Cylinder has sides) with a Cube of genuine thickness — its SIDE WALLS must be
-                // visible and shaded so it reads as a solid protruding button, not "a floating
-                // square with text". Root cause of the old flat look: Shader.Find("Standard")
-                // strips to the UNLIT Sprites/Default fallback in the game build, so every cube
-                // face rendered the same colour (no wall shading); and even a resolved Standard
-                // renders flat/black in the unlit void & menu scenes. Use the bundled BAKED-lit
-                // GloomhavenVR/BoardLit (BoxCapShader), which shades by world normal independent of
-                // scene lights, so the side walls darken relative to the front and the button reads
-                // solid everywhere. NO RenderOnTop; the cube front protrudes proud of the base plate
-                // toward the viewer (-Z) and travels inward on press with the cap.
-                // Item A (button walls read flat): a 14 mm slab on a ~73 mm face is only a thin
-                // rim at the board's oblique viewing angle → "flat square + text". The cap now
-                // protrudes a genuine keycap depth (SquareCapThickness) so its side walls have real
-                // area and shade visibly. Floor raised to 12 mm so even a small cap still stands proud.
+                // PART C / item 4/5: a REAL 3D square keycap with a CHAMFERED front edge — its
+                // side must read as a solid protruding button, not "a floating square with text".
+                // Previous attempts split a plain cube into top + darker walls, but BOTH stayed
+                // dark (top ~0.24, wall ~0.11) → viewed near top-down against a dark board the
+                // walls had near-zero contrast and vanished. "Darker" was the wrong lever. The cap
+                // now has THREE submeshes with a big value+hue gradient, and a lit 45° BEVEL RING
+                // that catches light and frames the top so it reads RAISED from any angle:
+                //   [0] top plateau  = the state colour (semantic)
+                //   [1] bevel ring   = BRIGHT parchment/brass (BevelTint) — the catch-light edge
+                //   [2] side walls   = dark WARM band (WallTint), distinct from the neutral board
+                // Geometry is authored at REAL size (CardMesh.BuildBeveledKeycap) so the holder
+                // stays UNIT-scaled — uniform scale keeps the bevel a true 45° in world space so
+                // BoardLit (shades by world normal, baked-lit, works in the unlit scenes) lights it
+                // brighter than top or wall. NO RenderOnTop; the cap protrudes toward the viewer
+                // (front plateau at −capThick) and travels inward on press. The three material
+                // instances all track button state (UpdateColor → SetCapColor).
                 float capThick = Mathf.Max(0.012f, thickness);
                 var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 capCube.name = "CapMesh";
                 Object.Destroy(capCube.GetComponent<Collider>());
                 capCube.transform.SetParent(cap.transform, worldPositionStays: false);
-                capCube.transform.localScale = new Vector3(size.x, size.y, capThick);
-                capCube.transform.localPosition = new Vector3(0f, 0f, -capThick * 0.5f); // front proud toward viewer
+                capCube.transform.localScale = Vector3.one;       // mesh is authored at real size
+                capCube.transform.localPosition = Vector3.zero;   // mesh already spans −capThick..0
                 Shader? shader = BoxCapShader();
                 if (shader != null)
                 {
-                    // Item 3 (visible walls): BoardLit shades by world normal against a baked
-                    // studio rig, so at the board's near-top-down angle the 20 mm side walls
-                    // catch nearly the same light as the top face and the edges vanish. A single
-                    // material cannot separate them (a MaterialPropertyBlock is per-RENDERER, not
-                    // per-submesh), so SPLIT the cube into TWO submeshes — [0] the viewer-facing
-                    // top, [1] the four side walls (+ hidden back) — and give the renderer TWO
-                    // BoardLit material INSTANCES: the top keeps the state colour, the walls a
-                    // SEPARATE instance tinted WallTintFactor darker so they read as unmistakable
-                    // dark bands framing the cap. Both instances track the button state
-                    // (UpdateColor → SetCapColor drives the top and the wall together).
                     var mf = capCube.GetComponent<MeshFilter>();
-                    if (mf != null && mf.sharedMesh != null)
-                        mf.sharedMesh = CardMesh.SplitTopAndWalls(mf.sharedMesh);
-                    capMaterial = new Material(shader) { color = DisabledColor };
-                    capWallMaterial = new Material(shader) { color = WallTint(DisabledColor) };
+                    if (mf != null)
+                        mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, SquareCapBevel);
+                    capMaterial = new Material(shader) { color = DisabledColor };                 // [0] top
+                    capBevelMaterial = new Material(shader) { color = BevelTint(DisabledColor) }; // [1] bright bevel
+                    capWallMaterial = new Material(shader) { color = WallTint(DisabledColor) };   // [2] dark warm wall
                     capCube.GetComponent<MeshRenderer>().sharedMaterials =
-                        new[] { capMaterial, capWallMaterial };
+                        new[] { capMaterial, capBevelMaterial, capWallMaterial };
                 }
                 capMeshRenderer = capCube.GetComponent<MeshRenderer>();
-                labelZ = -(capThick + 0.002f); // proud of the protruding cube front (front face sits at -capThick)
+                labelZ = -(capThick + 0.002f); // proud of the protruding plateau (front face sits at -capThick)
             }
             else
             {
@@ -3114,7 +3155,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             var button = go.AddComponent<BoardButton>();
             button._onClick = onClick;
             button._capMaterial = capMaterial;
-            button._capWallMaterial = capWallMaterial; // item 3: darker side-wall instance (null on non-boxy caps)
+            button._capBevelMaterial = capBevelMaterial; // item 4: bright bevel-ring instance (null on non-boxy caps)
+            button._capWallMaterial = capWallMaterial;   // item 4: dark warm side-wall instance (null on non-boxy caps)
             button._capFace = capFace;
             button._capMeshRenderer = capMeshRenderer;
             button._label = tmp;
@@ -3204,16 +3246,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
 
         /// <summary>
-        /// Item 3: drive the cap TOP colour and — when the boxy cap carries a split wall
-        /// submesh (<see cref="_capWallMaterial"/>) — the darker WALL colour together, so
-        /// the wall band always tracks the button state (disabled / accent / confirmed /
-        /// dwell charge) a fixed <see cref="WallTintFactor"/> darker. A no-op wall step on
-        /// round/native caps (null wall material).
+        /// Item 4: drive the cap TOP colour and — when the boxy cap carries the split bevel
+        /// (<see cref="_capBevelMaterial"/>) and wall (<see cref="_capWallMaterial"/>)
+        /// submeshes — the BRIGHT bevel ring and the dark warm WALL band together, so all three
+        /// always track the button state (disabled / accent / confirmed / dwell charge): the
+        /// bevel a fixed <see cref="BevelLerp"/> brighter, the wall a fixed value+hue darker.
+        /// No-op bevel/wall steps on round/native caps (null instances).
         /// </summary>
         private void SetCapColor(Color top)
         {
             if (_capMaterial != null && _capMaterial.color != top)
                 _capMaterial.color = top;
+            if (_capBevelMaterial != null)
+            {
+                Color bevel = BevelTint(top);
+                if (_capBevelMaterial.color != bevel)
+                    _capBevelMaterial.color = bevel;
+            }
             if (_capWallMaterial != null)
             {
                 Color wall = WallTint(top);
