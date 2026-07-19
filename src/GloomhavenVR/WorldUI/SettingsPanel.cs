@@ -97,11 +97,59 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Items 4/6: every remaining board-attached element is now tunable per board.
         Objectives, Elements, VRSettings, Pin, Readout, Cluster,
     }
-    private const int DebugElementCount = 13;
-    private int _debugElement;
-    private readonly List<GameObject> _debugRows = new(8);
+
+    /// <summary>
+    /// Debug-menu top-level TAB. The user browses the debug menu by category first (a compact
+    /// CYCLE button), and the Element cycle then walks only the 2–5 elements of that category
+    /// instead of all 14 at once. <see cref="Board"/> is a single-element per-board tab; Fan and
+    /// Hands are GLOBAL tabs (no per-board Oak/Steel/Bronze selector, no element cycle) — their
+    /// settings apply to every board.
+    /// </summary>
+    private enum DebugCategory { Buttons, Panels, Overlays, Widgets, Board, Fan, Hands }
+    private const int DebugCategoryCount = 7;
+
+    /// <summary>
+    /// SINGLE source of truth for category → elements (re-slice by editing this one table). A
+    /// per-board category lists the <see cref="DebugElement"/>s its Element cycle walks; a GLOBAL
+    /// category (Fan, Hands) has an EMPTY list — <see cref="CategoryIsGlobal"/> keys off that and
+    /// hides the board + element selectors, showing the category's own global steppers instead.
+    /// Order matches <see cref="DebugCategory"/>.
+    /// </summary>
+    private static readonly DebugElement[][] CategoryElements =
+    {
+        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster },                              // Buttons
+        new[] { DebugElement.Objectives, DebugElement.Elements, DebugElement.Initiative,
+                DebugElement.Piles, DebugElement.Active },                                                    // Panels
+        new[] { DebugElement.Overlays, DebugElement.Readout },                                                // Overlays
+        new[] { DebugElement.VRSettings, DebugElement.Pin },                                                  // Widgets
+        new[] { DebugElement.Board },                                                                         // Board
+        System.Array.Empty<DebugElement>(),                                                                  // Fan (global)
+        System.Array.Empty<DebugElement>(),                                                                  // Hands (global)
+    };
+
+    /// <summary>GLOBAL tabs (Fan, Hands) apply to every board — no per-board selector, no element cycle.</summary>
+    private static bool CategoryIsGlobal(DebugCategory c) => CategoryElements[(int)c].Length == 0;
+
+    private int _debugCategory;
+    /// <summary>Remembered element index PER category (nice-to-have persistence within a session).</summary>
+    private readonly int[] _categoryElement = new int[DebugCategoryCount];
+    private readonly List<GameObject> _debugRows = new(24);          // every debug row (teardown + gate)
+    private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
     private bool _respawnRequested;     // every OPEN drops the panel in view in front of the head
+
+    private DebugCategory CurrentCategory => (DebugCategory)_debugCategory;
+    private DebugElement[] CurrentCategoryElements => CategoryElements[_debugCategory];
+
+    /// <summary>The element the per-board steppers currently drive (the selected element of the current per-board category).</summary>
+    private DebugElement CurrentElement()
+    {
+        DebugElement[] els = CategoryElements[_debugCategory];
+        if (els.Length == 0)
+            return DebugElement.Board; // GLOBAL category (Fan/Hands): element rows are hidden anyway
+        int idx = Mathf.Clamp(_categoryElement[_debugCategory], 0, els.Length - 1);
+        return els[idx];
+    }
 
     // ---- cross-module seam (test #15) ------------------------------------------------------
 
@@ -142,6 +190,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _healLogged = false;
         _refreshers.Clear();
         _debugRows.Clear();
+        _debugRowVisible.Clear();
         SetOpen(true); // Build() re-runs with the new language and re-registers everything
     }
 
@@ -212,6 +261,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _respawnRequested = false;
         _refreshers.Clear();
         _debugRows.Clear();
+        _debugRowVisible.Clear();
     }
 
     // ---- open/close ----------------------------------------------------------------------
@@ -678,21 +728,41 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     VRLog.Info("Cards", "Debug board-tuning menu enabled — live per-board element tuning is now visible.");
             });
 
-        // Board cycle (mirrors the Control-board cycle so the tuning rows key off the ACTIVE board).
+        // CATEGORY tab (compact CYCLE button — a 7-way tab row would overflow the 380px panel once
+        // localized to German, so we cycle like the Control-board selector). The Element cycle below
+        // then walks only the CURRENT category's 2–5 elements, never all 14 at once.
+        var catRow = Row();
+        RegisterDebugRow(catRow.gameObject, () => true);
+        Label(catRow, Loc.Mod("category"), 16f, flexible: true);
+        CycleButton(catRow, 130f,
+            () => DebugCategoryLabel(CurrentCategory),
+            () => _debugCategory = (_debugCategory + 1) % DebugCategoryCount);
+
+        // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all boards).
         var boardRow = Row();
-        _debugRows.Add(boardRow.gameObject);
+        RegisterDebugRow(boardRow.gameObject, () => !CategoryIsGlobal(CurrentCategory));
         Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
         CycleButton(boardRow, 100f,
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
 
-        // Element cycle (Rest, Generic, Overlays, Initiative, Active, Piles, Board).
+        // Element cycle — walks the CURRENT category's elements; hidden for global categories and
+        // for single-element categories (Board) where it would be a no-op button.
         var elemRow = Row();
-        _debugRows.Add(elemRow.gameObject);
+        RegisterDebugRow(elemRow.gameObject,
+            () => !CategoryIsGlobal(CurrentCategory) && CurrentCategoryElements.Length > 1);
         Label(elemRow, Loc.Mod("element"), 16f, flexible: true);
         CycleButton(elemRow, 130f,
-            () => DebugElementLabel((DebugElement)_debugElement),
-            () => _debugElement = (_debugElement + 1) % DebugElementCount);
+            () => DebugElementLabel(CurrentElement()),
+            () =>
+            {
+                int len = CurrentCategoryElements.Length;
+                if (len > 0)
+                    _categoryElement[_debugCategory] = (_categoryElement[_debugCategory] + 1) % len;
+            });
+
+        // Per-element steppers (visible for the current per-board category + element). ---------
+        bool PerBoard() => !CategoryIsGlobal(CurrentCategory);
 
         // X / Y / Z offset steppers (mm), each drives the selected element's active-board offset.
         AddOffsetStepper("X", 0);
@@ -701,36 +771,31 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
         // Size / Scale stepper — hidden for elements with no size (Overlays, Initiative).
         var sizeRow = Row();
-        _debugRows.Add(sizeRow.gameObject);
-        GameObject sizeGo = sizeRow.gameObject;
+        RegisterDebugRow(sizeRow.gameObject, () => PerBoard() && ElementHasSize(CurrentElement()));
         Label(sizeRow, Loc.Mod("size"), 16f, flexible: true);
         MiniStepper(sizeRow, FormatSize, StepSize);
 
         // Spacing stepper — group gap (Rest disc gap / Confirm-Undo gap / inter-pile gap; Active COL step).
         var spacingRow = Row();
-        _debugRows.Add(spacingRow.gameObject);
-        GameObject spacingGo = spacingRow.gameObject;
+        RegisterDebugRow(spacingRow.gameObject, () => PerBoard() && ElementHasSpacing(CurrentElement()));
         Label(spacingRow, Loc.Mod("spacing"), 16f, flexible: true);
         MiniStepper(spacingRow, FormatSpacing, StepSpacing);
 
         // Active-only ROW step stepper (the grid's vertical spacing).
         var rowGapRow = Row();
-        _debugRows.Add(rowGapRow.gameObject);
-        GameObject rowGapGo = rowGapRow.gameObject;
+        RegisterDebugRow(rowGapRow.gameObject, () => PerBoard() && CurrentElement() == DebugElement.Active);
         Label(rowGapRow, Loc.Mod("row_gap"), 16f, flexible: true);
         MiniStepper(rowGapRow, FormatActiveRowStep, StepActiveRowStep);
 
         // Shape cycle — shown only for the button GROUPS (Rest / Generic): flip Round <-> Square.
         var shapeRow = Row();
-        _debugRows.Add(shapeRow.gameObject);
-        GameObject shapeGo = shapeRow.gameObject;
+        RegisterDebugRow(shapeRow.gameObject, () => PerBoard() && ElementHasShape(CurrentElement()));
         Label(shapeRow, Loc.Mod("shape"), 16f, flexible: true);
         CycleButton(shapeRow, 100f, FormatShape, FlipShape);
 
         // Board-only Tilt / Yaw row (shown only when Element == Board).
         var tiltYawRow = Row();
-        _debugRows.Add(tiltYawRow.gameObject);
-        GameObject tiltYawGo = tiltYawRow.gameObject;
+        RegisterDebugRow(tiltYawRow.gameObject, () => PerBoard() && CurrentElement() == DebugElement.Board);
         Label(tiltYawRow, Loc.Mod("tilt_yaw"), 16f, flexible: true);
         MiniStepper(tiltYawRow,
             () => $"{CardsConfig.BoardTilt(CardsConfig.CurrentBoard).Value:0}°",
@@ -747,47 +812,51 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value += d * 5f;
             });
 
-        // Reset element (the "Copy Oak→active" button was removed in item 3b).
+        // Reset element (per-board categories only — resets the selected element).
         var actionRow = Row();
-        _debugRows.Add(actionRow.gameObject);
+        RegisterDebugRow(actionRow.gameObject, PerBoard);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
-        // Item 4: GLOBAL hand visual offset (both hands; NOT per-board, so it lives OUTSIDE the
-        // Board/Element cycle above). These surface the existing [Hands] seat offsets that
-        // VRHand.SyncVisualOffset applies LIVE every frame — the "static visual offset at the
-        // wrist" documented on HandRig.Root — so tuning them here moves where the visual hand
-        // sits/rotates relative to the tracked controller, live and persisted (BepInEx). The
-        // offset is SHARED device-space for both hands (+X is the same controller-local X on each);
-        // the per-hand mirroring of the mesh/rig geometry is handled in HandVisuals and is
-        // unaffected. Rows are added to _debugRows so they show only while the debug menu is on,
-        // and (unlike the per-board rows) never gate on the selected element.
-        var handsSection = Row(24f);
-        _debugRows.Add(handsSection.gameObject);
-        Label(handsSection, $"— {Loc.Mod("hands")} —", 14f, bold: true, flexible: true, center: true);
+        // FAN category (GLOBAL): the hand-card fan's width/roundness/spacing. Live-applied by
+        // CardsDriver (relayout) so tuning updates the fan immediately; grab/hover geometry derives
+        // from the same radius/step so it stays aligned. Shown only under the Fan tab.
+        AddFanStepper(Loc.Mod("fan_step"), CardsConfig.FanPerCardStepDegrees, 1f, 2f, 40f, v => $"{v:0}°");
+        AddFanStepper(Loc.Mod("fan_arc"), CardsConfig.FanArcSweepDegrees, 1f, 20f, 180f, v => $"{v:0}°");
+        AddFanStepper(Loc.Mod("fan_radius"), CardsConfig.FanEffectiveRadius, 0.002f, 0.05f, 0.4f,
+            v => $"{v * 1000f:0}mm");
+        AddFanStepper(Loc.Mod("fan_split"), CardsConfig.FanHoverSplitScale, 0.05f, 0.5f, 3f, v => $"{v:0.00}x");
+
+        // HANDS category (GLOBAL, both hands; NOT per-board). These surface the existing [Hands] seat
+        // offsets that VRHand.SyncVisualOffset applies LIVE every frame — the "static visual offset at
+        // the wrist" — so tuning moves where the visual hand sits/rotates relative to the tracked
+        // controller, live + persisted (BepInEx). The offset is SHARED device-space for both hands
+        // (+X is the same controller-local X on each); the per-hand mesh/rig mirroring in HandVisuals is
+        // unaffected. Shown only under the Hands tab.
         AddHandStepper(Loc.Mod("hand_x"), Plugin.HandLateralOffset, 0.002f, degrees: false);
         AddHandStepper(Loc.Mod("hand_y"), Plugin.HandVerticalOffset, 0.002f, degrees: false);
         AddHandStepper(Loc.Mod("hand_z"), Plugin.HandForwardOffset, 0.002f, degrees: false);
         AddHandStepper(Loc.Mod("hand_pitch"), Plugin.GripPitchOffsetDegrees, 1f, degrees: true);
 
-        // Visibility: show the tuning rows only while DebugMenu is on; the conditional rows
-        // (Size, Spacing, Row gap, Shape, Tilt/Yaw) additionally gate on the selected element.
+        // Single visibility pass: master DebugMenu gate ANDed with each row's own predicate
+        // (category/element scope). Never more than a handful of rows visible at once.
         _refreshers.Add(() =>
         {
             bool on = CardsConfig.DebugMenu.Value;
-            var el = (DebugElement)_debugElement;
             for (int i = 0; i < _debugRows.Count; i++)
             {
                 GameObject go = _debugRows[i];
-                bool show = on;
-                if (ReferenceEquals(go, sizeGo)) show = on && ElementHasSize(el);
-                else if (ReferenceEquals(go, spacingGo)) show = on && ElementHasSpacing(el);
-                else if (ReferenceEquals(go, rowGapGo)) show = on && el == DebugElement.Active;
-                else if (ReferenceEquals(go, shapeGo)) show = on && ElementHasShape(el);
-                else if (ReferenceEquals(go, tiltYawGo)) show = on && el == DebugElement.Board;
+                bool show = on && _debugRowVisible[i]();
                 if (go.activeSelf != show)
                     go.SetActive(show);
             }
         });
+    }
+
+    /// <summary>Register a debug row for the master on/off gate + its own category/element visibility predicate.</summary>
+    private void RegisterDebugRow(GameObject go, Func<bool> visible)
+    {
+        _debugRows.Add(go);
+        _debugRowVisible.Add(visible);
     }
 
     /// <summary>Elements that expose a Size/Scale stepper (Rest disc, Generic side, Active/Pile scale, Board scale, the two docks + the cluster).</summary>
@@ -811,21 +880,37 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void AddOffsetStepper(string label, int axis)
     {
         var row = Row();
-        _debugRows.Add(row.gameObject);
+        // Every per-board element carries a Vector3 offset, so this shows for any non-global category.
+        RegisterDebugRow(row.gameObject, () => !CategoryIsGlobal(CurrentCategory));
         Label(row, label, 16f, flexible: true);
         MiniStepper(row, () => FormatOffset(axis), d => StepOffset(axis, d));
     }
 
     /// <summary>
+    /// FAN category (global) stepper bound to a global fan <see cref="ConfigEntry{T}"/>. Writing the
+    /// entry persists (BepInEx) and live-applies (CardsDriver relayouts the open fan). Clamped to
+    /// [min,max]. Shown only under the Fan tab.
+    /// </summary>
+    private void AddFanStepper(string label, ConfigEntry<float> entry, float step, float min, float max,
+        Func<float, string> format)
+    {
+        var row = Row();
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Fan);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => format(entry.Value),
+            d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
+    }
+
+    /// <summary>
     /// Item 4: a global hand-offset stepper row bound directly to a [Hands] <see cref="ConfigEntry{T}"/>
     /// (mm for the position offsets, ° for the grip pitch). Writing the entry persists (BepInEx) and
-    /// live-applies (VRHand.SyncVisualOffset re-reads it every frame). Added to <see cref="_debugRows"/>
-    /// so it shows only while the debug menu is on.
+    /// live-applies (VRHand.SyncVisualOffset re-reads it every frame). Shown only under the Hands tab.
     /// </summary>
     private void AddHandStepper(string label, ConfigEntry<float> entry, float step, bool degrees)
     {
         var row = Row();
-        _debugRows.Add(row.gameObject);
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Hands);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => degrees ? $"{entry.Value:0}°" : $"{entry.Value * 1000f:0}mm",
@@ -836,7 +921,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private ConfigEntry<Vector3>? ElementOffsetEntry()
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        return (DebugElement)_debugElement switch
+        return CurrentElement() switch
         {
             DebugElement.Rest => CardsConfig.RestButtonOffset(b),
             DebugElement.Generic => CardsConfig.ConfirmUndoOffset(b),
@@ -881,7 +966,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private string FormatSize()
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        return (DebugElement)_debugElement switch
+        return CurrentElement() switch
         {
             DebugElement.Rest => $"{CardsConfig.RestButtonDiameter(b).Value * 1000f:0}mm",
             DebugElement.Generic => $"{CardsConfig.ConfirmUndoSize(b).Value * 1000f:0}mm",
@@ -898,7 +983,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void StepSize(int delta)
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        switch ((DebugElement)_debugElement)
+        switch (CurrentElement())
         {
             case DebugElement.Rest:
             {
@@ -957,7 +1042,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private string FormatSpacing()
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        return (DebugElement)_debugElement switch
+        return CurrentElement() switch
         {
             DebugElement.Rest => $"{CardsConfig.RestButtonSpacing(b).Value * 1000f:0}mm",
             DebugElement.Generic => $"{CardsConfig.GenericButtonSpacing(b).Value * 1000f:0}mm",
@@ -971,7 +1056,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void StepSpacing(int delta)
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        switch ((DebugElement)_debugElement)
+        switch (CurrentElement())
         {
             case DebugElement.Rest:
             {
@@ -1027,13 +1112,26 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private string FormatShape()
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        return (DebugElement)_debugElement switch
+        return CurrentElement() switch
         {
             DebugElement.Rest => ShapeLabel(CardsConfig.RestButtonShape(b).Value),
             DebugElement.Generic => ShapeLabel(CardsConfig.GenericButtonShape(b).Value),
             _ => "-",
         };
     }
+
+    /// <summary>Localized name of a debug CATEGORY tab (the Category cycle readout). Board/Hands reuse existing element labels.</summary>
+    private static string DebugCategoryLabel(DebugCategory c) => c switch
+    {
+        DebugCategory.Buttons => Loc.Mod("cat_buttons"),
+        DebugCategory.Panels => Loc.Mod("cat_panels"),
+        DebugCategory.Overlays => Loc.Mod("overlays"),
+        DebugCategory.Widgets => Loc.Mod("cat_widgets"),
+        DebugCategory.Board => Loc.Mod("board"),
+        DebugCategory.Fan => Loc.Mod("cat_fan"),
+        DebugCategory.Hands => Loc.Mod("hands"),
+        _ => c.ToString(),
+    };
 
     /// <summary>Localized name of a debug-tunable board element (the Element cycle readout).</summary>
     private static string DebugElementLabel(DebugElement e) => e switch
@@ -1062,7 +1160,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void FlipShape()
     {
         ControlBoard b = CardsConfig.CurrentBoard;
-        switch ((DebugElement)_debugElement)
+        switch (CurrentElement())
         {
             case DebugElement.Rest:
             {
@@ -1085,7 +1183,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         ConfigEntry<Vector3>? off = ElementOffsetEntry();
         if (off != null)
             off.Value = (Vector3)off.DefaultValue;
-        switch ((DebugElement)_debugElement)
+        switch (CurrentElement())
         {
             case DebugElement.Rest:
             {
@@ -1133,7 +1231,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 CardsConfig.ClusterScale(b).Value = (float)CardsConfig.ClusterScale(b).DefaultValue;
                 break;
         }
-        VRLog.Info("Cards", $"Debug: reset {(DebugElement)_debugElement} for {b} to defaults.");
+        VRLog.Info("Cards", $"Debug: reset {CurrentElement()} for {b} to defaults.");
     }
 
     // ---- grab frame (bar + FOLLOW/PINNED pin) -------------------------------------------------

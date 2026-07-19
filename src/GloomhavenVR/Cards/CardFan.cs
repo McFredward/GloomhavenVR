@@ -318,37 +318,23 @@ internal sealed class CardFan
     private const float ZStagger = 0.004f;
 
     // ---------------------------------------------------------------- item 8: wider, rounder fan --
-    // These LOCAL scale factors widen and round the shipped CardsConfig fan geometry so a single
-    // card is easier to target with the fingertip/laser and the whole hand reads as a rounder,
-    // more circular fan (not a shallow flat spread). They live here — not in CardsConfig (owned
-    // elsewhere) — and multiply the configured values inside Relayout. Everything downstream
-    // (collider strip, split gap, laser/fingertip hit-testing) is derived from the SAME scaled
-    // radius/step, so it all stays aligned with the wider layout instead of fighting it.
+    // The fan's width/roundness/spacing (per-card step cap, total arc sweep, arc radius, hover-split
+    // scale) is now driven by GLOBAL CardsConfig entries — live-tunable from the in-VR "Fan" debug
+    // category — instead of the four LOCAL consts that used to live here. They are seeded to the old
+    // effective values so nothing changes until tuned. Everything downstream (collider strip, split
+    // gap, laser/fingertip hit-testing) still derives from the SAME radius/step, so it stays aligned
+    // with the width the player dials in. See CardsConfig.Fan* + CardsDriver's live-apply.
 
-    /// <summary>Per-card angular step cap (degrees). The dominant knob for SMALL/medium hands:
-    /// each added card fans out this far until the total sweep hits the (scaled) arc cap. Larger
-    /// = adjacent cards sit farther apart on the arc, so one card is easier to aim at. Was a
-    /// hard-coded 11° (tight Demeo overlap); 14° opens the neighbours noticeably while the cards
-    /// still overlap (chord &lt; card width) so the hand never looks sparse.</summary>
-    private const float PerCardStepCapDegrees = 14f;
-
-    /// <summary>Multiplier on the configured total sweep (FanArcDegrees). Governs BIG hands: once
-    /// there are enough cards to reach the cap, this sets how far the full hand wraps. 1.3 turns
-    /// the shipped 70° into ~91°, so a full hand reads as a rounder, more circular fan rather than
-    /// a shallow flat spread — while a 2-card hand stays narrow (step-cap bound, ~14° total).</summary>
-    private const float ArcSweepScale = 1.3f;
-
-    /// <summary>Multiplier on the configured arc radius. The wider angular spread alone would keep
-    /// card CENTERS close (chord ∝ radius·sin(step/2)); bumping the radius opens real space between
-    /// them and enlarges the exposed grab strip in step. 1.12 keeps the fan comfortably above the
-    /// palm without throwing the outermost cards out of view.</summary>
-    private const float RadiusScale = 1.12f;
-
-    /// <summary>Local multiplier on the configured FanSplitMultiplier so the hover split opens a
-    /// gap PROPORTIONAL to the now-wider card spacing. The split push is in fixed meters; without
-    /// this it would read as a smaller relative gap once radius/step grew. ~matches the chord
-    /// growth (RadiusScale × the larger step), so a hovered card still clears its neighbours.</summary>
-    private const float SplitScale = 1.45f;
+    /// <summary>
+    /// Live re-apply hook (in-VR "Fan" debug category): CardsDriver calls this when a global fan
+    /// ConfigEntry changes so the open fan re-lays out immediately at the new geometry. No-op while
+    /// the fan is closed (the next Open() lays out fresh).
+    /// </summary>
+    internal void ApplyLayout()
+    {
+        if (IsOpen)
+            Relayout(instant: false);
+    }
 
     private void Relayout(bool instant)
     {
@@ -359,14 +345,17 @@ internal sealed class CardFan
         if (n == 0)
             return;
 
-        // Item 8: widen + round the configured geometry (see the *Scale consts above).
-        float radius = CardsConfig.FanRadius.Value * RadiusScale;
-        float maxArc = CardsConfig.FanArcDegrees.Value * ArcSweepScale;
+        // Item 8: widen + round geometry, now from the GLOBAL Fan config (live-tunable). Clamp
+        // defensively even though the ConfigEntries carry AcceptableValueRange (a hand-edited cfg
+        // could still hold an out-of-range value).
+        float radius = Mathf.Max(0.02f, CardsConfig.FanEffectiveRadius.Value);
+        float maxArc = Mathf.Clamp(CardsConfig.FanArcSweepDegrees.Value, 5f, 180f);
+        float stepCap = Mathf.Clamp(CardsConfig.FanPerCardStepDegrees.Value, 1f, 60f);
         float w = CardsConfig.CardWidth.Value;
-        // Separated but still overlapping: per-card step holds at PerCardStepCapDegrees for small
-        // hands (easy per-card targeting) and shrinks only once the hand is full enough that the
-        // whole sweep would exceed the (scaled) arc cap.
-        float step = n > 1 ? Mathf.Min(PerCardStepCapDegrees, maxArc / (n - 1)) : 0f;
+        // Separated but still overlapping: per-card step holds at the step cap for small hands
+        // (easy per-card targeting) and shrinks only once the hand is full enough that the whole
+        // sweep would exceed the arc cap.
+        float step = n > 1 ? Mathf.Min(stepCap, maxArc / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
         // G1 curvature-by-fill (Demeo CardHandView.cs:814): both the vertical arch and the
@@ -446,8 +435,9 @@ internal sealed class CardFan
         float d = Mathf.Abs(signed);
         float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
         float x = d / falloff;
-        // SplitScale keeps the gap proportional to the wider item-8 card spacing.
-        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * CardsConfig.FanSplitMultiplier.Value * SplitScale;
+        // FanHoverSplitScale (global, live-tunable) keeps the gap proportional to the wider card spacing.
+        float splitScale = Mathf.Max(0f, CardsConfig.FanHoverSplitScale.Value);
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * CardsConfig.FanSplitMultiplier.Value * splitScale;
     }
 
     // ------------------------------------------------------------------ laser pick --
