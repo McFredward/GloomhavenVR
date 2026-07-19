@@ -14,8 +14,7 @@
 #
 # Then eyeball the two flags below in Blender GUI once (open the prepped GLB) and re-run if a face/flip is wrong.
 
-import bpy, bmesh, sys, math, os
-from mathutils import Vector
+import bpy, sys, math, os
 
 # ---- flags you may need to flip after a visual check (open the output in Blender) ----
 TARGET_WIDTH_M   = 0.64     # longest footprint edge -> metres (contract: 0.64 x ~0.32)
@@ -23,75 +22,15 @@ TARGET_TRIS      = 20000    # decimation target (VR: a static prop; 15-25k is pl
 FLIP_TOP_FACE    = False    # set True if the DECORATED face ends up pointing +Z instead of -Z
 UPRIGHT_FROM_YUP = True     # most GLBs export Y-up; True rotates -90deg X so the board lies in XY
 TEX_MAX          = 2048     # downscale every image to this max edge (4K -> 2K)
-# Watertight hole-fill (ported from hand-prep/rig_hand.py make_watertight). AI board meshes are
-# fragmented shells with genuine GAPS (esp. the deep 16vm268h/Bronze board's hollow back), which
-# two-sided rendering (_Cull=0) CANNOT fill — only masks culled thin walls. Welding shells + filling
-# torn boundaries + capping the hollow BACK closes the see-through. The front (decorated, z~0) face
-# gets only gentle holes_fill: a torn hole gets a floor (good), a properly-modelled closed recess has
-# no boundary edges so it is untouched (the card slots are NOT filled). Only the BACK band is fan-capped.
-WATERTIGHT       = True
-WT_MERGE         = 0.0005   # global shell-seam weld distance (m)
-WT_PASSES        = 3        # boundary-close iterations
-WT_BWELD         = 0.0018   # boundary-only weld distance (m) to pull ragged rims together
-WT_BACK_BAND     = 0.020    # fan-cap boundary edges within this of the BACK (max-Z / hollow interior)
-
-
-def make_watertight(o):
-    """Weld the fragmented AI board shell into one connected, hole-closed surface (in place).
-    Adapted from the hand rig: the hand fan-caps the min-Z wrist stump; the BOARD fan-caps the
-    max-Z hollow BACK, leaving the decorated front face (z~0) to gentle holes_fill only."""
-    me = o.data
-
-    def _bnd():
-        bm = bmesh.new(); bm.from_mesh(me)
-        nb = sum(1 for e in bm.edges if e.is_boundary)
-        bm.free(); return nb
-
-    before = _bnd()
-    # 1) global weld of coincident shell seams
-    bm = bmesh.new(); bm.from_mesh(me)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WT_MERGE)
-    bm.to_mesh(me); bm.free(); me.update()
-
-    # 2) iterative boundary-close passes (floors torn holes incl. front-face gaps; a closed recess
-    #    has no boundary edges so it is left alone)
-    for _ in range(WT_PASSES):
-        bm = bmesh.new(); bm.from_mesh(me)
-        bmesh.ops.holes_fill(bm, edges=bm.edges, sides=0)
-        bnd = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
-        if bnd:
-            bmesh.ops.remove_doubles(bm, verts=bnd, dist=WT_BWELD)
-        bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)
-        bm.to_mesh(me); bm.free(); me.update()
-
-    # 3) fan-cap the hollow BACK (max-Z). After orientation the decorated face sits at z~0 and the
-    #    body extends to +Z; a deep board (Bronze) is hollow at the back, the see-through path. The
-    #    rim is a ragged near-loop, so we fan-cap it (hub vertex + a tri per rim edge). ONLY edges in
-    #    the back band are used, so the front decorated face and its recesses are never touched.
-    bm = bmesh.new(); bm.from_mesh(me)
-    bm.verts.ensure_lookup_table()
-    zmax = max(v.co.z for v in bm.verts)
-    band = zmax - WT_BACK_BAND
-    back_edges = [e for e in bm.edges
-                  if e.is_boundary and e.verts[0].co.z > band and e.verts[1].co.z > band]
-    if back_edges:
-        rim_verts = {v for e in back_edges for v in e.verts}
-        centroid = sum((v.co for v in rim_verts), Vector()) / len(rim_verts)
-        hub = bm.verts.new(centroid)
-        made = 0
-        for e in back_edges:
-            try:
-                bm.faces.new((e.verts[0], e.verts[1], hub)); made += 1
-            except ValueError:
-                pass
-        print(f"watertight: back fan-cap over {len(back_edges)} rim edges ({made} tris)")
-    bm.to_mesh(me); bm.free(); me.update()
-
-    # 4) consistent outward normals
-    bm = bmesh.new(); bm.from_mesh(me)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bm.to_mesh(me); bm.free(); me.update()
-    print(f"watertight: boundary edges {before} -> {_bnd()}, verts now {len(me.vertices)}")
+# NOTE — DO NOT re-add a geometry "watertight"/weld pass here. An earlier round ported
+# make_watertight() (global shell weld + iterative holes_fill + a fan-cap of the hollow max-Z BACK
+# band) into this prep and applied it to Steel (9capjqp6) + Bronze (16vm268h). The back fan-cap
+# produced flipped/degenerate faces that rendered as large BLACK stripes in-headset under BoardLit
+# (inward normals) — the Steel board came out "völlig ruiniert". It was REVERTED. The mesh holes are
+# handled purely at RENDER time by two-sided rendering: BuildBoard.cs sets the BoardLit material
+# _Cull=0 for every board (BoardLit's VFACE path lights the backface), which fills every backface
+# "hole" with the wall behind it — the exact approach that fixed Oak, with ZERO geometry risk.
+# Prefer a minor see-through over ANY black stripe; never weld/cap the geometry.
 
 
 argv = sys.argv[sys.argv.index("--")+1:]
@@ -148,11 +87,9 @@ minz = min((board.matrix_world @ v.co).z for v in board.data.vertices)
 board.location.z -= minz          # body now spans z: 0 .. thickness (top face at z~0 facing -Z)
 bpy.ops.object.transform_apply(location=True)
 
-# --- close the see-through holes (weld shells + fill torn boundaries + cap the hollow back) ---
-# Runs AFTER orientation so the back band (max-Z) is the hollow interior; the decorated front (z~0)
-# and its recesses are left to gentle holes_fill only. See make_watertight docstring.
-if WATERTIGHT:
-    make_watertight(board)
+# NOTE: no geometry hole-closing pass here on purpose (see the top-of-file note). Mesh backface
+# "holes" are handled at render time via BoardLit _Cull=0 (two-sided) in BuildBoard.cs, exactly like
+# Oak — no shell weld, no back fan-cap (that produced black stripes and was reverted).
 
 # --- downscale textures ---
 for img in bpy.data.images:
