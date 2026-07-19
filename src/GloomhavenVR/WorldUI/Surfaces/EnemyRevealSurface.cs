@@ -172,6 +172,7 @@ internal sealed class EnemyRevealSurface
     // that, walking the holder's parent chain would climb our host, not the original window).
     private readonly List<GameObject> _hiddenScrollbars = new(2);
     private bool _scrollbarHideLogged;
+    private bool _scrollDiagLogged; // one-shot per reveal: the full scrollbar attribution audit
 
     public string Name => "EnemyReveal";
 
@@ -551,12 +552,12 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private void HideBoardCoupledScrollbars(RectTransform holder, InitiativeTrack track)
     {
-        // Primary: the ScrollRect the holder actually lives under (typical scroll wiring:
-        // ScrollRect → Viewport(mask) → Content=holder). Include inactive.
+        // Owning ScrollRect: the enemy-cards area is a ScrollRect whose CONTENT is (or holds)
+        // enemyCardsHolder. In the game prefab the ScrollRect sits ABOVE the holder
+        // (ScrollRect root → Viewport(mask) → Content=enemyCardsHolder), so it is an ANCESTOR
+        // and GetComponentInParent finds it; the fallback also matches a ScrollRect that
+        // merely references the holder as its content.
         ScrollRect scroll = holder.GetComponentInParent<ScrollRect>(true);
-
-        // Fallback: a ScrollRect elsewhere in the track window that POINTS at this holder as
-        // its content (covers layouts where the holder is referenced, not directly nested).
         if (scroll == null && track != null)
         {
             ScrollRect[] scrolls = track.GetComponentsInChildren<ScrollRect>(true);
@@ -571,41 +572,105 @@ internal sealed class EnemyRevealSurface
             }
         }
 
-        if (scroll == null)
+        // DEFINITIVE ATTRIBUTION AUDIT (once per reveal): dump EVERY Scrollbar in the
+        // InitiativeTrack subtree — full transform path, live active state, and which side it
+        // lands on once Convert reparents enemyCardsHolder. A Scrollbar that is a DESCENDANT of
+        // the holder rides the float (moves with the lazy reveal); one OUTSIDE the holder stays
+        // on the tray-docked InitiativeTrackSurface host (rotates with the board). This proves
+        // the scrollbar's owner on the next hardware log regardless of ScrollRect wiring — the
+        // earlier 'hid N' log never fired because ScrollRect.verticalScrollbar was NULL
+        // (the prefab's scrollbar GameObject is a manually-placed child, not wired to the
+        // ScrollRect), so the wired-only path hid nothing while the bar stayed visible.
+        if (!_scrollDiagLogged && track != null)
         {
-            // No wrapping ScrollRect — this reveal is not the scrollbar's owner. Safe no-op;
-            // logged once so a hardware pass can confirm the scrollbar lives elsewhere.
-            if (!_scrollbarHideLogged)
+            _scrollDiagLogged = true;
+            Scrollbar[] bars = track.GetComponentsInChildren<Scrollbar>(true);
+            var sb = new StringBuilder(256);
+            sb.Append("ENEMY REVEAL scrollbar audit: ").Append(bars.Length)
+              .Append(" Scrollbar(s) under InitiativeTrack '").Append(track.name).Append('\'');
+            if (scroll != null)
+                sb.Append(", owning ScrollRect='").Append(scroll.gameObject.name)
+                  .Append("' vBar=").Append(scroll.verticalScrollbar != null ? "wired" : "NULL")
+                  .Append(" hBar=").Append(scroll.horizontalScrollbar != null ? "wired" : "NULL");
+            else
+                sb.Append(", NO owning ScrollRect matched enemyCardsHolder");
+            for (int i = 0; i < bars.Length; i++)
             {
-                _scrollbarHideLogged = true;
-                VRLog.Info("WorldUI", "ENEMY REVEAL: no ScrollRect wraps enemyCardsHolder — " +
-                                      "the board-coupled scrollbar (if any) is owned by a different widget " +
-                                      "(needs a hardware look to attribute).");
+                Transform bt = bars[i].transform;
+                bool onFloat = IsDescendantOf(bt, holder);
+                sb.Append("\n  [").Append(i).Append("] ").Append(TransformPath(bt, track.transform))
+                  .Append(" active=").Append(bt.gameObject.activeInHierarchy)
+                  .Append(onFloat ? " => RIDES FLOAT (under enemyCardsHolder)"
+                                  : " => BOARD-COUPLED (outside enemyCardsHolder, stays on docked track)");
             }
-            return;
+            VRLog.Info("WorldUI", sb.ToString());
         }
 
-        int hidden = HideScrollbar(scroll.verticalScrollbar) + HideScrollbar(scroll.horizontalScrollbar);
-        if (hidden > 0 && !_scrollbarHideLogged)
+        // HIDE the board-coupled scrollbar(s) ROBUSTLY — by enumerating Scrollbar GameObjects
+        // directly, NOT via ScrollRect.verticalScrollbar/.horizontalScrollbar (unwired here,
+        // which is exactly why the old path hid nothing). Scope to the owning ScrollRect's
+        // subtree when found (tight and correct — the scrollbar chrome is a child of the
+        // ScrollRect root); fall back to the whole InitiativeTrack otherwise. Skip any
+        // Scrollbar that is a descendant of enemyCardsHolder: those ride the float with the
+        // cards and are not board-coupled. Every hide is recorded for exact restore.
+        Transform? scopeRoot = scroll != null ? scroll.transform
+                            : (track != null ? track.transform : null);
+        if (scopeRoot == null)
+            return;
+        int hidden = 0;
+        Scrollbar[] scoped = scopeRoot.GetComponentsInChildren<Scrollbar>(true);
+        for (int i = 0; i < scoped.Length; i++)
+        {
+            Transform bt = scoped[i].transform;
+            if (IsDescendantOf(bt, holder))
+                continue; // rides the float with the cards — not board-coupled
+            hidden += HideScrollbarGo(bt.gameObject);
+        }
+        if (!_scrollbarHideLogged)
         {
             _scrollbarHideLogged = true;
-            VRLog.Info("WorldUI", $"ENEMY REVEAL: hid {hidden} orphaned scrollbar(s) on the board-docked " +
-                                  $"'{scroll.gameObject.name}' ScrollRect while the reveal floats — the " +
-                                  "board-anchored scrollbar no longer rides the control board.");
+            VRLog.Info("WorldUI", hidden > 0
+                ? $"ENEMY REVEAL: hid {hidden} board-coupled scrollbar GameObject(s) " +
+                  (scroll != null ? $"under ScrollRect '{scroll.gameObject.name}'" : "in the InitiativeTrack") +
+                  " while the reveal floats — the board-anchored scrollbar no longer rides the control board."
+                : "ENEMY REVEAL: no board-coupled scrollbar to hide (all Scrollbars ride the float, " +
+                  "or none were active) — see the scrollbar audit above for attribution.");
         }
     }
 
-    /// <summary>Disable one scrollbar's GameObject (if live and active), recording it for restore. Returns 1 if hidden.</summary>
-    private int HideScrollbar(Scrollbar bar)
+    /// <summary>Disable a scrollbar GameObject (if live and active), recording it for restore. Returns 1 if hidden.</summary>
+    private int HideScrollbarGo(GameObject go)
     {
-        if (bar == null)
-            return 0;
-        GameObject go = bar.gameObject;
-        if (!go.activeSelf)
+        if (go == null || !go.activeSelf)
             return 0;
         go.SetActive(false);
         _hiddenScrollbars.Add(go);
         return 1;
+    }
+
+    /// <summary>True if <paramref name="t"/> is <paramref name="ancestor"/> or nested under it.</summary>
+    private static bool IsDescendantOf(Transform t, Transform ancestor)
+    {
+        for (Transform c = t; c != null; c = c.parent)
+        {
+            if (c == ancestor)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Slash-joined transform path from <paramref name="stop"/> down to <paramref name="t"/> (for the audit log).</summary>
+    private static string TransformPath(Transform t, Transform stop)
+    {
+        var sb = new StringBuilder(96);
+        for (Transform c = t; c != null && c != stop; c = c.parent)
+        {
+            if (sb.Length > 0)
+                sb.Insert(0, '/');
+            sb.Insert(0, c.name);
+        }
+        sb.Insert(0, (stop != null ? stop.name : "<root>") + "/");
+        return sb.ToString();
     }
 
     /// <summary>Re-enable every scrollbar GameObject this surface hid (Unity-null safe), then clear.</summary>
@@ -618,6 +683,9 @@ internal sealed class EnemyRevealSurface
                 go.SetActive(true);
         }
         _hiddenScrollbars.Clear();
+        // Re-arm the one-shot logs so the NEXT reveal re-audits + re-reports its hide.
+        _scrollbarHideLogged = false;
+        _scrollDiagLogged = false;
     }
 
     public void Shutdown()
