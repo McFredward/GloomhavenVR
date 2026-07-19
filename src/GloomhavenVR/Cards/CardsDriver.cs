@@ -1339,17 +1339,35 @@ internal sealed class CardsDriver : MonoBehaviour
         switch (mode)
         {
             case CardHandMode.CardsSelection:
-                grabbable = true;
-                for (int i = 0; i < _widgetBuffer.Count; i++)
+                // Item B (mode-desync lock): CardsHandUI.currentMode STAYS CardsSelection
+                // after the player confirms — it is only re-driven by the next
+                // CardsHandManager.Show(...), which never runs during the enemy turn — so
+                // the raw mode is a stale trap. The hardware repro sat in this stale
+                // CardsSelection fan all through the enemy turn with the played cards still
+                // reclaimable and the fan bound. Gate the whole INTERACTIVE selection on the
+                // game's own phase (CardsGameApi.IsSelectionPhase == the exact
+                // SelectAbilityCardsOrLongRest gate the game uses, CardsHandUI.cs:1516/1564):
+                // - selecting → the grabbable hand fan + free slot placement, as before;
+                // - locked (confirmed / enemy turn / any non-selection phase) → NO hand fan,
+                //   nothing grabbable (grabbable stays false), and the two played cards stay
+                //   DOCKED read-only in their slots. The fan unbinds (empty buffer) and no
+                //   card is reclaimable until the next real card-selection phase.
+                bool selecting = CardsGameApi.IsSelectionPhase(hand);
+                grabbable = selecting;
+                if (selecting)
                 {
-                    AbilityCardUI widget = _widgetBuffer[i];
-                    if (widget.AbilityCard == null || widget.IsLongRest)
-                        continue;
-                    if (widget.CardType == CardPileType.Hand)
-                        _fanBuffer.Add(AdoptedCard(widget));
+                    for (int i = 0; i < _widgetBuffer.Count; i++)
+                    {
+                        AbilityCardUI widget = _widgetBuffer[i];
+                        if (widget.AbilityCard == null || widget.IsLongRest)
+                            continue;
+                        if (widget.CardType == CardPileType.Hand)
+                            _fanBuffer.Add(AdoptedCard(widget));
+                    }
                 }
                 _tray.SyncFromGameState(hand, _factory);
-                // Tray occupants were created by the sync — hook + re-adopt them too.
+                // Tray occupants were created by the sync — hook + re-adopt them too (both
+                // while selecting AND locked, so the docked played cards keep their face).
                 for (int slot = 0; slot < 2; slot++)
                 {
                     VRCard? occupant = _tray.Occupant(slot);
@@ -1359,6 +1377,7 @@ internal sealed class CardsDriver : MonoBehaviour
                     if (occupant.NeedsFace && occupant.GameCard != null)
                         occupant.AttachGameCard(occupant.GameCard);
                 }
+                LogSelectionLock(hand, selecting);
                 break;
 
             case CardHandMode.LoseCard:
@@ -2095,8 +2114,10 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             // The round wants up to two ability cards — mark the still-empty play
             // slots until they are filled. Off once the player chose long/short rest
-            // (no cards wanted) or already locked the selection in.
-            if (!CardsGameApi.IsLongRestSelected(hand)
+            // (no cards wanted), already locked the selection in, or the selection phase
+            // ended while the mode lingered stale (item B — no wanted hint after confirm).
+            if (CardsGameApi.IsSelectionPhase(hand)
+                && !CardsGameApi.IsLongRestSelected(hand)
                 && !CardsGameApi.IsShortRestSelected(hand)
                 && !CardsGameApi.IsSelectionReady(hand))
             {
@@ -2211,24 +2232,54 @@ internal sealed class CardsDriver : MonoBehaviour
 
     // ------------------------------------------------------------- long-rest tracing --
 
-    private CardHandMode? _lastPolledMode;
+    private (CardHandMode? mode, bool selecting)? _lastPolledMode;
 
     /// <summary>
     /// Deadlock safety net (test #28, item 3): the long-rest "lose a card" step enters
     /// <c>CardHandMode.LoseCard</c> during the actor's OWN turn (the Choreographer's
     /// perform-long-rest path), which need not raise any of the mod's rebuild events —
     /// without a rebuild the pick fan would never appear and the flow would deadlock.
-    /// Poll the game's card mode and force a rebuild on any change; the fan/pick zones
-    /// then build exactly as for every other pick mode. One enum read, change-gated.
+    /// Item B extends this to the SELECTION-LOCK edge: after the player confirms,
+    /// <c>CardsHandUI.currentMode</c> stays <c>CardsSelection</c> (stale) while the game
+    /// phase leaves <c>SelectAbilityCardsOrLongRest</c> — a transition the raw-mode poll
+    /// alone would MISS, leaving the grabbable fan bound through the enemy turn. So the
+    /// change-gate now also keys on <see cref="CardsGameApi.IsSelectionPhase"/> so the
+    /// lock rebuild fires the moment selection ends even when the mode never changes.
+    /// Cheap: one enum read + one phase compare, change-gated.
     /// </summary>
     private void PollModeChange(CardsHandUI? hand)
     {
-        CardHandMode? mode = hand != null ? CardsGameApi.Mode(hand) : (CardHandMode?)null;
-        if (mode != _lastPolledMode)
+        var state = (mode: hand != null ? CardsGameApi.Mode(hand) : (CardHandMode?)null,
+                     selecting: hand != null && CardsGameApi.IsSelectionPhase(hand));
+        if (!_lastPolledMode.HasValue || _lastPolledMode.Value != state)
         {
-            _lastPolledMode = mode;
+            _lastPolledMode = state;
             _dirty = true;
         }
+    }
+
+    // Change-dedup for the selection-lock diagnostic (Item B): last logged (mode, selecting).
+    private bool? _loggedSelecting;
+
+    /// <summary>
+    /// Item B diagnostic (change-deduped Info): prove from the log alone WHY the
+    /// CardsSelection layout is or is not interactive. When <paramref name="selecting"/>
+    /// is false while the hand's mode is still <c>CardsSelection</c>, the played cards are
+    /// LOCKED (confirmed / enemy turn / non-selection phase) — the exact stale-mode state
+    /// that used to leave the fan bound and the cards reclaimable through the enemy turn.
+    /// </summary>
+    private void LogSelectionLock(CardsHandUI hand, bool selecting)
+    {
+        if (_loggedSelecting == selecting)
+            return;
+        _loggedSelecting = selecting;
+        if (selecting)
+            VRLog.Info("Cards", "Selection UNLOCKED — SelectAbilityCardsOrLongRest phase: hand fan grabbable, " +
+                                "free slot placement live.");
+        else
+            VRLog.Info("Cards", $"Selection LOCKED — mode still CardsSelection but phase is " +
+                                $"{PhaseManager.PhaseType} (not selection): played cards docked read-only, fan unbound, " +
+                                "nothing reclaimable until the next card-selection phase.");
     }
 
     private (bool selected, bool losing, bool done)? _longRestState;

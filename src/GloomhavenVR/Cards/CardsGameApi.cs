@@ -66,6 +66,30 @@ internal static class CardsGameApi
     internal static CardHandMode Mode(CardsHandUI hand) => hand.currentMode;
 
     /// <summary>
+    /// Is the hand's <c>CardsSelection</c> mode genuinely INTERACTIVE right now? The game
+    /// only treats a CardsSelection hand as pickable while the scenario phase is
+    /// <c>SelectAbilityCardsOrLongRest</c> (or the player is picking cards for an extra
+    /// turn) — every selectable/valid path in <c>CardsHandUI.SetMode</c> is gated on
+    /// exactly this (CardsHandUI.cs:1516 and :1564). Crucially,
+    /// <c>CardsHandUI.currentMode</c> STAYS <c>CardsSelection</c> after the player confirms
+    /// (it is only re-driven by the next <c>CardsHandManager.Show(...)</c>, which does not
+    /// run during the enemy turn), so the raw mode is STALE and must never be trusted for
+    /// interactivity — the hardware repro sat in a stale CardsSelection fan all through the
+    /// enemy turn, cards still reclaimable. Verified:
+    /// <c>CPhase.PhaseType.SelectAbilityCardsOrLongRest</c> (CPhase.cs:13),
+    /// <c>public PhaseType Type</c> (CPhase.cs:32), and
+    /// <c>public CAbilityExtraTurn.EExtraTurnType SelectingCardsForExtraTurnOfType</c>
+    /// (CPlayerActor.cs:44, publicized).
+    /// </summary>
+    internal static bool IsSelectionPhase(CardsHandUI hand)
+    {
+        if (PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return true;
+        return hand.PlayerActor != null
+               && hand.PlayerActor.SelectingCardsForExtraTurnOfType != CAbilityExtraTurn.EExtraTurnType.None;
+    }
+
+    /// <summary>
     /// Fill <paramref name="buffer"/> with the hand's live card widgets.
     /// Verified: <c>private List&lt;AbilityCardUI&gt; cardsUI</c> (CardsHandUI.cs:128,
     /// publicized). No allocation — caller owns the buffer.
