@@ -350,10 +350,14 @@ internal sealed class EnemyRevealSurface
         awayL = awayL.sqrMagnitude > 1e-4f ? awayL.normalized : Vector3.forward;
         Quaternion desiredRot = Quaternion.LookRotation(awayL, Vector3.up);
 
-        // Along the ACTUAL gaze (pitch included) at a reading distance, dropped slightly below
-        // the gaze line. RAW rig-local metres: Place() projects through the rig (diorama scale)
-        // so it lands at a FIXED comfortable REAL distance.
-        Vector3 desiredPos = headPosL + gazeL * RevealReadingDistance - Vector3.up * RevealViewDrop;
+        // STABLE HEIGHT (user 4b: "rotating the control board must NOT change the height of the
+        // info"). Place it along the HORIZONTAL gaze (yaw only — reuse awayL) at head level minus
+        // a small drop, NOT along the pitched gaze. Handling/rotating the board makes the player
+        // pitch their head DOWN; tying the panel to the pitched gaze dragged its height up/down
+        // with every look (the diag showed world-y swinging −12…+58 m). Yaw + head position still
+        // follow lazily; pitch no longer moves it. RAW rig-local metres (Place() applies the rig).
+        Vector3 desiredPos = headPosL + awayL * RevealReadingDistance;
+        desiredPos.y = headPosL.y - RevealViewDrop;
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
         if (!_placed || poseVersion != _facedPoseVersion)
@@ -376,11 +380,13 @@ internal sealed class EnemyRevealSurface
             return;
         }
 
-        // Drift = the current panel centre's angle off the gaze, ALL in the rig frame — so
-        // world-grab / tray-grab (which leave headPosL, gazeL and the stored rig-local pose
-        // unchanged) never trip it; only a physical head turn/walk does.
-        Vector3 toPanel = _position - headPosL;
-        float off = toPanel.sqrMagnitude > 1e-6f ? Vector3.Angle(gazeL, toPanel) : 0f;
+        // Drift = the HORIZONTAL (yaw) angle off the gaze — pitch is deliberately ignored so
+        // looking DOWN at the board (to rotate it) never trips the follow; only turning does.
+        // All in the rig frame, so world-grab / tray-grab never trip it either — only a physical
+        // head TURN/walk does.
+        Vector3 toPanelFlat = _position - headPosL;
+        toPanelFlat.y = 0f;
+        float off = toPanelFlat.sqrMagnitude > 1e-6f ? Vector3.Angle(awayL, toPanelFlat) : 0f;
         if (off > FollowDeadzoneDeg)
         {
             if (_offGazeSince < 0f)

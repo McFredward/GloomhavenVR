@@ -808,13 +808,17 @@ internal static class ModalFallback
             AddPollWindow(manager.dialogPopup.Window);
 
         bool anyOpen = OpenWindows.Count > 0;
-        // Item 3b (user): the PLAYER-REACHABLE menus (pause/ESC, Options, Multiplayer,
-        // Compendium…) must NOT lock world interaction — the user wants to keep manipulating the
-        // board / cards while the pause menu is open. Assert ModalUI ONLY when a genuine BLOCKING
-        // prompt is open (story, level message, dialog-confirm, results, durability, …) — i.e. an
-        // open window whose ID is NOT one of the reachable menus. If ONLY reachable menus are
-        // open, leave the mode alone so the fan/board stay live. The menus still float, are
-        // grabbable, and carry the X button — only the mode lock is lifted.
+        // FLOAT every open modal window into VR (convert + grabbable + X button). This must NOT
+        // depend on the ModalUI lock below — coupling them made the pause/Options menu invisible
+        // (want=false → convertWanted=false → the window was released to its 2D home, unseen in
+        // VR). Floating is purely "is a window open in a scenario".
+        bool want = inScenario && anyOpen;
+
+        // Item 3b (user): the ModalUI LOCK is separate. The PLAYER-REACHABLE menus (pause/ESC,
+        // Options, Multiplayer, Compendium…) must NOT lock world interaction — the user keeps
+        // manipulating the board / cards while the pause menu is open. Lock ONLY when a genuine
+        // BLOCKING prompt is open (story, level message, dialog-confirm, results, durability) —
+        // i.e. an open window whose ID is NOT one of the reachable menus.
         bool anyBlocking = false;
         for (int i = 0; i < OpenWindows.Count; i++)
         {
@@ -824,7 +828,7 @@ internal static class ModalFallback
                 break;
             }
         }
-        bool want = inScenario && anyOpen && anyBlocking;
+        bool wantLock = want && anyBlocking;
 
         // ---- window-style conversions (P8) ------------------------------------------
         // The manual chord's full screen needs the windows back in the 2D composite;
@@ -900,22 +904,23 @@ internal static class ModalFallback
 
         TickEscapeChord(); // test #17: floating modals must always be closable
 
-        if (want != _lastWant)
+        // The ModalUI LOCK tracks wantLock (blocking prompts only), NOT want (float) — item 3b.
+        if (wantLock != _lastWant)
         {
-            _lastWant = want;
-            VRLog.Info("WorldUI", $"MODAL FALLBACK {(want ? "ASSERTED" : "RELEASED")}: " +
+            _lastWant = wantLock;
+            VRLog.Info("WorldUI", $"MODAL FALLBACK {(wantLock ? "ASSERTED" : "RELEASED")}: " +
                                   $"windows={OpenWindows.Count}, story={story}, levelMsg={levelMsg}, " +
-                                  $"dialogPopup={dialog}, scenario={inScenario}, " +
+                                  $"dialogPopup={dialog}, scenario={inScenario}, blocking={anyBlocking}, " +
                                   $"style={(WorldUIConfig.ModalWindowStyle ? "window" : "screen")}, " +
                                   $"mode={VRModeStateMachine.CurrentMode} → " +
-                                  $"{(want ? "ModalUI" : "released")}.");
+                                  $"{(wantLock ? "ModalUI" : "released (menus stay interactive)")}.");
         }
 
         // Screen policy: full composite for style=screen; for style=window only the
         // windows that FAILED to convert raise it (per-window automatic fallback).
         // The manual chord path forces the screen inside FlatScreen regardless.
-        ScreenWanted = want && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0);
-        VRModeStateMachine.SetAuxModal(want); // idempotent — mode flow unchanged by style
+        ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0);
+        VRModeStateMachine.SetAuxModal(wantLock); // ModalUI only for genuine blockers (item 3b)
     }
 
     // ---- full-screen-menu selection guard (P6 flicker fix) ------------------------------
@@ -1297,10 +1302,12 @@ internal static class ModalFallback
                 grab = new GrabbableModal();
                 grab.Build(panel, extraScale, name);
                 // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
-                // clickable) closes THIS window through the game's own Escape/Hide path — same
-                // exclusion as grabbable (no X on the Sieg/Niederlage results panels). Lives on the
-                // host canvas, so it is destroyed with the host on Release; never touches the 2D tree.
-                ModalCloseButton.Attach(panel, window);
+                // clickable) closes THIS window through the game's own Escape/Hide path. ONLY the
+                // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium) —
+                // NOT click-through windows like the Story/dialog (user: "the dialog must be
+                // clicked through, it may not have an X") nor the Sieg/Niederlage results panels.
+                if (NonBlockingMenus.Contains(window.ID))
+                    ModalCloseButton.Attach(panel, window);
             }
 
             Converted.Add(new WindowPanel
