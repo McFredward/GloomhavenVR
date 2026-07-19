@@ -74,6 +74,15 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private VRHand? _handA;
     private VRHand? _handB;
 
+    // Laser-carry (feature #8): while grabbed by the hand LASER (not palm proximity) the
+    // window must STAY at range and slide ALONG the aim ray instead of teleporting to the
+    // palm. Captured once on grab: the along-ray distance and the world offset between the
+    // window root and the ray hit point (preserves where the beam struck the bar). One-hand
+    // only — a second (palm) hand joining clears it and hands back to the normal pair carry.
+    private bool _laserCarry;
+    private float _carryDistance;
+    private Vector3 _carryOffset;
+
     // Gesture anchors (captured on every hand-count change).
     private Vector3 _anchorPos;        // palm (one-hand) or midpoint (two-hand) at engage
     private float _anchorHeading;      // hand yaw (one-hand) or pair heading (two-hand), deg
@@ -108,12 +117,39 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         if (_handA == null)
             _handA = hand;
         else if (_handB == null && hand != _handA)
+        {
             _handB = hand;
+            // A second (palm) hand joining ends laser-carry: two-hand resize is a pure
+            // palm gesture (both midpoints), so hand it back to the normal pair carry.
+            _laserCarry = false;
+        }
         else
             return;
         ReAnchor();
         VRLog.Info(_logChannel, $"{_logName} grab: engaged ({hand.Side}, {(_handB != null ? "two-hand resize" : "one-hand move")}).");
     }
+
+    /// <summary>
+    /// Feature #8: arm LASER-CARRY for the NEXT grab (the ray driver calls this immediately
+    /// before <see cref="ProximityGrabber.ForceGrab"/>). Captures the along-ray distance and
+    /// the world offset from the ray hit point to the window root, so the carry keeps the
+    /// window at range and preserves where the beam struck the bar (translate only — the
+    /// window's orientation is left to the owner). No-op path: <see cref="CancelLaserCarry"/>
+    /// if the ForceGrab is refused.
+    /// </summary>
+    internal void BeginLaserCarry(VRHand hand, float distance, Vector3 hitPoint)
+    {
+        Transform? root = _owner?.GrabRoot;
+        if (hand == null || root == null)
+            return;
+        _laserCarry = true;
+        _carryDistance = distance;
+        _carryOffset = root.position - hitPoint;
+        VRLog.Info(_logChannel, $"{_logName} grab: LASER-CARRY armed ({hand.Side}, {distance / Mathf.Max(hand.WorldScale, 1e-4f):F2} m).");
+    }
+
+    /// <summary>Disarm a laser-carry that never took (ForceGrab refused).</summary>
+    internal void CancelLaserCarry() => _laserCarry = false;
 
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
@@ -138,7 +174,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         }
         else
         {
-            VRLog.Info(_logChannel, $"{_logName} grab: released ({hand.Side}).");
+            bool wasLaser = _laserCarry;
+            _laserCarry = false;
+            VRLog.Info(_logChannel, $"{_logName} grab: released ({hand.Side}{(wasLaser ? ", laser-carry" : "")}).");
             _owner?.OnGrabFinished();
         }
     }
@@ -162,6 +200,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     {
         VRInteractables.UnregisterGrabbable(this);
         _handA = _handB = null;
+        _laserCarry = false;
     }
 
     // ------------------------------------------------------------------ per-frame --
@@ -188,6 +227,20 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             return;
 
         float k = 1f - Mathf.Exp(-Smoothing * Time.deltaTime);
+
+        // Feature #8: LASER-CARRY (one hand, grabbed via the ray). The window slides ALONG
+        // the live aim ray at its captured distance instead of snapping to the palm; the
+        // captured offset preserves where the beam struck the bar. Translate only — the
+        // owner keeps authoring the window's rotation (GrabbableModal.GrabCarriesYaw would
+        // otherwise fight a second rotation writer).
+        if (_laserCarry && _handB == null)
+        {
+            _handA.GetAimRay(out Vector3 rayOrigin, out Vector3 rayDir);
+            Vector3 laserTarget = rayOrigin + rayDir * _carryDistance + _carryOffset;
+            root.position = Vector3.Lerp(root.position, laserTarget, k);
+            return;
+        }
+
         bool carryYaw = _owner!.GrabCarriesYaw;
 
         if (_handB == null)
