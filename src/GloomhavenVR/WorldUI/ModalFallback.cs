@@ -112,7 +112,7 @@ internal static class ModalFallback
     /// the 0.7 factor; only windows wider than the board are shrunk to it. The user's two-hand
     /// resize (0.5×–2×) still rides on top of this smaller default.
     /// </summary>
-    private const float ModalTargetWidthMeters = 0.62f;
+    private const float ModalTargetWidthMeters = 0.80f;
 
     /// <summary>Floor for the derived per-window scale so a very wide window never collapses.</summary>
     private const float MinWindowScaleFactor = 0.15f;
@@ -1061,6 +1061,33 @@ internal static class ModalFallback
         VRLog.Info("WorldUI", "MODAL ESCAPE CHORD: no open floating modal left to close.");
     }
 
+    /// <summary>
+    /// Item 3c: close ONE floated window through the game's own escape/hide path (the mod X
+    /// button's action). Mirrors <see cref="CloseTopModal"/>: <c>UIWindow.Escape()</c> first
+    /// (honors escapeKeyAction, exactly what the ESC key runs), falling back to the public
+    /// <c>UIWindow.Hide()</c> when the window opts out of escape. Game state observes the close
+    /// normally (OnHide/onHidden fire); the mod's per-tick prune then releases the float.
+    /// </summary>
+    internal static void CloseFloatedWindow(UIWindow? window)
+    {
+        if (window == null || !window.IsOpen)
+            return;
+        string name = window.name;
+        try
+        {
+            bool escaped = window.Escape();
+            if (!escaped && window.IsOpen)
+                window.Hide();
+            VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) closed via " +
+                                  $"{(escaped ? "UIWindow.Escape()" : "UIWindow.Hide()")}.");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Error("WorldUI", $"MODAL CLOSE (X button): closing '{name}' FAILED " +
+                                   $"({ex.GetType().Name}: {ex.Message}).");
+        }
+    }
+
     // ---- window gathering helpers (allocation-free) -------------------------------------
 
     private static void AddPollWindow(UIWindow? window)
@@ -1253,6 +1280,11 @@ internal static class ModalFallback
             {
                 grab = new GrabbableModal();
                 grab.Build(panel, extraScale, name);
+                // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
+                // clickable) closes THIS window through the game's own Escape/Hide path — same
+                // exclusion as grabbable (no X on the Sieg/Niederlage results panels). Lives on the
+                // host canvas, so it is destroyed with the host on Release; never touches the 2D tree.
+                ModalCloseButton.Attach(panel, window);
             }
 
             Converted.Add(new WindowPanel
@@ -1322,7 +1354,15 @@ internal static class ModalFallback
     /// secondary window opened FROM the primary spawns OVERLAPPING but not perfectly coincident
     /// with it — the user can then grab and separate them. Scaled by the diorama scale + capped.
     /// </summary>
-    private const float SecondaryStaggerMeters = 0.06f;
+    private const float SecondaryStaggerMeters = 0.08f;
+
+    /// <summary>
+    /// Item 3b: how much CLOSER to the head (real meters) each successive stacked window is pulled
+    /// along the gaze, so a sub-menu opened from the pause menu sits clearly in the FOREGROUND of
+    /// its parent (nearer → among the equal-order modal hosts it also depth-sorts in front).
+    /// Scaled by the diorama scale like the lateral/vertical stagger.
+    /// </summary>
+    private const float SecondaryForegroundMeters = 0.14f;
 
     /// <summary>
     /// HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.
@@ -1356,6 +1396,9 @@ internal static class ModalFallback
         {
             float step = SecondaryStaggerMeters * scale;
             pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);
+            // Item 3b: pull each stacked secondary window CLOSER to the head so it sits clearly
+            // in the foreground of its parent (nearer → also draws in front among equal-order hosts).
+            pos -= fwd * (SecondaryForegroundMeters * scale * staggerIndex);
         }
         // Facing is YAW-ONLY (upright): flatten the gaze forward to the horizontal plane. Canvas
         // front faces -forward, so pointing +Z away from the viewer makes the panel face them.

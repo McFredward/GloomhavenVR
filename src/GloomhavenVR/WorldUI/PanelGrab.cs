@@ -55,8 +55,15 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 {
     private const float MinHandDistance = 0.03f;  // world units (already diorama-scaled)
     private const float Smoothing = 18f;          // 1/s exponential
-    private const float MinScale = 0.5f;
-    private const float MaxScale = 2f;
+    // Item 4: two-hand resize floor. Lowered from 0.5 so grabbable panels (the VR options
+    // panel + floated menu windows especially) can be pinched MUCH smaller — the user could
+    // not shrink them enough. internal so the panel owners (GrabbableModal, SettingsPanel)
+    // reuse the SAME range for their own per-frame factor clamps (single source of truth);
+    // clamping to a higher per-panel min would silently re-cap what this handle just shrank.
+    // Applies to every PanelGrabHandle user (tray, combat log, modals, settings) — the user
+    // wants to shrink windows freely.
+    internal const float MinScale = 0.15f;
+    internal const float MaxScale = 2f;
 
     private IPanelGrabOwner? _owner;
     private MeshRenderer? _bar;
