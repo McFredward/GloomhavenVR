@@ -36,3 +36,4 @@ dist/
 .claude/
 decompiled-demeo/
 unity/board-prep/out/
+unity/mask-prep/out/
