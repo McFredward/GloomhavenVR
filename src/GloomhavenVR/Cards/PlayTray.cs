@@ -2791,29 +2791,38 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on the procedural fallback
         private Renderer? _capMeshRenderer; // item A diagnostic: the cap body renderer (cube/disc/sprite)
 
-        // ---- Item 4: keycap TOP / BEVEL / WALL contrast (all one-line tunable) --------------
+        // ---- Item 1b: SOLID, on-theme keycap palette (aged brass / dark wood / parchment) ----
         // The 3D square cap renders as three submeshes, all driven together from the button
         // STATE colour (disabled / accent / confirmed / dwell) so state signalling is preserved:
-        //   • TOP   — the state colour itself (semantic: grey disabled, green accent, gold readied…).
+        //   • TOP   — the state colour (semantic: bronze disabled, brass idle, green accent, gold
+        //             readied…). Item 1b: the idle/disabled bases are now warm AGED BRASS/BRONZE,
+        //             not the old dark neutral grey.
         //   • BEVEL — a BRIGHT parchment/brass 45° chamfer ring framing the top. This is the
         //             "catch-light" edge: bright against everything else, angled so it stays
         //             visible even near top-down. The primary "this button is RAISED" cue.
-        //   • WALL  — a dark, WARM-hued side band so the cap separates from the dark neutral board
-        //             by both value AND hue (a dark-grey wall on a dark-grey board was invisible).
-        // Previous attempts only made the walls "slightly darker" (×0.45) — both top and wall
-        // stayed dark → no contrast. The fix is a big top→bevel→wall value jump + a lit bevel.
+        //   • WALL  — a solid, WARM dark-WOOD side band so the cap separates from the board by both
+        //             value AND hue, yet still reads as a physical material (not a black void).
+        //
+        // WHY THE CAP LOOKED "TRANSPARENT / GLASSY" (item 1b root cause): the material is fully
+        // OPAQUE (BoardLit, renderQueue 2000, alpha 1 — no alpha-blend anywhere on the cap), but
+        // the TOP + WALLS were near-black dark grey (top 0.24, wall 0.13) sitting on a near-black
+        // board. Only the bright bevel RING carried any luminance, so the eye saw floating lit
+        // edges around dark faces that sank into the background — a wireframe / glass read. The
+        // cure is NOT "darker" but SOLID, WARM, opaque material colours on every face so each one
+        // reads as a real control-panel key. All colours below are fully opaque (alpha 1); state
+        // only TINTS the solid base, it is never the whole washed-out colour. One line each to tune.
 
         /// <summary>How dark the side WALLS start relative to the top (before the warm lean).</summary>
-        private const float WallTintFactor = 0.42f;
+        private const float WallTintFactor = 0.50f;
 
-        /// <summary>Hue the walls lean toward so they read distinct from the dark neutral board.</summary>
-        private static readonly Color WallWarm = new(0.16f, 0.10f, 0.05f);
+        /// <summary>Solid dark-WOOD/iron hue the walls lean toward so they read as material, distinct from the board.</summary>
+        private static readonly Color WallWarm = new(0.17f, 0.11f, 0.06f);
 
         /// <summary>How far (0..1) the wall leans from "darker top" toward <see cref="WallWarm"/>.</summary>
-        private const float WallWarmLerp = 0.45f;
+        private const float WallWarmLerp = 0.42f;
 
         /// <summary>The bright parchment/brass tone the lit bevel ring is pulled toward.</summary>
-        private static readonly Color BevelHighlight = new(0.90f, 0.82f, 0.60f);
+        private static readonly Color BevelHighlight = new(0.92f, 0.83f, 0.60f);
 
         /// <summary>How far (0..1) the bevel is brightened from the top toward <see cref="BevelHighlight"/>.</summary>
         private const float BevelLerp = 0.62f;
@@ -2873,11 +2882,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 ? $"top {(m != null ? m.color.ToString() : "<none>")}, bevel {(_capBevelMaterial != null ? _capBevelMaterial.color.ToString() : "<none>")} (lerp {BevelLerp:F2} → parchment), " +
                   $"wall {_capWallMaterial.color} (factor {WallTintFactor:F2}, warm lerp {WallWarmLerp:F2})"
                 : "single-material cap (no bevel/wall split)";
+            // Item 1b: prove the cap is genuinely OPAQUE (the "glassy/see-through" complaint). Every
+            // cap material must be alpha 1 AND draw in the opaque queue (< 2500 = Geometry/AlphaTest,
+            // NOT the Transparent 3000 band). If all three pass, the look is a COLOUR issue, never blend.
+            float topA = m != null ? m.color.a : -1f;
+            float bevA = _capBevelMaterial != null ? _capBevelMaterial.color.a : 1f;
+            float wallA = _capWallMaterial != null ? _capWallMaterial.color.a : 1f;
+            bool allAlpha1 = topA >= 0.999f && bevA >= 0.999f && wallA >= 0.999f;
+            bool opaqueQueue = queue >= 0 && queue < 2500;
+            bool opaque = allAlpha1 && opaqueQueue;
             VRLog.Info("Cards", $"ITEMA cap diag — {label}: real cap size {mmW:F1}×{mmH:F1}×{mmThick:F1} mm, " +
                 $"bevel ≈ {bevelMm:F1} mm (lossyScale {lossy}), shader '{shaderName}', renderQueue {queue}. " +
+                $"OPAQUE: {(opaque ? "YES" : "NO")} (alpha top/bevel/wall {topA:F2}/{bevA:F2}/{wallA:F2} all=1 {allAlpha1}, " +
+                $"queue {queue} < 2500 {opaqueQueue} — no alpha-blend/Transparent). " +
                 $"Walls read {(mmThick >= 6f ? "SOLID (thickness OK)" : "FLAT (too thin)")}; material is " +
                 $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades by normal → lit bevel)" : "NOT BoardLit — bevel/wall shading may be wrong")}. " +
-                $"Three-material bevel split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {tintInfo}.");
+                $"Three-material bevel split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {tintInfo}. " +
+                "Solid on-theme palette: aged-brass top / bright parchment bevel / dark-wood walls (item 1b).");
         }
 
         private TextMeshPro? _label;
@@ -2902,8 +2923,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         internal Collider? Collider { get; private set; }
 
-        private static readonly Color DisabledColor = new(0.24f, 0.23f, 0.22f);
-        private static readonly Color IdleColor = new(0.35f, 0.34f, 0.32f);
+        /// <summary>
+        /// Item 1b: DISABLED cap TOP — a dimmed, desaturated AGED BRONZE. Warm and solid
+        /// (never the old glassy dark-grey 0.24): a worn, unlit brass key. Tunable.
+        /// </summary>
+        private static readonly Color DisabledColor = new(0.31f, 0.26f, 0.19f);
+
+        /// <summary>
+        /// Item 1b: IDLE (enabled, no accent) cap TOP — worn AGED BRASS. The solid, opaque
+        /// on-theme base every enabled key rests at; state accents tint up from here. Tunable.
+        /// </summary>
+        private static readonly Color IdleColor = new(0.47f, 0.38f, 0.23f);
 
         /// <summary>
         /// Confirmed/readied state (test #19): gold cap — clearly distinct from
@@ -2990,7 +3020,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // Item 5/6: board-HUD buttons (gear / follow-toggle) route their body to the
             // Overlay shader so RenderOnTop can force it over the opaque board; CONFIRM /
             // UNDO / rest buttons keep Standard (they stay depth-correct, no RenderOnTop).
-            Tint(basePlate, new Color(0.10f, 0.09f, 0.08f), overlay: overlay);
+            // Item 1b: a solid warm dark-WOOD surround (not a near-black void) so the recessed
+            // well around the cap reads as part of the physical panel, not a hole under a glassy key.
+            Tint(basePlate, new Color(0.15f, 0.12f, 0.08f), overlay: overlay);
 
             // Native look (test #25 item 3): when a live game button has been sampled,
             // the travelling cap is an EMPTY holder carrying the game's own 9-sliced
