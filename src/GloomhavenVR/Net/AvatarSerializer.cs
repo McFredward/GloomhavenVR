@@ -15,11 +15,12 @@ namespace GloomhavenVR.Net;
 /// offset the board per client, swap the identity conversion here for a board-anchor
 /// transform (see <see cref="IBoardAnchor"/>) — the wire format does not change.
 ///
-/// Layout (little-endian), total 10 + 20·(#poses) [+ 5·(#hands) with fingers], &lt;= ~80 B:
+/// Layout (little-endian), total 11 + 20·(#poses) [+ 5·(#hands) with fingers], &lt;= ~81 B:
 ///   [0..3]  uint32  magic  (NetProtocol.Magic)
 ///   [4]     byte    version
-///   [5]     byte    flags  (head/left/right tracked, hasFingers)
-///   [6..9]  float32 worldScale
+///   [5]     byte    flags   (head/left/right tracked, hasFingers)
+///   [6]     byte    maskId  (chosen head mask 0..2)
+///   [7..10] float32 worldScale
 ///   then, in order, for each present part (head, left, right):
 ///     pose = pos(3×float32=12) + rot(4×int16 quantized = 8)   → 20 bytes
 ///     if the part is a hand AND hasFingers: 5×byte curls        → 5 bytes
@@ -30,7 +31,7 @@ namespace GloomhavenVR.Net;
 internal static unsafe class AvatarSerializer
 {
     /// <summary>Upper bound on an encoded packet (header + head + 2 hands + fingers).</summary>
-    public const int MaxSize = 10 + 3 * 20 + 2 * 5; // 80
+    public const int MaxSize = 11 + 3 * 20 + 2 * 5; // 81
 
     private const float QuatScale = 32767f;
 
@@ -52,6 +53,9 @@ internal static unsafe class AvatarSerializer
         if (state.Right.Tracked) flags |= NetProtocol.FlagRightTracked;
         if (state.HasFingers) flags |= NetProtocol.FlagHasFingers;
         buffer[i++] = flags;
+
+        // Head mask id (0..2). Clamp defensively so a stray value never confuses the receiver.
+        buffer[i++] = (byte)Mathf.Clamp(state.MaskId, 0, HeadMaskLibrary.MaskCount - 1);
 
         WriteF32(buffer, ref i, state.WorldScale <= 0f ? 1f : state.WorldScale);
 
@@ -108,7 +112,7 @@ internal static unsafe class AvatarSerializer
     public static bool TryRead(byte[] buffer, int length, out AvatarState state)
     {
         state = default;
-        if (buffer == null || length < 10)
+        if (buffer == null || length < 11)
             return false;
 
         int i = 0;
@@ -116,6 +120,7 @@ internal static unsafe class AvatarSerializer
         if (buffer[i++] != NetProtocol.Version) return false;
 
         byte flags = buffer[i++];
+        state.MaskId = (byte)Mathf.Clamp(buffer[i++], 0, HeadMaskLibrary.MaskCount - 1);
         state.WorldScale = ReadF32(buffer, ref i);
         if (!(state.WorldScale > 0f) || float.IsNaN(state.WorldScale) || float.IsInfinity(state.WorldScale))
             state.WorldScale = 1f;
