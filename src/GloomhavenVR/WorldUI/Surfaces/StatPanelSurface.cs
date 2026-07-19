@@ -115,7 +115,7 @@ internal sealed class StatPanelSurface
             return;
         if (CanvasConversion.IsLockedNow || !Singleton<ActorStatPanel>.IsInitialized)
             return;
-        ActorStatPanel.Instance.Show(actor);
+        ForceShow(actor);
     }
 
     /// <summary>Clear the held-figure override on release (only if <paramref name="actor"/> owns it).</summary>
@@ -123,20 +123,49 @@ internal sealed class StatPanelSurface
     {
         if (_heldActor != null && actor != null && !ReferenceEquals(actor, _heldActor))
             return; // a different held figure still owns the panel
+
+        ScenarioRuleLibrary.CActor? toHide = actor ?? _heldActor;
         _heldAnchor = null;
         _heldActor = null;
+
+        // The shared ActorStatPanel we opened for the held figure does NOT self-hide — the game
+        // only hides it on board hover-out. Hide it ourselves so it disappears from the world:
+        // HideForActor(toHide) clears m_ActorShown and hides the window, which fires onHidden →
+        // ScheduleRelease → the converted host is torn down. Only fires if OUR actor is still the
+        // one shown (never closes a panel the game re-targeted to someone else).
+        if (toHide == null || !Singleton<ActorStatPanel>.IsInitialized)
+            return;
+        ActorStatPanel panel = ActorStatPanel.Instance;
+        if (ReferenceEquals(panel.m_ActorShown, toHide))
+            panel.HideForActor(toHide);
     }
 
     /// <summary>
     /// Re-open the held figure's stat card if the game's board hover re-targeted the shared
-    /// panel to another actor (risk #5). Cheap: only re-Shows when the shown actor drifted.
+    /// panel to another actor (risk #5). Cheap: only retargets when the shown actor drifted.
     /// </summary>
     internal static void ReassertHeld()
     {
         if (_heldActor == null || !Singleton<ActorStatPanel>.IsInitialized || CanvasConversion.IsLockedNow)
             return;
-        if (!ReferenceEquals(ActorStatPanel.Instance.m_ActorShown, _heldActor))
-            ActorStatPanel.Instance.Show(_heldActor);
+        ForceShow(_heldActor);
+    }
+
+    /// <summary>
+    /// Show <paramref name="actor"/> in the shared ActorStatPanel, RETARGETING if needed. The
+    /// game's <c>ActorStatPanel.Show</c> is gated by <c>CanShow()</c>, which refuses while another
+    /// actor is already shown (<c>m_ActorShown != null</c>) — so a plain Show() would silently
+    /// keep the FIRST figure and never switch. We clear the latch first (HideForActor) so Show()
+    /// actually rebuilds the card for the new actor. No-op when the right actor is already shown.
+    /// </summary>
+    private static void ForceShow(ScenarioRuleLibrary.CActor actor)
+    {
+        ActorStatPanel panel = ActorStatPanel.Instance;
+        if (ReferenceEquals(panel.m_ActorShown, actor))
+            return;
+        if (panel.m_ActorShown != null)
+            panel.HideForActor(); // clear m_ActorShown so CanShow() passes and Show() retargets
+        panel.Show(actor);
     }
 
     private static void OnMiniaturePoked(MiniaturePokedEvent e)
