@@ -57,7 +57,10 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
         // ISSUE #4 — force walls to stay opaque (disable the top-down see-through wall fade).
+        // WallFadeDisable pins the GLOBAL shader int off; WallSolidifier additionally kills the
+        // per-material local gate and the components that re-assert the global each scene load.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
+        WallSolidifier.Install();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -95,6 +98,8 @@ internal sealed class CompatModule : IVRModule
 
     public void Shutdown()
     {
+        WallSolidifier.Uninstall();
+
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
