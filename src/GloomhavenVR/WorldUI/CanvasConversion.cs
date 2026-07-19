@@ -803,17 +803,29 @@ internal static class CanvasConversion
         if (panel.Target != null)
         {
             RectTransform target = panel.Target;
-            if (panel.OriginalParent != null)
-                target.SetParent(panel.OriginalParent, worldPositionStays: false);
-            target.SetSiblingIndex(panel.OriginalSiblingIndex);
-            target.anchorMin = panel.OriginalAnchorMin;
-            target.anchorMax = panel.OriginalAnchorMax;
-            target.pivot = panel.OriginalPivot;
-            target.anchoredPosition = panel.OriginalAnchoredPosition;
-            target.sizeDelta = panel.OriginalSizeDelta;
-            target.localScale = panel.OriginalLocalScale;
-            target.localPosition = panel.OriginalLocalPosition;
-            target.localRotation = panel.OriginalLocalRotation;
+            // Detach the target from the float host UNCONDITIONALLY before the host is destroyed
+            // below. Previously the reparent ran ONLY when OriginalParent was still alive; if it had
+            // been destroyed/replaced (Unity-null), the target stayed a CHILD of the host and the
+            // Object.Destroy(HostGo) below CASCADED into it. That is exactly what destroyed the
+            // scenario pause menu (UIScenarioEscMenu) on a mod X-close — a Singleton the game never
+            // re-creates mid-scenario, so reopening it was impossible until a reload (confirmed via
+            // the ESCMenu.OnDestroy probe). Detaching to the scene root (null) keeps the object alive
+            // so OptionsToggle can reopen it; the game's flat placement doesn't matter because the
+            // mod re-converts/re-floats it on the next open anyway.
+            Transform restoreParent = panel.OriginalParent != null ? panel.OriginalParent : null;
+            target.SetParent(restoreParent, worldPositionStays: false);
+            if (restoreParent != null)
+            {
+                target.SetSiblingIndex(panel.OriginalSiblingIndex);
+                target.anchorMin = panel.OriginalAnchorMin;
+                target.anchorMax = panel.OriginalAnchorMax;
+                target.pivot = panel.OriginalPivot;
+                target.anchoredPosition = panel.OriginalAnchoredPosition;
+                target.sizeDelta = panel.OriginalSizeDelta;
+                target.localScale = panel.OriginalLocalScale;
+                target.localPosition = panel.OriginalLocalPosition;
+                target.localRotation = panel.OriginalLocalRotation;
+            }
         }
 
         if (panel.HostGo != null)

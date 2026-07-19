@@ -21,9 +21,21 @@ namespace GloomhavenVR.WorldUI;
 internal static class EscMenu_OnDestroy_Probe
 {
     [HarmonyPrefix]
-    private static void Prefix()
+    private static void Prefix(ESCMenu __instance)
     {
-        VRLog.Warn("WorldUI", "ESCMenu.OnDestroy — the pause menu object is being DESTROYED. " +
-                              "Call stack (names the destroyer for the reopen fix):\n" + Environment.StackTrace);
+        // Log the parent chain at destroy time: if the menu is still a child of a mod float host
+        // ("GloomhavenVR.Panel_...") the CanvasConversion.Release host-destroy cascade killed it
+        // (now fixed by detaching unconditionally). If it's under a game parent instead, the game
+        // itself tore it down and the fix must move elsewhere.
+        string parents = "(none)";
+        var t = __instance != null ? __instance.transform.parent : null;
+        if (t != null)
+        {
+            parents = t.name;
+            if (t.parent != null) parents += " < " + t.parent.name;
+        }
+        VRLog.Warn("WorldUI", $"ESCMenu.OnDestroy — pause menu DESTROYED while parented under '{parents}'. " +
+                              "If that is a 'GloomhavenVR.Panel_' host, the Release cascade was the cause.\n" +
+                              Environment.StackTrace);
     }
 }
