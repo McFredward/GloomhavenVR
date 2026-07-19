@@ -23,8 +23,22 @@ internal sealed class PileViewer
 {
     private PileStack? _discard;
     private PileStack? _burnt;
+    private PileStack? _items;
     private bool _locHooked;
     private (int discard, int burnt) _loggedCounts = (int.MinValue, int.MinValue);
+    private int _loggedItems = int.MinValue;
+
+    /// <summary>
+    /// The character-items pile (item 4): a self-contained THIRD stack below the burnt
+    /// pile, browsed like the others but rendered from <c>Inventory.AllItems</c> instead
+    /// of ability-card widgets (see <see cref="ItemsPile"/>). Its poke/grab is routed here
+    /// (not through <see cref="PokeToggled"/>/<see cref="GrabOpened"/>) so it opens its own
+    /// item browse without any CardsDriver wiring.
+    /// </summary>
+    private readonly ItemsPile _itemsBrowse = new();
+
+    /// <summary>The active hand last seen in <see cref="TickStatus"/> — the items pile's inventory source.</summary>
+    private CardsHandUI? _hand;
 
     /// <summary>Stack poked (finger/laser) — CardsDriver toggles the browse fan.</summary>
     internal System.Action<PileKind, VRHand>? PokeToggled;
@@ -40,9 +54,13 @@ internal sealed class PileViewer
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>Local caption for one pile (real game loc keys with safe English fallbacks).</summary>
-    internal static string Caption(PileKind kind) => kind == PileKind.Discard
-        ? Core.Loc.Game("GUI_TAKE_DAMAGE_DISCARD", "Discard")
-        : Core.Loc.Game("GUI_TAKE_DAMAGE_BURN", "Burnt");
+    internal static string Caption(PileKind kind) => kind switch
+    {
+        PileKind.Discard => Core.Loc.Game("GUI_TAKE_DAMAGE_DISCARD", "Discard"),
+        PileKind.Burnt => Core.Loc.Game("GUI_TAKE_DAMAGE_BURN", "Burnt"),
+        PileKind.Items => Core.Loc.Mod("items"),
+        _ => Core.Loc.Mod("items"),
+    };
 
     internal void EnsureBuilt(PlayTray tray)
     {
@@ -67,7 +85,18 @@ internal sealed class PileViewer
                 new Vector3(PlayTray.PileStackOffsetX, -spacing * 0.5f, 0f));
             tray.RegisterLaserTarget(_burnt.GetComponent<Collider>(), _burnt);
         }
-        ApplyLayout(); // seat the per-board scale + spacing (both stacks)
+        // Item 4: the character-items stack, mounted BELOW the burnt pile (a further
+        // −spacing down). Same physical stack + poke/grab, but its browse is the item
+        // pile (routed to _itemsBrowse in DispatchPoke/DispatchGrab).
+        if (_items == null)
+        {
+            _items = PileStack.Create(mount, PileKind.Items,
+                new Color(0.30f, 0.42f, 0.26f), Caption(PileKind.Items), this,
+                new Vector3(PlayTray.PileStackOffsetX, -spacing * 1.5f, 0f));
+            tray.RegisterLaserTarget(_items.GetComponent<Collider>(), _items);
+        }
+        _itemsBrowse.SetAnchor(mount);
+        ApplyLayout(); // seat the per-board scale + spacing (all three stacks)
 
         // Live language following: the pile captions are built once — re-read them on a
         // language change (subscribe once; Destroy detaches).
@@ -83,6 +112,7 @@ internal sealed class PileViewer
     {
         _discard?.SetCaption(Caption(PileKind.Discard));
         _burnt?.SetCaption(Caption(PileKind.Burnt));
+        _items?.SetCaption(Caption(PileKind.Items));
     }
 
     /// <summary>
@@ -105,6 +135,11 @@ internal sealed class PileViewer
             _burnt.transform.localScale = Vector3.one * scale;
             _burnt.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, -spacing * 0.5f, 0f);
         }
+        if (_items != null)
+        {
+            _items.transform.localScale = Vector3.one * scale;
+            _items.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, -spacing * 1.5f, 0f);
+        }
     }
 
     internal void SetVisible(bool visible)
@@ -113,6 +148,10 @@ internal sealed class PileViewer
             _discard.gameObject.SetActive(visible);
         if (_burnt != null && _burnt.gameObject.activeSelf != visible)
             _burnt.gameObject.SetActive(visible);
+        if (_items != null && _items.gameObject.activeSelf != visible)
+            _items.gameObject.SetActive(visible);
+        if (!visible)
+            _itemsBrowse.Close(); // hidden (piles off / no hand) — never leave an item browse floating
     }
 
     internal void Destroy()
@@ -122,13 +161,19 @@ internal sealed class PileViewer
             Core.Loc.OnChanged -= RefreshLabels;
             _locHooked = false;
         }
+        _itemsBrowse.Destroy();
         if (_discard != null)
             Object.DestroyImmediate(_discard.gameObject);
         if (_burnt != null)
             Object.DestroyImmediate(_burnt.gameObject);
+        if (_items != null)
+            Object.DestroyImmediate(_items.gameObject);
         _discard = null;
         _burnt = null;
+        _items = null;
+        _hand = null;
         _loggedCounts = (int.MinValue, int.MinValue);
+        _loggedItems = int.MinValue;
     }
 
     // ------------------------------------------------------------------ status --
@@ -140,6 +185,7 @@ internal sealed class PileViewer
     /// </summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        _hand = hand;
         if (_discard == null || _burnt == null || hand == null)
             return;
         if (!_discard.gameObject.activeSelf)
@@ -154,6 +200,59 @@ internal sealed class PileViewer
         }
         _discard.SetCount(discard);
         _burnt.SetCount(burnt);
+
+        // Item 4: the character-items stack count + its browse follow/refresh.
+        int items = _itemsBrowse.Count(hand);
+        if (_items != null)
+            _items.SetCount(items);
+        if (_loggedItems != items)
+        {
+            _loggedItems = items;
+            VRLog.Info("Cards", $"Piles: items={items} (Inventory.AllItems).");
+        }
+        _itemsBrowse.Tick(hand);
+    }
+
+    // ------------------------------------------------------------------ dispatch --
+
+    /// <summary>
+    /// Route a stack poke: the ITEMS stack opens its own item browse (self-contained,
+    /// needs no CardsDriver wiring); discard/burnt raise <see cref="PokeToggled"/> for
+    /// CardsDriver to open the ability-card browse as before. Poking discard/burnt also
+    /// dismisses any open item browse so only one pile fan is up at a time.
+    /// </summary>
+    internal void DispatchPoke(PileKind kind, VRHand hand)
+    {
+        if (kind == PileKind.Items)
+        {
+            if (_hand != null)
+                _itemsBrowse.TogglePoke(_hand, hand);
+            return;
+        }
+        _itemsBrowse.Close();
+        PokeToggled?.Invoke(kind, hand);
+    }
+
+    internal void DispatchGrabOpen(PileKind kind, VRHand hand)
+    {
+        if (kind == PileKind.Items)
+        {
+            if (_hand != null)
+                _itemsBrowse.OpenHeld(_hand, hand);
+            return;
+        }
+        _itemsBrowse.Close();
+        GrabOpened?.Invoke(kind, hand);
+    }
+
+    internal void DispatchGrabRelease(PileKind kind, VRHand hand)
+    {
+        if (kind == PileKind.Items)
+        {
+            _itemsBrowse.ReleaseHeld(hand);
+            return;
+        }
+        GrabReleased?.Invoke(kind, hand);
     }
 
     // ------------------------------------------------------------------ stack --
@@ -288,13 +387,13 @@ internal sealed class PileViewer
             base.OnGrab(hand); // Holder bookkeeping only (snapToHand off)
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Board: {name} pinch-grabbed ({hand.Side}) — browse while held.");
-            _owner.GrabOpened?.Invoke(_kind, hand);
+            _owner.DispatchGrabOpen(_kind, hand);
         }
 
         public override void OnRelease(VRHand hand, Vector3 velocity)
         {
             base.OnRelease(hand, velocity);
-            _owner.GrabReleased?.Invoke(_kind, hand);
+            _owner.DispatchGrabRelease(_kind, hand);
         }
 
         // ---- poke (toggle browse) --------------------------------------------------
@@ -327,7 +426,7 @@ internal sealed class PileViewer
                 return;
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Board: {name} poked ({hand.Side}) — toggle browse.");
-            _owner.PokeToggled?.Invoke(_kind, hand);
+            _owner.DispatchPoke(_kind, hand);
         }
     }
 }

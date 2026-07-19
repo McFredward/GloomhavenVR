@@ -14,6 +14,9 @@ internal enum PileKind
 
     /// <summary>The burnt pile (lost + permanently lost, the 2D "burnt" header union).</summary>
     Burnt,
+
+    /// <summary>The acting character's ITEM cards (<c>PlayerActor.Inventory.AllItems</c>).</summary>
+    Items,
 }
 
 /// <summary>
