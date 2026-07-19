@@ -80,7 +80,7 @@ internal sealed class OptionsToggle
         // a perfect shortTap yet OptionsToggle still hit menu==null: this pins destroyed-vs-lost).
         if (_menu == null && NonDominantHold.ShortTapThisFrame)
         {
-            ESCMenu[] found = Object.FindObjectsOfType<ESCMenu>(includeInactive: true);
+            ESCMenu[] found = UnityEngine.Object.FindObjectsOfType<ESCMenu>(includeInactive: true);
             if (found.Length > 0)
             {
                 _menu = found[0];
