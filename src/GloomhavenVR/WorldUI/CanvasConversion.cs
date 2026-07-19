@@ -161,6 +161,21 @@ internal sealed class ConvertedPanel
 
     /// <summary>Next frame the background-hide re-assert sweep runs (pooled/late fades).</summary>
     public int BackgroundSweepNextFrame;
+
+    // ---- initial-flicker settle window (sub-item A) ---------------------------------------
+    /// <summary>
+    /// EVERY-FRAME settle deadline (unscaled time) after Convert for a floated modal host:
+    /// until this passes, the mod-layer move, the nested-canvas adoption AND the
+    /// background-hide re-run every frame instead of only on the ~0.4 s periodic sweep. Root
+    /// cause of the reported ~1 s initial flicker (background visible, then gone): the game
+    /// instantiates / fades in the full-window backing a few frames AFTER Convert, so on the
+    /// periodic schedule the untreated opaque backing rendered on the game UI layer (double-
+    /// drawn by the mono UI Camera → flicker) and unhidden for up to half a second before a
+    /// sweep caught it. Re-treating every frame through the fade-in makes the very first
+    /// visible frame already transparent + on the mod layer. Zero when the host opted out of
+    /// both treatments.
+    /// </summary>
+    public float EarlySettleUntil;
 }
 
 /// <summary>
@@ -416,6 +431,13 @@ internal static class CanvasConversion
             HideFullScreenBackground(panel, initial: true);
         }
 
+        // Sub-item A: for a floated modal that gets the mod-layer move and/or the
+        // background hide, re-run BOTH every frame for a short settle window so a backing
+        // the game instantiates / fades in a few frames after Convert is treated before its
+        // first visible frame — killing the reported ~1 s initial flicker.
+        if (useModLayer || transparentBackground)
+            panel.EarlySettleUntil = Time.unscaledTime + EarlySettleSeconds;
+
         Active.Add(panel);
         EnsureCameraMask();
         VRLog.Info("WorldUI", $"Converted '{name}' to world space ({size.x:F0}x{size.y:F0} px, " +
@@ -444,6 +466,14 @@ internal static class CanvasConversion
 
     /// <summary>Periodic sweep throttle (~0.4 s at 72 Hz) for late-appearing nested canvases.</summary>
     private const int CanvasSweepIntervalFrames = 30;
+
+    /// <summary>
+    /// Sub-item A: how long after Convert a floated modal re-treats (mod layer + background
+    /// hide + adoption) EVERY frame instead of on the periodic sweep, so a backing the game
+    /// fades in / instantiates within the first ~second is hidden before it ever renders.
+    /// Comfortably covers the window show/fade animations (~0.3 s) plus any lazy populate.
+    /// </summary>
+    private const float EarlySettleSeconds = 1.5f;
 
     // Scratch buffer (sweep time only; reused, no per-call allocations).
     private static readonly List<Canvas> CanvasScratch = new(8);
@@ -642,7 +672,15 @@ internal static class CanvasConversion
                 continue;
             if (g.canvasRenderer == null || g.canvasRenderer.cull)
                 continue;
-            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < BackgroundOpaqueAlpha)
+            // Sub-item A: gate on the graphic's INTRINSIC alpha (its own serialized colour),
+            // NOT the inherited CanvasGroup fade. The window's backing fades in from inherited-
+            // alpha 0 over the show animation; multiplying by the fade made it read as
+            // "transparent" for the whole fade-in, so it was only hidden once a later sweep
+            // saw it near-opaque — the visible+flickering first second. An intrinsically opaque
+            // full-cover image IS the backing even at inherited-alpha 0, so hide it on its first
+            // frame; a true invisible click-catcher is intrinsically transparent (colour.a ~ 0)
+            // and still excluded here.
+            if (g.color.a < BackgroundOpaqueAlpha)
                 continue;
 
             var grect = (RectTransform)g.transform;
@@ -1121,9 +1159,15 @@ internal static class CanvasConversion
             if (panel.HostCanvas.worldCamera != cam)
                 panel.HostCanvas.worldCamera = cam;
 
+            // Sub-item A: for the first EarlySettleSeconds after Convert, re-treat every
+            // frame (not on the ~0.4 s periodic schedule) so a backing the game fades in /
+            // instantiates late is caught before its first visible frame — the initial
+            // flicker fix. After the settle window the cheap periodic sweep takes over.
+            bool earlySettle = panel.EarlySettleUntil > 0f && Time.unscaledTime < panel.EarlySettleUntil;
+
             // Tests #19/#20: pooled/late children may bring nested canvases after
             // Convert, and the game can flip overrideSorting back on live.
-            if (Time.frameCount >= panel.CanvasSweepNextFrame)
+            if (earlySettle || Time.frameCount >= panel.CanvasSweepNextFrame)
             {
                 AdoptNestedCanvases(panel);
                 // User #8: a freshly adopted/pooled child spawns on the game's UI layer —
@@ -1134,7 +1178,7 @@ internal static class CanvasConversion
 
             // User #8 part 2: re-assert the background hide (menu fade-ins can enable the
             // backing image a few frames after the window shows).
-            if (panel.HideBackground && Time.frameCount >= panel.BackgroundSweepNextFrame)
+            if (panel.HideBackground && (earlySettle || Time.frameCount >= panel.BackgroundSweepNextFrame))
                 HideFullScreenBackground(panel, initial: false);
 
             // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
