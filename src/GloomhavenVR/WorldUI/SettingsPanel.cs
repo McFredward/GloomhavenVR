@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
+using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
@@ -107,8 +108,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// Hands are GLOBAL tabs (no per-board Oak/Steel/Bronze selector, no element cycle) — their
     /// settings apply to every board.
     /// </summary>
-    private enum DebugCategory { Buttons, Panels, Overlays, Widgets, Board, Fan, Hands }
-    private const int DebugCategoryCount = 7;
+    private enum DebugCategory { Buttons, Panels, Overlays, Widgets, Board, Fan, Hands, Figures }
+    private const int DebugCategoryCount = 8;
 
     /// <summary>
     /// SINGLE source of truth for category → elements (re-slice by editing this one table). A
@@ -127,6 +128,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         new[] { DebugElement.Board },                                                                         // Board
         System.Array.Empty<DebugElement>(),                                                                  // Fan (global)
         System.Array.Empty<DebugElement>(),                                                                  // Hands (global)
+        System.Array.Empty<DebugElement>(),                                                                  // Figures (global)
     };
 
     /// <summary>GLOBAL tabs (Fan, Hands) apply to every board — no per-board selector, no element cycle.</summary>
@@ -865,6 +867,28 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddHandStepper(Loc.Mod("hand_z"), Plugin.HandForwardOffset, 0.002f, degrees: false);
         AddHandStepper(Loc.Mod("hand_pitch"), Plugin.GripPitchOffsetDegrees, 1f, degrees: true);
 
+        // FIGURES category (GLOBAL): live-tune the HELD board-figure pose — the mini is centered
+        // in the palm and hard to place offline (user hardware feedback). Each stepper writes a
+        // [FigureGrab] entry, which persists (dev.gloomhavenvr.figuregrab.cfg) AND live-applies:
+        // FigureGrabConfig subscribes every entry's SettingChanged and re-poses the currently-held
+        // mini immediately (FigureGrabbable.ReapplyAll), so tuning is interactive in-headset. Force
+        // the config bound so the steppers work even before the board module inits. Shown only under
+        // the Figures tab.
+        FigureGrabConfig.Bind();
+        AddFigureToggle(Loc.Mod("fig_upright"), FigureGrabConfig.HeldUpright);
+        AddFigureStepper(Loc.Mod("fig_x"), FigureGrabConfig.HeldOffsetSide, 0.002f, -0.2f, 0.2f,
+            v => $"{v * 1000f:0}mm");
+        AddFigureStepper(Loc.Mod("fig_y"), FigureGrabConfig.HeldOffsetUp, 0.002f, -0.2f, 0.2f,
+            v => $"{v * 1000f:0}mm");
+        AddFigureStepper(Loc.Mod("fig_z"), FigureGrabConfig.HeldOffsetForward, 0.002f, -0.2f, 0.2f,
+            v => $"{v * 1000f:0}mm");
+        AddFigureStepper(Loc.Mod("fig_tilt"), FigureGrabConfig.HeldTiltDegrees, 5f, -180f, 180f,
+            v => $"{v:0}°");
+        AddFigureStepper(Loc.Mod("fig_yaw"), FigureGrabConfig.HeldFaceYawDegrees, 5f, -180f, 180f,
+            v => $"{v:0}°");
+        AddFigureStepper(Loc.Mod("fig_scale"), FigureGrabConfig.HeldScale, 0.1f, 0.2f, 5f,
+            v => $"{v:0.00}x");
+
         // Single visibility pass: master DebugMenu gate ANDed with each row's own predicate
         // (category/element scope). Never more than a handful of rows visible at once.
         _refreshers.Add(() =>
@@ -944,6 +968,32 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         MiniStepper(row,
             () => degrees ? $"{entry.Value:0}°" : $"{entry.Value * 1000f:0}mm",
             d => entry.Value += d * step);
+    }
+
+    /// <summary>
+    /// Item 2b: a global held-figure stepper row bound directly to a [FigureGrab]
+    /// <see cref="ConfigEntry{T}"/> (offset mm / rotation ° / scale). Writing the entry persists
+    /// (BepInEx) and live-applies (FigureGrabConfig re-poses the held mini on SettingChanged).
+    /// Clamped to [min,max]. Shown only under the Figures tab.
+    /// </summary>
+    private void AddFigureStepper(string label, ConfigEntry<float> entry, float step, float min, float max,
+        Func<float, string> format)
+    {
+        var row = Row();
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Figures);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => format(entry.Value),
+            d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
+    }
+
+    /// <summary>Held-figure boolean row (e.g. Upright) — same live-apply/persist path as the steppers.</summary>
+    private void AddFigureToggle(string label, ConfigEntry<bool> entry)
+    {
+        var row = Row();
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Figures);
+        Label(row, label, 16f, flexible: true);
+        ToggleButton(row, () => entry.Value, v => entry.Value = v);
     }
 
     /// <summary>The offset ConfigEntry the selected element edits (all board-local Vector3s).</summary>
@@ -1167,6 +1217,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugCategory.Board => Loc.Mod("board"),
         DebugCategory.Fan => Loc.Mod("cat_fan"),
         DebugCategory.Hands => Loc.Mod("hands"),
+        DebugCategory.Figures => Loc.Mod("cat_figures"),
         _ => c.ToString(),
     };
 
