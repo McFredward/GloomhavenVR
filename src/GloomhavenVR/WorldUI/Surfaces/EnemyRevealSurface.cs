@@ -124,8 +124,15 @@ internal sealed class EnemyRevealSurface
     private static readonly StringBuilder NameScratch = new(128);
 
     private ConvertedPanel? _panel;
-    private Vector3 _position;                        // current applied host position (world-stable between glides)
-    private Quaternion _rotation = Quaternion.identity; // current applied host rotation (upright, facing the head)
+    // Stored pose is expressed in the RIG's TRACKING SPACE (the head's pose RELATIVE to
+    // VRRigDriver.RigRoot), NOT world space — this is what makes the reveal board-invariant
+    // (user #4). WorldGrab rotates/moves/scales the rig ROOT (RigTarget.Current == RigRoot),
+    // and the HeadCamera is a CHILD of it, so the head's WORLD pose bakes in the world-grab
+    // yaw/drag/zoom; reading + storing the pose in rig space strips that coupling. Place()
+    // re-projects this through the LIVE rig each frame, so the panel rides the physical head,
+    // never the board. Rig-stable between glides (applied verbatim, never recomputed).
+    private Vector3 _position;                        // rig-local host position (head-relative, board-invariant)
+    private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (upright, facing the head)
     private bool _placed;                            // false until Place() snaps the first in-view pose
     private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at
     private float _offGazeSince = -1f;
@@ -325,31 +332,60 @@ internal sealed class EnemyRevealSurface
     /// <see cref="_position"/>/<see cref="_rotation"/> are applied verbatim — the target
     /// is never recomputed per frame, so nothing fights the ease and the panel sits still.
     /// </summary>
-    private void UpdateFollow(Camera head, float scale)
+    private void UpdateFollow(Camera head, Transform? rig)
     {
-        // Comfortable in-view target (settings-panel / ModalFallback.PlaceAtHmd "spawn in
-        // view" pattern). Reuse PanelPlacement.Spawn ONLY for the UPRIGHT facing (its
-        // Facing: panel front toward the head, +Z away — the convention every surface here
-        // shares); its horizon-flattened position is discarded.
-        PanelPlacement.Spawn(head, scale, out _, out Quaternion desiredRot);
+        // BOARD-INVARIANT HEAD FRAME (user #4 fix). Read the head's pose RELATIVE to the rig
+        // root, not from world space. The residual board coupling was here: the reveal's
+        // facing (formerly PanelPlacement.Spawn) and position both derived from
+        // head.transform's WORLD forward/position, and the HeadCamera is a CHILD of the rig
+        // root that WorldGrab yaws / drags / zooms (RigTarget.Current == VRRigDriver.RigRoot;
+        // WorldGrab sets rig.rotation/position/localScale). So rotating the control board
+        // spun the rig root, which spun the head's world forward, which re-faced the reveal —
+        // the "reveal rotates with the board" bug. Expressing the whole pose in the rig's
+        // TRACKING SPACE strips it: world-grab moves the rig ROOT but leaves the head's pose
+        // WITHIN the rig untouched, so no board term reaches the reveal. Place() re-projects
+        // this through the live rig each frame — absent a grab the world pose is identical to
+        // before; during a grab the panel stays glued to the PHYSICAL head.
+        Vector3 headPosL;
+        Quaternion headRotL;
+        if (rig != null)
+        {
+            headPosL = rig.InverseTransformPoint(head.transform.position);
+            headRotL = Quaternion.Inverse(rig.rotation) * head.transform.rotation;
+        }
+        else
+        {
+            // No rig (dev harness / no scenario) — no world-grab exists, so the world frame
+            // IS the head frame; Place() applies the stored pose verbatim (identity rig).
+            headPosL = head.transform.position;
+            headRotL = head.transform.rotation;
+        }
+        Vector3 gazeL = headRotL * Vector3.forward;
 
-        // Item 3 (user #4, RECURRING) rework: the HEIGHT fix. Place the panel along the
-        // ACTUAL gaze — pitch included, like ModalFallback.PlaceAtHmd floats a window in
-        // front of the HMD — at a reading distance, then drop it slightly below the gaze
-        // line. Riding the real gaze (not the horizon, not the high-mounted board) puts it
-        // in the forward field of view at ANY head pitch, so a player looking down at the
-        // diorama reads it in place and never has to look up. Scaled by the LIVE head-frame
-        // scale (the player's real->world conversion), so the reading distance is a fixed
-        // REAL distance in front of the head — independent of the board's size/position.
-        Vector3 gaze = head.transform.forward;
-        Vector3 desiredPos = head.transform.position + gaze * (RevealReadingDistance * scale)
-                             - Vector3.up * (RevealViewDrop * scale);
+        // Upright billboard facing the head, +Z away (uGUI front toward the viewer — the
+        // convention every surface here shares). Built PURELY from the board-invariant local
+        // gaze heading and world up: head yaw only, never any board / tray / rig-root term.
+        Vector3 awayL = gazeL;
+        awayL.y = 0f;
+        awayL = awayL.sqrMagnitude > 1e-4f ? awayL.normalized : Vector3.forward;
+        Quaternion desiredRot = Quaternion.LookRotation(awayL, Vector3.up);
+
+        // Item 3 (user #4, RECURRING): the HEIGHT fix. Place the panel along the ACTUAL gaze
+        // — pitch included, like ModalFallback.PlaceAtHmd floats a window in front of the HMD
+        // — at a reading distance, then drop it slightly below the gaze line. Riding the real
+        // gaze (not the horizon, not the high-mounted board) puts it in the forward field of
+        // view at ANY head pitch, so a player looking down at the diorama reads it in place
+        // and never has to look up. RAW meters here: Place() projects through the rig (whose
+        // lossyScale is the diorama scale) so it lands at a FIXED comfortable REAL distance/
+        // apparent size — independent of the board's size/position/rotation.
+        Vector3 desiredPos = headPosL + gazeL * RevealReadingDistance - Vector3.up * RevealViewDrop;
         if (!_dropLogged)
         {
             _dropLogged = true;
-            VRLog.Info("WorldUI", $"ENEMY REVEAL head/view-anchored to y={desiredPos.y:F3} m " +
+            float worldY = rig != null ? rig.TransformPoint(desiredPos).y : desiredPos.y;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL head/view-anchored to y={worldY:F3} m " +
                                   $"(along the gaze at {RevealReadingDistance:F2} m, dropped {RevealViewDrop:F2} m " +
-                                  $"below it, ×{scale:F2} scale) — spawns in the forward view, no looking up.");
+                                  $"below it, in the board-invariant head frame) — spawns in the forward view, no looking up.");
         }
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
@@ -364,13 +400,14 @@ internal sealed class EnemyRevealSurface
             return;
         }
 
-        // Drift = the CURRENT panel centre's angle off the gaze. The reading drop already
-        // sits it ~7° below the forward axis, which FollowDeadzoneDeg clears, so an
-        // at-rest panel never self-triggers; a head turn / walk that pushes it past the
-        // deadzone does.
-        Vector3 toPanel = _position - head.transform.position;
+        // Drift = the CURRENT panel centre's angle off the gaze, all in the rig frame. The
+        // reading drop already sits it ~7° below the forward axis, which FollowDeadzoneDeg
+        // clears, so an at-rest panel never self-triggers; a PHYSICAL head turn / walk that
+        // pushes it past the deadzone does. World-grab never trips this (it leaves headPosL /
+        // gazeL and the stored pose all unchanged).
+        Vector3 toPanel = _position - headPosL;
         float off = toPanel.sqrMagnitude > 1e-6f
-            ? Vector3.Angle(head.transform.forward, toPanel)
+            ? Vector3.Angle(gazeL, toPanel)
             : 0f;
         if (off > FollowDeadzoneDeg)
         {
@@ -395,9 +432,9 @@ internal sealed class EnemyRevealSurface
             _rotation = Quaternion.Slerp(_rotation, desiredRot, t);
             // Settled = converged on the fresh target (its direction AND facing), not on
             // the gaze axis — the target itself sits below the axis by the reading drop.
-            Vector3 toDesired = desiredPos - head.transform.position;
+            Vector3 toDesired = desiredPos - headPosL;
             bool posSettled = toDesired.sqrMagnitude < 1e-6f
-                || Vector3.Angle(_position - head.transform.position, toDesired) < FollowSettledDeg;
+                || Vector3.Angle(_position - headPosL, toDesired) < FollowSettledDeg;
             if (posSettled && Quaternion.Angle(_rotation, desiredRot) < FollowSettledDeg)
             {
                 _easing = false;
@@ -445,10 +482,20 @@ internal sealed class EnemyRevealSurface
                 _placedMetersPerPx = metersPerPx; // freeze at the pinned (max) width
         }
 
-        UpdateFollow(head, scale);
+        // Board-invariant head frame (user #4): the follow target and the stored pose live
+        // in the RIG's tracking space so world-grab (which moves the rig ROOT, not the head
+        // within it) never touches them. Re-project through the LIVE rig to world here —
+        // absent a grab this reproduces the exact same world pose as before; during a grab it
+        // keeps the panel glued to the physical head. No PlayTray/tray/board/InitiativeTrack
+        // transform feeds this: ONLY the head pose (relative to the rig) and the rig frame do.
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        UpdateFollow(head, rig);
+
+        Vector3 worldPos = rig != null ? rig.TransformPoint(_position) : _position;
+        Quaternion worldRot = rig != null ? rig.rotation * _rotation : _rotation;
 
         Transform host = _panel.HostTransform;
-        host.SetPositionAndRotation(_position, _rotation);
+        host.SetPositionAndRotation(worldPos, worldRot);
         host.localScale = Vector3.one * (metersPerPx * scale);
     }
 
