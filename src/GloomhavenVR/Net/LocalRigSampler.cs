@@ -23,6 +23,9 @@ internal static class LocalRigSampler
         if (!(state.WorldScale > 0f))
             state.WorldScale = 1f;
 
+        // Stamp the locally-chosen head mask (read live so changing it updates remotes at once).
+        state.MaskId = (byte)LocalMaskId();
+
         Camera? head = VRRigDriver.HeadCamera;
         if (head != null)
         {
@@ -40,6 +43,11 @@ internal static class LocalRigSampler
         // Nothing to say if we have neither a head nor a tracked hand.
         return state.HeadValid || state.Left.Tracked || state.Right.Tracked;
     }
+
+    /// <summary>The locally-chosen mask id, clamped to [0, MaskCount-1]. Guarded so an unbound
+    /// config (net module never inited) falls back to mask 0 rather than throwing.</summary>
+    public static int LocalMaskId() =>
+        NetModule.MaskId != null ? Mathf.Clamp(NetModule.MaskId.Value, 0, HeadMaskLibrary.MaskCount - 1) : 0;
 
     private static void SampleHand(IBoardAnchor anchor, VRHand? hand, bool includeFingers, ref HandStateSample sample)
     {
