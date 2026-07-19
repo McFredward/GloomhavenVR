@@ -1,5 +1,6 @@
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
+using GloomhavenVR.Net;
 using UnityEngine;
 using UnityEngine.SpatialTracking;
 using UnityEngine.XR;
@@ -109,6 +110,15 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>Stereo-policy sweep cadence (frames) between the event-driven sweeps.</summary>
     private const int SweepIntervalFrames = 30;
 
+    /// <summary>
+    /// Spawn-circle re-seat poll cadence (frames). The FFSNet participant registry may not
+    /// be populated at the first-pose recenter (LocalStableIndex → (0,1) = solo seat), so we
+    /// re-sample on this cadence and re-run Recenter only when the deterministic (idx,total)
+    /// actually changes (players finished joining, or someone left). Stable session ⇒ one
+    /// change then silent.
+    /// </summary>
+    private const int CircleReseatIntervalFrames = 30;
+
     /// <summary>What the current rig is built around (P5: menu rig added, MISSION A.7).</summary>
     private enum RigKind
     {
@@ -136,6 +146,15 @@ internal sealed class VRRigDriver : MonoBehaviour
     private string _sceneRecheckName = "";
     private string _rebuildTrigger = "initial";
     private bool _frozeGameCameraControl;
+
+    // Spawn circle (FEATURE D). The scenario rig's FLAT board yaw, frozen at BuildRig — the
+    // circle azimuth is applied on top of THIS every recenter so repeated recenters are
+    // idempotent (never accumulate). The last (idx,total) a recenter applied, and the poll
+    // countdown that re-runs the seat when that pair changes after the registry populates.
+    private Quaternion _scenarioBaseYaw = Quaternion.identity;
+    private int _lastCircleIdx = -1;
+    private int _lastCircleTotal = -1;
+    private int _circleReseatCountdown;
 
     // Per-frame maintenance ticks, each routed through the shared Core.TickGuard so a
     // throw in one (most plausibly MixedReality.Tick) is isolated + attributed instead of
@@ -255,6 +274,21 @@ internal sealed class VRRigDriver : MonoBehaviour
         {
             Recenter();
             _pendingRecenter = false;
+        }
+
+        // Spawn-circle re-seat (FEATURE D, B3 robustness): the FFSNet participant registry may
+        // not be populated at the first-pose recenter, so LocalStableIndex returns (0,1) and the
+        // player gets the solo seat. Poll on a cheap cadence while the scenario rig lives; when
+        // the deterministic (idx,total) actually changes — players finished joining, or someone
+        // left — re-run Recenter to (re)apply the azimuth. In a stable session this fires once
+        // (when the registry populates) then stays silent, so it never fights world-grab/snap-turn.
+        if (_kind == RigKind.Scenario && !_pendingRecenter && _camera != null
+            && Plugin.SpawnInCircle.Value && --_circleReseatCountdown <= 0)
+        {
+            _circleReseatCountdown = CircleReseatIntervalFrames;
+            int idx = NetPlayerActors.LocalStableIndex(out int total);
+            if (idx != _lastCircleIdx || total != _lastCircleTotal)
+                Recenter();
         }
 
         // Per-frame maintenance ticks, each ISOLATED + attributed via the shared
@@ -465,10 +499,17 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         _rigRoot = CreateRigRoot();
         // Rig at the orbit focus, yaw taken from the current camera so the board is
-        // oriented the way the player last saw it flat.
+        // oriented the way the player last saw it flat. Frozen as the spawn-circle base yaw:
+        // Recenter rotates the seat by the per-player azimuth about THIS (idempotent).
+        _scenarioBaseYaw = Quaternion.Euler(0f, anchor.transform.eulerAngles.y, 0f);
         _rigRoot.transform.position = controller.FocusPoint;
-        _rigRoot.transform.rotation = Quaternion.Euler(0f, anchor.transform.eulerAngles.y, 0f);
+        _rigRoot.transform.rotation = _scenarioBaseYaw;
         _rigRoot.transform.localScale = Vector3.one * scale;
+
+        // Force the first-pose recenter to (re)evaluate the circle seat from scratch.
+        _lastCircleIdx = -1;
+        _lastCircleTotal = -1;
+        _circleReseatCountdown = CircleReseatIntervalFrames;
 
         // Clip planes seeded for this scale (~5 real cm near plane) and kept
         // scale-aware while WorldGrab zooms the rig (TickClipPlanes, test #17).
@@ -584,16 +625,47 @@ internal sealed class VRRigDriver : MonoBehaviour
             return;
 
         float scale = _rigRoot.transform.localScale.x;
+
+        // Spawn circle (FEATURE D): give each player a distinct azimuth around the focus
+        // point so N VR players sit evenly around the board — each FACING the center —
+        // instead of stacking at one shared seat. Default seatYaw is the CURRENT rig
+        // rotation, so single-player / offline (total <= 1) and the SpawnInCircle-off case
+        // keep the EXACT prior behavior: rotation untouched, seat direction = current yaw.
+        //
+        // For 2+ players we rotate the whole rig about the focus point's up (world up) axis
+        // by 360*idx/total, pivoting on the frozen flat base yaw — this rotates BOTH the
+        // seat offset direction AND the facing, so the head lands on the circle and the
+        // board still reads centered ahead. Rotating from the frozen base (not the live
+        // rotation) makes repeated recenters idempotent. The re-seated head world pose is
+        // broadcast as-is (foundation avatar sync is world-frame) → remote avatars separate
+        // for free. NetPlayerActors is deterministic (participants sorted by PlayerID) and
+        // returns (0,1) when the registry isn't ready yet → solo seat this pass; the Update
+        // poll re-runs Recenter once (idx,total) changes.
+        int idx = 0, total = 1;
+        Quaternion seatYaw = _rigRoot.transform.rotation;
+        if (Plugin.SpawnInCircle.Value)
+        {
+            idx = NetPlayerActors.LocalStableIndex(out total);
+            if (total > 1)
+            {
+                seatYaw = Quaternion.AngleAxis(360f * idx / total, Vector3.up) * _scenarioBaseYaw;
+                _rigRoot.transform.rotation = seatYaw;
+            }
+        }
+        _lastCircleIdx = idx;
+        _lastCircleTotal = total;
+
         Vector3 desiredHeadWorld = controller.FocusPoint
-                                   + _rigRoot.transform.rotation * (Vector3.back * (ComfortSettings.EffectiveEyeBackMeters * scale))
+                                   + seatYaw * (Vector3.back * (ComfortSettings.EffectiveEyeBackMeters * scale))
                                    + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
-        Vector3 headOffsetWorld = _rigRoot.transform.rotation * (_camera.transform.localPosition * scale);
+        Vector3 headOffsetWorld = seatYaw * (_camera.transform.localPosition * scale);
         _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
         RigClamp.Apply(_rigRoot.transform);
         RigPoseVersion++; // P6: world-anchored panels re-derive their seat yaw on recenter
 
         VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position} " +
-                          $"(seated {(ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value ? "yes" : "no")}).");
+                          $"(seated {(ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value ? "yes" : "no")}" +
+                          $", circle seat {idx + 1}/{total}).");
     }
 
     /// <summary>

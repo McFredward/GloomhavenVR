@@ -47,6 +47,9 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Head-track the menu camera outside scenarios (menu rig, P5). Off = static menu view.</summary>
     internal static ConfigEntry<bool> MenuRig = null!;
 
+    /// <summary>Seat multiple VR players evenly around the board (distinct azimuth per player) instead of stacking them at one shared seat. No effect single-player.</summary>
+    internal static ConfigEntry<bool> SpawnInCircle = null!;
+
     /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.</summary>
     internal static ConfigEntry<bool> Experimental3DMap = null!;
 
@@ -157,6 +160,12 @@ public class Plugin : BaseUnityPlugin
             "Head-track the game's menu camera while no scenario runs (main menu, guildmaster " +
             "map) so the floating 2D screen and the hands work outside scenarios. Off = the " +
             "menu renders from a static viewpoint.");
+        SpawnInCircle = Config.Bind(
+            "Rig", "SpawnInCircle", true,
+            "Multiplayer: seat each VR player at a distinct azimuth evenly spaced around the " +
+            "board (360 / player-count apart), each facing the board center, so avatars no longer " +
+            "spawn stacked inside each other. No effect in single-player / offline (the solo seat " +
+            "is unchanged). Off = every player keeps the same shared seat as before.");
         Experimental3DMap = Config.Bind(
             "Rig", "Experimental3DMap", false,
             "RESERVED — CURRENTLY UNIMPLEMENTED placeholder for a future feature: explore the " +
