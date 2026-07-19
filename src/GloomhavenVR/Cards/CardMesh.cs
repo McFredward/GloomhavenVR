@@ -246,22 +246,33 @@ internal static class CardMesh
         var walls = new System.Collections.Generic.List<int>(30);
 
         // Add a quad (a,b,c,d looping the rim) to submesh <sm> with flat normal <n>. Winding is
-        // chosen from the outward normal so the face is always visible from its +n side (Unity
-        // front-face = clockwise seen from outside ⇒ the CCW right-hand normal must point −n).
+        // chosen from the outward normal so the face is always visible from its +n (OUTSIDE) side.
+        //
+        // FIX (Item 7 — "you can see the button's OWN UNDERSIDE / interior through it"): the whole
+        // keycap was wound INSIDE-OUT and every face was back-face-CULLED by BoardLit (its cap
+        // materials are `new Material(BoardLit)`, so they keep the shader's default _Cull = 2 =
+        // Back — never the board's _Cull = 0). With every outward face culled, only the FAR interior
+        // faces survived toward the viewer, so the button read as see-through onto its own back cap /
+        // inner walls. Ground truth (the shipping card front face, CardMesh.Build): a triangle is
+        // front-facing/visible from the side its RIGHT-HAND normal (Cross(v1−v0, v2−v0)) points
+        // TOWARD. So to be visible from +n the EMITTED winding's RH normal must point +n — the
+        // opposite of what this method did before (it forced the RH normal to −n in BOTH branches).
         void AddQuad(System.Collections.Generic.List<int> sm,
                      Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n)
         {
             int b0 = verts.Count;
             verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
             for (int i = 0; i < 4; i++) { norms.Add(n); uvs.Add(new Vector2(0.5f, 0.5f)); }
-            Vector3 rh = Vector3.Cross(b - a, c - a);
-            if (Vector3.Dot(rh, n) < 0f)
+            Vector3 rh = Vector3.Cross(b - a, c - a); // RH normal of triangle (a,b,c)
+            if (Vector3.Dot(rh, n) > 0f)
             {
+                // (a,b,c)/(a,c,d) already wind so the RH normal points +n → visible from outside.
                 sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2);
                 sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 3);
             }
             else
             {
+                // Reverse so the RH normal flips to +n (outward).
                 sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 1);
                 sm.Add(b0); sm.Add(b0 + 3); sm.Add(b0 + 2);
             }
