@@ -136,7 +136,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
 
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
         GameObject anchorGo = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
-        StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character);
+        StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character, hand.Side);
 
         VRLog.Info("FigureGrab", $"{hand.Side} grabbed figure ({Describe()}).");
     }
