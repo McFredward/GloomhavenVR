@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
@@ -209,7 +210,7 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
 /// initiative track on over-UI (unlike the stat panels, which are therefore
 /// converted non-pokeable).
 /// </summary>
-internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
+internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPortraitPicker
 {
     public override string Name => "InitiativeTrack";
     protected override bool ConfigEnabled => WorldUIConfig.InitiativeTrack.Value;
@@ -263,6 +264,13 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
     /// <summary>Live portrait transforms this tick (reused; no per-frame allocation).</summary>
     private readonly List<Transform> _depthScratch = new(16);
 
+    /// <summary>
+    /// Host canvas this surface registered its per-portrait depth picker against
+    /// (user #3 follow-up), captured so it can be unregistered on release even after
+    /// the framework has Unity-destroyed the host GameObject.
+    /// </summary>
+    private Canvas? _depthPickHost;
+
     public override void Tick()
     {
         bool wasConverted = Panel != null;
@@ -270,13 +278,26 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
         if (Panel != null)
             NormalizeDepth();
         else if (wasConverted)
+        {
             RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
+            UnregisterDepthPick();
+        }
     }
 
     public override void Shutdown()
     {
         RestoreDepth(); // before base releases the panel (holder still alive here)
+        UnregisterDepthPick();
         base.Shutdown();
+    }
+
+    private void UnregisterDepthPick()
+    {
+        if (_depthPickHost is not null) // reference check: the host may be Unity-destroyed
+        {
+            DepthPortraitPicks.Unregister(_depthPickHost);
+            _depthPickHost = null;
+        }
     }
 
     /// <summary>
@@ -358,6 +379,107 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
     {
         if (Panel != null && InitiativeTrack.Instance != null)
             Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;
+
+        // Register per-portrait depth-aware laser picking against the live host canvas
+        // (user #3 follow-up). RayUguiDriver intersects (and hands UguiPointer) exactly
+        // this HostCanvas, so keying the picker on it scopes the depth path to this panel.
+        if (Panel != null)
+        {
+            _depthPickHost = Panel.HostCanvas;
+            DepthPortraitPicks.Register(_depthPickHost, this);
+        }
+    }
+
+    // ---- per-portrait pick geometry (user #3 follow-up) -------------------------------
+    private static readonly Vector3[] PickCorners = new Vector3[4];
+
+    /// <summary>
+    /// Depth-aware laser pick over the initiative portraits (<see cref="IDepthPortraitPicker"/>).
+    /// Each portrait is a direct child of <c>initiativeTrackHolder</c> carrying its own
+    /// (normalized) local z, so its world rect sits at the portrait's ACTUAL position and
+    /// depth. We intersect the true aim ray with each active portrait's world rect and
+    /// return the NEAREST hit's clickable <c>avatarButton</c> — so pointing at a portrait
+    /// selects THAT portrait, respecting its height/depth, where the flat host-plane pick
+    /// projected onto a depth-displaced neighbour. Non-portrait siblings under the holder
+    /// (the gamepad hotkey tips) carry no <c>InitiativeTrackActorBehaviour</c>/button and
+    /// are skipped by rule. Ray misses fall back to the ordinary flat pick in UguiPointer.
+    /// </summary>
+    bool IDepthPortraitPicker.TryPickPortrait(Vector3 rayOrigin, Vector3 rayDirection,
+        out GameObject target, out Vector3 worldHit)
+    {
+        target = null!;
+        worldHit = default;
+
+        Transform? holder = InitiativeTrack.Instance != null
+            ? InitiativeTrack.Instance.initiativeTrackHolder
+            : null;
+        if (holder == null)
+            return false;
+
+        float bestDist = float.PositiveInfinity;
+        foreach (Transform child in holder)
+        {
+            if (!child.gameObject.activeSelf || child is not RectTransform rect)
+                continue;
+            InitiativeTrackActorBehaviour behaviour = child.GetComponent<InitiativeTrackActorBehaviour>();
+            if (behaviour == null || behaviour.avatarButton == null)
+                continue; // not a portrait (hotkey tip / separator) — no click target
+            GameObject buttonGo = behaviour.avatarButton.gameObject;
+            if (!buttonGo.activeInHierarchy)
+                continue;
+
+            // Portrait cell world rect (child inherits the stepped z → real depth).
+            if (TryIntersectRect(rect, rayOrigin, rayDirection, bestDist, out float dist, out Vector3 point))
+            {
+                bestDist = dist;
+                target = buttonGo;
+                worldHit = point;
+            }
+        }
+
+        return target != null;
+    }
+
+    /// <summary>
+    /// Ray ∩ a portrait's world rect via its actual WORLD-SPACE corners (mirrors
+    /// RayUguiDriver.TryIntersect's host-plane math, applied per portrait): the plane is
+    /// spanned by the real corners at the portrait's true position/depth, so a hit means
+    /// the beam geometrically lands inside that portrait. Front-side only (uGUI faces
+    /// -normal); a nearer portrait wins via the shrinking <paramref name="maxDist"/>.
+    /// </summary>
+    private static bool TryIntersectRect(RectTransform rect, Vector3 origin, Vector3 direction,
+        float maxDist, out float dist, out Vector3 point)
+    {
+        dist = 0f;
+        point = default;
+
+        rect.GetWorldCorners(PickCorners); // 0=BL, 1=TL, 2=TR, 3=BR
+        Vector3 right = PickCorners[3] - PickCorners[0];
+        Vector3 up = PickCorners[1] - PickCorners[0];
+        float rightLen2 = right.sqrMagnitude;
+        float upLen2 = up.sqrMagnitude;
+        if (rightLen2 < 1e-12f || upLen2 < 1e-12f)
+            return false; // degenerate / not laid out yet
+
+        Vector3 normal = Vector3.Cross(right, up).normalized;
+        float denom = Vector3.Dot(direction, normal);
+        if (denom < 1e-5f)
+            return false; // parallel or back-side
+
+        float d = Vector3.Dot(PickCorners[0] - origin, normal) / denom;
+        if (d <= 0f || d >= maxDist)
+            return false;
+
+        Vector3 p = origin + direction * d;
+        Vector3 rel = p - PickCorners[0];
+        float u = Vector3.Dot(rel, right) / rightLen2;
+        float v = Vector3.Dot(rel, up) / upLen2;
+        if (u < 0f || u > 1f || v < 0f || v > 1f)
+            return false;
+
+        dist = d;
+        point = p;
+        return true;
     }
 }
 
