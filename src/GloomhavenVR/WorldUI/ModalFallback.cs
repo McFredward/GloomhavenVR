@@ -680,6 +680,11 @@ internal static class ModalFallback
     private static bool _hoverFocusSuppressed;
     private static bool _savedHoverFocus;
 
+    // Issue #9 (multi-highlight): ESC-menu sub-window tabs whose highlight the mod is currently
+    // FORCING lit because their window floats in parallel — so it can hand the highlight back to
+    // the game the moment that window closes. See SyncEscMenuTabHighlights.
+    private static readonly HashSet<UIWindowID> _forcedTabs = new();
+
     /// <summary>True while the flat screen must show because a fallback window is open.</summary>
     internal static bool ScreenWanted { get; private set; }
 
@@ -736,6 +741,7 @@ internal static class ModalFallback
         _lastWant = false;
         _escapeChordFired = false;
         _escapeArmingLogged = false;
+        _forcedTabs.Clear();
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
     }
@@ -1022,6 +1028,11 @@ internal static class ModalFallback
                                   "compact, consistent every open.");
         }
 
+        // Issue #9 (multi-highlight): mark EVERY parallel-open sub-window's ESC-menu tab, not just
+        // the single one the game's single-select toggle group leaves 'on'. Runs after the
+        // release/convert loops so Converted reflects exactly which windows float this tick.
+        SyncEscMenuTabHighlights();
+
         // Item 1a (revert): menus render with NORMAL ZTest again (no on-top treatment), so the
         // sky/backdrop must be made non-occluding for floated menus to stay visible at the shell
         // edge. That is a SEPARATE change owned by Core.MixedReality; this call signals it when any
@@ -1135,6 +1146,99 @@ internal static class ModalFallback
         if (module != null)
             module.focusOnMouseHover = _savedHoverFocus;
         _hoverFocusSuppressed = false;
+    }
+
+    // ---- multi-highlight of parallel sub-windows (issue #9) -----------------------------
+
+    /// <summary>
+    /// Issue #9: highlight the ESC-menu tab of EVERY sub-window that floats in parallel, not just
+    /// the last-opened one. The game's ESC menu drives a SINGLE-SELECT <c>ToggleGroup</c>
+    /// (ESCMenu.toggleGroup), so opening a second sub-window turns the first tab's toggle OFF (its
+    /// deselect handler is the very <c>Hide()</c> the sticky model defeats — issue #5) and only the
+    /// newest tab stays highlighted. This paints the selected-tab highlight for each tab whose
+    /// window the mod currently floats.
+    ///
+    /// WHY NOT the toggle group: <c>ToggleGroup.allowSwitchOff</c> only permits ZERO-on, never
+    /// multiple-on, and driving <c>toggle.isOn</c>/<c>SetValue</c> true runs the Toggle setter →
+    /// <c>ToggleGroup.NotifyToggleOn</c> → turns the REAL active toggle off → hides that window (the
+    /// issue #5 cause again). So the toggle/group state is left ENTIRELY to the game; only the
+    /// highlight IMAGE is driven, re-asserted each tick, and handed straight back on close. Purely
+    /// cosmetic, contained to the ESC menu, no game window state touched.
+    ///
+    /// Tab → window ID (verified: the multiplayer submenu is 'UI Multiplayer Submenu' = ID
+    /// ViceOptionsSubmenu in the runtime log; options = UIOptionsWindow (Options); compendium =
+    /// CompendiumWindow (CompendiumPanel)).
+    /// </summary>
+    private static void SyncEscMenuTabHighlights()
+    {
+        ESCMenu? esc = null;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window != null && wp.Window.ID == UIWindowID.ESCMenu && wp.Panel.IsAlive)
+            {
+                esc = wp.Window.GetComponent<ESCMenu>();
+                break;
+            }
+        }
+        if (esc == null)
+        {
+            // ESC menu not floated (closed / never opened) — the game owns every tab highlight again.
+            _forcedTabs.Clear();
+            return;
+        }
+        SyncTab(esc.optionsButton, UIWindowID.Options);
+        SyncTab(esc.multiplayerButton, UIWindowID.ViceOptionsSubmenu);
+        SyncTab(esc.compendiumButton, UIWindowID.CompendiumPanel);
+    }
+
+    /// <summary>
+    /// Drive one ESC-menu tab's highlight to match whether its window floats (issue #9). Forces the
+    /// highlight image lit (mirroring <c>UIMenuOption.RefreshHighlight(true)</c>) while floated —
+    /// re-asserting each tick so the game's LeanTween unhighlight fade cannot win — and fades it out
+    /// once the window closes, WITHOUT ever touching the tab's toggle/selected state.
+    /// </summary>
+    private static void SyncTab(UIMainMenuOption? tab, UIWindowID id)
+    {
+        if (tab == null || tab.highlightImage == null)
+            return;
+
+        if (IsIdFloated(id))
+        {
+            // Keep it solidly lit: cancel any in-flight unhighlight fade (cheap no-op when none),
+            // then paint the highlight colour. Change-gated colour write.
+            tab.CancelHighlightAnimations();
+            if (tab.highlightImage.color != tab.highlightColor)
+                tab.highlightImage.color = tab.highlightColor;
+            if (_forcedTabs.Add(id))
+                VRLog.Info("WorldUI", $"MODAL MENU: ESC-menu tab (ID {id}) highlighted for a parallel-open " +
+                                      "window — every open sub-window's tab now marked, not just the last (#9).");
+        }
+        else if (_forcedTabs.Remove(id))
+        {
+            // Window closed → hand the highlight back to the game. Only fade out if the game itself
+            // does not consider the tab selected (its normal post-Deselect state), so a genuinely
+            // active tab is never dimmed.
+            if (!tab.IsSelected && tab.highlightImage.color.a > 0f)
+            {
+                Color c = tab.highlightImage.color;
+                c.a = 0f;
+                tab.highlightImage.color = c;
+            }
+            VRLog.Info("WorldUI", $"MODAL MENU: ESC-menu tab (ID {id}) un-highlighted — its window closed.");
+        }
+    }
+
+    /// <summary>True while a window of this ID currently floats in the parallel modal set (issue #9).</summary>
+    private static bool IsIdFloated(UIWindowID id)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window != null && wp.Window.ID == id && !wp.UserClosing && wp.Panel.IsAlive)
+                return true;
+        }
+        return false;
     }
 
     // ---- modal escape chord (test #17) --------------------------------------------------
