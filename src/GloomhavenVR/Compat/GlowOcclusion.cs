@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -17,28 +18,39 @@ namespace GloomhavenVR.Compat;
 /// The ONLY intended see-through is the sky depth-reset (<see cref="Core.SkyBackdrop"/>, mod layer,
 /// queue 1999) — never touched here because everything on the mod layer is excluded.
 ///
-/// TWO INDEPENDENT PARTS, installed separately so the per-scene-load order is
-/// census → <see cref="WallSolidifier"/> wall depth enforcement → ZTest enforcement
-/// (multicast sceneLoaded handlers fire in subscription order; CompatModule subscribes them in
-/// exactly that order). The census therefore always logs the PRISTINE state the game shipped,
-/// before any fix mutates materials.
+/// TIMING (the previous round's failure): Gloomhaven builds the scenario map (walls, tiles, props,
+/// VFX, actors) PROCEDURALLY AFTER <c>SceneManager.sceneLoaded</c>, and more content (enemies,
+/// effects, insect VFX) spawns continuously during play — a scene-load-only scan sees an empty
+/// world (hardware log: worldRenderers=0..4 even in the scenario scene). Fix: a tiny persistent
+/// driver (<c>GloomhavenVR.OcclusionSweep</c>, DontDestroyOnLoad, owned here) re-runs the scans on
+/// a SWEEP SCHEDULE — after every scene load at ~2s, 5s, 10s, 20s, 40s, then a steady sweep every
+/// ~15s while VR runs. Each sweep = census-check → wall depth enforcement
+/// (<see cref="WallSolidifier.SweepWallDepth"/>) → ZTest enforcement, in that order, so the census
+/// still records the pristine state of anything new before a fix mutates it. No per-frame work
+/// (coroutine + WaitForSecondsRealtime); sweeps are INCREMENTAL — renderers already processed with
+/// an unchanged material set are skipped (per-renderer instance-ID → material-set signature,
+/// cleared on scene load).
+///
+/// TWO INDEPENDENT PARTS, installed separately so the per-sweep order is
+/// census → <see cref="WallSolidifier"/> wall depth enforcement → ZTest enforcement.
+/// The sceneLoaded hooks remain as the schedule (re)starter and per-scene state reset.
 ///
 ///  1. OCCLUSION CENSUS (<see cref="InstallCensus"/> — ALWAYS on, the evidence engine): one cheap
-///     single pass per scene load over all active world <see cref="Renderer"/>s (Mesh/Skinned/
-///     ParticleSystem/Line/… — CanvasRenderer-driven UI graphics are not Renderers so UI canvases
-///     are excluded by construction), skipping the mod layer and mod-owned objects. Renderers are
-///     grouped per unique SHADER NAME; one log line per group reports count, renderQueue min-max,
-///     _ZWrite / _ZTest(_ZTestMode) values when present, and one example parent/renderer path.
-///     SUSPICIOUS groups sort first (ZTest==Always(8), ZWrite==0, or queue&gt;=2500) — those are
-///     the candidates for "draws over walls without owning/testing depth". Bounded to ~40 group
-///     lines plus a total-summary line. This is the instrument that will conclusively reveal the
-///     wall shader's queue/ZWrite, the health-bar material, the hex-select shader and the insect
-///     VFX on the next hardware round.
+///     pass per sweep over all active world <see cref="Renderer"/>s (Mesh/Skinned/ParticleSystem/
+///     Line/… — CanvasRenderer-driven UI graphics are not Renderers so UI canvases are excluded by
+///     construction), skipping the mod layer and mod-owned objects. Renderers are grouped per
+///     unique SHADER NAME; one log line per group reports count, renderQueue min-max, _ZWrite /
+///     _ZTest(_ZTestMode) values when present, and one example parent/renderer path. SUSPICIOUS
+///     groups sort first (ZTest==Always(8), ZWrite==0, or queue&gt;=2500). PRINTING POLICY (no log
+///     spam): the FULL census (up to 40 group lines + total) prints the FIRST time a sweep in a
+///     scene sees a RICH world (&gt;50 world renderers); afterwards only NEW suspect shader groups
+///     (vs what was already printed this scene) are printed, with an updated total. Every sweep
+///     logs a one-line heartbeat at Debug level.
 ///  2. ZTEST ENFORCEMENT (<see cref="InstallEnforcement"/>, config-gated <c>OpaqueWorldGlow</c>,
 ///     default ON): ANY non-excluded world renderer material with <c>_ZTest</c>/<c>_ZTestMode</c>
 ///     == <see cref="CompareFunction.Always"/> (8) is forced to
 ///     <see cref="CompareFunction.LessEqual"/> (4) on PER-INSTANCE materials (<c>r.materials</c>,
-///     never shared assets) — no name matching any more; depth-ignoring is the offence itself.
+///     never shared assets) — no name matching; depth-ignoring is the offence itself.
 ///     EXCLUDED: mod layer (sky/laser/hands), Canvas/UI graphics, anything with an EPOOutline
 ///     <c>Outlinable</c>/<c>OutlineWrapper</c> in its parent chain (actor outlines are an intended
 ///     gameplay affordance), and anything under the mod's head/hands rig (mod objects are all named
@@ -46,15 +58,20 @@ namespace GloomhavenVR.Compat;
 ///
 /// Strict no-op when VR isn't running. Every game-type lookup is reflection-guarded (missing type
 /// logged once, never thrown). Reversible on <see cref="Uninstall"/> (hot-reload) — the original
-/// shared materials are restored. Never throws into the game (first failure logged, then silent).
-/// Change logging is bounded: first ~30 changes verbose, then counted only.
+/// shared materials recorded across ALL sweeps are restored and the driver is destroyed. Never
+/// throws into the game (first failure logged, then silent). Change logging is bounded: first ~30
+/// changes verbose, then counted only.
 /// </summary>
 internal static class GlowOcclusion
 {
     private const string Name = "GlowOcclusion";
+    private const string DriverName = "GloomhavenVR.OcclusionSweep";
     private const int CensusMaxGroups = 40;
     private const int VerboseFixLogMax = 30;
     private const int SuspiciousQueue = 2500;
+
+    /// <summary>A scene counts as RICH (map actually built) above this many world renderers.</summary>
+    private const int RichWorldThreshold = 50;
 
     private static readonly int ZTestProp = Shader.PropertyToID("_ZTest");
     private static readonly int ZTestModeProp = Shader.PropertyToID("_ZTestMode");
@@ -77,16 +94,26 @@ internal static class GlowOcclusion
     private static int _verboseFixLogs;
     private static readonly HashSet<string> _loggedMissing = [];
 
-    // Reversibility: for every renderer we depth-corrected, the ORIGINAL shared materials so
-    // Uninstall (hot-reload / shutdown) can put them back verbatim.
+    // ---- sweep driver + per-scene sweep state ------------------------------------------------
+    private static SweepDriver? _driver;
+    private static int _sweepIndex;                                   // per scene, for the heartbeat
+    private static bool _richCensusPrinted;                           // per scene
+    private static readonly HashSet<string> _printedSuspectShaders = []; // per scene
+
+    // Incremental enforcement: renderer instanceID → signature of its material set at the time we
+    // last inspected it. Unchanged ⇒ skip (idempotent). Cleared on scene load.
+    private static readonly Dictionary<int, int> _processedSig = [];
+
+    // Reversibility: for every renderer we depth-corrected (across ALL sweeps), the ORIGINAL
+    // shared materials so Uninstall (hot-reload / shutdown) can put them back verbatim.
     private static readonly List<(Renderer renderer, Material[] origShared)> _modified = [];
 
     // ------------------------------------------------------------------ install / uninstall
 
     /// <summary>
-    /// Hook the always-on occlusion census (evidence engine) and run it once immediately.
-    /// MUST be installed BEFORE <see cref="WallSolidifier.Install"/> so the census handler fires
-    /// first on every scene load and logs the pristine shipped state. No-op if VR isn't running.
+    /// Hook the always-on occlusion census (evidence engine) and start the persistent sweep driver.
+    /// MUST be installed BEFORE <see cref="WallSolidifier.Install"/> so the census part of each
+    /// sweep runs first and logs the pristine shipped state. No-op if VR isn't running.
     /// </summary>
     public static void InstallCensus()
     {
@@ -94,11 +121,11 @@ internal static class GlowOcclusion
             return;
         SceneManager.sceneLoaded += OnSceneLoadedCensus;
         _censusHooked = true;
-        RunCensus();
+        EnsureDriver();
     }
 
     /// <summary>
-    /// Hook the config-gated ZTest enforcement and run it once immediately.
+    /// Hook the config-gated ZTest enforcement into the sweep schedule.
     /// MUST be installed AFTER <see cref="WallSolidifier.Install"/> (census → walls → ZTest).
     /// No-op if VR isn't running.
     /// </summary>
@@ -109,10 +136,13 @@ internal static class GlowOcclusion
         EnsureConfig();
         SceneManager.sceneLoaded += OnSceneLoadedFix;
         _fixHooked = true;
-        RunEnforcement();
+        EnsureDriver();
     }
 
-    /// <summary>Unhook both handlers and restore every depth-corrected renderer (hot-reload safety).</summary>
+    /// <summary>
+    /// Unhook both handlers, destroy the sweep driver, and restore every depth-corrected renderer
+    /// recorded across all sweeps (hot-reload safety).
+    /// </summary>
     public static void Uninstall()
     {
         if (_censusHooked)
@@ -124,6 +154,13 @@ internal static class GlowOcclusion
         {
             SceneManager.sceneLoaded -= OnSceneLoadedFix;
             _fixHooked = false;
+        }
+
+        if (_driver != null)
+        {
+            try { UnityEngine.Object.Destroy(_driver.gameObject); }
+            catch { /* scene teardown already got it */ }
+            _driver = null;
         }
 
         int restored = 0;
@@ -138,6 +175,10 @@ internal static class GlowOcclusion
         if (restored > 0)
             VRLog.Info(Name, $"restored {restored} renderer material set(s) on shutdown.");
         _modified.Clear();
+        _processedSig.Clear();
+        _printedSuspectShaders.Clear();
+        _richCensusPrinted = false;
+        _sweepIndex = 0;
     }
 
     private static void EnsureConfig()
@@ -154,16 +195,106 @@ internal static class GlowOcclusion
             + "census diagnostic runs regardless of this toggle. Disable if it harms an intended look.");
     }
 
+    // ------------------------------------------------------------------ sweep driver
+
+    /// <summary>
+    /// Create the persistent DontDestroyOnLoad sweep driver (idempotent). The GO name starts with
+    /// the mod prefix so every scan automatically excludes it.
+    /// </summary>
+    private static void EnsureDriver()
+    {
+        if (_driver != null)
+            return;
+        var go = new GameObject(DriverName);
+        UnityEngine.Object.DontDestroyOnLoad(go);
+        _driver = go.AddComponent<SweepDriver>();
+        _driver.RestartSchedule();
+    }
+
     private static void OnSceneLoadedCensus(Scene scene, LoadSceneMode mode)
     {
-        if (VRSession.IsRunning)
-            RunCensus();
+        if (!VRSession.IsRunning)
+            return;
+        // Per-scene census state reset + schedule restart (2s/5s/10s/20s/40s, then every ~15s).
+        _sweepIndex = 0;
+        _richCensusPrinted = false;
+        _printedSuspectShaders.Clear();
+        if (_driver != null)
+            _driver.RestartSchedule();
+        else
+            EnsureDriver();
     }
 
     private static void OnSceneLoadedFix(Scene scene, LoadSceneMode mode)
     {
-        if (VRSession.IsRunning)
-            RunEnforcement();
+        // New scene ⇒ all renderer instance IDs are stale; re-inspect everything the sweeps see.
+        _processedSig.Clear();
+    }
+
+    /// <summary>
+    /// One full sweep: census-check → wall depth enforcement → ZTest enforcement, in that order.
+    /// Called by the driver on the schedule. Never throws into the game.
+    /// </summary>
+    internal static void Sweep()
+    {
+        if (!VRSession.IsRunning)
+            return;
+
+        try
+        {
+            _sweepIndex++;
+            (int world, int groupCount, int suspects) = RunCensusSweep();
+            bool richWorld = world > RichWorldThreshold;
+            (int wallCount, int solidified) = WallSolidifier.SweepWallDepth(richWorld);
+            (int candidates, int corrected) = _fixHooked ? RunEnforcementSweep() : (0, 0);
+
+            // Heartbeat: every sweep, one Debug line — traceable without Info-level noise.
+            VRLog.Debug(Name,
+                $"sweep #{_sweepIndex} scene='{SceneManager.GetActiveScene().name}' "
+                + $"worldRenderers={world} shaderGroups={groupCount} suspects={suspects} "
+                + $"walls={wallCount} wallsSolidified+={solidified} "
+                + $"ztestNewCandidates={candidates} ztestFixed+={corrected}.");
+        }
+        catch (Exception e)
+        {
+            LogFirstFailure($"sweep threw: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Persistent MonoBehaviour on <c>GloomhavenVR.OcclusionSweep</c>: after every schedule
+    /// (re)start, sweeps at ~2s, 5s, 10s, 20s, 40s cumulative, then steadily every ~15s (the
+    /// scenario spawns enemies/VFX/insects continuously). Realtime waits so a paused game
+    /// (timeScale 0) can't stall the schedule. No per-frame work.
+    /// </summary>
+    private sealed class SweepDriver : MonoBehaviour
+    {
+        // Deltas between sweeps ⇒ cumulative 2s, 5s, 10s, 20s, 40s after (re)start.
+        private static readonly float[] InitialDelays = [2f, 3f, 5f, 10f, 20f];
+        private const float SteadyIntervalSeconds = 15f;
+
+        private Coroutine? _schedule;
+
+        internal void RestartSchedule()
+        {
+            if (_schedule != null)
+                StopCoroutine(_schedule);
+            _schedule = StartCoroutine(RunSchedule());
+        }
+
+        private IEnumerator RunSchedule()
+        {
+            foreach (float delay in InitialDelays)
+            {
+                yield return new WaitForSecondsRealtime(delay);
+                Sweep();
+            }
+            while (true)
+            {
+                yield return new WaitForSecondsRealtime(SteadyIntervalSeconds);
+                Sweep();
+            }
+        }
     }
 
     // ------------------------------------------------------------------ TASK 1: census
@@ -184,106 +315,135 @@ internal static class GlowOcclusion
     }
 
     /// <summary>
-    /// One single pass over all active world renderers, grouped per shader name; one log line per
-    /// group, suspicious groups first, capped at <see cref="CensusMaxGroups"/> lines + a summary.
+    /// One pass over all active world renderers, grouped per shader name. PRINTING POLICY:
+    /// full census (suspicious first, capped at <see cref="CensusMaxGroups"/> lines + total) the
+    /// first time this scene's world is RICH; afterwards only new suspect groups + updated total.
+    /// Returns (worldRenderers, shaderGroups, suspiciousGroups) for the heartbeat.
     /// </summary>
-    private static void RunCensus()
+    private static (int world, int groups, int suspects) RunCensusSweep()
     {
-        if (!VRSession.IsRunning)
-            return;
+        var groups = new Dictionary<string, ShaderGroup>(StringComparer.Ordinal);
+        int totalRenderers = 0;
+        int skipped = 0;
 
-        try
+        Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
+        foreach (Renderer r in all)
         {
-            var groups = new Dictionary<string, ShaderGroup>(StringComparer.Ordinal);
-            int totalRenderers = 0;
-            int skipped = 0;
-
-            Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
-            foreach (Renderer r in all)
+            if (r == null)
+                continue;
+            // Exclusions: mod layer (sky/laser) and any mod-owned object (rig/hands particles).
+            // CanvasRenderer-driven UI graphics never appear here — CanvasRenderer is not a
+            // Renderer subclass, so FindObjectsOfType<Renderer> can't return them.
+            if (r.gameObject.layer == VRLayers.ModLayer || IsModOwned(r.transform))
             {
-                if (r == null)
-                    continue;
-                // Exclusions: mod layer (sky/laser) and any mod-owned object (rig/hands particles).
-                // CanvasRenderer-driven UI graphics never appear here — CanvasRenderer is not a
-                // Renderer subclass, so FindObjectsOfType<Renderer> can't return them.
-                if (r.gameObject.layer == VRLayers.ModLayer || IsModOwned(r.transform))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                Material[] shared;
-                try { shared = r.sharedMaterials; }
-                catch { continue; }
-
-                totalRenderers++;
-                string path = ExamplePath(r);
-
-                foreach (Material m in shared)
-                {
-                    if (m == null)
-                        continue;
-                    string shaderName = m.shader != null ? m.shader.name : "<null-shader>";
-                    if (!groups.TryGetValue(shaderName, out ShaderGroup? g))
-                    {
-                        g = new ShaderGroup { ExamplePath = path };
-                        groups.Add(shaderName, g);
-                    }
-
-                    g.RendererCount++;
-                    int q = m.renderQueue;
-                    if (q < g.QueueMin) g.QueueMin = q;
-                    if (q > g.QueueMax) g.QueueMax = q;
-
-                    SampleIntProp(m, ZWriteProp, g.ZWriteValues, ref g.HasZWrite);
-                    bool hadZTest = g.HasZTest;
-                    SampleIntProp(m, ZTestProp, g.ZTestValues, ref hadZTest);
-                    SampleIntProp(m, ZTestModeProp, g.ZTestValues, ref hadZTest);
-                    g.HasZTest = hadZTest;
-                }
+                skipped++;
+                continue;
             }
 
-            // Suspicious groups first, then by renderer count descending.
-            List<KeyValuePair<string, ShaderGroup>> ordered = groups
-                .OrderByDescending(kv => kv.Value.Suspicious)
-                .ThenByDescending(kv => kv.Value.RendererCount)
+            Material[] shared;
+            try { shared = r.sharedMaterials; }
+            catch { continue; }
+
+            totalRenderers++;
+            string path = ExamplePath(r);
+
+            foreach (Material m in shared)
+            {
+                if (m == null)
+                    continue;
+                string shaderName = m.shader != null ? m.shader.name : "<null-shader>";
+                if (!groups.TryGetValue(shaderName, out ShaderGroup? g))
+                {
+                    g = new ShaderGroup { ExamplePath = path };
+                    groups.Add(shaderName, g);
+                }
+
+                g.RendererCount++;
+                int q = m.renderQueue;
+                if (q < g.QueueMin) g.QueueMin = q;
+                if (q > g.QueueMax) g.QueueMax = q;
+
+                SampleIntProp(m, ZWriteProp, g.ZWriteValues, ref g.HasZWrite);
+                bool hadZTest = g.HasZTest;
+                SampleIntProp(m, ZTestProp, g.ZTestValues, ref hadZTest);
+                SampleIntProp(m, ZTestModeProp, g.ZTestValues, ref hadZTest);
+                g.HasZTest = hadZTest;
+            }
+        }
+
+        // Suspicious groups first, then by renderer count descending.
+        List<KeyValuePair<string, ShaderGroup>> ordered = groups
+            .OrderByDescending(kv => kv.Value.Suspicious)
+            .ThenByDescending(kv => kv.Value.RendererCount)
+            .ToList();
+
+        int suspiciousCount = ordered.Count(kv => kv.Value.Suspicious);
+        string sceneName = SceneManager.GetActiveScene().name;
+
+        if (!_richCensusPrinted)
+        {
+            // FULL census, once per scene, the first time the world is actually populated
+            // (>RichWorldThreshold world renderers) — sparse pre-build sweeps print nothing.
+            if (totalRenderers > RichWorldThreshold)
+            {
+                _richCensusPrinted = true;
+                var sb = new StringBuilder(4096);
+                int lines = 0;
+                foreach (KeyValuePair<string, ShaderGroup> kv in ordered)
+                {
+                    if (lines >= CensusMaxGroups)
+                        break;
+                    lines++;
+                    AppendCensusLine(sb, kv.Key, kv.Value);
+                    if (kv.Value.Suspicious)
+                        _printedSuspectShaders.Add(kv.Key);
+                }
+                sb.Append($"census total: scene='{sceneName}' worldRenderers={totalRenderers} "
+                    + $"shaderGroups={groups.Count} suspicious={suspiciousCount} "
+                    + $"logged={lines}/{groups.Count} modSkipped={skipped}.");
+                VRLog.Info(Name, sb.ToString());
+            }
+        }
+        else
+        {
+            // Delta census: only SUSPECT shader groups not yet printed in this scene (late spawns:
+            // enemies, insect VFX, health bars, hex effects), plus an updated total.
+            List<KeyValuePair<string, ShaderGroup>> fresh = ordered
+                .Where(kv => kv.Value.Suspicious && !_printedSuspectShaders.Contains(kv.Key))
+                .Take(CensusMaxGroups)
                 .ToList();
-
-            var sb = new StringBuilder(4096);
-            string sceneName = SceneManager.GetActiveScene().name;
-            int lines = 0;
-            int suspiciousCount = ordered.Count(kv => kv.Value.Suspicious);
-
-            foreach (KeyValuePair<string, ShaderGroup> kv in ordered)
+            if (fresh.Count > 0)
             {
-                if (lines >= CensusMaxGroups)
-                    break;
-                lines++;
-                string shaderName = kv.Key;
-                ShaderGroup g = kv.Value;
-                string queueRange = g.QueueMin == g.QueueMax
-                    ? g.QueueMin.ToString()
-                    : $"{g.QueueMin}-{g.QueueMax}";
-                sb.Append("census: shader='").Append(shaderName)
-                  .Append("' n=").Append(g.RendererCount)
-                  .Append(" queue=").Append(queueRange)
-                  .Append(" zwrite=").Append(FormatValues(g.HasZWrite, g.ZWriteValues))
-                  .Append(" ztest=").Append(FormatValues(g.HasZTest, g.ZTestValues))
-                  .Append(" ex='").Append(g.ExamplePath).Append('\'');
-                if (g.Suspicious)
-                    sb.Append(" SUSPECT");
-                sb.AppendLine();
+                var sb = new StringBuilder(1024);
+                foreach (KeyValuePair<string, ShaderGroup> kv in fresh)
+                {
+                    AppendCensusLine(sb, kv.Key, kv.Value);
+                    _printedSuspectShaders.Add(kv.Key);
+                }
+                sb.Append($"census delta total: scene='{sceneName}' newSuspects={fresh.Count} "
+                    + $"worldRenderers={totalRenderers} shaderGroups={groups.Count} "
+                    + $"suspicious={suspiciousCount} modSkipped={skipped}.");
+                VRLog.Info(Name, sb.ToString());
             }
+        }
 
-            sb.Append($"census total: scene='{sceneName}' worldRenderers={totalRenderers} "
-                + $"shaderGroups={groups.Count} suspicious={suspiciousCount} "
-                + $"logged={lines}/{groups.Count} modSkipped={skipped}.");
-            VRLog.Info(Name, sb.ToString());
-        }
-        catch (Exception e)
-        {
-            LogFirstFailure($"census threw: {e.Message}");
-        }
+        return (totalRenderers, groups.Count, suspiciousCount);
+    }
+
+    private static void AppendCensusLine(StringBuilder sb, string shaderName, ShaderGroup g)
+    {
+        string queueRange = g.QueueMin == g.QueueMax
+            ? g.QueueMin.ToString()
+            : $"{g.QueueMin}-{g.QueueMax}";
+        sb.Append("census: shader='").Append(shaderName)
+          .Append("' n=").Append(g.RendererCount)
+          .Append(" queue=").Append(queueRange)
+          .Append(" zwrite=").Append(FormatValues(g.HasZWrite, g.ZWriteValues))
+          .Append(" ztest=").Append(FormatValues(g.HasZTest, g.ZTestValues))
+          .Append(" ex='").Append(g.ExamplePath).Append('\'');
+        if (g.Suspicious)
+            sb.Append(" SUSPECT");
+        sb.AppendLine();
     }
 
     private static void SampleIntProp(Material m, int prop, SortedSet<int> values, ref bool has)
@@ -313,53 +473,76 @@ internal static class GlowOcclusion
 
     /// <summary>
     /// Force ZTest Always(8) → LEqual(4) on ALL non-excluded world renderers (no name matching).
-    /// Config-gated (<c>OpaqueWorldGlow</c>); reversible via <see cref="_modified"/>.
+    /// INCREMENTAL: renderers already inspected with an unchanged material set are skipped, so
+    /// repeat sweeps are idempotent and cheap. Config-gated (<c>OpaqueWorldGlow</c>); reversible
+    /// via <see cref="_modified"/>. Returns (newCandidates, corrected) for the heartbeat.
     /// </summary>
-    private static void RunEnforcement()
+    private static (int candidates, int corrected) RunEnforcementSweep()
     {
-        if (!VRSession.IsRunning)
-            return;
+        EnsureTypes();
+        bool fixOn = _opaqueWorldGlow?.Value ?? true;
 
-        try
+        Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
+        int candidates = 0;
+        int fixedRenderers = 0;
+
+        foreach (Renderer r in all)
         {
-            EnsureTypes();
-            bool fixOn = _opaqueWorldGlow?.Value ?? true;
+            if (r == null)
+                continue;
 
-            Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
-            int candidates = 0;
-            int fixedRenderers = 0;
+            Material[] shared;
+            try { shared = r.sharedMaterials; }
+            catch { continue; }
 
-            foreach (Renderer r in all)
+            int id = r.GetInstanceID();
+            int sig = MaterialSignature(shared);
+            if (_processedSig.TryGetValue(id, out int prevSig) && prevSig == sig)
+                continue; // already inspected, material set unchanged — idempotent skip
+
+            if (!IsDepthIgnoring(shared))
             {
-                if (r == null || !IsDepthIgnoring(r))
-                    continue;
-                candidates++;
+                _processedSig[id] = sig;
+                continue;
+            }
+            candidates++;
 
-                if (!fixOn || IsExcluded(r))
-                    continue;
-
-                if (DepthCorrect(r))
-                    fixedRenderers++;
+            if (!fixOn || IsExcluded(r))
+            {
+                _processedSig[id] = sig;
+                continue;
             }
 
-            VRLog.Info(Name,
-                $"ZTest enforcement: {candidates} depth-ignoring world renderer(s); "
-                + $"fix {(fixOn ? "ON" : "OFF")}, depth-corrected {fixedRenderers} this scan "
-                + $"({_modified.Count} tracked for restore).");
+            if (DepthCorrect(r))
+                fixedRenderers++;
+            // Record the POST-correction signature (DepthCorrect swaps in instance materials) so
+            // the next sweep skips this renderer unless the game swaps its materials again.
+            try { _processedSig[id] = MaterialSignature(r.sharedMaterials); }
+            catch { _processedSig[id] = sig; }
         }
-        catch (Exception e)
+
+        // Info only when something actually changed; the per-sweep heartbeat carries the counts.
+        if (fixedRenderers > 0)
         {
-            LogFirstFailure($"ZTest enforcement threw (VFX may still bleed through walls): {e.Message}");
+            VRLog.Info(Name,
+                $"ZTest enforcement: {candidates} new depth-ignoring world renderer(s) this sweep; "
+                + $"depth-corrected {fixedRenderers} ({_modified.Count} tracked for restore).");
         }
+        return (candidates, fixedRenderers);
     }
 
-    /// <summary>True if any of the renderer's SHARED materials has _ZTest/_ZTestMode == Always(8).</summary>
-    private static bool IsDepthIgnoring(Renderer r)
+    /// <summary>Order-insensitive-enough cheap signature of a renderer's shared material set.</summary>
+    private static int MaterialSignature(Material[] shared)
     {
-        Material[] shared;
-        try { shared = r.sharedMaterials; }
-        catch { return false; }
+        int h = 17;
+        foreach (Material m in shared)
+            h = unchecked(h * 31 + (m != null ? m.GetInstanceID() : 0));
+        return h;
+    }
 
+    /// <summary>True if any of the given SHARED materials has _ZTest/_ZTestMode == Always(8).</summary>
+    private static bool IsDepthIgnoring(Material[] shared)
+    {
         foreach (Material m in shared)
         {
             if (m == null)

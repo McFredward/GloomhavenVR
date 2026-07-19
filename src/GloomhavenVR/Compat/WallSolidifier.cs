@@ -14,22 +14,29 @@ namespace GloomhavenVR.Compat;
 /// ISSUE #4 (companion to <see cref="WallFadeDisable"/> and <see cref="GlowOcclusion"/>) — makes
 /// walls authoritatively opaque AND depth-writing.
 ///
-/// PART 1 (legacy, demoted): neutralize the game's ToggleWallFade drivers. The hardware round's own
-/// diagnostic proved these drivers are ABSENT in the tested scenes (all component counts 0, global
-/// already 0), so this part currently fixes nothing — it is KEPT because it is harmless and would
-/// matter in any scene that does ship the fade components:
+/// TIMING (the previous round's failure): the scenario map — including every ProceduralWall — is
+/// built PROCEDURALLY AFTER <c>SceneManager.sceneLoaded</c>, so the old scene-load-only scan
+/// always found ZERO wall renderers (hardware log: "ProceduralWall components=0"). The wall depth
+/// enforcement therefore now runs from <see cref="GlowOcclusion"/>'s persistent sweep driver via
+/// <see cref="SweepWallDepth"/> (~2s/5s/10s/20s/40s after scene load, then every ~15s), and is
+/// INCREMENTAL: wall renderers already processed with an unchanged material set are skipped
+/// (instance-ID → material-set signature, cleared on scene load), so repeat sweeps are idempotent.
+///
+/// PART 1 (legacy): neutralize the game's ToggleWallFade drivers:
 ///   a. <c>ToggleWallTransparencyGlobal</c> — set <c>WallTransparencyEnabled = false</c>, disable.
 ///   b. <c>ToggleWallFadeScript</c> — force each child renderer's <c>_ToggleWallFadeLocal = 0</c>.
 ///   c. <c>ActivateWallFadeInGame</c> — disable so it can't re-set the global.
+/// Runs on scene load (as before, with its summary line) AND quietly on every sweep — the
+/// components may well spawn WITH the procedural map; a sweep that finds live drivers logs one
+/// Info line per scene, otherwise nothing.
 ///
-/// PART 2 (NEW, the actual fix candidate — config-gated <c>SolidWallDepth</c>, default ON):
-/// WALL DEPTH ENFORCEMENT. Central hypothesis (UNVERIFIED until the next hardware log — the wall
-/// shaders live in unreadable asset bundles, so <see cref="GlowOcclusion"/>'s census must confirm):
-/// the fade-capable wall materials sit in the Transparent queue (&gt;2500) with ZWrite Off even when
-/// the fade is off, so walls never own the depth buffer — and EVERYTHING transparent/high-queue
-/// behind them (fire glow ~3000-3900, world-space health-bar canvases ~3000, hex select/border
-/// effects, floor decals, insect VFX) draws AFTER the wall and paints over it. This also explains
-/// why OPAQUE elements (figures, queue ~2000, ZWrite On) do NOT show through.
+/// PART 2 (the actual fix — config-gated <c>SolidWallDepth</c>, default ON): WALL DEPTH
+/// ENFORCEMENT. Hypothesis (to be confirmed by <see cref="GlowOcclusion"/>'s census now that it
+/// sweeps after the map is built): the fade-capable wall materials sit in the Transparent queue
+/// (&gt;2500) with ZWrite Off even when the fade is off, so walls never own the depth buffer — and
+/// EVERYTHING transparent/high-queue behind them (fire glow ~3000-3900, world-space health-bar
+/// canvases ~3000, hex select/border effects, floor decals, insect VFX) draws AFTER the wall and
+/// paints over it.
 ///
 /// Wall renderers are identified by STRUCTURAL signals, never name guessing alone:
 ///   (a) any Renderer under a <c>ProceduralWall</c> component (reflection-only via
@@ -37,12 +44,13 @@ namespace GloomhavenVR.Compat;
 ///   (b) any Renderer under a <c>ProceduralDoorway</c> component;
 ///   (c) fallback: renderer / material / shader name containing "wall" (case-insensitive) on
 ///       non-mod-layer, non-UI world geometry.
-/// For each wall renderer's materials we LOG shader/queue/ZWrite (bounded), and IF
-/// (renderQueue &gt; 2450 || _ZWrite exists and == 0) we force PER-INSTANCE (<c>r.materials</c>,
-/// never shared assets): <c>_ZWrite = 1</c> (when the property exists) and
-/// <c>renderQueue = 2000</c> (Geometry). Original shared material sets are snapshotted and restored
-/// on <see cref="Uninstall"/>. If ZERO wall renderers are found by all three signals, that is logged
-/// clearly as evidence for the next round. Mod-layer renderers and the sky
+/// For each NEW wall renderer's materials we LOG shader/queue/ZWrite (full inventory on first
+/// discovery, then only new walls, bounded per scene), and IF (renderQueue &gt; 2450 || _ZWrite
+/// exists and == 0) we force PER-INSTANCE (<c>r.materials</c>, never shared assets):
+/// <c>_ZWrite = 1</c> (when the property exists) and <c>renderQueue = 2000</c> (Geometry).
+/// Original shared material sets are snapshotted across ALL sweeps and restored on
+/// <see cref="Uninstall"/>. If ZERO wall renderers exist in a RICH world (map demonstrably built),
+/// that is logged once per scene as evidence. Mod-layer renderers and the sky
 /// (<see cref="Core.SkyBackdrop"/>'s depth-reset, mod layer, queue 1999) are NEVER touched.
 ///
 /// Strict no-op when VR isn't running. Every game-type lookup is reflection-guarded: a missing type
@@ -64,7 +72,9 @@ internal static class WallSolidifier
     /// <summary>Suspicious-queue threshold: anything above AlphaTest(2450) can't be trusted to depth-write.</summary>
     private const int QueueThreshold = 2450;
     private const int GeometryQueue = 2000;
-    private const int InventoryLogMax = 20;
+
+    /// <summary>Per-scene cap on wall-inventory material lines (full first inventory + new walls).</summary>
+    private const int SceneInventoryLogMax = 40;
 
     /// <summary>All mod-created GameObjects share this name prefix (rig, hands, sky, drivers).</summary>
     private const string ModNamePrefix = "GloomhavenVR";
@@ -77,14 +87,30 @@ internal static class WallSolidifier
     private static ConfigEntry<bool>? _solidWallDepth;
 
     private static bool _hooked;
-    private static int _inventoryLogs;
+    private static bool _firstSweepFailureLogged;
     private static readonly HashSet<string> _loggedMissing = [];
 
-    // Reversibility: for every wall renderer we solidified, the ORIGINAL shared materials so
-    // Uninstall (hot-reload / shutdown) can put them back verbatim (mirrors GlowOcclusion).
+    // ---- per-scene sweep state (cleared in OnSceneLoaded) ------------------------------------
+    // Incremental enforcement: wall renderer instanceID → signature of its material set when we
+    // last inspected it. Unchanged ⇒ skip (idempotent across sweeps).
+    private static readonly Dictionary<int, int> _processedSig = [];
+    /// <summary>Wall renderers whose material inventory was already logged this scene.</summary>
+    private static readonly HashSet<int> _inventoryLogged = [];
+    private static int _sceneInventoryLines;
+    private static bool _zeroWallsReported;      // rich-world-but-no-walls evidence, once per scene
+    private static bool _wallSummaryPrinted;     // first wall-depth summary line, once per scene
+    private static bool _fadeDriversReported;    // live fade drivers found by a sweep, once per scene
+
+    // Reversibility: for every wall renderer we solidified (across ALL sweeps), the ORIGINAL
+    // shared materials so Uninstall (hot-reload / shutdown) can put them back verbatim
+    // (mirrors GlowOcclusion).
     private static readonly List<(Renderer renderer, Material[] origShared)> _modified = [];
 
-    /// <summary>Hook scene loads and run one immediate scan. Idempotent; no-op if VR isn't running.</summary>
+    /// <summary>
+    /// Hook scene loads and run one immediate legacy scan. The wall depth enforcement itself runs
+    /// on <see cref="GlowOcclusion"/>'s sweep schedule via <see cref="SweepWallDepth"/>.
+    /// Idempotent; no-op if VR isn't running.
+    /// </summary>
     public static void Install()
     {
         if (_hooked || !VRSession.IsRunning)
@@ -92,7 +118,7 @@ internal static class WallSolidifier
         EnsureConfig();
         SceneManager.sceneLoaded += OnSceneLoaded;
         _hooked = true;
-        Scan();
+        ScanLegacy();
     }
 
     /// <summary>Unhook scene loads and restore every solidified wall renderer (hot-reload safety).</summary>
@@ -116,6 +142,7 @@ internal static class WallSolidifier
         if (restored > 0)
             VRLog.Info(Name, $"restored {restored} wall renderer material set(s) on shutdown.");
         _modified.Clear();
+        ClearSceneState();
     }
 
     private static void EnsureConfig()
@@ -135,18 +162,31 @@ internal static class WallSolidifier
 
     private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        if (VRSession.IsRunning)
-            Scan();
+        if (!VRSession.IsRunning)
+            return;
+        // New scene ⇒ all renderer instance IDs and printing state are stale.
+        ClearSceneState();
+        ScanLegacy();
     }
 
-    private static void Scan()
+    private static void ClearSceneState()
+    {
+        _processedSig.Clear();
+        _inventoryLogged.Clear();
+        _sceneInventoryLines = 0;
+        _zeroWallsReported = false;
+        _wallSummaryPrinted = false;
+        _fadeDriversReported = false;
+    }
+
+    /// <summary>Scene-load legacy pass: neutralize fade drivers and log the summary line.</summary>
+    private static void ScanLegacy()
     {
         if (!VRSession.IsRunning)
             return;
 
         try
         {
-            // PART 1 (legacy, demoted — proven absent in the tested scenes, kept because harmless).
             int global = SafeGetGlobal();
             int transpCount = NeutralizeTransparencyGlobal();
             (int fadeCount, string? diag) = NeutralizeFadeScripts();
@@ -158,9 +198,6 @@ internal static class WallSolidifier
                 + $"ActivateWallFadeInGame={activateCount}.");
             if (diag != null)
                 VRLog.Info(Name, diag);
-
-            // PART 2 (new) — wall depth enforcement.
-            EnforceWallDepth();
         }
         catch (Exception e)
         {
@@ -168,49 +205,131 @@ internal static class WallSolidifier
         }
     }
 
-    // ------------------------------------------------------------------ TASK 2: wall depth
+    // ------------------------------------------------------------------ TASK 2: wall depth (sweep)
 
     /// <summary>
-    /// Find wall renderers by the three structural signals, log their material state, and (gated)
-    /// force depth-writing Geometry-queue rendering on the suspicious ones.
+    /// One wall-depth sweep, called by <see cref="GlowOcclusion"/>'s driver between the census and
+    /// the ZTest enforcement. Finds wall renderers by the three structural signals, quietly
+    /// re-neutralizes any fade drivers that spawned with the map, logs NEW walls' material state
+    /// (bounded per scene) and — gated on <c>SolidWallDepth</c> — forces depth-writing
+    /// Geometry-queue rendering on suspicious ones. Incremental: unchanged, already-inspected
+    /// renderers are skipped. <paramref name="richWorld"/> = the census saw a populated world this
+    /// sweep (used for the once-per-scene zero-walls evidence line).
+    /// Returns (wallRenderers, solidifiedThisSweep) for the heartbeat. Never throws.
     /// </summary>
-    private static void EnforceWallDepth()
+    internal static (int walls, int solidified) SweepWallDepth(bool richWorld)
     {
-        bool fixOn = _solidWallDepth?.Value ?? true;
+        if (!_hooked || !VRSession.IsRunning)
+            return (0, 0);
 
-        var walls = new HashSet<Renderer>();
-        int fromWall = CollectFromComponentType(WallType, walls);
-        int fromDoorway = CollectFromComponentType(DoorwayType, walls);
-        int fromNames = CollectByName(walls);
-
-        if (walls.Count == 0)
+        try
         {
+            // Legacy fade drivers may spawn WITH the procedural map — re-neutralize quietly;
+            // report once per scene only if a sweep actually finds live drivers.
+            SweepLegacyQuiet();
+
+            bool fixOn = _solidWallDepth?.Value ?? true;
+
+            var walls = new HashSet<Renderer>();
+            int fromWall = CollectFromComponentType(WallType, walls);
+            int fromDoorway = CollectFromComponentType(DoorwayType, walls);
+            int fromNames = CollectByName(walls);
+
+            if (walls.Count == 0)
+            {
+                if (richWorld && !_zeroWallsReported)
+                {
+                    _zeroWallsReported = true;
+                    VRLog.Info(Name,
+                        "wall depth: world is populated but ZERO wall renderers found by ALL three "
+                        + $"signals (ProceduralWall components={fromWall}, ProceduralDoorway "
+                        + $"components={fromDoorway}, name-matched renderers=0) — cannot test the "
+                        + "wall-ZWrite hypothesis in this scene; check the GlowOcclusion census for "
+                        + "what the walls actually are.");
+                }
+                return (0, 0);
+            }
+
+            int solidified = 0;
+            int newWalls = 0;
+            foreach (Renderer r in walls)
+            {
+                if (r == null)
+                    continue;
+                // Hard guard: never the mod layer (sky depth-reset lives there) or mod-owned objects.
+                if (r.gameObject.layer == VRLayers.ModLayer || IsModOwned(r.transform))
+                    continue;
+
+                Material[] shared;
+                try { shared = r.sharedMaterials; }
+                catch { continue; }
+
+                int id = r.GetInstanceID();
+                int sig = MaterialSignature(shared);
+                if (_processedSig.TryGetValue(id, out int prevSig) && prevSig == sig)
+                    continue; // already inspected, material set unchanged — idempotent skip
+                newWalls++;
+
+                if (SolidifyRenderer(r, fixOn))
+                    solidified++;
+                // Record the POST-fix signature (SolidifyRenderer may swap in instance materials)
+                // so the next sweep skips this wall unless the game swaps its materials again.
+                try { _processedSig[id] = MaterialSignature(r.sharedMaterials); }
+                catch { _processedSig[id] = sig; }
+            }
+
+            // Summary: once per scene when walls first appear, then only when a sweep changed something.
+            if (solidified > 0 || (newWalls > 0 && !_wallSummaryPrinted))
+            {
+                _wallSummaryPrinted = true;
+                VRLog.Info(Name,
+                    $"wall depth: {walls.Count} wall renderer(s) "
+                    + $"(ProceduralWall comps={fromWall}, Doorway comps={fromDoorway}, name-matched={fromNames}); "
+                    + $"fix {(fixOn ? "ON" : "OFF")}, {newWalls} new this sweep, solidified {solidified} "
+                    + $"({_modified.Count} tracked for restore).");
+            }
+            return (walls.Count, solidified);
+        }
+        catch (Exception e)
+        {
+            if (!_firstSweepFailureLogged)
+            {
+                _firstSweepFailureLogged = true;
+                VRLog.Warn(Name, $"wall sweep threw (walls may not occlude): {e.Message}");
+            }
+            return (0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Sweep-time legacy pass: re-neutralize fade drivers without the per-scan summary line;
+    /// one Info line per scene IF live drivers are actually found post-load.
+    /// </summary>
+    private static void SweepLegacyQuiet()
+    {
+        int transpCount = NeutralizeTransparencyGlobal();
+        (int fadeCount, string? diag) = NeutralizeFadeScripts();
+        int activateCount = NeutralizeActivate();
+
+        if (!_fadeDriversReported && (transpCount > 0 || fadeCount > 0 || activateCount > 0))
+        {
+            _fadeDriversReported = true;
             VRLog.Info(Name,
-                "wall depth: ZERO wall renderers found by ALL three signals "
-                + $"(ProceduralWall components={fromWall}, ProceduralDoorway components={fromDoorway}, "
-                + "name-matched renderers=0) — cannot test the wall-ZWrite hypothesis in this scene; "
-                + "check the GlowOcclusion census for what the walls actually are.");
-            return;
+                $"fade-driver sweep: live fade drivers found POST-load — "
+                + $"ToggleWallTransparencyGlobal={transpCount}, ToggleWallFadeScript={fadeCount}, "
+                + $"ActivateWallFadeInGame={activateCount} (neutralized; re-checked every sweep).");
+            if (diag != null)
+                VRLog.Info(Name, diag);
         }
+    }
 
-        int solidified = 0;
-        foreach (Renderer r in walls)
-        {
-            if (r == null)
-                continue;
-            // Hard guard: never the mod layer (sky depth-reset lives there) or mod-owned objects.
-            if (r.gameObject.layer == VRLayers.ModLayer || IsModOwned(r.transform))
-                continue;
-
-            if (SolidifyRenderer(r, fixOn))
-                solidified++;
-        }
-
-        VRLog.Info(Name,
-            $"wall depth: {walls.Count} wall renderer(s) "
-            + $"(ProceduralWall comps={fromWall}, Doorway comps={fromDoorway}, name-matched={fromNames}); "
-            + $"fix {(fixOn ? "ON" : "OFF")}, solidified {solidified} this scan "
-            + $"({_modified.Count} tracked for restore).");
+    /// <summary>Order-insensitive-enough cheap signature of a renderer's shared material set.</summary>
+    private static int MaterialSignature(Material[] shared)
+    {
+        int h = 17;
+        foreach (Material m in shared)
+            h = unchecked(h * 31 + (m != null ? m.GetInstanceID() : 0));
+        return h;
     }
 
     /// <summary>FindObjectsOfType for a reflection-resolved component type; adds child renderers. Returns component count.</summary>
@@ -291,15 +410,19 @@ internal static class WallSolidifier
         !string.IsNullOrEmpty(s) && s!.IndexOf("wall", StringComparison.OrdinalIgnoreCase) >= 0;
 
     /// <summary>
-    /// Log this wall renderer's material state (bounded) and — when gated on and suspicious
-    /// (queue &gt; 2450 or ZWrite==0) — force per-instance _ZWrite=1 + renderQueue=2000.
-    /// Returns true if anything was changed.
+    /// Log this wall renderer's material state (first time we see it this scene, bounded per
+    /// scene) and — when gated on and suspicious (queue &gt; 2450 or ZWrite==0) — force
+    /// per-instance _ZWrite=1 + renderQueue=2000. Returns true if anything was changed.
     /// </summary>
     private static bool SolidifyRenderer(Renderer r, bool fixOn)
     {
         Material[] shared;
         try { shared = r.sharedMaterials; }
         catch { return false; }
+
+        // Inventory: full on first discovery, then only walls not yet logged this scene.
+        bool logInventory = _sceneInventoryLines < SceneInventoryLogMax
+            && _inventoryLogged.Add(r.GetInstanceID());
 
         // Decide on the SHARED materials first so we never instantiate needlessly.
         bool anySuspicious = false;
@@ -313,9 +436,9 @@ internal static class WallSolidifier
             bool suspicious = queue > QueueThreshold || (hasZWrite && zwrite == 0);
             anySuspicious |= suspicious;
 
-            if (_inventoryLogs < InventoryLogMax)
+            if (logInventory && _sceneInventoryLines < SceneInventoryLogMax)
             {
-                _inventoryLogs++;
+                _sceneInventoryLines++;
                 string shader = m.shader != null ? m.shader.name : "<null-shader>";
                 VRLog.Info(Name,
                     $"wall material: '{r.name}' shader='{shader}' queue={queue} "
