@@ -88,6 +88,18 @@ internal sealed class RayInteractor : IPickProvider
     private const float BeamWidthMinMeters = 0.0008f;
     private const float BeamWidthMaxMeters = 0.03f;
 
+    // Test (user #1): the hit dot vanished ON the floated dialog/modal window. The
+    // renderQueue-4600 material (see CreateBeamMaterial) only beats canvases at the
+    // SAME sorting order — but a floated modal host is raised to sortingOrder=1000
+    // (WorldUI.ModalFallback.ModalHostSortingOrder), and Unity sorts every renderer
+    // by sortingLayer → SORTINGORDER first and only then by renderQueue. At the
+    // reticle's default order 0 the modal painted straight over the dot. The laser
+    // LineRenderer and reticle MeshRenderer get an order comfortably above the modal
+    // so they draw last; the shader still ZTest-LEquals against the opaque depth
+    // buffer, so solid furniture/board geometry keeps occluding them correctly (UI
+    // shaders write no depth, so the depthless modal never does).
+    private const int RayVisualSortingOrder = 5000;
+
     // ---- P5 (MISSION A.5): ModalUI visual constraint --------------------------------------
     // In ModalUI the ray stays ACTIVE (flat-screen pointer, dialogs) but its visuals only
     // show while it points near a known UI surface, so the laser doesn't sweep the room
@@ -402,12 +414,19 @@ internal sealed class RayInteractor : IPickProvider
         _laser.endColor = new Color(color.r, color.g, color.b, 0.05f);
         _laser.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         _laser.receiveShadows = false;
+        // Draw after the floated modal (sortingOrder 1000) so the beam stays visible
+        // on dialogs; depth test still occludes it behind solid geometry.
+        _laser.sortingOrder = RayVisualSortingOrder;
 
         GameObject reticleGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         reticleGo.name = $"GloomhavenVR.Reticle_{_hand.Side}";
         Object.Destroy(reticleGo.GetComponent<Collider>());
         reticleGo.transform.SetParent(_hand.transform, worldPositionStays: true);
-        reticleGo.GetComponent<Renderer>().sharedMaterial = _laser.material;
+        Renderer reticleRenderer = reticleGo.GetComponent<Renderer>();
+        reticleRenderer.sharedMaterial = _laser.material;
+        // Same as the laser: draw the hit dot above the modal host (sortingOrder 1000)
+        // so it never vanishes on a dialog; ZTest LEqual still hides it behind solids.
+        reticleRenderer.sortingOrder = RayVisualSortingOrder;
         _reticle = reticleGo.transform;
         _reticle.gameObject.SetActive(false);
 
