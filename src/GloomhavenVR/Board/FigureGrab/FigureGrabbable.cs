@@ -57,17 +57,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     // Live-pose bases captured at grab (so re-applying the config pose never compounds):
     // the mini's anchor-local scale at board size, and the hand anchor it rides. NOTE: the
-    // figure's grab-time world rotation is deliberately NOT captured — the held orientation is
-    // a FIXED canonical upright-facing-player pose (see ApplyUprightPose), RE-DERIVED every
-    // frame (FigureGrabDriver → DriveHeldPoses) from the live hand + head + config, so it never
-    // depends on how the figure was oriented on the board, the angle it was grabbed from, or the
-    // wrist rotation the hand happens to settle into after the grab.
+    // figure's grab-time world rotation is deliberately NOT captured — at grab the held pose is
+    // baked ONCE from a GRAB-ANGLE-INDEPENDENT base (see ApplyUprightPose: upright, facing the
+    // player, built from world-up + the horizontal to-head direction, NOT from the figure's board
+    // rotation, the approach angle, or the wrist). Baked into localRotation under the hand anchor,
+    // so it then RIDES THE HAND — turn the hand and the mini turns with it (user #3: "fixed
+    // relative to the hand, not the world"), but HOW it was grabbed never changes the resting hold.
     private Transform? _anchor;
     private Vector3 _heldBaseScale = Vector3.one;
-
-    // Diagnostic throttle: while held, log the hand/computed/actual rotations ~once per second so
-    // a hardware log proves the hold is the fixed canonical pose and no other path is overwriting it.
-    private float _nextPoseLogTime;
 
     // R2 hardening: the actor's authoritative board cell at grab time. If the game moves the
     // figure to a different cell while it is held (a remote player's or the server's networked
@@ -84,51 +81,6 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     {
         foreach (FigureGrabbable g in Live)
             g.ApplyHeldPose();
-    }
-
-    /// <summary>
-    /// Per-frame driver hook (called from <see cref="FigureGrabDriver"/>.Update): RE-DERIVE the
-    /// held pose of every currently-held mini from the LIVE hand + head + config this frame.
-    ///
-    /// This is the actual fix for the "grab angle influences the hold" bug. The pose used to be
-    /// baked into the mini's localRotation ONCE at grab and then rode the moving hand anchor, so
-    /// the resting orientation was frozen to whatever wrist pose the hand settled into at grab
-    /// time — perceived as the grab/approach angle leaking into the hold. Re-deriving the WORLD
-    /// pose every frame (<see cref="ApplyUprightPose"/> builds it purely from world-up + the
-    /// horizontal direction to the head) makes the mini snap to the exact same upright,
-    /// player-facing orientation regardless of approach angle OR wrist rotation.
-    /// </summary>
-    internal static void DriveHeldPoses()
-    {
-        if (Live.Count == 0)
-            return;
-        foreach (FigureGrabbable g in Live)
-            g.DriveHeldPose();
-    }
-
-    /// <summary>Re-derive this held mini's pose this frame and emit the throttled diagnostic.</summary>
-    private void DriveHeldPose()
-    {
-        GameObject? root = Root;
-        if (!_attached || root == null || _anchor == null || _holder == null)
-            return;
-
-        // Snapshot the orientation the figure enters this frame with (BEFORE we re-correct it):
-        // if any other path — a stale grab-time bake riding the wrist, the game's writers, the MP
-        // interpolator — moved it since our last write, this diverges from the fixed pose below.
-        Quaternion actualBefore = root.transform.rotation;
-
-        ApplyHeldPose(); // re-derive the fixed canonical pose from live hand + head + config
-
-        Quaternion applied = root.transform.rotation;
-        if (Time.unscaledTime >= _nextPoseLogTime)
-        {
-            _nextPoseLogTime = Time.unscaledTime + 1f;
-            VRLog.Info("FigureGrab",
-                $"hold[{_holder.Side}] hand={Fmt(_anchor.rotation)} computed={Fmt(applied)} " +
-                $"actualBefore={Fmt(actualBefore)} (upright={FigureGrabConfig.HeldUpright.Value} " +
-                $"tilt={FigureGrabConfig.HeldTiltDegrees.Value:0.#} yaw={FigureGrabConfig.HeldFaceYawFor(_holder.Side):0.#}).");
-        }
     }
 
     private static string Fmt(Quaternion q)
@@ -231,7 +183,6 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         ApplyHeldPose();
         Live.Add(this);
-        _nextPoseLogTime = 0f; // force the first per-frame hold diagnostic on the next drive tick
 
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
         GameObject anchorGo = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
@@ -239,7 +190,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         VRLog.Info("FigureGrab",
             $"{hand.Side} grabbed figure ({Describe()}); hand={Fmt(anchor.rotation)} " +
-            $"held={Fmt(t.rotation)} (the held pose is re-derived every frame, wrist-independent).");
+            $"held={Fmt(t.rotation)} (baked ONCE from a grab-angle-independent base; then rides the hand).");
     }
 
     /// <summary>
@@ -278,11 +229,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// rotation and of the angle the hand grabbed it from</b>: the mini snaps to the exact same
     /// orientation in the hand no matter how it was approached or plucked. (Assumes model local
     /// +Z = front / +Y = up; <see cref="FigureGrabConfig.HeldFaceYawDegrees"/> corrects models
-    /// whose readable side differs — e.g. 180 if it faces away.) Written as a WORLD rotation and
-    /// RE-DERIVED every frame (<see cref="DriveHeldPoses"/>), so the mini stands the same way in
-    /// the hand no matter the approach angle OR the wrist rotation — a truly fixed canonical hold,
-    /// not one frozen to the grab-moment wrist pose. (The mini still translates with the hand; only
-    /// its orientation is world-fixed: always upright, always facing the player.)
+    /// whose readable side differs — e.g. 180 if it faces away.) Written as a WORLD rotation ONCE
+    /// at grab (via <c>t.rotation</c>), which bakes a localRotation under the hand anchor. Because
+    /// the base is derived from world-up + the head (NOT the figure's board rotation or the
+    /// grab-approach angle), every grab produces the SAME resting hold — then, being baked as a
+    /// localRotation, it RIDES THE HAND: turning the hand turns the mini with it (user #3). It is
+    /// NOT re-derived per frame (that made it world-fixed / hand-independent, which the user did
+    /// not want).
     /// </summary>
     private static void ApplyUprightPose(Transform t, Transform anchor, HandSide side)
     {
