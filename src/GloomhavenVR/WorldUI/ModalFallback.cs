@@ -891,9 +891,10 @@ internal static class ModalFallback
         for (int i = 0; i < Converted.Count; i++)
             Converted[i].Grab?.Tick();
 
-        // Item 5a: while any modal floats (movable → can be dragged to the void edge), ask MR to
-        // keep the scenario void backdrop from clipping it. No-op while MR is ON (backdrop hidden)
-        // or when nothing floats. Cheap idempotent flag; MixedReality.Tick does the throttled work.
+        // Item 5a (revised): the floated-menu-vs-sky occlusion is now fixed by rendering the modal
+        // ON TOP (CanvasConversion renderOnTop, ZTest Always) so the sky STAYS rendered. This call
+        // is retained but is a no-op in MixedReality — kept so the wiring is obvious if the policy
+        // ever changes back.
         Core.MixedReality.KeepMenusUnclipped(Converted.Count > 0);
 
         // (Content fitting — test #13/#14 — is centralized in CanvasConversion.Tick:
@@ -1263,10 +1264,13 @@ internal static class ModalFallback
             // User #8 part 1: float on the dedicated mod layer (useModLayer) so ONLY the HMD
             // head camera renders it — the game's mono UI Camera can no longer double-draw
             // the world-space modal (the confirmed flicker root cause).
+            // Sky/diorama occlusion fix (renderOnTop): every floated modal window switches its uGUI
+            // graphics to ZTest Always so it renders OVER the enclosing sky dome (kept rendered) and
+            // the diorama — a menu dragged to the shell edge can no longer clip behind the backdrop.
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
                 fitContent: fullScreenMenu ? (bool?)false : null, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
-                useModLayer: true, transparentBackground: transparentBg);
+                useModLayer: true, transparentBackground: transparentBg, renderOnTop: true);
 
             if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
