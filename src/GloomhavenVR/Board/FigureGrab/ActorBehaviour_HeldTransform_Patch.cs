@@ -3,8 +3,12 @@ using HarmonyLib;
 namespace GloomhavenVR.Board.FigureGrab;
 
 /// <summary>
-/// Prefix-skips the game's per-frame FIGURE TRANSFORM writers for HELD actors only
-/// (<see cref="HeldFigures.Owns"/>). Vanilla behavior everywhere else (returns true).
+/// Prefix-skips the game's per-frame FIGURE TRANSFORM writers for HELD actors only —
+/// either the LOCAL hand (<see cref="HeldFigures.Owns"/>) or a REMOTE player's hand
+/// (<see cref="NetHeldFigures.Owns"/>, cosmetic pickup sync). Vanilla behavior everywhere
+/// else (returns true). Suppressing the writes for a remotely-held figure is exactly what
+/// lets <c>Net/NetFigures.Tick</c> drive it toward the synced pose instead of the game
+/// re-deriving it to its board cell every frame.
 ///
 /// Verified against the decompiled <c>ActorBehaviour</c> (GH.Runtime):
 /// <code>
@@ -35,9 +39,11 @@ internal static class ActorBehaviour_HeldTransform_Patch
 {
     [HarmonyPrefix]
     [HarmonyPatch("Update")]
-    private static bool Update_Prefix(ActorBehaviour __instance) => !HeldFigures.Owns(__instance);
+    private static bool Update_Prefix(ActorBehaviour __instance)
+        => !HeldFigures.Owns(__instance) && !NetHeldFigures.Owns(__instance);
 
     [HarmonyPrefix]
     [HarmonyPatch("LateUpdate")]
-    private static bool LateUpdate_Prefix(ActorBehaviour __instance) => !HeldFigures.Owns(__instance);
+    private static bool LateUpdate_Prefix(ActorBehaviour __instance)
+        => !HeldFigures.Owns(__instance) && !NetHeldFigures.Owns(__instance);
 }

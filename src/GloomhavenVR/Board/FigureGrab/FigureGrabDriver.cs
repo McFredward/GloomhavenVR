@@ -60,6 +60,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         }
 
         TickGuard.Run("FigureGrab.Registry", RefreshRegistry);
+        TickGuard.Run("FigureGrab.AutoRelease", AutoReleaseMovedFigures);
         TickGuard.Run("FigureGrab.OffsetAnchorSelect", TickOffsetAnchorSelect);
         TickGuard.Run("FigureGrab.LaserGrab", TickLaserGrab);
 
@@ -113,6 +114,22 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         }
         for (int i = 0; i < _scratch.Count; i++)
             Drop(_scratch[i]);
+    }
+
+    /// <summary>
+    /// R2 hardening: if the game moves a HELD figure to a new authoritative board cell (a networked
+    /// move on a remote/enemy turn, or the actor is destroyed under us), restore it immediately so
+    /// it never rides the hand at a stale board position and jumps on release. Restore is idempotent
+    /// and leaves the grabber's logical hold to end normally on trigger-up (a no-op re-Restore).
+    /// </summary>
+    private void AutoReleaseMovedFigures()
+    {
+        foreach (Adopted adopted in _adoptions.Values)
+        {
+            FigureGrabbable grabbable = adopted.Grabbable;
+            if (grabbable.IsHeld && grabbable.AuthoritativeCellChanged())
+                grabbable.Restore();
+        }
     }
 
     private void TickLaserGrab()
