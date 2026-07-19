@@ -31,17 +31,23 @@ internal sealed class OptionsToggle
     private bool _open;
 
     /// <summary>
-    /// Press-cycle latch (P6 flicker fix). A tap may toggle only while armed; a toggle
-    /// disarms it. It re-arms only once the button is OBSERVABLY up again
-    /// (<see cref="NonDominantHold.ButtonIsUp"/> — controller present and not pressed).
-    /// A held button keeps ButtonIsUp false, so it can never re-toggle without a genuine
-    /// physical release; a merely idle/untracked controller still re-arms it (its button
-    /// is read regardless of positional tracking). This replaces the old wall-clock
-    /// cooldown, which — because
-    /// <c>UIWindow.IsOpen</c> flips the same frame as Show/Hide (no transitional state) —
-    /// collapsed to a pure 0.5 s rate-limiter that any later release edge re-triggered.
+    /// PRESS-IDENTITY GATE (P6 reopen fix, replaces the old <c>_armed</c> release latch).
+    /// The id of the physical press that must NOT toggle because it already served the
+    /// menu's most-recent open/close. The old latch keyed re-arming off
+    /// <see cref="NonDominantHold.ButtonIsUp"/>, which is TRUE on the very release frame
+    /// that produces the tap — so it re-armed and toggled on the same edge, and could not
+    /// tell the press that CLOSED the menu apart from the press that should RE-OPEN it.
+    /// The failure mode: in a scenario the game treats the controllers as a GAMEPAD, so
+    /// the X press is consumed by the game's own gamepad-escape and closes ESCMenu itself
+    /// (there is never an "OPTIONS TAP CLOSED" line — only the "closed externally"
+    /// re-sync); the mod then saw that same press's release with the menu already closed
+    /// and the reopen edge was lost/ambiguous. Keying on the press IDENTITY instead makes
+    /// one physical press serve exactly one intent: the close/open press is "spent", its
+    /// release is ignored, and the NEXT independent press (a new <see cref="NonDominantHold.PressId"/>)
+    /// always toggles — open→close(any path)→open(next press)→… indefinitely.
+    /// Sentinel <c>-1</c> matches no real press (ids start at 1).
     /// </summary>
-    private bool _armed = true;
+    private int _spentPressId = -1;
 
     public void Tick()
     {
@@ -51,27 +57,28 @@ internal sealed class OptionsToggle
         ESCMenu? menu = Singleton<ESCMenu>.IsInitialized ? Singleton<ESCMenu>.Instance : null;
         if (menu == null)
         {
-            _open = false; // no pause menu (wrong scene) — drop the latch
-            _armed = true;
+            _open = false; // no pause menu (wrong scene) — drop the state
+            _spentPressId = NonDominantHold.PressId; // spend any in-flight press across the scene boundary
             return;
         }
 
         bool actuallyOpen = menu.IsOpen;
 
-        // Re-sync an externally opened/closed menu (its own Resume/Back, the escape chord,
-        // a scene change) so the next tap does the right thing.
+        // Re-sync an externally opened/closed menu (the game's own gamepad-escape on the
+        // X button, the menu's Resume/Back, the escape chord, a laser click, a scene
+        // change). The press that COINCIDED with this external change is spent: its
+        // release must not toggle, so the game closing the menu on a press cannot bounce
+        // straight back open, and — crucially — the NEXT independent press reopens.
         if (_open != actuallyOpen)
         {
             _open = actuallyOpen;
+            _spentPressId = NonDominantHold.PressId;
             VRLog.Info("WorldUI", actuallyOpen
-                ? "OptionsToggle: pause menu opened externally — X-tap latch re-synced (now open)."
-                : "OptionsToggle: pause menu closed externally — X-tap latch re-synced (now closed).");
+                ? "OptionsToggle: pause menu opened externally — X-tap re-synced (now open; this press is spent, " +
+                  "the next independent press will close it)."
+                : "OptionsToggle: pause menu closed externally — X-tap re-synced (now closed; this press is spent, " +
+                  "the next independent press will open it).");
         }
-
-        // Re-arm the press-cycle latch once the button is genuinely, observably UP. A
-        // still-held or hiccuping button keeps ButtonIsUp false and stays latched.
-        if (!_armed && NonDominantHold.ButtonIsUp)
-            _armed = true;
 
         if (!NonDominantHold.ShortTapThisFrame)
             return;
@@ -79,10 +86,13 @@ internal sealed class OptionsToggle
         // Consume the press so no later consumer this frame acts on the same tap.
         NonDominantHold.Consumed = true;
 
-        // Latched from the previous toggle: swallow the edge until the button is released.
-        if (!_armed)
+        // Distinct-edge guard: the press that just opened/closed the menu externally (or
+        // that the mod itself already toggled on) is spent — only a genuinely fresh,
+        // independent press may toggle. This is what guarantees a reliable REOPEN.
+        if (NonDominantHold.PressId == _spentPressId)
         {
-            VRLog.Info("WorldUI", "OPTIONS TAP: ignored — button not yet released since the last toggle (latch).");
+            VRLog.Info("WorldUI", "OPTIONS TAP: ignored — this press already served the menu's open/close " +
+                                  "(spent); the next independent X press toggles.");
             return;
         }
 
@@ -90,6 +100,7 @@ internal sealed class OptionsToggle
         {
             menu.Hide(); // public ESCMenu.Hide() -> myWindow.Hide()
             _open = false;
+            _spentPressId = NonDominantHold.PressId; // this press did the close — it must not reopen
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("WorldUI", "OPTIONS TAP: pause menu CLOSED (X tap) — back to the game.");
         }
@@ -105,13 +116,10 @@ internal sealed class OptionsToggle
                 w.gameObject.SetActive(true);
             w.Show();
             _open = true;
+            _spentPressId = NonDominantHold.PressId; // this press did the open — it must not re-close
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player " +
-                                  $"in VR (activeInHierarchy={w.gameObject.activeInHierarchy}, " +
-                                  $"shortTap={NonDominantHold.ShortTapThisFrame}).");
+                                  $"in VR (activeInHierarchy={w.gameObject.activeInHierarchy}).");
         }
-
-        // Disarm: no re-toggle until the button is observed genuinely up again.
-        _armed = false;
     }
 }

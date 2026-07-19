@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.WorldUI.Surfaces;
@@ -50,7 +52,7 @@ internal sealed class WorldUIModule : IVRModule
         ModalFallback.Attach(); // catch-all modal fallback (P6): UIWindow visibility → ModalUI + screen
 
         _driverGo = new GameObject("GloomhavenVR.WorldUIDriver");
-        Object.DontDestroyOnLoad(_driverGo);
+        UnityEngine.Object.DontDestroyOnLoad(_driverGo);
         _driverGo.hideFlags = HideFlags.HideAndDontSave;
         _driverGo.AddComponent<WorldUIDriver>();
 
@@ -91,7 +93,7 @@ internal sealed class WorldUIModule : IVRModule
 
         if (_driverGo != null)
         {
-            Object.Destroy(_driverGo); // driver OnDestroy shuts every feature down
+            UnityEngine.Object.Destroy(_driverGo); // driver OnDestroy shuts every feature down
             _driverGo = null;
         }
 
@@ -152,12 +154,70 @@ internal sealed class WorldUIModule : IVRModule
         private readonly WorldTooltips _tooltips = new();
         private readonly DevPanels _devPanels = new();
 
+        /// <summary>
+        /// Per-frame Update / LateUpdate steps, each run through <see cref="TickGuard"/> so
+        /// a throw in ONE subsystem can never abort the rest of the frame's ticks. This is
+        /// the reopen guarantee (P6): the pause-menu tap consumer (<see cref="OptionsToggle"/>,
+        /// fed by <see cref="NonDominantHold"/>) sits mid-chain, so before this isolation an
+        /// unhandled per-frame NullReferenceException upstream (e.g. a post-modal card-fan
+        /// rebuild) silently starved it — the X tap produced nothing and no line was logged.
+        /// Built once in <see cref="Start"/> (cached delegates → zero per-frame allocation).
+        /// </summary>
+        private (string name, Action fn)[] _updateSteps = Array.Empty<(string, Action)>();
+        private (string name, Action fn)[] _lateSteps = Array.Empty<(string, Action)>();
+
         private void Start()
         {
+            BuildTickSteps();
             CameraInventory.Attach();
             // End-of-frame loop for the FlatScreen desktop mirror: runs AFTER Unity's
             // XR mirror-view blit, so the RT copy is what the monitor actually shows.
             StartCoroutine(EndOfFrameLoop());
+        }
+
+        /// <summary>
+        /// Assemble the ordered tick lists. Order is load-bearing and matches the original
+        /// Update()/LateUpdate() sequence exactly (VirtualMouse → InputModeGuard →
+        /// CameraInventory → NonDominantHold → ModalFallback → OptionsToggle → …).
+        /// </summary>
+        private void BuildTickSteps()
+        {
+            var update = new List<(string, Action)>
+            {
+                ("VirtualMouse", VirtualMouse.Tick),
+                ("InputModeGuard", InputModeGuard.Tick),
+                ("CameraInventory", CameraInventory.Tick),
+                ("NonDominantHold", NonDominantHold.Tick),  // before its consumers (settings panel, flat screen, options toggle)
+                ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
+                ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
+                ("ButtonCluster", _buttons.Tick),
+            };
+            for (int i = 0; i < _slotSurfaces.Length; i++)
+            {
+                WorldSurface surface = _slotSurfaces[i];
+                update.Add(($"Surface:{surface.GetType().Name}", surface.Tick));
+            }
+            update.Add(("DialogSurface", _dialogs.Tick));
+            update.Add(("StatPanelSurface", _statPanels.Tick));
+            update.Add(("PropInfoSurface", _propInfo.Tick));
+            update.Add(("EnemyRevealSurface", _enemyReveal.Tick));
+            update.Add(("DecisionDockSurface", _decisionDock.Tick)); // after ModalFallback.Tick
+            update.Add(("DamageTooltipSurface", _damageTooltip.Tick)); // after the dock
+            update.Add(("TrayControlDockSurface", _trayControls.Tick));
+            update.Add(("WristHud", _wristHud.Tick));
+            update.Add(("FlatScreen", _flatScreen.Tick));
+            update.Add(("SettingsPanel", _settingsPanel.Tick));
+            update.Add(("DevPanels", _devPanels.Tick));
+            update.Add(("CanvasConversion", CanvasConversion.Tick));
+            _updateSteps = update.ToArray();
+
+            _lateSteps = new (string, Action)[]
+            {
+                ("ActorBars", ActorBars.Tick),
+                ("ActorBars.Late", ActorBars.LateTick),
+                ("WorldTooltips.Late", _tooltips.LateTick),
+                ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
+            };
         }
 
         private System.Collections.IEnumerator EndOfFrameLoop()
@@ -172,37 +232,69 @@ internal sealed class WorldUIModule : IVRModule
 
         private void Update()
         {
-            VirtualMouse.Tick();
-            InputModeGuard.Tick();
-            CameraInventory.Tick();
-            NonDominantHold.Tick();  // before its consumers (settings panel, flat screen, options toggle)
-            ModalFallback.Tick();    // before the flat screen reads ScreenWanted
-            _optionsToggle.Tick();   // reads the settled short-tap edge (after the hold arbiters)
-
-            _buttons.Tick();
-            for (int i = 0; i < _slotSurfaces.Length; i++)
-                _slotSurfaces[i].Tick();
-            _dialogs.Tick();
-            _statPanels.Tick();
-            _propInfo.Tick();
-            _enemyReveal.Tick();
-            _decisionDock.Tick(); // after ModalFallback.Tick (its claim stands the generic path down)
-            _damageTooltip.Tick(); // after the dock: reads DecisionDockSurface.DockingTakeDamage
-            _trayControls.Tick(); // test #23 item 4: dock the REAL Ready/Undo/ShortRest on the board
-            _wristHud.Tick();
-            _flatScreen.Tick();
-            _settingsPanel.Tick();
-            _devPanels.Tick();
-
-            CanvasConversion.Tick();
+            var steps = _updateSteps;
+            for (int i = 0; i < steps.Length; i++)
+                TickGuard.Run(steps[i].name, steps[i].fn);
         }
 
         private void LateUpdate()
         {
-            ActorBars.Tick();
-            ActorBars.LateTick();
-            _tooltips.LateTick();
-            CanvasConversion.LateTick(); // test #21: 2D flatten after the game's tween writers
+            var steps = _lateSteps;
+            for (int i = 0; i < steps.Length; i++)
+                TickGuard.Run(steps[i].name, steps[i].fn);
+        }
+
+        /// <summary>
+        /// Runs one per-frame tick, ISOLATING any exception it throws so the remaining
+        /// ticks in the frame still run (a single misbehaving subsystem must never starve
+        /// the input pipeline — the reopen guarantee). The first throw per step is logged
+        /// at Error WITH its stack (so an anonymous per-frame NullReferenceException flood
+        /// — previously untraced in Player.log — is finally attributable to a subsystem);
+        /// repeats are summarized once per 10 s so an every-frame throw cannot itself
+        /// flood the log.
+        /// </summary>
+        private static class TickGuard
+        {
+            private sealed class Entry
+            {
+                public long Count;
+                public float LastLog;
+                public bool Opened;
+            }
+
+            private static readonly Dictionary<string, Entry> State = new();
+
+            public static void Run(string name, Action fn)
+            {
+                try
+                {
+                    fn();
+                }
+                catch (Exception ex)
+                {
+                    if (!State.TryGetValue(name, out Entry e))
+                    {
+                        e = new Entry();
+                        State[name] = e;
+                    }
+                    e.Count++;
+                    float now = Time.unscaledTime;
+                    if (!e.Opened)
+                    {
+                        e.Opened = true;
+                        e.LastLog = now;
+                        VRLog.Error("WorldUI", $"Tick '{name}' threw and was ISOLATED — the rest of the frame's " +
+                                               "ticks still run, so the pause-menu tap / input pipeline can't be " +
+                                               $"starved by one subsystem. {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                    }
+                    else if (now - e.LastLog >= 10f)
+                    {
+                        VRLog.Error("WorldUI", $"Tick '{name}' is still throwing ({e.Count} time(s) so far) — latest " +
+                                               $"{ex.GetType().Name}: {ex.Message}. Fix the subsystem; ticks stay isolated.");
+                        e.LastLog = now;
+                    }
+                }
+            }
         }
 
         private void OnDestroy()
