@@ -643,6 +643,20 @@ internal static class ModalFallback
         /// <summary>The window root's CanvasGroup (cached), re-asserted to keep a sticky menu visible
         /// after the game hides it. The window is <c>[RequireComponent(CanvasGroup)]</c>.</summary>
         public CanvasGroup? WindowCanvasGroup;
+
+        /// <summary>
+        /// Item 6 (empty-shell fix): the window root's own <see cref="Canvas"/> (cached), or null when
+        /// the window carries none. A <c>UIWindow</c> whose serialized <c>_disableCanvas</c> is set
+        /// DISABLES this Canvas when its hide fade completes (UIWindow.OnTransitionCompleted →
+        /// <c>_canvas.enabled = false</c>). A disabled Canvas stops rendering its ENTIRE subtree, so a
+        /// sticky menu the game single-window-toggled off (e.g. Options when Spielanleitung/Compendium
+        /// opens) kept its float + CanvasGroup alpha but rendered as an EMPTY shell — only the mod-drawn
+        /// grab bar / X remained. <see cref="ReassertStickyVisible"/> re-enables it so the parallel menu
+        /// keeps its full live content. This is the window's own adopted canvas (same object
+        /// <c>UIWindow._canvas = GetComponent&lt;Canvas&gt;()</c> targets), so re-enabling it never
+        /// touches sub-canvases the game legitimately keeps hidden (closed option tabs).
+        /// </summary>
+        public Canvas? WindowCanvas;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -1271,6 +1285,16 @@ internal static class ModalFallback
     /// raycasts on re-shows it in VR without calling <c>Show()</c> (no onShown side effects, no war
     /// with the toggle — the deselect is a one-shot event). Change-gated writes; also re-activates a
     /// <c>m_DisableOnZeroAlpha</c> window that went inactive at alpha 0.
+    ///
+    /// EMPTY-SHELL FIX: a <c>UIWindow</c> whose serialized <c>_disableCanvas</c> is set DISABLES its
+    /// own Canvas component when the hide fade completes (UIWindow.OnTransitionCompleted →
+    /// <c>_canvas.enabled = false</c>). A disabled Canvas renders NOTHING under it, so forcing only the
+    /// CanvasGroup/active state left the sticky menu an EMPTY shell — the game content gone, only the
+    /// mod-drawn grab bar + X visible (confirmed for Options when Spielanleitung/Compendium opens: the
+    /// ESC-menu single-selection toggle turns the Options toggle off → <c>UIOptionsWindow.Hide()</c>).
+    /// Re-enabling the window's own <see cref="WindowPanel.WindowCanvas"/> restores the full live
+    /// content. This is the exact Canvas <c>_disableCanvas</c> targets (the window root's own), so it
+    /// never re-shows sub-canvases the game legitimately keeps hidden (closed option tabs).
     /// </summary>
     private static void ReassertStickyVisible(WindowPanel wp)
     {
@@ -1281,6 +1305,11 @@ internal static class ModalFallback
             if (!cg.blocksRaycasts) cg.blocksRaycasts = true;
             if (!cg.interactable) cg.interactable = true;
         }
+        // Empty-shell fix: re-enable the window's own Canvas that a `_disableCanvas` UIWindow turned
+        // off on its hide-fade complete — otherwise the whole subtree stops rendering (empty shell).
+        Canvas? canvas = wp.WindowCanvas;
+        if (canvas != null && !canvas.enabled)
+            canvas.enabled = true;
         GameObject go = wp.Window.gameObject;
         if (!go.activeSelf)
             go.SetActive(true);
@@ -1514,6 +1543,9 @@ internal static class ModalFallback
                 // toggle hides a sibling; cache the CanvasGroup used to re-assert their visibility.
                 Sticky = NonBlockingMenus.Contains(window.ID),
                 WindowCanvasGroup = window.GetComponent<CanvasGroup>(),
+                // Item 6 (empty-shell fix): cache the window's own Canvas so ReassertStickyVisible can
+                // re-enable it after a `_disableCanvas` UIWindow disables it on its hide-fade complete.
+                WindowCanvas = window.GetComponent<Canvas>(),
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
