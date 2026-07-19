@@ -216,6 +216,23 @@ internal sealed class FlatScreen
     /// <summary>One-time log of the chosen mirror mode (confirms on the next hardware log).</summary>
     private bool _mirrorModeLogged;
 
+    // ---- ITEM 9 (SCENARIO STATE): scrub game cameras off the desktop backbuffer -------------
+    /// <summary>
+    /// Offscreen sink RT for scrubbed backbuffer cameras (Screen-sized so their pixel
+    /// dimensions — Camera.main.ScreenToWorldPoint etc. — are unchanged; content discarded).
+    /// </summary>
+    private RenderTexture? _scrubRt;
+    /// <summary>
+    /// Game cameras we retargeted OFF the backbuffer (their original targetTexture was
+    /// null → restore to null). Distinct from <see cref="CapturedSet"/>: this list runs
+    /// only while the flat screen is HIDDEN (scenario), where CaptureStack does not.
+    /// </summary>
+    private readonly System.Collections.Generic.List<Camera> _scrubbed = new(8);
+    /// <summary>True while the scenario desktop-scrub holds cameras off the backbuffer.</summary>
+    private bool _scrubActive;
+    /// <summary>Scene name whose backbuffer inventory we already logged (re-log once per scene/state).</summary>
+    private string? _scrubInventoryScene;
+
     // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
     /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>
     private int _screenMaterialQueueDefault = -1;
@@ -337,6 +354,10 @@ internal sealed class FlatScreen
         // ITEM 9: keep the flat monitor a clean left-eye mirror while VR runs (must run
         // regardless of the flat-screen's own visibility — it is a global desktop concern).
         TickDesktopMirrorMode();
+        // ITEM 9 (scenario): while the flat screen is HIDDEN, route the game's own
+        // backbuffer cameras (which the stereo policy forced desktop-only) off the
+        // monitor so nothing but the HMD left-eye mirror reaches it.
+        TickDesktopCameraScrub();
 
         // Test #11: the intro CAN show on the screen now — the pre-menu gate existed
         // because the early quad died with the Single-mode scene loads, which is long
@@ -1066,9 +1087,19 @@ internal sealed class FlatScreen
         if (!_mirrorModeLogged)
         {
             _mirrorModeLogged = true;
+            // Read the value BACK: on some OpenXR runtimes gameViewRenderMode is a no-op
+            // (the compositor owns the mirror), so this line tells the next hardware log
+            // whether the managed set is honored — and, if not, that the desktop-camera
+            // scrub below is the only lever that keeps the monitor clean.
+            var readback = UnityEngine.XR.XRSettings.gameViewRenderMode;
+            bool honored = readback == UnityEngine.XR.GameViewRenderMode.LeftEye;
             VRLog.Info("WorldUI", "ITEM9 desktop mirror mode = LEFT EYE: XRSettings.gameViewRenderMode " +
-                                  $"forced to LeftEye (was {_originalMirrorMode}); the flat monitor mirrors " +
-                                  "the HMD left eye only and the end-of-frame 2D-menu composite blit is skipped.");
+                                  $"set to LeftEye (was {_originalMirrorMode}); readback={readback} " +
+                                  (honored
+                                      ? "(runtime HONORED — the mirror carries the left eye only). "
+                                      : "(runtime IGNORED — the OpenXR compositor's mirror is not controllable " +
+                                        "from managed code here; the desktop-camera scrub keeps the monitor clean instead). ") +
+                                  "The end-of-frame 2D-menu composite blit is skipped.");
         }
     }
 
@@ -1082,6 +1113,163 @@ internal sealed class FlatScreen
         _mirrorModeApplied = false;
         _mirrorModeLogged = false;
         VRLog.Info("WorldUI", $"ITEM9 desktop mirror mode restored to {_originalMirrorMode} (VR off / toggle off / hot reload).");
+    }
+
+    /// <summary>
+    /// ITEM 9 (SCENARIO STATE) — keep the game's OWN cameras off the desktop backbuffer
+    /// while the flat screen is HIDDEN.
+    ///
+    /// WHY THE DESKTOP STILL SHOWED EXTRA UI: <see cref="Core.VRCameraPolicy"/> forces
+    /// every game camera to <c>StereoTargetEyeMask.None</c> while VR runs (only the rig
+    /// head camera renders the HMD). A None camera renders to the DESKTOP backbuffer.
+    /// In Menu2D <see cref="CaptureStack"/> redirects all of them into the flat-screen RT,
+    /// so nothing but the XR left-eye mirror reaches the monitor — but in a SCENARIO the
+    /// flat screen is hidden, CaptureStack does not run, and the game's flat 2D UI (hand,
+    /// bars, buttons) and 3D board composite straight onto the monitor IN PARALLEL with
+    /// the mirror. That is the "extra UI on the desktop" this item reports; it is NOT the
+    /// XR runtime's mirror (which only ever carries the HMD eye) — it is the game's own
+    /// desktop cameras drawing next to it.
+    ///
+    /// FIX (mirrors CaptureStack): retarget EVERY non-head backbuffer camera onto one
+    /// throwaway offscreen sink RT (Screen-sized, so Camera pixel dimensions and
+    /// screen-space raycasts are unchanged) so ONLY the XR mirror composites onto the
+    /// monitor. The rig <see cref="Rig.VRRigDriver.HeadCamera"/> (the sole stereo renderer
+    /// → HMD) is excluded, so the in-VR view is untouched; the game UI still RENDERS (into
+    /// the sink), so the WorldUI canvas conversion that consumes it in VR is unaffected —
+    /// only its DESKTOP output is suppressed. Fully reversible (targetTexture → null) on
+    /// VR stop / toggle off / hot reload / when the flat screen shows (CaptureStack owns
+    /// the cameras then). Gated by [WorldUI] DesktopMirrorLeftEye (off = legacy).
+    ///
+    /// Instrumented: the full backbuffer inventory is logged once per scene so the next
+    /// hardware log names exactly which cameras reached the desktop and what was scrubbed.
+    /// </summary>
+    private void TickDesktopCameraScrub()
+    {
+        // Only while the flat screen is HIDDEN: Menu2D already routes every backbuffer
+        // camera into its own RT via CaptureStack (double-owning them would fight).
+        bool want = DesktopMirrorLeftEye && VRSession.IsRunning && !_visible;
+        if (!want)
+        {
+            ReleaseDesktopScrub(_visible ? "flat screen captures the cameras" : "toggle off / VR stopped");
+            return;
+        }
+
+        if (_scrubRt == null)
+        {
+            _scrubRt = new RenderTexture(Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24)
+            {
+                name = "GloomhavenVR.DesktopScrubSink",
+                antiAliasing = 1,
+            };
+            _scrubRt.Create();
+        }
+
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        int count = Core.VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] cams);
+
+        string scene = SceneManager.GetActiveScene().name;
+        bool logInventory = _scrubInventoryScene != scene;
+        if (logInventory)
+        {
+            _scrubInventoryScene = scene;
+            VRLog.Info("WorldUI", $"ITEM9 desktop backbuffer inventory (scene '{scene}', flat screen HIDDEN, " +
+                                  $"{count} active camera(s)) — each targetTexture==null camera below composites " +
+                                  "onto the monitor; all except the VR head are retargeted to an offscreen sink:");
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            Camera cam = cams[i];
+            if (cam == null)
+                continue;
+            bool isHead = head != null && cam == head;
+
+            if (logInventory)
+            {
+                Rect r = cam.rect;
+                string dest = cam.targetTexture != null ? cam.targetTexture.name : "backbuffer";
+                VRLog.Info("WorldUI", $"  '{cam.name}' tag={cam.tag} enabled={cam.enabled} depth={cam.depth:F1} " +
+                                      $"clear={cam.clearFlags} rect=({r.x:F2},{r.y:F2},{r.width:F2},{r.height:F2}) " +
+                                      $"mask=0x{cam.cullingMask:X8} stereo={cam.stereoTargetEye} target={dest}" +
+                                      (isHead ? " [VR head — KEPT: its XR mirror IS the desktop]"
+                                       : cam.targetTexture != null ? " [own RT — left alone]"
+                                       : " [SCRUBBED → offscreen sink]"));
+            }
+
+            if (isHead || FlatScreen.IsCaptured(cam))
+                continue; // head renders the HMD; captured cameras belong to CaptureStack
+            if (cam.targetTexture == _scrubRt)
+                continue; // already scrubbed
+            if (cam.targetTexture != null)
+                continue; // renders to its own RT (e.g. 'GUI 3D Camera') — not the desktop
+
+            cam.targetTexture = _scrubRt;
+            if (!_scrubbed.Contains(cam))
+                _scrubbed.Add(cam);
+            if (!logInventory)
+                VRLog.Info("WorldUI", $"ITEM9 desktop scrub: '{cam.name}' (depth {cam.depth:F1}, " +
+                                      $"mask 0x{cam.cullingMask:X8}, clear {cam.clearFlags}) retargeted off the " +
+                                      "backbuffer to the offscreen sink (kept off the monitor; still renders for " +
+                                      "the in-VR canvas conversion).");
+        }
+
+        // Re-assert (game code may reset targetTexture to null) + compact dead / released.
+        for (int i = _scrubbed.Count - 1; i >= 0; i--)
+        {
+            Camera cam = _scrubbed[i];
+            if (cam == null)
+            {
+                _scrubbed.RemoveAt(i);
+                continue;
+            }
+            if ((head != null && cam == head) || FlatScreen.IsCaptured(cam))
+            {
+                // Ownership moved (rig rebuilt onto it / flat screen captured it) — drop our claim.
+                if (cam.targetTexture == _scrubRt)
+                    cam.targetTexture = null;
+                _scrubbed.RemoveAt(i);
+                continue;
+            }
+            if (cam.targetTexture == null)
+                cam.targetTexture = _scrubRt;          // re-assert our redirect
+            else if (cam.targetTexture != _scrubRt)
+                _scrubbed.RemoveAt(i);                  // game gave it its own RT — no longer our concern
+        }
+
+        _scrubActive = true;
+    }
+
+    /// <summary>
+    /// Restore every scrubbed camera to the backbuffer and drop the sink RT
+    /// (VR off / toggle off / hot reload / the flat screen taking the cameras over).
+    /// </summary>
+    private void ReleaseDesktopScrub(string reason)
+    {
+        if (!_scrubActive && _scrubbed.Count == 0 && _scrubRt == null)
+            return;
+        int restored = 0;
+        for (int i = 0; i < _scrubbed.Count; i++)
+        {
+            Camera cam = _scrubbed[i];
+            if (cam == null)
+                continue;
+            if (cam.targetTexture == _scrubRt)
+            {
+                cam.targetTexture = null;
+                restored++;
+            }
+        }
+        _scrubbed.Clear();
+        if (_scrubRt != null)
+        {
+            _scrubRt.Release();
+            Object.Destroy(_scrubRt);
+            _scrubRt = null;
+        }
+        if (_scrubActive)
+            VRLog.Info("WorldUI", $"ITEM9 desktop scrub released ({reason}) — {restored} camera(s) restored to the backbuffer.");
+        _scrubActive = false;
+        _scrubInventoryScene = null;
     }
 
     /// <summary>
@@ -1134,7 +1322,8 @@ internal sealed class FlatScreen
         ManualScreenActive = false;
         Hide();
         DestroyIndicator();
-        RestoreDesktopMirrorMode(); // ITEM 9: reversible on VR stop / hot reload
+        RestoreDesktopMirrorMode();      // ITEM 9: reversible on VR stop / hot reload
+        ReleaseDesktopScrub("shutdown"); // ITEM 9 (scenario): restore scrubbed cameras to the backbuffer
     }
 
     // ---- policy ------------------------------------------------------------------------
