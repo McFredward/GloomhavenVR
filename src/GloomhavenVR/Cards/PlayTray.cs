@@ -1118,10 +1118,54 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     internal void SetConfirmUndoOffset(Vector3 offset, float spacing)
     {
+        // Item D: auto-fit the generic cluster's buttons in a vertical stack. Confirm is member 0
+        // (top), Undo member 1. GenericClusterY packs any count into the column; at 2 it reproduces
+        // the tuned ±spacing/2 layout, at 3–4 it spreads evenly across GenericColumnHeight.
         if (_confirm != null)
-            _confirm.transform.localPosition = offset + new Vector3(0f, spacing * 0.5f, 0f);
+            _confirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(0, GenericButtonCount, spacing), 0f);
         if (_undo != null)
-            _undo.transform.localPosition = offset + new Vector3(0f, -spacing * 0.5f, 0f);
+            _undo.transform.localPosition = offset + new Vector3(0f, GenericClusterY(1, GenericButtonCount, spacing), 0f);
+    }
+
+    /// <summary>
+    /// Item D: how many buttons the mod-owned GENERIC cluster currently lays out (Confirm + Undo).
+    /// The layout/size math below is parametric so the cluster can hold &gt;2 — the game can activate
+    /// up to four turn-flow buttons at once (readyButton/skip/undo/select, decompiled-confirmed).
+    /// </summary>
+    private const int GenericButtonCount = 2;
+
+    /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into (right column between the readout and the gear).</summary>
+    private const float GenericColumnHeight = 0.20f;
+
+    /// <summary>Minimum inter-button gap (tray-local meters) when the generic cluster auto-fits &gt;2 buttons.</summary>
+    private const float GenericButtonGap = 0.010f;
+
+    /// <summary>
+    /// Item D: per-button side length for a generic cluster of <paramref name="count"/> buttons. A
+    /// pair (or single) keeps the full authored size; from 3 up each cap shrinks so the whole stack
+    /// fits <see cref="GenericColumnHeight"/> (auto-scale from the count), floored so it stays pokeable.
+    /// </summary>
+    internal static float GenericClusterButtonSize(float baseSide, int count)
+    {
+        if (count <= 2)
+            return baseSide;
+        float avail = (GenericColumnHeight - (count - 1) * GenericButtonGap) / count;
+        return Mathf.Clamp(Mathf.Min(baseSide, avail), 0.02f, baseSide);
+    }
+
+    /// <summary>
+    /// Item D: local-Y of button <paramref name="index"/> in a top-to-bottom generic stack of
+    /// <paramref name="count"/>. At count ≤ 2 it reproduces the tuned ±<paramref name="spacing"/>/2
+    /// pair; at 3+ it distributes the members evenly across <see cref="GenericColumnHeight"/> so all fit.
+    /// </summary>
+    internal static float GenericClusterY(int index, int count, float spacing)
+    {
+        if (count <= 1)
+            return 0f;
+        if (count == 2)
+            return (index == 0 ? 0.5f : -0.5f) * spacing;
+        float step = GenericColumnHeight / (count - 1);
+        return GenericColumnHeight * 0.5f - index * step; // member 0 at the top, descending
     }
 
     /// <summary>PART F live-apply: move the discard/burn pile mount to a new per-board offset (instant).</summary>
@@ -2289,7 +2333,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // board (debug-menu tunable). Round-2: the cap SHAPE is per-board (Square boxy keycap by
         // default, or Round disc), and a per-board SPACING spreads Confirm/Undo apart.
         ControlBoard active = CardsConfig.CurrentBoard;
-        float side = CardsConfig.ConfirmUndoSize(active).Value;
+        // Item D: the generic-button area is now a COUNT-DRIVEN cluster. The game can show up to
+        // FOUR turn-flow buttons at once (decompiled: Choreographer toggles readyButton + m_SkipButton
+        // + m_UndoButton, and occasionally m_selectButton, as independent GameObjects — see
+        // e.g. Choreographer.cs:6305-6309), so this consolidated area AUTO-SCALES each cap's size from
+        // the live count (GenericClusterButtonSize) and lays them out auto-fit (SetConfirmUndoOffset).
+        // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
+        // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
+        float baseSide = CardsConfig.ConfirmUndoSize(active).Value;
+        float side = GenericClusterButtonSize(baseSide, GenericButtonCount);
         var rectSize = new Vector2(side, side);
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
