@@ -102,18 +102,22 @@ internal sealed class OptionsToggle
             return;
         }
 
-        bool actuallyOpen = menu.IsOpen;
+        // PARENT open-state (cheap, every frame). The re-sync latch tracks the ESC menu
+        // itself: opening a sub-menu leaves the parent open behind it, so this is the
+        // meaningful "external change" edge. The TOGGLE DECISION below reads the full
+        // live picture (parent + sub-menus) freshly on the tap, so it can never desync.
+        bool escOpen = menu.IsOpen;
 
         // Re-sync an externally opened/closed menu (the game's own gamepad-escape on the
         // X button, the menu's Resume/Back, the escape chord, a laser click, a scene
         // change). The press that COINCIDED with this external change is spent: its
         // release must not toggle, so the game closing the menu on a press cannot bounce
         // straight back open, and — crucially — the NEXT independent press reopens.
-        if (_open != actuallyOpen)
+        if (_open != escOpen)
         {
-            _open = actuallyOpen;
+            _open = escOpen;
             _spentPressId = NonDominantHold.PressId;
-            VRLog.Info("WorldUI", actuallyOpen
+            VRLog.Info("WorldUI", escOpen
                 ? "OptionsToggle: pause menu opened externally — X-tap re-synced (now open; this press is spent, " +
                   "the next independent press will close it)."
                 : "OptionsToggle: pause menu closed externally — X-tap re-synced (now closed; this press is spent, " +
@@ -128,7 +132,8 @@ internal sealed class OptionsToggle
 
         // Distinct-edge guard: the press that just opened/closed the menu externally (or
         // that the mod itself already toggled on) is spent — only a genuinely fresh,
-        // independent press may toggle. This is what guarantees a reliable REOPEN.
+        // independent press may toggle. This is what guarantees a reliable REOPEN. Kept
+        // EXACTLY as the core reopen fix: one physical press serves exactly one intent.
         if (NonDominantHold.PressId == _spentPressId)
         {
             VRLog.Info("WorldUI", "OPTIONS TAP: ignored — this press already served the menu's open/close " +
@@ -136,13 +141,44 @@ internal sealed class OptionsToggle
             return;
         }
 
+        // LIVE open-state, read from the ACTUAL game windows on THIS tap — never a cached
+        // `_open` bool that a stray external Show/Hide (e.g. ESCMenu.OnControllerAreaFocused
+        // re-showing the parent) can desync. A sub-menu that is focused/open while the ESC
+        // menu is closed still forces a CLOSE, so X while any sub-menu shows always closes
+        // everything rather than "reopening". These probes run ONLY on the tap frame (never
+        // per-frame), so the singleton lookups and the one compendium scene scan are cheap
+        // at human tap cadence; the flags are also reused by the close branch below.
+        UIOptionsWindow? optOwner = Singleton<UIOptionsWindow>.IsInitialized ? Singleton<UIOptionsWindow>.Instance : null;
+        UIMultiplayerEscSubmenu? mpOwner = Singleton<UIMultiplayerEscSubmenu>.IsInitialized ? Singleton<UIMultiplayerEscSubmenu>.Instance : null;
+        UIWindow? optWin = optOwner != null ? optOwner.GetComponent<UIWindow>() : null;
+        UIWindow? mpWin = mpOwner != null ? mpOwner.Window : null;
+        UIWindow? compWin = FindOpenCompendiumWindow(); // side-effect-free; only ever an OPEN instance
+        bool optOpen = optWin != null && optWin.IsOpen;
+        bool mpOpen = mpWin != null && mpWin.IsOpen;
+        bool compOpen = compWin != null;
+        bool anySubmenuOpen = optOpen || mpOpen || compOpen;
+        bool actuallyOpen = escOpen || anySubmenuOpen;
+
+        VRLog.Info("WorldUI", $"[OptionsToggle] X tap: actuallyOpen={actuallyOpen} (esc={escOpen} opt={optOpen} " +
+                              $"mp={mpOpen} comp={compOpen}) -> {(actuallyOpen ? "CLOSE" : "OPEN")}");
+
         if (actuallyOpen)
         {
-            menu.Hide(); // public ESCMenu.Hide() -> myWindow.Hide()
+            // Submenu-safe close: hide any open sub-window DIRECTLY (a belt for the rare
+            // case a sub-menu outlives the parent's SetAllTogglesOff cascade), then hide
+            // the PARENT LAST — its ESCMenu.OnHide → toggleGroup.SetAllTogglesOff cascade
+            // is the belt-and-suspenders final word that closes anything still lingering.
+            if (optOpen)
+                optOwner!.Hide();  // UIOptionsWindow.Hide() -> m_Window.Hide()
+            if (mpOpen)
+                mpOwner!.Hide();   // UIMultiplayerEscSubmenu.Hide() -> Window.Hide()
+            if (compOpen)
+                compWin!.Hide();   // compendium UIWindow.Hide()
+            menu.Hide();           // ESCMenu.Hide() -> myWindow.Hide() -> OnHide cascade
             _open = false;
             _spentPressId = NonDominantHold.PressId; // this press did the close — it must not reopen
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu CLOSED (X tap) — back to the game.");
+            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu + all sub-menus CLOSED (X tap) — back to the game.");
         }
         else
         {
@@ -161,5 +197,28 @@ internal sealed class OptionsToggle
             VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player " +
                                   $"in VR (activeInHierarchy={w.gameObject.activeInHierarchy}).");
         }
+    }
+
+    /// <summary>
+    /// The compendium sub-window IF it is currently OPEN, else null. Deliberately a scene
+    /// scan rather than <c>Singleton&lt;SpecialUIProvider&gt;.Instance.CompendiumUIObject</c>:
+    /// that getter INSTANTIATES the compendium prefab on first access (a synchronous
+    /// Addressables load — SpecialUIProvider.GetCompendiumUI), so probing it merely to test
+    /// open-state would create the window and hitch the frame. An OPEN compendium window is
+    /// always an active object, so <c>FindObjectsOfType</c> (active-only) reaches it; this
+    /// runs ONLY on an X tap (never per-frame), and the returned instance is reused for the
+    /// close-branch Hide() so no second lookup is needed. Compendium window ID verified as
+    /// <c>UIWindowID.CompendiumPanel</c> (ModalFallback FallbackIds / SyncEscMenuTabHighlights).
+    /// </summary>
+    private static UIWindow? FindOpenCompendiumWindow()
+    {
+        UIWindow[] all = UnityEngine.Object.FindObjectsOfType<UIWindow>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            UIWindow w = all[i];
+            if (w != null && w.ID == UIWindowID.CompendiumPanel && w.IsOpen)
+                return w;
+        }
+        return null;
     }
 }
