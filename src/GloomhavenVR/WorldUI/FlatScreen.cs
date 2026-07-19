@@ -198,6 +198,24 @@ internal sealed class FlatScreen
     private bool _pressing;
     private bool _mirrorLogged;
 
+    // ---- ITEM 9: desktop (flat monitor) = clean LEFT-EYE mirror, nothing else --------------
+    /// <summary>
+    /// [WorldUI] DesktopMirrorLeftEye — local default (the WorldUIConfig entry is not
+    /// owned by this branch; see the returned snippet to wire the live toggle). While
+    /// true the flat monitor mirrors ONLY the HMD's LEFT eye: the game-view mirror mode
+    /// is pinned to <c>GameViewRenderMode.LeftEye</c> AND the end-of-frame desktop
+    /// composite blit (the old 2D-menu overlay / blackscreen fallback) is skipped, so no
+    /// menu composite, both-eyes/side-by-side, or UI overlay reaches the desktop.
+    /// </summary>
+    private static bool DesktopMirrorLeftEye => true;
+    /// <summary>True while we currently hold <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> at LeftEye.</summary>
+    private bool _mirrorModeApplied;
+    /// <summary>Original mirror mode captured once so VR-off / hot-reload restores it.</summary>
+    private bool _mirrorModeCaptured;
+    private UnityEngine.XR.GameViewRenderMode _originalMirrorMode;
+    /// <summary>One-time log of the chosen mirror mode (confirms on the next hardware log).</summary>
+    private bool _mirrorModeLogged;
+
     // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
     /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>
     private int _screenMaterialQueueDefault = -1;
@@ -316,6 +334,10 @@ internal sealed class FlatScreen
 
     public void Tick()
     {
+        // ITEM 9: keep the flat monitor a clean left-eye mirror while VR runs (must run
+        // regardless of the flat-screen's own visibility — it is a global desktop concern).
+        TickDesktopMirrorMode();
+
         // Test #11: the intro CAN show on the screen now — the pre-menu gate existed
         // because the early quad died with the Single-mode scene loads, which is long
         // fixed (DontDestroyOnLoad + external-destroy rebuild). [WorldUI] ShowIntro
@@ -1009,15 +1031,88 @@ internal sealed class FlatScreen
         }
     }
 
+    // ---- ITEM 9: desktop (flat monitor) = clean LEFT-EYE mirror ---------------------------
+
     /// <summary>
-    /// End-of-frame hook (WorldUI driver coroutine, after Unity's XR mirror blit):
-    /// while the UICamera is redirected into our RT, copy the RT to the desktop
-    /// backbuffer so the monitor never goes black and stays mouse-operable.
+    /// ITEM 9 — force the flat monitor to mirror ONLY the HMD's LEFT eye. Unity/OpenXR's
+    /// default game-view mirror mode is uncontrolled (which eye — or both, side by side —
+    /// is build/driver dependent), so pin
+    /// <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> to
+    /// <c>GameViewRenderMode.LeftEye</c>. This is a real RUNTIME property (not an
+    /// editor-only field) — valid on a built OpenXR player — and controls the desktop
+    /// mirror-view blit Unity performs after every frame. It is re-asserted every tick
+    /// because a scene load or game code can rewrite it, and the original is captured
+    /// once so VR-off / hot-reload / the toggle restores it (<see cref="RestoreDesktopMirrorMode"/>).
+    /// Combined with the <see cref="OnEndOfFrame"/> composite gate, the desktop shows the
+    /// rig head camera's LEFT eye and nothing else — the left-eye mirror already carries
+    /// the in-VR flat-screen quad (which shows the 2D menu), so no separate 2D composite
+    /// is needed and the monitor never goes black.
+    /// </summary>
+    private void TickDesktopMirrorMode()
+    {
+        if (!DesktopMirrorLeftEye || !VRSession.IsRunning)
+        {
+            RestoreDesktopMirrorMode();
+            return;
+        }
+        if (!_mirrorModeCaptured)
+        {
+            _originalMirrorMode = UnityEngine.XR.XRSettings.gameViewRenderMode;
+            _mirrorModeCaptured = true;
+        }
+        if (UnityEngine.XR.XRSettings.gameViewRenderMode != UnityEngine.XR.GameViewRenderMode.LeftEye)
+            UnityEngine.XR.XRSettings.gameViewRenderMode = UnityEngine.XR.GameViewRenderMode.LeftEye;
+        _mirrorModeApplied = true;
+        if (!_mirrorModeLogged)
+        {
+            _mirrorModeLogged = true;
+            VRLog.Info("WorldUI", "ITEM9 desktop mirror mode = LEFT EYE: XRSettings.gameViewRenderMode " +
+                                  $"forced to LeftEye (was {_originalMirrorMode}); the flat monitor mirrors " +
+                                  "the HMD left eye only and the end-of-frame 2D-menu composite blit is skipped.");
+        }
+    }
+
+    /// <summary>Restore the original game-view mirror mode (VR off / toggle off / hot reload).</summary>
+    private void RestoreDesktopMirrorMode()
+    {
+        if (!_mirrorModeApplied)
+            return;
+        if (_mirrorModeCaptured)
+            UnityEngine.XR.XRSettings.gameViewRenderMode = _originalMirrorMode;
+        _mirrorModeApplied = false;
+        _mirrorModeLogged = false;
+        VRLog.Info("WorldUI", $"ITEM9 desktop mirror mode restored to {_originalMirrorMode} (VR off / toggle off / hot reload).");
+    }
+
+    /// <summary>
+    /// End-of-frame hook (WorldUI driver coroutine, after Unity's XR mirror blit).
+    ///
+    /// ITEM 9: with <see cref="DesktopMirrorLeftEye"/> on, the desktop is a clean
+    /// LEFT-EYE mirror (<see cref="TickDesktopMirrorMode"/>) — the XR mirror of the rig
+    /// head camera's left eye already fills the monitor and shows the in-VR flat-screen
+    /// quad (the 2D menu). We therefore do NOT overwrite the backbuffer with the 2D-menu
+    /// composite here; blitting the RT would replace the eye image with the flat menu.
+    ///
+    /// Legacy path (toggle off): while the UICamera is redirected into our RT, copy the
+    /// RT to the desktop backbuffer so the monitor never goes black and stays
+    /// mouse-operable (the old "menu blackscreen" fallback + UI composite overlay).
     /// </summary>
     public void OnEndOfFrame()
     {
         if (!_visible || _rt == null || !_rt.IsCreated())
             return;
+
+        // ITEM 9: left-eye mirror is the desktop — leave the eye image untouched.
+        if (DesktopMirrorLeftEye)
+        {
+            if (!_mirrorLogged)
+            {
+                _mirrorLogged = true;
+                VRLog.Info("WorldUI", "ITEM9 desktop mirror: end-of-frame 2D composite blit SKIPPED — " +
+                                      "the monitor shows the HMD LEFT-eye mirror only (no menu composite / overlay).");
+            }
+            return;
+        }
 
         if (!_mirrorLogged)
         {
@@ -1039,6 +1134,7 @@ internal sealed class FlatScreen
         ManualScreenActive = false;
         Hide();
         DestroyIndicator();
+        RestoreDesktopMirrorMode(); // ITEM 9: reversible on VR stop / hot reload
     }
 
     // ---- policy ------------------------------------------------------------------------
