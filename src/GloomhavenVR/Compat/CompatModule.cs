@@ -56,6 +56,9 @@ internal sealed class CompatModule : IVRModule
         // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
+        // ISSUE #4 — force walls to stay opaque (disable the top-down see-through wall fade).
+        VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
+
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
             names.AddRange(PostProcessingTypes);
