@@ -116,6 +116,30 @@ internal static class MixedReality
     private static bool _loggedActive;  // change-dedup for the on/off log
     private static Color _loggedColor;
 
+    // ---- menu-unclip: keep floated menus visible through the void backdrop (WorldUI item 5a) ----
+    // When MR is OFF the scenario void/backdrop is the level's opaque Apparance ENVIRONMENT MESH
+    // (STATE.md round 24 — NOT a Unity skybox/clear-flag). A floated world-space menu is
+    // transparent UI (writes no depth) that ZTests LEqual against the depth buffer, so a movable
+    // menu dragged out to the edge of the void sits BEHIND the backdrop mesh in depth and is
+    // CLIPPED there. Disabling the backdrop material's depth WRITE (never its rendering) removes
+    // the clip: the depthless menu then always passes ZTest where only the backdrop is behind it.
+    // The diorama look is unchanged — the backdrop is the outermost shell, so nothing renders
+    // behind it that its depth was protecting; nearer diorama geometry still writes/tests its own
+    // depth and occludes the backdrop exactly as before. Only relevant while MR is OFF (MR hides
+    // the backdrop mesh outright via HideSkyGeometry). Fully reversible.
+    private static readonly List<(Material Mat, int OrigZWrite)> MenuUnclipMats = new(4);
+    private static bool _menuUnclipWanted;   // a floated menu exists (set by WorldUI.ModalFallback)
+    private static bool _menuUnclipActive;
+    private static int _menuUnclipScanNextFrame;
+    private static bool _menuUnclipDiagLogged;
+
+    /// <summary>
+    /// WorldUI item 5a: a floated (movable) menu is open, so the void backdrop must not clip it.
+    /// Idempotent per-frame switch — ModalFallback calls it with whether any modal window floats.
+    /// No effect while MR is ON (the backdrop mesh is already hidden).
+    /// </summary>
+    internal static void KeepMenusUnclipped(bool wanted) => _menuUnclipWanted = wanted;
+
     internal static void Bind()
     {
         if (_file != null)
@@ -188,8 +212,16 @@ internal static class MixedReality
         {
             if (_active)
                 RestoreAll();
+            // MR OFF: the void backdrop is drawn as opaque mesh — keep floated menus from being
+            // clipped by it (WorldUI item 5a). Only runs while a menu actually floats.
+            TickMenuUnclip();
             return;
         }
+
+        // MR ON: the backdrop mesh is hidden outright below, so nothing can clip the menus —
+        // drop any depth-write override we applied while MR was off.
+        if (_menuUnclipActive)
+            RestoreMenuUnclip();
 
         Color key = KeyColor.Value;
         key.a = 1f; // the sky clear must be fully opaque for a clean chroma key
@@ -301,6 +333,97 @@ internal static class MixedReality
             _skyDiagLogged = true;
             LogSkyCandidates(all, headPos);
         }
+    }
+
+    // ---- menu-unclip (WorldUI item 5a) ---------------------------------------------------------
+
+    /// <summary>
+    /// While a floated menu exists and MR is OFF, disable the depth WRITE of the void backdrop
+    /// material(s) so the depthless menu canvas is never ZTest-clipped by the enclosing shell.
+    /// The backdrop is found with the SAME enclosing-dome / sky-name heuristic as
+    /// <see cref="HideSkyGeometry"/> (it is the same mesh), throttled the same way (it can
+    /// generate late). Reversible; when nothing matched, the enclosing candidates are dumped once.
+    /// </summary>
+    private static void TickMenuUnclip()
+    {
+        if (!_menuUnclipWanted || !VRSession.IsRunning)
+        {
+            if (_menuUnclipActive)
+                RestoreMenuUnclip();
+            return;
+        }
+        if (Time.frameCount < _menuUnclipScanNextFrame)
+            return;
+        _menuUnclipScanNextFrame = Time.frameCount + SkyScanIntervalFrames;
+
+        Camera? head = VRCameraPolicy.AllowedHead;
+        if (head == null)
+            return;
+        Vector3 headPos = head.transform.position;
+        float sizeFloor = Mathf.Max(SkyMinEnclosingSize, head.farClipPlane * SkyEnclosingFarFraction);
+
+        Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            Renderer r = all[i];
+            if (r == null || !r.enabled)
+                continue;
+            int layer = r.gameObject.layer;
+            if (layer == VRLayers.ModLayer || layer == 5) // never our own mod visuals / UI hosts
+                continue;
+            if (!IsSkyRenderer(r, headPos, sizeFloor))
+                continue;
+
+            // Disable depth write on each of the backdrop's shared materials that exposes it.
+            // Shared (not instanced): the enclosing shell material is unique, and this keeps the
+            // change trivially reversible with no instance leaks.
+            Material[] mats = r.sharedMaterials;
+            for (int m = 0; m < mats.Length; m++)
+            {
+                Material mat = mats[m];
+                if (mat == null || !mat.HasProperty("_ZWrite") || IsUnclipRecorded(mat))
+                    continue;
+                MenuUnclipMats.Add((mat, mat.GetInt("_ZWrite")));
+                mat.SetInt("_ZWrite", 0);
+                VRLog.Info("Core", $"MR menu-unclip: depth-write OFF on backdrop material '{mat.name}' " +
+                                   $"(renderer '{r.gameObject.name}', layer {LayerName(layer)}) — floated " +
+                                   "menus no longer clip against the void shell (rendering unchanged).");
+            }
+        }
+
+        _menuUnclipActive = MenuUnclipMats.Count > 0;
+        // Nothing matched (steady state logs nothing): dump the enclosing candidates ONCE so a
+        // hardware run can name the real void shell if the heuristic missed it.
+        if (MenuUnclipMats.Count == 0 && !_menuUnclipDiagLogged)
+        {
+            _menuUnclipDiagLogged = true;
+            LogSkyCandidates(all, headPos);
+        }
+    }
+
+    private static bool IsUnclipRecorded(Material mat)
+    {
+        for (int i = 0; i < MenuUnclipMats.Count; i++)
+        {
+            if (ReferenceEquals(MenuUnclipMats[i].Mat, mat))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Restore every backdrop material's depth-write (menu closed / MR on / scene change).</summary>
+    private static void RestoreMenuUnclip()
+    {
+        for (int i = 0; i < MenuUnclipMats.Count; i++)
+        {
+            Material mat = MenuUnclipMats[i].Mat;
+            if (mat != null) // Unity fake-null: destroyed by a scene unload
+                mat.SetInt("_ZWrite", MenuUnclipMats[i].OrigZWrite);
+        }
+        MenuUnclipMats.Clear();
+        _menuUnclipActive = false;
+        _menuUnclipScanNextFrame = 0;
+        _menuUnclipDiagLogged = false;
     }
 
     private static bool IsSkyRenderer(Renderer r, Vector3 headPos, float sizeFloor)
@@ -450,6 +573,7 @@ internal static class MixedReality
 
         int skyRestored = HiddenSky.Count;
         RestoreSky();
+        RestoreMenuUnclip(); // item 5a: put backdrop depth-write back (harmless if it was off)
 
         bool wasActive = _active;
         _active = false;
@@ -483,5 +607,15 @@ internal static class MixedReality
         _skyScanNextFrame = 0;
         _skyDiagLogged = false;
         _loggedSkyCount = -1;
+
+        // Backdrop materials may be destroyed by the unload — drop stale records and re-scan.
+        for (int i = MenuUnclipMats.Count - 1; i >= 0; i--)
+        {
+            if (MenuUnclipMats[i].Mat == null)
+                MenuUnclipMats.RemoveAt(i);
+        }
+        _menuUnclipActive = MenuUnclipMats.Count > 0;
+        _menuUnclipScanNextFrame = 0;
+        _menuUnclipDiagLogged = false;
     }
 }

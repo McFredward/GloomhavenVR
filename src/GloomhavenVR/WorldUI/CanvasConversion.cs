@@ -1224,8 +1224,31 @@ internal static class CanvasConversion
         for (int i = 0; i < Active.Count; i++)
         {
             ConvertedPanel panel = Active[i];
-            if (panel.FlattenEnabled && panel.IsAlive)
+            if (!panel.IsAlive)
+                continue;
+            if (panel.FlattenEnabled)
                 FlattenSubtree(panel);
+
+            // Sub-item A (INITIAL flicker — the residual): the mod-layer move + background hide
+            // run from Tick() in Update, but the game instantiates / fades in / enables the
+            // full-window opaque backing from its OWN Update, which may run AFTER ours. That frame
+            // then RENDERS (rendering happens after all Updates) with the untreated backing still
+            // on the game UI layer and visible — the reported 1–2 frame flash right as the menu
+            // opens, before the next Update's sweep catches it. Re-running the treatment here in
+            // LateUpdate (after every Update, immediately before the frame renders) closes that
+            // one-frame gap: whatever the game did to the backing this frame is corrected before
+            // it is ever drawn. Bounded to the early-settle window (the menu show/fade animation);
+            // writes are change-gated inside each helper, so a steady modal costs a cheap scan.
+            bool earlySettle = panel.EarlySettleUntil > 0f && Time.unscaledTime < panel.EarlySettleUntil;
+            if (!earlySettle)
+                continue;
+            if (panel.ModLayerEnabled)
+            {
+                AdoptNestedCanvases(panel);
+                ApplyModLayer(panel, initial: false);
+            }
+            if (panel.HideBackground)
+                HideFullScreenBackground(panel, initial: false);
         }
     }
 

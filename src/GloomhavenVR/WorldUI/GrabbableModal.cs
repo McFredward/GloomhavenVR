@@ -39,6 +39,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private const float ZoneWidthFraction = 0.62f;
     private const float MinBarWidth = 0.04f;
 
+    /// <summary>
+    /// Item 3: the brass grab bar must OCCLUDE the menu content behind it (foreground is
+    /// foreground). The floated menu host is a WORLD-space canvas at
+    /// <c>ModalFallback.ModalHostSortingOrder = 1000</c>, and Unity sorts EVERY renderer by
+    /// sortingLayer → SORTINGORDER first (only then by renderQueue / distance — see
+    /// <c>RayInteractor.RayVisualSortingOrder = 5000</c>, which is exactly how the laser dot
+    /// draws over the same order-1000 modal). Giving the bar's MeshRenderer a sortingOrder
+    /// ABOVE the menu makes it composite unambiguously ON TOP of the canvas; an opaque
+    /// (ZWrite-on) brass material then makes it read solid rather than semi-transparent. Kept
+    /// below the ray visuals (5000) so the pointer dot still lands on top of the bar.
+    /// </summary>
+    private const int BarSortingOrder = 1100;
+
     private ConvertedPanel _panel = null!;
     private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
     private string _logName = "Menu";
@@ -163,7 +176,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         bar.transform.SetParent(_frame, worldPositionStays: false);
         bar.transform.localScale = new Vector3(0.2f, BarThickness, BarThickness);
         var mr = bar.GetComponent<MeshRenderer>();
-        mr.sharedMaterial = WorldUIAssets.CreateFlatMaterial(new Color(0.62f, 0.5f, 0.28f)); // brass "grab me"
+        // Item 3: opaque brass that OCCLUDES the menu. The bundled GloomhavenVR/Overlay shader
+        // (overlay:true) exposes _ZWrite/_ZTest; force ZWrite ON so the bar draws solid (not the
+        // Sprites/Default alpha-blend that read semi-transparent), while leaving ZTest at the
+        // default LEqual so a hand held physically in front still occludes the solid handle. The
+        // sortingOrder below is what actually lifts it OVER the depthless menu canvas.
+        Material barMat = WorldUIAssets.CreateFlatMaterial(new Color(0.62f, 0.5f, 0.28f), overlay: true);
+        if (barMat.HasProperty("_ZWrite"))
+            barMat.SetInt("_ZWrite", 1);
+        mr.sharedMaterial = barMat;
+        mr.sortingOrder = BarSortingOrder; // composite ON TOP of the order-1000 menu host canvas
         _bar = bar.transform;
 
         // Grab zone + shared grab core (collider BEFORE the handle: its OnEnable registers it).
