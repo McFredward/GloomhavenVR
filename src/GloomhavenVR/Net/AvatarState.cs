@@ -48,4 +48,27 @@ internal struct AvatarState
     /// shared board regardless of the sender's diorama zoom. 1 when unknown.
     /// </summary>
     public float WorldScale;
+
+    /// <summary>
+    /// True when the sender is physically holding a figure this frame (wire flag
+    /// <see cref="NetProtocol.FlagHeldFigure"/>). When set, <see cref="HeldFigureActorId"/> and
+    /// <see cref="HeldFigurePose"/> carry the grabbed figure's stable id and world pose so the
+    /// receiver can move the same figure in the grabber's hand. Purely cosmetic.
+    /// </summary>
+    public bool HasHeldFigure;
+
+    /// <summary>Stable cross-client id of the held figure (meaningful only when
+    /// <see cref="HasHeldFigure"/>). 0 when none.</summary>
+    public int HeldFigureActorId;
+
+    /// <summary>World-frame pose of the held figure (meaningful only when
+    /// <see cref="HasHeldFigure"/>).</summary>
+    public RigPose HeldFigurePose;
+
+    /// <summary>
+    /// True when the sender's DOMINANT hand is the RIGHT hand (wire flag
+    /// <see cref="NetProtocol.FlagDominantRight"/>). Lets the receiver place the cosmetic card fan
+    /// on the correct non-dominant side. Defaults true (right-dominant) when unknown.
+    /// </summary>
+    public bool DominantRight;
 }

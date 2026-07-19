@@ -41,6 +41,16 @@ internal sealed class CardFan
 
     internal bool IsOpen { get; private set; }
 
+    /// <summary>
+    /// The currently OPEN local hand fan (null when closed / disposed). Read by the net presence
+    /// sender to broadcast the local hand-card COUNT to other VR players (they render backs only —
+    /// never card identities). Cosmetic; no game state.
+    /// </summary>
+    internal static CardFan? Current { get; private set; }
+
+    /// <summary>How many cards the fan currently holds (broadcast as the remote hand-card count).</summary>
+    internal int Count => _cards.Count;
+
     /// <summary>Cards currently owned by the fan (read-only view).</summary>
     internal IReadOnlyList<VRCard> Cards => _cards;
 
@@ -60,12 +70,15 @@ internal sealed class CardFan
         _root.gameObject.SetActive(true);
         _followInit = true; // G4: snap to the palm on the first Tick, don't ease in
         IsOpen = true;
+        Current = this; // expose the open fan to the net presence sender (hand-card count)
         Relayout(instant: true);
     }
 
     internal void Close()
     {
         IsOpen = false;
+        if (ReferenceEquals(Current, this))
+            Current = null;
         ClearFingertipHover(); // test #9: drop any fingertip pop/split
         _insertGap = -1;       // hand reorder: drop any open gap so a reopen starts closed
         if (_overlay != null)
@@ -76,6 +89,8 @@ internal sealed class CardFan
 
     internal void Destroy()
     {
+        if (ReferenceEquals(Current, this))
+            Current = null;
         ClearFingertipHover();
         _cards.Clear();
         _insertGap = -1;

@@ -56,6 +56,16 @@ internal sealed class NetModule : IVRModule
     /// </summary>
     internal static ConfigEntry<bool> MirrorEnabled = null!;
 
+    /// <summary>
+    /// How much of OTHER players' cosmetic control boards this client renders (Off / only during
+    /// the action phase / always). A purely LOCAL rendering choice — never affects game state or
+    /// what we transmit. The anti-cheat reveal gate (<see cref="RevealGate"/>) always applies ON
+    /// TOP: even in <see cref="RemoteBoardVisibility.Always"/>, a remote player's round cards show
+    /// as BACKS during the secret selection phase. Default
+    /// <see cref="RemoteBoardVisibility.ActionPhaseOnly"/>.
+    /// </summary>
+    internal static ConfigEntry<RemoteBoardVisibility> RemoteBoards = null!;
+
     private static ConfigFile? _config;
 
     private GameObject? _driverGo;
@@ -87,6 +97,12 @@ internal sealed class NetModule : IVRModule
             "Show yourself in a mirror floating in front of your head so you can see your chosen " +
             "mask + hands. Local cosmetic preview only — independent of networking, works in " +
             "single-player. Toggle in the in-VR settings panel.");
+        RemoteBoards = _config.Bind("Net", "RemoteBoards", RemoteBoardVisibility.ActionPhaseOnly,
+            "Wie viel von den Kontrolltafeln der Mitspieler du siehst: Off (nie), ActionPhaseOnly " +
+            "(nur in der Aktionsphase — waehrend der geheimen Kartenauswahl ausgeblendet), Always " +
+            "(immer). Rein lokale Darstellung; aendert nie den Spielzustand. Der Anti-Cheat-Schutz " +
+            "greift zusaetzlich immer: waehrend der Auswahl zeigen fremde Rundenkarten stets nur " +
+            "die RUECKSEITE, erst nach dem Aufdecken die echten Karten.");
     }
 
     public void Init()
