@@ -127,6 +127,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private bool _applyElements;         // items 4/6: element infusion ('Elemente') dock offset / scale
     private bool _applyHudWidgets;       // items 4/6: gear / follow-pin / round-readout offsets (in place)
     private bool _applyCluster;          // items 4/6: turn-flow ButtonCluster offset / scale
+    private bool _applyDecision;         // item C: shared decision-dock offset / scale
     private bool _applyFan;              // GLOBAL hand-fan geometry (step / arc / radius / hover-split)
 
     /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
@@ -166,6 +167,8 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.ReadoutOffset(b).SettingChanged += OnHudWidgetTuningChanged;
                 CardsConfig.ClusterOffset(b).SettingChanged += OnClusterTuningChanged;
                 CardsConfig.ClusterScale(b).SettingChanged += OnClusterTuningChanged;
+                CardsConfig.DecisionOffset(b).SettingChanged += OnDecisionTuningChanged;
+                CardsConfig.DecisionScale(b).SettingChanged += OnDecisionTuningChanged;
             }
             else
             {
@@ -199,6 +202,8 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.ReadoutOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
                 CardsConfig.ClusterOffset(b).SettingChanged -= OnClusterTuningChanged;
                 CardsConfig.ClusterScale(b).SettingChanged -= OnClusterTuningChanged;
+                CardsConfig.DecisionOffset(b).SettingChanged -= OnDecisionTuningChanged;
+                CardsConfig.DecisionScale(b).SettingChanged -= OnDecisionTuningChanged;
             }
         }
     }
@@ -214,6 +219,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnElementsTuningChanged(object sender, System.EventArgs e) => _applyElements = true;
     private void OnHudWidgetTuningChanged(object sender, System.EventArgs e) => _applyHudWidgets = true;
     private void OnClusterTuningChanged(object sender, System.EventArgs e) => _applyCluster = true;
+    private void OnDecisionTuningChanged(object sender, System.EventArgs e) => _applyDecision = true;
     private void OnFanTuningChanged(object sender, System.EventArgs e) => _applyFan = true;
 
     /// <summary>
@@ -315,6 +321,13 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.SetClusterLayout(CardsConfig.ClusterOffset(b).Value, CardsConfig.ClusterScale(b).Value);
             VRLog.Info("Cards", $"Debug live-apply [{b}]: cluster offset {CardsConfig.ClusterOffset(b).Value}, " +
                                 $"scale {CardsConfig.ClusterScale(b).Value:F2}×.");
+        }
+        if (_applyDecision)
+        {
+            _applyDecision = false;
+            _tray.SetDecisionLayout(CardsConfig.DecisionOffset(b).Value, CardsConfig.DecisionScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: decision-dock offset {CardsConfig.DecisionOffset(b).Value}, " +
+                                $"scale {CardsConfig.DecisionScale(b).Value:F2}×.");
         }
     }
 

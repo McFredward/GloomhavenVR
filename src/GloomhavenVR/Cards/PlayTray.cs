@@ -609,9 +609,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // drawer top. z -0.020 lifts it 2 cm toward the viewer (proud of the tilted
         // board's bottom lip). The drawer only appears while a prompt is actually
         // open and everything is otherwise untouched — see DecisionDockSurface.
+        // Item C: the decision dock's position + size are PER-BOARD (debug-menu tunable) — base +
+        // DecisionOffset / × DecisionScale (seeded 0 / 1 → Oak unchanged). DecisionDockSurface
+        // pose-follows the mount's position AND lossyScale, so a mount scale resizes the docked row.
         _decisionMount = new GameObject("DecisionMount").transform;
         _decisionMount.SetParent(_root, worldPositionStays: false);
-        _decisionMount.localPosition = new Vector3(0f, -0.29f, -0.020f);
+        _decisionMount.localPosition = DecisionMountBase + CardsConfig.DecisionOffset(CardsConfig.CurrentBoard).Value;
+        _decisionMount.localScale = Vector3.one * CardsConfig.DecisionScale(CardsConfig.CurrentBoard).Value;
 
         // Test #23 item 4: native-widget docks for the RIGHT-column controls. The
         // REAL Continue/Confirm (ReadyButton) and Undo (UndoButton) dock here — the
@@ -1091,6 +1095,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (_wantedHighlights[i] != null)
                 _wantedHighlights[i]!.transform.localPosition =
                     new Vector3(offset.x + xSpread, offset.y, WantedGlowBaseZ + offset.z);
+            // Item B: the placed card's resting spot follows the SAME overlay offset/spread — the
+            // glow AND the physical card move together. Re-home any resting (non-held) occupant now;
+            // freshly placed cards read the coupled offset via SlotHomeOffsetFor.
+            VRCard? occ = _occupants[i];
+            if (occ != null && !occ.IsHeld)
+                occ.SetHome(_slots[i]!, SlotHomeOffsetFor(i), Quaternion.identity, SlotCardScale);
         }
     }
 
@@ -1108,10 +1118,54 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     internal void SetConfirmUndoOffset(Vector3 offset, float spacing)
     {
+        // Item D: auto-fit the generic cluster's buttons in a vertical stack. Confirm is member 0
+        // (top), Undo member 1. GenericClusterY packs any count into the column; at 2 it reproduces
+        // the tuned ±spacing/2 layout, at 3–4 it spreads evenly across GenericColumnHeight.
         if (_confirm != null)
-            _confirm.transform.localPosition = offset + new Vector3(0f, spacing * 0.5f, 0f);
+            _confirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(0, GenericButtonCount, spacing), 0f);
         if (_undo != null)
-            _undo.transform.localPosition = offset + new Vector3(0f, -spacing * 0.5f, 0f);
+            _undo.transform.localPosition = offset + new Vector3(0f, GenericClusterY(1, GenericButtonCount, spacing), 0f);
+    }
+
+    /// <summary>
+    /// Item D: how many buttons the mod-owned GENERIC cluster currently lays out (Confirm + Undo).
+    /// The layout/size math below is parametric so the cluster can hold &gt;2 — the game can activate
+    /// up to four turn-flow buttons at once (readyButton/skip/undo/select, decompiled-confirmed).
+    /// </summary>
+    private const int GenericButtonCount = 2;
+
+    /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into (right column between the readout and the gear).</summary>
+    private const float GenericColumnHeight = 0.20f;
+
+    /// <summary>Minimum inter-button gap (tray-local meters) when the generic cluster auto-fits &gt;2 buttons.</summary>
+    private const float GenericButtonGap = 0.010f;
+
+    /// <summary>
+    /// Item D: per-button side length for a generic cluster of <paramref name="count"/> buttons. A
+    /// pair (or single) keeps the full authored size; from 3 up each cap shrinks so the whole stack
+    /// fits <see cref="GenericColumnHeight"/> (auto-scale from the count), floored so it stays pokeable.
+    /// </summary>
+    internal static float GenericClusterButtonSize(float baseSide, int count)
+    {
+        if (count <= 2)
+            return baseSide;
+        float avail = (GenericColumnHeight - (count - 1) * GenericButtonGap) / count;
+        return Mathf.Clamp(Mathf.Min(baseSide, avail), 0.02f, baseSide);
+    }
+
+    /// <summary>
+    /// Item D: local-Y of button <paramref name="index"/> in a top-to-bottom generic stack of
+    /// <paramref name="count"/>. At count ≤ 2 it reproduces the tuned ±<paramref name="spacing"/>/2
+    /// pair; at 3+ it distributes the members evenly across <see cref="GenericColumnHeight"/> so all fit.
+    /// </summary>
+    internal static float GenericClusterY(int index, int count, float spacing)
+    {
+        if (count <= 1)
+            return 0f;
+        if (count == 2)
+            return (index == 0 ? 0.5f : -0.5f) * spacing;
+        float step = GenericColumnHeight / (count - 1);
+        return GenericColumnHeight * 0.5f - index * step; // member 0 at the top, descending
     }
 
     /// <summary>PART F live-apply: move the discard/burn pile mount to a new per-board offset (instant).</summary>
@@ -1158,6 +1212,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
     }
 
+    /// <summary>Item C live-apply: move + resize the shared DECISION DOCK mount (instant; the surface pose-follows it).</summary>
+    internal void SetDecisionLayout(Vector3 offset, float scale)
+    {
+        if (_decisionMount != null)
+        {
+            _decisionMount.localPosition = DecisionMountBase + offset;
+            _decisionMount.localScale = Vector3.one * scale;
+        }
+    }
+
     /// <summary>Items 4/6 live-apply: move the round readout ('Runde N') to a new per-board offset (instant).</summary>
     internal void SetReadoutOffset(Vector3 offset)
     {
@@ -1199,6 +1263,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>Fixed base local position of the turn-flow ButtonCluster mount (under the slots).</summary>
     private static Vector3 ClusterMountBase => new(0f, ButtonClusterMountY, -0.006f);
+
+    /// <summary>Item C: fixed base local position of the shared DECISION DOCK mount (hangs below the board).</summary>
+    private static Vector3 DecisionMountBase => new(0f, -0.29f, -0.020f);
 
     /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
     private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
@@ -1381,7 +1448,26 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// tunable in one place. The slot itself carries the tray tilt/scale; the card
     /// inherits both.
     /// </summary>
-    internal static Vector3 SlotHomeOffset => new(0f, 0f, -CardsConfig.SlotCardInset.Value);
+    internal static Vector3 SlotHomeOffset => SlotHomeOffsetFor(0, applySpread: false);
+
+    /// <summary>
+    /// Item B (couple the resting card to the Overlays element): the slot-local home offset a card
+    /// takes, now including the per-board <see cref="CardsConfig.SlotOverlayOffset"/> (X/Y in plane,
+    /// Z proud) and — when <paramref name="applySpread"/> — the <see cref="CardsConfig.SlotOverlaySpacing"/>
+    /// pair spread (slot 0 −½, slot 1 +½). Tuning the debug-menu "Overlays" element therefore moves
+    /// the actual SLOT where a placed card physically rests together with its snap/wanted glows (which
+    /// take the identical offset in <see cref="BuildSlotHighlights"/>/<see cref="BuildWantedHighlights"/>).
+    /// The base inset (−SlotCardInset toward the viewer) is unchanged.
+    /// </summary>
+    internal static Vector3 SlotHomeOffsetFor(int slot, bool applySpread = true)
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        Vector3 ov = CardsConfig.SlotOverlayOffset(b).Value;
+        float xSpread = applySpread
+            ? (slot == 0 ? -0.5f : 0.5f) * CardsConfig.SlotOverlaySpacing(b).Value
+            : 0f;
+        return new Vector3(ov.x + xSpread, ov.y, -CardsConfig.SlotCardInset.Value + ov.z);
+    }
 
     /// <summary>
     /// ITEM 3: the home scale a card takes when it seats in a slot — it grows to (nearly)
@@ -1767,7 +1853,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (!card.IsHeld)
         {
             card.gameObject.SetActive(true);
-            card.SetHome(_slots[slot]!, SlotHomeOffset, Quaternion.identity, SlotCardScale, instant); // ITEM 3: fill the recess
+            card.SetHome(_slots[slot]!, SlotHomeOffsetFor(slot), Quaternion.identity, SlotCardScale, instant); // ITEM 3: fill the recess; Item B: track the overlay offset
         }
         if (announce)
             VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
@@ -1793,12 +1879,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         card.gameObject.SetActive(true);
         if (index < 2)
         {
-            card.SetHome(slot, SlotHomeOffset, Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess
+            card.SetHome(slot, SlotHomeOffsetFor(slotIndex), Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess; Item B: track overlay
             return slotIndex;
         }
         // Graceful fallback for a 3rd+ pick card (no silent cap): lay it beside Slot2.
         float w = CardsConfig.CardWidth.Value;
-        Vector3 off = SlotHomeOffset + new Vector3((index - 1) * w * 1.15f, 0f, 0f);
+        Vector3 off = SlotHomeOffsetFor(1) + new Vector3((index - 1) * w * 1.15f, 0f, 0f);
         card.SetHome(slot, off, Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess
         return -1;
     }
@@ -2247,7 +2333,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // board (debug-menu tunable). Round-2: the cap SHAPE is per-board (Square boxy keycap by
         // default, or Round disc), and a per-board SPACING spreads Confirm/Undo apart.
         ControlBoard active = CardsConfig.CurrentBoard;
-        float side = CardsConfig.ConfirmUndoSize(active).Value;
+        // Item D: the generic-button area is now a COUNT-DRIVEN cluster. The game can show up to
+        // FOUR turn-flow buttons at once (decompiled: Choreographer toggles readyButton + m_SkipButton
+        // + m_UndoButton, and occasionally m_selectButton, as independent GameObjects — see
+        // e.g. Choreographer.cs:6305-6309), so this consolidated area AUTO-SCALES each cap's size from
+        // the live count (GenericClusterButtonSize) and lays them out auto-fit (SetConfirmUndoOffset).
+        // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
+        // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
+        float baseSide = CardsConfig.ConfirmUndoSize(active).Value;
+        float side = GenericClusterButtonSize(baseSide, GenericButtonCount);
         var rectSize = new Vector2(side, side);
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
@@ -2258,7 +2352,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _confirm = BoardButton.Create(confirmParent, rectSize,
             new Color(0.22f, 0.52f, 0.25f), Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
-            round: round, diameter: side, thickness: 0.014f, boxy: !round);
+            round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.DwellSeconds = PokeDwellSeconds; // deliberate poke (test #19)
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
@@ -2267,7 +2361,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _undo = BoardButton.Create(undoParent, rectSize,
             new Color(0.45f, 0.32f, 0.2f), Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
-            round: round, diameter: side, thickness: 0.014f, boxy: !round);
+            round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         _undo.DwellSeconds = PokeDwellSeconds; // same accident class as CONFIRM (test #19)
         RegisterLaserTarget(_undo.Collider!, _undo);
@@ -2301,6 +2395,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// same amount, so they never float 5 cm off the board again.
     /// </summary>
     private const float FixedProudZ = 0.005f;
+
+    /// <summary>
+    /// Item A: local-Z thickness (meters) of the SQUARE Confirm/Undo keycaps. Raised from the old
+    /// 0.014 (a thin slab whose side walls read as a flat rim at the board's oblique angle) to a
+    /// genuine keycap depth so the walls have real area and shade solid via BoardLit. The press
+    /// travel (4 mm) is unchanged. The exact real-world protrusion is logged per cap by
+    /// <see cref="BoardButton.LogCapDiagnostics"/> for conclusive tuning.
+    /// </summary>
+    private const float SquareCapThickness = 0.03f;
 
     /// <summary>Base local-Z of the slot snap-glow (per-board SlotOverlayOffset.z adds on top).</summary>
     private const float SlotGlowBaseZ = -0.006f;
@@ -2422,6 +2525,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         LogElementFacing("FollowToggle", _followToggle != null ? _followToggle.transform : null, faceTowardViewer, headPos);
         LogElementFacing("Slot0", _slots[0], faceTowardViewer, headPos);
         LogElementFacing("Slot0Card", _occupants[0] != null ? _occupants[0]!.transform : null, faceTowardViewer, headPos);
+        // Item A: conclusive square-cap wall diagnostic (real mm thickness + shader + queue).
+        _confirm?.LogCapDiagnostics("Confirm");
+        _undo?.LogCapDiagnostics("Undo");
     }
 
     private static void LogElementFacing(string label, Transform? t, Vector3 faceTowardViewer, Vector3 headPos)
@@ -2689,6 +2795,38 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         private System.Action? _onClick;
         private Material? _capMaterial;
         private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on the procedural fallback
+        private Renderer? _capMeshRenderer; // item A diagnostic: the cap body renderer (cube/disc/sprite)
+
+        /// <summary>
+        /// Item A conclusive diagnostic (logged once per board, in the placed pose so lossyScale is
+        /// real): the cap body's LOCAL scale, the tray/world lossyScale, the resulting REAL cap
+        /// thickness in mm (localScale.z × lossyScale.z), plus the material's SHADER NAME and
+        /// renderQueue. This settles whether the square cap reads flat because its side walls are
+        /// too thin (small mm thickness) or because the material is wrong (not GloomhavenVR/BoardLit,
+        /// or an unlit/overlay path that kills wall shading).
+        /// </summary>
+        internal void LogCapDiagnostics(string label)
+        {
+            if (_capMeshRenderer == null)
+            {
+                VRLog.Info("Cards", $"ITEMA cap diag — {label}: no cap mesh renderer (unexpected).");
+                return;
+            }
+            Transform ct = _capMeshRenderer.transform;
+            Vector3 ls = ct.localScale;
+            Vector3 lossy = ct.lossyScale;
+            float mmThick = Mathf.Abs(ls.z * lossy.z) * 1000f;
+            float mmW = Mathf.Abs(ls.x * lossy.x) * 1000f;
+            float mmH = Mathf.Abs(ls.y * lossy.y) * 1000f;
+            Material? m = _capMeshRenderer.sharedMaterial;
+            string shaderName = m != null && m.shader != null ? m.shader.name : "<none>";
+            int queue = m != null ? m.renderQueue : -1;
+            VRLog.Info("Cards", $"ITEMA cap diag — {label}: real cap size {mmW:F1}×{mmH:F1}×{mmThick:F1} mm " +
+                $"(localScale {ls}, lossyScale {lossy}), shader '{shaderName}', renderQueue {queue}. " +
+                $"Walls read {(mmThick >= 6f ? "SOLID (thickness OK)" : "FLAT (too thin)")}; material is " +
+                $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades walls)" : "NOT BoardLit — wall shading may be wrong")}.");
+        }
+
         private TextMeshPro? _label;
         private Transform? _cap;
         private Color _accentColor;
@@ -2809,6 +2947,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // travels on press; the collider (on go) is independent of it.
             Material? capMaterial = null;
             SpriteRenderer? capFace = null;
+            Renderer? capMeshRenderer = null; // item A diagnostic: the cap body renderer (cube/disc/sprite)
             var cap = new GameObject("Cap");
             cap.transform.SetParent(go.transform, worldPositionStays: false);
             cap.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
@@ -2831,6 +2970,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     capMaterial = new Material(shader) { color = DisabledColor };
                     capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                 }
+                capMeshRenderer = capDisc.GetComponent<MeshRenderer>();
             }
             else if (boxy)
             {
@@ -2845,7 +2985,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 // scene lights, so the side walls darken relative to the front and the button reads
                 // solid everywhere. NO RenderOnTop; the cube front protrudes proud of the base plate
                 // toward the viewer (-Z) and travels inward on press with the cap.
-                float capThick = Mathf.Max(0.006f, thickness);
+                // Item A (button walls read flat): a 14 mm slab on a ~73 mm face is only a thin
+                // rim at the board's oblique viewing angle → "flat square + text". The cap now
+                // protrudes a genuine keycap depth (SquareCapThickness) so its side walls have real
+                // area and shade visibly. Floor raised to 12 mm so even a small cap still stands proud.
+                float capThick = Mathf.Max(0.012f, thickness);
                 var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 capCube.name = "CapMesh";
                 Object.Destroy(capCube.GetComponent<Collider>());
@@ -2858,6 +3002,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     capMaterial = new Material(shader) { color = DisabledColor };
                     capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                 }
+                capMeshRenderer = capCube.GetComponent<MeshRenderer>();
                 labelZ = -(capThick + 0.002f); // proud of the protruding cube front (front face sits at -capThick)
             }
             else
@@ -2871,6 +3016,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 // material, the pre-fix look.
                 capFace = WorldUI.NativeButtonSkin.CreateFace(cap.transform, size, localZ: -0.004f,
                     sortingOrder: 1, overrideMaterial: OverlayMaterial(Color.white));
+                capMeshRenderer = capFace;
                 if (capFace == null)
                 {
                     // Procedural fallback: the original squashed grey cube cap.
@@ -2888,6 +3034,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                         capMaterial = new Material(shader) { color = DisabledColor };
                         capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                     }
+                    capMeshRenderer = capCube.GetComponent<MeshRenderer>();
                 }
             }
 
@@ -2928,6 +3075,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             button._onClick = onClick;
             button._capMaterial = capMaterial;
             button._capFace = capFace;
+            button._capMeshRenderer = capMeshRenderer;
             button._label = tmp;
             button._cap = cap.transform;
             button._accentColor = accent;

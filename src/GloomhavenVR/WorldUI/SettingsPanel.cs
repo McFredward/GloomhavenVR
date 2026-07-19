@@ -96,6 +96,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Rest, Generic, Overlays, Initiative, Active, Piles, Board,
         // Items 4/6: every remaining board-attached element is now tunable per board.
         Objectives, Elements, VRSettings, Pin, Readout, Cluster,
+        // Item C: the shared decision dock (text + buttons under the board).
+        Decision,
     }
 
     /// <summary>
@@ -117,7 +119,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private static readonly DebugElement[][] CategoryElements =
     {
-        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster },                              // Buttons
+        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster, DebugElement.Decision },       // Buttons
         new[] { DebugElement.Objectives, DebugElement.Elements, DebugElement.Initiative,
                 DebugElement.Piles, DebugElement.Active },                                                    // Panels
         new[] { DebugElement.Overlays, DebugElement.Readout },                                                // Overlays
@@ -886,7 +888,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private static bool ElementHasSize(DebugElement e) =>
         e is DebugElement.Rest or DebugElement.Generic or DebugElement.Active
         or DebugElement.Piles or DebugElement.Board
-        or DebugElement.Objectives or DebugElement.Elements or DebugElement.Cluster;
+        or DebugElement.Objectives or DebugElement.Elements or DebugElement.Cluster
+        or DebugElement.Decision;
 
     /// <summary>
     /// Group elements that expose a Spacing stepper — every element that moves a PAIR/group of
@@ -959,6 +962,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             DebugElement.Pin => CardsConfig.PinOffset(b),
             DebugElement.Readout => CardsConfig.ReadoutOffset(b),
             DebugElement.Cluster => CardsConfig.ClusterOffset(b),
+            DebugElement.Decision => CardsConfig.DecisionOffset(b),
             _ => null,
         };
     }
@@ -999,6 +1003,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             DebugElement.Objectives => $"{CardsConfig.ObjectivesScale(b).Value:0.00}x",
             DebugElement.Elements => $"{CardsConfig.ElementsScale(b).Value:0.00}x",
             DebugElement.Cluster => $"{CardsConfig.ClusterScale(b).Value:0.00}x",
+            DebugElement.Decision => $"{CardsConfig.DecisionScale(b).Value:0.00}x",
             _ => "-",
         };
     }
@@ -1053,6 +1058,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             case DebugElement.Cluster:
             {
                 ConfigEntry<float> e = CardsConfig.ClusterScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
+                break;
+            }
+            case DebugElement.Decision:
+            {
+                ConfigEntry<float> e = CardsConfig.DecisionScale(b);
                 e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
                 break;
             }
@@ -1172,6 +1183,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.Pin => Loc.Mod("pin"),
         DebugElement.Readout => Loc.Mod("readout"),
         DebugElement.Cluster => Loc.Mod("cluster"),
+        DebugElement.Decision => Loc.Mod("decision"),
         _ => e.ToString(),
     };
 
@@ -1252,6 +1264,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 break;
             case DebugElement.Cluster:
                 CardsConfig.ClusterScale(b).Value = (float)CardsConfig.ClusterScale(b).DefaultValue;
+                break;
+            case DebugElement.Decision:
+                CardsConfig.DecisionScale(b).Value = (float)CardsConfig.DecisionScale(b).DefaultValue;
                 break;
         }
         VRLog.Info("Cards", $"Debug: reset {CurrentElement()} for {b} to defaults.");
