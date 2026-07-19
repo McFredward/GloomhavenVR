@@ -471,7 +471,7 @@ internal sealed class ItemsPile
         private static string Name(CItem item)
         {
             string? n = item != null && item.YMLData != null ? item.YMLData.Name : null;
-            return string.IsNullOrEmpty(n) ? "?" : n;
+            return string.IsNullOrEmpty(n) ? "?" : n!;
         }
     }
 }
