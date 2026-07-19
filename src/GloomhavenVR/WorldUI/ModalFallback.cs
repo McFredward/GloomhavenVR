@@ -103,6 +103,35 @@ internal static class ModalFallback
     private const float WindowScaleFactor = 0.7f;
 
     /// <summary>
+    /// THE FLICKER FIX (recurring): sortingOrder for a floated modal's host canvas.
+    ///
+    /// Root cause — NOT per-frame churn (the logs prove every floated modal is converted,
+    /// adopted, floated and content-fit EXACTLY ONCE, its host world-rect stable until it
+    /// re-opens; the prior <see cref="ApplyMenuSelectionGuard"/> focusOnMouseHover tweak was
+    /// a genuine no-op, the flag was already false). It is RENDER ORDERING:
+    /// <see cref="CanvasConversion.Convert"/> created every host canvas at Unity's default
+    /// <c>sortingOrder = 0</c>, so during a scenario the modal shares order 0 with EVERY other
+    /// world-space host (initiative track, actor bars, combat log, objectives, dialogs…).
+    /// Unity depth-sorts equal-order WORLD-space canvases by camera distance, and the head
+    /// micro-moves every frame (heartbeats: moved=Y). A full-screen modal is a ~32×17 m plane
+    /// placed 1.2 m in front of the head that spans ~13 m of depth and OVERLAPS all those
+    /// panels, so the equal-order distance tie between the modal and whatever it overlaps
+    /// resolves differently frame-to-frame → the modal alternately draws in front of / behind
+    /// them → the reported flicker. Small content-fit panels are spatially separated, so only
+    /// full-screen modals visibly hit it (ESC menu AND the content-fit Results panel alike —
+    /// different conversion paths, same order-0 tie).
+    ///
+    /// Fix: float every modal host at a dominant order so it composites unambiguously ON TOP,
+    /// removing the tie. Adopted nested canvases keep <c>overrideSorting</c> cleared, so they
+    /// inherit this order and stay ordered with the host. World-space UI still ZTests against
+    /// opaque depth, so a hand held in front still occludes the modal (sortingOrder only
+    /// orders transparent UI among itself). Poke/laser clicks (geometric + per-graphic
+    /// raycast) and the content fit are unaffected. 1000 clears the game's own canvas orders
+    /// (seen: −1, 0, 1, 40).
+    /// </summary>
+    private const int ModalHostSortingOrder = 1000;
+
+    /// <summary>
     /// Window IDs that demand user interaction when opened during a scenario and have
     /// no world-space VR conversion → they float as windows (or raise the screen).
     /// IDs verified against decompiled GH.Runtime/UIWindowID.cs (45 members).
@@ -833,8 +862,10 @@ internal static class ModalFallback
     // ---- full-screen-menu selection guard (P6 flicker fix) ------------------------------
 
     /// <summary>
-    /// Kill the pause-menu flicker while a FULL-SCREEN menu (ESC / Options family) floats
-    /// as a world-space panel. Root cause (decompiled, verified): in a scenario the game
+    /// SECONDARY measure (NOT the flicker root cause — that is render ordering, fixed by
+    /// <see cref="ModalHostSortingOrder"/>). This suppresses a distinct, narrower artefact:
+    /// the gamepad-nav SELECTION highlight churning on a floated FULL-SCREEN menu (ESC /
+    /// Options family). Root cause (decompiled, verified): in a scenario the game
     /// runs its gamepad UI navigation — <c>ControllerInputArea.Focus</c> selects a button
     /// via <c>EventSystem.SetSelectedGameObject</c> (ControllerInputArea.cs:240) and shows
     /// the "selected" highlight. The mod's pointer keeps the InControl input module's
@@ -1118,8 +1149,11 @@ internal static class ModalFallback
             // windows that genuinely need the fit (story box via contentRoot below, and any
             // non-full-screen dialog) keep it.
             bool fullScreenMenu = IsFullScreenMenu(window.ID, rect);
+            // FLICKER FIX: float the modal host at a dominant sortingOrder so it composites
+            // ON TOP of every other order-0 world-space host instead of tying with them and
+            // swapping render order as the head micro-moves — see ModalHostSortingOrder.
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
-                fitContent: fullScreenMenu ? (bool?)false : null);
+                fitContent: fullScreenMenu ? (bool?)false : null, sortingOrder: ModalHostSortingOrder);
             if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
                                       "exempted from the per-frame content fit (fixed host rect, no flicker).");
