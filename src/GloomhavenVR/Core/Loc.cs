@@ -230,6 +230,7 @@ internal static class Loc
         ["overlays"] = Pair("Overlays", "Overlays"),
         ["initiative"] = Pair("Initiative", "Initiative"),
         ["piles"] = Pair("Piles", "Stapel"),
+        ["items"] = Pair("Items", "Gegenstände"),
 
         // ---- WristHud ----
         ["no_character"] = Pair("no character", "kein Charakter"),
