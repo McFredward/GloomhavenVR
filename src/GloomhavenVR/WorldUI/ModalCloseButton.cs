@@ -27,13 +27,25 @@ namespace GloomhavenVR.WorldUI;
 /// renders regardless of which TMP font resolved. EXCLUSION: only attached to grabbable modals
 /// (<see cref="ModalFallback.IsGrabbableModal"/>) — never the Sieg/Niederlage results panels,
 /// the same exclusion as the grab affordance.
+///
+/// Item 2 (style): the plate is now SUBTLE and on-theme with the VR settings panel the user likes —
+/// a small, muted DARK plate (the settings panel's dark canvas bg, <c>Color(0.07,0.07,0.10)</c>)
+/// carrying a BRASS "X" (the settings panel's brass grab-bar colour, <c>Color(0.62,0.5,0.28)</c>)
+/// that brightens on hover — instead of the old loud bright-red box. The glyph is mathematically
+/// centred on the plate (both bars anchored + pivoted at the plate centre, zero offset).
 /// </summary>
 internal static class ModalCloseButton
 {
-    private const float ButtonSizePx = 46f;
-    private const float InsetPx = 8f;
-    private const float BarLengthFraction = 0.52f;
-    private const float BarThicknessPx = 5f;
+    // Small + tasteful (was 46 px). Sits inset from the host's top-right corner.
+    private const float ButtonSizePx = 34f;
+    private const float InsetPx = 7f;
+    // The "X" occupies the middle ~44 % of the plate — a compact glyph with clear margins.
+    private const float BarLengthFraction = 0.44f;
+    private const float BarThicknessPx = 3.5f;
+
+    // On-theme palette (mirrors SettingsPanel): muted dark plate + brass glyph.
+    private static readonly Color PlateColor = new(0.09f, 0.09f, 0.12f, 0.82f);  // settings-panel dark, semi-transparent
+    private static readonly Color GlyphColor = new(0.62f, 0.5f, 0.28f, 0.95f);   // settings-panel brass grab-bar tone
 
     /// <summary>Build the X button on <paramref name="panel"/>'s host, closing <paramref name="window"/>.</summary>
     internal static void Attach(ConvertedPanel panel, UIWindow window)
@@ -69,15 +81,18 @@ internal static class ModalCloseButton
         rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
 
         var img = go.AddComponent<Image>();
-        img.color = new Color(0.55f, 0.12f, 0.12f, 0.96f); // maroon disc-plate; the raycast target
+        img.color = PlateColor; // muted dark board-styled plate; the raycast target
         img.raycastTarget = true;
 
         var button = go.AddComponent<Button>();
         button.targetGraphic = img;
+        // Multiplies the plate colour: dim at rest, a touch brighter on hover, dimmer while pressed
+        // — a subtle affordance, no loud colour flash.
         ColorBlock colors = button.colors;
-        colors.normalColor = Color.white;
-        colors.highlightedColor = new Color(1f, 0.55f, 0.55f, 1f);
-        colors.pressedColor = new Color(1f, 0.75f, 0.75f, 1f);
+        colors.normalColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+        colors.highlightedColor = new Color(1.05f, 1.05f, 1.05f, 1f);
+        colors.pressedColor = new Color(0.75f, 0.75f, 0.75f, 1f);
+        colors.fadeDuration = 0.08f;
         button.colors = colors;
         button.onClick.AddListener(() =>
         {
@@ -104,7 +119,7 @@ internal static class ModalCloseButton
         rect.localPosition = new Vector3(0f, 0f, 0f);
 
         var img = go.AddComponent<Image>();
-        img.color = new Color(0.96f, 0.94f, 0.9f, 1f); // bone-white cross
+        img.color = GlyphColor; // brass "X" (matches the settings-panel grab bar)
         img.raycastTarget = false; // pokes/laser hit the plate, not the glyph
     }
 }
