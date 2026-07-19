@@ -278,8 +278,31 @@ internal static class ActorBars
         // targeting message flow (the VR pick not yielding the target-selection the engine
         // keys those messages off) — to be fixed in the board pick/click path, never by
         // fabricating a CAttackSummary here (that would risk showing wrong damage).
-        controller.OnUpdatedZoom(BarZoom);
+        //
+        // GUARD: OnUpdatedZoom is a GAME method and it NREs on a panel whose HealthBar isn't
+        // wired yet (observed on freshly-spawned 100x100 placeholder ActorBars — attributed
+        // by TickGuard to ActorBars.Tick → Adopt → WorldspacePanelUIController.OnUpdatedZoom).
+        // The adoption itself already succeeded above (recorded in Adoptions/Owned), so this
+        // initial zoom is best-effort only: skipping it just defers segmentation to the next
+        // UpdateHealth, which re-pools the marks on its own. Swallow + log once so one unready
+        // bar can't spew a per-frame exception into the game's own logger.
+        try
+        {
+            controller.OnUpdatedZoom(BarZoom);
+        }
+        catch (System.Exception ex)
+        {
+            if (!s_zoomWarned)
+            {
+                s_zoomWarned = true;
+                VRLog.Warn("WorldUI", $"ActorBar OnUpdatedZoom deferred — bar not ready at adopt " +
+                                      $"({ex.GetType().Name}); segmentation applies on the next health update.");
+            }
+        }
     }
+
+    /// <summary>One-shot guard so a not-ready ActorBar's OnUpdatedZoom NRE is logged once, not per frame.</summary>
+    private static bool s_zoomWarned;
 
     private static void Release(WorldspacePanelUIController controller)
     {

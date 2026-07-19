@@ -137,6 +137,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
     private bool _respawnRequested;     // every OPEN drops the panel in view in front of the head
+    private float _sizeScale;           // diorama WorldScale snapshotted at open (item 1/6: board-sized, zoom-stable)
 
     private DebugCategory CurrentCategory => (DebugCategory)_debugCategory;
     private DebugElement[] CurrentCategoryElements => CategoryElements[_debugCategory];
@@ -259,6 +260,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _facedPoseVersion = -1;
         _healLogged = false;
         _respawnRequested = false;
+        _sizeScale = 0f; // re-snapshot the diorama scale on the next open
         _refreshers.Clear();
         _debugRows.Clear();
         _debugRowVisible.Clear();
@@ -318,13 +320,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
 
         float worldScale = PanelLayout.WorldScale;
-        // Item 6: the panel SIZE is a FIXED real-world reference (~control-board width), NOT the
-        // diorama zoom — so the options menu no longer auto-scales when the table is zoomed. The
-        // holder scale maps the base canvas (PanelWidthPx × CanvasMetersPerPixel) to
-        // SettingsPanelWidthMeters; the frame's own localScale carries the user's SettingsScale on
-        // top. worldScale is kept only for POSITION/distance below (offsets, PanelPlacement).
+        // Item 1/6: the panel SIZE targets the CONTROL BOARD width (SettingsPanelWidthMeters ≈
+        // PlayTray.BoardW). Because _holder is a WORLD-space root while the board lives at the
+        // diorama scale, the world-meter target must be multiplied by the diorama WorldScale or
+        // the menu renders ~WorldScale× too small (item 1: "absolutely tiny"). To still satisfy
+        // item 6 ("don't grow/shrink with table zoom"), WorldScale is SNAPSHOTTED at open/respawn
+        // into _sizeScale and held while the panel stays open — later zoom no longer rescales it.
+        // The frame's own localScale carries the user's SettingsScale on top; worldScale is also
+        // used live for POSITION/distance below.
+        if (_respawnRequested || _sizeScale <= 0f)
+            _sizeScale = Mathf.Max(worldScale, 0.01f);
         _holder.localScale = Vector3.one *
-            (SettingsPanelWidthMeters / (PanelWidthPx * CanvasMetersPerPixel));
+            (SettingsPanelWidthMeters / (PanelWidthPx * CanvasMetersPerPixel)) * _sizeScale;
 
         if (_handle != null && _handle.IsGrabbed)
             return; // the grab core owns the pose while held

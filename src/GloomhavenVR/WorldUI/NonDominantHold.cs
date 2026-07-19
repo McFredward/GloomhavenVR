@@ -155,6 +155,15 @@ internal static class NonDominantHold
             ShortTapThisFrame = ReleasedAfterSeconds < tapMax;
         }
 
+        // DIAGNOSTIC (pause-menu reopen hunt): presses are user-initiated and rare, so one
+        // line per completed press is not spam and makes the reopen failure conclusive in
+        // the next log — it shows, for press #1/#2/#3, whether a tap edge was produced and
+        // why not (Consumed by a hold chord / too long / suppressed). If a press produces
+        // NO release line at all, the press itself was eaten (hand-instance null mid-press).
+        if (ReleasedThisFrame)
+            VRLog.Info("WorldUI", $"NonDominantHold: press #{PressId} released after " +
+                                  $"{ReleasedAfterSeconds:0.00}s — shortTap={ShortTapThisFrame}, consumed={Consumed}.");
+
         // SELF-HEAL belt-and-suspenders. Now that the button is observed every frame the
         // controller instance exists (above), a stranded latch is no longer possible from
         // mere tracking loss. This still clears any residual press/Consumed latch the
