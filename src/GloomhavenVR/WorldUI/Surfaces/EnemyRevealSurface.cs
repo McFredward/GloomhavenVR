@@ -1,7 +1,9 @@
+using System.Collections.Generic;
 using System.Text;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -153,13 +155,34 @@ internal sealed class EnemyRevealSurface
     // this holds metersPerPx so a later stray re-measure can never rescale/move the panel.
     private float _placedMetersPerPx = -1f;
 
+    // ---- board-coupled scrollbar cleanup (item 8) -------------------------------------
+    // WHAT THE USER SEES: a tall vertical scrollbar (tan track + lighter handle) on the far
+    // right of the control board, appearing only while the enemy info is shown and rotating
+    // WITH the board. Root cause: the game's <c>enemyCardsHolder</c> is the CONTENT of a
+    // ScrollRect that lives inside the InitiativeTrack root window — the SAME window that
+    // InitiativeTrackSurface (TablePanelSurfaces.cs) separately converts and DOCKS to the tray
+    // (so it is board-coupled). CanvasConversion.Convert reparents ONLY the target
+    // (enemyCardsHolder) onto our floating host; it never moves siblings — so the wrapping
+    // ScrollRect's viewport frame and its Scrollbar(s) are LEFT BEHIND on the docked window,
+    // now content-less but still drawing an orphaned scrollbar that rides the board. The
+    // floating reveal itself is stable (proven by the movement diagnostic); this orphaned
+    // board-anchored scrollbar is the residual "the enemy info depends on the board" the user
+    // still perceives. We hide those scrollbar GameObjects while the reveal is floated and
+    // restore them verbatim on release. Captured BEFORE Convert reparents the holder (after
+    // that, walking the holder's parent chain would climb our host, not the original window).
+    private readonly List<GameObject> _hiddenScrollbars = new(2);
+    private bool _scrollbarHideLogged;
+
     public string Name => "EnemyReveal";
 
     public void Tick()
     {
         // Scene unload killed the target — the framework pruned the host already.
         if (_panel != null && !_panel.IsAlive)
+        {
             _panel = null;
+            RestoreBoardCoupledScrollbars(); // Unity-null-safe: just clears the stale list
+        }
 
         InitiativeTrack track = InitiativeTrack.Instance;
         bool visible = WorldUIConfig.EnemyReveal.Value && WorldUIConfig.ConversionActive
@@ -179,12 +202,19 @@ internal sealed class EnemyRevealSurface
             var holder = track.enemyCardsHolder as RectTransform;
             if (holder != null)
             {
+                // Kill the orphaned board-coupled scrollbar (see the _hiddenScrollbars docs):
+                // capture the wrapping ScrollRect and hide its scrollbar(s) BEFORE Convert
+                // reparents the content out from under it. Reversible on release.
+                HideBoardCoupledScrollbars(holder, track);
+
                 // Flatten2D (test #23): the monster-card subtree carries the same baked
                 // 3D tilt as the combat log (recessed z / rotated RectTransforms shown
                 // through the perspective UI camera) — neutralize it so the cards lie
                 // flat on the world panel instead of sticking out.
                 _panel = CanvasConversion.Convert(holder, Name, pokeable: false,
                     fitContent: true, flatten2D: true);
+                if (_panel == null)
+                    RestoreBoardCoupledScrollbars(); // convert failed — undo the pre-hide
                 if (_panel != null)
                 {
                     _fitMaxWidth = -1f;
@@ -203,6 +233,7 @@ internal sealed class EnemyRevealSurface
         {
             CanvasConversion.Release(_panel);
             _panel = null;
+            RestoreBoardCoupledScrollbars(); // hand the board-docked scrollbar back
         }
 
         if (_panel != null)
@@ -507,6 +538,88 @@ internal sealed class EnemyRevealSurface
         return PanelLayout.WorldScale;
     }
 
+    /// <summary>
+    /// Hide the board-coupled scrollbar (see <see cref="_hiddenScrollbars"/>). The reveal
+    /// content (<paramref name="holder"/>) is the CONTENT of a ScrollRect inside the
+    /// InitiativeTrack window; that window is docked to the tray by
+    /// <see cref="InitiativeTrackSurface"/>, so the ScrollRect — and its Scrollbar(s) —
+    /// are board-anchored. Once we float the content out, the scrollbar is an orphan on the
+    /// board. Find the owning ScrollRect (the holder's ancestor, or a ScrollRect in the
+    /// track window whose <c>content</c> is/holds the holder) and disable its scrollbar
+    /// GameObjects, recording each so <see cref="RestoreBoardCoupledScrollbars"/> can undo
+    /// it exactly. MUST run before Convert reparents the holder onto our host.
+    /// </summary>
+    private void HideBoardCoupledScrollbars(RectTransform holder, InitiativeTrack track)
+    {
+        // Primary: the ScrollRect the holder actually lives under (typical scroll wiring:
+        // ScrollRect → Viewport(mask) → Content=holder). Include inactive.
+        ScrollRect scroll = holder.GetComponentInParent<ScrollRect>(true);
+
+        // Fallback: a ScrollRect elsewhere in the track window that POINTS at this holder as
+        // its content (covers layouts where the holder is referenced, not directly nested).
+        if (scroll == null && track != null)
+        {
+            ScrollRect[] scrolls = track.GetComponentsInChildren<ScrollRect>(true);
+            for (int i = 0; i < scrolls.Length; i++)
+            {
+                RectTransform content = scrolls[i].content;
+                if (content == holder || (content != null && holder.IsChildOf(content)))
+                {
+                    scroll = scrolls[i];
+                    break;
+                }
+            }
+        }
+
+        if (scroll == null)
+        {
+            // No wrapping ScrollRect — this reveal is not the scrollbar's owner. Safe no-op;
+            // logged once so a hardware pass can confirm the scrollbar lives elsewhere.
+            if (!_scrollbarHideLogged)
+            {
+                _scrollbarHideLogged = true;
+                VRLog.Info("WorldUI", "ENEMY REVEAL: no ScrollRect wraps enemyCardsHolder — " +
+                                      "the board-coupled scrollbar (if any) is owned by a different widget " +
+                                      "(needs a hardware look to attribute).");
+            }
+            return;
+        }
+
+        int hidden = HideScrollbar(scroll.verticalScrollbar) + HideScrollbar(scroll.horizontalScrollbar);
+        if (hidden > 0 && !_scrollbarHideLogged)
+        {
+            _scrollbarHideLogged = true;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL: hid {hidden} orphaned scrollbar(s) on the board-docked " +
+                                  $"'{scroll.gameObject.name}' ScrollRect while the reveal floats — the " +
+                                  "board-anchored scrollbar no longer rides the control board.");
+        }
+    }
+
+    /// <summary>Disable one scrollbar's GameObject (if live and active), recording it for restore. Returns 1 if hidden.</summary>
+    private int HideScrollbar(Scrollbar bar)
+    {
+        if (bar == null)
+            return 0;
+        GameObject go = bar.gameObject;
+        if (!go.activeSelf)
+            return 0;
+        go.SetActive(false);
+        _hiddenScrollbars.Add(go);
+        return 1;
+    }
+
+    /// <summary>Re-enable every scrollbar GameObject this surface hid (Unity-null safe), then clear.</summary>
+    private void RestoreBoardCoupledScrollbars()
+    {
+        for (int i = 0; i < _hiddenScrollbars.Count; i++)
+        {
+            GameObject go = _hiddenScrollbars[i];
+            if (go != null) // Unity-null: destroyed on scene unload — skip
+                go.SetActive(true);
+        }
+        _hiddenScrollbars.Clear();
+    }
+
     public void Shutdown()
     {
         if (_panel != null)
@@ -514,6 +627,7 @@ internal sealed class EnemyRevealSurface
             CanvasConversion.Release(_panel);
             _panel = null;
         }
+        RestoreBoardCoupledScrollbars();
         _lastVisible = false;
     }
 }
