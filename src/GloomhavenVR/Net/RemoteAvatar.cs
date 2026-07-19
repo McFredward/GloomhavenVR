@@ -179,54 +179,10 @@ internal sealed class RemoteAvatar
         for (int i = _headHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_headHolder.GetChild(i).gameObject);
 
-        GameObject? prefab = HeadMaskLibrary.GetMaskPrefab(maskId);
-        if (prefab != null)
-        {
-            GameObject inst = Object.Instantiate(prefab, _headHolder, worldPositionStays: false);
-            inst.name = "HeadMask";
-        }
-        else
-        {
-            BuildPlaceholderHead(_headHolder, _tint);
-        }
+        HeadMaskLibrary.BuildHead(_headHolder, maskId, _tint);
 
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);
-    }
-
-    /// <summary>Low-poly placeholder head: a cranium sphere + a flatter "visor" plate facing
-    /// +Z (the mask's forward / where the eyes look), unlit so it reads in the lightless void.</summary>
-    private static void BuildPlaceholderHead(Transform parent, Color tint)
-    {
-        Material mat = UnlitMaterial(tint);
-        Material visorMat = UnlitMaterial(tint * new Color(0.6f, 0.65f, 0.75f, 1f));
-
-        GameObject cranium = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        Object.Destroy(cranium.GetComponent<Collider>());
-        cranium.name = "Cranium";
-        cranium.transform.SetParent(parent, worldPositionStays: false);
-        cranium.transform.localPosition = Vector3.zero;
-        cranium.transform.localScale = new Vector3(0.17f, 0.20f, 0.21f); // ~human head, +Z long
-        cranium.GetComponent<Renderer>().sharedMaterial = mat;
-
-        // Visor/mask plate on the face (+Z forward) — a landmark so orientation reads clearly.
-        GameObject visor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        Object.Destroy(visor.GetComponent<Collider>());
-        visor.name = "Visor";
-        visor.transform.SetParent(parent, worldPositionStays: false);
-        visor.transform.localPosition = new Vector3(0f, 0.01f, 0.10f);
-        visor.transform.localScale = new Vector3(0.14f, 0.055f, 0.03f);
-        visor.GetComponent<Renderer>().sharedMaterial = visorMat;
-    }
-
-    private static Material UnlitMaterial(Color color)
-    {
-        // Same rationale as HandVisuals: the void/menu have no lights, so use an unlit shader.
-        Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default")
-                        ?? Shader.Find("Hidden/InternalErrorShader");
-        var m = new Material(shader);
-        m.color = new Color(Mathf.Clamp01(color.r), Mathf.Clamp01(color.g), Mathf.Clamp01(color.b), 1f);
-        return m;
     }
 
     /// <summary>Stable per-player tint so avatars are distinguishable at a glance.</summary>

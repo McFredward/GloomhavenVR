@@ -71,4 +71,59 @@ internal static class HeadMaskLibrary
             _probed[i] = false;
         }
     }
+
+    // ---- head building (shared by RemoteAvatar + the local AvatarMirror) -----------------
+
+    /// <summary>
+    /// Instantiate the chosen mask prefab under <paramref name="parent"/>, or stand in a low-poly
+    /// placeholder head (tinted <paramref name="placeholderTint"/>) when that mask has not shipped.
+    /// Does NOT clear existing children — the caller owns teardown. The caller should re-apply the
+    /// mod layer afterwards so the head camera renders the new mesh.
+    /// </summary>
+    public static void BuildHead(Transform parent, int maskId, Color placeholderTint)
+    {
+        GameObject? prefab = GetMaskPrefab(maskId);
+        if (prefab != null)
+        {
+            GameObject inst = Object.Instantiate(prefab, parent, worldPositionStays: false);
+            inst.name = "HeadMask";
+            return;
+        }
+        BuildPlaceholderHead(parent, placeholderTint);
+    }
+
+    /// <summary>Low-poly placeholder head: a cranium sphere + a flatter "visor" plate facing +Z
+    /// (the mask's forward / where the eyes look), unlit so it reads in the lightless void.</summary>
+    private static void BuildPlaceholderHead(Transform parent, Color tint)
+    {
+        Material mat = UnlitMaterial(tint);
+        Material visorMat = UnlitMaterial(tint * new Color(0.6f, 0.65f, 0.75f, 1f));
+
+        GameObject cranium = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        Object.Destroy(cranium.GetComponent<Collider>());
+        cranium.name = "Cranium";
+        cranium.transform.SetParent(parent, worldPositionStays: false);
+        cranium.transform.localPosition = Vector3.zero;
+        cranium.transform.localScale = new Vector3(0.17f, 0.20f, 0.21f); // ~human head, +Z long
+        cranium.GetComponent<Renderer>().sharedMaterial = mat;
+
+        // Visor/mask plate on the face (+Z forward) — a landmark so orientation reads clearly.
+        GameObject visor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        Object.Destroy(visor.GetComponent<Collider>());
+        visor.name = "Visor";
+        visor.transform.SetParent(parent, worldPositionStays: false);
+        visor.transform.localPosition = new Vector3(0f, 0.01f, 0.10f);
+        visor.transform.localScale = new Vector3(0.14f, 0.055f, 0.03f);
+        visor.GetComponent<Renderer>().sharedMaterial = visorMat;
+    }
+
+    private static Material UnlitMaterial(Color color)
+    {
+        // The void/menu have no lights, so use an unlit shader (same rule as HandVisuals).
+        Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default")
+                        ?? Shader.Find("Hidden/InternalErrorShader");
+        var m = new Material(shader);
+        m.color = new Color(Mathf.Clamp01(color.r), Mathf.Clamp01(color.g), Mathf.Clamp01(color.b), 1f);
+        return m;
+    }
 }
