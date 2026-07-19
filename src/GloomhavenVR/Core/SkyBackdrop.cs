@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -34,24 +35,42 @@ namespace GloomhavenVR.Core;
 ///    writes no depth, and everything after tests clean → it can never occlude. Cheapest,
 ///    zero visual risk (same material, same look).
 ///
-///  - <b>DepthClearCB</b> — if NO depth-write property exists (the shader hard-codes
-///    <c>ZWrite On</c>): the robust STRUCTURAL fix. The sphere is taken out of the head
-///    camera's AUTOMATIC opaque draw via <see cref="Renderer.forceRenderingOff"/> = true and
-///    instead redrawn by a <see cref="CommandBuffer"/> at
-///    <see cref="CameraEvent.BeforeForwardOpaque"/> that draws it (COLOR + depth) and then
-///    CLEARS DEPTH ONLY (color kept). The scene's opaque geometry then renders against a depth
-///    buffer the sphere never populated → the sphere is a pure color backdrop that can occlude
-///    nothing, yet its AMP_SkyShader texture is fully VISIBLE. This holds ALWAYS (not just
-///    while a menu floats) so the board and laser benefit too. Keeping the sphere on the head
-///    camera (via the command buffer) means it needs NO second camera and no stereo-policy or
-///    culling-mask changes — the buffer inherits the head camera's per-eye matrices.
+///  - <b>DepthResetCB</b> — if NO depth-write property exists (the shader hard-codes
+///    <c>ZWrite On</c>): the robust STRUCTURAL fix that is safe on TILED MOBILE GPUs. The
+///    sphere is taken out of the head camera's AUTOMATIC opaque draw via
+///    <see cref="Renderer.forceRenderingOff"/> = true and instead redrawn by a
+///    <see cref="CommandBuffer"/> at <see cref="CameraEvent.BeforeForwardOpaque"/> that does
+///    TWO ordinary DRAWS:
+///      (1) <see cref="CommandBuffer.DrawRenderer(Renderer, Material, int, int)"/> of the sphere
+///          with its OWN material — the full ANIMATED AMP_SkyShader look, writing colour + its
+///          (near, shell) depth; then
+///      (2) <see cref="CommandBuffer.DrawMesh(Mesh, Matrix4x4, Material)"/> of a HEAD-CENTRED
+///          sphere at ~the far plane, rendered through the bundled <c>GloomhavenVR/Overlay</c>
+///          shader forced to <c>ZTest Always, ZWrite On, Blend Zero One, Cull Off</c>. Because
+///          the blend is <c>Zero One</c> it leaves the COLOUR buffer untouched (result = dst),
+///          while <c>ZWrite On</c> + <c>ZTest Always</c> OVERWRITES the depth buffer to ~far in
+///          every view direction. The scene's opaque geometry + all mod visuals then render
+///          against a depth buffer that no longer holds the sphere's near shell depth → the
+///          sphere is a pure colour backdrop that can occlude nothing, yet its AMP_SkyShader
+///          sky is fully VISIBLE. Holds ALWAYS (board and laser benefit too).
+///
+///    WHY A DRAW AND NOT <c>ClearRenderTarget(depth-only)</c> (attempt #1's failure): a mid-pass
+///    depth-ONLY <c>CommandBuffer.ClearRenderTarget</c> on a TILED mobile GPU (Quest 3 + Virtual
+///    Desktop) forces a tile flush that GREYS/LOSES the colour we just drew → the sky went BLACK.
+///    An ordinary DRAW that writes depth (this reset sphere) is the bread-and-butter of a
+///    tile-based renderpass and needs no clear op, so the colour survives and the sky shows.
 ///
 ///    WHY forceRenderingOff and NOT <c>enabled = false</c>: disabling the renderer removes it
-///    from Unity's culling/visible set, and <c>CommandBuffer.DrawRenderer</c>
-///    on a culled renderer draws NOTHING — the sphere was then neither auto-drawn nor CB-drawn,
-///    so the sky went COMPLETELY BLACK (issue #2). forceRenderingOff suppresses only the
-///    automatic draw while keeping the renderer culled/prepared, so DrawRenderer has valid
-///    render data and the sky's own color renders. Fully reversible (restored to false).
+///    from Unity's culling/visible set, and <c>CommandBuffer.DrawRenderer</c> on a culled
+///    renderer draws NOTHING — the sphere was then neither auto-drawn nor CB-drawn, so the sky
+///    went COMPLETELY BLACK (issue #2). forceRenderingOff suppresses only the AUTOMATIC draw
+///    while keeping the renderer culled/prepared, so DrawRenderer has valid render data and the
+///    sky's own colour renders. It also guarantees ORDER: BeforeForwardOpaque runs before every
+///    auto opaque draw (including the sphere's own queue-2000 draw), so drawing the sphere in the
+///    CB then resetting depth beats any later re-write of the shell depth. Fully reversible.
+///
+///    This mechanism uses ONE camera (the rig head camera), needs no second/stereo camera and no
+///    culling-mask/stereo-policy changes — the buffer inherits the head camera's per-eye matrices.
 ///
 /// SEPARATION FROM MR: this runs only while the sky is meant to be VISIBLE (MR OFF). When
 /// mixed-reality turns ON, <see cref="MixedReality"/> hides the sphere for the chroma key via
@@ -75,7 +94,14 @@ internal static class SkyBackdrop
 
     private const int ScanIntervalFrames = 60;
 
-    private enum Mechanism { Undecided, ZWriteOff, DepthClearCB }
+    /// <summary>
+    /// Radius of the depth-reset sphere as a fraction of the head camera's far clip plane.
+    /// Just under 1 so the sphere is never clipped by the far plane (which would leave those
+    /// directions un-reset), while writing ~far depth so ALL foreground geometry passes ZTest.
+    /// </summary>
+    private const float DepthResetFarFraction = 0.98f;
+
+    private enum Mechanism { Undecided, ZWriteOff, DepthResetCB }
 
     // Acquired target + decision (persist until the sphere instance dies / VR stops).
     private static Renderer? _sky;
@@ -89,9 +115,14 @@ internal static class SkyBackdrop
     private static float _savedZWrite;
     private static bool _renderingForcedOff;
 
-    // DepthClearCB route — a command buffer bound to the current head camera.
+    // DepthResetCB route — a command buffer bound to the current head camera.
     private static CommandBuffer? _cb;
     private static Camera? _cbCamera;
+
+    // DepthResetCB route — the depth-reset draw assets (built lazily, reused).
+    private static Material? _resetMat;   // Overlay shader forced ZWrite-On/ZTest-Always/Blend-Zero-One
+    private static Mesh? _resetMesh;      // a unit sphere (built-in primitive mesh)
+    private static bool _resetWarned;     // one-shot warning when the Overlay material is unavailable
 
     private static bool _applied;   // mechanism effects currently active
     private static int _scanNextFrame;
@@ -241,14 +272,16 @@ internal static class SkyBackdrop
         }
         else
         {
-            _mech = Mechanism.DepthClearCB;
-            VRLog.Info("Core", $"SkyBackdrop mechanism = DepthClearCB: no depth-write property among {count} " +
+            _mech = Mechanism.DepthResetCB;
+            VRLog.Info("Core", $"SkyBackdrop mechanism = DepthResetCB: no depth-write property among {count} " +
                                $"(shader hard-codes ZWrite On) → the sky sphere's AUTOMATIC draw is suppressed via " +
-                               $"Renderer.forceRenderingOff (NOT enabled=false, which would cull it and make the command " +
-                               $"buffer draw nothing → the black sky of issue #2) and it is redrawn by a BeforeForwardOpaque " +
-                               $"command buffer that clears DEPTH after (COLOR kept — the AMP_SkyShader sky is visible). Scene " +
-                               $"geometry then renders against a depth buffer the sphere never wrote, so it can occlude nothing " +
-                               $"— menus, board and laser always show. Reversible.");
+                               $"Renderer.forceRenderingOff and it is redrawn by a BeforeForwardOpaque command buffer " +
+                               $"that (1) draws the sphere with its OWN animated AMP_SkyShader material (COLOUR VISIBLE) " +
+                               $"then (2) DRAWS a head-centred far sphere through the bundled Overlay shader forced to " +
+                               $"ZWrite-On/ZTest-Always/Blend-Zero-One — an ordinary DRAW that overwrites depth to ~far " +
+                               $"WITHOUT touching colour (NO mid-pass depth CLEAR, which greyed the colour to BLACK on the " +
+                               $"tiled Quest GPU in attempt #1). Scene geometry then tests against ~far depth, so the sky " +
+                               $"occludes nothing — menus, board and laser always show, and the sky COLOUR is now visible. Reversible.");
         }
     }
 
@@ -276,29 +309,35 @@ internal static class SkyBackdrop
     private static void ApplyEffects()
     {
         Material mat = _mat!;
-        if (mat.renderQueue != BackgroundQueue)
-            mat.renderQueue = BackgroundQueue;
 
         if (_mech == Mechanism.ZWriteOff)
         {
+            if (mat.renderQueue != BackgroundQueue)
+                mat.renderQueue = BackgroundQueue;
             if (_zwriteProp != null && mat.HasProperty(_zwriteProp) && mat.GetFloat(_zwriteProp) != 0f)
                 mat.SetFloat(_zwriteProp, 0f);
         }
-        else if (_mech == Mechanism.DepthClearCB)
+        else if (_mech == Mechanism.DepthResetCB)
         {
             // Take the sphere out of the head camera's AUTOMATIC opaque draw so only the command
-            // buffer draws it (and can clear the depth it writes). Use forceRenderingOff, NOT
-            // enabled=false: disabling the renderer removes it from Unity's culling/visible set,
-            // and CommandBuffer.DrawRenderer on a culled renderer produces NO draw — that is why
-            // the previous build showed a completely BLACK sky (sphere neither auto-drawn nor
-            // CB-drawn). forceRenderingOff suppresses only the automatic draw while keeping the
-            // renderer culled/prepared, so DrawRenderer has valid render data and its COLOR shows.
+            // buffer draws it (deterministic order: sphere first, depth reset second, both BEFORE
+            // any scene opaque draw). Use forceRenderingOff, NOT enabled=false: disabling the
+            // renderer removes it from Unity's culling/visible set, and CommandBuffer.DrawRenderer
+            // on a culled renderer produces NO draw — that is why the earlier build showed a BLACK
+            // sky (sphere neither auto-drawn nor CB-drawn). forceRenderingOff suppresses only the
+            // automatic draw while keeping the renderer culled/prepared, so DrawRenderer has valid
+            // render data and its COLOUR shows.
             if (!_sky!.forceRenderingOff)
             {
                 _sky.forceRenderingOff = true;
                 _renderingForcedOff = true;
             }
+            EnsureResetAssets();
             EnsureCB();
+            // Rebuild every frame: the depth-reset sphere follows the (moving) head and scales
+            // with the live far clip plane (TickClipPlanes changes it under WorldGrab zoom).
+            if (_cb != null)
+                BuildCBCommands();
         }
 
         _applied = true;
@@ -330,9 +369,53 @@ internal static class SkyBackdrop
         _zwriteProp = null;
         _savedQueueValid = false;
         _scanNextFrame = 0;
+
+        // Drop the depth-reset material (ours). The reset MESH is a shared built-in primitive
+        // asset — never destroy it, just release the reference so a fresh one is fetched if the
+        // static survived a hot reload.
+        if (_resetMat != null)
+        {
+            UnityEngine.Object.Destroy(_resetMat);
+            _resetMat = null;
+        }
+        _resetMesh = null;
+        _resetWarned = false;
     }
 
-    // ---- command buffer (DepthClearCB route) --------------------------------------------------
+    // ---- command buffer (DepthResetCB route) --------------------------------------------------
+
+    /// <summary>
+    /// Build (once, reused) the depth-reset assets: a unit sphere mesh and an Overlay-shader
+    /// material forced to write depth without touching colour. Both are cheap and idempotent.
+    /// </summary>
+    private static void EnsureResetAssets()
+    {
+        if (_resetMesh == null)
+        {
+            // Grab the built-in unit sphere mesh. DestroyImmediate the temporary GameObject in
+            // the SAME frame (we are in Update, before rendering) so its MeshRenderer never draws
+            // a stray white sphere at the origin for a frame. The mesh itself is a shared built-in
+            // asset and survives the GameObject's destruction.
+            GameObject tmp = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            MeshFilter? mf = tmp.GetComponent<MeshFilter>();
+            _resetMesh = mf != null ? mf.sharedMesh : null;
+            UnityEngine.Object.DestroyImmediate(tmp);
+        }
+
+        if (_resetMat == null)
+        {
+            Shader? overlay = PlayTray.OverlayShader();
+            if (overlay != null)
+            {
+                _resetMat = new Material(overlay) { name = "GloomhavenVR.SkyBackdrop.DepthReset" };
+                _resetMat.SetFloat("_ZTest", (int)CompareFunction.Always); // always write, whatever depth is there
+                _resetMat.SetFloat("_ZWrite", 1f);                          // WRITE depth (reset it to ~far)
+                _resetMat.SetFloat("_Cull", (int)CullMode.Off);            // seen from inside → draw both sides
+                _resetMat.SetFloat("_SrcBlend", (int)BlendMode.Zero);      // colour result = 0*src + 1*dst
+                _resetMat.SetFloat("_DstBlend", (int)BlendMode.One);       //   = dst UNCHANGED (sky colour kept)
+            }
+        }
+    }
 
     private static void EnsureCB()
     {
@@ -346,19 +429,22 @@ internal static class SkyBackdrop
             return; // already bound to the live head camera
 
         RemoveCB();
-        _cb = new CommandBuffer { name = "GloomhavenVR.SkyBackdrop.DepthClear" };
+        _cb = new CommandBuffer { name = "GloomhavenVR.SkyBackdrop.DepthReset" };
+        _cbCamera = head;
         BuildCBCommands();
         head.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, _cb);
-        _cbCamera = head;
-        VRLog.Info("Core", $"SkyBackdrop: depth-clear command buffer attached to head camera '{head.name}' " +
-                           $"(BeforeForwardOpaque) — sky COLOR redrawn (forceRenderingOff sphere, visible) then depth " +
-                           $"cleared so it occludes nothing.");
+        VRLog.Info("Core", $"SkyBackdrop: depth-reset command buffer attached to head camera '{head.name}' " +
+                           $"(BeforeForwardOpaque) — sky COLOUR redrawn (forceRenderingOff sphere, visible) then depth " +
+                           $"OVERWRITTEN to ~far by an Overlay-shader draw (no mid-pass depth clear) so it occludes nothing.");
     }
 
     private static void BuildCBCommands()
     {
         CommandBuffer cb = _cb!;
         cb.Clear();
+
+        // (1) Draw the sky sphere with its OWN material(s) — full ANIMATED AMP_SkyShader look,
+        //     colour + its (near, shell) depth.
         Renderer sky = _sky!;
         Material[] mats = sky.sharedMaterials;
         int subs = SubmeshCount(sky);
@@ -367,8 +453,31 @@ internal static class SkyBackdrop
             Material m = (i < mats.Length && mats[i] != null) ? mats[i] : _mat!;
             cb.DrawRenderer(sky, m, i, -1); // submesh i, all passes
         }
-        // Clear DEPTH only (keep the color we just drew) so nothing tests against the sky depth.
-        cb.ClearRenderTarget(true, false, Color.clear);
+
+        // (2) DEPTH RESET via a DRAW (not a clear). A head-centred sphere at ~the far plane,
+        //     drawn with the Overlay shader forced to ZWrite-On / ZTest-Always / Blend-Zero-One:
+        //     it OVERWRITES the depth buffer to ~far in every view direction while leaving the
+        //     colour untouched. The scene opaque + mod visuals that render afterwards all pass
+        //     ZTest against ~far, so the sky's shell depth can occlude nothing. An ordinary draw
+        //     is reliable on tiled mobile GPUs — unlike the depth-only ClearRenderTarget that
+        //     greyed the colour to black on Quest (attempt #1).
+        Camera? head = _cbCamera;
+        if (_resetMat != null && _resetMesh != null && head != null)
+        {
+            float far = Mathf.Max(1f, head.farClipPlane);
+            // Primitive sphere has diameter 1 (radius 0.5); scale s ⇒ radius 0.5*s. Want
+            // radius = DepthResetFarFraction * far ⇒ s = 2 * fraction * far.
+            float scale = 2f * DepthResetFarFraction * far;
+            Matrix4x4 m = Matrix4x4.TRS(head.transform.position, Quaternion.identity, Vector3.one * scale);
+            cb.DrawMesh(_resetMesh, m, _resetMat, 0, -1);
+        }
+        else if (!_resetWarned)
+        {
+            _resetWarned = true;
+            VRLog.Warn("Core", "SkyBackdrop: Overlay depth-reset material unavailable (gloomhavenvr.bundle " +
+                               "missing the 'GloomhavenVR/Overlay' shader?) — the sky is still drawn (VISIBLE) but its " +
+                               "depth is NOT reset, so it may occlude foreground until the bundle is updated.");
+        }
     }
 
     private static int SubmeshCount(Renderer r)

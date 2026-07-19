@@ -210,9 +210,10 @@ internal static class MixedReality
             if (_active)
                 RestoreAll();
             // MR OFF: the sky STAYS. It is made a pure NON-OCCLUDING backdrop by SkyBackdrop
-            // (ZWrite-off or a depth-clear command buffer) so floated menus, the moved board and
-            // the laser in front of it are never clipped — the fix lives on the SPHERE side, not
-            // on the menus (WorldUI.CanvasConversion no longer forces menus on top).
+            // (ZWrite-off, or a command buffer that redraws the sky then DRAWS a far depth-reset —
+            // no mid-pass depth clear, tiled-GPU safe) so floated menus, the moved board and the
+            // laser in front of it are never clipped — the fix lives on the SPHERE side, not on
+            // the menus (WorldUI.CanvasConversion no longer forces menus on top).
             SkyBackdrop.Tick(mrHidingSky: false);
             return;
         }
