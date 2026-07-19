@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using UnityEngine;
 
