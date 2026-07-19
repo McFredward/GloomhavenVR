@@ -232,6 +232,16 @@ internal static class Loc
         ["piles"] = Pair("Piles", "Stapel"),
         ["items"] = Pair("Items", "Gegenstände"),
 
+        // ---- figure-grab debug tuning (item 2b) ----
+        ["cat_figures"] = Pair("Figures", "Figuren"),
+        ["fig_upright"] = Pair("Upright", "Aufrecht"),
+        ["fig_x"] = Pair("Offset X", "Versatz X"),
+        ["fig_y"] = Pair("Offset Y", "Versatz Y"),
+        ["fig_z"] = Pair("Offset Z", "Versatz Z"),
+        ["fig_tilt"] = Pair("Tilt", "Neigung"),
+        ["fig_yaw"] = Pair("Face Yaw", "Drehung"),
+        ["fig_scale"] = Pair("Scale", "Größe"),
+
         // ---- WristHud ----
         ["no_character"] = Pair("no character", "kein Charakter"),
         ["hp"] = Pair("HP", "LP"),
