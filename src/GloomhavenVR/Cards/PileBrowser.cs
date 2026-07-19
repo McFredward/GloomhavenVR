@@ -22,9 +22,10 @@ internal enum PileKind
 /// <summary>
 /// The pile browse fan (hardware test #21): a readable arc of one pile's cards,
 /// raised by poking or pinch-grabbing a <see cref="PileViewer"/> stack. Simplified
-/// <see cref="CardFan"/>-style arc at a fixed head-relative READING pose (placed once
-/// at open — no per-frame following, calmer to read than a palm fan), cards slightly
-/// enlarged. Purely informational: the cards are adopted read-only (never grabbable,
+/// <see cref="CardFan"/>-style arc at a fixed head-relative READING pose (its POSITION is
+/// placed once at open — calmer to read than a chasing palm fan — but it BILLBOARDS to
+/// face the head every frame in <see cref="Tick"/> so the cards always face the player,
+/// ISSUE #7), cards slightly enlarged. Purely informational: the cards are adopted read-only (never grabbable,
 /// never poke-selectable — CardsDriver clears both flags), and closing simply lets
 /// the next rebuild park them again. Layout only — open/close policy and content
 /// live in <see cref="CardsDriver"/>. No allocations after open.
@@ -166,7 +167,8 @@ internal sealed class PileBrowser
     /// Reading pose: in front of the head at ~tray distance, raised toward eye
     /// height, tilted slightly back — the proven HalfSelection floating pose
     /// (HalfSelection.PlaceAtHead) shifted up for a card WALL instead of a pair.
-    /// Placed once per open; deliberately no per-frame follow.
+    /// POSITION is placed once per open (deliberately no per-frame follow); the FACING is
+    /// re-billboarded toward the head every frame in <see cref="Tick"/> (ISSUE #7).
     /// </summary>
     private void PlaceAtHead()
     {
@@ -192,16 +194,22 @@ internal sealed class PileBrowser
     }
 
     /// <summary>
-    /// Per-frame follow for the HELD reading fan (item 5): float the arc above the
-    /// grabbing palm and face the head, like <see cref="CardFan.Tick"/> — the pile is
-    /// "in the hand", moving with the controller. No-op unless hand-held.
+    /// Per-frame facing update while the browse is open (ISSUE #7). In HELD mode (item 5)
+    /// the arc also floats above the grabbing palm and moves with the controller. In BOTH
+    /// modes the arc BILLBOARDS to face the head every frame — exactly like
+    /// <see cref="CardFan.Tick"/> — so the browsed cards always face the player, even the
+    /// poke-toggled wall that is placed once (<see cref="PlaceAtHead"/>) and never
+    /// repositions: its position stays put (calm to read), only its facing tracks the head,
+    /// so the cards face the player even BEFORE one is plucked into the hand. No-op while closed.
     /// </summary>
     internal void Tick()
     {
-        if (!IsOpen || _root == null || _followHand == null)
+        if (!IsOpen || _root == null)
             return;
-        // Pivot floats above the palm along the palm normal (+Y of PalmCenter).
-        _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
+        // Held mode only: the pivot floats above the palm along the palm normal (+Y of
+        // PalmCenter). The poke-toggle wall keeps the fixed position PlaceAtHead gave it.
+        if (_followHand != null)
+            _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
