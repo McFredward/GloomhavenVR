@@ -860,7 +860,7 @@ internal static class CanvasConversion
             // the ESCMenu.OnDestroy probe). Detaching to the scene root (null) keeps the object alive
             // so OptionsToggle can reopen it; the game's flat placement doesn't matter because the
             // mod re-converts/re-floats it on the next open anyway.
-            Transform restoreParent = panel.OriginalParent != null ? panel.OriginalParent : null;
+            Transform? restoreParent = panel.OriginalParent != null ? panel.OriginalParent : null;
             target.SetParent(restoreParent, worldPositionStays: false);
             if (restoreParent != null)
             {
