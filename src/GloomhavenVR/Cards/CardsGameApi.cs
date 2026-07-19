@@ -51,6 +51,38 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// The hand the game's ACTION-SELECTION click-gate is bound to. During the
+    /// <c>ActionSelection</c> phase, <c>FullAbilityCard.OnAbilityClick</c> SILENTLY rejects
+    /// every top/bottom click whose card owner is not <c>Choreographer.CurrentActor</c>
+    /// (the guard <c>PhaseManager.PhaseType == ActionSelection &amp;&amp;
+    /// Choreographer.s_Choreographer.CurrentActor != playerActor</c>, FullAbilityCard.cs:635)
+    /// — so the mod MUST present the hand of the ACTING actor, not whatever
+    /// <see cref="ActiveHand"/> (<c>CardsHandManager.CurrentHand</c>) happens to point at.
+    /// When the turn passes from one character to the next WITHIN action selection (both
+    /// hands keep <c>CardHandMode.ActionSelection</c>, so nothing the mod polls changes),
+    /// <c>CardsHandManager.CurrentHand</c> can lag the rule engine — leaving the mod docking
+    /// the PREVIOUS character's cards; every laser/poke click then hits the guard above and
+    /// the SECOND character's action phase DEADLOCKS. Resolving the hand straight from the
+    /// authoritative <c>Choreographer.CurrentActor</c> keeps the docked cards clickable.
+    /// Non-null only during ActionSelection with a player actor whose hand exists. Verified:
+    /// <c>public CActor CurrentActor =&gt; m_CurrentActor</c> (Choreographer.cs:490);
+    /// <c>public CardsHandUI GetHand(CPlayerActor)</c> (CardsHandManager.cs:583).
+    /// </summary>
+    internal static CardsHandUI? ActionSelectionHand()
+    {
+        if (PhaseManager.PhaseType != CPhase.PhaseType.ActionSelection)
+            return null;
+        Choreographer c = Choreographer.s_Choreographer;
+        if (c == null || !(c.CurrentActor is CPlayerActor player))
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null)
+            return null;
+        CardsHandUI hand = manager.GetHand(player);
+        return hand != null ? hand : null;
+    }
+
+    /// <summary>
     /// True when we may drive this hand. Verified: <c>public static bool
     /// FFSNetwork.IsOnline</c>; <c>CPlayerActor.IsUnderMyControl</c> (used the same
     /// way throughout CardsHandUI, e.g. RefreshValidCards, CardsHandUI.cs:1635).
@@ -449,6 +481,54 @@ internal static class CardsGameApi
             return;
         first = controller.topCard != null ? controller.topCard : null;
         second = controller.bottomCard != null ? controller.bottomCard : null;
+    }
+
+    /// <summary>
+    /// Change-gate signature of the whole ACTION-SELECTION context (second-character
+    /// deadlock fix). Folds the ACTING actor identity (<see cref="CurrentTurnActor"/>), the
+    /// phase machine's current card pair (<c>CardsActionControlller.topCard/bottomCard</c>)
+    /// and its <c>Phase</c> into one int. The driver polls this so a SAME-mode turn hand-off
+    /// (char 1 → char 2, both <c>CardHandMode.ActionSelection</c> — which the raw mode poll
+    /// cannot see, since <c>currentMode</c> does not change) forces a rebuild that re-docks
+    /// the NEW actor's cards. 0 outside ActionSelection.
+    /// </summary>
+    internal static int ActionSelectionSignature()
+    {
+        if (PhaseManager.PhaseType != CPhase.PhaseType.ActionSelection)
+            return 0;
+        int sig = 17;
+        CActor? cur = CurrentTurnActor();
+        sig = sig * 31 + (cur != null ? cur.GetHashCode() : 0);
+        GetActionCards(out FullAbilityCard? first, out FullAbilityCard? second);
+        sig = sig * 31 + (first != null ? first.GetInstanceID() : 0);
+        sig = sig * 31 + (second != null ? second.GetInstanceID() : 0);
+        sig = sig * 31 + (int)ActionPhase();
+        return sig;
+    }
+
+    /// <summary>The player that owns a full card. Verified: <c>private CPlayerActor
+    /// playerActor</c> (FullAbilityCard.cs:77, publicized) — set in <c>Init</c> (:397).</summary>
+    internal static CPlayerActor? CardOwner(FullAbilityCard full) => full.playerActor;
+
+    /// <summary>
+    /// One-line diagnostic of the ActionSelection click-gate for a docked card — the exact
+    /// inputs <c>FullAbilityCard.OnAbilityClick</c> tests before it will commit a half
+    /// (FullAbilityCard.cs:618-644): the card's OWNER vs <c>Choreographer.CurrentActor</c>
+    /// (the deadlock's smoking gun — a mismatch means the mod docked the wrong/previous
+    /// character's cards), per-half interactability, validity and pile. Built only on a state
+    /// change (never per frame). Fields publicized: <c>playerActor</c> (:77), <c>isValid</c>
+    /// (:85), <c>cardPile</c> (:68).
+    /// </summary>
+    internal static string DescribeActionGate(FullAbilityCard full)
+    {
+        CActor? cur = CurrentTurnActor();
+        CPlayerActor? owner = full.playerActor;
+        bool match = owner != null && ReferenceEquals(owner, cur);
+        return $"card='{full.AbilityCard?.Name ?? "?"}' owner={(owner != null ? ActorLabel(owner) : "null")} " +
+               $"currentActor={(cur != null ? ActorLabel(cur) : "null")} owner==current={match} " +
+               $"valid={full.isValid} topInteractable={full.IsInteractable(CBaseCard.ActionType.TopAction, considerSelection: false)} " +
+               $"bottomInteractable={full.IsInteractable(CBaseCard.ActionType.BottomAction, considerSelection: false)} " +
+               $"pile={full.cardPile} phase={PhaseManager.PhaseType} actionPhase={ActionPhase()}";
     }
 
     // ------------------------------------------------------------- confirm / undo --
