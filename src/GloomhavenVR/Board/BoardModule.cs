@@ -66,6 +66,9 @@ internal sealed class BoardModule : IVRModule
         // P5 (MISSION A.9): module-owned config file (dev.gloomhavenvr.board.cfg).
         // Bound even when the module stays dormant, so the section always exists.
         BoardConfig.Bind();
+        // P8: figure-grab config (dev.gloomhavenvr.figuregrab.cfg) — bound up-front so
+        // FigureGrabbable.CanGrab can read the toggle from frame one.
+        FigureGrab.FigureGrabConfig.Bind();
 
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {
@@ -79,6 +82,9 @@ internal sealed class BoardModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.InputManager_CursorPosition_Patch));
         VRSession.Harmony?.PatchAll(typeof(Patches.UIManager_IsPointerOverUI_Patch));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
+        // P8: suppress the game's per-frame figure-transform writes for HELD actors only,
+        // so a grabbed mini can ride the hand (gated by HeldFigures.Owns).
+        VRSession.Harmony?.PatchAll(typeof(FigureGrab.ActorBehaviour_HeldTransform_Patch));
         // TEMPORARY test-#14 item-5 evidence (hero placement) — remove once confirmed.
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Hover_Diagnostics));
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_UpdateGate_Diagnostics));
@@ -88,8 +94,10 @@ internal sealed class BoardModule : IVRModule
         Object.DontDestroyOnLoad(_driverGo);
         _driverGo.hideFlags = HideFlags.HideAndDontSave;
         _driverGo.AddComponent<BoardDriver>();
+        // P8: figure grab (grip-grab a mini into the hand to inspect it).
+        _driverGo.AddComponent<FigureGrab.FigureGrabDriver>();
 
-        VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control).");
+        VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
     }
 
     public void Shutdown()

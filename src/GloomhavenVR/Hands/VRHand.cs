@@ -150,6 +150,21 @@ internal sealed class VRHand : MonoBehaviour
     /// <summary>Thumbstick axis (Phase-3a uses left/right for AoE rotation).</summary>
     public Vector2 Thumbstick { get; private set; }
 
+    /// <summary>
+    /// Thumbstick CLICK (push the stick straight down — <c>primary2DAxisClick</c>).
+    /// Distinct from <see cref="Thumbstick"/> (the analog axis): SnapTurn and AoE read
+    /// the axis, world-grab reads this click, so the two never collide. Sampled the
+    /// same way as the face buttons (raw digital, no hysteresis — the click is already
+    /// a debounced boolean from the runtime).
+    /// </summary>
+    public bool ThumbstickClick { get; private set; }
+
+    /// <summary>ThumbstickClick went down this frame.</summary>
+    public bool ThumbstickClickDown { get; private set; }
+
+    /// <summary>ThumbstickClick went up this frame.</summary>
+    public bool ThumbstickClickUp { get; private set; }
+
     /// <summary>Coarse pose classification (point / open palm / fist).</summary>
     public HandPose Pose { get; private set; }
 
@@ -392,6 +407,13 @@ internal sealed class VRHand : MonoBehaviour
 
         _device.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 stick);
         Thumbstick = stick;
+
+        // Stick-push button (primary2DAxisClick) — edge-tracked like the face buttons.
+        bool prevStickClick = ThumbstickClick;
+        _device.TryGetFeatureValue(CommonUsages.primary2DAxisClick, out bool stickClick);
+        ThumbstickClick = stickClick;
+        ThumbstickClickDown = stickClick && !prevStickClick;
+        ThumbstickClickUp = !stickClick && prevStickClick;
     }
 
     private void ReadSimulated()
@@ -402,6 +424,8 @@ internal sealed class VRHand : MonoBehaviour
         ThumbTouch = _simGrip > 0.5f;
         Thumbstick = Vector2.zero;
         PrimaryDown = SecondaryDown = false;
+        ThumbstickClick = false;
+        ThumbstickClickDown = ThumbstickClickUp = false;
     }
 
     private void ApplyAnalog(float trigger, float grip)
@@ -428,6 +452,8 @@ internal sealed class VRHand : MonoBehaviour
         PrimaryButton = SecondaryButton = PrimaryDown = SecondaryDown = false;
         ThumbTouch = false;
         Thumbstick = Vector2.zero;
+        ThumbstickClick = false;
+        ThumbstickClickDown = ThumbstickClickUp = false;
         HasPointerPose = false;
     }
 

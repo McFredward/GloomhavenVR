@@ -5,27 +5,30 @@ using UnityEngine;
 namespace GloomhavenVR.Rig;
 
 /// <summary>
-/// Demeo-style world grab (ARCHITECTURE §3): grip the air to manipulate the diorama.
+/// Demeo-style world grab (ARCHITECTURE §3): click the THUMBSTICK to manipulate the
+/// diorama. Rebound off the grip (P8, figure-grab): the grip now grabs board figures,
+/// so the world drag lives on the stick-push button (<c>primary2DAxisClick</c>).
 ///
-/// - One grip held (away from any <c>IGrabbable</c>) → drag the table freely in ALL
-///   directions (test #10, <c>[Comfort] FreeMovement</c> default ON; with it off the
-///   drag is horizontal-only unless <c>[Comfort] VerticalDrag</c>).
-/// - Both grips held → rotate the table around the point between the hands (yaw only)
-///   and pinch-scale it (spread hands = board grows), clamped to the EFFECTIVE scale
-///   limits (at least 0.1×–12× of base WorldScale while FreeMovement; otherwise
+/// - One stick clicked (held down) → drag the table freely in ALL directions (test #10,
+///   <c>[Comfort] FreeMovement</c> default ON; with it off the drag is horizontal-only
+///   unless <c>[Comfort] VerticalDrag</c>).
+/// - Both sticks clicked → rotate the table around the point between the hands (yaw
+///   only) and pinch-scale it (spread hands = board grows), clamped to the EFFECTIVE
+///   scale limits (at least 0.1×–12× of base WorldScale while FreeMovement; otherwise
 ///   <c>[Comfort] ScaleMin/ScaleMax</c>), with haptic detents at every 25% scale step.
 ///
 /// All motion is applied INVERSELY to the rig root — game objects are never moved
 /// (game camera code is already prefix-skipped by the P1 patches, so nothing fights us).
 ///
-/// GRIP CONTENTION (documented rule): object grabs win. A grip only starts a world grab
-/// if that hand's <see cref="Hands.Interact.ProximityGrabber"/> neither holds nor
-/// highlights a grabbable at grip-down; a grip that grabbed a card is ignored here until
-/// released. World grab runs in EVERY scenario mode — including
-/// <see cref="VRMode.ModalUI"/> since test #13: floating dialogs must not freeze the
-/// diorama (the player reads the story box AND repositions the table). Object grabs
-/// near a floating window still win via the grip-contention rule above. Only
-/// <see cref="VRMode.Menu2D"/> is excluded (no table exists).
+/// STICK CONTENTION (documented rule): the stick CLICK is a distinct button from the
+/// stick AXIS — SnapTurn and AoE targeting read the axis (<c>hand.Thumbstick.x</c>),
+/// world grab reads the click, so the two never fight. A stick-click only starts a
+/// world grab if that hand's <see cref="Hands.Interact.ProximityGrabber"/> is not
+/// already holding an object (a light defensive guard — figure/card grabs live on the
+/// grip/trigger and no longer contend for the stick). World grab runs in EVERY scenario
+/// mode — including <see cref="VRMode.ModalUI"/> since test #13: floating dialogs must
+/// not freeze the diorama (the player reads the story box AND repositions the table).
+/// Only <see cref="VRMode.Menu2D"/> is excluded (no table exists).
 ///
 /// MATH (tracking-space anchored, feedback-free): with the rig mapping
 /// <c>world = rigPos + rigRot · (s · t)</c> for a tracking-space point <c>t</c>, anchors
@@ -49,8 +52,8 @@ internal sealed class WorldGrab : MonoBehaviour
     internal static WorldGrab? Instance { get; private set; }
 
     private GrabState _state;
-    private bool _leftGrip;   // this hand's grip is owned by world grab
-    private bool _rightGrip;
+    private bool _leftStick;   // this hand's stick-click is owned by world grab
+    private bool _rightStick;
 
     // Gesture anchors.
     private VRHand? _dragHand;
@@ -82,9 +85,9 @@ internal sealed class WorldGrab : MonoBehaviour
         }
     }
 
-    /// <summary>True while the given hand's grip is consumed by the world grab (SnapTurn contention check).</summary>
+    /// <summary>True while the given hand's stick-click is consumed by the world grab (SnapTurn contention check).</summary>
     internal bool IsHandGrabbing(VRHand hand) =>
-        hand.Side == HandSide.Left ? _leftGrip : _rightGrip;
+        hand.Side == HandSide.Left ? _leftStick : _rightStick;
 
     // ---- lifecycle -----------------------------------------------------------------------
 
@@ -112,12 +115,12 @@ internal sealed class WorldGrab : MonoBehaviour
             return;
         }
 
-        UpdateGripOwnership(VRHands.Left, ref _leftGrip);
-        UpdateGripOwnership(VRHands.Right, ref _rightGrip);
+        UpdateStickOwnership(VRHands.Left, ref _leftStick);
+        UpdateStickOwnership(VRHands.Right, ref _rightStick);
 
         GrabState desired =
-            _leftGrip && _rightGrip ? GrabState.TwoHand :
-            _leftGrip || _rightGrip ? GrabState.OneHand :
+            _leftStick && _rightStick ? GrabState.TwoHand :
+            _leftStick || _rightStick ? GrabState.OneHand :
             GrabState.None;
 
         if (desired != _state)
@@ -129,7 +132,7 @@ internal sealed class WorldGrab : MonoBehaviour
             Anchor(rig);
         }
         else if (_state == GrabState.OneHand && _dragHand != null
-                 && !(_dragHand.Side == HandSide.Left ? _leftGrip : _rightGrip))
+                 && !(_dragHand.Side == HandSide.Left ? _leftStick : _rightStick))
         {
             // Drag hand swapped within a single frame (old released + new gripped):
             // same state, but the gesture must re-anchor on the new hand.
@@ -150,12 +153,13 @@ internal sealed class WorldGrab : MonoBehaviour
     // ---- grip ownership ---------------------------------------------------------------
 
     /// <summary>
-    /// A grip becomes a WORLD grip only at grip-down with nothing held/highlighted by the
-    /// proximity grabber (card/object grabs win — frozen P2 contract). It stays a world
-    /// grip until physically released, and is dropped defensively if an object somehow
-    /// becomes held mid-gesture.
+    /// A stick-click becomes a WORLD grab only at click-down with nothing already held by
+    /// the proximity grabber (a light defensive guard — figure/card grabs live on the
+    /// grip/trigger, so they no longer contend for the stick). It stays a world grab until
+    /// the stick is released, and is dropped defensively if an object somehow becomes held
+    /// mid-gesture.
     /// </summary>
-    private static void UpdateGripOwnership(VRHand? hand, ref bool owned)
+    private static void UpdateStickOwnership(VRHand? hand, ref bool owned)
     {
         if (hand == null || !hand.HasPose)
         {
@@ -165,12 +169,12 @@ internal sealed class WorldGrab : MonoBehaviour
 
         if (owned)
         {
-            if (!hand.GripPressed || hand.Grabber.Held != null)
+            if (!hand.ThumbstickClick || hand.Grabber.Held != null)
                 owned = false;
             return;
         }
 
-        if (hand.GripDown && hand.Grabber.Held == null && hand.Grabber.Highlighted == null)
+        if (hand.ThumbstickClickDown && hand.Grabber.Held == null)
             owned = true;
     }
 
@@ -185,7 +189,7 @@ internal sealed class WorldGrab : MonoBehaviour
 
         if (_state == GrabState.OneHand)
         {
-            _dragHand = _leftGrip ? VRHands.Left : VRHands.Right;
+            _dragHand = _leftStick ? VRHands.Left : VRHands.Right;
             if (_dragHand == null)
             {
                 _state = GrabState.None;
@@ -333,7 +337,7 @@ internal sealed class WorldGrab : MonoBehaviour
         if (_state == GrabState.TwoHand && rig != null)
             ComfortSettings.PersistScaleMultiplier(rig.localScale.x / RigTarget.BaseScale);
         _state = GrabState.None;
-        _leftGrip = _rightGrip = false;
+        _leftStick = _rightStick = false;
         _dragHand = null;
         _dragLive = _rotateLive = _scaleLive = false;
     }

@@ -75,6 +75,18 @@ internal sealed class StatPanelSurface
     private readonly Watch _actorPanel = new();
     private readonly Watch _enemyTurnPanel = new();
 
+    // ---- held-figure anchor override (P8, figure-grab) --------------------------------
+    // While a figure is held in the hand, the SAME ActorStatPanel is docked next to the
+    // held mini instead of its board cell (billboarded to the head, tighter offset so it
+    // clears the hand). Static because the setter is the Board-side FigureGrabbable, which
+    // does not own a StatPanelSurface instance.
+    private static Transform? _heldAnchor;
+    private static ScenarioRuleLibrary.CActor? _heldActor;
+
+    /// <summary>Held-figure offset (side / up, real meters × world scale) — snug so it clears the hand.</summary>
+    private const float HeldSideOffset = 0.15f;
+    private const float HeldUpOffset = 0.05f;
+
     public string Name => "StatPanel";
 
     public StatPanelSurface()
@@ -88,6 +100,43 @@ internal sealed class StatPanelSurface
         // game's own ActorStatPanel window here triggers the conversion above via its
         // UIWindow onShown — the presentation pipeline is unchanged.
         VREvents.MiniaturePoked += OnMiniaturePoked;
+    }
+
+    /// <summary>
+    /// P8: dock the ActorStatPanel next to a figure held in the hand. Opens the same
+    /// window the laser mouse-over uses (<c>ActorStatPanel.Show</c>) and records the held
+    /// anchor so <see cref="PlaceWatch"/> follows the mini into the hand.
+    /// </summary>
+    internal static void ShowHeldFigure(Transform anchor, ScenarioRuleLibrary.CActor? actor)
+    {
+        _heldAnchor = anchor;
+        _heldActor = actor;
+        if (actor == null || !WorldUIConfig.StatPanels.Value || !WorldUIConfig.ConversionActive)
+            return;
+        if (CanvasConversion.IsLockedNow || !Singleton<ActorStatPanel>.IsInitialized)
+            return;
+        ActorStatPanel.Instance.Show(actor);
+    }
+
+    /// <summary>Clear the held-figure override on release (only if <paramref name="actor"/> owns it).</summary>
+    internal static void ClearHeldFigure(ScenarioRuleLibrary.CActor? actor)
+    {
+        if (_heldActor != null && actor != null && !ReferenceEquals(actor, _heldActor))
+            return; // a different held figure still owns the panel
+        _heldAnchor = null;
+        _heldActor = null;
+    }
+
+    /// <summary>
+    /// Re-open the held figure's stat card if the game's board hover re-targeted the shared
+    /// panel to another actor (risk #5). Cheap: only re-Shows when the shown actor drifted.
+    /// </summary>
+    internal static void ReassertHeld()
+    {
+        if (_heldActor == null || !Singleton<ActorStatPanel>.IsInitialized || CanvasConversion.IsLockedNow)
+            return;
+        if (!ReferenceEquals(ActorStatPanel.Instance.m_ActorShown, _heldActor))
+            ActorStatPanel.Instance.Show(_heldActor);
     }
 
     private static void OnMiniaturePoked(MiniaturePokedEvent e)
@@ -208,19 +257,23 @@ internal sealed class StatPanelSurface
         float scale = PanelLayout.WorldScale;
         Camera? head = CanvasConversion.WorldCamera;
 
-        // Preferred anchor: BESIDE the shown actor's miniature (test #16 — straight
-        // above put the panel inside the very ray inspecting the miniature; sideways
-        // of the head→miniature axis plus a small lift keeps it out of the ray path).
-        Vector3? anchor = ResolveActorAnchor(watch);
+        // Held-figure override (P8): if THIS watch shows the figure currently held in the
+        // hand, anchor beside the held mini (tighter offset so it clears the hand) instead
+        // of its board cell — always billboarded to face the player, same as the board case.
+        bool held = _heldAnchor != null && ReferenceEquals(WatchActor(watch), _heldActor);
+        Vector3? anchor = held ? _heldAnchor!.position : ResolveActorAnchor(watch);
         if (anchor.HasValue && head != null)
         {
+            float sideOffset = held ? HeldSideOffset : 0.30f;
+            float upOffset = held ? HeldUpOffset : 0.10f;
+
             Vector3 fromHead = anchor.Value - head.transform.position;
             fromHead.y = 0f;
             if (fromHead.sqrMagnitude < 1e-4f)
                 fromHead = Vector3.forward;
             fromHead.Normalize();
             Vector3 side = Vector3.Cross(Vector3.up, fromHead); // unit: screen-right of the view axis
-            Vector3 pos = anchor.Value + (side * 0.30f + Vector3.up * 0.10f) * scale;
+            Vector3 pos = anchor.Value + (side * sideOffset + Vector3.up * upOffset) * scale;
             Vector3 facing = pos - head.transform.position;
             facing.y = 0f;
             if (facing.sqrMagnitude < 1e-4f)
@@ -235,18 +288,21 @@ internal sealed class StatPanelSurface
             CanvasConversion.PlaceHost(watch.Panel, slotPos, slotRot, scale * 0.6f);
     }
 
+    /// <summary>The CActor currently shown by a watch's window (actor panel or enemy-turn panel).</summary>
+    private static ScenarioRuleLibrary.CActor? WatchActor(Watch watch) => watch.Attached switch
+    {
+        ActorStatPanel statPanel => statPanel.m_ActorShown,
+        EnemyCurrentTurnStatPanel enemyPanel => enemyPanel._currentShownEnemy,
+        _ => null,
+    };
+
     private static Vector3? ResolveActorAnchor(Watch watch)
     {
         Choreographer choreographer = Choreographer.s_Choreographer;
         if (choreographer == null)
             return null;
 
-        ScenarioRuleLibrary.CActor? actor = watch.Attached switch
-        {
-            ActorStatPanel statPanel => statPanel.m_ActorShown,
-            EnemyCurrentTurnStatPanel enemyPanel => enemyPanel._currentShownEnemy,
-            _ => null,
-        };
+        ScenarioRuleLibrary.CActor? actor = WatchActor(watch);
         if (actor == null)
             return null;
 
