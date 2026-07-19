@@ -200,9 +200,17 @@ internal static class CanvasConversion
     /// ever registering as a poke surface.
     /// <paramref name="flatten2D"/> (test #21, opt-in per surface): neutralize the
     /// game's real 3D styling inside the subtree — see <see cref="FlattenSubtree"/>.
+    /// <paramref name="sortingOrder"/> sets the host <see cref="Canvas.sortingOrder"/>
+    /// (default 0). ALL host canvases share sortingOrder 0 by default, and Unity depth-sorts
+    /// equal-order WORLD-space canvases by camera distance — which jitters with head
+    /// micro-motion, so two overlapping equal-order hosts swap render order frame-to-frame
+    /// (the floated-modal FLICKER, see ModalFallback). A dominant order lifts a host out of
+    /// that ambiguity; adopted nested canvases keep <c>overrideSorting</c> cleared, so they
+    /// inherit this order and stay ordered with the host.
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
-        PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false)
+        PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
+        int sortingOrder = 0)
     {
         if (target == null)
         {
@@ -237,6 +245,9 @@ internal static class CanvasConversion
         var hostCanvas = hostGo.AddComponent<Canvas>();
         hostCanvas.renderMode = RenderMode.WorldSpace;
         hostCanvas.worldCamera = WorldCamera;
+        // Equal-order world-space canvases depth-sort by camera distance (jitters with head
+        // motion → overlapping hosts flicker); a dominant order lifts a host clear of the tie.
+        hostCanvas.sortingOrder = sortingOrder;
         var raycaster = hostGo.AddComponent<GraphicRaycaster>();
         raycaster.enabled = !EffectiveLock;
 
@@ -300,7 +311,8 @@ internal static class CanvasConversion
 
         Active.Add(panel);
         EnsureCameraMask();
-        VRLog.Info("WorldUI", $"Converted '{name}' to world space ({size.x:F0}x{size.y:F0} px).");
+        VRLog.Info("WorldUI", $"Converted '{name}' to world space ({size.x:F0}x{size.y:F0} px, " +
+                              $"sortingOrder={sortingOrder}).");
         return panel;
     }
 
