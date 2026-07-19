@@ -359,10 +359,15 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     internal void SetRenderOnTop(bool on)
     {
-        if (on)
-            ApplyRenderOnTop();
-        else
-            RestoreRenderOnTop();
+        // REVERTED (perspective fix): the render-on-top queue/sorting bump made the card face-art
+        // canvas draw over the button widgets but ALSO swallowed all card TEXT (per-instance TMP
+        // material copies broke the font rendering) and broke depth. The user wants perspective
+        // respected everywhere except the sky, so cards now keep their native depth-correct render:
+        // never apply the bump; always restore so any previously-bumped card reverts + frees its
+        // instances. The button-text bleed-through is instead fixed on the widget side (proud-seat
+        // + LEqual) as part of the mod-wide occlusion pass. Kept as a no-op-forward for call sites.
+        _ = on;
+        RestoreRenderOnTop();
     }
 
     private void ApplyRenderOnTop()

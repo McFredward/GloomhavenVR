@@ -252,6 +252,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// </summary>
     private void ApplyRenderOnTop()
     {
+        // REVERTED (perspective fix): bumping the held mini to HeldRenderQueue (4100) made it draw
+        // OVER the control-board widgets, but it also punched the mini THROUGH walls/floors/health-
+        // bars and the effect persisted after release ("figure visible through walls once grabbed").
+        // The user wants perspective respected for every element except the sky, so held minis now
+        // keep their native depth-correct render. Left as a no-op (RestoreRenderers stays safe) so the
+        // grab/release call sites are unchanged; the board-widget occlusion is handled proud-seat +
+        // LEqual on the widget side in the mod-wide occlusion pass, not by pulling the mini forward.
+        return;
+#pragma warning disable CS0162 // unreachable — retained for quick re-enable if ever needed
         GameObject? root = Root;
         if (root == null)
             return;
@@ -270,6 +279,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
                     instances[m].renderQueue = HeldRenderQueue;
             }
         }
+#pragma warning restore CS0162
     }
 
     /// <summary>Issue B — restore the renderers' original shared materials (idempotent).</summary>
