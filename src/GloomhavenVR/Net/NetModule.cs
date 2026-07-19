@@ -9,6 +9,7 @@
 //   before Compat is fine. It is safe anywhere after HandsModule.
 // =============================================================================================
 
+using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -33,12 +34,31 @@ internal sealed class NetModule : IVRModule
 {
     public string Name => "Net";
 
+    /// <summary>
+    /// Kill-switch for the whole embodiment sync (default ON). This is brand-new networking
+    /// that installs a Harmony hook into the game's Bolt receive path; every path is
+    /// cosmetic + desync-safe by design, but the toggle lets the user disable it entirely if
+    /// a multiplayer session ever misbehaves — no rebuild needed (dev.gloomhavenvr.net.cfg).
+    /// </summary>
+    internal static ConfigEntry<bool> Enabled = null!;
+
     private GameObject? _driverGo;
     private INetTransport? _transport;
     private NetAvatarDriver? _driver;
 
     public void Init()
     {
+        Enabled ??= ModuleConfig.Create("net").Bind("Net", "Enabled", true,
+            "Multiplayer VR embodiment sync: broadcast your head + hands over the game's own " +
+            "netcode so other VR players see you (Demeo style), and render remote VR players. " +
+            "Cosmetic only, never affects game state; a no-op in single-player and safe with " +
+            "flat/non-modded players. Turn OFF to fully remove the networking hook.");
+        if (!Enabled.Value)
+        {
+            VRLog.Info(Name, "VR embodiment sync disabled by config — networking hook not installed.");
+            return;
+        }
+
         // Requires a live Harmony instance for the receive hook. When VR is disabled the whole
         // plugin is a no-op before modules init, so if we got here Harmony exists — but guard
         // anyway and degrade to nothing rather than throw.

@@ -357,6 +357,7 @@ public class Plugin : BaseUnityPlugin
         _modules.Add(new Cards.CardsModule());
         _modules.Add(new Board.BoardModule());
         _modules.Add(new WorldUI.WorldUIModule());
+        _modules.Add(new Net.NetModule());
         _modules.Add(new Compat.CompatModule());
         _modules.Add(new Core.DevModule());
     }
