@@ -38,7 +38,11 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// reading distance (the settings panel's "spawn in view" / ModalFallback.PlaceAtHmd
 /// pattern via <see cref="PanelPlacement.Spawn"/>), upright and facing the head, its
 /// POSITION and yaw lazily easing back to re-centre only when the head has clearly turned
-/// or moved, scaling with the diorama, at the shared tray density; on hide it is released back to its exact 2D home
+/// or moved, at a fixed comfortable REAL distance/size in the player's forward view —
+/// COMPLETELY INDEPENDENT of the control board (user #2): its world pose is driven ONLY by
+/// the head pose and the player-frame scale (<see cref="HeadFrameScale"/>), so moving,
+/// repositioning or zooming the board / tray / initiative-track dock never shifts it. At the
+/// shared tray density; on hide it is released back to its exact 2D home
 /// inside the track (whether
 /// that home is currently the docked track host or the screen-space canvas — the
 /// restore is parent-relative either way). Nested canvases inside the subtree are
@@ -109,8 +113,11 @@ internal sealed class EnemyRevealSurface
     // of the HMD" — at a comfortable reading distance, then drop it a little below the gaze
     // line for a natural reading angle. Because it rides the real gaze it is centred in the
     // forward field of view at ANY head pitch, so a player looking down at the diorama reads
-    // it in place and never looks up. Both are reference meters (× diorama scale) so they
-    // zoom with the board. Tune here.
+    // it in place and never looks up. Both are REAL meters (× the LIVE head-frame scale,
+    // HeadFrameScale) so they are a fixed comfortable distance in the player's OWN view,
+    // NOT tied to the board's diorama size — user #2: the reveal must be COMPLETELY
+    // INDEPENDENT of the control board, always in the forward view regardless of the board.
+    // Tune here.
     private const float RevealReadingDistance = 1.3f;
     private const float RevealViewDrop = 0.15f;
 
@@ -305,8 +312,9 @@ internal sealed class EnemyRevealSurface
     /// player has clearly turned or moved. The comfortable in-view target rides the ACTUAL
     /// gaze — a reading distance straight ahead at the current head pitch, dropped slightly
     /// below the gaze line, upright and facing the head (facing reused from
-    /// <see cref="PanelPlacement.Spawn"/>) — sized in FIXED game-world units at the diorama
-    /// reference scale so it still zooms WITH the board under world-grab.
+    /// <see cref="PanelPlacement.Spawn"/>) — the reading distance/drop scale with the LIVE
+    /// head-frame scale (<see cref="HeadFrameScale"/>), so the panel sits a FIXED comfortable
+    /// REAL distance in front of the head regardless of the board's size or position.
     ///
     /// SNAP (no ease) at spawn and on rig rebuild/recenter — the RigPoseVersion derive
     /// events every panel uses — so a deliberate recentre re-places at once. Otherwise
@@ -330,8 +338,9 @@ internal sealed class EnemyRevealSurface
         // front of the HMD — at a reading distance, then drop it slightly below the gaze
         // line. Riding the real gaze (not the horizon, not the high-mounted board) puts it
         // in the forward field of view at ANY head pitch, so a player looking down at the
-        // diorama reads it in place and never has to look up. Sized at the reference scale
-        // so the distance is world-fixed and the panel zooms with the board.
+        // diorama reads it in place and never has to look up. Scaled by the LIVE head-frame
+        // scale (the player's real->world conversion), so the reading distance is a fixed
+        // REAL distance in front of the head — independent of the board's size/position.
         Vector3 gaze = head.transform.forward;
         Vector3 desiredPos = head.transform.position + gaze * (RevealReadingDistance * scale)
                              - Vector3.up * (RevealViewDrop * scale);
@@ -400,11 +409,12 @@ internal sealed class EnemyRevealSurface
     /// <summary>
     /// Anchor the reveal in the player's forward view focus (test #27), at the SHARED
     /// tray density (test #16) with the objectives' readability multiplier, width-capped.
-    /// Position/facing come from the lazy head-follow (<see cref="UpdateFollow"/>); the
-    /// host is sized in FIXED game-world units at the diorama's reference scale
-    /// (<see cref="ReferenceScale"/>) so the panel zooms WITH the board under world-grab
-    /// (test #23 (b)) — see that helper for why the old live WorldScale multiplier held
-    /// it at a constant apparent size instead.
+    /// Position/facing come from the lazy head-follow (<see cref="UpdateFollow"/>); both the
+    /// distance and the host size scale with the LIVE head-frame scale
+    /// (<see cref="HeadFrameScale"/>), so the panel keeps a FIXED comfortable REAL distance
+    /// and apparent size in the player's forward view — COMPLETELY INDEPENDENT of the control
+    /// board (user #2). Repositioning or zooming the board (world-grab, which rescales/moves
+    /// the rig, NOT the reveal) does not shift or resize it.
     /// </summary>
     private void Place()
     {
@@ -414,7 +424,7 @@ internal sealed class EnemyRevealSurface
         if (head == null)
             return; // no head yet — leave the panel where it last sat (world-stable)
 
-        float scale = ReferenceScale();
+        float scale = HeadFrameScale();
         // Cache metersPerPx once the fit has PINNED (item 8): the host rect is frozen at
         // its full-layout max then, so capturing it here guarantees a later stray
         // re-measure can never rescale/move the panel — the twitch is gone even if some
@@ -443,20 +453,25 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Diorama reference scale (game units per real meter, fixed at rig build). The
-    /// board sits at a fixed game-world size; world-grab zoom rescales the RIG, so a
-    /// game-unit-fixed panel appears to scale with the board exactly as the board does.
-    /// The old code multiplied position and size by the LIVE WorldScale, which cancels
-    /// that viewing magnification — the reveal floated at a constant apparent size
-    /// while the diorama scaled beneath it (test #23 (b)). Anchoring to the constant
-    /// base scale keeps the default look (live == base at the default zoom) while
-    /// letting zoom move the panel with the board. Falls back to the live scale (1
-    /// outside a scenario) when no rig has resolved a base scale yet.
+    /// LIVE head-frame scale (game units per real meter, <see cref="PanelLayout.WorldScale"/>
+    /// = the rig's current lossy scale). This is the PLAYER's own real->world conversion, NOT
+    /// a board property — so multiplying the reading distance / view-drop / host size by it
+    /// keeps the reveal at a FIXED comfortable REAL distance and apparent size in the player's
+    /// forward view at ANY zoom or board position.
+    ///
+    /// This deliberately replaces the earlier <c>BaseWorldScale</c> anchor (the diorama base
+    /// scale, itself derived from the board's hex tile size). That base scale was the RESIDUAL
+    /// BOARD COUPLING behind user #2: with it, the reveal's distance/size were pinned to the
+    /// board's diorama frame, so world-grabbing the board (which rescales/moves the rig while
+    /// BaseWorldScale stayed constant) dragged and rescaled the reveal WITH the board. It also
+    /// reverses test #23 (b)'s "zoom with the board" intent per the newer user #2 requirement:
+    /// the reveal must be COMPLETELY INDEPENDENT of the control board. No PlayTray / tray /
+    /// board / InitiativeTrack transform feeds the reveal's world position — only the head
+    /// pose and this player-frame scalar do. Falls back to 1 outside a scenario (no rig).
     /// </summary>
-    private static float ReferenceScale()
+    private static float HeadFrameScale()
     {
-        float baseScale = Rig.VRRigDriver.BaseWorldScale;
-        return baseScale > 1e-4f ? baseScale : PanelLayout.WorldScale;
+        return PanelLayout.WorldScale;
     }
 
     public void Shutdown()
