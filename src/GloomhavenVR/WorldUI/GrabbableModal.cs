@@ -113,7 +113,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             return;
 
         float worldScale = PanelLayout.WorldScale;
-        _holder.localScale = Vector3.one * worldScale;
+        // CRITICAL (deadlock fix): the holder MUST stay at identity scale. It used to be
+        // scaled by worldScale, which tied the frame's WORLD position to worldScale —
+        // frame.position = holder.scale(worldScale) × frame.localPosition. worldScale is the
+        // diorama scale (~100×) and it SETTLES/animates at scenario start, so the modal's
+        // position (and size) collapsed toward the origin in lock-step (logs: pos 1285→608
+        // and scale 0.056→0.027 shrinking at the SAME ratio each frame) — the start dialog
+        // flew away and vanished, undismissable. A modal must hold a FIXED WORLD pose; only
+        // its host SIZE may track worldScale. With the holder at identity, frame.position is
+        // a true world point — grab-stable and immune to worldScale drift.
+        _holder.localScale = Vector3.one;
         if (!_holder.gameObject.activeSelf)
             _holder.gameObject.SetActive(true);
 
@@ -124,12 +133,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         host.SetPositionAndRotation(_frame.position, _frame.rotation);
         host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * factor);
 
-        // Bar/zone track the live host rect (content-fit modals re-fit; full-screen menus
-        // are fixed). worldScale/factor divide out — these are frame-local scale-1 metres.
+        // Bar/zone track the live host rect. The holder is now identity, so these frame-local
+        // metres must carry worldScale themselves to reach the host's world size (the frame's
+        // own localScale contributes the user grab factor). unit = world metres per host pixel.
         Rect rect = _panel.HostRect.rect;
-        float halfHeight = rect.height * metersPerPixel * _extraScale * 0.5f;
-        float width = rect.width * metersPerPixel * _extraScale;
-        SyncBar(halfHeight, width);
+        float unit = metersPerPixel * _extraScale * worldScale;
+        float halfHeight = rect.height * unit * 0.5f;
+        float width = rect.width * unit;
+        SyncBar(halfHeight, width, worldScale);
     }
 
     // ---- build ------------------------------------------------------------------------------
@@ -168,16 +179,23 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                               "(grip the bar to move, two hands to resize 0.5x-2x).");
     }
 
-    private void SyncBar(float halfHeight, float width)
+    private void SyncBar(float halfHeight, float width, float worldScale)
     {
         if (_bar == null || _grabZone == null)
             return;
-        float y = -(halfHeight + BarGapMeters);
-        float barWidth = Mathf.Max(width * BarWidthFraction, MinBarWidth);
+        // All dims are frame-local metres. With the holder now at identity scale (deadlock
+        // fix) the fixed constants must carry worldScale themselves so the bar/zone keep the
+        // same WORLD size relative to the (worldScale-sized) panel as before.
+        float gap = BarGapMeters * worldScale;
+        float thickness = BarThickness * worldScale;
+        float minWidth = MinBarWidth * worldScale;
+        float zoneDepth = 0.05f * worldScale;
+        float y = -(halfHeight + gap);
+        float barWidth = Mathf.Max(width * BarWidthFraction, minWidth);
         _bar.localPosition = new Vector3(0f, y, 0f);
-        _bar.localScale = new Vector3(barWidth, BarThickness, BarThickness);
+        _bar.localScale = new Vector3(barWidth, thickness, thickness);
         _grabZone.center = new Vector3(0f, y, 0f);
-        _grabZone.size = new Vector3(Mathf.Max(width * ZoneWidthFraction, MinBarWidth), 0.05f, 0.05f);
+        _grabZone.size = new Vector3(Mathf.Max(width * ZoneWidthFraction, minWidth), zoneDepth, zoneDepth);
     }
 
     // ---- teardown ---------------------------------------------------------------------------
