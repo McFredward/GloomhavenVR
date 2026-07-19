@@ -107,6 +107,29 @@ internal sealed class ConvertedPanel
 
     /// <summary>True while the moved rect still exists (scene not unloaded).</summary>
     public bool IsAlive => Target != null;
+
+    // ---- floated-modal FLICKER instrumentation (targeted; only modal hosts opt in) -------
+    /// <summary>
+    /// Opt-in per-frame diagnostics for the floated-modal flicker hunt (set by
+    /// <see cref="CanvasConversion.Convert"/> <c>diagnostic</c>, true for ModalFallback
+    /// hosts only — the small content-fit panels never flicker and would only spam).
+    /// Drives <see cref="CanvasConversion.DiagnoseModal"/>: a change-gated snapshot of the
+    /// host + adopted-child render state, plus a camera scan that reveals a second camera
+    /// double-drawing the modal's UI layer.
+    /// </summary>
+    public bool Diagnostic;
+
+    /// <summary>Last-logged per-frame host/child snapshot (change-gated — logs only on churn).</summary>
+    public string? DiagLastSnapshot;
+
+    /// <summary>Last-logged camera scan (change-gated — cameras rarely change).</summary>
+    public string? DiagLastCameras;
+
+    /// <summary>Convert time (unscaled) — the snapshot reports host age so a re-place is obvious.</summary>
+    public float DiagConvertedAt;
+
+    /// <summary>Next frame the (allocating) camera scan runs — throttled; cameras change rarely.</summary>
+    public int DiagNextCameraScanFrame;
 }
 
 /// <summary>
@@ -210,12 +233,32 @@ internal static class CanvasConversion
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
-        int sortingOrder = 0)
+        int sortingOrder = 0, bool diagnostic = false)
     {
         if (target == null)
         {
             VRLog.Warn("WorldUI", $"CanvasConversion.Convert({name}): target is null/destroyed.");
             return null;
+        }
+
+        // FLICKER HUNT: a re-conversion of a still-live target (or a still-live host of
+        // the same name) is the convert↔release oscillation signature (like the ActorBars
+        // re-adoption bug) — flag it loudly so the log attributes any per-open churn.
+        if (diagnostic)
+        {
+            for (int i = 0; i < Active.Count; i++)
+            {
+                ConvertedPanel existing = Active[i];
+                bool sameTarget = ReferenceEquals(existing.Target, target);
+                bool sameName = existing.HostGo != null && existing.HostGo.name == $"GloomhavenVR.Panel_{name}";
+                if (sameTarget || sameName)
+                {
+                    VRLog.Warn("WorldUI", $"MODAL DIAG: Convert('{name}') while a live conversion of the same " +
+                                          $"{(sameTarget ? "TARGET" : "host name")} is still Active — convert/release " +
+                                          "OSCILLATION (this is per-open flicker churn, not a stable float).");
+                    break;
+                }
+            }
         }
 
         var panel = new ConvertedPanel
@@ -309,10 +352,15 @@ internal static class CanvasConversion
             panel.FitFirstDeadline = Time.unscaledTime + FitFirstWarnSeconds;
         }
 
+        panel.Diagnostic = diagnostic;
+        panel.DiagConvertedAt = Time.unscaledTime;
+
         Active.Add(panel);
         EnsureCameraMask();
         VRLog.Info("WorldUI", $"Converted '{name}' to world space ({size.x:F0}x{size.y:F0} px, " +
                               $"sortingOrder={sortingOrder}).");
+        if (diagnostic)
+            DiagnoseModal(panel, force: true); // one-shot baseline (host state + camera scan) at float time
         return panel;
     }
 
@@ -862,7 +910,19 @@ internal static class CanvasConversion
             if (Time.frameCount >= panel.CanvasSweepNextFrame)
                 AdoptNestedCanvases(panel);
 
+            // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
+            // overrideSorting=false, but a WORLD-space modal that shares its canvas order
+            // with a nested canvas the game flips to overrideSorting=true even briefly
+            // renders that subtree at the nested order → it swaps in/out of the host's
+            // dominant order between sweeps = flicker. Re-assert every frame for the
+            // (few) modal hosts: cheap (a handful of adopted entries), change-gated writes.
+            if (panel.Diagnostic)
+                ReassertAdoptedSorting(panel);
+
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
+
+            if (panel.Diagnostic)
+                DiagnoseModal(panel, force: false); // change-gated per-frame flicker snapshot
         }
 
         if (Active.Count > 0 || _maskRequests > 0)
@@ -895,6 +955,125 @@ internal static class CanvasConversion
             ConvertedPanel panel = Active[i];
             if (panel.FlattenEnabled && panel.IsAlive)
                 FlattenSubtree(panel);
+        }
+    }
+
+    // ---- floated-modal flicker instrumentation + per-frame sorting guard ------------------
+
+    /// <summary>
+    /// Modal-host flicker guard: re-assert <c>overrideSorting=false</c> (and the host's
+    /// worldCamera) on every adopted nested canvas EVERY frame, so a game writer that
+    /// flips overrideSorting on between the 30-frame adoption sweeps cannot pull a subtree
+    /// out of the host's dominant order for up to half a second (visible as flicker).
+    /// Change-gated writes; only the (few) adopted entries of modal hosts are touched.
+    /// </summary>
+    private static void ReassertAdoptedSorting(ConvertedPanel panel)
+    {
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            Canvas nested = panel.AdoptedCanvases[i].Canvas;
+            if (nested == null)
+                continue;
+            if (nested.overrideSorting)
+            {
+                nested.overrideSorting = false;
+                VRLog.Info("WorldUI", $"MODAL DIAG: adopted canvas '{nested.name}' in " +
+                                      $"'{panel.HostGo.name}' had overrideSorting flipped back ON by the game — " +
+                                      "re-cleared (it was rendering at its own order, out of the host's).");
+            }
+            if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
+                nested.worldCamera = panel.HostCanvas.worldCamera;
+        }
+    }
+
+    // Scratch for the modal camera scan (double-draw detection); reused, no per-frame alloc.
+    private static readonly System.Text.StringBuilder DiagSb = new(256);
+
+    /// <summary>
+    /// FLOATED-MODAL FLICKER INSTRUMENTATION. Change-gated per-frame snapshot of a modal
+    /// host + its adopted child canvases, plus a scan of every OTHER enabled camera that
+    /// renders the host's layer (a second camera double-drawing the world-space modal is a
+    /// prime flicker suspect — the scenario head camera runs mask 0xFFFFFFFF and the game's
+    /// UICamera also renders the UI layer). Logs ONLY when a value actually changes, so a
+    /// genuinely stable float produces exactly one baseline line and then silence; any
+    /// per-frame churn (re-place, re-fit, enabled/sorting toggling, a child dropping out of
+    /// order, a camera appearing) prints a diff line the next hardware log can reason from.
+    /// </summary>
+    private static void DiagnoseModal(ConvertedPanel panel, bool force)
+    {
+        if (panel.HostGo == null || panel.HostCanvas == null || panel.HostRect == null)
+            return;
+
+        Transform t = panel.HostGo.transform;
+        Canvas c = panel.HostCanvas;
+        Vector3 p = t.position;
+        Vector3 s = t.lossyScale;
+        Rect r = panel.HostRect.rect;
+        string cam = c.worldCamera != null ? c.worldCamera.name : "<null>";
+        float age = Time.unscaledTime - panel.DiagConvertedAt;
+
+        // Host snapshot (rounded so sub-mm head jitter does not spam; a real re-place moves cm).
+        DiagSb.Clear();
+        DiagSb.Append("host pos=").Append(p.x.ToString("F2")).Append(',').Append(p.y.ToString("F2"))
+            .Append(',').Append(p.z.ToString("F2"))
+            .Append(" scale=").Append(s.x.ToString("F3"))
+            .Append(" rect=").Append(r.width.ToString("F0")).Append('x').Append(r.height.ToString("F0"))
+            .Append(" canvas.enabled=").Append(c.enabled)
+            .Append(" active=").Append(panel.HostGo.activeInHierarchy)
+            .Append(" order=").Append(c.sortingOrder)
+            .Append(" override=").Append(c.overrideSorting)
+            .Append(" mode=").Append(c.renderMode)
+            .Append(" cam=").Append(cam)
+            .Append(" targetAlive=").Append(panel.Target != null);
+        // Adopted children: the render state that actually decides draw order per subtree.
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            Canvas nc = panel.AdoptedCanvases[i].Canvas;
+            if (nc == null)
+            {
+                DiagSb.Append(" | child#").Append(i).Append("=<dead>");
+                continue;
+            }
+            DiagSb.Append(" | child '").Append(nc.name).Append("' enabled=").Append(nc.enabled)
+                .Append(" order=").Append(nc.sortingOrder).Append(" override=").Append(nc.overrideSorting);
+        }
+        string snapshot = DiagSb.ToString();
+        if (force || snapshot != panel.DiagLastSnapshot)
+        {
+            panel.DiagLastSnapshot = snapshot;
+            VRLog.Info("WorldUI", $"MODAL DIAG '{panel.HostGo.name}' (age {age:F1}s): {snapshot}");
+        }
+
+        // Camera scan (double-draw): every OTHER enabled camera whose cullingMask includes
+        // the host's layer bit will ALSO render this world-space host. Report each with its
+        // render target so a backbuffer/display double-draw is obvious vs. a harmless RT.
+        // Throttled (~every 20 frames) since Camera.allCameras allocates and cameras rarely
+        // change; the change-gate still collapses steady state to a single line.
+        if (!force && Time.frameCount < panel.DiagNextCameraScanFrame)
+            return;
+        panel.DiagNextCameraScanFrame = Time.frameCount + 20;
+        int layerBit = 1 << panel.HostGo.layer;
+        DiagSb.Clear();
+        Camera[] all = Camera.allCameras;
+        for (int i = 0; i < all.Length; i++)
+        {
+            Camera other = all[i];
+            if (other == null || !other.enabled || ReferenceEquals(other, WorldCamera))
+                continue;
+            if ((other.cullingMask & layerBit) == 0)
+                continue;
+            string tgt = other.targetTexture != null ? other.targetTexture.name : "BACKBUFFER";
+            if (string.IsNullOrEmpty(tgt))
+                tgt = "BACKBUFFER";
+            DiagSb.Append(" [").Append(other.name).Append(" depth=").Append(other.depth.ToString("F0"))
+                .Append(" stereo=").Append(other.stereoTargetEye).Append(" →").Append(tgt).Append(']');
+        }
+        string cams = DiagSb.Length == 0 ? "(none — head camera only)" : DiagSb.ToString();
+        if (force || cams != panel.DiagLastCameras)
+        {
+            panel.DiagLastCameras = cams;
+            VRLog.Info("WorldUI", $"MODAL DIAG '{panel.HostGo.name}' second cameras rendering layer " +
+                                  $"{panel.HostGo.layer}: {cams}");
         }
     }
 

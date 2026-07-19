@@ -1153,7 +1153,9 @@ internal static class ModalFallback
             // ON TOP of every other order-0 world-space host instead of tying with them and
             // swapping render order as the head micro-moves — see ModalHostSortingOrder.
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
-                fitContent: fullScreenMenu ? (bool?)false : null, sortingOrder: ModalHostSortingOrder);
+                fitContent: fullScreenMenu ? (bool?)false : null, sortingOrder: ModalHostSortingOrder,
+                diagnostic: true); // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
+
             if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
                                       "exempted from the per-frame content fit (fixed host rect, no flicker).");
