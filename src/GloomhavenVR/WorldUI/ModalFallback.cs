@@ -1369,6 +1369,51 @@ internal static class ModalFallback
             VRLog.Error("WorldUI", $"MODAL CLOSE (X button): closing '{name}' FAILED " +
                                    $"({ex.GetType().Name}: {ex.Message}).");
         }
+
+        // Issue 4 (ESC menu unresponsive after closing a submenu): reset the ESC menu's ToggleGroup
+        // deterministically on EVERY X-close of an ESC submenu, in BOTH branches above — the game's
+        // own hide-callback (optionsButton.Deselect / OnHideOptionWindow → toggleGroup.SetAllTogglesOff)
+        // does NOT run when our X-close takes the "game had already hidden it" branch, so the tab's
+        // toggle is left ON. Clicking an already-on toggle in a single-select ToggleGroup does nothing,
+        // so submenus could not be reopened. Forcing the group off here leaves it clean regardless of
+        // which branch closed the window.
+        ResetEscMenuToggleGroup(window);
+    }
+
+    /// <summary>
+    /// Issue 4: turn the ESC menu's <c>ToggleGroup</c> fully off after an ESC SUBMENU (Options /
+    /// OptionsSubmenu / Multiplayer submenu / Compendium) is X-closed, so its tab toggle is not left
+    /// ON — an already-on toggle in a single-select group ignores the next click, which left the ESC
+    /// menu unable to reopen submenus. Reached via the persistent <c>Singleton&lt;ESCMenu&gt;</c>
+    /// (the pause menu the submenus belong to); no-op for non-submenu windows and when no ESC menu
+    /// exists. Reflection-free (publicized <c>toggleGroup</c>), fully null-guarded.
+    /// </summary>
+    private static void ResetEscMenuToggleGroup(UIWindow window)
+    {
+        UIWindowID id = window.ID;
+        if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu
+            && id != UIWindowID.ViceOptionsSubmenu && id != UIWindowID.CompendiumPanel)
+            return;
+        if (!Singleton<ESCMenu>.IsInitialized)
+            return;
+        ESCMenu esc = Singleton<ESCMenu>.Instance;
+        if (esc == null)
+            return;
+        try
+        {
+            ToggleGroup? group = esc.toggleGroup;
+            if (group == null)
+                return;
+            group.SetAllTogglesOff();
+            VRLog.Info("WorldUI", $"MODAL CLOSE (X button): reset the ESC-menu ToggleGroup after closing " +
+                                  $"submenu '{window.name}' (ID {id}) — its tab toggle is cleared so the ESC " +
+                                  "menu can reopen submenus again (Issue 4).");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"MODAL CLOSE (X button): could not reset the ESC-menu ToggleGroup " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — submenu reopen may need a second tap.");
+        }
     }
 
     /// <summary>The floated <see cref="WindowPanel"/> for a game window, or null if not floated.</summary>
@@ -1563,6 +1608,22 @@ internal static class ModalFallback
             // windows that genuinely need the fit (story box via contentRoot below, and any
             // non-full-screen dialog) keep it.
             bool fullScreenMenu = IsFullScreenMenu(window.ID, rect);
+            // Issue 3 (Options controls unclickable): the width-collapsing one-shot content fit is
+            // correct for the ESC MENU (a narrow button column) but WRONG for the Options family —
+            // Options is a LEFT category rail + a RIGHT settings/slider panel, and hugging the
+            // visible-graphic union (dominated by the left rail) shrank the host ~1552->416 px and
+            // shifted content ~580 px left, pushing the right panel OUTSIDE the clickable host rect
+            // (only Audio/Video on the rail stayed hittable). Split the shared full-screen-menu
+            // signal: the HEIGHT cap applies to the whole family (Issue 2), but the WIDTH-hug (the
+            // one-shot content fit) applies to the ESC menu ONLY. The Options family keeps its full
+            // width — height-capped only, NOT enrolled in the content fit — so both the rail and the
+            // slider panel stay inside the visible/clickable host rect.
+            bool escMenuWidthHug = fullScreenMenu && window.ID == UIWindowID.ESCMenu;
+            // Options family: do NOT enroll in the content fit at all (fitContent:false) — the fit
+            // would width-collapse it. It floats at its own (full) width, with only the height cap
+            // trimming the tall empty bottom. Every other window keeps the default (fit pokeable
+            // hosts): non-menu modals fit as before, the ESC menu one-shot-fits (fitContent:null).
+            bool? fitContent = fullScreenMenu && !escMenuWidthHug ? false : (bool?)null;
             // User #8 part 2: the full-screen menu family (ESC / Options / Results / Rewards)
             // floats as an opaque backing rectangle — hide that backing so only the
             // foreground content shows.
@@ -1594,15 +1655,22 @@ internal static class ModalFallback
             // full-screen-menu family so every open lands the same compact height — width/scale and
             // all non-menu modals are unaffected (capHeightToCanvas is false for them).
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
-                fitContent: null, sortingOrder: ModalHostSortingOrder,
+                fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
                 useModLayer: true, transparentBackground: transparentBg,
-                fitOneShot: fullScreenMenu, capHeightToCanvas: fullScreenMenu);
+                // Issue 3: WIDTH-hug one-shot fit for the ESC menu only; the whole family gets the
+                // HEIGHT cap. Issue 5: keep the backing disabled on release for the menu family.
+                fitOneShot: escMenuWidthHug, capHeightToCanvas: fullScreenMenu,
+                keepBackgroundHidden: fullScreenMenu);
 
-            if (fullScreenMenu)
-                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
-                                      "one-shot content fit (compact, consistent size every open; locked after " +
-                                      "the single fit so the per-frame re-fit flicker cannot recur).");
+            if (escMenuWidthHug)
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is the ESC menu — one-shot " +
+                                      "content fit (compact width-hug + height cap, locked after the single fit " +
+                                      "so the per-frame re-fit flicker cannot recur).");
+            else if (fullScreenMenu)
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is an Options-family menu — " +
+                                      "FULL width preserved (height-capped only, no width-hug fit) so both the " +
+                                      "category rail and the settings/slider panel stay inside the clickable host.");
             if (panel == null)
             {
                 VRLog.Warn("WorldUI", $"MODAL WINDOW: conversion of '{name}' (ID {window.ID}) returned " +
