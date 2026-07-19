@@ -529,14 +529,50 @@ internal sealed class EnemyRevealSurface
         if (now - _lastDiagTime >= 1f)
         {
             _lastDiagTime = now;
-            Vector3 e = rig != null ? rig.eulerAngles : Vector3.zero;
             float rigScale = rig != null ? rig.lossyScale.x : 1f;
+
+            // DECISIVE ATTRIBUTION (user: "seriously trace what happens, it is NOT my head").
+            // My host is provably Y-locked, yet the user still sees the info bob with the board.
+            // So the VISIBLE content must be positioned by another path. Log the ACTUAL monster
+            // card widget's WORLD Y and whether it is really under MY host, the live parent of
+            // enemyCardsHolder (did our reparent stick?), and the TRAY pose — because
+            // InitiativeTrackSurface converts the whole InitiativeTrack ROOT and docks it to the
+            // tray, and enemyCardsHolder is a child of that root. If cardY tracks trayY (not
+            // myHostY), the reveal the user sees is the tray-docked track, not this float.
+            InitiativeTrack tr = InitiativeTrack.Instance;
+            Transform? holderNow = tr != null ? tr.enemyCardsHolder : null;
+            string holderParent = holderNow != null && holderNow.parent != null ? holderNow.parent.name : "<null>";
+            bool holderOnMyHost = holderNow != null && holderNow.parent == host;
+            Transform? card = FirstActiveMonsterCard(tr);
+            string cardY = card != null ? card.position.y.ToString("F2") : "n/a";
+            bool cardUnderMyHost = card != null && IsDescendantOf(card, host);
+            Transform? tray = PlayTray.Current != null ? PlayTray.Current.Root : null;
+            float trayY = tray != null ? tray.position.y : 0f;
+            float trayYaw = tray != null ? tray.eulerAngles.y : 0f;
+            float trackRootY = tr != null ? tr.transform.position.y : 0f;
             VRLog.Info("WorldUI",
-                $"ENEMY REVEAL diag: panelY={worldPos.y:F2} lockedY={_worldYLocked:F2} rawReprojY={rawWorld.y:F2} " +
-                $"Δ(reproj−locked)={rawWorld.y - _worldYLocked:F2} | headWorldY={head.transform.position.y:F2} " +
-                $"| rig pitch={e.x:F1}° yaw={e.y:F1}° roll={e.z:F1}° scale={rigScale:F1} | easing={_easing} " +
-                $"| panelXZ=({worldPos.x:F1},{worldPos.z:F1}). Height LOCKED — Δ is the vertical coupling that is now suppressed.");
+                $"ENEMY REVEAL attribution: myHostY={worldPos.y:F2}(locked {_worldYLocked:F2}) | " +
+                $"CARD widget worldY={cardY} underMyHost={cardUnderMyHost} | " +
+                $"enemyCardsHolder.parent='{holderParent}' onMyHost={holderOnMyHost} | " +
+                $"TRAY Y={trayY:F2} yaw={trayYaw:F0}° | trackRootY={trackRootY:F2} | " +
+                $"headWorldY={head.transform.position.y:F2} rigScale={rigScale:F1} easing={_easing}. " +
+                "=> if CARD worldY tracks TRAY Y (not myHostY), the visible reveal is TRAY-DOCKED, not on my float.");
         }
+    }
+
+    /// <summary>World transform of the first ACTIVE monster reveal card widget (what the player
+    /// actually sees), for the attribution diagnostic. Null when none is active.</summary>
+    private static Transform? FirstActiveMonsterCard(InitiativeTrack? track)
+    {
+        if (track == null || track.enemiesUI == null)
+            return null;
+        for (int i = 0; i < track.enemiesUI.Count; i++)
+        {
+            InitiativeTrackEnemyBehaviour enemy = track.enemiesUI[i];
+            if (enemy != null && enemy.monsterBaseUI != null && enemy.monsterBaseUI.gameObject.activeSelf)
+                return enemy.monsterBaseUI.transform;
+        }
+        return null;
     }
 
     /// <summary>
