@@ -175,6 +175,19 @@ internal sealed class EnemyRevealSurface
     private bool _scrollbarHideLogged;
     private bool _scrollDiagLogged; // one-shot per reveal: the full scrollbar attribution audit
 
+    // THE actual "enemy info height moves with the board" cause (proven by the attribution log:
+    // enemyCardsHolder is under our Y-locked host — underMyHost=True — yet the card widget world Y
+    // swings ±20 while the host stays flat). enemyCardsHolder is the CONTENT of this ScrollRect
+    // ("Main Area"), which lives on the tray-docked InitiativeTrack; the live ScrollRect keeps
+    // driving its content's anchoredPosition every LateUpdate (tray-coupled viewport), sliding the
+    // cards vertically INSIDE our fixed host. We disable the ScrollRect component while floated
+    // (re-asserted each tick in case the game re-enables it) and pin the holder's local position,
+    // then restore both on release. This freezes the cards inside the locked host.
+    private ScrollRect? _disabledScroll;
+    private RectTransform? _pinnedHolder;
+    private Vector3 _pinnedHolderLocalPos;
+    private bool _holderPinned;
+
     public string Name => "EnemyReveal";
 
     public void Tick()
@@ -244,6 +257,7 @@ internal sealed class EnemyRevealSurface
             // wholesale — keep this one dark so the vanilla EventSystem never hits it.
             if (_panel.HostRaycaster != null && _panel.HostRaycaster.enabled)
                 _panel.HostRaycaster.enabled = false;
+            ReassertScrollFreeze();
             PinWhenSettled();
             Place();
         }
@@ -630,6 +644,17 @@ internal sealed class EnemyRevealSurface
             }
         }
 
+        // ROOT FIX (issue #3): disable the owning ScrollRect while the content is floated so it
+        // stops driving enemyCardsHolder's anchoredPosition each LateUpdate (the tray-coupled slide
+        // that moved the cards vertically inside our locked host). Restored on release.
+        if (scroll != null && scroll.enabled)
+        {
+            scroll.enabled = false;
+            _disabledScroll = scroll;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL: disabled owning ScrollRect '{scroll.gameObject.name}' " +
+                                  "while floated — it no longer slides the reveal cards vertically inside the fixed host.");
+        }
+
         // DEFINITIVE ATTRIBUTION AUDIT (once per reveal): dump EVERY Scrollbar in the
         // InitiativeTrack subtree — full transform path, live active state, and which side it
         // lands on once Convert reparents enemyCardsHolder. A Scrollbar that is a DESCENDANT of
@@ -741,9 +766,42 @@ internal sealed class EnemyRevealSurface
                 go.SetActive(true);
         }
         _hiddenScrollbars.Clear();
+        // Re-enable the owning ScrollRect we disabled, and drop the holder pin.
+        if (_disabledScroll != null)
+        {
+            _disabledScroll.enabled = true;
+            _disabledScroll = null;
+        }
+        _pinnedHolder = null;
+        _holderPinned = false;
         // Re-arm the one-shot logs so the NEXT reveal re-audits + re-reports its hide.
         _scrollbarHideLogged = false;
         _scrollDiagLogged = false;
+    }
+
+    /// <summary>Per-frame while floated: keep the tray-coupled ScrollRect disabled (the game may
+    /// re-enable it) and pin enemyCardsHolder's local position so the cards can't slide vertically
+    /// inside our Y-locked host. This is the concrete fix for "the enemy info height moves with the
+    /// board" — proven by the attribution log (cards under our host but their world Y swinging).</summary>
+    private void ReassertScrollFreeze()
+    {
+        if (_disabledScroll != null && _disabledScroll.enabled)
+            _disabledScroll.enabled = false;
+
+        InitiativeTrack? tr = InitiativeTrack.Instance;
+        RectTransform? holder = tr != null ? tr.enemyCardsHolder as RectTransform : null;
+        if (holder == null)
+            return;
+        if (!_holderPinned)
+        {
+            _pinnedHolder = holder;
+            _pinnedHolderLocalPos = holder.localPosition;
+            _holderPinned = true;
+        }
+        else if (_pinnedHolder == holder && holder.localPosition != _pinnedHolderLocalPos)
+        {
+            holder.localPosition = _pinnedHolderLocalPos;
+        }
     }
 
     public void Shutdown()
