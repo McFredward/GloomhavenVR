@@ -176,6 +176,18 @@ internal sealed class ConvertedPanel
     /// <summary>Full-screen background graphics we disabled while floated (re-enabled on Release).</summary>
     public readonly List<Graphic> HiddenBackgrounds = new(4);
 
+    /// <summary>
+    /// Issue 5 (menu-close VEIL): for the full-screen-menu family (ESC / Options) the disabled
+    /// full-window blur/backing must NOT be re-enabled on <see cref="CanvasConversion.Release"/>.
+    /// On an X-close the float is released before the game window is guaranteed hidden, and the game
+    /// can momentarily re-show the ESC menu in flat 2D — carrying a re-enabled full-window blur that
+    /// reads as a translucent veil over the whole view (plus a left-edge stereo-split flicker). The
+    /// blur is a flat-screen effect the mod deliberately removes anyway, so for these menus it is
+    /// left disabled; the game re-creates/re-enables it on the next genuine flat show. Non-menu
+    /// modals (confirmations, story, results) keep the normal restore-on-Release behavior.
+    /// </summary>
+    public bool KeepBackgroundHidden;
+
     /// <summary>Next frame the background-hide re-assert sweep runs (pooled/late fades).</summary>
     public int BackgroundSweepNextFrame;
 
@@ -289,6 +301,14 @@ internal static class CanvasConversion
     private static readonly List<ConvertedPanel> Active = new(16);
     private static readonly HashSet<object> SoftLocks = new();
 
+    /// <summary>
+    /// Issue 2 fallback reference: the FIRST (cold) captured height per converted window name,
+    /// used as the stable height cap when the root canvas has no <see cref="CanvasScaler"/> to read
+    /// a design-space reference resolution from. A cold first open reads the game window before its
+    /// layout grows, so this is the compact height every warm reopen clamps back down to.
+    /// </summary>
+    private static readonly Dictionary<string, float> FirstCapHeights = new();
+
     private static bool _uiLocked;
     private static bool _lockDirty;
     private static Camera? _maskedCamera;
@@ -338,7 +358,8 @@ internal static class CanvasConversion
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
-        bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false)
+        bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false,
+        bool keepBackgroundHidden = false)
     {
         if (target == null)
         {
@@ -402,11 +423,16 @@ internal static class CanvasConversion
         // ESC/Options full-screen-menu family via capHeightToCanvas — normal modals never enter.
         float heightCapFrom = 0f, heightCapTo = 0f;
         bool heightCapped = false;
+        string heightCapSource = "none";
         if (capHeightToCanvas)
         {
-            Canvas? rootCanvas = target.GetComponentInParent<Canvas>();
-            var canvasRect = rootCanvas != null ? rootCanvas.rootCanvas.transform as RectTransform : null;
-            float refHeight = canvasRect != null ? canvasRect.rect.size.y : 0f;
+            // Issue 2 (pause menu taller on warm opens): the old cap read the LIVE post-layout
+            // root-canvas rect (rootCanvas.rect.size.y), which GROWS with content (cold ~1080,
+            // warm ~2040) — so warm size.y(2040) > refHeight(2040) was false and the cap never
+            // fired. Read a STABLE reference instead: the root canvas's CanvasScaler
+            // referenceResolution.y (~1080, constant regardless of layout growth); fall back to
+            // the FIRST successful (cold) capture height recorded per window if there is no scaler.
+            float refHeight = ResolveStableHeightCap(target, name, out heightCapSource);
             if (refHeight > 1f && size.y > refHeight)
             {
                 heightCapFrom = size.y;
@@ -414,6 +440,11 @@ internal static class CanvasConversion
                 size.y = refHeight;
                 heightCapped = true;
             }
+            // Record the FIRST (cold) capture height for this window as the fallback reference:
+            // a cold first open reads the root before layout expands it, so size.y here is the
+            // compact reference every subsequent (warm) open should clamp back down to.
+            if (!FirstCapHeights.ContainsKey(name))
+                FirstCapHeights[name] = size.y;
         }
 
         var hostGo = new GameObject($"GloomhavenVR.Panel_{name}");
@@ -506,6 +537,9 @@ internal static class CanvasConversion
         if (transparentBackground)
         {
             panel.HideBackground = true;
+            // Issue 5: for the full-screen-menu family, leave the backing disabled on Release so a
+            // momentary flat re-show on X-close cannot flash the full-window blur veil.
+            panel.KeepBackgroundHidden = keepBackgroundHidden;
             HideFullScreenBackground(panel, initial: true);
         }
 
@@ -530,10 +564,43 @@ internal static class CanvasConversion
         EnsureCameraMask();
         VRLog.Info("WorldUI", $"Converted '{name}' to world space ({size.x:F0}x{size.y:F0} px, " +
                               $"sortingOrder={sortingOrder})" +
-                              (heightCapped ? $" (height capped {heightCapFrom:F0}->{heightCapTo:F0})." : "."));
+                              (heightCapped
+                                  ? $" (height capped {heightCapFrom:F0}->{heightCapTo:F0} via {heightCapSource})."
+                                  : "."));
         if (diagnostic)
             DiagnoseModal(panel, force: true); // one-shot baseline (host state + camera scan) at float time
         return panel;
+    }
+
+    /// <summary>
+    /// Issue 2: resolve the STABLE height cap for a full-screen-menu conversion. Prefer the root
+    /// canvas's <see cref="CanvasScaler"/> <c>referenceResolution.y</c> — a fixed design value
+    /// (~1080) that does NOT grow with post-layout content, unlike the live root-canvas rect the
+    /// old cap read. Falls back to the first (cold) capture height recorded for this window in
+    /// <see cref="FirstCapHeights"/>; returns 0 (no cap) when neither is available yet.
+    /// </summary>
+    private static float ResolveStableHeightCap(RectTransform target, string name, out string source)
+    {
+        Canvas? rootCanvas = target.GetComponentInParent<Canvas>();
+        Canvas? root = rootCanvas != null ? rootCanvas.rootCanvas : null;
+        if (root != null)
+        {
+            var scaler = root.GetComponent<CanvasScaler>();
+            if (scaler != null
+                && scaler.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize
+                && scaler.referenceResolution.y > 1f)
+            {
+                source = "CanvasScaler.referenceResolution";
+                return scaler.referenceResolution.y;
+            }
+        }
+        if (FirstCapHeights.TryGetValue(name, out float first) && first > 1f)
+        {
+            source = "first-capture fallback";
+            return first;
+        }
+        source = "none";
+        return 0f;
     }
 
     /// <summary>
@@ -1282,12 +1349,28 @@ internal static class CanvasConversion
         }
         panel.Relayered.Clear();
 
-        // User #8 part 2: re-enable the full-window backing/blur we disabled while floated.
-        for (int i = 0; i < panel.HiddenBackgrounds.Count; i++)
+        // User #8 part 2: re-enable the full-window backing/blur we disabled while floated —
+        // EXCEPT for the full-screen-menu family (Issue 5). On an X-close the float is released
+        // before the game window is guaranteed hidden, and a momentary flat re-show of the ESC
+        // menu carrying a re-enabled full-window blur read as a translucent veil over the whole
+        // view (+ a left-edge stereo-split flicker). The blur is a flat-screen effect the mod
+        // removes anyway, so for those menus it is left disabled; the game re-enables it on its
+        // next genuine flat show. Non-menu modals restore normally.
+        if (panel.KeepBackgroundHidden)
         {
-            Graphic g = panel.HiddenBackgrounds[i];
-            if (g != null)
-                g.enabled = true;
+            if (panel.HiddenBackgrounds.Count > 0)
+                VRLog.Info("WorldUI", $"MODAL BACKGROUND: kept {panel.HiddenBackgrounds.Count} full-window " +
+                                      "backing/blur image(s) DISABLED on release (full-screen menu) — no " +
+                                      "veil on X-close if the game momentarily re-shows the menu flat.");
+        }
+        else
+        {
+            for (int i = 0; i < panel.HiddenBackgrounds.Count; i++)
+            {
+                Graphic g = panel.HiddenBackgrounds[i];
+                if (g != null)
+                    g.enabled = true;
+            }
         }
         panel.HiddenBackgrounds.Clear();
 
