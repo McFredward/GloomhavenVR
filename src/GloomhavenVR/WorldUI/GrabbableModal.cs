@@ -54,6 +54,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     private ConvertedPanel _panel = null!;
     private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
+
+    /// <summary>
+    /// Item 2: the diorama scale CAPTURED ONCE at spawn. The menu SIZE is derived from this
+    /// fixed reference instead of the live <see cref="PanelLayout.WorldScale"/>, so zooming the
+    /// diorama after the menu opens no longer grows/shrinks it (position stays a fixed world
+    /// point regardless). Only the user's two-hand grab factor still resizes it on top.
+    /// </summary>
+    private float _spawnWorldScale = 1f;
     private string _logName = "Menu";
 
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
@@ -75,6 +83,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _panel = panel;
         _extraScale = extraScale;
         _logName = logName;
+        // Item 2: snapshot the diorama scale now — the menu keeps THIS size regardless of later zoom.
+        _spawnWorldScale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
         EnsureFrame();
         if (_frame != null && panel.HostGo != null)
         {
@@ -125,21 +135,25 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         if (_holder == null || _frame == null)
             return;
 
-        float worldScale = PanelLayout.WorldScale;
-        // CRITICAL (deadlock fix): the holder MUST stay at identity scale. It used to be
-        // scaled by worldScale, which tied the frame's WORLD position to worldScale —
-        // frame.position = holder.scale(worldScale) × frame.localPosition. worldScale is the
-        // diorama scale (~100×) and it SETTLES/animates at scenario start, so the modal's
-        // position (and size) collapsed toward the origin in lock-step (logs: pos 1285→608
-        // and scale 0.056→0.027 shrinking at the SAME ratio each frame) — the start dialog
-        // flew away and vanished, undismissable. A modal must hold a FIXED WORLD pose; only
-        // its host SIZE may track worldScale. With the holder at identity, frame.position is
-        // a true world point — grab-stable and immune to worldScale drift.
+        // Item 2 (no auto-scale with world zoom): the menu SIZE uses the diorama scale CAPTURED
+        // ONCE at spawn (_spawnWorldScale), NOT the live PanelLayout.WorldScale — so zooming the
+        // diorama after the menu opens no longer grows/shrinks it. POSITION is the frame's world
+        // point (copied below), independent of worldScale.
+        //
+        // CRITICAL (deadlock fix): the holder MUST stay at identity scale. It used to be scaled by
+        // worldScale, which tied the frame's WORLD position to worldScale — frame.position =
+        // holder.scale(worldScale) × frame.localPosition. worldScale settles/animates at scenario
+        // start, so the modal's position (and size) collapsed toward the origin in lock-step and the
+        // start dialog flew away, undismissable. With the holder at identity, frame.position is a
+        // true world point — grab-stable and immune to worldScale drift.
+        float worldScale = _spawnWorldScale;
         _holder.localScale = Vector3.one;
         if (!_holder.gameObject.activeSelf)
             _holder.gameObject.SetActive(true);
 
-        float factor = Mathf.Clamp(_frame.localScale.x, 0.5f, 2f);
+        // Item 4: the user grab factor rides the SAME [MinScale, MaxScale] range the shared handle
+        // clamps to — a higher local floor here would silently re-cap what the two-hand pinch shrank.
+        float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
 
         Transform host = _panel.HostGo.transform;

@@ -359,7 +359,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             bool healed = PanelPlacement.ClampIntoView(head, worldScale, ref candidate,
                 out Quaternion facing);
             _frame.position = candidate;
-            _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.SettingsScale.Value, 0.5f, 2f);
+            _frame.localScale = Vector3.one *
+                Mathf.Clamp(WorldUIConfig.SettingsScale.Value, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
 
             // Orientation at events only (never per tick — the combat log's test #20 rule).
             int poseVersion = VRRigDriver.RigPoseVersion;
@@ -427,7 +428,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         PanelPlacement.Spawn(head, worldScale, out Vector3 pos, out Quaternion rot);
         _frame.position = pos;
         _frame.rotation = rot;
-        _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.SettingsScale.Value, 0.5f, 2f);
+        _frame.localScale = Vector3.one *
+            Mathf.Clamp(WorldUIConfig.SettingsScale.Value, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         _healLogged = false;
         PersistLayout();
     }
@@ -509,7 +511,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         WorldUIConfig.SettingsRight.Value = local.x;
         WorldUIConfig.SettingsUp.Value = local.y;
         WorldUIConfig.SettingsForward.Value = local.z;
-        WorldUIConfig.SettingsScale.Value = Mathf.Clamp(_frame.localScale.x, 0.5f, 2f);
+        WorldUIConfig.SettingsScale.Value =
+            Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
     }
 
     // ---- chord ---------------------------------------------------------------------------

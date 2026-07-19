@@ -176,6 +176,20 @@ internal sealed class ConvertedPanel
     /// both treatments.
     /// </summary>
     public float EarlySettleUntil;
+
+    // ---- render-hidden-until-treated reveal (sub-item A, the DECISIVE initial-flicker fix) ----
+    /// <summary>
+    /// Item 3a: a floated modal host is created with its <see cref="Canvas"/> DISABLED so the
+    /// untreated opaque backing NEVER draws a frame. The host stays render-hidden until
+    /// <see cref="RevealNotBefore"/> passes — by then the mod-layer move + background hide have
+    /// been applied and re-applied over several frames, so the very first VISIBLE frame is already
+    /// on layer 27 with its backing gone. A ~0.15 s pop-in with ZERO flicker replaces the ~1 s
+    /// backing flash. Cleared (and the canvas enabled) by <see cref="CanvasConversion.Tick"/>.
+    /// </summary>
+    public bool RevealPending;
+
+    /// <summary>Earliest unscaled time the render-hidden modal host may be revealed (see <see cref="RevealPending"/>).</summary>
+    public float RevealNotBefore;
 }
 
 /// <summary>
@@ -436,7 +450,17 @@ internal static class CanvasConversion
         // the game instantiates / fades in a few frames after Convert is treated before its
         // first visible frame — killing the reported ~1 s initial flicker.
         if (useModLayer || transparentBackground)
+        {
             panel.EarlySettleUntil = Time.unscaledTime + EarlySettleSeconds;
+            // Item 3a (DECISIVE initial-flicker fix): create the host RENDER-HIDDEN and pop it in
+            // only once it is treated + stable. The initial ApplyModLayer / background-hide above
+            // already ran with the canvas enabled (so the main backing is disabled), and the
+            // early-settle sweep keeps re-treating every frame; disabling the canvas now guarantees
+            // NO untreated frame is ever drawn while a late/faded-in backing is caught.
+            hostCanvas.enabled = false;
+            panel.RevealPending = true;
+            panel.RevealNotBefore = Time.unscaledTime + RevealDelaySeconds;
+        }
 
         Active.Add(panel);
         EnsureCameraMask();
@@ -474,6 +498,14 @@ internal static class CanvasConversion
     /// Comfortably covers the window show/fade animations (~0.3 s) plus any lazy populate.
     /// </summary>
     private const float EarlySettleSeconds = 1.5f;
+
+    /// <summary>
+    /// Item 3a: hold a freshly converted modal host render-hidden (canvas disabled) this long
+    /// after Convert before the zero-flicker pop-in — long enough for the mod-layer move +
+    /// background hide to have been applied over several frames (incl. a late/faded-in backing),
+    /// short enough to read as an instant open. Well inside <see cref="EarlySettleSeconds"/>.
+    /// </summary>
+    private const float RevealDelaySeconds = 0.15f;
 
     // Scratch buffer (sweep time only; reused, no per-call allocations).
     private static readonly List<Canvas> CanvasScratch = new(8);
@@ -1180,6 +1212,19 @@ internal static class CanvasConversion
             // backing image a few frames after the window shows).
             if (panel.HideBackground && (earlySettle || Time.frameCount >= panel.BackgroundSweepNextFrame))
                 HideFullScreenBackground(panel, initial: false);
+
+            // Item 3a: reveal the render-hidden modal host once its settle delay has passed. The
+            // treatments for THIS frame already ran above (canvas still disabled → harmless), and
+            // LateTick re-treats once more (canvas now enabled) before the frame renders — so the
+            // first visible frame is fully treated: a clean pop-in with zero flicker.
+            if (panel.RevealPending && panel.HostCanvas != null
+                && Time.unscaledTime >= panel.RevealNotBefore)
+            {
+                panel.HostCanvas.enabled = true;
+                panel.RevealPending = false;
+                VRLog.Info("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' shown after settle " +
+                                      "(mod layer + background hidden, stable frame) — zero-flicker pop-in.");
+            }
 
             // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
             // overrideSorting=false, but a WORLD-space modal that shares its canvas order
