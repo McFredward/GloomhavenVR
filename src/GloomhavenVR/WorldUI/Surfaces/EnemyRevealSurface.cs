@@ -90,34 +90,29 @@ internal sealed class EnemyRevealSurface
     // converged on the fresh in-view target within FollowSettledDeg. Between triggers the
     // panel is world-stable (its stored pose is applied verbatim, never recomputed), so
     // it sits perfectly still and only glides on a deliberate move. FollowEaseRate is the
-    // Lerp/Slerp rate (matches FlatScreen's 3/s glide). The deadzone clears the ~9° that
-    // the comfortable downward reading drop already puts the panel below the gaze axis
-    // (see <see cref="PanelPlacement.SpawnDrop"/>), so it never self-triggers at rest.
+    // Lerp/Slerp rate (matches FlatScreen's 3/s glide). The deadzone easily clears the
+    // ~7° that the comfortable reading drop already puts the panel below the gaze axis
+    // (see <see cref="RevealViewDrop"/>), so it never self-triggers at rest.
     private const float FollowDeadzoneDeg = 22f;
     private const float FollowDwellSeconds = 0.5f;
     private const float FollowSettledDeg = 5f;
     private const float FollowEaseRate = 3f;
 
-    // Item 3 (test #23) — BOARD-ANCHORED height. PanelPlacement.Spawn flattens the head-
-    // forward to the HORIZON for the target HEIGHT — comfortable for a STANDING viewer,
-    // but the player looks DOWN ~30-40° at the diorama, so a horizon-planted reveal floats
-    // far ABOVE the actual gaze (and the lazy follow re-targets that same horizon height,
-    // stranding it high — the earlier head-relative drop was only a fraction of the horizon
-    // anchor, so at a level-ish gaze it barely moved). The reliable fix is to stop letting
-    // the head decide the HEIGHT at all: override only the world Y to a fixed offset above
-    // the control BOARD (tabletop) — the same board the initiative/objectives docks mount
-    // to (PlayTray.Current.Root) — while keeping Spawn's in-view x/z + facing so the panel
-    // still faces the player and follows azimuth via the lazy deadzone. RevealBoardHeight
-    // is that offset above the board root, in reference meters (× diorama scale), so it
-    // zooms with the board. Tune here.
-    private const float RevealBoardHeight = 0.25f;
-
-    // Fallback ONLY when no board exists (e.g. the menu, PlayTray.Current == null): the
-    // previous head-relative downward gaze bias — a small always-on drop plus a component
-    // proportional to how far the head is pitched below the horizon (0 at the horizon, 1
-    // looking straight down). Both scale with the diorama.
-    private const float RevealBaseDrop = 0.06f;
-    private const float RevealGazeDrop = 0.55f;
+    // Item 3 (user #4, RECURRING) — HEAD/VIEW-ANCHORED height. The reveal must land in the
+    // player's comfortable forward VIEW so it reads WITHOUT looking up. Two earlier takes
+    // anchored the HEIGHT to something other than the gaze and both floated too high: the
+    // horizon-flattened PanelPlacement.Spawn planted it at eye level (above the ~30-40°
+    // downward table gaze), and the later BOARD-anchored height (a fixed offset above the
+    // high-mounted control board) sat higher still. The reliable fix is to stop letting the
+    // horizon OR the board decide the height and place the panel straight along the ACTUAL
+    // gaze — pitch included, exactly like ModalFallback.PlaceAtHmd floats a window "in front
+    // of the HMD" — at a comfortable reading distance, then drop it a little below the gaze
+    // line for a natural reading angle. Because it rides the real gaze it is centred in the
+    // forward field of view at ANY head pitch, so a player looking down at the diorama reads
+    // it in place and never looks up. Both are reference meters (× diorama scale) so they
+    // zoom with the board. Tune here.
+    private const float RevealReadingDistance = 1.3f;
+    private const float RevealViewDrop = 0.15f;
 
     private static readonly StringBuilder NameScratch = new(128);
 
@@ -307,10 +302,11 @@ internal sealed class EnemyRevealSurface
     /// Lazy follow into view (test #27), mirroring FlatScreen.FollowHead but easing
     /// POSITION as well as yaw: the panel is planted in the forward view focus and left
     /// world-stable, then glides back to re-centre in front of the head only when the
-    /// player has clearly turned or moved. The comfortable in-view target is
-    /// <see cref="PanelPlacement.Spawn"/> — a reading distance straight ahead, slightly
-    /// below eye level, upright and facing the head — sized in FIXED game-world units at
-    /// the diorama reference scale so it still zooms WITH the board under world-grab.
+    /// player has clearly turned or moved. The comfortable in-view target rides the ACTUAL
+    /// gaze — a reading distance straight ahead at the current head pitch, dropped slightly
+    /// below the gaze line, upright and facing the head (facing reused from
+    /// <see cref="PanelPlacement.Spawn"/>) — sized in FIXED game-world units at the diorama
+    /// reference scale so it still zooms WITH the board under world-grab.
     ///
     /// SNAP (no ease) at spawn and on rig rebuild/recenter — the RigPoseVersion derive
     /// events every panel uses — so a deliberate recentre re-places at once. Otherwise
@@ -323,47 +319,28 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private void UpdateFollow(Camera head, float scale)
     {
-        // Comfortable in-view target (settings-panel "spawn in view" pattern): a reading
-        // distance ahead of the head, slightly dropped, upright and facing it. Sized at
-        // the reference scale so the distance is world-fixed (zooms with the board).
-        PanelPlacement.Spawn(head, scale, out Vector3 desiredPos, out Quaternion desiredRot);
+        // Comfortable in-view target (settings-panel / ModalFallback.PlaceAtHmd "spawn in
+        // view" pattern). Reuse PanelPlacement.Spawn ONLY for the UPRIGHT facing (its
+        // Facing: panel front toward the head, +Z away — the convention every surface here
+        // shares); its horizon-flattened position is discarded.
+        PanelPlacement.Spawn(head, scale, out _, out Quaternion desiredRot);
 
-        // Item 3 (test #23) rework: the Spawn target's HEIGHT is the head-forward horizon,
-        // which floats far above the downward table gaze. Clamp ONLY the world Y to a fixed
-        // offset above the control board (tabletop) — the same board the initiative/
-        // objectives docks mount to — keeping Spawn's in-view x/z + facing so the panel
-        // still faces the player and follows azimuth via the lazy deadzone. Falls back to
-        // the previous head-relative drop when no board exists (menu, PlayTray.Current null).
-        Transform? board = PlayTray.Current?.Root;
-        if (board != null)
+        // Item 3 (user #4, RECURRING) rework: the HEIGHT fix. Place the panel along the
+        // ACTUAL gaze — pitch included, like ModalFallback.PlaceAtHmd floats a window in
+        // front of the HMD — at a reading distance, then drop it slightly below the gaze
+        // line. Riding the real gaze (not the horizon, not the high-mounted board) puts it
+        // in the forward field of view at ANY head pitch, so a player looking down at the
+        // diorama reads it in place and never has to look up. Sized at the reference scale
+        // so the distance is world-fixed and the panel zooms with the board.
+        Vector3 gaze = head.transform.forward;
+        Vector3 desiredPos = head.transform.position + gaze * (RevealReadingDistance * scale)
+                             - Vector3.up * (RevealViewDrop * scale);
+        if (!_dropLogged)
         {
-            desiredPos.y = board.position.y + RevealBoardHeight * scale;
-            if (!_dropLogged)
-            {
-                _dropLogged = true;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL height board-anchored to y={desiredPos.y:F3} m " +
-                                      $"(board root {board.position.y:F3} + {RevealBoardHeight:F2} × {scale:F2} scale) " +
-                                      "— world Y clamped above the control board so the reveal lands in the downward table gaze.");
-            }
-        }
-        else
-        {
-            // No board (e.g. menu): drop the target DOWN into the actual downward gaze.
-            // pitchDown is 0 at the horizon and 1 looking straight down, so a level gaze
-            // only takes the small RevealBaseDrop (stays inside the follow deadzone) while a
-            // downward gaze adds up to RevealGazeDrop more, pulling the panel down along the
-            // line of sight. The drop scales with the diorama like the Spawn drop it augments.
-            float pitchDown = Mathf.Clamp01(-head.transform.forward.y);
-            float extraDrop = (RevealBaseDrop + RevealGazeDrop * pitchDown) * scale;
-            desiredPos += Vector3.down * extraDrop;
-            if (!_dropLogged)
-            {
-                _dropLogged = true;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL downward gaze bias (no board): head pitch {pitchDown:F2} " +
-                                      $"(0=horizon,1=straight down) → dropped target {extraDrop:F3} m " +
-                                      $"(base {RevealBaseDrop:F2}+gaze {RevealGazeDrop:F2}×pitch, ×{scale:F2} scale) " +
-                                      "below the Spawn point.");
-            }
+            _dropLogged = true;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL head/view-anchored to y={desiredPos.y:F3} m " +
+                                  $"(along the gaze at {RevealReadingDistance:F2} m, dropped {RevealViewDrop:F2} m " +
+                                  $"below it, ×{scale:F2} scale) — spawns in the forward view, no looking up.");
         }
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
@@ -379,7 +356,7 @@ internal sealed class EnemyRevealSurface
         }
 
         // Drift = the CURRENT panel centre's angle off the gaze. The reading drop already
-        // sits it ~9° below the forward axis, which FollowDeadzoneDeg clears, so an
+        // sits it ~7° below the forward axis, which FollowDeadzoneDeg clears, so an
         // at-rest panel never self-triggers; a head turn / walk that pushes it past the
         // deadzone does.
         Vector3 toPanel = _position - head.transform.position;
