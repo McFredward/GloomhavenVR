@@ -121,6 +121,52 @@ internal sealed class BurnCardFx
         RestoreBound();
     }
 
+    /// <summary>
+    /// Item 4 (fully-consumed items = the burn display): spawn the game's own CardSmoke
+    /// plume on an arbitrary chip (an <see cref="ItemsPile"/> item card, which has no
+    /// game <c>CardEffects</c> of its own) and clamp it card-local with the SAME
+    /// simulation/scaling/shrink this class applies to a burning ability card's smoke,
+    /// so a consumed item reads exactly like a burnt card. Returns the spawned instance
+    /// (parented under <paramref name="chip"/>) for the caller to <c>Object.Destroy</c>
+    /// when the chip goes away — self-contained, no pool bookkeeping. Null when the
+    /// prefab / global settings are not available yet (harmless: no plume).
+    /// </summary>
+    internal static GameObject? SpawnConsumedPlume(Transform chip)
+    {
+        if (chip == null)
+            return null;
+        GameObject? prefab = null;
+        try
+        {
+            GlobalSettings settings = GlobalSettings.Instance;
+            if (settings != null && settings.VisualEffects != null)
+                prefab = settings.VisualEffects.CardSmoke;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"Consumed-item plume: GlobalSettings.VisualEffects.CardSmoke unavailable ({ex.Message}).");
+            return null;
+        }
+        if (prefab == null)
+            return null;
+
+        GameObject go = Object.Instantiate(prefab, chip);
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        var ps = go.GetComponentInChildren<ParticleSystem>();
+        if (ps != null)
+        {
+            ParticleSystem.MainModule main = ps.main;
+            // Same clamp as the burning-card path: ride the small world chip, size to it,
+            // shrink so the plume stays localized instead of spraying at authored screen scale.
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+            main.startSizeMultiplier = main.startSizeMultiplier * StartSizeMultiplier;
+            main.startSpeedMultiplier = main.startSpeedMultiplier * StartSpeedMultiplier;
+        }
+        return go;
+    }
+
     private void Bind(ParticleSystem smoke, Transform cardTransform)
     {
         _bound = smoke;
