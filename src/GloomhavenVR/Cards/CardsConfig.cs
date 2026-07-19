@@ -178,6 +178,22 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _pileScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _pileSpacing = new ConfigEntry<float>[3];
 
+    // ---- Per-board tuning for the remaining board-attached elements (items 4/6: "Aufgaben"
+    // objectives dock, "Elemente" infusion dock, VR-settings gear, follow/pin toggle, round
+    // readout, turn-flow ButtonCluster). Each carries a per-board offset ADDED on top of its
+    // fixed base position, and the docked panels/cluster carry a size MULTIPLIER too, so every
+    // element hanging on the control board is dial-able per board from the debug menu. All
+    // seeded so today's look is unchanged until tuned. ----
+    private static readonly ConfigEntry<Vector3>[] _objectivesOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _objectivesScale = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector3>[] _elementsOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _elementsScale = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector3>[] _vrSettingsOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _pinOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _readoutOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _clusterOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _clusterScale = new ConfigEntry<float>[3];
+
     // ---- Demeo-parity fan/grab tuning (test #22 blueprint DEMEO-HANDS-CARDS.md) ----
 
     /// <summary>G1: scale fan arch + per-card tilt by how full the hand is (Demeo CardHandView.cs:814).</summary>
@@ -449,6 +465,35 @@ internal static class CardsConfig
             _pileSpacing[i] = _file.Bind("Cards", $"PileSpacing_{board}", PlayTray.PileStackSpacing,
                 $"[{board}] vertical gap (board-local meters) between the discard (upper) and burn (lower) " +
                 "pile stack centers. Seeded 0.116 (Oak).");
+
+            // Items 4/6: the remaining board-attached elements (offsets ADDED on top of the fixed
+            // base; the docked panels + cluster also carry a size multiplier). All seeded so today's
+            // look is unchanged.
+            _objectivesOffset[i] = _file.Bind("Cards", $"ObjectivesOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the OBJECTIVES ('Aufgaben') dock mount local position (on top of " +
+                "the fixed left-column base), board-local meters. Seeded 0 (Oak).");
+            _objectivesScale[i] = _file.Bind("Cards", $"ObjectivesScale_{board}", 1f,
+                $"[{board}] size MULTIPLIER of the OBJECTIVES ('Aufgaben') dock. Seeded 1 (Oak).");
+            _elementsOffset[i] = _file.Bind("Cards", $"ElementsOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the ELEMENT infusion ('Elemente') dock mount local position (on top " +
+                "of the fixed left-column base below the objectives), board-local meters. Seeded 0 (Oak).");
+            _elementsScale[i] = _file.Bind("Cards", $"ElementsScale_{board}", 1f,
+                $"[{board}] size MULTIPLIER of the ELEMENT infusion ('Elemente') dock. Seeded 1 (Oak).");
+            _vrSettingsOffset[i] = _file.Bind("Cards", $"VRSettingsOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the VR-settings GEAR button local position (on top of its fixed " +
+                "right-column base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
+            _pinOffset[i] = _file.Bind("Cards", $"PinOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the FOLLOW/PIN toggle button local position (on top of its fixed " +
+                "bottom-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
+            _readoutOffset[i] = _file.Bind("Cards", $"ReadoutOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the ROUND readout ('Runde N') local position (on top of its fixed " +
+                "top-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
+            _clusterOffset[i] = _file.Bind("Cards", $"ClusterOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the turn-flow BUTTON CLUSTER (Undo|Ready|Skip) mount local position " +
+                "(on top of its fixed under-slots base), board-local meters. Seeded 0 (Oak).");
+            _clusterScale[i] = _file.Bind("Cards", $"ClusterScale_{board}", 1f,
+                $"[{board}] size MULTIPLIER of the turn-flow BUTTON CLUSTER (on top of its fixed 0.7x dock scale). " +
+                "Seeded 1 (Oak).");
         }
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
@@ -549,4 +594,15 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> PileOffset(ControlBoard b) => _pileOffset[(int)b];
     internal static ConfigEntry<float> PileScale(ControlBoard b) => _pileScale[(int)b];
     internal static ConfigEntry<float> PileSpacing(ControlBoard b) => _pileSpacing[(int)b];
+
+    // ---- Remaining board-attached element resolvers (items 4/6) ----
+    internal static ConfigEntry<Vector3> ObjectivesOffset(ControlBoard b) => _objectivesOffset[(int)b];
+    internal static ConfigEntry<float> ObjectivesScale(ControlBoard b) => _objectivesScale[(int)b];
+    internal static ConfigEntry<Vector3> ElementsOffset(ControlBoard b) => _elementsOffset[(int)b];
+    internal static ConfigEntry<float> ElementsScale(ControlBoard b) => _elementsScale[(int)b];
+    internal static ConfigEntry<Vector3> VRSettingsOffset(ControlBoard b) => _vrSettingsOffset[(int)b];
+    internal static ConfigEntry<Vector3> PinOffset(ControlBoard b) => _pinOffset[(int)b];
+    internal static ConfigEntry<Vector3> ReadoutOffset(ControlBoard b) => _readoutOffset[(int)b];
+    internal static ConfigEntry<Vector3> ClusterOffset(ControlBoard b) => _clusterOffset[(int)b];
+    internal static ConfigEntry<float> ClusterScale(ControlBoard b) => _clusterScale[(int)b];
 }

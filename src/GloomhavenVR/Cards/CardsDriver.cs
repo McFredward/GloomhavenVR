@@ -109,6 +109,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private bool _applyOrientation;      // board tilt / yaw / scale / pos-offset
     private bool _applyActive;           // active-cards mount offset / card scale / grid spacing
     private bool _applyPiles;            // discard/burn pile mount offset / scale / inter-pile spacing
+    private bool _applyObjectives;       // items 4/6: objectives ('Aufgaben') dock offset / scale
+    private bool _applyElements;         // items 4/6: element infusion ('Elemente') dock offset / scale
+    private bool _applyHudWidgets;       // items 4/6: gear / follow-pin / round-readout offsets (in place)
+    private bool _applyCluster;          // items 4/6: turn-flow ButtonCluster offset / scale
 
     /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
     private void SubscribeBoardTuning(bool subscribe)
@@ -137,6 +141,15 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.PileOffset(b).SettingChanged += OnPilesTuningChanged;
                 CardsConfig.PileScale(b).SettingChanged += OnPilesTuningChanged;
                 CardsConfig.PileSpacing(b).SettingChanged += OnPilesTuningChanged;
+                CardsConfig.ObjectivesOffset(b).SettingChanged += OnObjectivesTuningChanged;
+                CardsConfig.ObjectivesScale(b).SettingChanged += OnObjectivesTuningChanged;
+                CardsConfig.ElementsOffset(b).SettingChanged += OnElementsTuningChanged;
+                CardsConfig.ElementsScale(b).SettingChanged += OnElementsTuningChanged;
+                CardsConfig.VRSettingsOffset(b).SettingChanged += OnHudWidgetTuningChanged;
+                CardsConfig.PinOffset(b).SettingChanged += OnHudWidgetTuningChanged;
+                CardsConfig.ReadoutOffset(b).SettingChanged += OnHudWidgetTuningChanged;
+                CardsConfig.ClusterOffset(b).SettingChanged += OnClusterTuningChanged;
+                CardsConfig.ClusterScale(b).SettingChanged += OnClusterTuningChanged;
             }
             else
             {
@@ -160,6 +173,15 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.PileOffset(b).SettingChanged -= OnPilesTuningChanged;
                 CardsConfig.PileScale(b).SettingChanged -= OnPilesTuningChanged;
                 CardsConfig.PileSpacing(b).SettingChanged -= OnPilesTuningChanged;
+                CardsConfig.ObjectivesOffset(b).SettingChanged -= OnObjectivesTuningChanged;
+                CardsConfig.ObjectivesScale(b).SettingChanged -= OnObjectivesTuningChanged;
+                CardsConfig.ElementsOffset(b).SettingChanged -= OnElementsTuningChanged;
+                CardsConfig.ElementsScale(b).SettingChanged -= OnElementsTuningChanged;
+                CardsConfig.VRSettingsOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
+                CardsConfig.PinOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
+                CardsConfig.ReadoutOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
+                CardsConfig.ClusterOffset(b).SettingChanged -= OnClusterTuningChanged;
+                CardsConfig.ClusterScale(b).SettingChanged -= OnClusterTuningChanged;
             }
         }
     }
@@ -171,6 +193,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
     private void OnActiveTuningChanged(object sender, System.EventArgs e) => _applyActive = true;
     private void OnPilesTuningChanged(object sender, System.EventArgs e) => _applyPiles = true;
+    private void OnObjectivesTuningChanged(object sender, System.EventArgs e) => _applyObjectives = true;
+    private void OnElementsTuningChanged(object sender, System.EventArgs e) => _applyElements = true;
+    private void OnHudWidgetTuningChanged(object sender, System.EventArgs e) => _applyHudWidgets = true;
+    private void OnClusterTuningChanged(object sender, System.EventArgs e) => _applyCluster = true;
 
     /// <summary>
     /// PART F: consume the per-board tuning dirty flags on the main thread and re-apply the
@@ -239,6 +265,38 @@ internal sealed class CardsDriver : MonoBehaviour
             VRLog.Info("Cards", $"Debug live-apply [{b}]: pile offset {CardsConfig.PileOffset(b).Value}, " +
                                 $"scale {CardsConfig.PileScale(b).Value:F2}×, spacing {CardsConfig.PileSpacing(b).Value:F3} m.");
         }
+        if (_applyObjectives)
+        {
+            _applyObjectives = false;
+            // Move + resize the docked panel in place: the surface pose-follows the mount's
+            // position AND lossyScale each tick, so no panel reconvert is needed.
+            _tray.SetObjectivesLayout(CardsConfig.ObjectivesOffset(b).Value, CardsConfig.ObjectivesScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: objectives offset {CardsConfig.ObjectivesOffset(b).Value}, " +
+                                $"scale {CardsConfig.ObjectivesScale(b).Value:F2}×.");
+        }
+        if (_applyElements)
+        {
+            _applyElements = false;
+            _tray.SetElementsLayout(CardsConfig.ElementsOffset(b).Value, CardsConfig.ElementsScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: elements offset {CardsConfig.ElementsOffset(b).Value}, " +
+                                $"scale {CardsConfig.ElementsScale(b).Value:F2}×.");
+        }
+        if (_applyHudWidgets)
+        {
+            _applyHudWidgets = false;
+            _tray.SetVRSettingsOffset(CardsConfig.VRSettingsOffset(b).Value);
+            _tray.SetPinOffset(CardsConfig.PinOffset(b).Value);
+            _tray.SetReadoutOffset(CardsConfig.ReadoutOffset(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: gear offset {CardsConfig.VRSettingsOffset(b).Value}, " +
+                                $"pin offset {CardsConfig.PinOffset(b).Value}, readout offset {CardsConfig.ReadoutOffset(b).Value}.");
+        }
+        if (_applyCluster)
+        {
+            _applyCluster = false;
+            _tray.SetClusterLayout(CardsConfig.ClusterOffset(b).Value, CardsConfig.ClusterScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: cluster offset {CardsConfig.ClusterOffset(b).Value}, " +
+                                $"scale {CardsConfig.ClusterScale(b).Value:F2}×.");
+        }
     }
 
     private void OnDestroy()
@@ -247,6 +305,7 @@ internal sealed class CardsDriver : MonoBehaviour
         ClearBoardHover();
         ClearBrowseHover();
         ClearActiveHover();
+        ClearInitiativeTodo(); // item 6: clear any lingering initiative to-do glow on teardown
         _liveGrabs.Clear();
         VRCard.InteractionBlockedHand = null;
         _fan.Destroy();
@@ -395,6 +454,7 @@ internal sealed class CardsDriver : MonoBehaviour
             ClearBoardHover();
             ClearBrowseHover();
             ClearActiveHover();
+            ClearInitiativeTodo(); // item 6: drop the initiative to-do glow while hands are down
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
@@ -476,6 +536,7 @@ internal sealed class CardsDriver : MonoBehaviour
             PollActive(_fakeActive ? null : hand); // feature 6: rebuild the active area when its set changes
         }
         UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
+        UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
 
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
         LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
@@ -1928,6 +1989,102 @@ internal sealed class CardsDriver : MonoBehaviour
                 mask |= 1 << want;
         }
         _tray.SetWantedSlots(mask);
+    }
+
+    // ------------------------------------------------------- initiative to-do (item 6) --
+
+    /// <summary>Player actors currently glowing on the initiative track (still owe cards this selection).</summary>
+    private readonly HashSet<CActor> _todoHighlighted = new();
+    private readonly List<CActor> _todoPending = new(8);
+    private readonly List<CActor> _todoClearScratch = new(8);
+
+    /// <summary>
+    /// Item 6: during card selection, glow each player character who still needs to place ability
+    /// cards on the game's OWN initiative track, so the user sees the to-do (e.g. both cards are
+    /// placed for the current merc but another character still owes theirs). Reuses the native
+    /// pending-player emphasis — <c>InitiativeTrackActorAvatar.PlayEffect(Active)</c>, the exact
+    /// glow <c>InitiativeTrack.OnCardHover</c> applies to a not-yet-selected player
+    /// (InitiativeTrack.cs:220-230) — so it matches the game's look and self-clears when the card
+    /// set changes. Event-driven (recomputed each Update off the same state CardSelectionChanged /
+    /// mode changes flip) and allocation-light: reused buffers, party-sized sets, and PlayEffect
+    /// self-guards redundant same-effect calls so this settles to a per-frame no-op (a re-apply
+    /// only fires when the game reset the entry's effect during its own refresh — self-healing).
+    /// "Owes cards" = <c>RoundAbilityCards.Count &lt; 2 &amp;&amp; !LongRest</c>, the game's own
+    /// not-ready core condition (CPlayerActorExtensions.IsCardSelectionReady;
+    /// InitiativeTrackActorAvatar.cs:215).
+    /// </summary>
+    private void UpdateInitiativeTodo()
+    {
+        _todoPending.Clear();
+        bool selecting = CardsGameApi.InScenario
+                         && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest;
+        if (selecting)
+        {
+            CardsHandManager mgr = CardsHandManager.Instance;
+            InitiativeTrack track = InitiativeTrack.Instance;
+            if (mgr != null && track != null)
+            {
+                List<CardsHandUI> hands = mgr.CardHandsUI;
+                for (int i = 0; i < hands.Count; i++)
+                {
+                    CardsHandUI h = hands[i];
+                    CPlayerActor? actor = h != null ? h.PlayerActor : null;
+                    if (actor == null)
+                        continue;
+                    CCharacterClass cc = actor.CharacterClass;
+                    if (!cc.LongRest && cc.RoundAbilityCards.Count < 2)
+                        _todoPending.Add(actor);
+                }
+            }
+        }
+
+        // Clear entries no longer pending (cards placed / confirmed / left selection).
+        if (_todoHighlighted.Count > 0)
+        {
+            _todoClearScratch.Clear();
+            foreach (CActor a in _todoHighlighted)
+                if (!_todoPending.Contains(a))
+                    _todoClearScratch.Add(a);
+            for (int i = 0; i < _todoClearScratch.Count; i++)
+            {
+                CActor a = _todoClearScratch[i];
+                _todoHighlighted.Remove(a);
+                SetInitiativeTodo(a, false);
+            }
+        }
+
+        // (Re-)apply the pending glow to every character still owing cards.
+        for (int i = 0; i < _todoPending.Count; i++)
+        {
+            CActor a = _todoPending[i];
+            _todoHighlighted.Add(a);
+            SetInitiativeTodo(a, true);
+        }
+    }
+
+    /// <summary>Item 6: drive the native initiative-track glow on one actor's entry (Active on / None off).</summary>
+    private static void SetInitiativeTodo(CActor actor, bool on)
+    {
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track == null)
+            return;
+        InitiativeTrackActorBehaviour entry = track.FindInitiativeTrackActor(actor);
+        InitiativeTrackActorAvatar? avatar = entry != null ? entry.Avatar : null;
+        if (avatar == null)
+            return;
+        avatar.PlayEffect(on
+            ? InitiativeTrackActorAvatar.InitiativeEffects.Active
+            : InitiativeTrackActorAvatar.InitiativeEffects.None);
+    }
+
+    /// <summary>Item 6: clear every to-do glow (scenario/mode exit, hands down, teardown).</summary>
+    private void ClearInitiativeTodo()
+    {
+        if (_todoHighlighted.Count == 0)
+            return;
+        foreach (CActor a in _todoHighlighted)
+            SetInitiativeTodo(a, false);
+        _todoHighlighted.Clear();
     }
 
     // ------------------------------------------------------------- long-rest tracing --

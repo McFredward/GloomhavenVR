@@ -81,8 +81,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     // ---- Debug — Board tuning (Part E) ---------------------------------------------------
     /// <summary>Which board-attached element the debug X/Y/Z/Size/Spacing/Shape steppers currently drive.</summary>
-    private enum DebugElement { Rest, Generic, Overlays, Initiative, Active, Piles, Board }
-    private const int DebugElementCount = 7;
+    private enum DebugElement
+    {
+        Rest, Generic, Overlays, Initiative, Active, Piles, Board,
+        // Items 4/6: every remaining board-attached element is now tunable per board.
+        Objectives, Elements, VRSettings, Pin, Readout, Cluster,
+    }
+    private const int DebugElementCount = 13;
     private int _debugElement;
     private readonly List<GameObject> _debugRows = new(8);
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -726,11 +731,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value += d * 5f;
             });
 
-        // Reset element / Copy Oak→active.
+        // Reset element (the "Copy Oak→active" button was removed in item 3b).
         var actionRow = Row();
         _debugRows.Add(actionRow.gameObject);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
-        Button(actionRow, Loc.Mod("copy_oak"), 0f, CopyOakToActive, flexible: true);
 
         // Visibility: show the tuning rows only while DebugMenu is on; the conditional rows
         // (Size, Spacing, Row gap, Shape, Tilt/Yaw) additionally gate on the selected element.
@@ -753,10 +757,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         });
     }
 
-    /// <summary>Elements that expose a Size/Scale stepper (Rest disc, Generic side, Active/Pile scale, Board scale).</summary>
+    /// <summary>Elements that expose a Size/Scale stepper (Rest disc, Generic side, Active/Pile scale, Board scale, the two docks + the cluster).</summary>
     private static bool ElementHasSize(DebugElement e) =>
         e is DebugElement.Rest or DebugElement.Generic or DebugElement.Active
-        or DebugElement.Piles or DebugElement.Board;
+        or DebugElement.Piles or DebugElement.Board
+        or DebugElement.Objectives or DebugElement.Elements or DebugElement.Cluster;
 
     /// <summary>Group elements that expose a Spacing stepper (both button groups, the piles, the active grid).</summary>
     private static bool ElementHasSpacing(DebugElement e) =>
@@ -787,6 +792,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             DebugElement.Active => CardsConfig.ActiveOffset(b),
             DebugElement.Piles => CardsConfig.PileOffset(b),
             DebugElement.Board => CardsConfig.BoardPosOffset(b),
+            DebugElement.Objectives => CardsConfig.ObjectivesOffset(b),
+            DebugElement.Elements => CardsConfig.ElementsOffset(b),
+            DebugElement.VRSettings => CardsConfig.VRSettingsOffset(b),
+            DebugElement.Pin => CardsConfig.PinOffset(b),
+            DebugElement.Readout => CardsConfig.ReadoutOffset(b),
+            DebugElement.Cluster => CardsConfig.ClusterOffset(b),
             _ => null,
         };
     }
@@ -824,6 +835,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             DebugElement.Active => $"{CardsConfig.ActiveCardScale(b).Value:0.00}x",
             DebugElement.Piles => $"{CardsConfig.PileScale(b).Value:0.00}x",
             DebugElement.Board => $"{CardsConfig.BoardScale(b).Value:0.00}x",
+            DebugElement.Objectives => $"{CardsConfig.ObjectivesScale(b).Value:0.00}x",
+            DebugElement.Elements => $"{CardsConfig.ElementsScale(b).Value:0.00}x",
+            DebugElement.Cluster => $"{CardsConfig.ClusterScale(b).Value:0.00}x",
             _ => "-",
         };
     }
@@ -860,6 +874,24 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             case DebugElement.Board:
             {
                 ConfigEntry<float> e = CardsConfig.BoardScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
+                break;
+            }
+            case DebugElement.Objectives:
+            {
+                ConfigEntry<float> e = CardsConfig.ObjectivesScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
+                break;
+            }
+            case DebugElement.Elements:
+            {
+                ConfigEntry<float> e = CardsConfig.ElementsScale(b);
+                e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
+                break;
+            }
+            case DebugElement.Cluster:
+            {
+                ConfigEntry<float> e = CardsConfig.ClusterScale(b);
                 e.Value = Mathf.Clamp(e.Value + delta * 0.05f, 0.3f, 3f);
                 break;
             }
@@ -953,6 +985,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.Active => Loc.Mod("active"),
         DebugElement.Piles => Loc.Mod("piles"),
         DebugElement.Board => Loc.Mod("board"),
+        DebugElement.Objectives => Loc.Mod("objectives"),
+        DebugElement.Elements => Loc.Mod("elements"),
+        DebugElement.VRSettings => Loc.Mod("vr_settings"),
+        DebugElement.Pin => Loc.Mod("pin"),
+        DebugElement.Readout => Loc.Mod("readout"),
+        DebugElement.Cluster => Loc.Mod("cluster"),
         _ => e.ToString(),
     };
 
@@ -1022,36 +1060,17 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 CardsConfig.BoardScale(b).Value = (float)CardsConfig.BoardScale(b).DefaultValue;
                 break;
             }
+            case DebugElement.Objectives:
+                CardsConfig.ObjectivesScale(b).Value = (float)CardsConfig.ObjectivesScale(b).DefaultValue;
+                break;
+            case DebugElement.Elements:
+                CardsConfig.ElementsScale(b).Value = (float)CardsConfig.ElementsScale(b).DefaultValue;
+                break;
+            case DebugElement.Cluster:
+                CardsConfig.ClusterScale(b).Value = (float)CardsConfig.ClusterScale(b).DefaultValue;
+                break;
         }
         VRLog.Info("Cards", $"Debug: reset {(DebugElement)_debugElement} for {b} to defaults.");
-    }
-
-    private void CopyOakToActive()
-    {
-        ControlBoard b = CardsConfig.CurrentBoard;
-        if (b == ControlBoard.Oak)
-            return;
-        CardsConfig.RestButtonOffset(b).Value = CardsConfig.RestButtonOffset(ControlBoard.Oak).Value;
-        CardsConfig.RestButtonDiameter(b).Value = CardsConfig.RestButtonDiameter(ControlBoard.Oak).Value;
-        CardsConfig.RestButtonSpacing(b).Value = CardsConfig.RestButtonSpacing(ControlBoard.Oak).Value;
-        CardsConfig.RestButtonShape(b).Value = CardsConfig.RestButtonShape(ControlBoard.Oak).Value;
-        CardsConfig.ConfirmUndoOffset(b).Value = CardsConfig.ConfirmUndoOffset(ControlBoard.Oak).Value;
-        CardsConfig.ConfirmUndoSize(b).Value = CardsConfig.ConfirmUndoSize(ControlBoard.Oak).Value;
-        CardsConfig.GenericButtonSpacing(b).Value = CardsConfig.GenericButtonSpacing(ControlBoard.Oak).Value;
-        CardsConfig.GenericButtonShape(b).Value = CardsConfig.GenericButtonShape(ControlBoard.Oak).Value;
-        CardsConfig.SlotOverlayOffset(b).Value = CardsConfig.SlotOverlayOffset(ControlBoard.Oak).Value;
-        CardsConfig.InitiativeOffset(b).Value = CardsConfig.InitiativeOffset(ControlBoard.Oak).Value;
-        CardsConfig.ActiveOffset(b).Value = CardsConfig.ActiveOffset(ControlBoard.Oak).Value;
-        CardsConfig.ActiveCardScale(b).Value = CardsConfig.ActiveCardScale(ControlBoard.Oak).Value;
-        CardsConfig.ActiveGridSpacing(b).Value = CardsConfig.ActiveGridSpacing(ControlBoard.Oak).Value;
-        CardsConfig.PileOffset(b).Value = CardsConfig.PileOffset(ControlBoard.Oak).Value;
-        CardsConfig.PileScale(b).Value = CardsConfig.PileScale(ControlBoard.Oak).Value;
-        CardsConfig.PileSpacing(b).Value = CardsConfig.PileSpacing(ControlBoard.Oak).Value;
-        CardsConfig.BoardTilt(b).Value = CardsConfig.BoardTilt(ControlBoard.Oak).Value;
-        CardsConfig.BoardYaw(b).Value = CardsConfig.BoardYaw(ControlBoard.Oak).Value;
-        CardsConfig.BoardScale(b).Value = CardsConfig.BoardScale(ControlBoard.Oak).Value;
-        CardsConfig.BoardPosOffset(b).Value = CardsConfig.BoardPosOffset(ControlBoard.Oak).Value;
-        VRLog.Info("Cards", $"Debug: copied Oak's board tuning onto {b}.");
     }
 
     // ---- grab frame (bar + FOLLOW/PINNED pin) -------------------------------------------------

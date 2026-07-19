@@ -494,7 +494,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         readoutGo.transform.SetParent(_root, worldPositionStays: false);
         // PART B: seat the readout at a FIXED small proud depth toward the player (predictable,
         // depth-correct) instead of the old unreliable raycast — it never floats off the board now.
-        readoutGo.transform.localPosition = new Vector3(ButtonZoneX, 0.125f, -FixedProudZ);
+        // Items 4/6: base + per-board ReadoutOffset (debug-menu tunable; seeded 0 → Oak unchanged).
+        readoutGo.transform.localPosition = ReadoutBase + CardsConfig.ReadoutOffset(CardsConfig.CurrentBoard).Value;
         readoutGo.transform.localRotation = _boardFaceFrame; // face the player like the slots ("Runde N" was on the back)
 
         var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -542,9 +543,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // seeded from the old fixed (0, InitiativeMountY, −0.004) so Oak is unchanged.
         _initiativeMount.localPosition = CardsConfig.InitiativeOffset(CardsConfig.CurrentBoard).Value;
 
+        // Items 4/6: the objectives ('Aufgaben') dock mount position + size are PER-BOARD
+        // (debug-menu tunable), base + ObjectivesOffset / × ObjectivesScale (seeded 0 / 1 → Oak
+        // unchanged). The surface reads mount.position AND mount.lossyScale, so a mount scale
+        // resizes the docked panel (TrayMountedPanelSurface.Place).
         _objectivesMount = new GameObject("ObjectivesMount").transform;
         _objectivesMount.SetParent(_root, worldPositionStays: false);
-        _objectivesMount.localPosition = new Vector3(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
+        _objectivesMount.localPosition = ObjectivesMountBase + CardsConfig.ObjectivesOffset(CardsConfig.CurrentBoard).Value;
+        _objectivesMount.localScale = Vector3.one * CardsConfig.ObjectivesScale(CardsConfig.CurrentBoard).Value;
 
         // Test #20: the element infusion board docks in the LEFT column, below the
         // objectives dock — same right-center/grow-left convention and column width,
@@ -554,12 +560,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // case bottom edge -0.16); the element mount sits at y -0.232 with a 0.12
         // budget (worst-case top edge -0.172) → 0.012 clearance, the same mount gap
         // used at the board edges.
+        // Items 4/6: the element infusion ('Elemente') dock mount position + size are PER-BOARD
+        // (debug-menu tunable), base + ElementsOffset / × ElementsScale (seeded 0 / 1 → Oak unchanged).
         _elementMount = new GameObject("ElementMount").transform;
         _elementMount.SetParent(_root, worldPositionStays: false);
-        _elementMount.localPosition = new Vector3(
-            -BoardW * 0.5f - 0.012f,
-            -(ObjectivesMountMaxHeight * 0.5f + 0.012f + ElementMountMaxHeight * 0.5f),
-            -0.004f);
+        _elementMount.localPosition = ElementMountBase + CardsConfig.ElementsOffset(CardsConfig.CurrentBoard).Value;
+        _elementMount.localScale = Vector3.one * CardsConfig.ElementsScale(CardsConfig.CurrentBoard).Value;
 
         // Test #19: the ButtonCluster docks under the card slots. Frame: +Z up the
         // board ("away from the player" — the PanelLayout pose contract the
@@ -570,11 +576,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // and y -0.115 ± 0.042 (ready base half) → -0.157..-0.073: below the slot
         // captions (bottom edge ≈ -0.068), inside the board (bottom edge -0.16),
         // above the handle collider (top edge ≈ -0.165).
+        // Items 4/6: the turn-flow ButtonCluster mount position + size are PER-BOARD (debug-menu
+        // tunable), base + ClusterOffset / × ClusterScale (on top of the fixed 0.7× dock scale;
+        // seeded 0 / 1 → Oak unchanged).
         _clusterMount = new GameObject("ButtonClusterMount").transform;
         _clusterMount.SetParent(_root, worldPositionStays: false);
-        _clusterMount.localPosition = new Vector3(0f, ButtonClusterMountY, -0.006f);
+        _clusterMount.localPosition = ClusterMountBase + CardsConfig.ClusterOffset(CardsConfig.CurrentBoard).Value;
         _clusterMount.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-        _clusterMount.localScale = Vector3.one * ButtonClusterMountScale;
+        _clusterMount.localScale = Vector3.one * (ButtonClusterMountScale * CardsConfig.ClusterScale(CardsConfig.CurrentBoard).Value);
 
         // Test #22: the SHARED DECISION DOCK hangs BELOW the board, off the bottom
         // edge — a drop-down "decision drawer", the mirror of the initiative track's
@@ -656,6 +665,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private WorldUI.PanelGrabHandle? _handle;
     private BoardButton? _followToggle;
     private BoardButton? _gear;
+    private Transform? _gearAnchor;   // items 4/6: gear anchor, moved by the per-board VRSettingsOffset
+    private Transform? _followAnchor; // items 4/6: follow/pin toggle anchor, moved by the per-board PinOffset
 
     // ---- IPanelGrabOwner (test #19: the grab mechanics moved into the shared
     // WorldUI.PanelGrabHandle core so panels can be grabbed exactly like the tray;
@@ -718,6 +729,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // shine-through — they are depth-correct and self-occlude like real buttons now.
         Transform pinAnchor = NewAnchor("FollowToggle",
             new Vector3(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.002f));
+        // Items 4/6: nudge the follow/pin toggle by the per-board offset (base PinBase set by NewAnchor).
+        pinAnchor.localPosition += CardsConfig.PinOffset(CardsConfig.CurrentBoard).Value;
+        _followAnchor = pinAnchor;
         _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
             new Color(0.75f, 0.55f, 0.2f), Core.Loc.Mod("follow"), ToggleFollow);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
@@ -725,6 +739,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         Transform gearAnchor = NewAnchor("SettingsGear",
             new Vector3(ButtonZoneX, -0.125f, -0.006f));
+        // Items 4/6: nudge the VR-settings gear by the per-board offset (base GearBase set by NewAnchor).
+        gearAnchor.localPosition += CardsConfig.VRSettingsOffset(CardsConfig.CurrentBoard).Value;
+        _gearAnchor = gearAnchor;
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
             new Color(0.4f, 0.42f, 0.5f), Core.Loc.Mod("set"),
             () => WorldUI.SettingsPanel.RequestToggle());
@@ -839,6 +856,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _handle = null; // child of _root, destroyed with it
         _followToggle = null;
         _gear = null;
+        _gearAnchor = null; // child of _root, destroyed with it
+        _followAnchor = null; // child of _root, destroyed with it
         _initiativeMount = null;
         _objectivesMount = null;
         _elementMount = null;
@@ -892,18 +911,25 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
-        // Untracked head (test #17): in a session's first frames the rig camera
+        // Untracked head (test #17 / item 1): in a session's first frames the rig camera
         // still sits at its local origin — the "in front of the player" math would
         // place (and a persisted PINNED mode then permanently pin) the tray at a
-        // garbage pose (it spawned far below the map). Defer until the pose driver
-        // delivered a real pose — the same first-pose signal VRRigDriver gates its
-        // pending recenter on; TickPlacement retries every frame.
-        if (head == VRRigDriver.HeadCamera && head.transform.localPosition.sqrMagnitude < 1e-6f)
+        // garbage pose (it spawned far below the map / outside the skybox). Defer until
+        // the pose driver delivered a real pose — the same first-pose signal VRRigDriver
+        // gates its pending recenter on; TickPlacement retries every frame. Item 1 also
+        // treats a camera sitting EXACTLY at the world origin with identity rotation as
+        // not-yet-posed (a fresh/stale Camera.main fallback), so a bogus head can never
+        // seed the placement in the first place.
+        bool untrackedHmd = head == VRRigDriver.HeadCamera
+                            && head.transform.localPosition.sqrMagnitude < 1e-6f;
+        bool atWorldOrigin = head.transform.position.sqrMagnitude < 1e-6f
+                             && Quaternion.Angle(head.transform.rotation, Quaternion.identity) < 0.01f;
+        if (untrackedHmd || atWorldOrigin)
         {
             if (!_placementDeferLogged)
             {
                 _placementDeferLogged = true;
-                VRLog.Info("Cards", "Control board placement deferred — head has no tracked pose yet.");
+                VRLog.Info("Cards", "Control board placement deferred — head has no valid tracked pose yet.");
             }
             return;
         }
@@ -926,6 +952,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                       + flatForward * ((offset.z + boardPos.z) * scale)
                       + right * ((offset.x + boardPos.x) * scale)
                       + Vector3.up * ((offset.y + boardPos.y) * scale);
+
+        // Item 1 safety net (never spawn outside the skybox): clamp the final pose to a sane
+        // reach from the head. The deferral above catches the untracked-HMD / origin-camera
+        // cases; this is the belt-and-braces guard for every OTHER cause (a wildly mis-tuned
+        // BoardPosOffset, an odd rig scale) — the board can never sit more than ~1.2 m from the
+        // head, at a plausible height, no matter what the placement math produced.
+        Vector3 delta = pos - headT.position;
+        var horizontal = new Vector3(delta.x, 0f, delta.z);
+        float maxReach = 1.2f * scale;
+        if (horizontal.magnitude > maxReach)
+            horizontal = horizontal.normalized * maxReach;
+        float clampedY = Mathf.Clamp(delta.y, -1.0f * scale, 0.2f * scale);
+        Vector3 clampedPos = headT.position + horizontal + Vector3.up * clampedY;
+        if ((clampedPos - pos).sqrMagnitude > 1e-6f)
+            VRLog.Info("Cards", $"Control board placement clamped to a sane reach from the head " +
+                                $"(was {delta.magnitude / Mathf.Max(scale, 1e-4f):F2} m out at scale 1, " +
+                                $"now {(clampedPos - headT.position).magnitude / Mathf.Max(scale, 1e-4f):F2} m).");
+        pos = clampedPos;
 
         _root.position = pos;
         _root.rotation = ComputeBoardRotation(flatForward, board);
@@ -1011,11 +1055,86 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             _activeMount.localPosition = ActiveMountBase + offset;
     }
 
+    /// <summary>Items 4/6 live-apply: move + resize the OBJECTIVES ('Aufgaben') dock mount (instant).</summary>
+    internal void SetObjectivesLayout(Vector3 offset, float scale)
+    {
+        if (_objectivesMount != null)
+        {
+            _objectivesMount.localPosition = ObjectivesMountBase + offset;
+            _objectivesMount.localScale = Vector3.one * scale;
+        }
+    }
+
+    /// <summary>Items 4/6 live-apply: move + resize the ELEMENT infusion ('Elemente') dock mount (instant).</summary>
+    internal void SetElementsLayout(Vector3 offset, float scale)
+    {
+        if (_elementMount != null)
+        {
+            _elementMount.localPosition = ElementMountBase + offset;
+            _elementMount.localScale = Vector3.one * scale;
+        }
+    }
+
+    /// <summary>Items 4/6 live-apply: move + resize the turn-flow ButtonCluster mount (instant).</summary>
+    internal void SetClusterLayout(Vector3 offset, float scale)
+    {
+        if (_clusterMount != null)
+        {
+            _clusterMount.localPosition = ClusterMountBase + offset;
+            _clusterMount.localScale = Vector3.one * (ButtonClusterMountScale * scale);
+        }
+    }
+
+    /// <summary>Items 4/6 live-apply: move the round readout ('Runde N') to a new per-board offset (instant).</summary>
+    internal void SetReadoutOffset(Vector3 offset)
+    {
+        if (_roundLabel != null)
+            _roundLabel.transform.localPosition = ReadoutBase + offset;
+    }
+
+    /// <summary>Items 4/6 live-apply: move the VR-settings gear button to a new per-board offset (instant).</summary>
+    internal void SetVRSettingsOffset(Vector3 offset)
+    {
+        if (_gearAnchor != null)
+            _gearAnchor.localPosition = GearBase + offset;
+    }
+
+    /// <summary>Items 4/6 live-apply: move the FOLLOW/PIN toggle button to a new per-board offset (instant).</summary>
+    internal void SetPinOffset(Vector3 offset)
+    {
+        if (_followAnchor != null)
+            _followAnchor.localPosition = PinBase + offset;
+    }
+
     /// <summary>Fixed base local position of the discard/burn pile mount (per-board PileOffset adds on top).</summary>
     private static Vector3 PileMountBase => new(BoardW * 0.5f + 0.012f, 0f, -0.004f);
 
     /// <summary>Fixed base local position of the ACTIVE-cards mount (per-board ActiveOffset adds on top).</summary>
     private static Vector3 ActiveMountBase => new(BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
+
+    // ---- Fixed base positions for the remaining board-attached elements (items 4/6). Each
+    // per-board offset from the debug menu ADDS on top of these. ----
+
+    /// <summary>Fixed base local position of the OBJECTIVES ('Aufgaben') dock mount.</summary>
+    private static Vector3 ObjectivesMountBase => new(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
+
+    /// <summary>Fixed base local position of the ELEMENT infusion ('Elemente') dock mount (left column below objectives).</summary>
+    private static Vector3 ElementMountBase =>
+        new(-BoardW * 0.5f - 0.012f,
+            -(ObjectivesMountMaxHeight * 0.5f + 0.012f + ElementMountMaxHeight * 0.5f),
+            -0.004f);
+
+    /// <summary>Fixed base local position of the turn-flow ButtonCluster mount (under the slots).</summary>
+    private static Vector3 ClusterMountBase => new(0f, ButtonClusterMountY, -0.006f);
+
+    /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
+    private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
+
+    /// <summary>Fixed base local position of the VR-settings gear button (right column, under UNDO).</summary>
+    private static Vector3 GearBase => new(ButtonZoneX, -0.125f, -FixedProudZ);
+
+    /// <summary>Fixed base local position of the FOLLOW/PIN toggle button (bottom-right corner).</summary>
+    private static Vector3 PinBase => new(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -FixedProudZ);
 
     /// <summary>
     /// PART F live-apply: recompute the board rotation + scale from the ACTIVE board's config
@@ -1817,7 +1936,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         else if (_confirm != null)
         {
-            _confirm.SetVisible(true);
             // Ready-state mirror (test #19): while THIS hand's player has confirmed
             // (online card selection — the only game state where a confirm persists
             // and is revocable, see CardsGameApi.ReadyToggle), the button flips to
@@ -1829,17 +1947,26 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             bool confirmed = hand != null && CardsGameApi.IsConfirmed(hand);
             bool canConfirm = hand != null
                               && (CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable());
-            // Pick flows (test #28): during a single-card pick, CONFIRM is the mode's
-            // mirrored confirm affordance (the ReadyButton path the recover flows arm) —
-            // accent it as soon as the game reports it fireable.
-            _confirm.SetState(canConfirm || confirmed,
-                accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
-            _confirm.SetLabel(confirmed
-                ? _confirmedLabel ??= "✓ " + Core.Loc.Game("GUI_READY", "READY")
-                : hand == null ? "-"
-                : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
-                    ? Core.Loc.Game("GUI_END_SELECTION", "END SELECTION")
-                    : CardsGameApi.ConfirmLabel());
+            // Item 7 ("wenn es nicht drückbar ist dann soll es dort auch nicht erscheinen"):
+            // only SHOW confirm when its action is actually possible right now — a valid
+            // confirmable selection exists (canConfirm) or the player has confirmed and can
+            // revoke (confirmed). Otherwise HIDE it (not merely disable), so an unpressable
+            // button never appears; it returns the instant the action becomes possible.
+            bool show = canConfirm || confirmed;
+            _confirm.SetVisible(show);
+            if (show)
+            {
+                // Pick flows (test #28): during a single-card pick, CONFIRM is the mode's
+                // mirrored confirm affordance (the ReadyButton path the recover flows arm) —
+                // accent it as soon as the game reports it fireable.
+                _confirm.SetState(true,
+                    accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
+                _confirm.SetLabel(confirmed
+                    ? _confirmedLabel ??= "✓ " + Core.Loc.Game("GUI_READY", "READY")
+                    : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
+                        ? Core.Loc.Game("GUI_END_SELECTION", "END SELECTION")
+                        : CardsGameApi.ConfirmLabel());
+            }
         }
         if (_undo != null && WorldUI.Surfaces.TrayControlDockSurface.UndoDocked)
         {
@@ -1847,10 +1974,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         else if (_undo != null)
         {
-            _undo.SetVisible(true);
+            // Item 7: only SHOW undo when there is actually something to undo — hide it
+            // (not just disable) otherwise; it reappears the instant an undo is available.
             bool canUndo = hand != null && CardsGameApi.CanUndo();
-            _undo.SetState(canUndo, accent: false);
-            _undo.SetLabel(hand != null ? CardsGameApi.UndoLabel() : "-");
+            _undo.SetVisible(canUndo);
+            if (canUndo)
+            {
+                _undo.SetState(true, accent: false);
+                _undo.SetLabel(CardsGameApi.UndoLabel());
+            }
         }
     }
 
