@@ -63,6 +63,22 @@ internal sealed class OptionsToggle
     /// </summary>
     private ESCMenu? _menu;
 
+    /// <summary>
+    /// BELT reconcile state (Issue 1). After the mod acts on a tap it records the INTENDED
+    /// open state (<see cref="_intendedOpen"/>) and the press it acted on
+    /// (<see cref="_intendPressId"/>), and arms <see cref="_reconcilePending"/> for the ONE
+    /// immediately-following tick. Now that the game's own controller ESC-menu show/toggle is
+    /// suppressed (<see cref="Patches.EscMenuInputBlock"/>), a second-actor flip should never
+    /// happen — but if a residual one does, it lands within a frame or two of the press. So the
+    /// reconcile re-checks the live window state against the intent exactly once, keyed to the
+    /// SAME still-active press (no new press since). A legitimate laser "closed externally" comes
+    /// far later (human reaction time), long after this one-shot window has closed, so it is never
+    /// fought — the existing external-resync below owns that case.
+    /// </summary>
+    private bool _reconcilePending;
+    private bool _intendedOpen;
+    private int _intendPressId = -1;
+
     public void Tick()
     {
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
@@ -108,6 +124,33 @@ internal sealed class OptionsToggle
         // live picture (parent + sub-menus) freshly on the tap, so it can never desync.
         bool escOpen = menu.IsOpen;
 
+        // BELT reconcile (Issue 1): the tick immediately AFTER the mod acted on a tap, re-assert
+        // the intent ONCE if the live window state disagrees and no new independent press has
+        // happened. One-shot + same-press keyed, so it catches a residual second-actor flip
+        // (which races within a frame or two) without ever fighting a much-later laser external
+        // close (handled by the external-resync just below).
+        if (_reconcilePending)
+        {
+            _reconcilePending = false; // one-shot: only the tick right after the action
+            if (NonDominantHold.PressId == _intendPressId)
+            {
+                OpenState live = Probe(menu);
+                if (live.Any != _intendedOpen)
+                {
+                    if (_intendedOpen)
+                        OpenMenu(menu);
+                    else
+                        CloseAll(menu, live);
+                    _open = _intendedOpen;
+                    _spentPressId = _intendPressId; // press stays spent; its release must not re-toggle
+                    escOpen = menu.IsOpen;          // re-read so the external-resync below stays consistent
+                    VRLog.Info("WorldUI", $"[OptionsToggle] reconcile: live state ({live.Any}) disagreed with " +
+                                          $"intent ({_intendedOpen}) on the same press — re-asserted " +
+                                          $"{(_intendedOpen ? "OPEN" : "CLOSED")}.");
+                }
+            }
+        }
+
         // Re-sync an externally opened/closed menu (the game's own gamepad-escape on the
         // X button, the menu's Resume/Back, the escape chord, a laser click, a scene
         // change). The press that COINCIDED with this external change is spent: its
@@ -147,7 +190,52 @@ internal sealed class OptionsToggle
         // menu is closed still forces a CLOSE, so X while any sub-menu shows always closes
         // everything rather than "reopening". These probes run ONLY on the tap frame (never
         // per-frame), so the singleton lookups and the one compendium scene scan are cheap
-        // at human tap cadence; the flags are also reused by the close branch below.
+        // at human tap cadence; the owners are reused by the close branch below.
+        OpenState st = Probe(menu);
+        bool actuallyOpen = st.Any;
+
+        VRLog.Info("WorldUI", $"[OptionsToggle] X tap: actuallyOpen={actuallyOpen} (esc={st.Esc} opt={st.Opt} " +
+                              $"mp={st.Mp} comp={st.Comp}) -> {(actuallyOpen ? "CLOSE" : "OPEN")}");
+
+        int pressId = NonDominantHold.PressId;
+        if (actuallyOpen)
+        {
+            CloseAll(menu, st);
+            _open = false;
+            _spentPressId = pressId; // this press did the close — it must not reopen
+            ArmReconcile(intendedOpen: false, pressId);
+            NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu + all sub-menus CLOSED (X tap) — back to the game.");
+        }
+        else
+        {
+            OpenMenu(menu);
+            _open = true;
+            _spentPressId = pressId; // this press did the open — it must not re-close
+            ArmReconcile(intendedOpen: true, pressId);
+            NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player " +
+                                  $"in VR (activeInHierarchy={menu.GetComponent<UIWindow>().gameObject.activeInHierarchy}).");
+        }
+    }
+
+    /// <summary>Record the intent the mod just asserted so the next tick can belt-reconcile it once.</summary>
+    private void ArmReconcile(bool intendedOpen, int pressId)
+    {
+        _intendedOpen = intendedOpen;
+        _intendPressId = pressId;
+        _reconcilePending = true;
+    }
+
+    /// <summary>
+    /// Live open-state of the whole ESC-menu family (parent + Options/Multiplayer/Compendium
+    /// sub-windows), read from the ACTUAL game windows. Tap-frequency only (never per-frame):
+    /// the singleton lookups and the one compendium scene scan are cheap at human cadence. The
+    /// captured owners are reused by <see cref="CloseAll"/> so no second lookup is needed.
+    /// </summary>
+    private static OpenState Probe(ESCMenu menu)
+    {
+        bool escOpen = menu.IsOpen;
         UIOptionsWindow? optOwner = Singleton<UIOptionsWindow>.IsInitialized ? Singleton<UIOptionsWindow>.Instance : null;
         UIMultiplayerEscSubmenu? mpOwner = Singleton<UIMultiplayerEscSubmenu>.IsInitialized ? Singleton<UIMultiplayerEscSubmenu>.Instance : null;
         UIWindow? optWin = optOwner != null ? optOwner.GetComponent<UIWindow>() : null;
@@ -156,46 +244,63 @@ internal sealed class OptionsToggle
         bool optOpen = optWin != null && optWin.IsOpen;
         bool mpOpen = mpWin != null && mpWin.IsOpen;
         bool compOpen = compWin != null;
-        bool anySubmenuOpen = optOpen || mpOpen || compOpen;
-        bool actuallyOpen = escOpen || anySubmenuOpen;
+        return new OpenState(escOpen, optOpen, mpOpen, compOpen, optOwner, mpOwner, compWin);
+    }
 
-        VRLog.Info("WorldUI", $"[OptionsToggle] X tap: actuallyOpen={actuallyOpen} (esc={escOpen} opt={optOpen} " +
-                              $"mp={mpOpen} comp={compOpen}) -> {(actuallyOpen ? "CLOSE" : "OPEN")}");
+    /// <summary>
+    /// Submenu-safe close: hide any open sub-window DIRECTLY (a belt for the rare case a sub-menu
+    /// outlives the parent's SetAllTogglesOff cascade), then hide the PARENT LAST — its
+    /// ESCMenu.OnHide → toggleGroup.SetAllTogglesOff cascade is the belt-and-suspenders final word
+    /// that closes anything still lingering.
+    /// </summary>
+    private static void CloseAll(ESCMenu menu, OpenState st)
+    {
+        if (st.Opt)
+            st.OptOwner!.Hide();  // UIOptionsWindow.Hide() -> m_Window.Hide()
+        if (st.Mp)
+            st.MpOwner!.Hide();   // UIMultiplayerEscSubmenu.Hide() -> Window.Hide()
+        if (st.Comp)
+            st.CompWin!.Hide();   // compendium UIWindow.Hide()
+        menu.Hide();              // ESCMenu.Hide() -> myWindow.Hide() -> OnHide cascade
+    }
 
-        if (actuallyOpen)
+    /// <summary>
+    /// Open the ESC menu. ESCMenu has no public Show; its opener is just myWindow.Show(), which
+    /// fires ESCMenu.OnShow via its onTransitionBegin listener. Belt-and-suspenders re-openability:
+    /// re-activate the window GameObject if a previous close left it inactive, so Show() never
+    /// depends on the window having stayed active since the last open.
+    /// </summary>
+    private static void OpenMenu(ESCMenu menu)
+    {
+        var w = menu.GetComponent<UIWindow>();
+        if (!w.gameObject.activeSelf)
+            w.gameObject.SetActive(true);
+        w.Show();
+    }
+
+    /// <summary>Immutable snapshot of the ESC-menu family's live open-state plus the sub-window owners.</summary>
+    private readonly struct OpenState
+    {
+        internal readonly bool Esc;
+        internal readonly bool Opt;
+        internal readonly bool Mp;
+        internal readonly bool Comp;
+        internal readonly UIOptionsWindow? OptOwner;
+        internal readonly UIMultiplayerEscSubmenu? MpOwner;
+        internal readonly UIWindow? CompWin;
+
+        internal bool Any => Esc || Opt || Mp || Comp;
+
+        internal OpenState(bool esc, bool opt, bool mp, bool comp,
+            UIOptionsWindow? optOwner, UIMultiplayerEscSubmenu? mpOwner, UIWindow? compWin)
         {
-            // Submenu-safe close: hide any open sub-window DIRECTLY (a belt for the rare
-            // case a sub-menu outlives the parent's SetAllTogglesOff cascade), then hide
-            // the PARENT LAST — its ESCMenu.OnHide → toggleGroup.SetAllTogglesOff cascade
-            // is the belt-and-suspenders final word that closes anything still lingering.
-            if (optOpen)
-                optOwner!.Hide();  // UIOptionsWindow.Hide() -> m_Window.Hide()
-            if (mpOpen)
-                mpOwner!.Hide();   // UIMultiplayerEscSubmenu.Hide() -> Window.Hide()
-            if (compOpen)
-                compWin!.Hide();   // compendium UIWindow.Hide()
-            menu.Hide();           // ESCMenu.Hide() -> myWindow.Hide() -> OnHide cascade
-            _open = false;
-            _spentPressId = NonDominantHold.PressId; // this press did the close — it must not reopen
-            NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu + all sub-menus CLOSED (X tap) — back to the game.");
-        }
-        else
-        {
-            // ESCMenu has no public Show; its opener is just myWindow.Show(). Calling the
-            // window's Show() fires ESCMenu.OnShow via its onTransitionBegin listener.
-            // Belt-and-suspenders re-openability: re-activate the window GameObject if a
-            // previous close left it inactive, so Show() never depends on the window
-            // having stayed active since the last open.
-            var w = menu.GetComponent<UIWindow>();
-            if (!w.gameObject.activeSelf)
-                w.gameObject.SetActive(true);
-            w.Show();
-            _open = true;
-            _spentPressId = NonDominantHold.PressId; // this press did the open — it must not re-close
-            NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player " +
-                                  $"in VR (activeInHierarchy={w.gameObject.activeInHierarchy}).");
+            Esc = esc;
+            Opt = opt;
+            Mp = mp;
+            Comp = comp;
+            OptOwner = optOwner;
+            MpOwner = mpOwner;
+            CompWin = compWin;
         }
     }
 
