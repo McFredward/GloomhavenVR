@@ -56,6 +56,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     // Frame geometry (real meters at diorama scale 1 — mirrors CombatLogSurface).
     private const float CanvasMetersPerPixel = 0.0007f; // 380 px ≈ 27 cm wide
+
+    /// <summary>
+    /// Item 6: the panel's FIXED real-world reference width (meters), roughly the control board
+    /// width (PlayTray.BoardW ≈ 0.64 m). The panel size is DECOUPLED from the diorama zoom
+    /// (PanelLayout.WorldScale): zooming the table no longer grows/shrinks the options menu.
+    /// The holder scale is derived from this so the base canvas (PanelWidthPx × CanvasMetersPerPixel)
+    /// renders at this width at [WorldUI] SettingsScale = 1; SettingsScale (0.5×–2×) is then the
+    /// user's ONLY size control. WorldScale is still used for POSITION/distance, not size.
+    /// </summary>
+    private const float SettingsPanelWidthMeters = 0.6f;
     private const float BarGapMeters = 0.03f;           // panel bottom edge sits this far above the bar center
     private const float BarThickness = 0.024f;
     private const float BarWidthFraction = 0.55f;
@@ -258,7 +268,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
 
         float worldScale = PanelLayout.WorldScale;
-        _holder.localScale = Vector3.one * worldScale;
+        // Item 6: the panel SIZE is a FIXED real-world reference (~control-board width), NOT the
+        // diorama zoom — so the options menu no longer auto-scales when the table is zoomed. The
+        // holder scale maps the base canvas (PanelWidthPx × CanvasMetersPerPixel) to
+        // SettingsPanelWidthMeters; the frame's own localScale carries the user's SettingsScale on
+        // top. worldScale is kept only for POSITION/distance below (offsets, PanelPlacement).
+        _holder.localScale = Vector3.one *
+            (SettingsPanelWidthMeters / (PanelWidthPx * CanvasMetersPerPixel));
 
         if (_handle != null && _handle.IsGrabbed)
             return; // the grab core owns the pose while held
@@ -736,6 +752,23 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _debugRows.Add(actionRow.gameObject);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
+        // Item 4: GLOBAL hand visual offset (both hands; NOT per-board, so it lives OUTSIDE the
+        // Board/Element cycle above). These surface the existing [Hands] seat offsets that
+        // VRHand.SyncVisualOffset applies LIVE every frame — the "static visual offset at the
+        // wrist" documented on HandRig.Root — so tuning them here moves where the visual hand
+        // sits/rotates relative to the tracked controller, live and persisted (BepInEx). The
+        // offset is SHARED device-space for both hands (+X is the same controller-local X on each);
+        // the per-hand mirroring of the mesh/rig geometry is handled in HandVisuals and is
+        // unaffected. Rows are added to _debugRows so they show only while the debug menu is on,
+        // and (unlike the per-board rows) never gate on the selected element.
+        var handsSection = Row(24f);
+        _debugRows.Add(handsSection.gameObject);
+        Label(handsSection, $"— {Loc.Mod("hands")} —", 14f, bold: true, flexible: true, center: true);
+        AddHandStepper(Loc.Mod("hand_x"), Plugin.HandLateralOffset, 0.002f, degrees: false);
+        AddHandStepper(Loc.Mod("hand_y"), Plugin.HandVerticalOffset, 0.002f, degrees: false);
+        AddHandStepper(Loc.Mod("hand_z"), Plugin.HandForwardOffset, 0.002f, degrees: false);
+        AddHandStepper(Loc.Mod("hand_pitch"), Plugin.GripPitchOffsetDegrees, 1f, degrees: true);
+
         // Visibility: show the tuning rows only while DebugMenu is on; the conditional rows
         // (Size, Spacing, Row gap, Shape, Tilt/Yaw) additionally gate on the selected element.
         _refreshers.Add(() =>
@@ -763,9 +796,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         or DebugElement.Piles or DebugElement.Board
         or DebugElement.Objectives or DebugElement.Elements or DebugElement.Cluster;
 
-    /// <summary>Group elements that expose a Spacing stepper (both button groups, the piles, the active grid).</summary>
+    /// <summary>
+    /// Group elements that expose a Spacing stepper — every element that moves a PAIR/group of
+    /// widgets together: both button groups, the two slot Overlays (item 1), the piles, the active grid.
+    /// </summary>
     private static bool ElementHasSpacing(DebugElement e) =>
-        e is DebugElement.Rest or DebugElement.Generic or DebugElement.Piles or DebugElement.Active;
+        e is DebugElement.Rest or DebugElement.Generic or DebugElement.Overlays
+        or DebugElement.Piles or DebugElement.Active;
 
     /// <summary>The two button GROUPS carry a Round/Square shape toggle.</summary>
     private static bool ElementHasShape(DebugElement e) =>
@@ -777,6 +814,22 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _debugRows.Add(row.gameObject);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row, () => FormatOffset(axis), d => StepOffset(axis, d));
+    }
+
+    /// <summary>
+    /// Item 4: a global hand-offset stepper row bound directly to a [Hands] <see cref="ConfigEntry{T}"/>
+    /// (mm for the position offsets, ° for the grip pitch). Writing the entry persists (BepInEx) and
+    /// live-applies (VRHand.SyncVisualOffset re-reads it every frame). Added to <see cref="_debugRows"/>
+    /// so it shows only while the debug menu is on.
+    /// </summary>
+    private void AddHandStepper(string label, ConfigEntry<float> entry, float step, bool degrees)
+    {
+        var row = Row();
+        _debugRows.Add(row.gameObject);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => degrees ? $"{entry.Value:0}°" : $"{entry.Value * 1000f:0}mm",
+            d => entry.Value += d * step);
     }
 
     /// <summary>The offset ConfigEntry the selected element edits (all board-local Vector3s).</summary>
@@ -908,6 +961,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         {
             DebugElement.Rest => $"{CardsConfig.RestButtonSpacing(b).Value * 1000f:0}mm",
             DebugElement.Generic => $"{CardsConfig.GenericButtonSpacing(b).Value * 1000f:0}mm",
+            DebugElement.Overlays => $"{CardsConfig.SlotOverlaySpacing(b).Value * 1000f:0}mm",
             DebugElement.Piles => $"{CardsConfig.PileSpacing(b).Value * 1000f:0}mm",
             DebugElement.Active => $"{CardsConfig.ActiveGridSpacing(b).Value.x:0.00}",
             _ => "-",
@@ -929,6 +983,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             {
                 ConfigEntry<float> e = CardsConfig.GenericButtonSpacing(b);
                 e.Value += delta * 0.002f;
+                break;
+            }
+            case DebugElement.Overlays:
+            {
+                ConfigEntry<float> e = CardsConfig.SlotOverlaySpacing(b);
+                e.Value += delta * 0.002f; // 2 mm per press (may go negative — pulls the pair together)
                 break;
             }
             case DebugElement.Piles:
@@ -1060,6 +1120,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 CardsConfig.BoardScale(b).Value = (float)CardsConfig.BoardScale(b).DefaultValue;
                 break;
             }
+            case DebugElement.Overlays:
+                CardsConfig.SlotOverlaySpacing(b).Value = (float)CardsConfig.SlotOverlaySpacing(b).DefaultValue;
+                break;
             case DebugElement.Objectives:
                 CardsConfig.ObjectivesScale(b).Value = (float)CardsConfig.ObjectivesScale(b).DefaultValue;
                 break;

@@ -49,6 +49,7 @@ internal sealed class CardsDriver : MonoBehaviour
     private VRMode _prevFrom = VRMode.Menu2D;
     private VRMode _prevTo = VRMode.Menu2D;
     private bool _boardChanged; // [Cards] Board switched — tear down + rebuild the tray next frame
+    private bool _reassertTray;  // item 3: presence regained (HMD re-donned) — re-assert board placement next frame
     // PART D: the outgoing board's world pose, captured on a SWITCH so the new board re-appears
     // in the EXACT same place instead of re-anchoring to the head.
     private bool _hasSwitchPose;
@@ -66,6 +67,7 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VREvents.HandShown += OnHandShown;
+        VREvents.SessionResumed += OnSessionResumed; // item 3: re-assert the board after an HMD doff/don
         CardsSignals.HandDestroying += OnHandDestroying;
         CardsSignals.CardRecycling += OnCardRecycling;
         VRHands.HandsChanged += OnHandsChanged;
@@ -90,6 +92,7 @@ internal sealed class CardsDriver : MonoBehaviour
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VREvents.HandShown -= OnHandShown;
+        VREvents.SessionResumed -= OnSessionResumed;
         CardsSignals.HandDestroying -= OnHandDestroying;
         CardsSignals.CardRecycling -= OnCardRecycling;
         VRHands.HandsChanged -= OnHandsChanged;
@@ -130,6 +133,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.RestButtonShape(b).SettingChanged += OnControlSizeChanged;        // shape = rebuild the caps
                 CardsConfig.GenericButtonShape(b).SettingChanged += OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
+                CardsConfig.SlotOverlaySpacing(b).SettingChanged += OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
                 CardsConfig.BoardTilt(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged += OnOrientationChanged;
@@ -162,6 +166,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.RestButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.GenericButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
+                CardsConfig.SlotOverlaySpacing(b).SettingChanged -= OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged -= OnInitiativeOffsetChanged;
                 CardsConfig.BoardTilt(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged -= OnOrientationChanged;
@@ -232,8 +237,9 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_applyOverlayOffset)
         {
             _applyOverlayOffset = false;
-            _tray.SetOverlayOffset(CardsConfig.SlotOverlayOffset(b).Value);
-            VRLog.Info("Cards", $"Debug live-apply [{b}]: slot overlay offset {CardsConfig.SlotOverlayOffset(b).Value}.");
+            _tray.SetOverlayOffset(CardsConfig.SlotOverlayOffset(b).Value, CardsConfig.SlotOverlaySpacing(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: slot overlay offset {CardsConfig.SlotOverlayOffset(b).Value} " +
+                                $"(spacing {CardsConfig.SlotOverlaySpacing(b).Value:F3} m).");
         }
         if (_applyInitiativeOffset)
         {
@@ -362,6 +368,21 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnHandShown(HandShownEvent e) => _dirty = true;
 
+    /// <summary>
+    /// Item 3: the HMD was doffed and re-donned (or the runtime resumed) — VRPresenceWatch raised
+    /// SessionResumed. On an OpenXR presence loss the head pose can freeze/zero, and on re-wear the
+    /// board could otherwise sit hidden or stranded far away. Flag a re-assert for the next Update
+    /// (the head pose is reliably valid there) and force a rebuild in case the hands/board were torn
+    /// down while doffed. The actual re-placement runs on the main thread in <see cref="Update"/>
+    /// (<see cref="PlayTray.ReassertPlacement"/>), per the P2 threading rule.
+    /// </summary>
+    private void OnSessionResumed(SessionResumedEvent e)
+    {
+        _reassertTray = true;
+        _dirty = true;
+        e.Recovered.Add("control board placement re-asserted near the head");
+    }
+
     private void OnCardSelectionChanged(CardSelectionEvent e) => _dirty = true;
 
     private void OnHandsChanged() => _dirty = true;
@@ -475,6 +496,15 @@ internal sealed class CardsDriver : MonoBehaviour
         // Deferred initial placement (test #17): retries until the head has a
         // real tracked pose — the tray stays hidden meanwhile.
         _tray.TickPlacement();
+
+        // Item 3: a presence regain (HMD re-donned) re-asserts the board placement so it is never
+        // gone or stranded far after taking the headset off and back on. Runs here on the main
+        // thread with a reliably-valid head pose (the handler only set the flag).
+        if (_reassertTray)
+        {
+            _reassertTray = false;
+            _tray.ReassertPlacement("session resume");
+        }
 
         // Debug-menu / hand-edited per-board tuning live-applies here (Part F).
         ApplyBoardTuning();

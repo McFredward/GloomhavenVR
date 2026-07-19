@@ -953,23 +953,18 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                       + right * ((offset.x + boardPos.x) * scale)
                       + Vector3.up * ((offset.y + boardPos.y) * scale);
 
-        // Item 1 safety net (never spawn outside the skybox): clamp the final pose to a sane
-        // reach from the head. The deferral above catches the untracked-HMD / origin-camera
+        // Item 1/3 safety net (never spawn/glitch outside the skybox): clamp the final pose to a
+        // sane reach from the head. The deferral above catches the untracked-HMD / origin-camera
         // cases; this is the belt-and-braces guard for every OTHER cause (a wildly mis-tuned
-        // BoardPosOffset, an odd rig scale) — the board can never sit more than ~1.2 m from the
-        // head, at a plausible height, no matter what the placement math produced.
-        Vector3 delta = pos - headT.position;
-        var horizontal = new Vector3(delta.x, 0f, delta.z);
-        float maxReach = 1.2f * scale;
-        if (horizontal.magnitude > maxReach)
-            horizontal = horizontal.normalized * maxReach;
-        float clampedY = Mathf.Clamp(delta.y, -1.0f * scale, 0.2f * scale);
-        Vector3 clampedPos = headT.position + horizontal + Vector3.up * clampedY;
-        if ((clampedPos - pos).sqrMagnitude > 1e-6f)
+        // BoardPosOffset, an odd rig scale, a frozen-then-restored head pose after an HMD doff/don)
+        // — the board can never sit more than ~1.2 m from the head, at a plausible height, no
+        // matter what the placement math produced.
+        float outBefore = (pos - headT.position).magnitude;
+        pos = ClampNearHead(pos, headT.position, scale, out bool wasClamped);
+        if (wasClamped)
             VRLog.Info("Cards", $"Control board placement clamped to a sane reach from the head " +
-                                $"(was {delta.magnitude / Mathf.Max(scale, 1e-4f):F2} m out at scale 1, " +
-                                $"now {(clampedPos - headT.position).magnitude / Mathf.Max(scale, 1e-4f):F2} m).");
-        pos = clampedPos;
+                                $"(was {outBefore / Mathf.Max(scale, 1e-4f):F2} m out at scale 1, " +
+                                $"now {(pos - headT.position).magnitude / Mathf.Max(scale, 1e-4f):F2} m).");
 
         _root.position = pos;
         _root.rotation = ComputeBoardRotation(flatForward, board);
@@ -1002,22 +997,100 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private static float ComputeBoardScale(ControlBoard board) =>
         CardsConfig.ClampedTrayScale * CardsConfig.BoardScale(board).Value;
 
+    /// <summary>
+    /// Item 3 safety net: clamp a candidate board position to a sane reach from the head — no
+    /// more than ~1.2 m horizontally and a plausible height band. Applied on EVERY head-relative
+    /// placement path (<see cref="PlaceAtHead"/> and the presence-regain re-assert) so a bogus or
+    /// frozen-then-restored head pose can never fling the board outside the play space.
+    /// </summary>
+    private static Vector3 ClampNearHead(Vector3 pos, Vector3 headPos, float scale, out bool clamped)
+    {
+        Vector3 delta = pos - headPos;
+        var horizontal = new Vector3(delta.x, 0f, delta.z);
+        float maxReach = 1.2f * scale;
+        if (horizontal.magnitude > maxReach)
+            horizontal = horizontal.normalized * maxReach;
+        float clampedY = Mathf.Clamp(delta.y, -1.0f * scale, 0.2f * scale);
+        Vector3 result = headPos + horizontal + Vector3.up * clampedY;
+        clamped = (result - pos).sqrMagnitude > 1e-6f;
+        return result;
+    }
+
+    /// <summary>
+    /// Horizontal distance (× scale) beyond which a PINNED (world-anchored) board is treated as
+    /// LOST — a genuine glitch, not a legitimate walk-away — and snapped back near the head on a
+    /// presence regain. Generous so ordinary world-anchored roaming is never disturbed.
+    /// </summary>
+    private const float LostReach = 6f;
+
+    /// <summary>
+    /// Item 3: re-assert the board's placement after the head regained tracking (HMD re-donned /
+    /// runtime resume). The user is looking NOW, so the board must be PRESENT and sanely placed —
+    /// it must never stay gone or stranded far away.
+    /// - FOLLOW: re-seat at the head (through <see cref="PlaceAtHead"/>'s head-distance clamp).
+    /// - PINNED/world-anchored: KEEP the pinned world pose (roaming is legitimate), UNLESS it is
+    ///   non-finite or absurdly far/low (a real glitch) — then snap it back near the head.
+    /// Either way the root is re-shown so a presence blip can never leave it hidden. Board-switch
+    /// pose (<see cref="RestorePose"/>) is deliberately untouched.
+    /// </summary>
+    internal void ReassertPlacement(string reason)
+    {
+        if (_root == null)
+            return;
+
+        if (CardsConfig.TrayFollow.Value)
+        {
+            _placed = false;      // force a fresh, clamped head-relative seat
+            PlaceAtHead();        // defers safely if the head still has no valid pose (TickPlacement retries)
+            if (_wantVisible)
+                SetVisible(true); // never leave the board hidden after a resume
+            VRLog.Info("Cards", $"Control board placement re-asserted ({reason}, FOLLOW) — re-seated near the head.");
+            return;
+        }
+
+        // PINNED: keep the world pose unless it is clearly lost.
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head != null)
+        {
+            float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+            Vector3 pos = _root.position;
+            Vector3 delta = pos - head.transform.position;
+            var horizontal = new Vector3(delta.x, 0f, delta.z);
+            bool finite = !(float.IsNaN(pos.x) || float.IsInfinity(pos.x)
+                            || float.IsNaN(pos.y) || float.IsInfinity(pos.y)
+                            || float.IsNaN(pos.z) || float.IsInfinity(pos.z));
+            bool lost = !finite
+                        || horizontal.magnitude > LostReach * scale
+                        || delta.y < -2.0f * scale;
+            if (lost)
+            {
+                PlaceAtHead(); // snaps back to the configured head-relative pose and re-pins (clamped)
+                VRLog.Info("Cards", $"Control board was lost/far ({reason}, PINNED) — snapped back near the head.");
+            }
+        }
+        if (_wantVisible)
+            SetVisible(true); // re-show a pinned board that a presence blip hid
+    }
+
     // ------------------------------------------------------------------ debug-menu live apply --
 
     /// <summary>
     /// PART F live-apply: move the slot snap-glow / wanted-glow overlays to a new per-board
     /// offset in place (no rebuild). Base local-Z is preserved; the offset adds on top.
+    /// Item 1: the two overlays are a PAIR, so a per-board SPACING spreads them apart along
+    /// the slot-local X (the board's long/inter-slot axis) — slot 0 (left) −½, slot 1 (right) +½.
     /// </summary>
-    internal void SetOverlayOffset(Vector3 offset)
+    internal void SetOverlayOffset(Vector3 offset, float spacing)
     {
         for (int i = 0; i < 2; i++)
         {
+            float xSpread = (i == 0 ? -0.5f : 0.5f) * spacing; // spread the pair apart along the slot axis
             if (_slotHighlights[i] != null)
                 _slotHighlights[i]!.transform.localPosition =
-                    new Vector3(offset.x, offset.y, SlotGlowBaseZ + offset.z);
+                    new Vector3(offset.x + xSpread, offset.y, SlotGlowBaseZ + offset.z);
             if (_wantedHighlights[i] != null)
                 _wantedHighlights[i]!.transform.localPosition =
-                    new Vector3(offset.x, offset.y, WantedGlowBaseZ + offset.z);
+                    new Vector3(offset.x + xSpread, offset.y, WantedGlowBaseZ + offset.z);
         }
     }
 
@@ -1546,17 +1619,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
         Vector3 ov = CardsConfig.SlotOverlayOffset(CardsConfig.CurrentBoard).Value; // PART B: per-board overlay offset
+        float ovSpacing = CardsConfig.SlotOverlaySpacing(CardsConfig.CurrentBoard).Value; // item 1: pair spacing
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
             if (slot == null || _slotHighlights[i] != null)
                 continue;
+            float xSpread = (i == 0 ? -0.5f : 0.5f) * ovSpacing; // spread the overlay pair apart along the slot axis
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad.name = "SlotHighlight";
             Object.Destroy(quad.GetComponent<Collider>());
             quad.transform.SetParent(slot, worldPositionStays: false);
             quad.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
-            quad.transform.localPosition = new Vector3(ov.x, ov.y, SlotGlowBaseZ + ov.z); // PROUD toward the player + per-board offset
+            quad.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, SlotGlowBaseZ + ov.z); // PROUD toward the player + per-board offset + pair spacing
             // Emissive gold via the Overlay shader (additive) so it reads as light ADDED over the
             // board. CORE FIX: moved to NEGATIVE local-Z (proud of the recess/top toward the player)
             // and NO RenderOnTop — the glow is depth-correct now (occludes naturally, no shine-through).
@@ -1592,11 +1667,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
         Vector3 ov = CardsConfig.SlotOverlayOffset(CardsConfig.CurrentBoard).Value; // PART B: per-board overlay offset
+        float ovSpacing = CardsConfig.SlotOverlaySpacing(CardsConfig.CurrentBoard).Value; // item 1: pair spacing
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
             if (slot == null || _wantedHighlights[i] != null)
                 continue;
+            float xSpread = (i == 0 ? -0.5f : 0.5f) * ovSpacing; // spread the overlay pair apart along the slot axis
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad.name = "WantedHighlight";
             Object.Destroy(quad.GetComponent<Collider>());
@@ -1605,7 +1682,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // show; sits a hair less proud (base z -0.004) than the snap glow (-0.006) so the gold
             // snap draws in front of the teal, preserving the old ordering.
             quad.transform.localScale = new Vector3(w * 1.36f, h * 1.36f, 1f);
-            quad.transform.localPosition = new Vector3(ov.x, ov.y, WantedGlowBaseZ + ov.z); // PROUD toward the player + per-board offset
+            quad.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z); // PROUD toward the player + per-board offset + pair spacing
             var renderer = quad.GetComponent<MeshRenderer>();
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
             // Emissive teal via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud, toward the
@@ -2419,6 +2496,65 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         return s != null ? new Material(s) { color = color } : null;
     }
 
+    // ---- BoardLit shader (item 5: solid, shaded button walls) -------------------------
+    private static Shader? _boardLitShader;
+    private static bool _boardLitFoundLogged;
+    private static bool _boardLitMissLogged;
+
+    /// <summary>
+    /// Item 5: the bundled <c>GloomhavenVR/BoardLit</c> shader — a self-contained BAKED-lit
+    /// shader (two fixed studio directions + an ambient floor, independent of the scene's own
+    /// lights). The square keycaps (Confirm/Undo, and Rest when set to Square) used
+    /// <c>Shader.Find("Standard")</c>, which strips to the UNLIT <c>Sprites/Default</c> fallback
+    /// in the game build — every cube face then rendered the same flat colour, so the side WALLS
+    /// never shaded and the button read as a floating flat square ("the walls aren't rendered").
+    /// BoardLit shades by world normal, so the box's side walls visibly darken relative to its
+    /// front face and it reads as a solid protruding 3D button even in the unlit void/menu scenes
+    /// (the same reason the board mesh and the hands use it). Unlike <c>GloomhavenVR/Overlay</c>
+    /// it is referenced by bundle PREFAB materials, so <c>Shader.Find</c> resolves it directly;
+    /// still re-found until present and probed across loaded bundles, mirroring
+    /// <see cref="OverlayShader"/>. Null only when the bundle lacks it — callers fall back to
+    /// Standard/Legacy/Sprites (the pre-fix flat look). Logged once each way.
+    /// </summary>
+    internal static Shader? BoardLitShader()
+    {
+        if (_boardLitShader == null)
+        {
+            _boardLitShader = Shader.Find("GloomhavenVR/BoardLit");
+            if (_boardLitShader == null)
+            {
+                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+                {
+                    if (b == null) continue;
+                    var s = b.LoadAsset<Shader>("Assets/Bundle/Table/BoardLit.shader");
+                    if (s != null) { _boardLitShader = s; break; }
+                }
+            }
+        }
+        if (_boardLitShader != null && !_boardLitFoundLogged)
+        {
+            _boardLitFoundLogged = true;
+            VRLog.Info("Cards", "BoardLit shader 'GloomhavenVR/BoardLit' loaded — square board buttons " +
+                                "get shaded, solid side walls (baked-lit, works in the unlit scenes).");
+        }
+        else if (_boardLitShader == null && !_boardLitMissLogged)
+        {
+            _boardLitMissLogged = true;
+            VRLog.Warn("Cards", "BoardLit shader 'GloomhavenVR/BoardLit' NOT found — square board buttons " +
+                                "fall back to Standard/Sprites and their side walls may read flat.");
+        }
+        return _boardLitShader;
+    }
+
+    /// <summary>
+    /// Item 5: the lit shader for the square keycap body, falling back to Standard/Legacy/Sprites
+    /// when the bundle lacks BoardLit. BoardLit shades side walls even in an unlit scene; the
+    /// built-in fallbacks only shade when the scene actually has lights (and go flat otherwise).
+    /// </summary>
+    private static Shader? BoxCapShader() =>
+        BoardLitShader()
+        ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+
     /// <summary>
     /// Item 5: an emissive glow material for the slot/pick insert telegraphs. Overlay with
     /// ADDITIVE blend (_SrcBlend=One,_DstBlend=One) so the gold/teal read as light ADDED
@@ -2664,11 +2800,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             }
             else if (boxy)
             {
-                // PART C: a REAL 3D square keycap. Mirror the round puck's approach (a Cylinder
-                // has sides) with a lit Cube of genuine thickness — its SIDE WALLS are visible and
-                // shade under the scene lights, unlike the old flat 9-slice sprite ("no sides, just
-                // a floating element"). Standard-lit, NO RenderOnTop; the cube front protrudes proud
-                // of the base plate toward the viewer (-Z) and travels inward on press with the cap.
+                // PART C / item 5: a REAL 3D square keycap. Mirror the round puck's approach (a
+                // Cylinder has sides) with a Cube of genuine thickness — its SIDE WALLS must be
+                // visible and shaded so it reads as a solid protruding button, not "a floating
+                // square with text". Root cause of the old flat look: Shader.Find("Standard")
+                // strips to the UNLIT Sprites/Default fallback in the game build, so every cube
+                // face rendered the same colour (no wall shading); and even a resolved Standard
+                // renders flat/black in the unlit void & menu scenes. Use the bundled BAKED-lit
+                // GloomhavenVR/BoardLit (BoxCapShader), which shades by world normal independent of
+                // scene lights, so the side walls darken relative to the front and the button reads
+                // solid everywhere. NO RenderOnTop; the cube front protrudes proud of the base plate
+                // toward the viewer (-Z) and travels inward on press with the cap.
                 float capThick = Mathf.Max(0.006f, thickness);
                 var capCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 capCube.name = "CapMesh";
@@ -2676,7 +2818,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 capCube.transform.SetParent(cap.transform, worldPositionStays: false);
                 capCube.transform.localScale = new Vector3(size.x, size.y, capThick);
                 capCube.transform.localPosition = new Vector3(0f, 0f, -capThick * 0.5f); // front proud toward viewer
-                Shader? shader = Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+                Shader? shader = BoxCapShader();
                 if (shader != null)
                 {
                     capMaterial = new Material(shader) { color = DisabledColor };
