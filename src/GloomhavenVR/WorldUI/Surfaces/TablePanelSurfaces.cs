@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -220,6 +221,125 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface
 
     protected override RectTransform? FindTarget() =>
         InitiativeTrack.Instance != null ? InitiativeTrack.Instance.transform as RectTransform : null;
+
+    // ---- portrait depth normalization (user #3) ---------------------------------------
+    /// <summary>
+    /// The game authors the initiative row with real 3D DEPTH: each portrait
+    /// (a direct child of <c>initiativeTrackHolder</c> — the avatar behaviour
+    /// transform) carries a serialized local z, so the row RECEDES/steps in depth.
+    /// On the flat perspective UI camera that reads as gentle 2D styling, but on the
+    /// world-space host the z is multiplied by the host scale
+    /// (<see cref="WorldUIConfig.CanvasScaleMm"/> mm per uGUI pixel × the tray/diorama
+    /// scale) into LITERAL geometry — an EXTREME, head-parallaxing spread (user #3:
+    /// "the effect is too strong"). It also broke the LASER: RayUguiDriver clamps the
+    /// beam to (and derives its GraphicRaycaster screen point from) the FLAT host
+    /// plane, but a z-displaced portrait projects to a DIFFERENT screen position under
+    /// perspective, so the pick resolved to a neighbour instead of the portrait the
+    /// beam visually touches.
+    ///
+    /// We KEEP the depth (the user likes it) but NORMALIZE the row's raw z range into
+    /// a small symmetric band: each portrait's authored z is remapped proportionally
+    /// (order/direction preserved) so the largest |z| in the row lands at
+    /// <see cref="DepthBandPixels"/> and the rest scale down with it — never amplified
+    /// (a row already flatter than the band is left alone). The compressed spread reads
+    /// as subtle recession, and because the residual parallax scales with z it shrinks
+    /// to well under a portrait width, so the flat-plane screen point once again lands
+    /// inside the correct portrait's projected rect and the GraphicRaycaster (which
+    /// already distance-sorts hits) resolves the one being pointed at.
+    ///
+    /// Applied every tick while converted, computed from the RECORDED raw z (not the
+    /// live, already-compressed value) so it is idempotent; the raw z is restored on
+    /// release so the 2D UI is left exactly as the game authored it (the framework's
+    /// root-only restore never touches these deep children).
+    /// </summary>
+    private const float DepthBandPixels = 20f; // ±20 px ≈ ±2 cm at 1 mm/px × scale — tune
+
+    /// <summary>Local z below this (px) counts as flat — a row with no authored depth is a no-op.</summary>
+    private const float DepthEpsilonPixels = 0.5f;
+
+    /// <summary>Authored (raw) local z per portrait transform, for idempotent remap + restore.</summary>
+    private readonly Dictionary<Transform, float> _rawDepth = new(16);
+
+    /// <summary>Live portrait transforms this tick (reused; no per-frame allocation).</summary>
+    private readonly List<Transform> _depthScratch = new(16);
+
+    public override void Tick()
+    {
+        bool wasConverted = Panel != null;
+        base.Tick();
+        if (Panel != null)
+            NormalizeDepth();
+        else if (wasConverted)
+            RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
+    }
+
+    public override void Shutdown()
+    {
+        RestoreDepth(); // before base releases the panel (holder still alive here)
+        base.Shutdown();
+    }
+
+    /// <summary>
+    /// Remap every active portrait's authored local z into the ±<see cref="DepthBandPixels"/>
+    /// band (see the field docs). Change-gated writes; nothing to fight since the game
+    /// never animates portrait z (Select/Deselect toggle selection visuals only).
+    /// </summary>
+    private void NormalizeDepth()
+    {
+        Transform? holder = InitiativeTrack.Instance != null
+            ? InitiativeTrack.Instance.initiativeTrackHolder
+            : null;
+        if (holder == null)
+            return;
+
+        _depthScratch.Clear();
+        float rawMax = 0f;
+        foreach (Transform child in holder)
+        {
+            if (!child.gameObject.activeSelf)
+                continue;
+            _depthScratch.Add(child);
+            // Record the authored z once; thereafter the remap reads from here, so a
+            // prior frame's compressed value never becomes the new baseline.
+            if (!_rawDepth.TryGetValue(child, out float raw))
+            {
+                raw = child.localPosition.z;
+                _rawDepth[child] = raw;
+            }
+            float mag = Mathf.Abs(raw);
+            if (mag > rawMax)
+                rawMax = mag;
+        }
+
+        if (rawMax < DepthEpsilonPixels)
+            return; // flat row (or depth not yet laid out) — nothing to compress
+
+        float scale = Mathf.Min(1f, DepthBandPixels / rawMax); // compress only, never amplify
+        for (int i = 0; i < _depthScratch.Count; i++)
+        {
+            Transform t = _depthScratch[i];
+            float target = _rawDepth[t] * scale;
+            Vector3 lp = t.localPosition;
+            if (Mathf.Abs(lp.z - target) > 0.001f)
+                t.localPosition = new Vector3(lp.x, lp.y, target);
+        }
+    }
+
+    /// <summary>Restore each recorded portrait's authored z (reversibility) and forget them.</summary>
+    private void RestoreDepth()
+    {
+        if (_rawDepth.Count == 0)
+            return;
+        foreach (KeyValuePair<Transform, float> kv in _rawDepth)
+        {
+            Transform t = kv.Key;
+            if (t == null)
+                continue;
+            Vector3 lp = t.localPosition;
+            t.localPosition = new Vector3(lp.x, lp.y, kv.Value);
+        }
+        _rawDepth.Clear();
+    }
 
     /// <summary>
     /// Test #16: measure ONLY the visible portrait row. The InitiativeTrack root
