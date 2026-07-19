@@ -89,16 +89,18 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private const float FitPinHardTimeoutSeconds = 2.5f;
 
-    // NO FOLLOW (user #4, 10th request — "the info display must NOT under ANY circumstances
-    // depend on the movement of the control board / must stay fixed"). The hardware diagnostic
-    // proved the residual "it moves with the board" was NOT the board at all: with the rig
-    // provably constant (rig yaw 30.1°, rigScale 32.1 on EVERY diag line), the host world pose
-    // still swung wildly (yaw 18.9°→59°), driven by dozens of "lazy follow … physical head
-    // moved … gliding back" events. The player moves their head constantly WHILE handling the
-    // board, so the head-follow glide read as "the info follows the board." The follow is now
-    // GONE: the pose is planted ONCE at reveal (rig-local, so a world-grab still carries it with
-    // the view and it never rides the board/tray) and then held verbatim, re-snapping only on a
-    // genuine rig recenter/rebuild. It never chases the head again.
+    // LAZY FOLLOW — HORIZONTAL ONLY (user #4, 11th clarification: "I DO want the lazy movement so
+    // the enemy info stays in my field of view; I do NOT want it to move UP/DOWN when I rotate or
+    // move the control board — but that is exactly what happens"). So: the panel gently glides to
+    // stay in front of the view as the player physically TURNS (horizontal follow, computed in
+    // rig-local so a world-grab never trips it), but its WORLD HEIGHT is LOCKED at spawn (see
+    // _worldYLocked) — rotating / zooming / moving the board (all of which rotate/scale/translate
+    // the RIG) can never bob it up or down, because Place() overrides worldPos.y with the locked
+    // value and builds an upright yaw-only facing in WORLD space (rig pitch/roll never tilts it).
+    private const float FollowDeadzoneDeg = 22f;
+    private const float FollowDwellSeconds = 0.5f;
+    private const float FollowSettledDeg = 5f;
+    private const float FollowEaseRate = 3f;
 
     // Item 3 (user #4, RECURRING) — HEAD/VIEW-ANCHORED height. The reveal must land in the
     // player's comfortable forward VIEW so it reads WITHOUT looking up. Two earlier takes
@@ -132,10 +134,13 @@ internal sealed class EnemyRevealSurface
     // Stored pose is RIG-LOCAL (head pose relative to RigRoot), re-projected through the LIVE
     // rig each frame in Place(). Rig-local is grab-invariant relative to the physical head, so
     // the follow below reacts only to real head movement, never to board/tray/world-grab.
-    private Vector3 _position;                        // rig-local host position (head-relative)
-    private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (upright, facing the head)
+    private Vector3 _position;                        // rig-local host position (head-relative) — HORIZONTAL follow
+    private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (unused for facing now; kept for snap)
+    private float _worldYLocked;                     // ABSOLUTE world height, frozen at spawn — board moves never change it
     private bool _placed;                            // false until the first in-view pose is snapped
     private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at (re-snap on recenter)
+    private float _offGazeSince = -1f;               // unscaled time the panel first drifted past the deadzone
+    private bool _easing;                            // gliding back to the in-view target (horizontal)
     private bool _lastVisible;
     private bool _dropLogged;                        // one-shot per reveal: log the applied plant pose
     private float _lastDiagTime = -99f;              // throttle for the movement diagnostic (~1/s)
@@ -220,6 +225,8 @@ internal sealed class EnemyRevealSurface
                     _fitPinned = false;
                     _placedMetersPerPx = -1f;
                     _placed = false; // PlantPose() snaps the first in-view pose on the next tick
+                    _easing = false;
+                    _offGazeSince = -1f;
                     _dropLogged = false; // re-log the applied plant pose for this reveal (item 3)
                 }
             }
@@ -382,8 +389,16 @@ internal sealed class EnemyRevealSurface
         // pitch their head DOWN; tying the panel to the pitched gaze dragged its height up/down
         // with every look (the diag showed world-y swinging −12…+58 m). Yaw + head position still
         // follow lazily; pitch no longer moves it. RAW rig-local metres (Place() applies the rig).
+        // HORIZONTAL target only (rig-local). The Y is neutral here — Place() overrides the
+        // WORLD y with _worldYLocked, so nothing in the follow path can move the height.
         Vector3 desiredPos = headPosL + awayL * RevealReadingDistance;
-        desiredPos.y = headPosL.y - RevealViewDrop;
+        desiredPos.y = headPosL.y;
+
+        // World height, LOCKED at spawn (user #4, 11th): a fixed absolute height, a small drop
+        // below the head. Set ONLY on a fresh snap. Rotating / zooming / moving the board rotates,
+        // scales and translates the RIG — none of which may change this value.
+        float rigScale = rig != null ? rig.lossyScale.x : 1f;
+        float desiredWorldY = head.transform.position.y - RevealViewDrop * rigScale;
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
         if (!_placed || poseVersion != _facedPoseVersion)
@@ -391,24 +406,57 @@ internal sealed class EnemyRevealSurface
             // SNAP: first spawn, or a deliberate recentre/rebuild teleported the whole rig.
             _position = desiredPos;
             _rotation = desiredRot;
+            _worldYLocked = desiredWorldY;
             _placed = true;
             _facedPoseVersion = poseVersion;
+            _offGazeSince = -1f;
+            _easing = false;
             if (!_dropLogged)
             {
                 _dropLogged = true;
-                float worldY = rig != null ? rig.TransformPoint(_position).y : _position.y;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL spawned (RIG-LOCAL lazy-follow) world-y={worldY:F3} m " +
-                                      $"(gaze reading distance {RevealReadingDistance:F2} m, dropped {RevealViewDrop:F2} m) — " +
-                                      "follows the PHYSICAL head only; board/tray/world-grab never move it.");
+                VRLog.Info("WorldUI", $"ENEMY REVEAL spawned — horizontal lazy-follow ON, WORLD HEIGHT LOCKED at " +
+                                      $"y={_worldYLocked:F3} m (head world-y {head.transform.position.y:F3} − drop {RevealViewDrop:F2}×scale {rigScale:F1}). " +
+                                      "Board rotate/zoom/move can no longer change the height; only a real recenter re-plants it.");
             }
             return;
         }
 
-        // HELD — no follow (user #4, 10th request). Already placed at the current rig pose
-        // version: keep the planted rig-local pose verbatim. desiredPos/desiredRot above are
-        // computed only for the snap branch; here we deliberately do nothing, so the reveal
-        // never chases the head and never drifts. It re-snaps only when RigPoseVersion changes
-        // (a real recenter/rebuild), handled by the branch above.
+        // LAZY HORIZONTAL FOLLOW: glide X/Z back into the forward view when the player has
+        // physically TURNED past the deadzone (measured in rig-local, so world-grab / tray-grab
+        // never trip it). The Y of _position and the locked world height are NEVER touched here.
+        Vector3 toPanelFlat = _position - headPosL;
+        toPanelFlat.y = 0f;
+        float off = toPanelFlat.sqrMagnitude > 1e-6f ? Vector3.Angle(awayL, toPanelFlat) : 0f;
+        if (off > FollowDeadzoneDeg)
+        {
+            if (_offGazeSince < 0f)
+                _offGazeSince = Time.unscaledTime;
+            if (!_easing && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
+            {
+                _easing = true;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze for " +
+                                      $">{FollowDwellSeconds:F1}s (physical head turned) — gliding horizontally into view (height stays locked).");
+            }
+        }
+        else
+        {
+            _offGazeSince = -1f;
+        }
+
+        if (_easing)
+        {
+            float t = Time.deltaTime * FollowEaseRate;
+            Vector3 flatTarget = desiredPos;
+            flatTarget.y = _position.y; // ease X/Z only — never Y
+            _position = Vector3.Lerp(_position, flatTarget, t);
+            Vector3 toDesired = desiredPos - headPosL; toDesired.y = 0f;
+            Vector3 cur = _position - headPosL; cur.y = 0f;
+            if (toDesired.sqrMagnitude < 1e-6f || Vector3.Angle(cur, toDesired) < FollowSettledDeg)
+            {
+                _easing = false;
+                _offGazeSince = -1f;
+            }
+        }
     }
 
     /// <summary>
@@ -455,25 +503,39 @@ internal sealed class EnemyRevealSurface
         Transform? rig = Rig.VRRigDriver.RigRoot;
         PlantPose(head, rig);
 
-        Vector3 worldPos = rig != null ? rig.TransformPoint(_position) : _position;
-        Quaternion worldRot = rig != null ? rig.rotation * _rotation : _rotation;
+        // Horizontal (X/Z) from the rig-local follow pose; the raw re-projected Y is discarded
+        // and replaced by the LOCKED world height so board rotate/zoom/move can never bob it.
+        Vector3 rawWorld = rig != null ? rig.TransformPoint(_position) : _position;
+        Vector3 worldPos = new(rawWorld.x, _worldYLocked, rawWorld.z);
+
+        // Upright, yaw-only billboard built in WORLD space (facing the head horizontally). Because
+        // it uses WORLD up and only the horizontal head→panel direction, rig PITCH/ROLL from a
+        // world-grab never tilts the panel and never introduces a vertical component.
+        Vector3 awayWorld = worldPos - head.transform.position;
+        awayWorld.y = 0f;
+        awayWorld = awayWorld.sqrMagnitude > 1e-6f ? awayWorld.normalized : Vector3.forward;
+        Quaternion worldRot = Quaternion.LookRotation(awayWorld, Vector3.up);
 
         Transform host = _panel.HostTransform;
         host.SetPositionAndRotation(worldPos, worldRot);
         host.localScale = Vector3.one * (metersPerPx * scale);
 
-        // Decisive diagnostic (throttled ~1/s while visible): the reveal host WORLD pose vs the
-        // rig's world yaw. If a future log still shows "moves with the board", this proves
-        // whether the host world position is actually changing and whether it tracks the rig
-        // yaw (world-grab) or something else. Cheap; remove once the coupling is confirmed gone.
+        // DECISIVE HEIGHT DIAGNOSTIC (throttled ~1/s). The key column is Δ = rawReprojY −
+        // lockedY: it is how far the OLD rig-local re-projection WOULD have moved the height this
+        // frame (i.e. the exact vertical coupling to board rotate/zoom the user reported), while
+        // the panel's actual Y stays flat at lockedY. rig euler x/z shows whether a world-grab is
+        // introducing pitch/roll; rigScale shows zoom. If panel Y ever != lockedY the lock failed.
         float now = Time.unscaledTime;
         if (now - _lastDiagTime >= 1f)
         {
             _lastDiagTime = now;
-            float rigYaw = rig != null ? rig.eulerAngles.y : 0f;
+            Vector3 e = rig != null ? rig.eulerAngles : Vector3.zero;
             float rigScale = rig != null ? rig.lossyScale.x : 1f;
-            VRLog.Info("WorldUI", $"ENEMY REVEAL diag: host world pos={worldPos} yaw={worldRot.eulerAngles.y:F1}° " +
-                                  $"| rig yaw={rigYaw:F1}° rigScale={rigScale:F1} — rig-local plant held.");
+            VRLog.Info("WorldUI",
+                $"ENEMY REVEAL diag: panelY={worldPos.y:F2} lockedY={_worldYLocked:F2} rawReprojY={rawWorld.y:F2} " +
+                $"Δ(reproj−locked)={rawWorld.y - _worldYLocked:F2} | headWorldY={head.transform.position.y:F2} " +
+                $"| rig pitch={e.x:F1}° yaw={e.y:F1}° roll={e.z:F1}° scale={rigScale:F1} | easing={_easing} " +
+                $"| panelXZ=({worldPos.x:F1},{worldPos.z:F1}). Height LOCKED — Δ is the vertical coupling that is now suppressed.");
         }
     }
 
