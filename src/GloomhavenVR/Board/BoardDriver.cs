@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using UnityEngine;
 
@@ -24,11 +25,17 @@ internal sealed class BoardDriver : MonoBehaviour
 {
     private void Update()
     {
-        SyncRayMask();
-        CameraArrivalGuard.Tick();
-        BoardClickDriver.Tick();
-        AoeControl.Tick();
-        TargetingUx.Tick();
+        // Each sub-tick is isolated + attributed via the shared Core.TickGuard so one
+        // throwing step can never abort the rest of the frame's ticks AND the next run's
+        // log NAMES the thrower ("[Board] Tick 'Board.<step>' threw <exc + stack>") instead
+        // of the anonymous per-frame NullReferenceException flood. Static method groups →
+        // the delegates are cached by the compiler, so no per-frame allocation. Call order
+        // is unchanged (SyncRayMask → CameraArrival → Click → Aoe → Targeting).
+        TickGuard.Run("Board.SyncRayMask", SyncRayMask);
+        TickGuard.Run("Board.CameraArrival", CameraArrivalGuard.Tick);
+        TickGuard.Run("Board.Click", BoardClickDriver.Tick);
+        TickGuard.Run("Board.Aoe", AoeControl.Tick);
+        TickGuard.Run("Board.Targeting", TargetingUx.Tick);
     }
 
     // Test #14 item 2: the former SyncReticleSnap (visible reticle snapped to the

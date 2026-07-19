@@ -234,67 +234,14 @@ internal sealed class WorldUIModule : IVRModule
         {
             var steps = _updateSteps;
             for (int i = 0; i < steps.Length; i++)
-                TickGuard.Run(steps[i].name, steps[i].fn);
+                TickGuard.Run(steps[i].name, steps[i].fn, "WorldUI");
         }
 
         private void LateUpdate()
         {
             var steps = _lateSteps;
             for (int i = 0; i < steps.Length; i++)
-                TickGuard.Run(steps[i].name, steps[i].fn);
-        }
-
-        /// <summary>
-        /// Runs one per-frame tick, ISOLATING any exception it throws so the remaining
-        /// ticks in the frame still run (a single misbehaving subsystem must never starve
-        /// the input pipeline — the reopen guarantee). The first throw per step is logged
-        /// at Error WITH its stack (so an anonymous per-frame NullReferenceException flood
-        /// — previously untraced in Player.log — is finally attributable to a subsystem);
-        /// repeats are summarized once per 10 s so an every-frame throw cannot itself
-        /// flood the log.
-        /// </summary>
-        private static class TickGuard
-        {
-            private sealed class Entry
-            {
-                public long Count;
-                public float LastLog;
-                public bool Opened;
-            }
-
-            private static readonly Dictionary<string, Entry> State = new();
-
-            public static void Run(string name, Action fn)
-            {
-                try
-                {
-                    fn();
-                }
-                catch (Exception ex)
-                {
-                    if (!State.TryGetValue(name, out Entry e))
-                    {
-                        e = new Entry();
-                        State[name] = e;
-                    }
-                    e.Count++;
-                    float now = Time.unscaledTime;
-                    if (!e.Opened)
-                    {
-                        e.Opened = true;
-                        e.LastLog = now;
-                        VRLog.Error("WorldUI", $"Tick '{name}' threw and was ISOLATED — the rest of the frame's " +
-                                               "ticks still run, so the pause-menu tap / input pipeline can't be " +
-                                               $"starved by one subsystem. {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
-                    }
-                    else if (now - e.LastLog >= 10f)
-                    {
-                        VRLog.Error("WorldUI", $"Tick '{name}' is still throwing ({e.Count} time(s) so far) — latest " +
-                                               $"{ex.GetType().Name}: {ex.Message}. Fix the subsystem; ticks stay isolated.");
-                        e.LastLog = now;
-                    }
-                }
-            }
+                TickGuard.Run(steps[i].name, steps[i].fn, "WorldUI");
         }
 
         private void OnDestroy()

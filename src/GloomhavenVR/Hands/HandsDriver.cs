@@ -37,6 +37,17 @@ internal sealed class HandsDriver : MonoBehaviour
     private float _simTrigger;
     private float _simGrip;
 
+    // Cached step delegates so the guarded per-frame calls allocate nothing (instance
+    // method groups would allocate a fresh delegate each frame). Built once in Awake.
+    private System.Action? _tickRig;
+    private System.Action? _tickSim;
+
+    private void Awake()
+    {
+        _tickRig = TickRig;
+        _tickSim = AnimateSimulation;
+    }
+
     private void OnEnable()
     {
         VRModeStateMachine.ModeChanged += OnModeChanged;
@@ -59,6 +70,24 @@ internal sealed class HandsDriver : MonoBehaviour
     }
 
     private void Update()
+    {
+        // Both per-frame steps are ISOLATED + attributed via the shared Core.TickGuard so
+        // a throw in the rig-homing/build path can't abort simulation (and vice versa) and
+        // the log NAMES the thrower ("[Hands] Tick 'Hands.<step>' threw <exc + stack>")
+        // instead of an anonymous per-frame NullReferenceException. Order preserved:
+        // rig-homing first (sets _simActive + hand refs), simulation after. Cached
+        // delegates → no per-frame allocation.
+        TickGuard.Run("Hands.Rig", _tickRig!);
+        if (_simActive)
+            TickGuard.Run("Hands.Simulation", _tickSim!);
+    }
+
+    /// <summary>
+    /// Per-frame rig-homing: resolve the parent (rig root in VR, main camera in desktop
+    /// simulation) and build / reparent / tear down the hand tree to match. Extracted from
+    /// <see cref="Update"/> so it can run under <see cref="TickGuard"/>.
+    /// </summary>
+    private void TickRig()
     {
         bool simulate = Plugin.SimulateHands.Value && !VRSession.IsRunning;
 
@@ -87,9 +116,6 @@ internal sealed class HandsDriver : MonoBehaviour
             Build(parent, simulate); // includes rebuilding after external destruction
         else if (_handsRoot.transform.parent != parent)
             Reparent(parent, simulate);
-
-        if (_simActive)
-            AnimateSimulation();
     }
 
     private void OnDestroy() => TearDown();
