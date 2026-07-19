@@ -2368,7 +2368,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         SetConfirmUndoOffset(off, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
-                            $"{side:F3} m for {active} (offset {off}, spacing {spacing:F3} m).");
+                            $"{side:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
+                            (round ? "." : " — square caps split into top + darker side-wall submeshes for visible walls."));
     }
 
     private Transform NewAnchor(string name, Vector3 localPos)
@@ -2794,8 +2795,20 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         private System.Action? _onClick;
         private Material? _capMaterial;
+        private Material? _capWallMaterial; // item 3: the darker side-wall material (boxy caps); null otherwise
         private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on the procedural fallback
         private Renderer? _capMeshRenderer; // item A diagnostic: the cap body renderer (cube/disc/sprite)
+
+        /// <summary>
+        /// Item 3: how much darker the keycap SIDE WALLS render than its top face — a
+        /// per-submesh material tint so the walls read as unmistakable dark bands at the
+        /// board's near-top-down angle (BoardLit alone lights walls almost like the top).
+        /// </summary>
+        private const float WallTintFactor = 0.45f;
+
+        /// <summary>Item 3: the wall colour for a given top/state colour (RGB × <see cref="WallTintFactor"/>).</summary>
+        private static Color WallTint(Color top) =>
+            new(top.r * WallTintFactor, top.g * WallTintFactor, top.b * WallTintFactor, top.a);
 
         /// <summary>
         /// Item A conclusive diagnostic (logged once per board, in the placed pose so lossyScale is
@@ -2821,10 +2834,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             Material? m = _capMeshRenderer.sharedMaterial;
             string shaderName = m != null && m.shader != null ? m.shader.name : "<none>";
             int queue = m != null ? m.renderQueue : -1;
+            // Item 3: report the two-submesh split (top vs darker walls). A split cap has
+            // subMeshCount 2, a distinct wall material instance, and a wall _Color that is
+            // WallTintFactor darker than the top — this is what makes the side walls read
+            // as unmistakable dark bands rather than blending into the top face.
+            int subMeshes = _capMeshRenderer is MeshRenderer mr && mr.GetComponent<MeshFilter>() is { sharedMesh: { } sm }
+                ? sm.subMeshCount : -1;
+            bool split = _capWallMaterial != null && subMeshes >= 2;
+            string wallInfo = _capWallMaterial != null
+                ? $"wall tint {_capWallMaterial.color} (top {(m != null ? m.color.ToString() : "<none>")}, factor {WallTintFactor:F2})"
+                : "no wall material (single-material cap)";
             VRLog.Info("Cards", $"ITEMA cap diag — {label}: real cap size {mmW:F1}×{mmH:F1}×{mmThick:F1} mm " +
                 $"(localScale {ls}, lossyScale {lossy}), shader '{shaderName}', renderQueue {queue}. " +
                 $"Walls read {(mmThick >= 6f ? "SOLID (thickness OK)" : "FLAT (too thin)")}; material is " +
-                $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades walls)" : "NOT BoardLit — wall shading may be wrong")}.");
+                $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades walls)" : "NOT BoardLit — wall shading may be wrong")}. " +
+                $"Two-material split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {wallInfo}.");
         }
 
         private TextMeshPro? _label;
@@ -2946,6 +2970,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // procedural grey cube cap. Either way the holder sits at CapRestZ and
             // travels on press; the collider (on go) is independent of it.
             Material? capMaterial = null;
+            Material? capWallMaterial = null; // item 3: the darker side-wall material instance (boxy caps only)
             SpriteRenderer? capFace = null;
             Renderer? capMeshRenderer = null; // item A diagnostic: the cap body renderer (cube/disc/sprite)
             var cap = new GameObject("Cap");
@@ -2999,8 +3024,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 Shader? shader = BoxCapShader();
                 if (shader != null)
                 {
+                    // Item 3 (visible walls): BoardLit shades by world normal against a baked
+                    // studio rig, so at the board's near-top-down angle the 20 mm side walls
+                    // catch nearly the same light as the top face and the edges vanish. A single
+                    // material cannot separate them (a MaterialPropertyBlock is per-RENDERER, not
+                    // per-submesh), so SPLIT the cube into TWO submeshes — [0] the viewer-facing
+                    // top, [1] the four side walls (+ hidden back) — and give the renderer TWO
+                    // BoardLit material INSTANCES: the top keeps the state colour, the walls a
+                    // SEPARATE instance tinted WallTintFactor darker so they read as unmistakable
+                    // dark bands framing the cap. Both instances track the button state
+                    // (UpdateColor → SetCapColor drives the top and the wall together).
+                    var mf = capCube.GetComponent<MeshFilter>();
+                    if (mf != null && mf.sharedMesh != null)
+                        mf.sharedMesh = CardMesh.SplitTopAndWalls(mf.sharedMesh);
                     capMaterial = new Material(shader) { color = DisabledColor };
-                    capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                    capWallMaterial = new Material(shader) { color = WallTint(DisabledColor) };
+                    capCube.GetComponent<MeshRenderer>().sharedMaterials =
+                        new[] { capMaterial, capWallMaterial };
                 }
                 capMeshRenderer = capCube.GetComponent<MeshRenderer>();
                 labelZ = -(capThick + 0.002f); // proud of the protruding cube front (front face sits at -capThick)
@@ -3074,6 +3114,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             var button = go.AddComponent<BoardButton>();
             button._onClick = onClick;
             button._capMaterial = capMaterial;
+            button._capWallMaterial = capWallMaterial; // item 3: darker side-wall instance (null on non-boxy caps)
             button._capFace = capFace;
             button._capMeshRenderer = capMeshRenderer;
             button._label = tmp;
@@ -3159,9 +3200,26 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             }
             if (_capMaterial == null)
                 return;
-            Color color = StateColor();
-            if (_capMaterial.color != color)
-                _capMaterial.color = color;
+            SetCapColor(StateColor());
+        }
+
+        /// <summary>
+        /// Item 3: drive the cap TOP colour and — when the boxy cap carries a split wall
+        /// submesh (<see cref="_capWallMaterial"/>) — the darker WALL colour together, so
+        /// the wall band always tracks the button state (disabled / accent / confirmed /
+        /// dwell charge) a fixed <see cref="WallTintFactor"/> darker. A no-op wall step on
+        /// round/native caps (null wall material).
+        /// </summary>
+        private void SetCapColor(Color top)
+        {
+            if (_capMaterial != null && _capMaterial.color != top)
+                _capMaterial.color = top;
+            if (_capWallMaterial != null)
+            {
+                Color wall = WallTint(top);
+                if (_capWallMaterial.color != wall)
+                    _capWallMaterial.color = wall;
+            }
         }
 
         private void Update()
@@ -3286,7 +3344,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (_capFace != null)
                 _capFace.color = Color.Lerp(WorldUI.NativeButtonSkin.ColorFor(FaceState()), DwellChargeColor, progress);
             else if (_capMaterial != null)
-                _capMaterial.color = Color.Lerp(StateColor(), DwellChargeColor, progress);
+                SetCapColor(Color.Lerp(StateColor(), DwellChargeColor, progress));
 
             int tick = (int)(progress * 4f);
             if (tick > _dwellTicks)

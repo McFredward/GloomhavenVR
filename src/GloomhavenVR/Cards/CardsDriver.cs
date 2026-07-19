@@ -1285,14 +1285,14 @@ internal sealed class CardsDriver : MonoBehaviour
             if (held != null && holder != null)
             {
                 slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
-                // Mirror the release-time targeting (item 27.1):
-                // - a HELD TRAY card never glows its own origin slot — releasing there
-                //   returns it to the fan, so only the OTHER slot (reorder/swap) glows;
+                // Mirror the release-time targeting (item 27.1 + item 2):
+                // - a HELD TRAY card NOW glows its own origin slot too — hovering the slot
+                //   it came from telegraphs the RESTORE (releasing there re-seats it), so
+                //   the origin, the other slot (reorder/swap) and the void are all valid;
                 // - a FAN card hovering an OCCUPIED slot telegraphs a SWAP into that very
                 //   slot (occupant → hand), so the glow stays put — no divert, both-
                 //   occupied included.
-                if (_tray.ContainsCard(held) && slot == _tray.SlotOf(held))
-                    slot = -1;
+                // What glows is what drops, origin included.
             }
         }
         _snapHighlightCard = slot >= 0 ? held : null;
@@ -1734,17 +1734,16 @@ internal sealed class CardsDriver : MonoBehaviour
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
-        // (a) Return-to-hand: a placed card must NOT be re-pinned to its OWN origin
-        // slot when released away. Neither a highlight latched there at grab/near-
-        // release (test #15's glow-is-drop rule) nor the generous capture radius may
-        // hold it — only the OTHER slot keeps a placed card in the tray (the reorder/
-        // swap below). Everything else, origin included, falls through to the fan.
-        int origin = _tray.SlotOf(card); // -1 for a fan card
-        if (wasInTray)
-        {
-            if (highlightSlot == origin) highlightSlot = -1;
-            if (slot == origin) slot = -1;
-        }
+        // Item 2 (return-to-origin): a card plucked OUT of a slot may be dropped back
+        // onto the SAME slot it came from to RESTORE it there — the origin slot is now
+        // ALWAYS a valid drop target for its own card (the glow telegraphs it too, see
+        // UpdateSlotHighlight). The OLD rule force-excluded the origin here (highlight/
+        // radius reset to -1 whenever they resolved to the source slot), so the only way
+        // back into the tray was the OTHER slot — restoring a card to its exact original
+        // slot was impossible (the reported bug). To UNSELECT / take a card back to the
+        // fan the player releases it AWAY from BOTH slots (slot < 0 → the take-back path
+        // below), which the free-placement flow already implies. No self-exclusion now:
+        // origin, other slot and the void are all reachable, so free movement is intact.
 
         string rule = highlightSlot >= 0 ? "highlight" : slot >= 0 ? "radius" : "none";
         if (highlightSlot >= 0)

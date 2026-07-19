@@ -209,6 +209,50 @@ internal static class CardMesh
         return mesh;
     }
 
+    /// <summary>
+    /// Item 3 (visible button walls): return a TWO-submesh copy of a box mesh so a keycap
+    /// can render its top face and its side WALLS with two different materials — a bright
+    /// top and a distinctly darker wall band — making the 20 mm side walls unmistakable at
+    /// the board's near-top-down angle (where BoardLit, shading by normal only, otherwise
+    /// lights the walls almost the same as the top). Submesh 0 = the faces whose outward
+    /// normal points toward the viewer (local −Z, the "top" the player looks at); submesh
+    /// 1 = every other face (the four side walls + the hidden back). Winding is inherited
+    /// unchanged from <paramref name="source"/> (Unity's primitive cube), so no culling
+    /// surprises. The source's arrays are COPIED — the shared built-in cube mesh is never
+    /// mutated. Faces are grouped by each triangle's first-vertex normal (the cube is
+    /// flat-shaded: all three verts of a face share the same normal).
+    /// </summary>
+    internal static Mesh SplitTopAndWalls(Mesh source)
+    {
+        Vector3[] verts = source.vertices;
+        Vector3[] normals = source.normals;
+        Vector2[] uv = source.uv;
+        int[] tris = source.triangles;
+
+        var top = new System.Collections.Generic.List<int>(6);
+        var walls = new System.Collections.Generic.List<int>(tris.Length);
+        for (int i = 0; i + 2 < tris.Length; i += 3)
+        {
+            int a = tris[i], b = tris[i + 1], c = tris[i + 2];
+            // Viewer-facing face = normal pointing along local −Z (the cap protrudes toward
+            // the viewer at −Z; its front face is the "top" the player sees straight on).
+            bool isTop = a < normals.Length && normals[a].z < -0.5f;
+            var target = isTop ? top : walls;
+            target.Add(a); target.Add(b); target.Add(c);
+        }
+
+        var mesh = new Mesh { name = "GloomhavenVR.KeycapSplit" };
+        mesh.vertices = verts;
+        mesh.normals = normals;
+        if (uv != null && uv.Length == verts.Length)
+            mesh.uv = uv;
+        mesh.subMeshCount = 2;
+        mesh.SetTriangles(top, 0);
+        mesh.SetTriangles(walls, 1);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
     private static Vector3 OutwardNormal(Vector2 p, float hw, float hh, float r)
     {
         // Direction from the nearest corner-arc center (also correct on the straight
