@@ -117,17 +117,24 @@ internal static class MixedReality
     private static Color _loggedColor;
 
     // ---- menu-unclip: keep floated menus visible through the void backdrop (WorldUI item 5a) ----
-    // When MR is OFF the scenario void/backdrop is the level's opaque Apparance ENVIRONMENT MESH
-    // (STATE.md round 24 — NOT a Unity skybox/clear-flag). A floated world-space menu is
-    // transparent UI (writes no depth) that ZTests LEqual against the depth buffer, so a movable
-    // menu dragged out to the edge of the void sits BEHIND the backdrop mesh in depth and is
-    // CLIPPED there. Disabling the backdrop material's depth WRITE (never its rendering) removes
-    // the clip: the depthless menu then always passes ZTest where only the backdrop is behind it.
-    // The diorama look is unchanged — the backdrop is the outermost shell, so nothing renders
-    // behind it that its depth was protecting; nearer diorama geometry still writes/tests its own
-    // depth and occludes the backdrop exactly as before. Only relevant while MR is OFF (MR hides
-    // the backdrop mesh outright via HideSkyGeometry). Fully reversible.
-    private static readonly List<(Material Mat, int OrigZWrite)> MenuUnclipMats = new(4);
+    // When MR is OFF the scenario void/backdrop is the level's opaque environment MESH — the
+    // hardware log names it exactly: 'GH_SkySphere' (layer Default/0, size (224.94,71.18,224.94),
+    // shader 'AMP_SkyShader'), the largest renderer that ENCLOSES the head. A floated world-space
+    // menu is transparent UI (writes no depth) that ZTests LEqual against the depth buffer, so a
+    // movable menu dragged out to the edge of the shell sits BEHIND the backdrop mesh in depth and
+    // is CLIPPED there.
+    //
+    // Robust lever (works regardless of the shader's own state): while a menu floats, force the
+    // backdrop material into the BACKGROUND render queue (1000) so it always composites BEHIND all
+    // Geometry-queue diorama geometry, and — where the shader exposes it — disable depth WRITE so
+    // the shell contributes no depth. A depthless menu (Transparent queue) then always passes ZTest
+    // where only the backdrop is behind it. The diorama look is unchanged: nearer diorama geometry
+    // (Geometry queue 2000) still renders AFTER the Background shell and writes/tests its own depth,
+    // so it occludes both the shell and the menu exactly as before. Only relevant while MR is OFF
+    // (MR hides the backdrop mesh outright via HideSkyGeometry). Fully reversible (renderQueue and
+    // ZWrite restored). We do NOT depend on the strict IsSkyRenderer gate matching: the biggest
+    // enclosing renderer (the candidate the diagnostic already computes) is always targeted too.
+    private static readonly List<(Material Mat, int OrigRenderQueue, bool HadZWrite, int OrigZWrite)> MenuUnclipMats = new(4);
     private static bool _menuUnclipWanted;   // a floated menu exists (set by WorldUI.ModalFallback)
     private static bool _menuUnclipActive;
     private static int _menuUnclipScanNextFrame;
@@ -338,11 +345,16 @@ internal static class MixedReality
     // ---- menu-unclip (WorldUI item 5a) ---------------------------------------------------------
 
     /// <summary>
-    /// While a floated menu exists and MR is OFF, disable the depth WRITE of the void backdrop
-    /// material(s) so the depthless menu canvas is never ZTest-clipped by the enclosing shell.
-    /// The backdrop is found with the SAME enclosing-dome / sky-name heuristic as
-    /// <see cref="HideSkyGeometry"/> (it is the same mesh), throttled the same way (it can
-    /// generate late). Reversible; when nothing matched, the enclosing candidates are dumped once.
+    /// While a floated menu exists and MR is OFF, push the void backdrop material(s) into the
+    /// Background render queue (and disable depth WRITE where the shader exposes it) so the
+    /// depthless menu canvas is never ZTest-clipped by the enclosing shell.
+    ///
+    /// Targeting is robust: any renderer the sky heuristic matches is unclipped, AND — crucially —
+    /// so is the single LARGEST renderer that encloses the head (the exact candidate the diagnostic
+    /// dump computes; the hardware log named it 'GH_SkySphere' / 'AMP_SkyShader'). That fallback
+    /// means we no longer depend on the strict <see cref="IsSkyRenderer"/> gate matching, nor on the
+    /// shader exposing any particular property. Throttled like the sky sweep (the backdrop can
+    /// generate late). Reversible; when nothing was targeted, the enclosing candidates are dumped once.
     /// </summary>
     private static void TickMenuUnclip()
     {
@@ -363,6 +375,13 @@ internal static class MixedReality
         float sizeFloor = Mathf.Max(SkyMinEnclosingSize, head.farClipPlane * SkyEnclosingFarFraction);
 
         Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
+
+        // The void backdrop is the biggest renderer enclosing the head. Track it as we scan so it
+        // is ALWAYS unclipped, even if the strict sky heuristic misses (e.g. a squashed dome that
+        // fails the per-axis extent floor). This is the same selection the diagnostic dump reports.
+        Renderer? largestEnclosing = null;
+        float largestVolume = 0f;
+
         for (int i = 0; i < all.Length; i++)
         {
             Renderer r = all[i];
@@ -371,33 +390,71 @@ internal static class MixedReality
             int layer = r.gameObject.layer;
             if (layer == VRLayers.ModLayer || layer == 5) // never our own mod visuals / UI hosts
                 continue;
-            if (!IsSkyRenderer(r, headPos, sizeFloor))
-                continue;
 
-            // Disable depth write on each of the backdrop's shared materials that exposes it.
-            // Shared (not instanced): the enclosing shell material is unique, and this keeps the
-            // change trivially reversible with no instance leaks.
-            Material[] mats = r.sharedMaterials;
-            for (int m = 0; m < mats.Length; m++)
+            if (r.bounds.Contains(headPos))
             {
-                Material mat = mats[m];
-                if (mat == null || !mat.HasProperty("_ZWrite") || IsUnclipRecorded(mat))
-                    continue;
-                MenuUnclipMats.Add((mat, mat.GetInt("_ZWrite")));
-                mat.SetInt("_ZWrite", 0);
-                VRLog.Info("Core", $"MR menu-unclip: depth-write OFF on backdrop material '{mat.name}' " +
-                                   $"(renderer '{r.gameObject.name}', layer {LayerName(layer)}) — floated " +
-                                   "menus no longer clip against the void shell (rendering unchanged).");
+                float vol = BoundsVolume(r.bounds);
+                if (vol > largestVolume)
+                {
+                    largestVolume = vol;
+                    largestEnclosing = r;
+                }
             }
+
+            if (IsSkyRenderer(r, headPos, sizeFloor))
+                UnclipBackdrop(r);
         }
 
+        // Fallback: force-unclip the biggest enclosing shell (GH_SkySphere) regardless of the sky
+        // gate. Materials already recorded above are skipped, so this never double-processes.
+        if (largestEnclosing != null)
+            UnclipBackdrop(largestEnclosing);
+
         _menuUnclipActive = MenuUnclipMats.Count > 0;
-        // Nothing matched (steady state logs nothing): dump the enclosing candidates ONCE so a
-        // hardware run can name the real void shell if the heuristic missed it.
+        // Nothing targeted (no enclosing renderer at all): dump the candidates ONCE so a hardware
+        // run can name the real void shell.
         if (MenuUnclipMats.Count == 0 && !_menuUnclipDiagLogged)
         {
             _menuUnclipDiagLogged = true;
             LogSkyCandidates(all, headPos);
+        }
+    }
+
+    /// <summary>
+    /// Push every shared material of <paramref name="r"/> into the Background render queue (1000)
+    /// and, where the shader exposes ZWrite, disable depth-write — so the huge backdrop always
+    /// composites BEHIND the world and never depth-occludes a floated menu. Records the original
+    /// renderQueue / ZWrite for full restore; skips materials already recorded. Shared (not
+    /// instanced): the enclosing shell material is unique, keeping the change reversible with no
+    /// instance leaks. Logs the shader's render state once per material so the next hardware log
+    /// confirms exactly what fired.
+    /// </summary>
+    private static void UnclipBackdrop(Renderer r)
+    {
+        int layer = r.gameObject.layer;
+        Material[] mats = r.sharedMaterials;
+        for (int m = 0; m < mats.Length; m++)
+        {
+            Material mat = mats[m];
+            if (mat == null || IsUnclipRecorded(mat))
+                continue;
+
+            int origQueue = mat.renderQueue;
+            bool hadZWrite = mat.HasProperty("_ZWrite");
+            int origZWrite = hadZWrite ? mat.GetInt("_ZWrite") : 0;
+            MenuUnclipMats.Add((mat, origQueue, hadZWrite, origZWrite));
+
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Background; // 1000
+            if (hadZWrite)
+                mat.SetInt("_ZWrite", 0);
+
+            string shader = mat.shader != null ? mat.shader.name : "<none>";
+            VRLog.Info("Core", $"MR menu-unclip: targeted backdrop '{r.gameObject.name}' " +
+                               $"(layer {LayerName(layer)}) material '{mat.name}' shader '{shader}' — " +
+                               $"renderQueue {origQueue}->1000 (Background); " +
+                               $"ZWrite {(hadZWrite ? origZWrite + "->0" : "property ABSENT (queue-only)")}. " +
+                               "Floated menus now composite over the void shell (rendering otherwise " +
+                               "unchanged; fully reversible).");
         }
     }
 
@@ -411,13 +468,16 @@ internal static class MixedReality
         return false;
     }
 
-    /// <summary>Restore every backdrop material's depth-write (menu closed / MR on / scene change).</summary>
+    /// <summary>Restore every backdrop material's renderQueue + depth-write (menu closed / MR on / scene change).</summary>
     private static void RestoreMenuUnclip()
     {
         for (int i = 0; i < MenuUnclipMats.Count; i++)
         {
             Material mat = MenuUnclipMats[i].Mat;
-            if (mat != null) // Unity fake-null: destroyed by a scene unload
+            if (mat == null) // Unity fake-null: destroyed by a scene unload
+                continue;
+            mat.renderQueue = MenuUnclipMats[i].OrigRenderQueue;
+            if (MenuUnclipMats[i].HadZWrite)
                 mat.SetInt("_ZWrite", MenuUnclipMats[i].OrigZWrite);
         }
         MenuUnclipMats.Clear();
