@@ -583,6 +583,14 @@ internal static class ModalFallback
         /// family) — the ones whose gamepad-nav selection highlight flickers and that the
         /// selection guard applies to (P6 flicker fix, <see cref="ApplyMenuSelectionGuard"/>).</summary>
         public bool FullScreenMenu;
+
+        /// <summary>
+        /// Grabbable/scalable world affordance for this floated modal (sub-item B): the
+        /// menu can be repositioned + two-hand-resized like the control board via the shared
+        /// <see cref="PanelGrabHandle"/>. Null for the end-of-scenario Sieg/Niederlage
+        /// results panels — those stay spawn-in-view, not grabbable (<see cref="IsGrabbableModal"/>).
+        /// </summary>
+        public GrabbableModal? Grab;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -796,6 +804,7 @@ internal static class ModalFallback
                 continue;
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
+            wp.Grab?.Destroy(); // drop the mod-owned grab holder (sub-item B) before releasing the host
             CanvasConversion.Release(wp.Panel); // restores the exact 2D home
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' released — restored to its 2D home " +
                                   $"(open={wp.Window != null && wp.Window.IsOpen}, " +
@@ -832,6 +841,12 @@ internal static class ModalFallback
             if (raycaster != null && !raycaster.enabled)
                 raycaster.enabled = true;
         }
+
+        // 5. Sub-item B: the game-owned host follows its mod-owned grab frame every tick
+        //    (static while ungripped; moved/scaled by the shared PanelGrabHandle while a hand
+        //    grips the bar). No-op for the non-grabbable Sieg/Niederlage panels (Grab == null).
+        for (int i = 0; i < Converted.Count; i++)
+            Converted[i].Grab?.Tick();
 
         // (Content fitting — test #13/#14 — is centralized in CanvasConversion.Tick:
         // every pokeable host is fitted after the show animation and periodically
@@ -1192,11 +1207,25 @@ internal static class ModalFallback
             // UICharacterStoryBox, not the 1920x1080 stretch root). The fit itself
             // runs centrally in CanvasConversion.Tick (test #14 item 1).
             panel.FitContentRoot = contentRoot;
+
+            // Sub-item B: make the floated menu (pause/Options/Multiplayer and every other
+            // secondary window) a grabbable + two-hand-scalable world element via the shared
+            // PanelGrabHandle — EXCEPT the end-of-scenario Sieg/Niederlage results panels,
+            // which stay spawn-in-view exactly as before. Build reads the host's just-placed
+            // HMD pose so the panel does not jump.
+            GrabbableModal? grab = null;
+            if (IsGrabbableModal(window.ID))
+            {
+                grab = new GrabbableModal();
+                grab.Build(panel, WindowScaleFactor, name);
+            }
+
             Converted.Add(new WindowPanel
             {
                 Window = window,
                 Panel = panel,
                 FullScreenMenu = fullScreenMenu,
+                Grab = grab,
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
@@ -1226,24 +1255,57 @@ internal static class ModalFallback
             WindowPanel wp = Converted[i];
             if (!wp.Panel.IsAlive)
                 continue;
-            PlaceAtHmd(wp.Panel);
+            // Sub-item B: for a grabbable modal re-seat the GRAB FRAME (the host follows it
+            // every tick) — placing the host directly would be snapped straight back by the
+            // next follow tick. Non-grabbable results panels re-place the host as before.
+            if (wp.Grab != null)
+            {
+                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _))
+                    wp.Grab.PlaceFrameAt(pos, rot);
+            }
+            else
+            {
+                PlaceAtHmd(wp.Panel);
+            }
             count++;
         }
         return count;
     }
 
-    /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
-    private static void PlaceAtHmd(ConvertedPanel panel)
+    /// <summary>
+    /// True for every floated modal EXCEPT the end-of-scenario Sieg/Niederlage results
+    /// panels: those must stay spawn-in-view, not grabbable (sub-item B exclusion). Every
+    /// other floated window — the pause/ESC menu, Options, Multiplayer and any secondary
+    /// window it opens — becomes a grabbable + two-hand-scalable world element.
+    /// </summary>
+    private static bool IsGrabbableModal(UIWindowID id) =>
+        id != UIWindowID.ResultsPanel && id != UIWindowID.AdventureCompletionPanel;
+
+    /// <summary>HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.</summary>
+    private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale)
     {
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
-            return;
-        float scale = PanelLayout.WorldScale;
+        {
+            pos = default;
+            rot = Quaternion.identity;
+            scale = 1f;
+            return false;
+        }
+        scale = PanelLayout.WorldScale;
         Transform h = head.transform;
         Vector3 fwd = h.forward;
-        Vector3 pos = h.position + fwd * (WindowDistanceMeters * scale);
+        pos = h.position + fwd * (WindowDistanceMeters * scale);
         // Canvas front faces -forward: point +Z away from the viewer.
-        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
+        rot = Quaternion.LookRotation(fwd, Vector3.up);
+        return true;
+    }
+
+    /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
+    private static void PlaceAtHmd(ConvertedPanel panel)
+    {
+        if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale))
+            return;
         CanvasConversion.PlaceHost(panel, pos, rot, scale * WindowScaleFactor);
     }
 
@@ -1253,6 +1315,7 @@ internal static class ModalFallback
         {
             WindowPanel wp = Converted[i];
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
+            wp.Grab?.Destroy(); // sub-item B: drop the mod-owned grab holder before releasing the host
             CanvasConversion.Release(wp.Panel);
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' released ({reason}) — restored to its 2D home.");
         }

@@ -1,0 +1,196 @@
+using GloomhavenVR.Core;
+using UnityEngine;
+
+namespace GloomhavenVR.WorldUI;
+
+/// <summary>
+/// Makes a floated modal window (<see cref="ModalFallback"/>) a GRABBABLE + SCALABLE
+/// world element — exactly like the control board / combat log — by reusing the SHARED
+/// grab core (<see cref="PanelGrabHandle"/> + <see cref="IPanelGrabOwner"/>): one hand
+/// grips the brass bar under the panel to MOVE it, two hands RESIZE it (0.5x-2x). No new
+/// grab mechanism is invented; this only owns a small mod-owned holder/frame the same way
+/// <see cref="Surfaces.CombatLogSurface"/> does, and lets the game-owned world-space host
+/// FOLLOW that frame each tick.
+///
+/// TRANSFORM LAYOUT (mirrors CombatLogSurface): holder (identity pose, localScale =
+/// diorama WorldScale) → frame (grab ROOT at the PANEL CENTER; localScale = user size
+/// factor 0.5-2) → bar visual (a child just under the panel's bottom edge). The
+/// grab-zone collider lives on the frame with its centre offset down to the bar, so the
+/// grip lands on the visible handle while the frame origin stays at the panel centre.
+///
+/// HOST FOLLOW: the game-owned host is never re-parented (mount-seam reversibility rule);
+/// each <see cref="Tick"/> its world pose is copied from the frame and its scale is
+/// metersPerPixel × WorldScale × <c>extraScale</c> × factor — the SAME convention
+/// <see cref="ModalFallback"/> places it with, plus the live user grab factor. When the
+/// user is not gripping, the frame is static, so the host is static too (no drift).
+///
+/// INPUT: poke/laser clicks on the menu widgets are unaffected — they drive the real
+/// uGUI through the host's raycaster (UguiPokeSurfaces / RayUguiDriver), a different path
+/// than the grip-grab, and the bar sits BELOW the content so it never overlaps a widget.
+/// The world-grab yields any grip that starts on a highlighted/held grabbable, so gripping
+/// the bar moves the menu instead of the diorama (PanelGrabHandle's documented arbitration).
+/// </summary>
+internal sealed class GrabbableModal : IPanelGrabOwner
+{
+    /// <summary>Gap below the panel's bottom edge to the bar centre (frame-local, scale-1 metres).</summary>
+    private const float BarGapMeters = 0.03f;
+    private const float BarThickness = 0.024f;
+    private const float BarWidthFraction = 0.55f;
+    private const float ZoneWidthFraction = 0.62f;
+    private const float MinBarWidth = 0.04f;
+
+    private ConvertedPanel _panel = null!;
+    private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
+    private string _logName = "Menu";
+
+    private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
+    private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
+    private Transform? _bar;
+    private BoxCollider? _grabZone;
+    private PanelGrabHandle? _handle;
+
+    /// <summary>True while a hand grips the bar (owner skips no writes — the host just follows).</summary>
+    internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
+
+    /// <summary>
+    /// Build the grab affordance for a freshly floated, freshly placed modal host. The
+    /// frame is seeded at the host's CURRENT world pose (the host was just placed at the
+    /// HMD), so the first follow tick keeps the panel exactly where it spawned — no jump.
+    /// </summary>
+    internal void Build(ConvertedPanel panel, float extraScale, string logName)
+    {
+        _panel = panel;
+        _extraScale = extraScale;
+        _logName = logName;
+        EnsureFrame();
+        if (_frame != null && panel.HostGo != null)
+        {
+            Transform h = panel.HostGo.transform;
+            _frame.SetPositionAndRotation(h.position, h.rotation);
+            _frame.localScale = Vector3.one; // user factor 1x
+        }
+        Tick(); // place host from the frame + size the bar immediately
+    }
+
+    /// <summary>
+    /// Re-seat the frame (and thus the whole panel) at a fresh pose — used on presence
+    /// regain (RefloatOpenWindows), where the user may have physically moved while the HMD
+    /// was off and a menu stranded out of view would be un-dismissable.
+    /// </summary>
+    internal void PlaceFrameAt(Vector3 position, Quaternion rotation)
+    {
+        EnsureFrame();
+        if (_frame == null)
+            return;
+        _frame.SetPositionAndRotation(position, rotation);
+        Tick();
+    }
+
+    // ---- IPanelGrabOwner --------------------------------------------------------------------
+
+    Transform? IPanelGrabOwner.GrabRoot => _frame;
+
+    bool IPanelGrabOwner.GrabVisible =>
+        _panel != null && _panel.IsAlive && _holder != null && _holder.gameObject.activeInHierarchy;
+
+    // Carry the yaw with the hand like the tray/combat log — nothing else authors the
+    // modal's rotation, so there is no two-writer jitter.
+    bool IPanelGrabOwner.GrabCarriesYaw => true;
+
+    // Free placement: the menu stays wherever the user left it while open; a re-open
+    // re-floats it at the HMD (ModalFallback), so there is nothing to persist here.
+    void IPanelGrabOwner.OnGrabFinished() { }
+
+    // ---- per-frame follow -------------------------------------------------------------------
+
+    /// <summary>The game-owned host follows the mod-owned grab frame (position, rotation, scale).</summary>
+    internal void Tick()
+    {
+        if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _panel.HostRect == null)
+            return;
+        EnsureFrame();
+        if (_holder == null || _frame == null)
+            return;
+
+        float worldScale = PanelLayout.WorldScale;
+        _holder.localScale = Vector3.one * worldScale;
+        if (!_holder.gameObject.activeSelf)
+            _holder.gameObject.SetActive(true);
+
+        float factor = Mathf.Clamp(_frame.localScale.x, 0.5f, 2f);
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+
+        Transform host = _panel.HostGo.transform;
+        host.SetPositionAndRotation(_frame.position, _frame.rotation);
+        host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * factor);
+
+        // Bar/zone track the live host rect (content-fit modals re-fit; full-screen menus
+        // are fixed). worldScale/factor divide out — these are frame-local scale-1 metres.
+        Rect rect = _panel.HostRect.rect;
+        float halfHeight = rect.height * metersPerPixel * _extraScale * 0.5f;
+        float width = rect.width * metersPerPixel * _extraScale;
+        SyncBar(halfHeight, width);
+    }
+
+    // ---- build ------------------------------------------------------------------------------
+
+    private void EnsureFrame()
+    {
+        if (_holder != null && _frame != null)
+            return;
+
+        var holderGo = new GameObject($"GloomhavenVR.ModalGrab_{_logName}");
+        _holder = holderGo.transform;
+
+        var frameGo = new GameObject("Frame");
+        _frame = frameGo.transform;
+        _frame.SetParent(_holder, worldPositionStays: false);
+
+        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        bar.name = "Bar";
+        Object.Destroy(bar.GetComponent<Collider>());
+        bar.transform.SetParent(_frame, worldPositionStays: false);
+        bar.transform.localScale = new Vector3(0.2f, BarThickness, BarThickness);
+        var mr = bar.GetComponent<MeshRenderer>();
+        mr.sharedMaterial = WorldUIAssets.CreateFlatMaterial(new Color(0.62f, 0.5f, 0.28f)); // brass "grab me"
+        _bar = bar.transform;
+
+        // Grab zone + shared grab core (collider BEFORE the handle: its OnEnable registers it).
+        _grabZone = frameGo.AddComponent<BoxCollider>();
+        _grabZone.isTrigger = true;
+        _grabZone.size = new Vector3(0.25f, 0.05f, 0.05f);
+        _handle = frameGo.AddComponent<PanelGrabHandle>();
+        _handle.Init(this, mr, "WorldUI", $"{_logName} menu");
+
+        // Render-only mod layer — grabs/pokes route through the registries, not layers.
+        VRLayers.Apply(holderGo);
+        VRLog.Info("WorldUI", $"MODAL GRAB: '{_logName}' is now a grabbable/scalable world element " +
+                              "(grip the bar to move, two hands to resize 0.5x-2x).");
+    }
+
+    private void SyncBar(float halfHeight, float width)
+    {
+        if (_bar == null || _grabZone == null)
+            return;
+        float y = -(halfHeight + BarGapMeters);
+        float barWidth = Mathf.Max(width * BarWidthFraction, MinBarWidth);
+        _bar.localPosition = new Vector3(0f, y, 0f);
+        _bar.localScale = new Vector3(barWidth, BarThickness, BarThickness);
+        _grabZone.center = new Vector3(0f, y, 0f);
+        _grabZone.size = new Vector3(Mathf.Max(width * ZoneWidthFraction, MinBarWidth), 0.05f, 0.05f);
+    }
+
+    // ---- teardown ---------------------------------------------------------------------------
+
+    /// <summary>Destroy the mod-owned holder (the game host is released separately by the caller).</summary>
+    internal void Destroy()
+    {
+        if (_holder != null)
+            Object.Destroy(_holder.gameObject);
+        _holder = null;
+        _frame = null;
+        _bar = null;
+        _grabZone = null;
+        _handle = null;
+    }
+}
