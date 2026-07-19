@@ -808,7 +808,23 @@ internal static class ModalFallback
             AddPollWindow(manager.dialogPopup.Window);
 
         bool anyOpen = OpenWindows.Count > 0;
-        bool want = inScenario && anyOpen;
+        // Item 3b (user): the PLAYER-REACHABLE menus (pause/ESC, Options, Multiplayer,
+        // Compendium…) must NOT lock world interaction — the user wants to keep manipulating the
+        // board / cards while the pause menu is open. Assert ModalUI ONLY when a genuine BLOCKING
+        // prompt is open (story, level message, dialog-confirm, results, durability, …) — i.e. an
+        // open window whose ID is NOT one of the reachable menus. If ONLY reachable menus are
+        // open, leave the mode alone so the fan/board stay live. The menus still float, are
+        // grabbable, and carry the X button — only the mode lock is lifted.
+        bool anyBlocking = false;
+        for (int i = 0; i < OpenWindows.Count; i++)
+        {
+            if (!NonBlockingMenus.Contains(OpenWindows[i].ID))
+            {
+                anyBlocking = true;
+                break;
+            }
+        }
+        bool want = inScenario && anyOpen && anyBlocking;
 
         // ---- window-style conversions (P8) ------------------------------------------
         // The manual chord's full screen needs the windows back in the 2D composite;
@@ -1348,6 +1364,25 @@ internal static class ModalFallback
     /// </summary>
     private static bool IsGrabbableModal(UIWindowID id) =>
         id != UIWindowID.ResultsPanel && id != UIWindowID.AdventureCompletionPanel;
+
+    /// <summary>
+    /// Item 3b: player-reachable menus that must NOT assert ModalUI, so the user keeps FULL
+    /// world interaction (board / cards / fan) while the pause menu — or a submenu opened from
+    /// it (options / multiplayer / compendium) — is open. Every other window that reaches the
+    /// modal path (story, level messages, dialog-confirms, results, durability) still blocks.
+    /// These menus still float, stay grabbable, and carry the X button — only the mode lock is
+    /// lifted for them.
+    /// </summary>
+    private static readonly HashSet<UIWindowID> NonBlockingMenus = new()
+    {
+        UIWindowID.ESCMenu,
+        UIWindowID.Options,
+        UIWindowID.OptionsSubmenu,
+        UIWindowID.ViceOptionsSubmenu,
+        UIWindowID.CompendiumPanel,
+        UIWindowID.MultiplayerFriendList,
+        UIWindowID.HelpBox,
+    };
 
     /// <summary>
     /// Item 2: lateral+vertical stagger (real meters) between successive floated windows so a

@@ -87,10 +87,18 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private const float FitPinHardTimeoutSeconds = 2.5f;
 
-    // NOTE (user #5): the earlier lazy head-follow (deadzone/dwell/ease constants) is
-    // GONE. The reveal now plants ONCE in the forward view and holds an absolute world
-    // pose — no glide, no chasing the head — so handling the control board can never make
-    // it drift. See PlantPose().
+    // Lazy follow (RIG-LOCAL — user #5 final: "spawn in front, lazy movement, independent of
+    // moving other elements"). The follow is computed ENTIRELY in the rig's tracking space
+    // (head pose relative to RigRoot), so it reacts ONLY to real PHYSICAL head movement — NOT
+    // to moving/rotating the control board: world-grab moves the rig ROOT (head + panel ride
+    // it together, unchanged in rig-local), and a tray-grab moves the tray, not the rig — so
+    // neither trips the follow (proven by the diagnostic: host world pos stayed fixed while
+    // the tray yaw was dragged to 141°). The panel spawns in the forward view, sits still, and
+    // glides back to re-centre only when the player physically turns/walks past the deadzone.
+    private const float FollowDeadzoneDeg = 22f;
+    private const float FollowDwellSeconds = 0.5f;
+    private const float FollowSettledDeg = 5f;
+    private const float FollowEaseRate = 3f;
 
     // Item 3 (user #4, RECURRING) — HEAD/VIEW-ANCHORED height. The reveal must land in the
     // player's comfortable forward VIEW so it reads WITHOUT looking up. Two earlier takes
@@ -121,10 +129,15 @@ internal sealed class EnemyRevealSurface
     // handling the control board, so the reveal drifted "depending on how I rotate the
     // board." Holding a fixed world pose removes ALL of that: the board / tray / world-grab
     // move the RIG, never this stored world pose, and there is no follow to chase the head.
-    private Vector3 _position;                        // ABSOLUTE world host position (planted once, held)
-    private Quaternion _rotation = Quaternion.identity; // ABSOLUTE world host rotation (upright, facing the head at plant)
-    private bool _placed;                            // false until PlantPose() snaps the first in-view world pose
-    private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last planted at (re-plant on recenter)
+    // Stored pose is RIG-LOCAL (head pose relative to RigRoot), re-projected through the LIVE
+    // rig each frame in Place(). Rig-local is grab-invariant relative to the physical head, so
+    // the follow below reacts only to real head movement, never to board/tray/world-grab.
+    private Vector3 _position;                        // rig-local host position (head-relative)
+    private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (upright, facing the head)
+    private bool _placed;                            // false until the first in-view pose is snapped
+    private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at (re-snap on recenter)
+    private float _offGazeSince = -1f;               // unscaled time the panel first drifted past the deadzone
+    private bool _easing;                            // gliding back to the in-view target
     private bool _lastVisible;
     private bool _dropLogged;                        // one-shot per reveal: log the applied plant pose
     private float _lastDiagTime = -99f;              // throttle for the movement diagnostic (~1/s)
@@ -179,7 +192,9 @@ internal sealed class EnemyRevealSurface
                     _fitFirstMeasured = -1f;
                     _fitPinned = false;
                     _placedMetersPerPx = -1f;
-                    _placed = false; // PlantPose() snaps the first in-view world pose on the next tick
+                    _placed = false; // PlantPose() snaps the first in-view pose on the next tick
+                    _easing = false;
+                    _offGazeSince = -1f;
                     _dropLogged = false; // re-log the applied plant pose for this reveal (item 3)
                 }
             }
@@ -300,43 +315,20 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Plant the reveal ONCE in the player's forward view from the head's ABSOLUTE WORLD
-    /// pose, then hold that world pose verbatim (user #5, recurring "board coupling").
-    ///
-    /// Why the switch away from the earlier rig-local + lazy-follow build: that build was
-    /// mathematically board-invariant for the pose ITSELF (the head is a child of the rig
-    /// root that WorldGrab moves, so a rig-local pose re-projected through the live rig
-    /// stays glued to the physical head through any grab). The residual "moves depending on
-    /// how I rotate the control board" was the FOLLOW, not the frame: the lazy head-follow
-    /// re-centred whenever the head drifted &gt;22° off the panel, and the player physically
-    /// leans and turns while grabbing / rotating the control board — so the reveal glided
-    /// around in lock-step with board handling (the logs show the follow firing 24–35° right
-    /// as the tray yaw is dragged). Killing the follow and pinning an ABSOLUTE world pose
-    /// removes every path: the board / tray / world-grab move the RIG, never this stored
-    /// world pose, and there is no follow to chase the head. The panel spawns in view and
-    /// then sits perfectly still until dismissed.
-    ///
-    /// Recomputed ONLY when not yet placed or when the rig was rebuilt / recentred
-    /// (RigPoseVersion changed) — a deliberate recentre teleports the whole rig, so the
-    /// reveal re-plants in front of the head there; a plain world-grab does NOT bump
-    /// RigPoseVersion, so it can never move the reveal.
+    /// Spawn the reveal in the player's forward view and LAZILY follow the PHYSICAL head
+    /// (user #5 final: "spawn in front with the lazy movement, completely independent of how I
+    /// move other elements"). ALL of this is computed in the rig's TRACKING SPACE (head pose
+    /// relative to RigRoot), so it responds ONLY to real physical head movement:
+    /// - moving/rotating the control board via WORLD-GRAB rotates the rig ROOT, which carries
+    ///   the head AND this rig-local pose together → no change in rig-local → no follow;
+    /// - a TRAY-grab moves the tray, not the rig → no change in rig-local → no follow
+    ///   (proven by the diagnostic: host world pos held fixed while the tray yaw hit 141°).
+    /// Only a genuine physical head turn/walk past the deadzone glides the panel back into
+    /// the forward view. SNAP (no ease) at spawn and on rig rebuild/recenter (RigPoseVersion).
     /// </summary>
     private void PlantPose(Camera head, Transform? rig)
     {
-        int poseVersion = Rig.VRRigDriver.RigPoseVersion;
-        if (_placed && poseVersion == _facedPoseVersion)
-            return; // already planted — hold the RIG-LOCAL pose, re-projected each frame
-
-        // RIG-LOCAL plant (user #5 — the CORRECT decoupling). Read the head's pose RELATIVE to
-        // the rig root, NOT world space. The HeadCamera is a CHILD of RigRoot, and WorldGrab
-        // moves/rotates/scales RigRoot about the grab pivot — so a WORLD-fixed pose SWINGS out
-        // of view when the player world-grabs to reposition the board (the residual "reacts to
-        // board movement": world-grab rotates the view, a world-fixed reveal stays put and
-        // slides off). Storing rig-LOCAL and re-projecting through the LIVE rig each frame
-        // (Place) keeps the reveal glued to the PHYSICAL head through any grab — world-grab
-        // moves head AND reveal together (both are rig children), so it stays in front of the
-        // face and never appears to move with the board. No follow, so it also never chases a
-        // head movement (user #5: "nothing to do with head movements").
+        // Head pose in the rig's tracking space (grab-invariant relative to the physical head).
         Vector3 headPosL;
         Quaternion headRotL;
         if (rig != null)
@@ -352,29 +344,72 @@ internal sealed class EnemyRevealSurface
         }
         Vector3 gazeL = headRotL * Vector3.forward;
 
-        // Upright billboard facing the head (yaw only), +Z toward the viewer — built purely
-        // from the rig-local gaze heading, never any board / tray / rig-root term.
+        // Upright billboard facing the head (yaw only), +Z toward the viewer.
         Vector3 awayL = gazeL;
         awayL.y = 0f;
         awayL = awayL.sqrMagnitude > 1e-4f ? awayL.normalized : Vector3.forward;
-        _rotation = Quaternion.LookRotation(awayL, Vector3.up);
+        Quaternion desiredRot = Quaternion.LookRotation(awayL, Vector3.up);
 
         // Along the ACTUAL gaze (pitch included) at a reading distance, dropped slightly below
-        // the gaze line (item 3). RAW rig-local metres: Place() projects through the rig (whose
-        // lossyScale is the diorama scale) so it lands at a FIXED comfortable REAL distance.
-        _position = headPosL + gazeL * RevealReadingDistance - Vector3.up * RevealViewDrop;
+        // the gaze line. RAW rig-local metres: Place() projects through the rig (diorama scale)
+        // so it lands at a FIXED comfortable REAL distance.
+        Vector3 desiredPos = headPosL + gazeL * RevealReadingDistance - Vector3.up * RevealViewDrop;
 
-        _placed = true;
-        _facedPoseVersion = poseVersion;
-
-        if (!_dropLogged)
+        int poseVersion = Rig.VRRigDriver.RigPoseVersion;
+        if (!_placed || poseVersion != _facedPoseVersion)
         {
-            _dropLogged = true;
-            float worldY = rig != null ? rig.TransformPoint(_position).y : _position.y;
-            VRLog.Info("WorldUI", $"ENEMY REVEAL planted (RIG-LOCAL, plant-once) world-y={worldY:F3} m " +
-                                  $"(gaze reading distance {RevealReadingDistance:F2} m, dropped {RevealViewDrop:F2} m) — " +
-                                  "glued to the physical head via the live rig, NO follow: world-grab keeps it in front " +
-                                  "of the face (never swings with the board), and it never chases head movement.");
+            // SNAP: first spawn, or a deliberate recentre/rebuild teleported the whole rig.
+            _position = desiredPos;
+            _rotation = desiredRot;
+            _placed = true;
+            _facedPoseVersion = poseVersion;
+            _offGazeSince = -1f;
+            _easing = false;
+            if (!_dropLogged)
+            {
+                _dropLogged = true;
+                float worldY = rig != null ? rig.TransformPoint(_position).y : _position.y;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL spawned (RIG-LOCAL lazy-follow) world-y={worldY:F3} m " +
+                                      $"(gaze reading distance {RevealReadingDistance:F2} m, dropped {RevealViewDrop:F2} m) — " +
+                                      "follows the PHYSICAL head only; board/tray/world-grab never move it.");
+            }
+            return;
+        }
+
+        // Drift = the current panel centre's angle off the gaze, ALL in the rig frame — so
+        // world-grab / tray-grab (which leave headPosL, gazeL and the stored rig-local pose
+        // unchanged) never trip it; only a physical head turn/walk does.
+        Vector3 toPanel = _position - headPosL;
+        float off = toPanel.sqrMagnitude > 1e-6f ? Vector3.Angle(gazeL, toPanel) : 0f;
+        if (off > FollowDeadzoneDeg)
+        {
+            if (_offGazeSince < 0f)
+                _offGazeSince = Time.unscaledTime;
+            if (!_easing && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
+            {
+                _easing = true;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze for " +
+                                      $">{FollowDwellSeconds:F1}s (physical head moved) — gliding back into view.");
+            }
+        }
+        else
+        {
+            _offGazeSince = -1f;
+        }
+
+        if (_easing)
+        {
+            float t = Time.deltaTime * FollowEaseRate;
+            _position = Vector3.Lerp(_position, desiredPos, t);
+            _rotation = Quaternion.Slerp(_rotation, desiredRot, t);
+            Vector3 toDesired = desiredPos - headPosL;
+            bool posSettled = toDesired.sqrMagnitude < 1e-6f
+                || Vector3.Angle(_position - headPosL, toDesired) < FollowSettledDeg;
+            if (posSettled && Quaternion.Angle(_rotation, desiredRot) < FollowSettledDeg)
+            {
+                _easing = false;
+                _offGazeSince = -1f;
+            }
         }
     }
 

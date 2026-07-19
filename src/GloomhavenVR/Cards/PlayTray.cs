@@ -736,8 +736,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Items 4/6: nudge the follow/pin toggle by the per-board offset (base PinBase set by NewAnchor).
         pinAnchor.localPosition += CardsConfig.PinOffset(CardsConfig.CurrentBoard).Value;
         _followAnchor = pinAnchor;
+        // Item 5 (user): pin/gear were built NON-boxy (flat quad, no walls) while Confirm/Undo
+        // pass boxy:true — that is why "Fixiert"/"Einstellungen" showed no walls but "Fortfahren"
+        // did. Build them as the same beveled keycaps (thickness ≈ SquareCapThickness).
         _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), Core.Loc.Mod("follow"), ToggleFollow);
+            new Color(0.75f, 0.55f, 0.2f), Core.Loc.Mod("follow"), ToggleFollow,
+            thickness: 0.03f, boxy: true);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
@@ -748,7 +752,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _gearAnchor = gearAnchor;
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
             new Color(0.4f, 0.42f, 0.5f), Core.Loc.Mod("set"),
-            () => WorldUI.SettingsPanel.RequestToggle());
+            () => WorldUI.SettingsPanel.RequestToggle(),
+            thickness: 0.03f, boxy: true); // Item 5: beveled keycap walls like Confirm/Undo
 
         // Baseline for the TickStatus language-change guard: the follow/gear labels self-heal
         // there on an actual language change (round/confirm/undo re-read every tick already).
