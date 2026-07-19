@@ -85,11 +85,18 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
         HeldFigures.Add(_actor);
 
         // Ride the hand's grab anchor. worldPositionStays keeps the mini at its board
-        // world-scale as it enters the hand (no pop); HeldScale then zooms it for
-        // inspection. Position/rotation come from the tunable held pose.
-        t.SetParent(hand.Rig.GrabAnchor, worldPositionStays: true);
+        // world-scale AND its upright board rotation as it enters the hand (no pop);
+        // HeldScale then zooms it for inspection.
+        Transform anchor = hand.Rig.GrabAnchor;
+        t.SetParent(anchor, worldPositionStays: true);
+        // Pinch position: a small grab-anchor-local offset toward the thumb–index fingertips.
         t.localPosition = FigureGrabConfig.HeldOffset;
-        t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler);
+
+        if (FigureGrabConfig.HeldUpright.Value)
+            ApplyUprightPose(t, anchor);
+        else
+            t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler); // legacy flat-on-palm
+
         t.localScale *= FigureGrabConfig.HeldScale.Value;
         _attached = true;
 
@@ -98,6 +105,55 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
         StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character);
 
         VRLog.Info("FigureGrab", $"{hand.Side} grabbed figure ({Describe()}).");
+    }
+
+    /// <summary>
+    /// Stand the mini UPRIGHT in WORLD space (feet→head along world up, exactly as it stands
+    /// on the board) and yaw it to face the player — instead of inheriting the hand's palm tilt
+    /// that lays it flat. Because <c>SetParent(worldPositionStays:true)</c> preserved the board
+    /// rotation, <paramref name="t"/>.rotation is already the upright board pose; we only rotate
+    /// it about WORLD UP so the up-alignment is untouched (no model-axis assumption), then bake
+    /// it into localRotation. Baked once, so the mini still tracks natural wrist rotation while
+    /// inspecting (like turning a chess piece in your fingers).
+    /// </summary>
+    private static void ApplyUprightPose(Transform t, Transform anchor)
+    {
+        Quaternion boardRot = t.rotation; // upright, as the mini stands on its cell
+
+        // Mini's current front in the horizontal plane (assume local +Z = front; a tunable yaw
+        // corrects models whose readable side differs — see HeldFaceYawDegrees).
+        Vector3 curFront = boardRot * Vector3.forward;
+        curFront.y = 0f;
+        if (curFront.sqrMagnitude < 1e-6f)
+        {
+            curFront = anchor.forward;
+            curFront.y = 0f;
+            if (curFront.sqrMagnitude < 1e-6f)
+                curFront = Vector3.forward;
+        }
+        curFront.Normalize();
+
+        // Direction from the pinch point to the player's head (horizontal) → where the front
+        // should point so the card face is readable.
+        Camera? head = GloomhavenVR.Rig.VRRigDriver.HeadCamera;
+        Vector3 toHead = head != null ? head.transform.position - t.position : curFront;
+        toHead.y = 0f;
+        if (toHead.sqrMagnitude < 1e-6f)
+            toHead = curFront;
+        toHead.Normalize();
+
+        // Pure world-up yaw (both vectors horizontal) — preserves the upright up-alignment.
+        Quaternion faceYaw = Quaternion.FromToRotation(curFront, toHead);
+        Quaternion worldRot = faceYaw * boardRot;
+
+        // User inspection adjustments, in the mini's own frame: tilt tips it toward the face,
+        // yaw spins the readable front toward the player.
+        worldRot *= Quaternion.Euler(
+            FigureGrabConfig.HeldTiltDegrees.Value,
+            FigureGrabConfig.HeldFaceYawDegrees.Value,
+            0f);
+
+        t.rotation = worldRot; // baked into localRotation (child of the moving anchor)
     }
 
     public void OnRelease(VRHand hand, Vector3 velocity)
