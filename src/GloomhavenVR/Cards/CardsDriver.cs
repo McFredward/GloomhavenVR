@@ -109,6 +109,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private bool _applyOrientation;      // board tilt / yaw / scale / pos-offset
     private bool _applyActive;           // active-cards mount offset / card scale / grid spacing
     private bool _applyPiles;            // discard/burn pile mount offset / scale / inter-pile spacing
+    private bool _applyObjectives;       // items 4/6: objectives ('Aufgaben') dock offset / scale
+    private bool _applyElements;         // items 4/6: element infusion ('Elemente') dock offset / scale
+    private bool _applyHudWidgets;       // items 4/6: gear / follow-pin / round-readout offsets (in place)
+    private bool _applyCluster;          // items 4/6: turn-flow ButtonCluster offset / scale
 
     /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
     private void SubscribeBoardTuning(bool subscribe)
@@ -137,6 +141,15 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.PileOffset(b).SettingChanged += OnPilesTuningChanged;
                 CardsConfig.PileScale(b).SettingChanged += OnPilesTuningChanged;
                 CardsConfig.PileSpacing(b).SettingChanged += OnPilesTuningChanged;
+                CardsConfig.ObjectivesOffset(b).SettingChanged += OnObjectivesTuningChanged;
+                CardsConfig.ObjectivesScale(b).SettingChanged += OnObjectivesTuningChanged;
+                CardsConfig.ElementsOffset(b).SettingChanged += OnElementsTuningChanged;
+                CardsConfig.ElementsScale(b).SettingChanged += OnElementsTuningChanged;
+                CardsConfig.VRSettingsOffset(b).SettingChanged += OnHudWidgetTuningChanged;
+                CardsConfig.PinOffset(b).SettingChanged += OnHudWidgetTuningChanged;
+                CardsConfig.ReadoutOffset(b).SettingChanged += OnHudWidgetTuningChanged;
+                CardsConfig.ClusterOffset(b).SettingChanged += OnClusterTuningChanged;
+                CardsConfig.ClusterScale(b).SettingChanged += OnClusterTuningChanged;
             }
             else
             {
@@ -160,6 +173,15 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.PileOffset(b).SettingChanged -= OnPilesTuningChanged;
                 CardsConfig.PileScale(b).SettingChanged -= OnPilesTuningChanged;
                 CardsConfig.PileSpacing(b).SettingChanged -= OnPilesTuningChanged;
+                CardsConfig.ObjectivesOffset(b).SettingChanged -= OnObjectivesTuningChanged;
+                CardsConfig.ObjectivesScale(b).SettingChanged -= OnObjectivesTuningChanged;
+                CardsConfig.ElementsOffset(b).SettingChanged -= OnElementsTuningChanged;
+                CardsConfig.ElementsScale(b).SettingChanged -= OnElementsTuningChanged;
+                CardsConfig.VRSettingsOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
+                CardsConfig.PinOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
+                CardsConfig.ReadoutOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
+                CardsConfig.ClusterOffset(b).SettingChanged -= OnClusterTuningChanged;
+                CardsConfig.ClusterScale(b).SettingChanged -= OnClusterTuningChanged;
             }
         }
     }
@@ -171,6 +193,10 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
     private void OnActiveTuningChanged(object sender, System.EventArgs e) => _applyActive = true;
     private void OnPilesTuningChanged(object sender, System.EventArgs e) => _applyPiles = true;
+    private void OnObjectivesTuningChanged(object sender, System.EventArgs e) => _applyObjectives = true;
+    private void OnElementsTuningChanged(object sender, System.EventArgs e) => _applyElements = true;
+    private void OnHudWidgetTuningChanged(object sender, System.EventArgs e) => _applyHudWidgets = true;
+    private void OnClusterTuningChanged(object sender, System.EventArgs e) => _applyCluster = true;
 
     /// <summary>
     /// PART F: consume the per-board tuning dirty flags on the main thread and re-apply the
@@ -238,6 +264,38 @@ internal sealed class CardsDriver : MonoBehaviour
             _piles.ApplyLayout();                                 // re-seat both stacks (scale + inter-pile spacing)
             VRLog.Info("Cards", $"Debug live-apply [{b}]: pile offset {CardsConfig.PileOffset(b).Value}, " +
                                 $"scale {CardsConfig.PileScale(b).Value:F2}×, spacing {CardsConfig.PileSpacing(b).Value:F3} m.");
+        }
+        if (_applyObjectives)
+        {
+            _applyObjectives = false;
+            // Move + resize the docked panel in place: the surface pose-follows the mount's
+            // position AND lossyScale each tick, so no panel reconvert is needed.
+            _tray.SetObjectivesLayout(CardsConfig.ObjectivesOffset(b).Value, CardsConfig.ObjectivesScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: objectives offset {CardsConfig.ObjectivesOffset(b).Value}, " +
+                                $"scale {CardsConfig.ObjectivesScale(b).Value:F2}×.");
+        }
+        if (_applyElements)
+        {
+            _applyElements = false;
+            _tray.SetElementsLayout(CardsConfig.ElementsOffset(b).Value, CardsConfig.ElementsScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: elements offset {CardsConfig.ElementsOffset(b).Value}, " +
+                                $"scale {CardsConfig.ElementsScale(b).Value:F2}×.");
+        }
+        if (_applyHudWidgets)
+        {
+            _applyHudWidgets = false;
+            _tray.SetVRSettingsOffset(CardsConfig.VRSettingsOffset(b).Value);
+            _tray.SetPinOffset(CardsConfig.PinOffset(b).Value);
+            _tray.SetReadoutOffset(CardsConfig.ReadoutOffset(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: gear offset {CardsConfig.VRSettingsOffset(b).Value}, " +
+                                $"pin offset {CardsConfig.PinOffset(b).Value}, readout offset {CardsConfig.ReadoutOffset(b).Value}.");
+        }
+        if (_applyCluster)
+        {
+            _applyCluster = false;
+            _tray.SetClusterLayout(CardsConfig.ClusterOffset(b).Value, CardsConfig.ClusterScale(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: cluster offset {CardsConfig.ClusterOffset(b).Value}, " +
+                                $"scale {CardsConfig.ClusterScale(b).Value:F2}×.");
         }
     }
 
