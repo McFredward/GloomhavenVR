@@ -116,46 +116,26 @@ internal static class MixedReality
     private static bool _loggedActive;  // change-dedup for the on/off log
     private static Color _loggedColor;
 
-    // ---- menu-visibility: keep floated menus from being occluded by the void backdrop (WorldUI item 5a) ----
-    // When MR is OFF the scenario void/backdrop is the level's opaque environment MESH — the
-    // hardware log names it exactly: 'GH_SkySphere' (layer Default/0, size (224.94,71.18,224.94),
-    // shader 'AMP_SkyShader'), the largest renderer that ENCLOSES the head. A floated world-space
-    // menu is uGUI that ZTests LEqual against the depth buffer, so a movable menu dragged toward the
-    // edge of the shell can sit BEHIND the backdrop mesh in depth and be CLIPPED there.
+    // ---- menu-visibility: the sky now STAYS, the MENU renders ON TOP -----------------------
+    // A floated (MR-off) menu is uGUI that ZTests LEqual against the depth buffer, so the enclosing
+    // scenario backdrop ('GH_SkySphere', shader 'AMP_SkyShader' — a squashed dome that writes depth
+    // and exposes no '_ZWrite' to toggle) can occlude a movable menu dragged toward the shell edge.
     //
-    // A previous lever pushed the backdrop material to the Background render queue (1000) and, where
-    // the shader exposed it, disabled depth WRITE. That proved INSUFFICIENT: AMP_SkyShader has no
-    // '_ZWrite' property to toggle, so the shell keeps writing depth, and the squashed dome (y-extent
-    // only ~71 vs ~225 in x/z) has near surfaces that fall CLOSER to the head than a menu dragged out
-    // to the edge — so the menu still fails ZTest LEqual against the shell no matter what queue the
-    // shell draws in. There is no reliable per-menu ZTest override we can apply from here either
-    // (uGUI ZTest lives on each Graphic's material — the game owns those, mutating them blind is
-    // risky and hard to reverse), so we take the guaranteed lever instead.
+    // The previous lever here DISABLED that backdrop renderer outright while a menu floated. The user
+    // found the vanishing sky very distracting, so that lever is GONE: the sky always stays rendered.
+    // The occlusion is instead fixed where it belongs — the floated MODAL's uGUI graphics are switched
+    // to ZTest Always (WorldUI.CanvasConversion 'renderOnTop'), so nothing can occlude them and the sky
+    // is untouched. <see cref="KeepMenusUnclipped"/> is now a no-op kept only for its call sites.
     //
-    // Guaranteed lever: while a menu floats (MR off), DISABLE the enclosing sky/backdrop renderer(s)
-    // outright — exactly what HideSkyGeometry already does for MR ON — using the same proven
-    // IsSkyRenderer gate (sky-ish name/shader, e.g. 'GH_SkySphere'/'AMP_SkyShader', OR bounds that
-    // enclose the head with a large extent on all three axes; a diorama tile/prop never encloses the
-    // head, so the gate never cascades onto it). With the shell not drawn, NOTHING can occlude the
-    // floated menu. The diorama
-    // geometry (in front, non-enclosing) is untouched and stays visible. Only relevant while MR is
-    // OFF (MR hides the backdrop mesh via HideSkyGeometry anyway). Fully reversible — every disabled
-    // renderer is re-enabled on menu close / MR on / scene change / VR stop. When nothing matched,
-    // the enclosing candidates are dumped once so a hardware run can name the real shell.
-    private static readonly List<Renderer> MenuHiddenSky = new(4);
-    private static bool _menuUnclipWanted;   // a floated menu exists (set by WorldUI.ModalFallback)
-    private static bool _menuUnclipActive;
-    private static int _menuUnclipScanNextFrame;
-    private static bool _menuUnclipDiagLogged;
+    // NOTE: the MR-ON path (<see cref="HideSkyGeometry"/> / <see cref="HideSkyMeshes"/>) is unrelated
+    // and fully intact — MR still hides the backdrop mesh so the chroma key shows through.
 
     /// <summary>
-    /// WorldUI item 5a: a floated (movable) menu is open, so the void backdrop must not occlude it.
-    /// While set (and MR OFF), <see cref="TickMenuUnclip"/> disables the enclosing sky/backdrop
-    /// renderer(s) so nothing can occlude the menu, re-enabling them the moment it clears.
-    /// Idempotent per-frame switch — ModalFallback calls it with whether any modal window floats.
-    /// No effect while MR is ON (the backdrop mesh is already hidden by HideSkyGeometry).
+    /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
+    /// by rendering the MODAL on top (WorldUI.CanvasConversion 'renderOnTop'); the sky is never
+    /// disabled for a menu any more, so there is nothing to do here.
     /// </summary>
-    internal static void KeepMenusUnclipped(bool wanted) => _menuUnclipWanted = wanted;
+    internal static void KeepMenusUnclipped(bool wanted) { }
 
     internal static void Bind()
     {
@@ -229,17 +209,10 @@ internal static class MixedReality
         {
             if (_active)
                 RestoreAll();
-            // MR OFF: the void backdrop is drawn as opaque mesh — keep floated menus from being
-            // clipped by it (WorldUI item 5a). Only runs while a menu actually floats.
-            TickMenuUnclip();
+            // MR OFF: the sky STAYS. The floated-menu-vs-sky occlusion is fixed by rendering the
+            // modal on top (WorldUI.CanvasConversion), not by disabling the backdrop here.
             return;
         }
-
-        // MR ON: the backdrop mesh is hidden outright below (HideSkyGeometry), so nothing can clip
-        // the menus — drop the menu-visibility disable we applied while MR was off (re-enable those
-        // renderers; MR's own sweep will hide them again as needed).
-        if (_menuUnclipActive)
-            RestoreMenuUnclip();
 
         Color key = KeyColor.Value;
         key.a = 1f; // the sky clear must be fully opaque for a clean chroma key
@@ -351,97 +324,6 @@ internal static class MixedReality
             _skyDiagLogged = true;
             LogSkyCandidates(all, headPos);
         }
-    }
-
-    // ---- menu-visibility (WorldUI item 5a) -----------------------------------------------------
-
-    /// <summary>
-    /// While a floated menu exists and MR is OFF, DISABLE the enclosing sky/backdrop renderer(s) so
-    /// nothing can occlude the menu — the guaranteed lever (a render-queue/ZWrite tweak proved
-    /// insufficient: AMP_SkyShader exposes no ZWrite property and the squashed dome has near
-    /// surfaces closer than a menu dragged to the edge, so the menu still failed ZTest LEqual).
-    ///
-    /// Targeting reuses the proven <see cref="IsSkyRenderer"/> gate (sky-ish name/shader — matches
-    /// 'GH_SkySphere'/'AMP_SkyShader' — OR bounds enclosing the head with a large extent on all
-    /// three axes). That gate never matches a diorama tile/prop (none enclose the head), so once the
-    /// shell is disabled the next sweep can NOT cascade onto in-front geometry — unlike a blind
-    /// "largest enclosing renderer" fallback, which is why that fallback is deliberately dropped
-    /// here. Throttled like the sky sweep (the backdrop can generate late). Fully reversible via
-    /// <see cref="RestoreMenuUnclip"/>; when nothing matched, the enclosing candidates are dumped once.
-    /// </summary>
-    private static void TickMenuUnclip()
-    {
-        if (!_menuUnclipWanted || !VRSession.IsRunning)
-        {
-            if (_menuUnclipActive)
-                RestoreMenuUnclip();
-            return;
-        }
-        if (Time.frameCount < _menuUnclipScanNextFrame)
-            return;
-        _menuUnclipScanNextFrame = Time.frameCount + SkyScanIntervalFrames;
-
-        Camera? head = VRCameraPolicy.AllowedHead;
-        if (head == null)
-            return;
-        Vector3 headPos = head.transform.position;
-        float sizeFloor = Mathf.Max(SkyMinEnclosingSize, head.farClipPlane * SkyEnclosingFarFraction);
-
-        Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>(); // active renderers only
-        for (int i = 0; i < all.Length; i++)
-        {
-            Renderer r = all[i];
-            if (r == null || !r.enabled)
-                continue;
-            int layer = r.gameObject.layer;
-            if (layer == VRLayers.ModLayer || layer == 5) // never our own mod visuals / UI hosts
-                continue;
-            if (IsMenuHiddenSky(r) || !IsSkyRenderer(r, headPos, sizeFloor))
-                continue;
-
-            MenuHiddenSky.Add(r);
-            r.enabled = false;
-            Bounds b = r.bounds;
-            VRLog.Info("Core", $"MR-off menu-visibility: disabled sky/backdrop renderer " +
-                               $"'{r.gameObject.name}' (layer {LayerName(layer)}, bounds size {b.size} " +
-                               $"@ {b.center}, shader '{ShaderName(r)}') while a menu floats — the " +
-                               "enclosing shell can no longer occlude the floated menu at its edge. " +
-                               "Re-enabled on menu close / MR on / scene change / VR stop.");
-        }
-
-        _menuUnclipActive = MenuHiddenSky.Count > 0;
-        // Nothing matched (no sky/enclosing renderer): dump the candidates ONCE so a hardware run can
-        // name the real void shell.
-        if (MenuHiddenSky.Count == 0 && !_menuUnclipDiagLogged)
-        {
-            _menuUnclipDiagLogged = true;
-            LogSkyCandidates(all, headPos);
-        }
-    }
-
-    private static bool IsMenuHiddenSky(Renderer r)
-    {
-        for (int i = 0; i < MenuHiddenSky.Count; i++)
-        {
-            if (ReferenceEquals(MenuHiddenSky[i], r))
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>Re-enable every backdrop renderer disabled for menu visibility (menu closed / MR on / scene change).</summary>
-    private static void RestoreMenuUnclip()
-    {
-        for (int i = 0; i < MenuHiddenSky.Count; i++)
-        {
-            Renderer r = MenuHiddenSky[i];
-            if (r != null) // Unity fake-null: destroyed by a scene unload
-                r.enabled = true;
-        }
-        MenuHiddenSky.Clear();
-        _menuUnclipActive = false;
-        _menuUnclipScanNextFrame = 0;
-        _menuUnclipDiagLogged = false;
     }
 
     private static bool IsSkyRenderer(Renderer r, Vector3 headPos, float sizeFloor)
@@ -591,7 +473,6 @@ internal static class MixedReality
 
         int skyRestored = HiddenSky.Count;
         RestoreSky();
-        RestoreMenuUnclip(); // item 5a: re-enable any backdrop renderer we hid for menu visibility
 
         bool wasActive = _active;
         _active = false;
@@ -625,15 +506,5 @@ internal static class MixedReality
         _skyScanNextFrame = 0;
         _skyDiagLogged = false;
         _loggedSkyCount = -1;
-
-        // Backdrop renderers may be destroyed by the unload — drop stale records and re-scan.
-        for (int i = MenuHiddenSky.Count - 1; i >= 0; i--)
-        {
-            if (MenuHiddenSky[i] == null)
-                MenuHiddenSky.RemoveAt(i);
-        }
-        _menuUnclipActive = MenuHiddenSky.Count > 0;
-        _menuUnclipScanNextFrame = 0;
-        _menuUnclipDiagLogged = false;
     }
 }

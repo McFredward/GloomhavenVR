@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -190,6 +191,43 @@ internal sealed class ConvertedPanel
 
     /// <summary>Earliest unscaled time the render-hidden modal host may be revealed (see <see cref="RevealPending"/>).</summary>
     public float RevealNotBefore;
+
+    // ---- render-on-top (floated-MODAL sky/diorama occlusion fix) --------------------------
+    /// <summary>
+    /// Opt-in (<see cref="CanvasConversion.Convert"/> <c>renderOnTop</c>, floated MODAL windows
+    /// only): every uGUI graphic in the converted subtree is switched to ZTest Always so the modal
+    /// renders OVER all opaque geometry and can NEVER be occluded. The enclosing scenario backdrop
+    /// ('GH_SkySphere', shader 'AMP_SkyShader') writes depth and exposes no <c>_ZWrite</c> to
+    /// toggle, so a world-space menu (uGUI ZTests LEqual) dragged to the shell edge otherwise clips
+    /// behind it — this keeps the sky rendered and lifts the menu above it instead of disabling the
+    /// sky. Reversible: the game reparents these SAME graphics back to their 2D home on Release, so
+    /// each graphic's original material / ZTest state is recorded in <see cref="RenderOnTopGraphics"/>
+    /// and restored — the 2D UI must NOT be left stuck at ZTest Always.
+    /// </summary>
+    public bool RenderOnTopEnabled;
+
+    /// <summary>Graphics switched to ZTest Always while floated, with the state to restore on Release.</summary>
+    public readonly List<GraphicOverlayRecord> RenderOnTopGraphics = new(64);
+
+    /// <summary>Next frame the render-on-top sweep re-runs (pooled/late graphics need ZTest Always too).</summary>
+    public int RenderOnTopSweepNextFrame;
+}
+
+/// <summary>
+/// A uGUI graphic switched to ZTest Always for a floated render-on-top modal (see
+/// <see cref="ConvertedPanel.RenderOnTopEnabled"/>). Two mutually-exclusive restore modes:
+/// an INSTANCE material swapped onto <see cref="Graphic.material"/> (regular Image/Text —
+/// restore the original ref, destroy the instance), or a TMP FONT material whose
+/// <c>_ZTestMode</c> value was overridden (restore the value — <see cref="TMP_Text.fontMaterial"/>
+/// is already a per-object instance, so no shared asset is mutated).
+/// </summary>
+internal struct GraphicOverlayRecord
+{
+    public Graphic Graphic;
+    public Material? OriginalMaterial; // instance-swap path: the ref to put back on Release
+    public Material? Instance;         // instance-swap path: the instance we created (destroy on Release)
+    public Material? TmpMaterial;      // TMP path: the font material whose _ZTestMode we changed
+    public int TmpOriginalZTest;       // TMP path: the _ZTestMode value to restore
 }
 
 /// <summary>
@@ -300,11 +338,16 @@ internal static class CanvasConversion
     /// (the floated-modal FLICKER, see ModalFallback). A dominant order lifts a host out of
     /// that ambiguity; adopted nested canvases keep <c>overrideSorting</c> cleared, so they
     /// inherit this order and stay ordered with the host.
+    /// <paramref name="renderOnTop"/> (floated MODAL windows only, default false so other
+    /// surfaces — initiative/actor-bars/combat-log — stay depth-tested and occluded by the
+    /// diorama) switches every uGUI graphic in the subtree to ZTest Always so the modal renders
+    /// OVER all opaque geometry (the sky dome, the diorama) and can never be occluded — the sky
+    /// stays rendered. Reversible on <see cref="Release"/> (see <see cref="ApplyRenderOnTop"/>).
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
-        bool transparentBackground = false)
+        bool transparentBackground = false, bool renderOnTop = false)
     {
         if (target == null)
         {
@@ -445,11 +488,21 @@ internal static class CanvasConversion
             HideFullScreenBackground(panel, initial: true);
         }
 
+        // Sky/diorama occlusion fix: switch every uGUI graphic in the subtree to ZTest Always so a
+        // floated MODAL renders OVER all opaque geometry — the enclosing sky dome ('AMP_SkyShader',
+        // depth-writing, no _ZWrite) would otherwise clip a menu dragged to the shell edge. Only
+        // floated modals opt in; reversible on Release (the game reparents these graphics back to 2D).
+        if (renderOnTop)
+        {
+            panel.RenderOnTopEnabled = true;
+            ApplyRenderOnTop(panel, initial: true);
+        }
+
         // Sub-item A: for a floated modal that gets the mod-layer move and/or the
         // background hide, re-run BOTH every frame for a short settle window so a backing
         // the game instantiates / fades in a few frames after Convert is treated before its
         // first visible frame — killing the reported ~1 s initial flicker.
-        if (useModLayer || transparentBackground)
+        if (useModLayer || transparentBackground || renderOnTop)
         {
             panel.EarlySettleUntil = Time.unscaledTime + EarlySettleSeconds;
             // Item 3a (DECISIVE initial-flicker fix): create the host RENDER-HIDDEN and pop it in
@@ -733,6 +786,117 @@ internal static class CanvasConversion
             VRLog.Info("WorldUI", $"MODAL BACKGROUND: disabled {hidden} full-window backing/blur image(s) in " +
                                   $"'{panel.HostGo.name}' — the modal now shows only its foreground content " +
                                   (initial ? "(transparent background)." : "(late fade-in)."));
+    }
+
+    // ---- render-on-top (floated-MODAL sky/diorama occlusion fix) --------------------------
+
+    private const string ZTestOverlayProp = "_ZTest";        // GloomhavenVR/Overlay etc.
+    private const string ZTestTmpProp = "_ZTestMode";        // TMP distance-field shader
+    private const string ZTestGuiProp = "unity_GUIZTestMode"; // built-in UI/Default shader
+
+    private static readonly int AlwaysZTest = (int)UnityEngine.Rendering.CompareFunction.Always;
+
+    // Scratch buffer (render-on-top sweep only; reused, no per-call allocations).
+    private static readonly List<Graphic> RenderOnTopScratch = new(64);
+
+    /// <summary>
+    /// Switch every uGUI graphic in the converted subtree to ZTest Always so a floated MODAL
+    /// renders OVER all opaque geometry (the enclosing sky dome writes depth with no <c>_ZWrite</c>
+    /// toggle, and would otherwise clip a world-space menu dragged to the shell edge). The sky is
+    /// left rendered — only the menu is lifted above it.
+    ///
+    /// Per graphic, two reversible modes so NO shared game material is mutated:
+    /// - TMP text renders through its FONT material (<c>_ZTestMode</c>); <see cref="TMP_Text.fontMaterial"/>
+    ///   is already a per-object instance, so the value is overridden there and the original value
+    ///   recorded for restore.
+    /// - Image/RawImage/legacy Text: a per-graphic INSTANCE of <see cref="Graphic.material"/> is
+    ///   created, ZTest set on it (<c>unity_GUIZTestMode</c> for UI/Default, <c>_ZTest</c> for Overlay),
+    ///   and swapped in; the original ref is put back and the instance destroyed on <see cref="Release"/>.
+    ///
+    /// Change-gated (a graphic already recorded is skipped) and swept from <see cref="Tick"/>/
+    /// <see cref="LateTick"/> so pooled/late graphics (menu list items, fade-ins) are caught too;
+    /// existing swapped instances hold on their own (their assigned material persists). Raycasting is
+    /// geometric (unchanged), so poke/laser clicks are unaffected.
+    /// </summary>
+    private static void ApplyRenderOnTop(ConvertedPanel panel, bool initial)
+    {
+        if (panel.Target == null)
+            return;
+        panel.RenderOnTopSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
+
+        RenderOnTopScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: false, RenderOnTopScratch);
+        int switched = 0;
+        for (int i = 0; i < RenderOnTopScratch.Count; i++)
+        {
+            Graphic g = RenderOnTopScratch[i];
+            if (g == null || !g.enabled || IsRenderOnTopRecorded(panel, g))
+                continue;
+
+            if (g is TMP_Text tmp)
+            {
+                // TMP renders via its font material (_ZTestMode). fontMaterial is a per-object
+                // instance, so this mutates only this text; record the value to restore it.
+                Material? fm = tmp.fontMaterial;
+                if (fm == null || !fm.HasProperty(ZTestTmpProp))
+                    continue;
+                int orig = fm.GetInt(ZTestTmpProp);
+                fm.SetInt(ZTestTmpProp, AlwaysZTest);
+                panel.RenderOnTopGraphics.Add(new GraphicOverlayRecord
+                {
+                    Graphic = g, TmpMaterial = fm, TmpOriginalZTest = orig,
+                });
+                switched++;
+            }
+            else
+            {
+                Material orig = g.material;
+                if (orig == null)
+                    continue;
+                var inst = new Material(orig); // per-graphic instance, never the shared game asset
+                ApplyZTestAlways(inst);
+                g.material = inst;
+                panel.RenderOnTopGraphics.Add(new GraphicOverlayRecord
+                {
+                    Graphic = g, OriginalMaterial = orig, Instance = inst,
+                });
+                switched++;
+            }
+        }
+        RenderOnTopScratch.Clear();
+
+        if (switched > 0)
+            VRLog.Info("WorldUI", $"MODAL ON-TOP: switched {switched} graphic material(s) in " +
+                                  $"'{panel.HostGo.name}' to ZTest Always (total {panel.RenderOnTopGraphics.Count}) — " +
+                                  "the floated modal renders over the sky/diorama and can no longer be occluded" +
+                                  (initial ? "." : " (pooled/late graphics)."));
+    }
+
+    /// <summary>
+    /// Set ZTest Always on an INSTANCE material via whichever property its shader exposes:
+    /// Overlay's <c>_ZTest</c>, TMP's <c>_ZTestMode</c>, and the built-in UI shader's
+    /// <c>unity_GUIZTestMode</c> (the game's menu Images use <c>UI/Default</c>). A plain UI
+    /// material that does not report any of these still honours <c>unity_GUIZTestMode</c> in its
+    /// <c>ZTest [unity_GUIZTestMode]</c> pass, so it is set unconditionally as the fallback.
+    /// </summary>
+    private static void ApplyZTestAlways(Material m)
+    {
+        bool applied = false;
+        if (m.HasProperty(ZTestOverlayProp)) { m.SetInt(ZTestOverlayProp, AlwaysZTest); applied = true; }
+        if (m.HasProperty(ZTestTmpProp)) { m.SetInt(ZTestTmpProp, AlwaysZTest); applied = true; }
+        if (m.HasProperty(ZTestGuiProp)) { m.SetInt(ZTestGuiProp, AlwaysZTest); applied = true; }
+        if (!applied)
+            m.SetInt(ZTestGuiProp, AlwaysZTest); // UI/Default honours it even when HasProperty is false
+    }
+
+    private static bool IsRenderOnTopRecorded(ConvertedPanel panel, Graphic g)
+    {
+        for (int i = 0; i < panel.RenderOnTopGraphics.Count; i++)
+        {
+            if (ReferenceEquals(panel.RenderOnTopGraphics[i].Graphic, g))
+                return true;
+        }
+        return false;
     }
 
     // ---- 2D flatten (test #21) ------------------------------------------------------------
@@ -1108,6 +1272,24 @@ internal static class CanvasConversion
         }
         panel.HiddenBackgrounds.Clear();
 
+        // Render-on-top: restore each graphic's original material / ZTest state — the game reparents
+        // these SAME graphics back to their 2D home, which must NOT be left stuck at ZTest Always.
+        for (int i = 0; i < panel.RenderOnTopGraphics.Count; i++)
+        {
+            GraphicOverlayRecord rec = panel.RenderOnTopGraphics[i];
+            if (rec.Instance != null)
+            {
+                if (rec.Graphic != null) // Unity fake-null: destroyed by a scene unload
+                    rec.Graphic.material = rec.OriginalMaterial; // put the original ref back
+                Object.Destroy(rec.Instance);                    // drop the instance we created
+            }
+            else if (rec.TmpMaterial != null)
+            {
+                rec.TmpMaterial.SetInt(ZTestTmpProp, rec.TmpOriginalZTest); // TMP: restore the value
+            }
+        }
+        panel.RenderOnTopGraphics.Clear();
+
         // Un-flatten (test #21) BEFORE the root restore below: original local
         // rotation and z go back per recorded transform (x/y stayed game-owned
         // throughout), and the root's full-pose restore then wins as ever.
@@ -1213,6 +1395,11 @@ internal static class CanvasConversion
             if (panel.HideBackground && (earlySettle || Time.frameCount >= panel.BackgroundSweepNextFrame))
                 HideFullScreenBackground(panel, initial: false);
 
+            // Render-on-top: re-sweep so pooled/late graphics (menu list items, fade-ins) also get
+            // ZTest Always; graphics already swapped hold their assigned instance material on their own.
+            if (panel.RenderOnTopEnabled && (earlySettle || Time.frameCount >= panel.RenderOnTopSweepNextFrame))
+                ApplyRenderOnTop(panel, initial: false);
+
             // Item 3a: reveal the render-hidden modal host once its settle delay has passed. The
             // treatments for THIS frame already ran above (canvas still disabled → harmless), and
             // LateTick re-treats once more (canvas now enabled) before the frame renders — so the
@@ -1294,6 +1481,8 @@ internal static class CanvasConversion
             }
             if (panel.HideBackground)
                 HideFullScreenBackground(panel, initial: false);
+            if (panel.RenderOnTopEnabled)
+                ApplyRenderOnTop(panel, initial: false);
         }
     }
 
