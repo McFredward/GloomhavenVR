@@ -626,6 +626,7 @@ internal sealed class CardsDriver : MonoBehaviour
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
         LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
         LogFanState(hand);
+        LogActionSelectionState(_fakeActive ? null : hand); // second-character action deadlock diagnostic
     }
 
     // ------------------------------------------------- per-frame tick attribution guard --
@@ -700,6 +701,58 @@ internal sealed class CardsDriver : MonoBehaviour
                             $"boundHand={_boundHand != null} (vrMode={state.vrMode}).");
     }
 
+    // Change-dedup for the ActionSelection click-gate diagnostic (second-character deadlock);
+    // references (not strings) so the steady-state check is allocation-free.
+    private (object? owner, object? current, bool top, bool bottom, bool valid, int halves)? _lastActionGate;
+
+    /// <summary>
+    /// Second-character action-deadlock diagnostic (change-deduped): prove from LogOutput.log
+    /// ALONE whether the currently DOCKED action cards are actually clickable for THIS turn.
+    /// The deadlock signature is <c>owner==current=False</c> — the mod docked the previous
+    /// character's cards, so the game's own <c>OnAbilityClick</c> guard
+    /// (<c>Choreographer.CurrentActor != playerActor</c>, FullAbilityCard.cs:635) silently
+    /// rejects every laser/poke click and the turn never advances; a healthy turn logs
+    /// <c>owner==current=True, valid, interactable</c>. A docked-but-empty half buffer is
+    /// logged as a WARN. Logged once per state change, never per frame.
+    /// </summary>
+    private void LogActionSelectionState(CardsHandUI? hand)
+    {
+        if (hand == null || CardsGameApi.Mode(hand) != CardHandMode.ActionSelection)
+        {
+            _lastActionGate = null;
+            return;
+        }
+
+        FullAbilityCard? probe = null;
+        for (int i = 0; i < _halfBuffer.Count; i++)
+        {
+            FullAbilityCard? f = _halfBuffer[i] != null ? _halfBuffer[i].FullCard : null;
+            if (f != null)
+            {
+                probe = f;
+                break;
+            }
+        }
+
+        object? current = CardsGameApi.CurrentTurnActor();
+        object? owner = probe != null ? CardsGameApi.CardOwner(probe) : null;
+        bool valid = probe != null && (CardsGameApi.IsHalfPlayable(probe, CBaseCard.ActionType.TopAction)
+                                       || CardsGameApi.IsHalfPlayable(probe, CBaseCard.ActionType.BottomAction));
+        bool top = probe != null && probe.IsInteractable(CBaseCard.ActionType.TopAction, considerSelection: false);
+        bool bottom = probe != null && probe.IsInteractable(CBaseCard.ActionType.BottomAction, considerSelection: false);
+
+        var state = (owner, current, top, bottom, valid, halves: _halfBuffer.Count);
+        if (_lastActionGate.HasValue && _lastActionGate.Value.Equals(state))
+            return;
+        _lastActionGate = state;
+
+        if (probe == null)
+            VRLog.Warn("Cards", $"ActionSelection: NO action card docked (halves={_halfBuffer.Count}) — nothing " +
+                                "clickable this turn (re-dock pending or wrong hand resolved).");
+        else
+            VRLog.Info("Cards", $"ActionSelection gate: {CardsGameApi.DescribeActionGate(probe)} (halves={_halfBuffer.Count}).");
+    }
+
     /// <summary>Cards live in the same scaled space as the hands (rig root in VR, sim camera in dev).</summary>
     private static Transform? AnchorParent()
     {
@@ -714,7 +767,13 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         if (!CardsGameApi.InScenario)
             return null;
-        CardsHandUI? hand = CardsGameApi.ActiveHand();
+        // Second-character action deadlock: during ActionSelection the game keys the
+        // top/bottom click-gate on Choreographer.CurrentActor (FullAbilityCard.cs:635), so we
+        // must present THAT actor's hand — not CardsHandManager.CurrentHand, which can lag a
+        // same-mode turn hand-off and leave us docking the previous character's cards (every
+        // click then silently rejected). Outside ActionSelection, fall back to the presented
+        // hand as before.
+        CardsHandUI? hand = CardsGameApi.ActionSelectionHand() ?? CardsGameApi.ActiveHand();
         return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
     }
 
@@ -1536,7 +1595,13 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void CollectRoundCards(CardsHandUI hand, List<VRCard> into)
     {
-        // Prefer the phase machine's own pair (CardsActionControlller.Init'ed them).
+        // The AUTHORITATIVE per-character selector is the acting hand's own round pile
+        // (IsInRound → CharacterClass.RoundAbilityCards) — always exactly the two played
+        // cards of THIS actor. The phase machine's pair (CardsActionControlller.topCard/
+        // bottomCard) is a static singleton that can lag a same-mode turn hand-off, so it is
+        // only ADDED (covers the extra-turn pile, where cards are not in RoundAbilityCards) —
+        // never used ALONE, so a stale pair can no longer make us dock the previous
+        // character's cards (the second-character deadlock).
         CardsGameApi.GetActionCards(out FullAbilityCard? first, out FullAbilityCard? second);
         for (int i = 0; i < _widgetBuffer.Count; i++)
         {
@@ -1544,9 +1609,9 @@ internal sealed class CardsDriver : MonoBehaviour
             if (widget.AbilityCard == null || widget.IsLongRest)
                 continue;
             bool isActionCard =
+                CardsGameApi.IsInRound(hand, widget.AbilityCard) ||
                 (first != null && widget.fullAbilityCard == first) ||
-                (second != null && widget.fullAbilityCard == second) ||
-                (first == null && second == null && CardsGameApi.IsInRound(hand, widget.AbilityCard));
+                (second != null && widget.fullAbilityCard == second);
             if (isActionCard)
             {
                 VRCard card = AdoptedCard(widget);
@@ -2232,7 +2297,7 @@ internal sealed class CardsDriver : MonoBehaviour
 
     // ------------------------------------------------------------- long-rest tracing --
 
-    private (CardHandMode? mode, bool selecting)? _lastPolledMode;
+    private (CardHandMode? mode, bool selecting, CPlayerActor? actor, int actionSig)? _lastPolledMode;
 
     /// <summary>
     /// Deadlock safety net (test #28, item 3): the long-rest "lose a card" step enters
@@ -2243,15 +2308,25 @@ internal sealed class CardsDriver : MonoBehaviour
     /// <c>CardsHandUI.currentMode</c> stays <c>CardsSelection</c> (stale) while the game
     /// phase leaves <c>SelectAbilityCardsOrLongRest</c> — a transition the raw-mode poll
     /// alone would MISS, leaving the grabbable fan bound through the enemy turn. So the
-    /// change-gate now also keys on <see cref="CardsGameApi.IsSelectionPhase"/> so the
-    /// lock rebuild fires the moment selection ends even when the mode never changes.
-    /// Cheap: one enum read + one phase compare, change-gated.
+    /// change-gate also keys on <see cref="CardsGameApi.IsSelectionPhase"/> so the lock
+    /// rebuild fires the moment selection ends even when the mode never changes.
+    /// SECOND-CHARACTER ACTION DEADLOCK: the turn also hands off from one character to the
+    /// next WITHIN <c>CardHandMode.ActionSelection</c> — the mode never changes AND
+    /// <c>IsSelectionPhase</c> stays false, so neither key above catches it. Without a
+    /// rebuild the mod keeps the first character's cards docked, and the game rejects every
+    /// click on them (owner != Choreographer.CurrentActor, FullAbilityCard.cs:635). So the
+    /// gate ALSO keys on the acting hand's <c>PlayerActor</c> and an ActionSelection context
+    /// signature (<see cref="CardsGameApi.ActionSelectionSignature"/> — acting actor + the
+    /// phase machine's card pair + phase), forcing a re-dock of the NEW actor's cards.
+    /// Cheap: two enum/ref reads + one folded int, change-gated.
     /// </summary>
     private void PollModeChange(CardsHandUI? hand)
     {
         var state = (mode: hand != null ? CardsGameApi.Mode(hand) : (CardHandMode?)null,
-                     selecting: hand != null && CardsGameApi.IsSelectionPhase(hand));
-        if (!_lastPolledMode.HasValue || _lastPolledMode.Value != state)
+                     selecting: hand != null && CardsGameApi.IsSelectionPhase(hand),
+                     actor: hand != null ? hand.PlayerActor : null,
+                     actionSig: CardsGameApi.ActionSelectionSignature());
+        if (!_lastPolledMode.HasValue || !_lastPolledMode.Value.Equals(state))
         {
             _lastPolledMode = state;
             _dirty = true;
