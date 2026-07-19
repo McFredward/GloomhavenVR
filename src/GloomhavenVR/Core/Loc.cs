@@ -213,6 +213,7 @@ internal static class Loc
         ["fan_arc"] = Pair("Arc sweep", "Bogen"),
         ["fan_radius"] = Pair("Radius", "Radius"),
         ["fan_split"] = Pair("Hover split", "Spreizung"),
+        ["decision"] = Pair("Decision", "Entscheidung"),
         ["avatar"] = Pair("Avatar", "Avatar"),
         ["head_mask"] = Pair("Head Mask", "Kopfmaske"),
         ["mask"] = Pair("Mask", "Maske"),
