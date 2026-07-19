@@ -620,6 +620,29 @@ internal static class ModalFallback
         /// and pushed to <see cref="Grab"/>. One-shot latch — the re-derive runs once per open.
         /// </summary>
         public bool ScaleReDerived;
+
+        /// <summary>
+        /// Item 6 (parallel windows): a player-reachable menu (<see cref="NonBlockingMenus"/>) is
+        /// STICKY — once floated it stays floated + visible in VR even when the GAME hides it. The
+        /// ESC menu drives a single-toggle <c>ToggleGroup</c>: selecting Multiplayer turns the
+        /// Options toggle off, whose deselect handler calls <c>UIOptionsWindow.Hide()</c> (a
+        /// CanvasGroup alpha tween), so the game only ever keeps ONE submenu shown. The mod defeats
+        /// that single-window policy for these menus by keeping the float alive and re-asserting the
+        /// window's CanvasGroup (<see cref="ReassertStickyVisible"/>), so Options AND Multiplayer can
+        /// float side by side. Blocking windows (story/results/confirms) are never sticky.
+        /// </summary>
+        public bool Sticky;
+
+        /// <summary>
+        /// Item 6: set when the user closes THIS window via its own X / the escape chord. The per-tick
+        /// release loop then drops the float even though it is <see cref="Sticky"/> — the ONLY way a
+        /// sticky menu leaves VR short of scenario exit, so each floated window closes independently.
+        /// </summary>
+        public bool UserClosing;
+
+        /// <summary>The window root's CanvasGroup (cached), re-asserted to keep a sticky menu visible
+        /// after the game hides it. The window is <c>[RequireComponent(CanvasGroup)]</c>.</summary>
+        public CanvasGroup? WindowCanvasGroup;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -840,7 +863,22 @@ internal static class ModalFallback
             && !DecisionDock.ClaimsWindow(manager.dialogPopup.Window))
             AddPollWindow(manager.dialogPopup.Window);
 
-        bool anyOpen = OpenWindows.Count > 0;
+        // Item 6 (parallel windows): a STICKY reachable menu stays floated even when the game hid it
+        // (its single-window toggle), so it is NOT in OpenWindows. Keep the float wanted while any
+        // sticky menu the user has not closed is still alive, or it would be released the moment the
+        // game-open set empties (e.g. the toggle hid the only game-open submenu).
+        bool stickyAlive = false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Sticky && !wp.UserClosing && wp.Window != null && wp.Panel.IsAlive)
+            {
+                stickyAlive = true;
+                break;
+            }
+        }
+
+        bool anyOpen = OpenWindows.Count > 0 || stickyAlive;
         // FLOAT every open modal window into VR (convert + grabbable + X button). This must NOT
         // depend on the ModalUI lock below — coupling them made the pause/Options menu invisible
         // (want=false → convertWanted=false → the window was released to its 2D home, unseen in
@@ -874,10 +912,22 @@ internal static class ModalFallback
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
             WindowPanel wp = Converted[i];
-            bool stillOpen = convertWanted && wp.Window != null && wp.Panel.IsAlive
-                             && ContainsWindow(OpenWindows, wp.Window);
+            bool alive = convertWanted && wp.Window != null && wp.Panel.IsAlive;
+            // Item 6: a sticky reachable menu the user has NOT closed stays floated even when the
+            // game hid it (not in OpenWindows) — parallel windows. Every other window releases as
+            // soon as it leaves the open set (or convert is no longer wanted, or the user closed it).
+            bool stillOpen = alive && !wp.UserClosing
+                             && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky);
             if (stillOpen)
                 continue;
+            // Item 6: if we force-showed a sticky menu whose game state is Hidden, reset its
+            // CanvasGroup back to that hidden state before releasing so the 2D restore is clean.
+            if (wp.Sticky && wp.WindowCanvasGroup != null && wp.Window != null && !wp.Window.IsOpen)
+            {
+                wp.WindowCanvasGroup.alpha = 0f;
+                wp.WindowCanvasGroup.blocksRaycasts = false;
+                wp.WindowCanvasGroup.interactable = false;
+            }
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
             wp.Grab?.Destroy(); // drop the mod-owned grab holder (sub-item B) before releasing the host
@@ -918,6 +968,20 @@ internal static class ModalFallback
                 raycaster.enabled = true;
         }
 
+        // 4b. Item 6 (parallel windows): re-assert visibility on a sticky menu the GAME hid (its
+        //     single-window toggle). The window was reparented into our host, so forcing its
+        //     CanvasGroup back to alpha 1 + raycast-enabled keeps it visible AND clickable in VR
+        //     while the game considers it Hidden — this is what lets Options and Multiplayer float
+        //     in parallel. Change-gated writes; only runs while the game state is hidden/faded.
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!wp.Sticky || wp.UserClosing || wp.Window == null || !wp.Panel.IsAlive)
+                continue;
+            if (!wp.Window.IsOpen || !wp.Window.IsVisible)
+                ReassertStickyVisible(wp);
+        }
+
         // 5. Sub-item B: the game-owned host follows its mod-owned grab frame every tick
         //    (static while ungripped; moved/scaled by the shared PanelGrabHandle while a hand
         //    grips the bar). No-op for the non-grabbable Sieg/Niederlage panels (Grab == null).
@@ -944,10 +1008,10 @@ internal static class ModalFallback
                                   "compact, consistent every open.");
         }
 
-        // Item 5a (revised): the floated-menu-vs-sky occlusion is now fixed by rendering the modal
-        // ON TOP (CanvasConversion renderOnTop, ZTest Always) so the sky STAYS rendered. This call
-        // is retained but is a no-op in MixedReality — kept so the wiring is obvious if the policy
-        // ever changes back.
+        // Item 1a (revert): menus render with NORMAL ZTest again (no on-top treatment), so the
+        // sky/backdrop must be made non-occluding for floated menus to stay visible at the shell
+        // edge. That is a SEPARATE change owned by Core.MixedReality; this call signals it when any
+        // menu floats. Hands/board still occlude the menu (ZTest LEqual), as the user wants.
         Core.MixedReality.KeepMenusUnclipped(Converted.Count > 0);
 
         // (Content fitting — test #13/#14 — is centralized in CanvasConversion.Tick:
@@ -1104,39 +1168,25 @@ internal static class ModalFallback
         CloseTopModal(threshold);
     }
 
-    /// <summary>Close the top (most recently floated) open modal via the game's own path.</summary>
+    /// <summary>Close the top (most recently floated) modal via the game's own path.</summary>
     private static void CloseTopModal(float heldSeconds)
     {
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
-            UIWindow window = Converted[i].Window;
-            if (window == null || !window.IsOpen)
+            WindowPanel wp = Converted[i];
+            UIWindow window = wp.Window;
+            // Item 6: a sticky menu the game already hid is still floated (force-visible) — the chord
+            // must be able to close it too. Skip only windows already flagged for release. Route
+            // through CloseFloatedWindow so both the game close (if open) and the sticky force-visible
+            // release path are handled in one place.
+            if (window == null || wp.UserClosing || (!window.IsOpen && !wp.Sticky))
                 continue;
-            string name = window.name;
-            bool escaped = false;
-            try
-            {
-                // Game's per-window ESC path (decompiled UIWindow.cs:706): hides the
-                // window when its escapeKeyAction allows it, returns whether it acted.
-                // Item 7a: the return value is NOT proof it closed (Skip returns true
-                // without hiding — UIWindow.cs:717) — force this window hidden if it is
-                // still open so the chord always closes the top modal.
-                escaped = window.Escape();
-                if (window.IsOpen)
-                    window.Hide(); // public close entry — OnHide/onHidden fire normally
-            }
-            catch (Exception ex)
-            {
-                VRLog.Error("WorldUI", $"MODAL ESCAPE CHORD: closing '{name}' FAILED " +
-                                       $"({ex.GetType().Name}: {ex.Message}).");
-                return;
-            }
-            VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: force-closed top modal '{name}' (ID {window.ID}) " +
-                                  $"via {(escaped ? "UIWindow.Escape()" : "UIWindow.Hide()")} — " +
+            VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: closing top modal '{window.name}' (ID {window.ID}) — " +
                                   $"non-dominant A/X held {heldSeconds:F1}s.");
+            CloseFloatedWindow(window);
             return;
         }
-        VRLog.Info("WorldUI", "MODAL ESCAPE CHORD: no open floating modal left to close.");
+        VRLog.Info("WorldUI", "MODAL ESCAPE CHORD: no floating modal left to close.");
     }
 
     /// <summary>
@@ -1148,33 +1198,92 @@ internal static class ModalFallback
     /// </summary>
     internal static void CloseFloatedWindow(UIWindow? window)
     {
-        if (window == null || !window.IsOpen)
+        if (window == null)
             return;
         string name = window.name;
+
+        // Item 6: flag THIS floated window for release regardless of the game's own IsOpen. A sticky
+        // reachable menu the game's single-window toggle already hid stays floated in VR until its
+        // OWN X closes it, so here its game state may already be Hidden — the flag is what actually
+        // drops the parallel float, independent of whether the game close below does anything.
+        WindowPanel? wp = FindPanel(window);
+        if (wp != null)
+            wp.UserClosing = true;
+
         try
         {
-            // Item 7a: close EXACTLY THIS window (submenus must be individually closable). The
-            // return value of UIWindow.Escape() is NOT proof the window closed — a submenu whose
-            // escapeKeyAction is Skip returns TRUE while doing nothing (decompiled UIWindow.cs:717),
-            // and None/HideIfFocused-when-unfocused return FALSE without hiding. Trusting the return
-            // (the old `if (!escaped && IsOpen) Hide()`) left Skip submenus open → the dead X. So
-            // run Escape() for its honored per-window behavior, then FORCE this window hidden if it
-            // is still open — its own Hide() (OnHide/onHidden fire), never the parent's.
-            bool escaped = window.Escape();
-            bool hidden = false;
             if (window.IsOpen)
             {
-                window.Hide();
-                hidden = true;
+                // Item 7a: close EXACTLY THIS window (submenus must be individually closable). The
+                // return value of UIWindow.Escape() is NOT proof the window closed — a submenu whose
+                // escapeKeyAction is Skip returns TRUE while doing nothing (decompiled UIWindow.cs:717),
+                // and None/HideIfFocused-when-unfocused return FALSE without hiding. So run Escape()
+                // for its honored per-window behavior, then FORCE this window hidden if it is still
+                // open — its own Hide() (OnHide/onHidden fire), never the parent's.
+                bool escaped = window.Escape();
+                bool hidden = false;
+                if (window.IsOpen)
+                {
+                    window.Hide();
+                    hidden = true;
+                }
+                VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) closed via " +
+                                      $"{(hidden ? (escaped ? "UIWindow.Escape()+Hide()" : "UIWindow.Hide()") : "UIWindow.Escape()")}.");
             }
-            VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) closed via " +
-                                  $"{(hidden ? (escaped ? "UIWindow.Escape()+Hide()" : "UIWindow.Hide()") : "UIWindow.Escape()")}.");
+            else
+            {
+                // Item 6: the game already hid this sticky window (a sibling opened) and the mod kept
+                // it floated + force-visible. There is nothing to close at the game level — reset the
+                // forced CanvasGroup to the game's hidden state and let the per-tick release drop the
+                // VR float (UserClosing flag above).
+                if (wp?.WindowCanvasGroup != null)
+                {
+                    wp.WindowCanvasGroup.alpha = 0f;
+                    wp.WindowCanvasGroup.blocksRaycasts = false;
+                    wp.WindowCanvasGroup.interactable = false;
+                }
+                VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) — game had already " +
+                                      "hidden it (single-window toggle); releasing the parallel VR float only.");
+            }
         }
         catch (Exception ex)
         {
             VRLog.Error("WorldUI", $"MODAL CLOSE (X button): closing '{name}' FAILED " +
                                    $"({ex.GetType().Name}: {ex.Message}).");
         }
+    }
+
+    /// <summary>The floated <see cref="WindowPanel"/> for a game window, or null if not floated.</summary>
+    private static WindowPanel? FindPanel(UIWindow window)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Window, window))
+                return Converted[i];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Item 6 (parallel windows): keep a sticky menu visible + clickable in VR after the game hid it
+    /// (its single-window toggle set the window's visual state Hidden and tweened the CanvasGroup to
+    /// alpha 0). The window root lives under our host, so forcing its CanvasGroup back to alpha 1 with
+    /// raycasts on re-shows it in VR without calling <c>Show()</c> (no onShown side effects, no war
+    /// with the toggle — the deselect is a one-shot event). Change-gated writes; also re-activates a
+    /// <c>m_DisableOnZeroAlpha</c> window that went inactive at alpha 0.
+    /// </summary>
+    private static void ReassertStickyVisible(WindowPanel wp)
+    {
+        CanvasGroup? cg = wp.WindowCanvasGroup;
+        if (cg != null)
+        {
+            if (cg.alpha < 1f) cg.alpha = 1f;
+            if (!cg.blocksRaycasts) cg.blocksRaycasts = true;
+            if (!cg.interactable) cg.interactable = true;
+        }
+        GameObject go = wp.Window.gameObject;
+        if (!go.activeSelf)
+            go.SetActive(true);
     }
 
     // ---- window gathering helpers (allocation-free) -------------------------------------
@@ -1331,9 +1440,11 @@ internal static class ModalFallback
             // User #8 part 1: float on the dedicated mod layer (useModLayer) so ONLY the HMD
             // head camera renders it — the game's mono UI Camera can no longer double-draw
             // the world-space modal (the confirmed flicker root cause).
-            // Sky/diorama occlusion fix (renderOnTop): every floated modal window switches its uGUI
-            // graphics to ZTest Always so it renders OVER the enclosing sky dome (kept rendered) and
-            // the diorama — a menu dragged to the shell edge can no longer clip behind the backdrop.
+            // NOTE (item 1a REVERTED): menus are NOT rendered on top anymore. The ZTest-Always
+            // "render-on-top" treatment was removed at the user's request — menus ZTest normally
+            // (LEqual) again, so hands and the board occlude them like every other world-space UI.
+            // The sky/backdrop is kept from clipping floated menus by a SEPARATE non-occluding-sky
+            // change (Core.MixedReality), not by lifting the menu over all geometry.
             // Item 1 (pause-menu size): a full-screen menu (ESC / Options family) is now content-fit
             // ONCE and then LOCKED (fitOneShot) instead of exempted. The old exemption kept the host
             // at the game window's own rect (1920x2040 — hugely tall with empty space, and a stale/
@@ -1346,7 +1457,7 @@ internal static class ModalFallback
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
                 fitContent: null, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
-                useModLayer: true, transparentBackground: transparentBg, renderOnTop: true,
+                useModLayer: true, transparentBackground: transparentBg,
                 fitOneShot: fullScreenMenu);
 
             if (fullScreenMenu)
@@ -1399,6 +1510,10 @@ internal static class ModalFallback
                 FullScreenMenu = fullScreenMenu,
                 Grab = grab,
                 ExtraScale = extraScale,
+                // Item 6: reachable menus stay floated in parallel even when the game's single-window
+                // toggle hides a sibling; cache the CanvasGroup used to re-assert their visibility.
+                Sticky = NonBlockingMenus.Contains(window.ID),
+                WindowCanvasGroup = window.GetComponent<CanvasGroup>(),
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
