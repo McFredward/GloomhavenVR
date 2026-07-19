@@ -1,6 +1,7 @@
 using System;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using UnityEngine;
 
 namespace GloomhavenVR.Board.FigureGrab;
@@ -49,8 +50,35 @@ internal static class FigureGrabConfig
     /// </summary>
     public static ConfigEntry<float> HeldFaceYawDegrees = null!;
 
-    /// <summary>GrabAnchor-local held position (side / up / forward toward the pinch point).</summary>
+    /// <summary>
+    /// GrabAnchor-local held position for the RIGHT hand — the canonical pose the debug
+    /// steppers tune. The LEFT hand derives from it by mirroring (see <see cref="HeldOffsetFor"/>).
+    /// </summary>
     internal static Vector3 HeldOffset => new(HeldOffsetSide.Value, HeldOffsetUp.Value, HeldOffsetForward.Value);
+
+    /// <summary>
+    /// The GrabAnchor-local held offset for a given hand. The tuned values are canonical for
+    /// the RIGHT hand; the LEFT hand is the MIRROR IMAGE across the hand-frame's left-right (X)
+    /// axis, so the mini sits in the left hand exactly as it does in the right. Only the lateral
+    /// component (<see cref="HeldOffsetSide"/>, local X) flips sign; forward (Z) and up (Y) are
+    /// unchanged. The hand rig frame is NOT mirrored between hands (mesh mirrored, frame shared —
+    /// see HandRig), so without this flip the same local X put the mini on the same frame-side of
+    /// both hands (anatomically opposite) — this negation restores the true mirror.
+    /// </summary>
+    internal static Vector3 HeldOffsetFor(HandSide side)
+    {
+        float sideSign = side == HandSide.Left ? -1f : 1f;
+        return new Vector3(sideSign * HeldOffsetSide.Value, HeldOffsetUp.Value, HeldOffsetForward.Value);
+    }
+
+    /// <summary>
+    /// The inspection yaw for a given hand. Mirroring a rotation across the hand-frame's
+    /// left-right (X) plane negates the YAW (and any ROLL) while leaving the TILT (pitch about X)
+    /// untouched — so the LEFT hand yaws the mini's readable front the opposite way, the mirror of
+    /// the tuned RIGHT-hand yaw. (Roll is always 0 here, so only the yaw needs the flip.)
+    /// </summary>
+    internal static float HeldFaceYawFor(HandSide side)
+        => side == HandSide.Left ? -HeldFaceYawDegrees.Value : HeldFaceYawDegrees.Value;
 
     /// <summary>Legacy palm-pose rotation (tilt only), relative to the GrabAnchor.</summary>
     internal static Vector3 HeldEuler => new(HeldTiltDegrees.Value, 0f, 0f);
