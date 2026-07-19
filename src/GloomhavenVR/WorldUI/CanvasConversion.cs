@@ -1414,6 +1414,47 @@ internal static class CanvasConversion
                 target.localPosition = panel.OriginalLocalPosition;
                 target.localRotation = panel.OriginalLocalRotation;
             }
+
+            // FIX B (gray band): if the released window reports CLOSED at the game level, force
+            // the restored 2D window into the game's own hidden state. While a STICKY menu
+            // floated, ModalFallback.ReassertStickyVisible kept re-enabling the window's Canvas +
+            // CanvasGroup every tick after the game hid it; releasing it in that forced-visible
+            // state parked an ENABLED screen-space window at its 2D home — the ESC menu's
+            // width-hugged content column (~412/1920 px, docked LEFT) rendered as a gray band on
+            // the left edge of the view until the next float hid it again. Runs on EVERY release
+            // path (corner-X, both its branches; the controller-X CloseAll route; escape chord;
+            // scenario exit). Scope guards: only targets that ARE a UIWindow root (decision-dock
+            // rows / story content / mod-own panels carry no UIWindow → no-op), and only when the
+            // game says CLOSED — a window released while genuinely open (manual screen chord,
+            // style=screen, module shutdown) must stay visible in the 2D composite. The Canvas is
+            // disabled ONLY for a `_disableCanvas` window (mirroring UIWindow.OnTransitionCompleted;
+            // its own Show() re-enables it via OnTransitionStarted) — disabling any other window's
+            // Canvas would be PERMANENT, because the game never touches `_canvas` for those.
+            UIWindow? releasedWindow = target.GetComponent<UIWindow>();
+            if (releasedWindow != null && !releasedWindow.IsOpen)
+            {
+                bool canvasDisabled = false;
+                if (releasedWindow._disableCanvas)
+                {
+                    Canvas? windowCanvas = target.GetComponent<Canvas>();
+                    if (windowCanvas != null && windowCanvas.enabled)
+                    {
+                        windowCanvas.enabled = false;
+                        canvasDisabled = true;
+                    }
+                }
+                CanvasGroup? windowGroup = target.GetComponent<CanvasGroup>();
+                if (windowGroup != null)
+                {
+                    windowGroup.alpha = 0f;
+                    windowGroup.blocksRaycasts = false;
+                    windowGroup.interactable = false;
+                }
+                VRLog.Info("WorldUI", "release: restored 2D window forced hidden (game reports closed) — " +
+                                      $"'{target.name}' (ID {releasedWindow.ID}): canvas " +
+                                      $"{(canvasDisabled ? "disabled" : "left as-is")}, CanvasGroup " +
+                                      "alpha=0, raycasts off.");
+            }
         }
 
         if (panel.HostGo != null)

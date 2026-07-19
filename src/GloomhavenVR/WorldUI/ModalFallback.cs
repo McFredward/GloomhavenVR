@@ -940,6 +940,18 @@ internal static class ModalFallback
                              && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky);
             if (stillOpen)
                 continue;
+            // FIX B gap-close: the user closed this float (UserClosing) but the window reports
+            // OPEN again — something re-showed it between the X-close and this release tick
+            // (e.g. ESCMenu.OnControllerAreaFocused calls myWindow.Show() when unfocused-closed).
+            // The user's close intent wins: hide it again so the release below restores a
+            // genuinely CLOSED window (CanvasConversion.Release then forces its 2D canvas
+            // hidden — without this, the restored window would render at its screen-space home).
+            if (wp.UserClosing && wp.Window != null && wp.Window.IsOpen)
+            {
+                wp.Window.Hide();
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{wp.Window.name}' was re-shown between the user " +
+                                      "close and the release tick — re-hidden (user close wins).");
+            }
             // Item 6: if we force-showed a sticky menu whose game state is Hidden, reset its
             // CanvasGroup back to that hidden state before releasing so the 2D restore is clean.
             if (wp.Sticky && wp.WindowCanvasGroup != null && wp.Window != null && !wp.Window.IsOpen)
@@ -1413,6 +1425,28 @@ internal static class ModalFallback
         {
             VRLog.Warn("WorldUI", $"MODAL CLOSE (X button): could not reset the ESC-menu ToggleGroup " +
                                   $"({ex.GetType().Name}: {ex.Message}) — submenu reopen may need a second tap.");
+        }
+    }
+
+    /// <summary>
+    /// FIX A companion (controller-X close-all): close every still-floated STICKY menu window
+    /// the OptionsToggle live probes cannot see — a sticky float whose game window the ESC
+    /// menu's single-window toggle already hid reports <c>IsOpen == false</c>, so the open-state
+    /// probe skips it, yet its float would stay force-visible forever (only
+    /// <see cref="WindowPanel.UserClosing"/> ever drops a sticky float). Each is routed through
+    /// <see cref="CloseFloatedWindow"/> — exactly the corner-X path. The ESC menu itself is
+    /// EXCLUDED (the caller closes it LAST so its OnHide → SetAllTogglesOff cascade stays the
+    /// final word); windows already flagged UserClosing are skipped (already on their way out).
+    /// </summary>
+    internal static void CloseStickyFloatsExceptEscMenu()
+    {
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            UIWindow? window = wp.Window;
+            if (window == null || wp.UserClosing || !wp.Sticky || window.ID == UIWindowID.ESCMenu)
+                continue;
+            CloseFloatedWindow(window);
         }
     }
 

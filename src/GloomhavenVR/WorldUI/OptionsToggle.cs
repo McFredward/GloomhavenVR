@@ -231,7 +231,7 @@ internal sealed class OptionsToggle
     /// Live open-state of the whole ESC-menu family (parent + Options/Multiplayer/Compendium
     /// sub-windows), read from the ACTUAL game windows. Tap-frequency only (never per-frame):
     /// the singleton lookups and the one compendium scene scan are cheap at human cadence. The
-    /// captured owners are reused by <see cref="CloseAll"/> so no second lookup is needed.
+    /// captured windows are reused by <see cref="CloseAll"/> so no second lookup is needed.
     /// </summary>
     private static OpenState Probe(ESCMenu menu)
     {
@@ -244,24 +244,46 @@ internal sealed class OptionsToggle
         bool optOpen = optWin != null && optWin.IsOpen;
         bool mpOpen = mpWin != null && mpWin.IsOpen;
         bool compOpen = compWin != null;
-        return new OpenState(escOpen, optOpen, mpOpen, compOpen, optOwner, mpOwner, compWin);
+        return new OpenState(escOpen, optOpen, mpOpen, compOpen, optWin, mpWin, compWin);
     }
 
     /// <summary>
-    /// Submenu-safe close: hide any open sub-window DIRECTLY (a belt for the rare case a sub-menu
-    /// outlives the parent's SetAllTogglesOff cascade), then hide the PARENT LAST — its
-    /// ESCMenu.OnHide → toggleGroup.SetAllTogglesOff cascade is the belt-and-suspenders final word
-    /// that closes anything still lingering.
+    /// FIX A (controller-X close): route EVERY window of the ESC-menu family through the SAME
+    /// path the corner-X uses — <see cref="ModalFallback.CloseFloatedWindow"/>. That path sets
+    /// the float's <c>UserClosing</c> flag, the ONLY thing that ever drops a STICKY float (the
+    /// whole reachable-menu family is sticky: ModalFallback keeps it floated and force-visible
+    /// — <c>ReassertStickyVisible</c> — even after the game hides it). The old direct
+    /// <c>owner.Hide()</c>/<c>menu.Hide()</c> calls closed the GAME windows but never set that
+    /// flag, so the floated host stayed alive and force-visible forever: the hardware log showed
+    /// "hidden — untracked" with NO "released — restored to its 2D home" line, and the pause menu
+    /// never visually disappeared on a controller-X close.
+    ///
+    /// Escape-suppression interplay: <c>UIWindow.Escape()</c> is Harmony-blocked for
+    /// ID==ESCMenu (<see cref="Patches.EscMenuInputBlock"/> returns "unhandled" without
+    /// toggling), but CloseFloatedWindow calls <c>Hide()</c> whenever the window is still open
+    /// after <c>Escape()</c> — so the ESC menu still closes through its own OnHide cascade
+    /// (verified: UIWindow.Hide flips IsOpen synchronously, so the reconcile probe on the next
+    /// tick sees the family closed; the float itself is released by ModalFallback's next tick,
+    /// which counts as closed too — the probe reads game IsOpen, never the float).
+    ///
+    /// Order: open sub-windows first, then any REMAINING sticky family float (a float whose
+    /// game window the single-window toggle already hid reports IsOpen==false, so the live
+    /// probes cannot see it), and the parent ESC menu LAST — its OnHide →
+    /// toggleGroup.SetAllTogglesOff cascade stays the belt-and-suspenders final word.
     /// </summary>
     private static void CloseAll(ESCMenu menu, OpenState st)
     {
+        VRLog.Info("WorldUI", "OPTIONS TAP: close routed through CloseFloatedWindow (release path)");
         if (st.Opt)
-            st.OptOwner!.Hide();  // UIOptionsWindow.Hide() -> m_Window.Hide()
+            ModalFallback.CloseFloatedWindow(st.OptWin);   // Options UIWindow (UserClosing → Escape/Hide)
         if (st.Mp)
-            st.MpOwner!.Hide();   // UIMultiplayerEscSubmenu.Hide() -> Window.Hide()
+            ModalFallback.CloseFloatedWindow(st.MpWin);    // Multiplayer submenu UIWindow
         if (st.Comp)
-            st.CompWin!.Hide();   // compendium UIWindow.Hide()
-        menu.Hide();              // ESCMenu.Hide() -> myWindow.Hide() -> OnHide cascade
+            ModalFallback.CloseFloatedWindow(st.CompWin);  // compendium UIWindow
+        // Sticky floats the game already hid (single-window toggle) are NOT IsOpen, so the
+        // probes above cannot reach them — drop every remaining floated family window too.
+        ModalFallback.CloseStickyFloatsExceptEscMenu();
+        ModalFallback.CloseFloatedWindow(menu.GetComponent<UIWindow>()); // parent LAST
     }
 
     /// <summary>
@@ -278,28 +300,30 @@ internal sealed class OptionsToggle
         w.Show();
     }
 
-    /// <summary>Immutable snapshot of the ESC-menu family's live open-state plus the sub-window owners.</summary>
+    /// <summary>Immutable snapshot of the ESC-menu family's live open-state plus the resolved
+    /// sub-window <c>UIWindow</c>s (FIX A: <see cref="CloseAll"/> passes these to
+    /// <see cref="ModalFallback.CloseFloatedWindow"/> — the corner-X release path).</summary>
     private readonly struct OpenState
     {
         internal readonly bool Esc;
         internal readonly bool Opt;
         internal readonly bool Mp;
         internal readonly bool Comp;
-        internal readonly UIOptionsWindow? OptOwner;
-        internal readonly UIMultiplayerEscSubmenu? MpOwner;
+        internal readonly UIWindow? OptWin;
+        internal readonly UIWindow? MpWin;
         internal readonly UIWindow? CompWin;
 
         internal bool Any => Esc || Opt || Mp || Comp;
 
         internal OpenState(bool esc, bool opt, bool mp, bool comp,
-            UIOptionsWindow? optOwner, UIMultiplayerEscSubmenu? mpOwner, UIWindow? compWin)
+            UIWindow? optWin, UIWindow? mpWin, UIWindow? compWin)
         {
             Esc = esc;
             Opt = opt;
             Mp = mp;
             Comp = comp;
-            OptOwner = optOwner;
-            MpOwner = mpOwner;
+            OptWin = optWin;
+            MpWin = mpWin;
             CompWin = compWin;
         }
     }
