@@ -62,6 +62,11 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
         WallSolidifier.Install();
 
+        // ISSUE #4 follow-up — force world VFX GLOW (fire/candle/torch/…) to respect depth so it
+        // can't be seen through solid walls. Reflection-only, VR-gated, config-toggled ("OpaqueWorldGlow",
+        // default on); its diagnostic scan logs every depth-ignoring world renderer regardless.
+        GlowOcclusion.Install();
+
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
             names.AddRange(PostProcessingTypes);
@@ -99,6 +104,7 @@ internal sealed class CompatModule : IVRModule
     public void Shutdown()
     {
         WallSolidifier.Uninstall();
+        GlowOcclusion.Uninstall();
 
         if (_hooked)
         {
