@@ -136,7 +136,6 @@ internal sealed class EnemyRevealSurface
     // the follow below reacts only to real head movement, never to board/tray/world-grab.
     private Vector3 _position;                        // rig-local host position (head-relative) — HORIZONTAL follow
     private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (unused for facing now; kept for snap)
-    private float _worldYLocked;                     // ABSOLUTE world height, frozen at spawn — board moves never change it
     private bool _placed;                            // false until the first in-view pose is snapped
     private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at (re-snap on recenter)
     private float _offGazeSince = -1f;               // unscaled time the panel first drifted past the deadzone
@@ -397,22 +396,14 @@ internal sealed class EnemyRevealSurface
         awayL = awayL.sqrMagnitude > 1e-4f ? awayL.normalized : Vector3.forward;
         Quaternion desiredRot = Quaternion.LookRotation(awayL, Vector3.up);
 
-        // STABLE HEIGHT (user 4b: "rotating the control board must NOT change the height of the
-        // info"). Place it along the HORIZONTAL gaze (yaw only — reuse awayL) at head level minus
-        // a small drop, NOT along the pitched gaze. Handling/rotating the board makes the player
-        // pitch their head DOWN; tying the panel to the pitched gaze dragged its height up/down
-        // with every look (the diag showed world-y swinging −12…+58 m). Yaw + head position still
-        // follow lazily; pitch no longer moves it. RAW rig-local metres (Place() applies the rig).
-        // HORIZONTAL target only (rig-local). The Y is neutral here — Place() overrides the
-        // WORLD y with _worldYLocked, so nothing in the follow path can move the height.
-        Vector3 desiredPos = headPosL + awayL * RevealReadingDistance;
-        desiredPos.y = headPosL.y;
-
-        // World height, LOCKED at spawn (user #4, 11th): a fixed absolute height, a small drop
-        // below the head. Set ONLY on a fresh snap. Rotating / zooming / moving the board rotates,
-        // scales and translates the RIG — none of which may change this value.
-        float rigScale = rig != null ? rig.lossyScale.x : 1f;
-        float desiredWorldY = head.transform.position.y - RevealViewDrop * rigScale;
+        // TARGET along the FULL gaze (pitch INCLUDED) so the panel glides into the player's field
+        // of view vertically as well (user #5, latest: "let it move on the Y axis too, lazily, to
+        // come into view"). The height coupling that used to bob it was the tray ScrollRect (now
+        // frozen while floated, see ReassertScrollFreeze) — NOT this pose — so following the gaze is
+        // safe again. A small drop keeps it just below the gaze line for a natural reading angle.
+        // All rig-local, so world-grab/tray-grab never trip the follow; only a real head move does.
+        Vector3 desiredPos = headPosL + gazeL * RevealReadingDistance;
+        desiredPos.y -= RevealViewDrop;
 
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
         if (!_placed || poseVersion != _facedPoseVersion)
@@ -420,7 +411,6 @@ internal sealed class EnemyRevealSurface
             // SNAP: first spawn, or a deliberate recentre/rebuild teleported the whole rig.
             _position = desiredPos;
             _rotation = desiredRot;
-            _worldYLocked = desiredWorldY;
             _placed = true;
             _facedPoseVersion = poseVersion;
             _offGazeSince = -1f;
@@ -428,19 +418,17 @@ internal sealed class EnemyRevealSurface
             if (!_dropLogged)
             {
                 _dropLogged = true;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL spawned — horizontal lazy-follow ON, WORLD HEIGHT LOCKED at " +
-                                      $"y={_worldYLocked:F3} m (head world-y {head.transform.position.y:F3} − drop {RevealViewDrop:F2}×scale {rigScale:F1}). " +
-                                      "Board rotate/zoom/move can no longer change the height; only a real recenter re-plants it.");
+                VRLog.Info("WorldUI", "ENEMY REVEAL spawned — lazy follow ON in ALL axes (X/Z + Y), " +
+                                      "board-decoupled (tray ScrollRect frozen while floated). Glides into view on head turn / look up-down.");
             }
             return;
         }
 
-        // LAZY HORIZONTAL FOLLOW: glide X/Z back into the forward view when the player has
-        // physically TURNED past the deadzone (measured in rig-local, so world-grab / tray-grab
-        // never trip it). The Y of _position and the locked world height are NEVER touched here.
-        Vector3 toPanelFlat = _position - headPosL;
-        toPanelFlat.y = 0f;
-        float off = toPanelFlat.sqrMagnitude > 1e-6f ? Vector3.Angle(awayL, toPanelFlat) : 0f;
+        // LAZY FOLLOW (all axes): glide back into the forward view when the player has physically
+        // turned OR looked up/down past the deadzone — measured in rig-local as the FULL angle
+        // between the gaze and the head→panel direction, so world-grab / tray-grab never trip it.
+        Vector3 toPanel = _position - headPosL;
+        float off = toPanel.sqrMagnitude > 1e-6f ? Vector3.Angle(gazeL, toPanel) : 0f;
         if (off > FollowDeadzoneDeg)
         {
             if (_offGazeSince < 0f)
@@ -449,7 +437,7 @@ internal sealed class EnemyRevealSurface
             {
                 _easing = true;
                 VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze for " +
-                                      $">{FollowDwellSeconds:F1}s (physical head turned) — gliding horizontally into view (height stays locked).");
+                                      $">{FollowDwellSeconds:F1}s (physical head moved) — gliding into view (all axes).");
             }
         }
         else
@@ -460,11 +448,10 @@ internal sealed class EnemyRevealSurface
         if (_easing)
         {
             float t = Time.deltaTime * FollowEaseRate;
-            Vector3 flatTarget = desiredPos;
-            flatTarget.y = _position.y; // ease X/Z only — never Y
-            _position = Vector3.Lerp(_position, flatTarget, t);
-            Vector3 toDesired = desiredPos - headPosL; toDesired.y = 0f;
-            Vector3 cur = _position - headPosL; cur.y = 0f;
+            _position = Vector3.Lerp(_position, desiredPos, t);
+            _rotation = Quaternion.Slerp(_rotation, desiredRot, t);
+            Vector3 toDesired = desiredPos - headPosL;
+            Vector3 cur = _position - headPosL;
             if (toDesired.sqrMagnitude < 1e-6f || Vector3.Angle(cur, toDesired) < FollowSettledDeg)
             {
                 _easing = false;
@@ -517,10 +504,8 @@ internal sealed class EnemyRevealSurface
         Transform? rig = Rig.VRRigDriver.RigRoot;
         PlantPose(head, rig);
 
-        // Horizontal (X/Z) from the rig-local follow pose; the raw re-projected Y is discarded
-        // and replaced by the LOCKED world height so board rotate/zoom/move can never bob it.
-        Vector3 rawWorld = rig != null ? rig.TransformPoint(_position) : _position;
-        Vector3 worldPos = new(rawWorld.x, _worldYLocked, rawWorld.z);
+        // Full rig-local follow pose re-projected through the live rig (all axes, incl. Y).
+        Vector3 worldPos = rig != null ? rig.TransformPoint(_position) : _position;
 
         // Upright, yaw-only billboard built in WORLD space (facing the head horizontally). Because
         // it uses WORLD up and only the horizontal head→panel direction, rig PITCH/ROLL from a
@@ -565,7 +550,7 @@ internal sealed class EnemyRevealSurface
             float trayYaw = tray != null ? tray.eulerAngles.y : 0f;
             float trackRootY = tr != null ? tr.transform.position.y : 0f;
             VRLog.Info("WorldUI",
-                $"ENEMY REVEAL attribution: myHostY={worldPos.y:F2}(locked {_worldYLocked:F2}) | " +
+                $"ENEMY REVEAL attribution: myHostY={worldPos.y:F2} | " +
                 $"CARD widget worldY={cardY} underMyHost={cardUnderMyHost} | " +
                 $"enemyCardsHolder.parent='{holderParent}' onMyHost={holderOnMyHost} | " +
                 $"TRAY Y={trayY:F2} yaw={trayYaw:F0}° | trackRootY={trackRootY:F2} | " +
