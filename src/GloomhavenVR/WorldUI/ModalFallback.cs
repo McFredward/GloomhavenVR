@@ -103,6 +103,21 @@ internal static class ModalFallback
     private const float WindowScaleFactor = 0.7f;
 
     /// <summary>
+    /// Item 1 (size): board-relative DEFAULT width for a floated menu, real meters — roughly the
+    /// control-board width (SettingsPanel targets 0.6 m ≈ PlayTray.BoardW), so the pause/Options
+    /// menu opens at a comfortable, board-sized default instead of the ~1.3 m full-screen slab
+    /// that read "too big". Like the VR settings panel, this is a REAL-world target: the diorama
+    /// WorldScale cancels out (position still uses it), so table zoom does not grow/shrink it.
+    /// Applied as a CAP on <see cref="WindowScaleFactor"/> — small dialogs (confirmations) keep
+    /// the 0.7 factor; only windows wider than the board are shrunk to it. The user's two-hand
+    /// resize (0.5×–2×) still rides on top of this smaller default.
+    /// </summary>
+    private const float ModalTargetWidthMeters = 0.62f;
+
+    /// <summary>Floor for the derived per-window scale so a very wide window never collapses.</summary>
+    private const float MinWindowScaleFactor = 0.15f;
+
+    /// <summary>
     /// THE FLICKER FIX (recurring): sortingOrder for a floated modal's host canvas.
     ///
     /// Root cause — NOT per-frame churn (the logs prove every floated modal is converted,
@@ -591,6 +606,13 @@ internal static class ModalFallback
         /// results panels — those stay spawn-in-view, not grabbable (<see cref="IsGrabbableModal"/>).
         /// </summary>
         public GrabbableModal? Grab;
+
+        /// <summary>
+        /// Item 1 (size): the board-relative host shrink derived for THIS window (a cap on
+        /// <see cref="WindowScaleFactor"/>). Stored so a presence-regain refloat re-places the
+        /// non-grabbable panels at the same size (grabbable ones carry it in their frame).
+        /// </summary>
+        public float ExtraScale = WindowScaleFactor;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -635,6 +657,7 @@ internal static class ModalFallback
         _attached = false;
         VREvents.WindowVisibility -= OnWindow;
         RestoreMenuSelectionGuard(); // put InControl mouse-hover focus back before we drop the windows
+        Core.MixedReality.KeepMenusUnclipped(false); // item 5a: release the backdrop depth override
         ReleaseAllWindows("module shutdown");
         Open.Clear();
         OpenWindows.Clear();
@@ -847,6 +870,11 @@ internal static class ModalFallback
         //    grips the bar). No-op for the non-grabbable Sieg/Niederlage panels (Grab == null).
         for (int i = 0; i < Converted.Count; i++)
             Converted[i].Grab?.Tick();
+
+        // Item 5a: while any modal floats (movable → can be dragged to the void edge), ask MR to
+        // keep the scenario void backdrop from clipping it. No-op while MR is ON (backdrop hidden)
+        // or when nothing floats. Cheap idempotent flag; MixedReality.Tick does the throttled work.
+        Core.MixedReality.KeepMenusUnclipped(Converted.Count > 0);
 
         // (Content fitting — test #13/#14 — is centralized in CanvasConversion.Tick:
         // every pokeable host is fitted after the show animation and periodically
@@ -1202,7 +1230,14 @@ internal static class ModalFallback
                 return false;
             }
 
-            PlaceAtHmd(panel);
+            // Item 1 (size): board-relative default shrink. A window WIDER than the board is
+            // capped down to ModalTargetWidthMeters (so the pause/Options slab opens board-sized,
+            // not the ~1.3 m default); narrower dialogs keep WindowScaleFactor. Grabbable resize
+            // still rides on top. Item 2: stagger each stacked window so secondaries overlap but
+            // do not coincide with the primary.
+            float extraScale = DeriveWindowScale(panel);
+            int staggerIndex = Converted.Count;
+            PlaceAtHmd(panel, extraScale, staggerIndex);
             // Narrower measure root for the content fit (story window: the visible
             // UICharacterStoryBox, not the 1920x1080 stretch root). The fit itself
             // runs centrally in CanvasConversion.Tick (test #14 item 1).
@@ -1217,7 +1252,7 @@ internal static class ModalFallback
             if (IsGrabbableModal(window.ID))
             {
                 grab = new GrabbableModal();
-                grab.Build(panel, WindowScaleFactor, name);
+                grab.Build(panel, extraScale, name);
             }
 
             Converted.Add(new WindowPanel
@@ -1226,6 +1261,7 @@ internal static class ModalFallback
                 Panel = panel,
                 FullScreenMenu = fullScreenMenu,
                 Grab = grab,
+                ExtraScale = extraScale,
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
@@ -1265,7 +1301,7 @@ internal static class ModalFallback
             }
             else
             {
-                PlaceAtHmd(wp.Panel);
+                PlaceAtHmd(wp.Panel, wp.ExtraScale);
             }
             count++;
         }
@@ -1281,8 +1317,26 @@ internal static class ModalFallback
     private static bool IsGrabbableModal(UIWindowID id) =>
         id != UIWindowID.ResultsPanel && id != UIWindowID.AdventureCompletionPanel;
 
-    /// <summary>HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.</summary>
-    private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale)
+    /// <summary>
+    /// Item 2: lateral+vertical stagger (real meters) between successive floated windows so a
+    /// secondary window opened FROM the primary spawns OVERLAPPING but not perfectly coincident
+    /// with it — the user can then grab and separate them. Scaled by the diorama scale + capped.
+    /// </summary>
+    private const float SecondaryStaggerMeters = 0.06f;
+
+    /// <summary>
+    /// HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.
+    /// <paramref name="staggerIndex"/> nudges the window right+down so stacked secondary windows
+    /// overlap rather than coincide (item 2).
+    ///
+    /// UPRIGHT / YAW-ONLY (item 2): the window faces the player's YAW only — never the full gaze
+    /// pitch. The player looks DOWN at the board, so facing the full HMD forward tilted every
+    /// floated window backward ("spawned with a pitch angle"). Flattening the forward to the
+    /// horizontal plane makes every window stand vertically upright like the settings panel /
+    /// combat log, while still being placed along the gaze so it lands in the foreground.
+    /// </summary>
+    private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale,
+        int staggerIndex = 0)
     {
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
@@ -1295,18 +1349,50 @@ internal static class ModalFallback
         scale = PanelLayout.WorldScale;
         Transform h = head.transform;
         Vector3 fwd = h.forward;
+        // Placement follows the full gaze (so it lands where the player is looking, overlapping
+        // the primary), with a small right+down stagger per stacked window.
         pos = h.position + fwd * (WindowDistanceMeters * scale);
-        // Canvas front faces -forward: point +Z away from the viewer.
-        rot = Quaternion.LookRotation(fwd, Vector3.up);
+        if (staggerIndex > 0)
+        {
+            float step = SecondaryStaggerMeters * scale;
+            pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);
+        }
+        // Facing is YAW-ONLY (upright): flatten the gaze forward to the horizontal plane. Canvas
+        // front faces -forward, so pointing +Z away from the viewer makes the panel face them.
+        Vector3 flat = fwd;
+        flat.y = 0f;
+        if (flat.sqrMagnitude < 1e-4f)
+            flat = Vector3.forward;
+        rot = Quaternion.LookRotation(flat.normalized, Vector3.up);
         return true;
     }
 
-    /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
-    private static void PlaceAtHmd(ConvertedPanel panel)
+    /// <summary>
+    /// Item 1 (size): derive the board-relative host shrink for a freshly converted window.
+    /// The host renders at <c>widthPx × CanvasScaleMm × WorldScale × extraScale</c>; dividing by
+    /// WorldScale (position carries it) gives the REAL width <c>widthPx × mpp × extraScale</c>,
+    /// so <c>extraScale = ModalTargetWidthMeters / (widthPx × mpp)</c> lands the window at the
+    /// board-sized target — independent of table zoom, exactly like the settings panel. Returned
+    /// as a CAP on <see cref="WindowScaleFactor"/>: only windows wider than the board shrink;
+    /// smaller dialogs keep 0.7. Floored so a huge window never collapses to nothing.
+    /// </summary>
+    private static float DeriveWindowScale(ConvertedPanel panel)
     {
-        if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale))
+        float widthPx = panel.HostRect != null ? panel.HostRect.rect.width : 0f;
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        if (widthPx < 1f || metersPerPixel <= 0f)
+            return WindowScaleFactor;
+        float boardRelative = ModalTargetWidthMeters / (widthPx * metersPerPixel);
+        return Mathf.Clamp(Mathf.Min(WindowScaleFactor, boardRelative),
+            MinWindowScaleFactor, WindowScaleFactor);
+    }
+
+    /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
+    private static void PlaceAtHmd(ConvertedPanel panel, float extraScale, int staggerIndex = 0)
+    {
+        if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale, staggerIndex))
             return;
-        CanvasConversion.PlaceHost(panel, pos, rot, scale * WindowScaleFactor);
+        CanvasConversion.PlaceHost(panel, pos, rot, scale * extraScale);
     }
 
     private static void ReleaseAllWindows(string reason)
