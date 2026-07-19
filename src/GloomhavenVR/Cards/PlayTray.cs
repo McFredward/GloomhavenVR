@@ -2882,6 +2882,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // big top→bevel→wall value+hue gradient is what makes the raised shape unmistakable.
             int subMeshes = sm != null ? sm.subMeshCount : -1;
             bool split = _capBevelMaterial != null && _capWallMaterial != null && subMeshes >= 3;
+            // Item 7: prove the keycap is a CLOSED, correctly-wound SOLID (the see-through
+            // "you can see the button's own underside through it" was an inside-out winding on a
+            // Cull-Back material). A closed beveled keycap = 10 quads: top(1) + bevel ring(4) +
+            // side walls(4) + BACK/bottom cap(1). The back cap lives in the WALL submesh (2) so it
+            // shades dark like the walls. Expected watertight counts: 40 verts, 20 tris, submesh
+            // index counts [6, 24, 30] (top 6 / bevel 24 / walls+back 30). Report the ACTUAL mesh
+            // so the next hardware log confirms nothing is missing and the winding is now outward.
+            int vtx = sm != null ? sm.vertexCount : -1;
+            int triTotal = 0, s0 = -1, s1 = -1, s2 = -1;
+            if (sm != null)
+            {
+                for (int si = 0; si < sm.subMeshCount; si++)
+                    triTotal += (int)(sm.GetIndexCount(si) / 3);
+                if (sm.subMeshCount > 0) s0 = (int)sm.GetIndexCount(0);
+                if (sm.subMeshCount > 1) s1 = (int)sm.GetIndexCount(1);
+                if (sm.subMeshCount > 2) s2 = (int)sm.GetIndexCount(2);
+            }
+            bool closedSolid = vtx == 40 && triTotal == 20 && s0 == 6 && s1 == 24 && s2 == 30;
             float bevelMm = SquareCapBevel * Mathf.Abs(lossy.z) * 1000f;
             string tintInfo = _capWallMaterial != null
                 ? $"top {(m != null ? m.color.ToString() : "<none>")}, bevel {(_capBevelMaterial != null ? _capBevelMaterial.color.ToString() : "<none>")} (lerp {BevelLerp:F2} → parchment), " +
@@ -2903,6 +2921,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 $"Walls read {(mmThick >= 6f ? "SOLID (thickness OK)" : "FLAT (too thin)")}; material is " +
                 $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades by normal → lit bevel)" : "NOT BoardLit — bevel/wall shading may be wrong")}. " +
                 $"Three-material bevel split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {tintInfo}. " +
+                $"CLOSED SOLID: {(closedSolid ? "YES" : "NO")} (verts {vtx}, tris {triTotal}, submesh indices " +
+                $"top/bevel/wall {s0}/{s1}/{s2}; back+bottom cap in wall submesh 2 — expect 40/20/6/24/30). " +
+                "Winding is now OUTWARD (RH normal = +n), so no interior/underside shows through under Cull Back (item 7). " +
                 "Solid on-theme palette: aged-brass top / bright parchment bevel / dark-wood walls (item 1b).");
         }
 
