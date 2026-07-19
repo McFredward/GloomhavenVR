@@ -36,14 +36,22 @@ namespace GloomhavenVR.Core;
 ///
 ///  - <b>DepthClearCB</b> — if NO depth-write property exists (the shader hard-codes
 ///    <c>ZWrite On</c>): the robust STRUCTURAL fix. The sphere is taken out of the head
-///    camera's normal opaque pass (<see cref="Renderer.enabled"/> = false) and instead
-///    redrawn by a <see cref="CommandBuffer"/> at <see cref="CameraEvent.BeforeForwardOpaque"/>
-///    that draws it (color + depth) and then CLEARS DEPTH ONLY (color kept). The scene's
-///    opaque geometry then renders against a depth buffer the sphere never populated → the
-///    sphere is a pure color backdrop that can occlude nothing. This holds ALWAYS (not just
+///    camera's AUTOMATIC opaque draw via <see cref="Renderer.forceRenderingOff"/> = true and
+///    instead redrawn by a <see cref="CommandBuffer"/> at
+///    <see cref="CameraEvent.BeforeForwardOpaque"/> that draws it (COLOR + depth) and then
+///    CLEARS DEPTH ONLY (color kept). The scene's opaque geometry then renders against a depth
+///    buffer the sphere never populated → the sphere is a pure color backdrop that can occlude
+///    nothing, yet its AMP_SkyShader texture is fully VISIBLE. This holds ALWAYS (not just
 ///    while a menu floats) so the board and laser benefit too. Keeping the sphere on the head
 ///    camera (via the command buffer) means it needs NO second camera and no stereo-policy or
 ///    culling-mask changes — the buffer inherits the head camera's per-eye matrices.
+///
+///    WHY forceRenderingOff and NOT <c>enabled = false</c>: disabling the renderer removes it
+///    from Unity's culling/visible set, and <c>CommandBuffer.DrawRenderer</c>
+///    on a culled renderer draws NOTHING — the sphere was then neither auto-drawn nor CB-drawn,
+///    so the sky went COMPLETELY BLACK (issue #2). forceRenderingOff suppresses only the
+///    automatic draw while keeping the renderer culled/prepared, so DrawRenderer has valid
+///    render data and the sky's own color renders. Fully reversible (restored to false).
 ///
 /// SEPARATION FROM MR: this runs only while the sky is meant to be VISIBLE (MR OFF). When
 /// mixed-reality turns ON, <see cref="MixedReality"/> hides the sphere for the chroma key via
@@ -79,7 +87,7 @@ internal static class SkyBackdrop
     private static bool _savedQueueValid;
     private static string? _zwriteProp;
     private static float _savedZWrite;
-    private static bool _rendererDisabled;
+    private static bool _renderingForcedOff;
 
     // DepthClearCB route — a command buffer bound to the current head camera.
     private static CommandBuffer? _cb;
@@ -235,10 +243,12 @@ internal static class SkyBackdrop
         {
             _mech = Mechanism.DepthClearCB;
             VRLog.Info("Core", $"SkyBackdrop mechanism = DepthClearCB: no depth-write property among {count} " +
-                               $"(shader hard-codes ZWrite On) → the sky sphere is pulled out of the head camera's normal " +
-                               $"opaque pass and redrawn by a BeforeForwardOpaque command buffer that clears DEPTH after " +
-                               $"(color kept). Scene geometry then renders against a depth buffer the sphere never wrote, " +
-                               $"so it can occlude nothing — menus, board and laser always show. Reversible.");
+                               $"(shader hard-codes ZWrite On) → the sky sphere's AUTOMATIC draw is suppressed via " +
+                               $"Renderer.forceRenderingOff (NOT enabled=false, which would cull it and make the command " +
+                               $"buffer draw nothing → the black sky of issue #2) and it is redrawn by a BeforeForwardOpaque " +
+                               $"command buffer that clears DEPTH after (COLOR kept — the AMP_SkyShader sky is visible). Scene " +
+                               $"geometry then renders against a depth buffer the sphere never wrote, so it can occlude nothing " +
+                               $"— menus, board and laser always show. Reversible.");
         }
     }
 
@@ -276,10 +286,17 @@ internal static class SkyBackdrop
         }
         else if (_mech == Mechanism.DepthClearCB)
         {
-            if (_sky!.enabled)
+            // Take the sphere out of the head camera's AUTOMATIC opaque draw so only the command
+            // buffer draws it (and can clear the depth it writes). Use forceRenderingOff, NOT
+            // enabled=false: disabling the renderer removes it from Unity's culling/visible set,
+            // and CommandBuffer.DrawRenderer on a culled renderer produces NO draw — that is why
+            // the previous build showed a completely BLACK sky (sphere neither auto-drawn nor
+            // CB-drawn). forceRenderingOff suppresses only the automatic draw while keeping the
+            // renderer culled/prepared, so DrawRenderer has valid render data and its COLOR shows.
+            if (!_sky!.forceRenderingOff)
             {
-                _sky.enabled = false; // keep it out of the head camera's normal opaque pass
-                _rendererDisabled = true;
+                _sky.forceRenderingOff = true;
+                _renderingForcedOff = true;
             }
             EnsureCB();
         }
@@ -297,9 +314,9 @@ internal static class SkyBackdrop
             if (_mech == Mechanism.ZWriteOff && _zwriteProp != null && mat.HasProperty(_zwriteProp))
                 mat.SetFloat(_zwriteProp, _savedZWrite);
         }
-        if (_rendererDisabled && _sky != null)
-            _sky.enabled = true;
-        _rendererDisabled = false;
+        if (_renderingForcedOff && _sky != null)
+            _sky.forceRenderingOff = false;
+        _renderingForcedOff = false;
         RemoveCB();
         _applied = false;
     }
@@ -334,7 +351,8 @@ internal static class SkyBackdrop
         head.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, _cb);
         _cbCamera = head;
         VRLog.Info("Core", $"SkyBackdrop: depth-clear command buffer attached to head camera '{head.name}' " +
-                           $"(BeforeForwardOpaque) — sky redrawn then depth cleared.");
+                           $"(BeforeForwardOpaque) — sky COLOR redrawn (forceRenderingOff sphere, visible) then depth " +
+                           $"cleared so it occludes nothing.");
     }
 
     private static void BuildCBCommands()
