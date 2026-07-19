@@ -130,6 +130,47 @@ internal sealed class ConvertedPanel
 
     /// <summary>Next frame the (allocating) camera scan runs — throttled; cameras change rarely.</summary>
     public int DiagNextCameraScanFrame;
+
+    // ---- dedicated mod layer for floated modals (user #8: UI-Camera double-draw) ----------
+    /// <summary>
+    /// Opt-in (<see cref="CanvasConversion.Convert"/> <c>useModLayer</c>): this host and its
+    /// ENTIRE converted subtree are moved onto <see cref="Core.VRLayers.ModLayer"/> — the
+    /// dedicated mod layer that ONLY the HMD head camera renders. The game's mono
+    /// <c>UI Camera</c> (cullingMask = UI layer only) can no longer double-draw the
+    /// world-space modal, which was the confirmed flicker root cause. Reversible: every
+    /// touched transform's original layer is recorded in <see cref="Relayered"/> and
+    /// restored on <see cref="CanvasConversion.Release"/>.
+    /// </summary>
+    public bool ModLayerEnabled;
+
+    /// <summary>Every transform re-layered onto the mod layer, with its original layer (restored on Release).</summary>
+    public readonly List<LayerRecord> Relayered = new(64);
+
+    // ---- transparent modal background (user #8 part 2) ------------------------------------
+    /// <summary>
+    /// Opt-in (<see cref="CanvasConversion.Convert"/> <c>transparentBackground</c>): the
+    /// full-window opaque backing/blur image(s) of a floated full-screen menu (ESC /
+    /// Options / Results family) are disabled while floated so only the foreground
+    /// content (buttons/text/art) shows — it no longer reads as a flat rectangle in space.
+    /// Reversible: the disabled graphics are recorded here and re-enabled on Release.
+    /// </summary>
+    public bool HideBackground;
+
+    /// <summary>Full-screen background graphics we disabled while floated (re-enabled on Release).</summary>
+    public readonly List<Graphic> HiddenBackgrounds = new(4);
+
+    /// <summary>Next frame the background-hide re-assert sweep runs (pooled/late fades).</summary>
+    public int BackgroundSweepNextFrame;
+}
+
+/// <summary>
+/// A transform moved onto the mod layer for a floated modal (see
+/// <see cref="ConvertedPanel.ModLayerEnabled"/>) — its original layer, restored on Release.
+/// </summary>
+internal struct LayerRecord
+{
+    public Transform Transform;
+    public int OriginalLayer;
 }
 
 /// <summary>
@@ -233,7 +274,8 @@ internal static class CanvasConversion
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
-        int sortingOrder = 0, bool diagnostic = false)
+        int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
+        bool transparentBackground = false)
     {
         if (target == null)
         {
@@ -354,6 +396,25 @@ internal static class CanvasConversion
 
         panel.Diagnostic = diagnostic;
         panel.DiagConvertedAt = Time.unscaledTime;
+
+        // User #8 part 1: move the whole floated-modal subtree onto the dedicated mod
+        // layer so ONLY the HMD head camera renders it — the game's mono UI Camera
+        // (cullingMask = UI layer only) can no longer double-draw the world-space modal
+        // (the confirmed flicker). Runs AFTER adoption/flatten so nested-canvas GameObjects
+        // are known; reversible via the recorded original layers.
+        if (useModLayer)
+        {
+            panel.ModLayerEnabled = true;
+            ApplyModLayer(panel, initial: true);
+        }
+
+        // User #8 part 2: hide the full-screen opaque backing/blur so the modal reads as
+        // floating foreground content, not a flat rectangle. Reversible on Release.
+        if (transparentBackground)
+        {
+            panel.HideBackground = true;
+            HideFullScreenBackground(panel, initial: true);
+        }
 
         Active.Add(panel);
         EnsureCameraMask();
@@ -478,6 +539,130 @@ internal static class CanvasConversion
                 return true;
         }
         return false;
+    }
+
+    // ---- dedicated mod layer for floated modals (user #8: UI-Camera double-draw) ----------
+
+    // Scratch buffer (mod-layer sweep only; reused, no per-call allocations).
+    private static readonly List<Transform> TransformScratch = new(128);
+
+    /// <summary>
+    /// Move the host + its ENTIRE converted subtree onto <see cref="Core.VRLayers.ModLayer"/>
+    /// so ONLY the HMD head camera renders it (the game UI Camera's cullingMask is the UI
+    /// layer only — bit 27 is never in it, so the mono double-draw stops). Sub-canvases are
+    /// culled by their OWN GameObject layer, so the whole subtree — not just the host — must
+    /// move. Every transform's original layer is recorded ONCE for a faithful restore;
+    /// writes are change-gated, so the periodic re-sweep only pays for genuinely new/pooled
+    /// children. No-op if the mod layer could not be resolved to a dedicated slot (it fell
+    /// back to the UI layer — moving there would change nothing and lose the game's layers).
+    /// </summary>
+    private static void ApplyModLayer(ConvertedPanel panel, bool initial)
+    {
+        if (panel.HostGo == null)
+            return;
+        int modLayer = Core.VRLayers.ModLayer;
+        if (modLayer == UiLayer)
+            return; // no dedicated layer available — the move would not separate us from the UI Camera
+
+        TransformScratch.Clear();
+        panel.HostGo.GetComponentsInChildren(includeInactive: true, TransformScratch);
+        int moved = 0;
+        for (int i = 0; i < TransformScratch.Count; i++)
+        {
+            Transform t = TransformScratch[i];
+            if (t == null || t.gameObject.layer == modLayer)
+                continue;
+            if (!IsRelayered(panel, t))
+                panel.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = t.gameObject.layer });
+            t.gameObject.layer = modLayer;
+            moved++;
+        }
+        TransformScratch.Clear();
+        if (moved > 0)
+            VRLog.Info("WorldUI", $"MODAL LAYER: moved {moved} transform(s) of '{panel.HostGo.name}' onto the " +
+                                  $"dedicated mod layer {modLayer} — only the HMD head camera renders it now, " +
+                                  "the game UI Camera can no longer double-draw the world-space modal" +
+                                  (initial ? "." : " (pooled/late children)."));
+    }
+
+    private static bool IsRelayered(ConvertedPanel panel, Transform t)
+    {
+        for (int i = 0; i < panel.Relayered.Count; i++)
+        {
+            if (ReferenceEquals(panel.Relayered[i].Transform, t))
+                return true;
+        }
+        return false;
+    }
+
+    // ---- transparent modal background (user #8 part 2) ------------------------------------
+
+    /// <summary>A background image must cover at least this fraction of the window rect (each axis).</summary>
+    private const float BackgroundCoverFraction = 0.85f;
+
+    /// <summary>Only opaque backings count as "the background" — invisible click-catchers are left alone.</summary>
+    private const float BackgroundOpaqueAlpha = 0.3f;
+
+    // Scratch buffers (background sweep only; reused).
+    private static readonly List<Graphic> BgGraphicScratch = new(64);
+    private static readonly Vector3[] BgCornerScratch = new Vector3[4];
+
+    /// <summary>
+    /// Disable the full-window opaque backing/blur image(s) of a floated full-screen menu
+    /// so only its foreground content shows (user #8 part 2). A background is an
+    /// <see cref="Image"/>/<see cref="RawImage"/> whose rect covers ~the whole window frame
+    /// and is opaque; text, buttons and art are smaller and untouched. Disabling the
+    /// <see cref="Graphic"/> hides it AND drops its raycast blocker (clicks pass through the
+    /// now-empty area harmlessly — there is nothing behind it in world space). Reversible:
+    /// each disabled graphic is recorded and re-enabled on <see cref="Release"/>.
+    /// </summary>
+    private static void HideFullScreenBackground(ConvertedPanel panel, bool initial)
+    {
+        if (panel.Target == null || panel.HostRect == null)
+            return;
+
+        panel.BackgroundSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
+
+        // Window frame size in host-local space (target world corners → host-local).
+        panel.Target.GetWorldCorners(BgCornerScratch);
+        Vector3 fa = panel.HostRect.InverseTransformPoint(BgCornerScratch[0]);
+        Vector3 fc = panel.HostRect.InverseTransformPoint(BgCornerScratch[2]);
+        float frameW = Mathf.Abs(fc.x - fa.x);
+        float frameH = Mathf.Abs(fc.y - fa.y);
+        if (frameW < 1f || frameH < 1f)
+            return;
+
+        BgGraphicScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: false, BgGraphicScratch);
+        int hidden = 0;
+        for (int i = 0; i < BgGraphicScratch.Count; i++)
+        {
+            Graphic g = BgGraphicScratch[i];
+            if (g == null || !g.enabled || !(g is Image || g is RawImage))
+                continue;
+            if (g.canvasRenderer == null || g.canvasRenderer.cull)
+                continue;
+            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < BackgroundOpaqueAlpha)
+                continue;
+
+            var grect = (RectTransform)g.transform;
+            grect.GetWorldCorners(BgCornerScratch);
+            Vector3 ga = panel.HostRect.InverseTransformPoint(BgCornerScratch[0]);
+            Vector3 gc = panel.HostRect.InverseTransformPoint(BgCornerScratch[2]);
+            float gw = Mathf.Abs(gc.x - ga.x);
+            float gh = Mathf.Abs(gc.y - ga.y);
+            if (gw < frameW * BackgroundCoverFraction || gh < frameH * BackgroundCoverFraction)
+                continue; // smaller than the frame → foreground content, keep it
+
+            g.enabled = false; // hide the backing AND its raycast blocker
+            panel.HiddenBackgrounds.Add(g);
+            hidden++;
+        }
+        BgGraphicScratch.Clear();
+        if (hidden > 0)
+            VRLog.Info("WorldUI", $"MODAL BACKGROUND: disabled {hidden} full-window backing/blur image(s) in " +
+                                  $"'{panel.HostGo.name}' — the modal now shows only its foreground content " +
+                                  (initial ? "(transparent background)." : "(late fade-in)."));
     }
 
     // ---- 2D flatten (test #21) ------------------------------------------------------------
@@ -834,6 +1019,25 @@ internal static class CanvasConversion
         }
         panel.AdoptedCanvases.Clear();
 
+        // User #8 part 1: restore every transform we moved onto the mod layer back to its
+        // original layer (game content re-joins the UI layer for the 2D restore).
+        for (int i = 0; i < panel.Relayered.Count; i++)
+        {
+            LayerRecord record = panel.Relayered[i];
+            if (record.Transform != null)
+                record.Transform.gameObject.layer = record.OriginalLayer;
+        }
+        panel.Relayered.Clear();
+
+        // User #8 part 2: re-enable the full-window backing/blur we disabled while floated.
+        for (int i = 0; i < panel.HiddenBackgrounds.Count; i++)
+        {
+            Graphic g = panel.HiddenBackgrounds[i];
+            if (g != null)
+                g.enabled = true;
+        }
+        panel.HiddenBackgrounds.Clear();
+
         // Un-flatten (test #21) BEFORE the root restore below: original local
         // rotation and z go back per recorded transform (x/y stayed game-owned
         // throughout), and the root's full-pose restore then wins as ever.
@@ -920,7 +1124,18 @@ internal static class CanvasConversion
             // Tests #19/#20: pooled/late children may bring nested canvases after
             // Convert, and the game can flip overrideSorting back on live.
             if (Time.frameCount >= panel.CanvasSweepNextFrame)
+            {
                 AdoptNestedCanvases(panel);
+                // User #8: a freshly adopted/pooled child spawns on the game's UI layer —
+                // re-assert the mod-layer move so the UI Camera never picks it up.
+                if (panel.ModLayerEnabled)
+                    ApplyModLayer(panel, initial: false);
+            }
+
+            // User #8 part 2: re-assert the background hide (menu fade-ins can enable the
+            // backing image a few frames after the window shows).
+            if (panel.HideBackground && Time.frameCount >= panel.BackgroundSweepNextFrame)
+                HideFullScreenBackground(panel, initial: false);
 
             // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
             // overrideSorting=false, but a WORLD-space modal that shares its canvas order
