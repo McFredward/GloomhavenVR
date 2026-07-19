@@ -33,9 +33,11 @@ internal sealed class OptionsToggle
     /// <summary>
     /// Press-cycle latch (P6 flicker fix). A tap may toggle only while armed; a toggle
     /// disarms it. It re-arms only once the button is OBSERVABLY up again
-    /// (<see cref="NonDominantHold.ButtonIsUp"/> — hand posed AND not pressed). A held or
-    /// hiccuping button keeps ButtonIsUp false, so it can never re-toggle without a
-    /// genuine physical release. This replaces the old wall-clock cooldown, which — because
+    /// (<see cref="NonDominantHold.ButtonIsUp"/> — controller present and not pressed).
+    /// A held button keeps ButtonIsUp false, so it can never re-toggle without a genuine
+    /// physical release; a merely idle/untracked controller still re-arms it (its button
+    /// is read regardless of positional tracking). This replaces the old wall-clock
+    /// cooldown, which — because
     /// <c>UIWindow.IsOpen</c> flips the same frame as Show/Hide (no transitional state) —
     /// collapsed to a pure 0.5 s rate-limiter that any later release edge re-triggered.
     /// </summary>

@@ -47,21 +47,24 @@ internal static class NonDominantHold
     /// </summary>
     internal static bool ShortTapThisFrame { get; private set; }
 
-    /// <summary>The tracked non-dominant hand (for haptic confirms), null without a pose.</summary>
+    /// <summary>The tracked non-dominant hand (for haptic confirms), null only when the
+    /// controller instance is absent (hot reload / headset off). Present even while the
+    /// controller is positionally UNTRACKED — haptics and the face button still work.</summary>
     internal static VRHand? Hand { get; private set; }
 
     /// <summary>
-    /// True only when the button is OBSERVABLY up this frame: the hand has a pose AND
-    /// its PrimaryButton is not pressed. False while the button is held AND false during
-    /// a pose hiccup (we cannot confirm "up" without a pose). The press-cycle latch in
-    /// <see cref="OptionsToggle"/> re-arms only on this signal, so a held/hiccuping button
-    /// can never re-toggle without a genuine, observed physical release.
+    /// True only when the button is OBSERVABLY up this frame: the controller is present
+    /// AND its PrimaryButton is not pressed. False while the button is held AND false
+    /// while the controller instance is absent. The press-cycle latch in
+    /// <see cref="OptionsToggle"/> re-arms only on this signal, so a held button can never
+    /// re-toggle without a genuine, observed physical release — but a merely stationary
+    /// (untracked) controller still re-arms it, since its button is read all the same.
     /// </summary>
     internal static bool ButtonIsUp { get; private set; }
 
     private static bool _wasDown;
 
-    /// <summary>Whether the non-dominant hand had a pose LAST frame (phantom-edge guard).</summary>
+    /// <summary>Whether the non-dominant controller was present LAST frame (phantom-edge guard).</summary>
     private static bool _hadHand;
 
     internal static void Tick()
@@ -69,8 +72,21 @@ internal static class NonDominantHold
         VRHand? primary = VRHands.Primary;
         VRHand? hand = primary == null ? null
             : VRHands.Get(primary.Side == HandSide.Left ? HandSide.Right : HandSide.Left);
-        Hand = hand != null && hand.HasPose ? hand : null;
-        bool handPresent = Hand != null;
+
+        // OBSERVE THE BUTTON INDEPENDENTLY OF POSITIONAL TRACKING (X-menu "opens only
+        // once" fix). A Quest / Virtual Desktop controller that is held still — resting
+        // after the player reads the floated pause menu, or simply lowered — drops to
+        // isTracked=false, so VRHand.HasPose (== IsTracked) goes false. But VRHand still
+        // reads its PrimaryButton from the VALID device every frame (VRHand.cs:346/383 —
+        // the tracked gate skips only the pose, never the button). The old HasPose gate
+        // here therefore FROZE the whole tracker the moment the non-dominant hand went
+        // idle: the pause-menu tap was seen exactly once and every later tap vanished
+        // (no ShortTap edge, nothing logged, no re-open). Gate on the controller INSTANCE
+        // instead — its button is trustworthy whenever it exists (a truly gone device is
+        // ClearInput'd to a clean "up", VRHand.cs:341/428, so it reads as no press, never
+        // a phantom). Positional pose is irrelevant to a face-button tap.
+        Hand = hand;
+        bool handPresent = hand != null;
 
         ReleasedThisFrame = false;
         ReleasedAfterSeconds = 0f;
@@ -78,18 +94,17 @@ internal static class NonDominantHold
 
         if (!handPresent)
         {
-            // POSE HICCUP (or ClearInput, which only fires alongside loss of tracking):
-            // FREEZE the press. Do NOT manufacture a release edge — the physical button
-            // may still be held, and a phantom release would be re-pressed the instant
-            // the pose returns and read as a spurious tap (this was the real source of the
-            // X-menu flicker). Leave HeldSeconds and _wasDown untouched so the press
-            // resumes seamlessly. Not observably up, so the latch cannot re-arm here.
+            // NO CONTROLLER INSTANCE at all (hot reload / headset removed): freeze the
+            // press. Do NOT manufacture a release edge — a phantom release would be
+            // re-pressed when the controller returns and read as a spurious tap. Leave
+            // HeldSeconds and _wasDown untouched so the press resumes seamlessly. Not
+            // observably up, so the latch cannot re-arm here.
             ButtonIsUp = false;
             _hadHand = false;
             return;
         }
 
-        bool down = Hand!.PrimaryButton;
+        bool down = hand!.PrimaryButton;
 
         if (down)
         {
@@ -127,22 +142,17 @@ internal static class NonDominantHold
             ShortTapThisFrame = ReleasedAfterSeconds < tapMax;
         }
 
-        // SELF-HEAL after a pose dropout (X-menu reopen bug). A dropout that STRADDLES
-        // a press strands this tracker: the pose-loss freeze above leaves _wasDown and
-        // Consumed untouched, so if the button was down (or the press began) during the
-        // gap, no later press ever reads as a FRESH edge (down && !_wasDown) — Consumed
-        // is therefore never re-cleared and every subsequent release is gated out at the
-        // tap check above (!Consumed). Result: the pause menu could be opened exactly
-        // once. Once the hand is back and the button is observed GENUINELY up on a frame
-        // that is NOT ending a real observed press, clear the stranded latch so the next
-        // genuine press is a fresh edge again and its release yields a tap.
+        // SELF-HEAL belt-and-suspenders. Now that the button is observed every frame the
+        // controller instance exists (above), a stranded latch is no longer possible from
+        // mere tracking loss. This still clears any residual press/Consumed latch the
+        // instant the button is observed genuinely up on a settled frame — e.g. a full
+        // controller-absence gap that straddled a press — so the next genuine press is
+        // always a fresh edge (down && !_wasDown) whose release yields a tap.
         //
         // ReleasedThisFrame guards the consumed-hold release frame (Consumed must stay
         // true through that frame's tap check so the hold's release never emits a phantom
         // tap); the heal then runs on the following settled-up frame, harmlessly, since
-        // the press is already over. The pose-hiccup freeze still suppresses phantom taps
-        // DURING the dropout — this only fires once the hand has settled back (ButtonIsUp
-        // is false during a hiccup), so it does not reintroduce the reopen flicker.
+        // the press is already over.
         if (ButtonIsUp && !ReleasedThisFrame && (_wasDown || Consumed))
         {
             _wasDown = false;
