@@ -64,6 +64,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         TickGuard.Run("FigureGrab.OffsetAnchorSelect", TickOffsetAnchorSelect);
         TickGuard.Run("FigureGrab.LaserGrab", TickLaserGrab);
 
+        // Re-derive every held mini's pose from the LIVE hand + head + config THIS frame. The hold
+        // used to be baked once at grab and then rode the wrist, so the resting orientation carried
+        // the grab-moment wrist/approach angle (ISSUE #3). Re-applying the fixed world pose each
+        // frame makes the hold identical regardless of grab angle or wrist. Runs AFTER LaserGrab so
+        // a just-grabbed figure is posed the same frame; idempotent when nothing is held.
+        TickGuard.Run("FigureGrab.HeldPose", FigureGrabbable.DriveHeldPoses);
+
         // Keep the held figure's stat panel locked to that figure even if the laser sweeps
         // another figure on the board (risk #5 — the game's hover would otherwise re-target).
         if (HeldFigures.Count > 0)
