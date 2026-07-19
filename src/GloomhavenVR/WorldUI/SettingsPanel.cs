@@ -726,11 +726,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value += d * 5f;
             });
 
-        // Reset element / Copy Oak→active.
+        // Reset element (the "Copy Oak→active" button was removed in item 3b).
         var actionRow = Row();
         _debugRows.Add(actionRow.gameObject);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
-        Button(actionRow, Loc.Mod("copy_oak"), 0f, CopyOakToActive, flexible: true);
 
         // Visibility: show the tuning rows only while DebugMenu is on; the conditional rows
         // (Size, Spacing, Row gap, Shape, Tilt/Yaw) additionally gate on the selected element.
@@ -1024,34 +1023,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             }
         }
         VRLog.Info("Cards", $"Debug: reset {(DebugElement)_debugElement} for {b} to defaults.");
-    }
-
-    private void CopyOakToActive()
-    {
-        ControlBoard b = CardsConfig.CurrentBoard;
-        if (b == ControlBoard.Oak)
-            return;
-        CardsConfig.RestButtonOffset(b).Value = CardsConfig.RestButtonOffset(ControlBoard.Oak).Value;
-        CardsConfig.RestButtonDiameter(b).Value = CardsConfig.RestButtonDiameter(ControlBoard.Oak).Value;
-        CardsConfig.RestButtonSpacing(b).Value = CardsConfig.RestButtonSpacing(ControlBoard.Oak).Value;
-        CardsConfig.RestButtonShape(b).Value = CardsConfig.RestButtonShape(ControlBoard.Oak).Value;
-        CardsConfig.ConfirmUndoOffset(b).Value = CardsConfig.ConfirmUndoOffset(ControlBoard.Oak).Value;
-        CardsConfig.ConfirmUndoSize(b).Value = CardsConfig.ConfirmUndoSize(ControlBoard.Oak).Value;
-        CardsConfig.GenericButtonSpacing(b).Value = CardsConfig.GenericButtonSpacing(ControlBoard.Oak).Value;
-        CardsConfig.GenericButtonShape(b).Value = CardsConfig.GenericButtonShape(ControlBoard.Oak).Value;
-        CardsConfig.SlotOverlayOffset(b).Value = CardsConfig.SlotOverlayOffset(ControlBoard.Oak).Value;
-        CardsConfig.InitiativeOffset(b).Value = CardsConfig.InitiativeOffset(ControlBoard.Oak).Value;
-        CardsConfig.ActiveOffset(b).Value = CardsConfig.ActiveOffset(ControlBoard.Oak).Value;
-        CardsConfig.ActiveCardScale(b).Value = CardsConfig.ActiveCardScale(ControlBoard.Oak).Value;
-        CardsConfig.ActiveGridSpacing(b).Value = CardsConfig.ActiveGridSpacing(ControlBoard.Oak).Value;
-        CardsConfig.PileOffset(b).Value = CardsConfig.PileOffset(ControlBoard.Oak).Value;
-        CardsConfig.PileScale(b).Value = CardsConfig.PileScale(ControlBoard.Oak).Value;
-        CardsConfig.PileSpacing(b).Value = CardsConfig.PileSpacing(ControlBoard.Oak).Value;
-        CardsConfig.BoardTilt(b).Value = CardsConfig.BoardTilt(ControlBoard.Oak).Value;
-        CardsConfig.BoardYaw(b).Value = CardsConfig.BoardYaw(ControlBoard.Oak).Value;
-        CardsConfig.BoardScale(b).Value = CardsConfig.BoardScale(ControlBoard.Oak).Value;
-        CardsConfig.BoardPosOffset(b).Value = CardsConfig.BoardPosOffset(ControlBoard.Oak).Value;
-        VRLog.Info("Cards", $"Debug: copied Oak's board tuning onto {b}.");
     }
 
     // ---- grab frame (bar + FOLLOW/PINNED pin) -------------------------------------------------

@@ -892,18 +892,25 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
-        // Untracked head (test #17): in a session's first frames the rig camera
+        // Untracked head (test #17 / item 1): in a session's first frames the rig camera
         // still sits at its local origin — the "in front of the player" math would
         // place (and a persisted PINNED mode then permanently pin) the tray at a
-        // garbage pose (it spawned far below the map). Defer until the pose driver
-        // delivered a real pose — the same first-pose signal VRRigDriver gates its
-        // pending recenter on; TickPlacement retries every frame.
-        if (head == VRRigDriver.HeadCamera && head.transform.localPosition.sqrMagnitude < 1e-6f)
+        // garbage pose (it spawned far below the map / outside the skybox). Defer until
+        // the pose driver delivered a real pose — the same first-pose signal VRRigDriver
+        // gates its pending recenter on; TickPlacement retries every frame. Item 1 also
+        // treats a camera sitting EXACTLY at the world origin with identity rotation as
+        // not-yet-posed (a fresh/stale Camera.main fallback), so a bogus head can never
+        // seed the placement in the first place.
+        bool untrackedHmd = head == VRRigDriver.HeadCamera
+                            && head.transform.localPosition.sqrMagnitude < 1e-6f;
+        bool atWorldOrigin = head.transform.position.sqrMagnitude < 1e-6f
+                             && Quaternion.Angle(head.transform.rotation, Quaternion.identity) < 0.01f;
+        if (untrackedHmd || atWorldOrigin)
         {
             if (!_placementDeferLogged)
             {
                 _placementDeferLogged = true;
-                VRLog.Info("Cards", "Control board placement deferred — head has no tracked pose yet.");
+                VRLog.Info("Cards", "Control board placement deferred — head has no valid tracked pose yet.");
             }
             return;
         }
@@ -926,6 +933,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                       + flatForward * ((offset.z + boardPos.z) * scale)
                       + right * ((offset.x + boardPos.x) * scale)
                       + Vector3.up * ((offset.y + boardPos.y) * scale);
+
+        // Item 1 safety net (never spawn outside the skybox): clamp the final pose to a sane
+        // reach from the head. The deferral above catches the untracked-HMD / origin-camera
+        // cases; this is the belt-and-braces guard for every OTHER cause (a wildly mis-tuned
+        // BoardPosOffset, an odd rig scale) — the board can never sit more than ~1.2 m from the
+        // head, at a plausible height, no matter what the placement math produced.
+        Vector3 delta = pos - headT.position;
+        var horizontal = new Vector3(delta.x, 0f, delta.z);
+        float maxReach = 1.2f * scale;
+        if (horizontal.magnitude > maxReach)
+            horizontal = horizontal.normalized * maxReach;
+        float clampedY = Mathf.Clamp(delta.y, -1.0f * scale, 0.2f * scale);
+        Vector3 clampedPos = headT.position + horizontal + Vector3.up * clampedY;
+        if ((clampedPos - pos).sqrMagnitude > 1e-6f)
+            VRLog.Info("Cards", $"Control board placement clamped to a sane reach from the head " +
+                                $"(was {delta.magnitude / Mathf.Max(scale, 1e-4f):F2} m out at scale 1, " +
+                                $"now {(clampedPos - headT.position).magnitude / Mathf.Max(scale, 1e-4f):F2} m).");
+        pos = clampedPos;
 
         _root.position = pos;
         _root.rotation = ComputeBoardRotation(flatForward, board);
@@ -1817,7 +1842,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         else if (_confirm != null)
         {
-            _confirm.SetVisible(true);
             // Ready-state mirror (test #19): while THIS hand's player has confirmed
             // (online card selection — the only game state where a confirm persists
             // and is revocable, see CardsGameApi.ReadyToggle), the button flips to
@@ -1829,17 +1853,26 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             bool confirmed = hand != null && CardsGameApi.IsConfirmed(hand);
             bool canConfirm = hand != null
                               && (CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable());
-            // Pick flows (test #28): during a single-card pick, CONFIRM is the mode's
-            // mirrored confirm affordance (the ReadyButton path the recover flows arm) —
-            // accent it as soon as the game reports it fireable.
-            _confirm.SetState(canConfirm || confirmed,
-                accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
-            _confirm.SetLabel(confirmed
-                ? _confirmedLabel ??= "✓ " + Core.Loc.Game("GUI_READY", "READY")
-                : hand == null ? "-"
-                : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
-                    ? Core.Loc.Game("GUI_END_SELECTION", "END SELECTION")
-                    : CardsGameApi.ConfirmLabel());
+            // Item 7 ("wenn es nicht drückbar ist dann soll es dort auch nicht erscheinen"):
+            // only SHOW confirm when its action is actually possible right now — a valid
+            // confirmable selection exists (canConfirm) or the player has confirmed and can
+            // revoke (confirmed). Otherwise HIDE it (not merely disable), so an unpressable
+            // button never appears; it returns the instant the action becomes possible.
+            bool show = canConfirm || confirmed;
+            _confirm.SetVisible(show);
+            if (show)
+            {
+                // Pick flows (test #28): during a single-card pick, CONFIRM is the mode's
+                // mirrored confirm affordance (the ReadyButton path the recover flows arm) —
+                // accent it as soon as the game reports it fireable.
+                _confirm.SetState(true,
+                    accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
+                _confirm.SetLabel(confirmed
+                    ? _confirmedLabel ??= "✓ " + Core.Loc.Game("GUI_READY", "READY")
+                    : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
+                        ? Core.Loc.Game("GUI_END_SELECTION", "END SELECTION")
+                        : CardsGameApi.ConfirmLabel());
+            }
         }
         if (_undo != null && WorldUI.Surfaces.TrayControlDockSurface.UndoDocked)
         {
@@ -1847,10 +1880,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         else if (_undo != null)
         {
-            _undo.SetVisible(true);
+            // Item 7: only SHOW undo when there is actually something to undo — hide it
+            // (not just disable) otherwise; it reappears the instant an undo is available.
             bool canUndo = hand != null && CardsGameApi.CanUndo();
-            _undo.SetState(canUndo, accent: false);
-            _undo.SetLabel(hand != null ? CardsGameApi.UndoLabel() : "-");
+            _undo.SetVisible(canUndo);
+            if (canUndo)
+            {
+                _undo.SetState(true, accent: false);
+                _undo.SetLabel(CardsGameApi.UndoLabel());
+            }
         }
     }
 
