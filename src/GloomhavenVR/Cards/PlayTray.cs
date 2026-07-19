@@ -2539,6 +2539,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Item A: conclusive square-cap wall diagnostic (real mm thickness + shader + queue).
         _confirm?.LogCapDiagnostics("Confirm");
         _undo?.LogCapDiagnostics("Undo");
+        // Item 7b: prove the gear/pin caps are now SOLID OPAQUE beveled keycaps (BoardLit, opaque
+        // queue, no alpha-blend, no Overlay/RenderOnTop) like the other keycaps — the diag reports
+        // "OPAQUE: YES" for both, settling the old see-through look.
+        _gear?.LogCapDiagnostics("Gear/EINST");
+        _followToggle?.LogCapDiagnostics("Pin/FIXIERT");
     }
 
     private static void LogElementFacing(string label, Transform? t, Vector3 faceTowardViewer, Vector3 headPos)
@@ -3039,6 +3044,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             cap.transform.SetParent(go.transform, worldPositionStays: false);
             cap.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
             float labelZ = -0.007f; // default: proud of the flat cap face (viewer side, -Z)
+            // Item 3 (laser): the frontmost (viewer-side, -Z) local-Z of the cap BODY, so the
+            // trigger collider below can be sized to span the WHOLE protruding cap — the laser
+            // reticle then lands on the visible cap FACE. Default covers the flat native/procedural
+            // face (≈ -8 mm); the round disc and boxy keycap branches override it with their real
+            // protrusion (a beveled keycap reaches CapRestZ - capThick ≈ -34 mm).
+            float capFrontZ = CapRestZ - 0.004f;
 
             if (round)
             {
@@ -3051,6 +3062,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 capDisc.transform.SetParent(cap.transform, worldPositionStays: false);
                 capDisc.transform.localRotation = discRot;
                 capDisc.transform.localScale = new Vector3(size.x, Mathf.Max(0.001f, thickness * 0.5f), size.x);
+                capFrontZ = CapRestZ - Mathf.Max(0.001f, thickness * 0.5f); // disc protrudes half its thickness toward the viewer
                 Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
                 if (shader != null)
                 {
@@ -3084,6 +3096,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 capCube.transform.SetParent(cap.transform, worldPositionStays: false);
                 capCube.transform.localScale = Vector3.one;       // mesh is authored at real size
                 capCube.transform.localPosition = Vector3.zero;   // mesh already spans −capThick..0
+                capFrontZ = CapRestZ - capThick; // the beveled plateau protrudes the full cap thickness toward the viewer
                 Shader? shader = BoxCapShader();
                 if (shader != null)
                 {
@@ -3160,9 +3173,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // spilling over its edges (TmpFit, test #12).
             Core.TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
 
+            // Item 3 (laser fix): the trigger collider must SPAN the full protruding cap so a
+            // laser ray aimed at the visible cap FACE registers a hit. The old fixed box
+            // (size.z 0.02, centre -0.004 → front face -0.014) fell 20 mm SHORT of a boxy
+            // beveled keycap's front plateau (CapRestZ - capThick ≈ -0.034): the laser passed
+            // over the box and never landed, so gear/pin (and any Square-shaped cap) could not
+            // be laser-pressed even though poke worked (the fingertip reaches the box from its
+            // 35 mm hover). Size the box from the cap's own frontmost local-Z back to the base
+            // plate's rear face, so it hugs the whole visible cap for every shape.
+            const float baseBackZ = 0.007f;                     // base plate rear face (localPos.z 0.004 + half depth 0.003)
+            float boxFrontZ = Mathf.Min(capFrontZ, -0.006f);    // never shallower than the old front
             var box = go.AddComponent<BoxCollider>();
-            box.size = new Vector3(size.x, size.y, 0.02f);
-            box.center = new Vector3(0f, 0f, -0.004f);
+            box.size = new Vector3(size.x, size.y, baseBackZ - boxFrontZ);
+            box.center = new Vector3(0f, 0f, (boxFrontZ + baseBackZ) * 0.5f);
             box.isTrigger = true;
 
             var button = go.AddComponent<BoardButton>();
