@@ -56,16 +56,22 @@ internal sealed class CompatModule : IVRModule
         // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
-        // ISSUE #4 — force walls to stay opaque (disable the top-down see-through wall fade).
-        // WallFadeDisable pins the GLOBAL shader int off; WallSolidifier additionally kills the
-        // per-material local gate and the components that re-assert the global each scene load.
+        // ISSUE #4 — occlusion stack. Registration ORDER MATTERS: sceneLoaded handlers fire in
+        // subscription order, so per scene load we get census (pristine shipped state) → wall
+        // depth enforcement → ZTest enforcement. All reflection-only, VR-gated, reversible.
+        //  1. Occlusion census (always-on diagnostic): per-shader-group report of queue/ZWrite/ZTest
+        //     over all world renderers — the evidence engine for the wall-ZWrite hypothesis.
+        GlowOcclusion.InstallCensus();
+        //  2. Walls: WallFadeDisable pins the GLOBAL fade shader int off (Harmony); WallSolidifier
+        //     neutralizes the fade driver components (legacy, proven absent) AND — config-gated
+        //     "SolidWallDepth", default on — forces wall materials to write depth at Geometry queue
+        //     so transparent VFX/UI behind a wall can no longer paint over it.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
         WallSolidifier.Install();
-
-        // ISSUE #4 follow-up — force world VFX GLOW (fire/candle/torch/…) to respect depth so it
-        // can't be seen through solid walls. Reflection-only, VR-gated, config-toggled ("OpaqueWorldGlow",
-        // default on); its diagnostic scan logs every depth-ignoring world renderer regardless.
-        GlowOcclusion.Install();
+        //  3. ZTest enforcement (config-gated "OpaqueWorldGlow", default on): ANY world renderer
+        //     material with ZTest Always is forced to LEqual so it respects depth — excluding the
+        //     mod layer, UI canvases, actor outlines and the mod's head/hands rig.
+        GlowOcclusion.InstallEnforcement();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -103,8 +109,10 @@ internal sealed class CompatModule : IVRModule
 
     public void Shutdown()
     {
-        WallSolidifier.Uninstall();
+        // LIFO restore: ZTest enforcement was applied AFTER wall solidification, so revert it
+        // first — a renderer touched by both then ends on WallSolidifier's true originals.
         GlowOcclusion.Uninstall();
+        WallSolidifier.Uninstall();
 
         if (_hooked)
         {
