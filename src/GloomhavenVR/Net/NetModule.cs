@@ -133,5 +133,8 @@ internal sealed class NetModule : IVRModule
             _driverGo = null;
         }
         _driver = null;
+
+        // Drop the mask-prefab cache so a hot-reloaded / freshly-shipped bundle is re-probed.
+        HeadMaskLibrary.Reset();
     }
 }
