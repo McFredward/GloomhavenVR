@@ -1101,6 +1101,19 @@ internal static class ModalFallback
         return false;
     }
 
+    /// <summary>
+    /// The full-screen menu family whose floated host would otherwise show an opaque
+    /// full-window backing/blur rectangle (user #8 part 2): the ESC / Options menus and
+    /// the end-of-scenario Results / Rewards / adventure-completion panels. For these the
+    /// backing image is disabled while floated so only the foreground content shows; every
+    /// other modal (confirmation boxes, story box, events, messages) keeps its backing.
+    /// </summary>
+    private static bool WantsTransparentBackground(UIWindowID id) =>
+        id == UIWindowID.ESCMenu || id == UIWindowID.Options
+        || id == UIWindowID.OptionsSubmenu || id == UIWindowID.ViceOptionsSubmenu
+        || id == UIWindowID.ResultsPanel || id == UIWindowID.RewardsPanel
+        || id == UIWindowID.AdventureCompletionPanel;
+
     private static bool TryConvertWindow(UIWindow window)
     {
         string name = window.name;
@@ -1149,12 +1162,20 @@ internal static class ModalFallback
             // windows that genuinely need the fit (story box via contentRoot below, and any
             // non-full-screen dialog) keep it.
             bool fullScreenMenu = IsFullScreenMenu(window.ID, rect);
+            // User #8 part 2: the full-screen menu family (ESC / Options / Results / Rewards)
+            // floats as an opaque backing rectangle — hide that backing so only the
+            // foreground content shows.
+            bool transparentBg = WantsTransparentBackground(window.ID);
             // FLICKER FIX: float the modal host at a dominant sortingOrder so it composites
             // ON TOP of every other order-0 world-space host instead of tying with them and
             // swapping render order as the head micro-moves — see ModalHostSortingOrder.
+            // User #8 part 1: float on the dedicated mod layer (useModLayer) so ONLY the HMD
+            // head camera renders it — the game's mono UI Camera can no longer double-draw
+            // the world-space modal (the confirmed flicker root cause).
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
                 fitContent: fullScreenMenu ? (bool?)false : null, sortingOrder: ModalHostSortingOrder,
-                diagnostic: true); // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
+                diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
+                useModLayer: true, transparentBackground: transparentBg);
 
             if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
