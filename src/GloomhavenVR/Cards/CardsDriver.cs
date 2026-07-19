@@ -1127,6 +1127,15 @@ internal sealed class CardsDriver : MonoBehaviour
             || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
         {
             ClearBrowseHover();
+            // ISSUE #7 click-away dismiss: a TRIGGER press that is NOT on a browse card —
+            // empty space, the game board/UI, or anything the ray misses here — closes the
+            // pile, through the SAME ForeignInteraction path board/card/rest presses already
+            // use. Reached only when nothing else is hovered (the guard above yields to a
+            // hovered fan/board/tray target, whose own grab/press routes ForeignInteraction),
+            // so a real interaction still closes it there; and a trigger ONTO a browse card
+            // takes the pluck path below instead, so grabbing/inspecting a pile card is unaffected.
+            if (dom.TriggerDown)
+                ForeignInteraction("click-away (trigger off the pile)");
             return;
         }
 
