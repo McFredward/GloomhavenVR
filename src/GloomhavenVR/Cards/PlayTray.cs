@@ -1820,9 +1820,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     }
 
     /// <summary>
-    /// Mirror the authoritative game state into the slots: slot 0 always shows the
-    /// initiative card (<c>CCharacterClass.InitiativeAbilityCard</c>), slot 1 the
-    /// other round card. Returns true when anything changed.
+    /// Mirror the authoritative round pile into the slots while PRESERVING the player's
+    /// FREE physical placement (item A). The game only tracks the SET of two
+    /// <c>RoundAbilityCards</c> plus which one leads initiative
+    /// (<c>CCharacterClass.InitiativeAbilityCard</c>, CCharacterClass.cs:220) — it does
+    /// NOT care which VR slot a card sits in (<c>SwapInitiative</c> merely toggles the
+    /// leader + reverses the pair, AbilityCardUI.cs:809). So this no longer FORCES the
+    /// initiative card into slot 0; instead it keeps every already-seated round card in
+    /// the exact slot the player dropped it, only (a) evicting occupants that left the
+    /// round and (b) dropping a NEWLY-selected round card into an empty slot (default
+    /// initiative→0 / other→1 purely as the seed when neither is placed yet, e.g. a
+    /// mode re-entry). <see cref="CardsDriver.ReconcileInitiative"/> then drives the
+    /// game's initiative to follow whatever card the player put in slot 0 — the inverse
+    /// of the old game→slot mapping that fought the player's placement. Returns true
+    /// when anything changed. Re-places ONLY what changed (test #14): this runs on every
+    /// rebuild — unconditional re-placing re-parents held cards and spams the log.
     /// </summary>
     internal bool SyncFromGameState(CardsHandUI hand, VRCardFactory factory)
     {
@@ -1831,7 +1843,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         var round = hand.PlayerActor.CharacterClass.RoundAbilityCards;
         ScenarioRuleLibrary.CAbilityCard? initiative = hand.PlayerActor.CharacterClass.InitiativeAbilityCard;
 
-        VRCard? want0 = null, want1 = null;
+        // Resolve the round cards to their VRCards, tagging the initiative (leading) one
+        // so a brand-new pair gets a sensible default seat (initiative → slot 0).
+        VRCard? roundInit = null, roundOther = null;
         for (int i = 0; i < round.Count && i < 2; i++)
         {
             AbilityCardUI? widget = FindWidget(hand, round[i]);
@@ -1839,31 +1853,51 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 continue;
             VRCard card = factory.GetOrCreate(widget);
             bool isInitiative = initiative != null ? round[i] == initiative : i == 0;
-            if (isInitiative && want0 == null)
-                want0 = card;
-            else if (want1 == null)
-                want1 = card;
+            if (isInitiative && roundInit == null)
+                roundInit = card;
+            else if (roundOther == null)
+                roundOther = card;
             else
-                want0 ??= card;
+                roundInit ??= card;
         }
 
-        // Re-place ONLY what changed (test #14): this sync runs on every rebuild —
-        // dozens of times per selection phase — and unconditional re-placing both
-        // re-parented held cards and spammed the log with phantom placements.
-        bool changed = _occupants[0] != want0 || _occupants[1] != want1;
-        if (_occupants[0] != want0)
+        bool changed = false;
+        // (a) Evict any occupant that is no longer one of the two round cards (unselected
+        // / swapped out) — its slot frees up for the surviving/new card.
+        for (int s = 0; s < 2; s++)
         {
-            _occupants[0] = null;
-            if (want0 != null)
-                PlaceCard(want0, 0);
+            VRCard? occ = _occupants[s];
+            if (occ != null && occ != roundInit && occ != roundOther)
+            {
+                _occupants[s] = null;
+                changed = true;
+            }
         }
-        if (_occupants[1] != want1)
-        {
-            _occupants[1] = null;
-            if (want1 != null)
-                PlaceCard(want1, 1);
-        }
+        // (b) Seat any round card that is not already in a slot into an empty slot,
+        // preferring its default seat (initiative → 0, other → 1) but taking whichever
+        // slot is free — the player's own drops already placed most cards, so this only
+        // fires for cards the GAME selected without a VR drop (mode re-entry / undo).
+        changed |= PlaceRoundCardIfMissing(roundInit, preferSlot: 0);
+        changed |= PlaceRoundCardIfMissing(roundOther, preferSlot: 1);
         return changed;
+    }
+
+    /// <summary>
+    /// Item A helper: seat <paramref name="card"/> into a slot ONLY if it is not already
+    /// an occupant (preserving the player's free placement). Prefers
+    /// <paramref name="preferSlot"/>, falls back to the other empty slot. No-op when the
+    /// card is null or already seated.
+    /// </summary>
+    private bool PlaceRoundCardIfMissing(VRCard? card, int preferSlot)
+    {
+        if (card == null || _occupants[0] == card || _occupants[1] == card)
+            return false;
+        int slot = _occupants[preferSlot] == null ? preferSlot
+            : _occupants[1 - preferSlot] == null ? 1 - preferSlot : -1;
+        if (slot < 0)
+            return false;
+        PlaceCard(card, slot);
+        return true;
     }
 
     private static AbilityCardUI? FindWidget(CardsHandUI hand, ScenarioRuleLibrary.CAbilityCard card)
