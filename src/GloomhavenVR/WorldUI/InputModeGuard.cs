@@ -38,6 +38,11 @@ internal static class InputModeGuard
     /// <summary>Called every frame by the WorldUI driver (cheap; static reads only).</summary>
     internal static void Tick()
     {
+        // Self-register the ESC-menu controller-input suppressors (Issue 1). Idempotent and
+        // cheap after the first frame; done here because the natural registration point
+        // (WorldUIModule) is outside this change's ownership. See EscMenuInputBlock.
+        Patches.EscMenuInputBlock.EnsureRegistered();
+
         if (!Active)
         {
             _enforced = false;
