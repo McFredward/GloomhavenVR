@@ -728,6 +728,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
             v => { if (Net.NetModule.MirrorEnabled != null) Net.NetModule.MirrorEnabled.Value = v; });
 
+        // How much of OTHER players' control boards this client renders (Off / only in the action
+        // phase / always). Writes [Net] RemoteBoards. The anti-cheat reveal gate always applies on
+        // top: a remote's round cards stay BACKS until the secret selection phase ends.
+        var remoteBoardsRow = Row();
+        Label(remoteBoardsRow, Loc.Mod("remote_boards"), 16f, flexible: true);
+        CycleButton(remoteBoardsRow, 150f, RemoteBoardsLabel, CycleRemoteBoards);
+
         BuildDebugSection();
 
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
@@ -1420,6 +1427,27 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
         int cur = Mathf.Clamp(Net.NetModule.MaskId.Value, 0, Net.HeadMaskLibrary.MaskCount - 1);
         Net.NetModule.MaskId.Value = (cur + 1) % Net.HeadMaskLibrary.MaskCount;
+    }
+
+    /// <summary>Cycle-button readout for the remote-boards visibility setting.</summary>
+    private static string RemoteBoardsLabel()
+    {
+        var v = Net.NetModule.RemoteBoards != null ? Net.NetModule.RemoteBoards.Value : Net.RemoteBoardVisibility.ActionPhaseOnly;
+        return v switch
+        {
+            Net.RemoteBoardVisibility.Off => Loc.Mod("remote_boards_off"),
+            Net.RemoteBoardVisibility.Always => Loc.Mod("remote_boards_always"),
+            _ => Loc.Mod("remote_boards_action"),
+        };
+    }
+
+    /// <summary>Advance remote-board visibility Off→ActionPhaseOnly→Always→Off (writes [Net] RemoteBoards).</summary>
+    private static void CycleRemoteBoards()
+    {
+        if (Net.NetModule.RemoteBoards == null)
+            return;
+        int cur = (int)Net.NetModule.RemoteBoards.Value;
+        Net.NetModule.RemoteBoards.Value = (Net.RemoteBoardVisibility)((cur + 1) % 3);
     }
 
     private static bool BoardConfigSafe(Func<bool> read)
