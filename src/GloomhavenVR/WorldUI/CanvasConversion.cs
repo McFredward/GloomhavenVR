@@ -57,6 +57,23 @@ internal sealed class ConvertedPanel
     /// <summary>True after the first successful measure (or after the deadline warn).</summary>
     public bool FitMeasuredOnce;
 
+    /// <summary>
+    /// Item 1 (pause-menu size): a full-screen menu (ESC / Options family) fits ONCE to its
+    /// visible content and then LOCKS — no per-frame re-fit. The P6 flicker fix exempted these
+    /// menus from the fit entirely (host stayed at the game window's own rect: 1920x2040, hugely
+    /// tall with empty space, and different on the first open before the window had laid out). A
+    /// one-shot fit trims the empty space and lands on the DETERMINISTIC visible-button bounds, so
+    /// the panel is the same compact size every open; locking after the single apply keeps the
+    /// per-frame re-fit flicker the exemption was avoiding from ever recurring (the opaque backing
+    /// is hidden by <see cref="ConvertedPanel.HideBackground"/>, so the fit measures only the
+    /// stable foreground content — the other arm of that flicker is already gone).
+    /// </summary>
+    public bool FitOneShot;
+
+    /// <summary>Set true the frame a one-shot fit actually RESIZED the host — the owning modal
+    /// then re-derives its board-relative scale from the now-fitted width (item 1).</summary>
+    public bool FitOneShotApplied;
+
     /// <summary>True once the give-up warning was logged (log hygiene).</summary>
     public bool FitGaveUpLogged;
 
@@ -347,7 +364,7 @@ internal static class CanvasConversion
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
-        bool transparentBackground = false, bool renderOnTop = false)
+        bool transparentBackground = false, bool renderOnTop = false, bool fitOneShot = false)
     {
         if (target == null)
         {
@@ -462,6 +479,7 @@ internal static class CanvasConversion
         {
             panel.FitEnabled = true;
             panel.FitFrameDegenerate = degenerate;
+            panel.FitOneShot = fitOneShot; // item 1: full-screen menus fit once then lock (no re-fit flicker)
             panel.FitNotBefore = Time.unscaledTime + FitDelaySeconds;
             panel.FitFirstDeadline = Time.unscaledTime + FitFirstWarnSeconds;
         }
@@ -1184,6 +1202,7 @@ internal static class CanvasConversion
         // user SEES (verify via the RayUguiDriver world-rect re-log lines).
         panel.Target.anchoredPosition -= center;
         panel.HostRect.sizeDelta = size;
+        panel.FitOneShotApplied = true; // item 1: a real resize happened — owner may re-derive its scale
         VRLog.Info("WorldUI", $"Host rect fit '{panel.HostGo.name}': " +
                               $"{host.width:F0}x{host.height:F0} → {size.x:F0}x{size.y:F0} px " +
                               $"(content offset {center.x:F0},{center.y:F0}).");
@@ -1211,6 +1230,16 @@ internal static class CanvasConversion
         {
             panel.FitMeasuredOnce = true;
             panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
+            // Item 1: a full-screen menu fits exactly ONCE. Once the single resize has
+            // landed on the visible-button bounds, disable the fit so the host rect is
+            // frozen — the per-frame re-fit flicker the P6 exemption avoided can never
+            // recur, and the panel stays the same compact size for the rest of the open.
+            if (panel.FitOneShot && panel.FitOneShotApplied)
+            {
+                panel.FitEnabled = false;
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fitted once to " +
+                                      "its visible content — host rect locked (compact, consistent, no re-fit flicker).");
+            }
         }
         else if (!panel.FitMeasuredOnce && Time.unscaledTime >= panel.FitFirstDeadline)
         {
@@ -1404,8 +1433,14 @@ internal static class CanvasConversion
             // treatments for THIS frame already ran above (canvas still disabled → harmless), and
             // LateTick re-treats once more (canvas now enabled) before the frame renders — so the
             // first visible frame is fully treated: a clean pop-in with zero flicker.
+            // Item 1: a one-shot full-screen menu waits to pop in until its single content
+            // fit has actually applied (so it appears already compact, never flashing at the
+            // full 1920x2040 rect first), with the fit deadline as a safety floor so an
+            // unmeasurable menu still reveals (never an invisible, un-dismissable menu).
+            bool oneShotReady = !panel.FitOneShot || panel.FitOneShotApplied
+                                || Time.unscaledTime >= panel.FitFirstDeadline;
             if (panel.RevealPending && panel.HostCanvas != null
-                && Time.unscaledTime >= panel.RevealNotBefore)
+                && Time.unscaledTime >= panel.RevealNotBefore && oneShotReady)
             {
                 panel.HostCanvas.enabled = true;
                 panel.RevealPending = false;

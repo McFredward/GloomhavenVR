@@ -74,6 +74,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
 
     /// <summary>
+    /// Item 1 (pause-menu size): re-seat the board-relative host shrink AFTER a full-screen menu's
+    /// one-shot content fit shrank the host rect. The fit runs a few frames after Build, so the
+    /// extraScale first derived from the pre-fit (full 1920) rect would leave the fitted panel
+    /// mis-sized; the owner recomputes it from the fitted width and pushes it here. The next
+    /// <see cref="Tick"/> applies it (host localScale = mpp × worldScale × extraScale × factor).
+    /// </summary>
+    internal void SetExtraScale(float extraScale) => _extraScale = extraScale;
+
+    /// <summary>
     /// Build the grab affordance for a freshly floated, freshly placed modal host. The
     /// frame is seeded at the host's CURRENT world pose (the host was just placed at the
     /// HMD), so the first follow tick keeps the panel exactly where it spawned — no jump.

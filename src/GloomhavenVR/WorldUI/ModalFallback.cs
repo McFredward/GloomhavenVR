@@ -613,6 +613,13 @@ internal static class ModalFallback
         /// non-grabbable panels at the same size (grabbable ones carry it in their frame).
         /// </summary>
         public float ExtraScale = WindowScaleFactor;
+
+        /// <summary>
+        /// Item 1 (pause-menu size): true once a full-screen menu's board-relative scale has been
+        /// re-derived from its FITTED host width (after the one-shot content fit shrank the rect)
+        /// and pushed to <see cref="Grab"/>. One-shot latch — the re-derive runs once per open.
+        /// </summary>
+        public bool ScaleReDerived;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -641,6 +648,32 @@ internal static class ModalFallback
 
     /// <summary>True while at least one fallback window floats as a world-space panel (P8).</summary>
     internal static bool WindowModalActive => Converted.Count > 0;
+
+    /// <summary>
+    /// Item 4: true while a BLOCKING modal floats — a converted window that is NOT one of the
+    /// player-reachable <see cref="NonBlockingMenus"/> (pause/ESC, Options, Multiplayer,
+    /// Compendium…). Those reachable menus float, stay grabbable and carry the X, but must NOT
+    /// freeze world interaction: the user keeps grabbing cards / picking board hexes while the
+    /// pause menu is open. The ray physics-pick block (RayInteractor.UpdateModalPickBlock) keys on
+    /// THIS instead of <see cref="WindowModalActive"/> (which is ANY floated window, and was
+    /// wrongly suppressing every board/card/tray pick behind a floating pause menu — the reported
+    /// "cards can't be grabbed while the menu is open"). Genuine blockers (story/results/durability)
+    /// also assert ModalUI, so the pick-block engages for them through the mode arm regardless — but
+    /// this keeps the two consistent and does NOT re-introduce the ModalUI lock for reachable menus.
+    /// </summary>
+    internal static bool BlockingWindowModalActive
+    {
+        get
+        {
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                UIWindow w = Converted[i].Window;
+                if (w != null && !NonBlockingMenus.Contains(w.ID))
+                    return true;
+            }
+            return false;
+        }
+    }
 
     internal static void Attach()
     {
@@ -891,6 +924,26 @@ internal static class ModalFallback
         for (int i = 0; i < Converted.Count; i++)
             Converted[i].Grab?.Tick();
 
+        // 5b. Item 1 (pause-menu size): once a full-screen menu's ONE-SHOT content fit has shrunk
+        //     the host rect from the full window (1920x…) to the visible-button bounds, re-derive
+        //     its board-relative scale from the FITTED width and push it to the grab — the scale
+        //     first derived at Convert used the pre-fit rect, so the fitted panel would otherwise
+        //     render mis-sized. Runs once per open (ScaleReDerived latch).
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.ScaleReDerived || !wp.FullScreenMenu || wp.Grab == null
+                || !wp.Panel.IsAlive || !wp.Panel.FitOneShotApplied)
+                continue;
+            float refit = DeriveWindowScale(wp.Panel);
+            wp.ExtraScale = refit;
+            wp.Grab.SetExtraScale(refit);
+            wp.ScaleReDerived = true;
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{(wp.Window != null ? wp.Window.name : "<menu>")}' " +
+                                  $"re-scaled to the fitted content (extraScale → {refit:F3}) — board-sized, " +
+                                  "compact, consistent every open.");
+        }
+
         // Item 5a (revised): the floated-menu-vs-sky occlusion is now fixed by rendering the modal
         // ON TOP (CanvasConversion renderOnTop, ZTest Always) so the sky STAYS rendered. This call
         // is retained but is a no-op in MixedReality — kept so the wiring is obvious if the policy
@@ -1065,8 +1118,11 @@ internal static class ModalFallback
             {
                 // Game's per-window ESC path (decompiled UIWindow.cs:706): hides the
                 // window when its escapeKeyAction allows it, returns whether it acted.
+                // Item 7a: the return value is NOT proof it closed (Skip returns true
+                // without hiding — UIWindow.cs:717) — force this window hidden if it is
+                // still open so the chord always closes the top modal.
                 escaped = window.Escape();
-                if (!escaped && window.IsOpen)
+                if (window.IsOpen)
                     window.Hide(); // public close entry — OnHide/onHidden fire normally
             }
             catch (Exception ex)
@@ -1097,11 +1153,22 @@ internal static class ModalFallback
         string name = window.name;
         try
         {
+            // Item 7a: close EXACTLY THIS window (submenus must be individually closable). The
+            // return value of UIWindow.Escape() is NOT proof the window closed — a submenu whose
+            // escapeKeyAction is Skip returns TRUE while doing nothing (decompiled UIWindow.cs:717),
+            // and None/HideIfFocused-when-unfocused return FALSE without hiding. Trusting the return
+            // (the old `if (!escaped && IsOpen) Hide()`) left Skip submenus open → the dead X. So
+            // run Escape() for its honored per-window behavior, then FORCE this window hidden if it
+            // is still open — its own Hide() (OnHide/onHidden fire), never the parent's.
             bool escaped = window.Escape();
-            if (!escaped && window.IsOpen)
+            bool hidden = false;
+            if (window.IsOpen)
+            {
                 window.Hide();
+                hidden = true;
+            }
             VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) closed via " +
-                                  $"{(escaped ? "UIWindow.Escape()" : "UIWindow.Hide()")}.");
+                                  $"{(hidden ? (escaped ? "UIWindow.Escape()+Hide()" : "UIWindow.Hide()") : "UIWindow.Escape()")}.");
         }
         catch (Exception ex)
         {
@@ -1267,14 +1334,25 @@ internal static class ModalFallback
             // Sky/diorama occlusion fix (renderOnTop): every floated modal window switches its uGUI
             // graphics to ZTest Always so it renders OVER the enclosing sky dome (kept rendered) and
             // the diorama — a menu dragged to the shell edge can no longer clip behind the backdrop.
+            // Item 1 (pause-menu size): a full-screen menu (ESC / Options family) is now content-fit
+            // ONCE and then LOCKED (fitOneShot) instead of exempted. The old exemption kept the host
+            // at the game window's own rect (1920x2040 — hugely tall with empty space, and a stale/
+            // smaller rect on the very first open before layout), which read as inconsistent + mostly
+            // blank. A single fit to the visible-button bounds trims the empty space and lands the
+            // same compact size every open; locking after the one apply keeps the P6 per-frame re-fit
+            // flicker from recurring (the opaque backing is already hidden, so the fit measures only
+            // the stable foreground content). The reveal waits for that single fit, so it pops in
+            // already compact rather than flashing at the full rect.
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
-                fitContent: fullScreenMenu ? (bool?)false : null, sortingOrder: ModalHostSortingOrder,
+                fitContent: null, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
-                useModLayer: true, transparentBackground: transparentBg, renderOnTop: true);
+                useModLayer: true, transparentBackground: transparentBg, renderOnTop: true,
+                fitOneShot: fullScreenMenu);
 
             if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a full-screen menu — " +
-                                      "exempted from the per-frame content fit (fixed host rect, no flicker).");
+                                      "one-shot content fit (compact, consistent size every open; locked after " +
+                                      "the single fit so the per-frame re-fit flicker cannot recur).");
             if (panel == null)
             {
                 VRLog.Warn("WorldUI", $"MODAL WINDOW: conversion of '{name}' (ID {window.ID}) returned " +
