@@ -89,18 +89,16 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private const float FitPinHardTimeoutSeconds = 2.5f;
 
-    // Lazy follow (RIG-LOCAL — user #5 final: "spawn in front, lazy movement, independent of
-    // moving other elements"). The follow is computed ENTIRELY in the rig's tracking space
-    // (head pose relative to RigRoot), so it reacts ONLY to real PHYSICAL head movement — NOT
-    // to moving/rotating the control board: world-grab moves the rig ROOT (head + panel ride
-    // it together, unchanged in rig-local), and a tray-grab moves the tray, not the rig — so
-    // neither trips the follow (proven by the diagnostic: host world pos stayed fixed while
-    // the tray yaw was dragged to 141°). The panel spawns in the forward view, sits still, and
-    // glides back to re-centre only when the player physically turns/walks past the deadzone.
-    private const float FollowDeadzoneDeg = 22f;
-    private const float FollowDwellSeconds = 0.5f;
-    private const float FollowSettledDeg = 5f;
-    private const float FollowEaseRate = 3f;
+    // NO FOLLOW (user #4, 10th request — "the info display must NOT under ANY circumstances
+    // depend on the movement of the control board / must stay fixed"). The hardware diagnostic
+    // proved the residual "it moves with the board" was NOT the board at all: with the rig
+    // provably constant (rig yaw 30.1°, rigScale 32.1 on EVERY diag line), the host world pose
+    // still swung wildly (yaw 18.9°→59°), driven by dozens of "lazy follow … physical head
+    // moved … gliding back" events. The player moves their head constantly WHILE handling the
+    // board, so the head-follow glide read as "the info follows the board." The follow is now
+    // GONE: the pose is planted ONCE at reveal (rig-local, so a world-grab still carries it with
+    // the view and it never rides the board/tray) and then held verbatim, re-snapping only on a
+    // genuine rig recenter/rebuild. It never chases the head again.
 
     // Item 3 (user #4, RECURRING) — HEAD/VIEW-ANCHORED height. The reveal must land in the
     // player's comfortable forward VIEW so it reads WITHOUT looking up. Two earlier takes
@@ -138,8 +136,6 @@ internal sealed class EnemyRevealSurface
     private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (upright, facing the head)
     private bool _placed;                            // false until the first in-view pose is snapped
     private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at (re-snap on recenter)
-    private float _offGazeSince = -1f;               // unscaled time the panel first drifted past the deadzone
-    private bool _easing;                            // gliding back to the in-view target
     private bool _lastVisible;
     private bool _dropLogged;                        // one-shot per reveal: log the applied plant pose
     private float _lastDiagTime = -99f;              // throttle for the movement diagnostic (~1/s)
@@ -224,8 +220,6 @@ internal sealed class EnemyRevealSurface
                     _fitPinned = false;
                     _placedMetersPerPx = -1f;
                     _placed = false; // PlantPose() snaps the first in-view pose on the next tick
-                    _easing = false;
-                    _offGazeSince = -1f;
                     _dropLogged = false; // re-log the applied plant pose for this reveal (item 3)
                 }
             }
@@ -399,8 +393,6 @@ internal sealed class EnemyRevealSurface
             _rotation = desiredRot;
             _placed = true;
             _facedPoseVersion = poseVersion;
-            _offGazeSince = -1f;
-            _easing = false;
             if (!_dropLogged)
             {
                 _dropLogged = true;
@@ -412,43 +404,11 @@ internal sealed class EnemyRevealSurface
             return;
         }
 
-        // Drift = the HORIZONTAL (yaw) angle off the gaze — pitch is deliberately ignored so
-        // looking DOWN at the board (to rotate it) never trips the follow; only turning does.
-        // All in the rig frame, so world-grab / tray-grab never trip it either — only a physical
-        // head TURN/walk does.
-        Vector3 toPanelFlat = _position - headPosL;
-        toPanelFlat.y = 0f;
-        float off = toPanelFlat.sqrMagnitude > 1e-6f ? Vector3.Angle(awayL, toPanelFlat) : 0f;
-        if (off > FollowDeadzoneDeg)
-        {
-            if (_offGazeSince < 0f)
-                _offGazeSince = Time.unscaledTime;
-            if (!_easing && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
-            {
-                _easing = true;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze for " +
-                                      $">{FollowDwellSeconds:F1}s (physical head moved) — gliding back into view.");
-            }
-        }
-        else
-        {
-            _offGazeSince = -1f;
-        }
-
-        if (_easing)
-        {
-            float t = Time.deltaTime * FollowEaseRate;
-            _position = Vector3.Lerp(_position, desiredPos, t);
-            _rotation = Quaternion.Slerp(_rotation, desiredRot, t);
-            Vector3 toDesired = desiredPos - headPosL;
-            bool posSettled = toDesired.sqrMagnitude < 1e-6f
-                || Vector3.Angle(_position - headPosL, toDesired) < FollowSettledDeg;
-            if (posSettled && Quaternion.Angle(_rotation, desiredRot) < FollowSettledDeg)
-            {
-                _easing = false;
-                _offGazeSince = -1f;
-            }
-        }
+        // HELD — no follow (user #4, 10th request). Already placed at the current rig pose
+        // version: keep the planted rig-local pose verbatim. desiredPos/desiredRot above are
+        // computed only for the snap branch; here we deliberately do nothing, so the reveal
+        // never chases the head and never drifts. It re-snaps only when RigPoseVersion changes
+        // (a real recenter/rebuild), handled by the branch above.
     }
 
     /// <summary>
