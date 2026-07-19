@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -16,15 +17,26 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// via <see cref="HeldFigures"/> / <see cref="ActorBehaviour_HeldTransform_Patch"/> — the
 /// user's confirmed "move the real figure" choice (Approach A).
 ///
-/// Grab paths (both GRIP, since <see cref="GrabWithGrip"/> is true and the world-grab
-/// rebind freed the grip): near reach-and-close is handled automatically by
-/// <see cref="ProximityGrabber"/>; the far laser point-and-grab is driven by
-/// <see cref="FigureGrabDriver"/> via <c>hand.Grabber.ForceGrab</c> (the same pluck the
-/// card fan uses). Release (grip-up) restores the real transform; the game snaps the mini
-/// back to its cell on the next frame.
+/// Grab paths (both the TRIGGER, since <see cref="GrabWithGrip"/> is false — the user's
+/// hardware pass moved figures onto the trigger, exactly like the hand-card fan, and the
+/// grip is now free): near reach-and-close is handled automatically by
+/// <see cref="ProximityGrabber"/> (its trigger path, arbitrated vs a UI/board click via
+/// <c>Ray.HasFreshUiHit</c>); the far laser point-and-grab is driven by
+/// <see cref="FigureGrabDriver"/> via <c>hand.Grabber.ForceGrab</c> (the same trigger
+/// pluck the card fan uses). Release (trigger-up) restores the real transform; the game
+/// snaps the mini back to its cell on the next frame.
+///
+/// The held pose (offset / rotation / scale) is LIVE-TUNABLE: every currently-held
+/// grabbable registers in <see cref="Live"/> and re-applies its pose from
+/// <see cref="FigureGrabConfig"/> whenever a tunable changes (<see cref="ReapplyAll"/>,
+/// wired to each entry's SettingChanged in <see cref="FigureGrabConfig.Bind"/>), so the
+/// in-headset debug-menu steppers nudge the mini in your hand in real time.
 /// </summary>
 internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
 {
+    /// <summary>Every grabbable currently held in a hand — the live-tune broadcast target.</summary>
+    private static readonly HashSet<FigureGrabbable> Live = new();
+
     private readonly ActorBehaviour _actor;
 
     private VRHand? _holder;
@@ -33,6 +45,24 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     private Quaternion _origLocalRot;
     private Vector3 _origLocalScale;
     private bool _attached;
+
+    // Live-pose bases captured at grab (so re-applying the config pose never compounds):
+    // the mini's anchor-local scale at board size, its upright board world-rotation, and
+    // the hand anchor it rides.
+    private Transform? _anchor;
+    private Vector3 _heldBaseScale = Vector3.one;
+    private Quaternion _heldBoardRot = Quaternion.identity;
+
+    /// <summary>
+    /// Re-apply the held pose from <see cref="FigureGrabConfig"/> to every held mini — the
+    /// live-tune hook (wired to the config entries' SettingChanged). Called on the main
+    /// thread from a stepper write, so it may touch transforms.
+    /// </summary>
+    internal static void ReapplyAll()
+    {
+        foreach (FigureGrabbable g in Live)
+            g.ApplyHeldPose();
+    }
 
     internal FigureGrabbable(ActorBehaviour actor) => _actor = actor;
 
@@ -57,8 +87,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
         }
     }
 
-    /// <summary>Figures always take the GRIP button (Demeo parity), freed by the world-grab stick rebind.</summary>
-    public bool GrabWithGrip => true;
+    /// <summary>
+    /// False → figures obey the shared card grab button (the TRIGGER by default, per the
+    /// user's hardware pass), so the <see cref="ProximityGrabber"/> near-grab and the laser
+    /// pluck use the SAME trigger + <c>Ray.HasFreshUiHit</c> arbitration as the hand cards.
+    /// The grip is now free.
+    /// </summary>
+    public bool GrabWithGrip => false;
 
     public void OnGrabHighlight(VRHand hand, bool highlighted)
     {
@@ -85,26 +120,48 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
         HeldFigures.Add(_actor);
 
         // Ride the hand's grab anchor. worldPositionStays keeps the mini at its board
-        // world-scale AND its upright board rotation as it enters the hand (no pop);
-        // HeldScale then zooms it for inspection.
+        // world-scale AND its upright board rotation as it enters the hand (no pop). Snapshot
+        // those two as the LIVE-TUNE bases: HeldScale zooms on top of the board scale, and the
+        // upright pose faces the player from the board rotation — re-derived (never compounded)
+        // every time a tunable changes.
         Transform anchor = hand.Rig.GrabAnchor;
         t.SetParent(anchor, worldPositionStays: true);
-        // Pinch position: a small grab-anchor-local offset toward the thumb–index fingertips.
-        t.localPosition = FigureGrabConfig.HeldOffset;
-
-        if (FigureGrabConfig.HeldUpright.Value)
-            ApplyUprightPose(t, anchor);
-        else
-            t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler); // legacy flat-on-palm
-
-        t.localScale *= FigureGrabConfig.HeldScale.Value;
+        _anchor = anchor;
+        _heldBaseScale = t.localScale;
+        _heldBoardRot = t.rotation;
         _attached = true;
+
+        ApplyHeldPose();
+        Live.Add(this);
 
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
         GameObject anchorGo = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
         StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character);
 
         VRLog.Info("FigureGrab", $"{hand.Side} grabbed figure ({Describe()}).");
+    }
+
+    /// <summary>
+    /// (Re-)apply the held pose from <see cref="FigureGrabConfig"/> — offset, rotation and
+    /// scale — off the bases captured at grab. Idempotent, so it doubles as the live-tune
+    /// path: a debug-menu stepper writes a config entry and this re-poses the mini in-hand.
+    /// </summary>
+    private void ApplyHeldPose()
+    {
+        GameObject? root = Root;
+        if (!_attached || root == null || _anchor == null)
+            return;
+        Transform t = root.transform;
+
+        // Pinch position: a small grab-anchor-local offset toward the thumb–index fingertips.
+        t.localPosition = FigureGrabConfig.HeldOffset;
+
+        if (FigureGrabConfig.HeldUpright.Value)
+            ApplyUprightPose(t, _anchor, _heldBoardRot);
+        else
+            t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler); // legacy flat-on-palm
+
+        t.localScale = _heldBaseScale * FigureGrabConfig.HeldScale.Value;
     }
 
     /// <summary>
@@ -116,9 +173,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     /// it into localRotation. Baked once, so the mini still tracks natural wrist rotation while
     /// inspecting (like turning a chess piece in your fingers).
     /// </summary>
-    private static void ApplyUprightPose(Transform t, Transform anchor)
+    private static void ApplyUprightPose(Transform t, Transform anchor, Quaternion boardRot)
     {
-        Quaternion boardRot = t.rotation; // upright, as the mini stands on its cell
+        // boardRot: the upright pose the mini stands in on its cell, captured at grab so live
+        // re-tuning re-derives the facing from the true board rotation (never from an already
+        // posed transform, which would drift).
 
         // Mini's current front in the horizontal plane (assume local +Z = front; a tunable yaw
         // corrects models whose readable side differs — see HeldFaceYawDegrees).
@@ -165,6 +224,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
     /// <summary>Restore the real transform and resume the game's transform writes (idempotent).</summary>
     internal void Restore()
     {
+        Live.Remove(this);
         if (_attached)
         {
             GameObject? root = Root;
@@ -177,6 +237,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight
                 t.localScale = _origLocalScale;
             }
             _attached = false;
+            _anchor = null;
         }
 
         // Resume the game's transform writes → next Update snaps the mini back to its cell.

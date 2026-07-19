@@ -16,9 +16,14 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// one grabbable per actor.
 ///
 /// Near reach-and-close grabs are handled entirely by <see cref="ProximityGrabber"/>
-/// (grip button, since the grabbable is <c>GrabWithGrip</c>). This driver only adds the
-/// FAR path: on grip-down, if the hand's ray points at a figure and the grabber is idle,
-/// <c>ForceGrab</c> plucks it — the same laser grab the card fan uses.
+/// (the TRIGGER, since the grabbable is no longer <c>GrabWithGrip</c> — same button +
+/// <c>Ray.HasFreshUiHit</c> arbitration as the hand cards). This driver only adds the FAR
+/// path: while the hand's ray points at a grabbable figure it clamps the beam to the mini
+/// (<c>Ray.UiHitOverride</c>) so the trigger over a figure grabs it instead of doubling as
+/// a board far-click, and on TriggerDown <c>ForceGrab</c> plucks it (released on
+/// TriggerUp) — the exact trigger pluck the card fan uses. A fan card / world-UI panel that
+/// clamped the beam closer this frame keeps the trigger (we defer on a FOREIGN
+/// <c>HasFreshUiHit</c>, ignoring our own figure clamp).
 /// </summary>
 internal sealed class FigureGrabDriver : MonoBehaviour
 {
@@ -32,6 +37,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     // ActorBars' controller map — a destroyed key stays a valid CLR dictionary key).
     private readonly Dictionary<CInteractableActor, Adopted> _adoptions = new();
     private readonly List<CInteractableActor> _scratch = new(32);
+
+    // Last frame THIS driver clamped the beam to a figure, per hand — so the far-grab
+    // arbitration can tell our own fresh figure clamp apart from a FOREIGN UI/card clamp.
+    private int _leftClampFrame = int.MinValue;
+    private int _rightClampFrame = int.MinValue;
 
     private void OnDestroy() => ReleaseAll();
 
@@ -107,20 +117,39 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private void TryLaserGrab(VRHand? hand)
     {
-        if (hand == null || !hand.HasPose || !hand.GripDown)
+        if (hand == null || !hand.HasPose || !hand.Ray.Enabled)
             return;
-        // Near grip-grab (a highlighted figure in reach) belongs to the ProximityGrabber;
-        // the far pluck only fires when the grabber is idle this frame.
+        // Near reach-grab (a highlighted figure in the palm) belongs to the ProximityGrabber;
+        // the far pluck only runs when the grabber is idle this frame.
         if (hand.Grabber.Held != null || hand.Grabber.Highlighted != null)
             return;
         if (!hand.Ray.TryGetPick(out PickPose pick) || !pick.HasHit || pick.HitCollider == null)
             return;
 
         CInteractableActor interactable = pick.HitCollider.GetComponentInParent<CInteractableActor>();
-        if (interactable == null || !_adoptions.TryGetValue(interactable, out Adopted adopted))
+        if (interactable == null
+            || !_adoptions.TryGetValue(interactable, out Adopted adopted)
+            || !adopted.Grabbable.CanGrab)
             return;
 
-        hand.Grabber.ForceGrab(adopted.Grabbable, releaseOnTriggerUp: false);
+        // ARBITRATION: a fan card / world-UI panel that clamped the beam this frame owns the
+        // trigger. HasFreshUiHit is their signal; ignore our OWN figure clamp from last frame
+        // (recorded below) so we never defer to ourselves.
+        int myClampFrame = hand.Side == HandSide.Left ? _leftClampFrame : _rightClampFrame;
+        bool foreignUi = hand.Ray.HasFreshUiHit && Time.frameCount - myClampFrame > 1;
+        if (foreignUi)
+            return;
+
+        // Clamp the beam to the mini (reticle on the figure) AND suppress the board far-click /
+        // game actor-select for this trigger press — the same UiHitOverride the fan laser uses.
+        hand.Ray.UiHitOverride = pick.HitPoint;
+        if (hand.Side == HandSide.Left)
+            _leftClampFrame = Time.frameCount;
+        else
+            _rightClampFrame = Time.frameCount;
+
+        if (hand.TriggerDown)
+            hand.Grabber.ForceGrab(adopted.Grabbable, releaseOnTriggerUp: true);
     }
 
     private void Drop(CInteractableActor key)

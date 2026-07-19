@@ -1,3 +1,4 @@
+using System;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -64,7 +65,7 @@ internal static class FigureGrabConfig
 
         GrabFigures = config.Bind(
             "FigureGrab", "GrabFigures", true,
-            "Grab a board figure (hero OR monster) into your hand with the GRIP button to " +
+            "Grab a board figure (hero OR monster) into your hand with the TRIGGER to " +
             "inspect it up close — pure immersion, no gameplay effect. Release to snap it " +
             "back to its board cell.");
         HeldScale = config.Bind(
@@ -93,5 +94,17 @@ internal static class FigureGrabConfig
             "FigureGrab", "HeldFaceYawDegrees", 0f,
             "Upright mode only: extra yaw (degrees) to spin the mini's front toward you. Set 180 " +
             "if it faces away. Tune on hardware.");
+
+        // Live-tune hook: any held-pose tunable change re-poses the currently-held mini in-hand
+        // (the in-headset debug-menu steppers), so tuning is interactive. BepInEx still persists
+        // every write to dev.gloomhavenvr.figuregrab.cfg.
+        void Reapply(object sender, EventArgs e) => FigureGrabbable.ReapplyAll();
+        HeldScale.SettingChanged += Reapply;
+        HeldOffsetForward.SettingChanged += Reapply;
+        HeldOffsetUp.SettingChanged += Reapply;
+        HeldOffsetSide.SettingChanged += Reapply;
+        HeldUpright.SettingChanged += Reapply;
+        HeldTiltDegrees.SettingChanged += Reapply;
+        HeldFaceYawDegrees.SettingChanged += Reapply;
     }
 }
