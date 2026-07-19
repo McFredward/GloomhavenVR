@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
@@ -75,6 +76,15 @@ internal static class ActorBars
         /// the table larger and sank the bars into the miniatures.
         /// </summary>
         public float AnchorOffsetWU;
+
+        /// <summary>
+        /// The <see cref="ActorBehaviour"/> this bar tracks, resolved from the controller's
+        /// tracked figure at adopt (item 6): lets <see cref="LateTick"/> query
+        /// <see cref="HeldFigures.Owns"/> so a bar is HIDDEN while its mini is held in the hand
+        /// (redundant with the docked info panel) and shown again on release. May be null if the
+        /// figure was not yet resolvable at adopt — re-resolved lazily while something is held.
+        /// </summary>
+        public ActorBehaviour? Actor;
     }
 
     private static readonly HashSet<WorldspaceDisplayPanelBase> Owned = new();
@@ -139,11 +149,31 @@ internal static class ActorBars
         float worldScale = PanelLayout.WorldScale;
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
 
+        bool anyHeld = HeldFigures.Count > 0;
+
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
         {
             WorldspacePanelUIController controller = pair.Key;
-            ConvertedPanel panel = pair.Value.Panel;
+            Adopted adopted = pair.Value;
+            ConvertedPanel panel = adopted.Panel;
             if (controller == null || panel.HostGo == null)
+                continue;
+
+            // Item 6: hide this bar while its own mini is held in the hand (redundant with the
+            // docked held-figure info panel, and it clutters the hand). Cheap fast-path — when
+            // nothing is held the whole check is skipped and every bar stays shown. Toggling is
+            // guarded on activeSelf so it only flips on the held→released edges; on release the
+            // bar re-activates and resumes normal placement below. Only THIS actor is affected.
+            bool hide = false;
+            if (anyHeld)
+            {
+                if (adopted.Actor == null && controller.m_ObjectToTrack != null)
+                    adopted.Actor = ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack);
+                hide = adopted.Actor != null && HeldFigures.Owns(adopted.Actor);
+            }
+            if (panel.HostGo.activeSelf == hide)
+                panel.HostGo.SetActive(!hide);
+            if (hide)
                 continue;
 
             if (!TryGetTrackPoint(controller, out Vector3 track))
@@ -258,6 +288,9 @@ internal static class ActorBars
             Controller = controller,
             Panel = panel,
             AnchorOffsetWU = ComputeAnchorOffsetWU(controller),
+            Actor = controller.m_ObjectToTrack != null
+                ? ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)
+                : null,
         };
         Owned.Add(controller);
 

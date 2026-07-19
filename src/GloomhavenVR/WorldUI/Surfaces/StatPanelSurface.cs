@@ -83,6 +83,14 @@ internal sealed class StatPanelSurface
     private static Transform? _heldAnchor;
     private static ScenarioRuleLibrary.CActor? _heldActor;
 
+    /// <summary>
+    /// Which viewer-relative side the held panel docks on: +1 = viewer-right, -1 = viewer-left.
+    /// Item 5 — the panel sits on the side OPPOSITE the holding hand so the hand never occludes
+    /// it: a RIGHT-hand grab (hand on the viewer's right) docks the panel viewer-LEFT (-1), a
+    /// LEFT-hand grab docks it viewer-RIGHT (+1).
+    /// </summary>
+    private static float _heldSideSign = 1f;
+
     /// <summary>Held-figure offset (side / up, real meters × world scale) — snug so it clears the hand.</summary>
     private const float HeldSideOffset = 0.15f;
     private const float HeldUpOffset = 0.05f;
@@ -107,10 +115,13 @@ internal sealed class StatPanelSurface
     /// window the laser mouse-over uses (<c>ActorStatPanel.Show</c>) and records the held
     /// anchor so <see cref="PlaceWatch"/> follows the mini into the hand.
     /// </summary>
-    internal static void ShowHeldFigure(Transform anchor, ScenarioRuleLibrary.CActor? actor)
+    internal static void ShowHeldFigure(Transform anchor, ScenarioRuleLibrary.CActor? actor,
+        GloomhavenVR.Hands.HandSide holdingHand)
     {
         _heldAnchor = anchor;
         _heldActor = actor;
+        // Dock OPPOSITE the holding hand (item 5): right hand → viewer-left panel, and vice versa.
+        _heldSideSign = holdingHand == GloomhavenVR.Hands.HandSide.Right ? -1f : 1f;
         if (actor == null || !WorldUIConfig.StatPanels.Value || !WorldUIConfig.ConversionActive)
             return;
         if (CanvasConversion.IsLockedNow || !Singleton<ActorStatPanel>.IsInitialized)
@@ -293,7 +304,9 @@ internal sealed class StatPanelSurface
         Vector3? anchor = held ? _heldAnchor!.position : ResolveActorAnchor(watch);
         if (anchor.HasValue && head != null)
         {
-            float sideOffset = held ? HeldSideOffset : 0.30f;
+            // Held: dock on the side OPPOSITE the holding hand (item 5) via _heldSideSign so the
+            // hand never occludes the panel; the board case stays on the fixed viewer-right side.
+            float sideOffset = held ? HeldSideOffset * _heldSideSign : 0.30f;
             float upOffset = held ? HeldUpOffset : 0.10f;
 
             Vector3 fromHead = anchor.Value - head.transform.position;
