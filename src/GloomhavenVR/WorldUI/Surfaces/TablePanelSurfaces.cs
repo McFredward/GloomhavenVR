@@ -238,24 +238,30 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// perspective, so the pick resolved to a neighbour instead of the portrait the
     /// beam visually touches.
     ///
-    /// We KEEP the depth (the user likes it) but NORMALIZE the row's raw z range into
-    /// a small symmetric band: each portrait's authored z is remapped proportionally
-    /// (order/direction preserved) so the largest |z| in the row lands at
-    /// <see cref="DepthBandPixels"/> and the rest scale down with it — never amplified
-    /// (a row already flatter than the band is left alone). The compressed spread reads
-    /// as subtle recession, and because the residual parallax scales with z it shrinks
-    /// to well under a portrait width, so the flat-plane screen point once again lands
-    /// inside the correct portrait's projected rect and the GraphicRaycaster (which
-    /// already distance-sorts hits) resolves the one being pointed at.
+    /// We KEEP the depth (the user likes the recession) but CLAMP the row's TOTAL
+    /// front-to-back spread to a small hard maximum: whatever the authored range, the
+    /// deepest and shallowest portrait may differ by at most
+    /// <see cref="MaxDepthSpreadPixels"/>. Each portrait's authored z is remapped
+    /// proportionally by a single factor (order/direction/relative spacing preserved)
+    /// so the raw spread (max − min z) is scaled down to land at exactly the cap and
+    /// the rest scale with it — never amplified (a row already flatter than the cap is
+    /// left alone). Normalizing on the FULL spread (not the largest |z|) is what makes
+    /// the cap a true hard ceiling on the extremes' separation: the earlier per-|z|
+    /// band left the front-to-back total at up to twice the band, which the user still
+    /// found too strong. The compressed spread reads as subtle recession, and because
+    /// the residual parallax scales with z it stays well under a portrait width, so the
+    /// flat-plane screen point once again lands inside the correct portrait's projected
+    /// rect and the GraphicRaycaster (which already distance-sorts hits) resolves the
+    /// one being pointed at.
     ///
     /// Applied every tick while converted, computed from the RECORDED raw z (not the
     /// live, already-compressed value) so it is idempotent; the raw z is restored on
     /// release so the 2D UI is left exactly as the game authored it (the framework's
     /// root-only restore never touches these deep children).
     /// </summary>
-    private const float DepthBandPixels = 20f; // ±20 px ≈ ±2 cm at 1 mm/px × scale — tune
+    private const float MaxDepthSpreadPixels = 10f; // total front↔back ≤ 10 px ≈ ±0.5 cm at 1 mm/px × scale — tune
 
-    /// <summary>Local z below this (px) counts as flat — a row with no authored depth is a no-op.</summary>
+    /// <summary>Raw spread (max − min z) below this (px) counts as flat — a row with no authored depth is a no-op.</summary>
     private const float DepthEpsilonPixels = 0.5f;
 
     /// <summary>Authored (raw) local z per portrait transform, for idempotent remap + restore.</summary>
@@ -301,9 +307,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     }
 
     /// <summary>
-    /// Remap every active portrait's authored local z into the ±<see cref="DepthBandPixels"/>
-    /// band (see the field docs). Change-gated writes; nothing to fight since the game
-    /// never animates portrait z (Select/Deselect toggle selection visuals only).
+    /// Clamp the row's TOTAL front-to-back depth spread to <see cref="MaxDepthSpreadPixels"/>
+    /// (see the field docs): scale every active portrait's authored local z by the single
+    /// factor that maps the raw spread (max − min z) onto the cap. Change-gated writes;
+    /// nothing to fight since the game never animates portrait z (Select/Deselect toggle
+    /// selection visuals only).
     /// </summary>
     private void NormalizeDepth()
     {
@@ -314,7 +322,8 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             return;
 
         _depthScratch.Clear();
-        float rawMax = 0f;
+        float rawMin = float.PositiveInfinity;
+        float rawMax = float.NegativeInfinity;
         foreach (Transform child in holder)
         {
             if (!child.gameObject.activeSelf)
@@ -327,15 +336,20 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 raw = child.localPosition.z;
                 _rawDepth[child] = raw;
             }
-            float mag = Mathf.Abs(raw);
-            if (mag > rawMax)
-                rawMax = mag;
+            if (raw < rawMin)
+                rawMin = raw;
+            if (raw > rawMax)
+                rawMax = raw;
         }
 
-        if (rawMax < DepthEpsilonPixels)
+        float rawSpread = rawMax - rawMin;
+        if (_depthScratch.Count == 0 || rawSpread < DepthEpsilonPixels)
             return; // flat row (or depth not yet laid out) — nothing to compress
 
-        float scale = Mathf.Min(1f, DepthBandPixels / rawMax); // compress only, never amplify
+        // Single proportional factor: remap the FULL front↔back spread onto the cap so
+        // the extremes never differ by more than MaxDepthSpreadPixels, order/direction
+        // and relative spacing preserved. Compress only, never amplify a gentle row.
+        float scale = Mathf.Min(1f, MaxDepthSpreadPixels / rawSpread);
         for (int i = 0; i < _depthScratch.Count; i++)
         {
             Transform t = _depthScratch[i];
