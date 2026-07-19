@@ -549,6 +549,11 @@ internal static class ModalFallback
     {
         public UIWindow Window = null!;
         public ConvertedPanel Panel = null!;
+
+        /// <summary>True when this floated window is a full-screen menu (ESC / options
+        /// family) — the ones whose gamepad-nav selection highlight flickers and that the
+        /// selection guard applies to (P6 flicker fix, <see cref="ApplyMenuSelectionGuard"/>).</summary>
+        public bool FullScreenMenu;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -567,6 +572,10 @@ internal static class ModalFallback
     // Modal escape chord state (test #17) — per-press latches, reset on release.
     private static bool _escapeChordFired;
     private static bool _escapeArmingLogged;
+
+    // Full-screen-menu selection guard state (P6 flicker fix) — see ApplyMenuSelectionGuard.
+    private static bool _hoverFocusSuppressed;
+    private static bool _savedHoverFocus;
 
     /// <summary>True while the flat screen must show because a fallback window is open.</summary>
     internal static bool ScreenWanted { get; private set; }
@@ -588,6 +597,7 @@ internal static class ModalFallback
             return;
         _attached = false;
         VREvents.WindowVisibility -= OnWindow;
+        RestoreMenuSelectionGuard(); // put InControl mouse-hover focus back before we drop the windows
         ReleaseAllWindows("module shutdown");
         Open.Clear();
         OpenWindows.Clear();
@@ -798,6 +808,8 @@ internal static class ModalFallback
         // every pokeable host is fitted after the show animation and periodically
         // re-fitted on content growth.)
 
+        ApplyMenuSelectionGuard(); // P6: stop the gamepad-nav highlight flicker on a floated full-screen menu
+
         TickEscapeChord(); // test #17: floating modals must always be closable
 
         if (want != _lastWant)
@@ -816,6 +828,86 @@ internal static class ModalFallback
         // The manual chord path forces the screen inside FlatScreen regardless.
         ScreenWanted = want && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0);
         VRModeStateMachine.SetAuxModal(want); // idempotent — mode flow unchanged by style
+    }
+
+    // ---- full-screen-menu selection guard (P6 flicker fix) ------------------------------
+
+    /// <summary>
+    /// Kill the pause-menu flicker while a FULL-SCREEN menu (ESC / Options family) floats
+    /// as a world-space panel. Root cause (decompiled, verified): in a scenario the game
+    /// runs its gamepad UI navigation — <c>ControllerInputArea.Focus</c> selects a button
+    /// via <c>EventSystem.SetSelectedGameObject</c> (ControllerInputArea.cs:240) and shows
+    /// the "selected" highlight. The mod's pointer keeps the InControl input module's
+    /// <c>Mouse.current</c> alive, and that module DE-selects on hover change every frame:
+    /// <c>InControlInputModule.ProcessMove</c> does
+    /// <c>if (focusOnMouseHover &amp;&amp; pointerEnter changed) SetSelectedGameObject(hoverHandler)</c>
+    /// (InControlInputModule.cs:350-354; hoverHandler is null over the floated menu's empty
+    /// area). The head-relative screen pointer sweeps the WORLD-fixed menu as the head
+    /// moves (and Virtual Desktop injects host-mouse motion + the Mouse.current flip-war),
+    /// so the hover target changes every frame → the selection churns null↔button → the
+    /// button highlight + its LeanTween fade FLICKER. Fix: while such a menu floats,
+    /// disable <c>focusOnMouseHover</c> on the live input module so the pointer can no
+    /// longer churn the gamepad-nav selection. Poke and laser clicks are unaffected — they
+    /// drive the real widgets through <c>ExecuteEvents</c> (RayUguiDriver / UguiPokeSurfaces),
+    /// not the hover-select path. The previous value is saved and restored the moment the
+    /// last full-screen menu closes (and on <see cref="Detach"/>).
+    /// </summary>
+    private static void ApplyMenuSelectionGuard()
+    {
+        bool wantSuppress = false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (Converted[i].FullScreenMenu && Converted[i].Panel.IsAlive)
+            {
+                wantSuppress = true;
+                break;
+            }
+        }
+
+        InControlInputModuleExtended? module = InControlInputModuleExtended.Instance;
+        if (module == null)
+        {
+            // No live input module (early boot / torn down) — nothing to guard; drop the
+            // suppression flag so we re-save cleanly when it returns.
+            _hoverFocusSuppressed = false;
+            return;
+        }
+
+        if (wantSuppress)
+        {
+            if (!_hoverFocusSuppressed)
+            {
+                _savedHoverFocus = module.focusOnMouseHover;
+                module.focusOnMouseHover = false;
+                _hoverFocusSuppressed = true;
+                VRLog.Info("WorldUI", "MODAL MENU: full-screen menu floated — InControl mouse-hover focus " +
+                                      $"disabled (was {_savedHoverFocus}) so the gamepad-nav selection highlight " +
+                                      "stops flickering; poke/laser clicks (ExecuteEvents) are unaffected.");
+            }
+            else if (module.focusOnMouseHover)
+            {
+                // Belt-and-suspenders: if the game re-enabled it mid-float, pin it back off.
+                module.focusOnMouseHover = false;
+            }
+        }
+        else if (_hoverFocusSuppressed)
+        {
+            module.focusOnMouseHover = _savedHoverFocus;
+            _hoverFocusSuppressed = false;
+            VRLog.Info("WorldUI", $"MODAL MENU: full-screen menu closed — restored InControl mouse-hover focus " +
+                                  $"({_savedHoverFocus}).");
+        }
+    }
+
+    /// <summary>Restore the InControl mouse-hover focus if we suppressed it (module teardown).</summary>
+    private static void RestoreMenuSelectionGuard()
+    {
+        if (!_hoverFocusSuppressed)
+            return;
+        InControlInputModuleExtended? module = InControlInputModuleExtended.Instance;
+        if (module != null)
+            module.focusOnMouseHover = _savedHoverFocus;
+        _hoverFocusSuppressed = false;
     }
 
     // ---- modal escape chord (test #17) --------------------------------------------------
@@ -1047,6 +1139,7 @@ internal static class ModalFallback
             {
                 Window = window,
                 Panel = panel,
+                FullScreenMenu = fullScreenMenu,
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +

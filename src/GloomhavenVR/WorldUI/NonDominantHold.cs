@@ -64,6 +64,16 @@ internal static class NonDominantHold
 
     private static bool _wasDown;
 
+    /// <summary>
+    /// Monotonic identity of the CURRENT (or most-recent) physical press, bumped once on
+    /// each fresh down-edge. It lets <see cref="OptionsToggle"/> tell the press that
+    /// CLOSED the pause menu (the game's own gamepad-escape on the button, or a laser
+    /// click on the menu) apart from the fresh, independent press that must RE-OPEN it:
+    /// one physical X press serves exactly one intent, so the close-press can never
+    /// double-serve as the re-open tap and the next press always opens (P6 reopen fix).
+    /// </summary>
+    internal static int PressId { get; private set; }
+
     /// <summary>Whether the non-dominant controller was present LAST frame (phantom-edge guard).</summary>
     private static bool _hadHand;
 
@@ -109,7 +119,10 @@ internal static class NonDominantHold
         if (down)
         {
             if (!_wasDown)
+            {
                 Consumed = false; // a fresh press starts unconsumed
+                PressId++;        // ...and carries a new identity (reopen fix)
+            }
             HeldSeconds += Time.unscaledDeltaTime; // unscaled: a paused modal (timeScale 0) must not freeze tap/hold timing
         }
         else
@@ -171,6 +184,7 @@ internal static class NonDominantHold
         Hand = null;
         ButtonIsUp = false;
         _wasDown = false;
+        PressId = 0;
         _hadHand = false;
     }
 }
