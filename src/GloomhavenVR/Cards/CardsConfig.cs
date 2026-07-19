@@ -196,6 +196,12 @@ internal static class CardsConfig
     private static readonly ConfigEntry<Vector3>[] _readoutOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _clusterOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _clusterScale = new ConfigEntry<float>[3];
+    // Item C: the shared DECISION DOCK (the interactive widget row of any in-scenario decision
+    // prompt — take-damage burn choice, burn-confirm dialog — that hangs below the board). Offset
+    // ADDED on top of its fixed base + a size MULTIPLIER, so the text+buttons under the board dial
+    // per board like every other element.
+    private static readonly ConfigEntry<Vector3>[] _decisionOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _decisionScale = new ConfigEntry<float>[3];
 
     // ---- Demeo-parity fan/grab tuning (test #22 blueprint DEMEO-HANDS-CARDS.md) ----
 
@@ -521,6 +527,15 @@ internal static class CardsConfig
             _clusterScale[i] = _file.Bind("Cards", $"ClusterScale_{board}", 1f,
                 $"[{board}] size MULTIPLIER of the turn-flow BUTTON CLUSTER (on top of its fixed 0.7x dock scale). " +
                 "Seeded 1 (Oak).");
+
+            // Item C: the shared DECISION DOCK (text + buttons UNDER the board — the decision/confirm
+            // prompt row) offset + size, per board.
+            _decisionOffset[i] = _file.Bind("Cards", $"DecisionOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the shared DECISION DOCK mount local position (the decision/confirm " +
+                "prompt row that hangs below the board), board-local meters. Seeded 0 (Oak).");
+            _decisionScale[i] = _file.Bind("Cards", $"DecisionScale_{board}", 1f,
+                $"[{board}] size MULTIPLIER of the shared DECISION DOCK (its docked prompt row pose-follows the " +
+                "mount's lossyScale). Seeded 1 (Oak).");
         }
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
@@ -662,4 +677,6 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> ReadoutOffset(ControlBoard b) => _readoutOffset[(int)b];
     internal static ConfigEntry<Vector3> ClusterOffset(ControlBoard b) => _clusterOffset[(int)b];
     internal static ConfigEntry<float> ClusterScale(ControlBoard b) => _clusterScale[(int)b];
+    internal static ConfigEntry<Vector3> DecisionOffset(ControlBoard b) => _decisionOffset[(int)b];
+    internal static ConfigEntry<float> DecisionScale(ControlBoard b) => _decisionScale[(int)b];
 }
