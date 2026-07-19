@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -43,6 +44,23 @@ internal static class ModalCloseButton
     private const float BarLengthFraction = 0.44f;
     private const float BarThicknessPx = 3.5f;
 
+    /// <summary>
+    /// Issue #8 (X unclickable) ROOT CAUSE + FIX. The X plate lived on the HOST canvas at
+    /// <c>ModalFallback.ModalHostSortingOrder = 1000</c> — the SAME sortingOrder the adopted
+    /// game-window content reports (verified in the runtime log: the Options window's adopted
+    /// canvas raycasts at <c>sortingOrder=1000</c>). <see cref="UguiPointer.Beats"/> awards a
+    /// coplanar raycast TIE to the nested game content (<c>challenger.sortingOrder &gt;=
+    /// incumbent.sortingOrder</c>), so wherever any game raycast target sat behind the X — a
+    /// full-window frame image covers the whole menu — the game graphic won the hit and the X's
+    /// own <see cref="Button"/> never fired (the log shows game widgets clicking fine but NOT a
+    /// single "MODAL CLOSE (X button)" line all session). Fix: give the X its OWN nested canvas
+    /// ABOVE the content at this order (the grab bar's "above the menu" order, <see
+    /// cref="GrabbableModal"/> BarSortingOrder) and register it as a nested surface of the host,
+    /// so the poke/laser (<see cref="UguiPointer.TryRaycast"/> merges <see
+    /// cref="UguiPokeSurfaces.NestedOf"/>) hit the X and it WINS the tie (1100 &gt; 1000).
+    /// </summary>
+    private const int CloseButtonSortingOrder = 1100;
+
     // On-theme palette (mirrors SettingsPanel): muted dark plate + brass glyph.
     private static readonly Color PlateColor = new(0.09f, 0.09f, 0.12f, 0.82f);  // settings-panel dark, semi-transparent
     private static readonly Color GlyphColor = new(0.62f, 0.5f, 0.28f, 0.95f);   // settings-panel brass grab-bar tone
@@ -50,7 +68,7 @@ internal static class ModalCloseButton
     /// <summary>Build the X button on <paramref name="panel"/>'s host, closing <paramref name="window"/>.</summary>
     internal static void Attach(ConvertedPanel panel, UIWindow window)
     {
-        if (panel == null || panel.HostRect == null || window == null)
+        if (panel == null || panel.HostRect == null || panel.HostCanvas == null || window == null)
             return;
         // Match the host's layer (the mod layer after Convert's ApplyModLayer) so the head
         // camera draws it and the game UI Camera does not double-draw it.
@@ -58,7 +76,15 @@ internal static class ModalCloseButton
         UIWindow target = window;
         try
         {
-            Build(panel.HostRect, layer, () => ModalFallback.CloseFloatedWindow(target));
+            Build(panel.HostRect, panel.HostCanvas, layer, () =>
+            {
+                // Diagnostic (issue #8): prove the click reached the X and WHICH window it targets —
+                // distinguishes "click never hit the X" (no line) from "close failed" (this line, then
+                // CloseFloatedWindow's own result line). The two together are the full X-close trace.
+                VRLog.Info("WorldUI", $"MODAL CLOSE (X button): PRESSED for '{target.name}' (ID {target.ID}) " +
+                                      "— closing exactly this window (Escape/Hide), other open windows untouched.");
+                ModalFallback.CloseFloatedWindow(target);
+            });
         }
         catch (Exception ex)
         {
@@ -67,7 +93,7 @@ internal static class ModalCloseButton
         }
     }
 
-    private static void Build(RectTransform host, int layer, Action onClose)
+    private static void Build(RectTransform host, Canvas hostCanvas, int layer, Action onClose)
     {
         var go = new GameObject("GloomhavenVR.ModalCloseX") { layer = layer };
         var rect = go.AddComponent<RectTransform>();
@@ -100,7 +126,24 @@ internal static class ModalCloseButton
             catch (Exception ex) { VRLog.Error("WorldUI", $"Modal X button action threw: {ex}"); }
         });
 
-        // Two crossed bars form the "X" (font-free → always visible).
+        // Issue #8 fix (see CloseButtonSortingOrder): lift the X onto its OWN nested canvas ABOVE
+        // the adopted game content so it WINS the coplanar raycast tie the shared order-1000 lost.
+        // The plate's Image now registers with THIS canvas (not the host), so it must be merged
+        // into the host's hit-testing via UguiPokeSurfaces.RegisterNested — exactly how adopted
+        // game canvases are queried by UguiPointer.TryRaycast. Cleaned up automatically: on
+        // CanvasConversion.Release the host is UguiPokeSurfaces.Unregister'd (drops nested lists)
+        // and this GameObject is destroyed with the host.
+        var xCanvas = go.AddComponent<Canvas>();
+        xCanvas.overrideSorting = true;
+        xCanvas.sortingOrder = CloseButtonSortingOrder;
+        if (hostCanvas != null)
+            xCanvas.worldCamera = hostCanvas.worldCamera; // match the host's event camera (adoption pattern)
+        go.AddComponent<GraphicRaycaster>();
+        if (hostCanvas != null)
+            UguiPokeSurfaces.RegisterNested(hostCanvas, xCanvas);
+
+        // Two crossed bars form the "X" (font-free → always visible). Children of the plate → they
+        // draw on the X's own canvas, on top of the menu, with the plate.
         CrossBar(rect, layer, 45f);
         CrossBar(rect, layer, -45f);
     }
