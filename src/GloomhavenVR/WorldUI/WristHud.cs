@@ -90,13 +90,14 @@ internal sealed class WristHud
         if (!_root.activeSelf)
             _root.SetActive(true);
 
-        // Look-at gate: the HUD sits on the back of the wrist (+Y of the wrist
-        // anchor, Phase-2 HandRig contract); visible while that side faces the HMD.
+        // Look-at gate: the HUD is a flat watch-face shelf whose readable front points
+        // along the fingers (wrist +Z = Root.forward — see Build's rotation block);
+        // visible while that face turns toward the HMD (the watch-check down-glance).
         Camera? head = CanvasConversion.WorldCamera;
         if (head != null && _group != null)
         {
             Vector3 toHead = (head.transform.position - _root.transform.position).normalized;
-            float dot = Vector3.Dot(hand.Rig.Root.up, toHead);
+            float dot = Vector3.Dot(hand.Rig.Root.forward, toHead);
             if (!_shown && dot > ShowDot) _shown = true;
             else if (_shown && dot < HideDot) _shown = false;
 
@@ -183,31 +184,43 @@ internal sealed class WristHud
         _root.layer = 5; // UI
         Transform wrist = hand.Rig.Wrist;
         _root.transform.SetParent(wrist, worldPositionStays: false);
-        // Panel position: hugs UNDER the hand — 1.5 cm proud of the back of the hand,
-        // 5 cm toward the forearm.
-        _root.transform.localPosition = new Vector3(0f, 0.015f, -0.05f);
-        // Wrist frame: +Z along fingers, +Y out of the back of the hand, +X shared by
-        // both hands (HandRig contract). The panel lies FLAT in the back-of-hand plane
-        // (like the flat open hand); the viewer/HMD is on the wrist +Y side (same axis
-        // the look-at gate above uses, hand.Rig.Root.up).
+        // Panel position: a flat "watch face" shelf hovering just proud of the back of
+        // the hand at the lower (forearm) edge. Because the panel now lies in the wrist
+        // X/Y plane (see rotation below) its 7.8 cm height extends along +Y (radially
+        // out of the back of the hand), so the centre is lifted ~4.5 cm to keep the near
+        // edge clear of the hand mesh; -Z keeps it at the wrist/forearm edge.
+        _root.transform.localPosition = new Vector3(0f, 0.045f, -0.05f);
+        // Wrist frame (HandRig contract, HandRig.cs:45): +Z along the fingers, +Y out of
+        // the BACK of the hand, +X shared left/right by both hands.
         //
-        // Empirical calibration (headset screenshot): unlike the repo's card/tray
-        // canvases whose READABLE face is local -Z (PanelPlacement.Facing: "+Z away
-        // from viewer", VRCard "viewer on the -Z side"), THIS TMP canvas reads from
-        // local +Z. Proof: the previous LookRotation(down, back) put canvas +Z -> wrist
-        // -Y (into the palm) and rendered FLAT but MIRRORED (we saw the back face) — so
-        // the readable front is the +Z face, which was pointing away from the viewer.
+        // HARDWARE HISTORY (this has flip-flopped): the previous
+        // LookRotation(forward=+Y, up=+Z) put the panel normal on wrist +Y (the
+        // back-of-hand plane). In the watch-check gesture the back of the hand faces the
+        // player, so that plane appeared as a VERTICAL billboard standing at the wrist
+        // ("senkrecht am Handgelenk"). The user wants it folded 90 deg in PITCH (about
+        // the hand's left/right axis, wrist X) so it LIES FLAT and HORIZONTAL along the
+        // lower edge of the hand — a watch face you read by glancing down at your hand.
         //
-        // LookRotation(forward=+Y, up=+Z) = the previous frame rotated 180 deg about the
-        // in-plane wrist-X axis (X preserved, Y & Z flipped) — flips the normal to the
-        // viewer while keeping the plane. Axis decomposition (verified):
-        //   canvas +Z (readable front) -> wrist +Y  (out the back of the hand, toward
-        //                                             the HMD => readable, NOT mirrored)
-        //   canvas +Y (text top)       -> wrist +Z  (along the fingers => upright,
-        //                                             text-top on the finger side)
+        // The fold tips the panel's top edge AWAY from the player so the READABLE front
+        // turns to face up toward the down-glance (a +90 deg pitch about wrist X of the
+        // old frame). Net absolute rotation = LookRotation(forward=+Z, up=-Y). Axis
+        // decomposition (verified):
+        //   canvas +Z (readable front) -> wrist +Z  (along the fingers; in the raised
+        //                                             watch-check pose this is world-UP,
+        //                                             i.e. toward the down-glancing HMD
+        //                                             => readable, NOT mirrored)
+        //   canvas +Y (text top)       -> wrist -Y  (toward the palm side / away from the
+        //                                             player => top edge is the far edge,
+        //                                             so text reads upright when glanced
+        //                                             down at, like a book on a table)
         //   canvas +X (text right)     -> wrist -X
-        // Panel normal is along wrist Y and the plane spans wrist X and Z = FLAT.
-        _root.transform.localRotation = Quaternion.LookRotation(Vector3.up, Vector3.forward);
+        // Panel normal is now along wrist +Z and the plane spans wrist X and wrist Y =
+        // FLAT/HORIZONTAL. NOTE: the look-at gate below was updated to match this new
+        // normal (wrist +Z = Root.forward, was Root.up). This rotation is a proper
+        // rotation (det +1), so the face is NOT mirrored. If in-headset it reads
+        // upside-down or you see the back face, the fix is to flip the PITCH sign here to
+        // LookRotation(forward=-Z, up=+Y) AND flip the gate axis to -Root.forward.
+        _root.transform.localRotation = Quaternion.LookRotation(Vector3.forward, Vector3.down);
 
         var canvas = _root.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
