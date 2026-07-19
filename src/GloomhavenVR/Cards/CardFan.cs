@@ -22,6 +22,13 @@ internal sealed class CardFan
     // whole-fan split in Relayout. Fed by the driver via SetHovered (parallel-owned file).
     private int _hoveredIndex = -1;
 
+    // Test #9: the card a FINGERTIP is hovering (-1 = none), resolved every frame by
+    // UpdateFingertipHover. Used as the split source ONLY when the driver isn't already
+    // driving one (_hoveredIndex < 0) — the driver's laser/grabber hover always wins. This
+    // lets a light fingertip touch split the fan exactly like the laser without this path
+    // and the driver (which owns _hoveredIndex and re-computes it every frame) fighting.
+    private int _pokeHoveredIndex = -1;
+
     // G4: when the eased follow starts (open, or the follow mode flips) the fan snaps to the
     // palm once instead of easing in from a stale position.
     private bool _followInit;
@@ -53,12 +60,14 @@ internal sealed class CardFan
     internal void Close()
     {
         IsOpen = false;
+        ClearFingertipHover(); // test #9: drop any fingertip pop/split
         if (_root != null)
             _root.gameObject.SetActive(false);
     }
 
     internal void Destroy()
     {
+        ClearFingertipHover();
         _cards.Clear();
         if (_root != null)
         {
@@ -73,6 +82,7 @@ internal sealed class CardFan
     /// <summary>Replace the fan's card set (called on rebuilds; cards fly to their arc slots).</summary>
     internal void SetCards(List<VRCard> cards)
     {
+        ClearFingertipHover(); // card set/indices change — re-resolve on the next Tick scan
         _cards.Clear();
         for (int i = 0; i < cards.Count; i++)
             _cards.Add(cards[i]);
@@ -83,8 +93,15 @@ internal sealed class CardFan
     /// <summary>Remove a card (grabbed away); remaining cards close the gap.</summary>
     internal void Remove(VRCard card)
     {
-        if (_cards.Remove(card) && IsOpen)
-            Relayout(instant: false);
+        if (_cards.Remove(card))
+        {
+            if (ReferenceEquals(card, _pokeHoverCard))
+                ClearFingertipHover();
+            else
+                _pokeHoveredIndex = -1; // indices shifted; the Tick scan re-stamps
+            if (IsOpen)
+                Relayout(instant: false);
+        }
     }
 
     /// <summary>Return a card to the fan (release outside a drop zone) — animated.</summary>
@@ -125,6 +142,87 @@ internal sealed class CardFan
             Relayout(instant: false);
     }
 
+    // ------------------------------------------------------------------ fingertip hover --
+
+    /// <summary>Fingertip hover reach (meters, scale 1): the index tip pops a card when this
+    /// close to its front face — "touching / just reaching", not from afar (test #9).</summary>
+    private const float FingertipHoverReach = 0.035f;
+
+    /// <summary>The card the free hand's index tip is currently hovering (null = none).</summary>
+    private VRCard? _pokeHoverCard;
+
+    /// <summary>
+    /// Test #9 (fingertip highlight): pop the fan card the FREE (dominant) hand's index tip
+    /// is touching / just reaching — the same visual the laser gives — and split the fan
+    /// around it. Deliberately NOT the global poke registry (that has no per-hand filter and
+    /// would buzz the fan-OWNING hand whose fingers sit right by the cards); we scan the
+    /// single dominant hand here, pick the ONE nearest card within reach (no multi-pop
+    /// flip-flop), and drive the card's own pop + the fan split. The driver's laser/grabber
+    /// hover still wins the split (<see cref="_hoveredIndex"/> &gt;= 0 in <see cref="Relayout"/>);
+    /// this fills in when neither is active. Allocation-free.
+    /// </summary>
+    private void UpdateFingertipHover()
+    {
+        VRCard? target = null;
+        VRHand? dom = VRHands.Primary;
+        // Only the free hand highlights by fingertip: the fan-owning hand is excluded (its
+        // palm/fingers sit inside the fan — the exact flip-flop source of test #10), and a
+        // hand already holding a card is mid-placement, not browsing.
+        if (dom != null && !ReferenceEquals(dom, _hand) && dom.HasPose && dom.Grabber.Held == null)
+        {
+            Vector3 tip = dom.Rig.IndexTip.position;
+            float best = FingertipHoverReach * dom.WorldScale;
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard c = _cards[i];
+                if (c == null || c.IsHeld)
+                    continue;
+                if (c.TryFingertipDistance(tip, out float d) && d <= best)
+                {
+                    best = d;
+                    target = c;
+                }
+            }
+        }
+
+        if (ReferenceEquals(target, _pokeHoverCard))
+            return;
+
+        _pokeHoverCard?.SetFingertipHover(false);
+        _pokeHoverCard = target;
+        int index = -1;
+        if (target != null)
+        {
+            target.SetFingertipHover(true);
+            index = _cards.IndexOf(target);
+            if (!s_loggedFingertipHover)
+            {
+                s_loggedFingertipHover = true;
+                Core.VRLog.Info("Cards", "Fingertip card hover ACTIVE (test #9): the free hand's " +
+                                         "index tip now pops a fan card on contact (no palm-deep reach needed).");
+            }
+            dom!.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
+        }
+        // Split the fan around the poke-hovered card when the driver isn't driving one.
+        if (index != _pokeHoveredIndex)
+        {
+            _pokeHoveredIndex = index;
+            if (IsOpen && _hoveredIndex < 0)
+                Relayout(instant: false);
+        }
+    }
+
+    /// <summary>Drop any live fingertip hover pop + split (fan close / card set change).</summary>
+    private void ClearFingertipHover()
+    {
+        _pokeHoverCard?.SetFingertipHover(false);
+        _pokeHoverCard = null;
+        _pokeHoveredIndex = -1;
+    }
+
+    /// <summary>One-shot session log guard for the fingertip-hover confirmation line.</summary>
+    private static bool s_loggedFingertipHover;
+
     // ------------------------------------------------------------------ per frame --
 
     /// <summary>Follow the palm (rigidly or eased) and face the head every frame while open.</summary>
@@ -136,6 +234,10 @@ internal sealed class CardFan
         Transform? palm = _hand.Rig.PalmCenter;
         if (palm == null)
             return;
+
+        // Test #9: pop the fan card the free hand's index tip is touching (before the
+        // follow/face math so a hover-driven split relayouts this same frame).
+        UpdateFingertipHover();
 
         // The palm target: FanPalmOffset up the palm normal, in world space. FanPalmOffset is
         // "real meters" and must be multiplied by the DIORAMA scale (WorldScale) to land in
@@ -249,7 +351,10 @@ internal sealed class CardFan
         // G2 whole-fan split (Demeo CardHandView.cs:451-464): when a card is hovered the
         // others slide sideways to open a gap around it. Clamp defends against a stale index
         // left over after a card was plucked out of the fan before the driver clears it.
-        int hovered = _hoveredIndex >= 0 && _hoveredIndex < n ? _hoveredIndex : -1;
+        // The driver's laser/grabber hover (_hoveredIndex) wins; a fingertip poke-hover
+        // (_pokeHoveredIndex, test #9) fills in when the driver isn't driving one.
+        int source = _hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex;
+        int hovered = source >= 0 && source < n ? source : -1;
 
         // Exposed strip of each card = chord between neighboring card centers. The
         // right neighbor draws IN FRONT (more negative z), covering this card's right

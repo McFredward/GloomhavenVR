@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -280,7 +281,11 @@ internal static class CardMesh
         if (_silhouetteApplied)
             return true;
         if (alpha == null || w <= 1 || h <= 1 || alpha.Length != w * h)
+        {
+            VRLog.Warn("Cards", $"CardMesh.SetSilhouette: malformed footprint " +
+                                $"(alpha={(alpha == null ? "null" : alpha.Length.ToString())}, {w}x{h}) — kept rounded-rect.");
             return false;
+        }
 
         // Need the Standard shader for a proper opaque alpha-CLIP (Cutout). Without it a
         // fallback shader would only alpha-blend (unlit, sorting hazards) — not worth the
@@ -288,18 +293,36 @@ internal static class CardMesh
         Material edge = CreateEdgeMaterial();
         Material back = CreateBackMaterial();
         if (edge.shader == null || edge.shader.name != "Standard")
+        {
+            VRLog.Warn("Cards", $"CardMesh.SetSilhouette: Standard shader unavailable " +
+                                $"(edge shader='{edge.shader?.name ?? "null"}') — kept rounded-rect (no Cutout clip).");
             return false;
+        }
 
         // --- sanity guard: reject empty / solid / hollow-centre footprints ----------
         long opaque = 0;
         for (int i = 0; i < alpha.Length; i++)
             if (alpha[i] >= 128) opaque++;
         float frac = (float)opaque / alpha.Length;
+        bool centerOpaque = CenterOpaque(alpha, w, h);
+        VRLog.Info("Cards", $"CardMesh.SetSilhouette: footprint {w}x{h}, opaque frac={frac:F3}, " +
+                            $"centerOpaque={centerOpaque} (accept if 0.12<frac<0.985 & centre solid).");
         if (frac < 0.12f || frac > 0.985f)
-            return false; // near-empty (bad capture) or near-solid (a rectangle — no-op)
-        // Centre must be solid card (a valid card is opaque at its middle).
-        if (!CenterOpaque(alpha, w, h))
+        {
+            // near-empty (bad/early capture, art not loaded) or near-solid (a plain
+            // rectangle — clipping would be a visual no-op). The backing is already fit to
+            // the visible art (VRCard.VisibleFaceFraction), so the card shows no black
+            // border either way; this only decides whether the RIM traces an ornate outline.
+            VRLog.Info("Cards", $"CardMesh.SetSilhouette: frac {frac:F3} out of range — kept rounded-rect " +
+                                "(border already removed by the art-fitted backing).");
             return false;
+        }
+        // Centre must be solid card (a valid card is opaque at its middle).
+        if (!centerOpaque)
+        {
+            VRLog.Info("Cards", "CardMesh.SetSilhouette: centre not solid — kept rounded-rect.");
+            return false;
+        }
 
         // --- bake the footprint alpha into both materials' textures -----------------
         Texture2D backPattern = GetBackTexture();
@@ -326,6 +349,8 @@ internal static class CardMesh
         ConfigureCutout(edge, MakeCutoutTexture("GloomhavenVR.CardSilhouette.Edge", edgePixels, w, h));
         ConfigureCutout(back, MakeCutoutTexture("GloomhavenVR.CardSilhouette.Back", backPixels, w, h));
         _silhouetteApplied = true;
+        VRLog.Info("Cards", "CardMesh.SetSilhouette: APPLIED — shared front/rim + back materials " +
+                            "flipped to alpha-clip (Cutout); the 3D card body now traces the art outline.");
         return true;
     }
 

@@ -102,6 +102,27 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     private bool _pokeSelectEnabled;
 
+    /// <summary>
+    /// Test #9 (fingertip highlight): true while the free (dominant) hand's index tip is
+    /// touching / just reaching this card's front face — driven by <see cref="CardFan"/>'s
+    /// per-frame fingertip scan (NOT the global poke registry, which has no per-hand
+    /// filter and would buzz the fan-owning hand). Pops the card exactly like the laser
+    /// hover. Before this, a card only popped via <see cref="ProximityGrabber"/>, which
+    /// measures from the PALM CENTER (0.13 m reach) — so the whole hand had to be pushed
+    /// INTO the card before it lit.
+    /// </summary>
+    private bool _pokeHover;
+
+    /// <summary>Set by <see cref="CardFan"/> when the dominant fingertip enters/leaves this
+    /// card's front-face hover range (test #9). Returns whether the flag actually changed.</summary>
+    internal bool SetFingertipHover(bool on)
+    {
+        if (_pokeHover == on)
+            return false;
+        _pokeHover = on;
+        return true;
+    }
+
     /// <summary>Raised on fingertip poke while <see cref="PokeSelectEnabled"/>.</summary>
     internal event Action<VRCard, VRHand>? Poked;
 
@@ -177,6 +198,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         UpdateCanvasCamera();
     }
 
+    /// <summary>
+    /// Fraction of the fitted face rect the VISIBLE card art actually fills — the backing
+    /// and grab collider are fit to this, not the full rect, so CardFace's border inset no
+    /// longer leaves a dark rectangular ring (test #25). Mirror of CardFace.BorderFraction
+    /// (0.06 → art at 94 %); keep the two in sync.
+    /// </summary>
+    private const float VisibleFaceFraction = 0.94f;
+
     private void SetCanvasSize(Vector2 facePixels, float w, float h)
     {
         if (_canvasRect == null)
@@ -188,8 +217,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         // P6 (hardware test #8): the face rarely matches the card's 63.5:88 aspect —
         // the letterboxed backing showed as a fat black border. Fit backing AND grab
         // collider exactly to the visible face rect instead.
-        float faceW = facePixels.x * fit;
-        float faceH = facePixels.y * fit;
+        //
+        // Test #25 ("NO black rectangular border"): CardFace insets the live art by its
+        // BorderFraction (a small centered margin) inside this canvas, so a backing fit
+        // to the FULL face rect still showed the dark mesh front as a rectangular ring in
+        // that margin. Fit the backing + grab collider to the VISIBLE (inset) art instead,
+        // so the dark front sits entirely BEHIND the art and only the thin physical rim
+        // reads at the card edge. VisibleFaceFraction mirrors CardFace.BorderFraction
+        // (kept in sync manually — both files describe the same ~6 % art inset).
+        float faceW = facePixels.x * fit * VisibleFaceFraction;
+        float faceH = facePixels.y * fit * VisibleFaceFraction;
         if (_backing != null && _backingBaseSize.x > 1e-5f && _backingBaseSize.y > 1e-5f)
         {
             _backing.localScale = new Vector3(
@@ -510,6 +547,20 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             _popped = false;
     }
 
+    /// <summary>
+    /// Test #9: distance from a world-space fingertip to this card's grab collider (0 when
+    /// inside). Used by <see cref="CardFan"/> to pop the card the free hand's index tip is
+    /// touching. False when the collider is missing/disabled. Allocation-free.
+    /// </summary>
+    internal bool TryFingertipDistance(Vector3 worldTip, out float distance)
+    {
+        distance = float.MaxValue;
+        if (_box == null || !_box.enabled || !_box.gameObject.activeInHierarchy)
+            return false;
+        distance = Vector3.Distance(worldTip, _box.ClosestPoint(worldTip));
+        return true;
+    }
+
     public void OnPoke(VRHand hand)
     {
         if (!PokeSelectEnabled || !AllowsHand(hand))
@@ -544,7 +595,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
         float dt = Time.deltaTime;
         float speed = CardsConfig.CardLerpSpeed.Value;
-        float popTarget = _popped || _laserPopped ? 1f : 0f;
+        // Pop from ANY hover source: grabber/poke-select (_popped), laser (_laserPopped),
+        // or a light fingertip touch (_pokeHover, test #9).
+        float popTarget = _popped || _laserPopped || _pokeHover ? 1f : 0f;
         _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
 
         // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up. The
@@ -577,6 +630,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _burnFx.Detach(); // restore any bounded CardSmoke module state
         _popped = false;
         _laserPopped = false;
+        _pokeHover = false;
         _pop = 0f;
     }
 
