@@ -1,4 +1,5 @@
 using System.Text;
+using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
@@ -71,6 +72,54 @@ internal sealed class WristHud
     private string _lastIdentity = string.Empty;
     private bool _eventsAttached;
 
+    // ---- Item 10: live-tunable pose (the "Wrist" debug category) --------------------------
+    // The watch-face pose — its OFFSET from the wrist anchor and its TILT (pitch/yaw/roll on
+    // top of the flat-on-hand base) — is re-read and re-applied every Tick (ApplyPose), so
+    // nudging a stepper in the VR debug menu moves the HUD immediately.
+    //
+    // OWNERSHIP: the persistent home for these tunables is the [WorldUI] config, whose file
+    // WorldUIConfig owns (this branch must not edit it — see the report for the ConfigEntry
+    // fields + Bind snippets to add). To stay green + live WITHOUT those symbols, each tunable
+    // is a nullable ConfigEntry reference the parent assigns right after WorldUIConfig.Bind(),
+    // paired with a local-static fallback: while the entry is null the static default is used
+    // (in-session only, no persistence); once the parent wires the entries the SAME accessors
+    // persist (BepInEx) and live-apply with no further edit to this file. Defaults reproduce
+    // the previous hard-coded resting pose exactly (OffsetY +1.5 cm proud of the hand, OffsetZ
+    // +1 cm toward the fingers, zero tilt).
+    // CS0649: these are assigned by the PARENT (right after WorldUIConfig.Bind) once the
+    // [WorldUI] entries exist — deliberately unassigned on this branch, so silence the
+    // "never assigned, always null" note; the null-guarded accessors fall back to the statics.
+#pragma warning disable CS0649
+    internal static ConfigEntry<float>? PitchEntry, YawEntry, RollEntry,
+                                         OffsetXEntry, OffsetYEntry, OffsetZEntry;
+#pragma warning restore CS0649
+    private static float _pitch, _yaw, _roll;
+    private static float _offX = 0f, _offY = 0.015f, _offZ = 0.01f;
+
+    internal static float PitchDeg { get => PitchEntry?.Value ?? _pitch; set { if (PitchEntry != null) PitchEntry.Value = value; else _pitch = value; } }
+    internal static float YawDeg   { get => YawEntry?.Value   ?? _yaw;   set { if (YawEntry   != null) YawEntry.Value   = value; else _yaw   = value; } }
+    internal static float RollDeg  { get => RollEntry?.Value  ?? _roll;  set { if (RollEntry  != null) RollEntry.Value  = value; else _roll  = value; } }
+    internal static float OffsetX  { get => OffsetXEntry?.Value ?? _offX; set { if (OffsetXEntry != null) OffsetXEntry.Value = value; else _offX = value; } }
+    internal static float OffsetY  { get => OffsetYEntry?.Value ?? _offY; set { if (OffsetYEntry != null) OffsetYEntry.Value = value; else _offY = value; } }
+    internal static float OffsetZ  { get => OffsetZEntry?.Value ?? _offZ; set { if (OffsetZEntry != null) OffsetZEntry.Value = value; else _offZ = value; } }
+
+    // Flat-on-hand base rotation (see Build's rotation block): panel normal = wrist +Y, plane
+    // spans wrist X/Z. The live pitch/yaw/roll compose in the panel's own local frame on top.
+    private static readonly Quaternion FlatBackOfHand =
+        Quaternion.LookRotation(Vector3.up, Vector3.forward);
+
+    /// <summary>
+    /// Item 10: re-apply the wrist HUD pose from the live-tunable offset + tilt. Called once in
+    /// Build and every Tick, so the "Wrist" debug steppers move the watch face immediately.
+    /// </summary>
+    private void ApplyPose()
+    {
+        if (_root == null)
+            return;
+        _root.transform.localPosition = new Vector3(OffsetX, OffsetY, OffsetZ);
+        _root.transform.localRotation = FlatBackOfHand * Quaternion.Euler(PitchDeg, YawDeg, RollDeg);
+    }
+
     public void Tick()
     {
         EnsureEvents();
@@ -92,6 +141,10 @@ internal sealed class WristHud
 
         if (!_root.activeSelf)
             _root.SetActive(true);
+
+        // Item 10: re-read + re-apply the tunable pose every tick so the "Wrist" debug
+        // steppers move the HUD live (allocation-free — a Vector3 + two quaternions).
+        ApplyPose();
 
         // Look-at gate: the HUD is a flat watch-face shelf lying in the back-of-hand
         // plane; its readable front (panel NORMAL) points out the BACK of the hand along
@@ -196,7 +249,10 @@ internal sealed class WristHud
         // radial lift is needed. We only push it ~1.5 cm out along +Y so it hovers just
         // proud of the hand mesh, and nudge it slightly toward the fingers (+Z) so the
         // tray sits over the back of the hand rather than the forearm.
-        _root.transform.localPosition = new Vector3(0f, 0.015f, 0.01f);
+        // Item 10: position (and the tilt below) now come from the live-tunable pose
+        // (ApplyPose). Its defaults match the values described here — OffsetX 0, OffsetY
+        // +1.5 cm (proud of the hand), OffsetZ +1 cm (toward the fingers) — so the resting
+        // look is unchanged; the "Wrist" debug category nudges them live.
         // Wrist frame (HandRig contract, HandRig.cs:45): +Z along the fingers, +Y out of
         // the BACK of the hand, +X shared left/right by both hands.
         //
@@ -237,7 +293,9 @@ internal sealed class WristHud
         //   * If you see the BACK face / it stays edge-on-invisible (normal pointing the
         //     wrong way), flip the forward-arg — LookRotation(Vector3.down, Vector3.forward)
         //     — AND flip the gate axis to Vector3.Dot(-hand.Rig.Root.up, toHead).
-        _root.transform.localRotation = Quaternion.LookRotation(Vector3.up, Vector3.forward);
+        // Item 10: base flat-on-hand rotation (LookRotation(up, forward)) composed with the
+        // live pitch/yaw/roll, plus the offset above — all applied by ApplyPose.
+        ApplyPose();
 
         var canvas = _root.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
