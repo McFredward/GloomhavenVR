@@ -52,6 +52,10 @@ internal sealed class CompatModule : IVRModule
             return;
         }
 
+        // Auto-skip the game's "press any key to continue" screen (InitialInputScreen) straight
+        // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
+        VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
+
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
             names.AddRange(PostProcessingTypes);
