@@ -305,7 +305,11 @@ internal sealed class RayInteractor : IPickProvider
         if (Time.frameCount == _modalPickFrame)
             return;
         _modalPickFrame = Time.frameCount;
-        bool blocked = WorldUI.ModalFallback.WindowModalActive
+        // Item 4 (user): a NON-blocking reachable menu (pause/ESC, Options, Multiplayer,
+        // Compendium) must NOT gate board/card/tray picks — the player keeps interacting while
+        // it floats. Only BLOCKING floated windows (story/results/durability), which also assert
+        // ModalUI, gate the pick. So key on BlockingWindowModalActive, not WindowModalActive.
+        bool blocked = WorldUI.ModalFallback.BlockingWindowModalActive
                        || VRModeStateMachine.CurrentMode == VRMode.ModalUI;
         if (blocked == _modalPickBlocked)
             return;
