@@ -156,6 +156,9 @@ internal static class CardsConfig
     private static readonly ConfigEntry<Vector3>[] _confirmUndoOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _confirmUndoSize = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _slotOverlayOffset = new ConfigEntry<Vector3>[3];
+    // Item 1: the two slot overlays move together as a PAIR (Overlays element); this spacing
+    // spreads them apart along the inter-slot (board long) axis — slot 0 by −½, slot 1 by +½.
+    private static readonly ConfigEntry<float>[] _slotOverlaySpacing = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardYaw = new ConfigEntry<float>[3];
@@ -419,6 +422,10 @@ internal static class CardsConfig
             _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the slot snap-glow / wanted-glow local position, board-local " +
                 "meters. X/Y in plane, Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 (Oak).");
+            _slotOverlaySpacing[i] = _file.Bind("Cards", $"SlotOverlaySpacing_{board}", 0f,
+                $"[{board}] EXTRA gap (board-local meters) ADDED between the TWO slot overlays along the " +
+                "board's long (inter-slot) axis — slot 0 (left) moves −½, slot 1 (right) +½. Seeded 0 " +
+                "(the slots already space the overlays; positive spreads them apart). Item 1.");
             _initiativeOffset[i] = _file.Bind("Cards", $"InitiativeOffset_{board}",
                 new Vector3(0f, 0.10f, -0.004f),
                 $"[{board}] initiative-track mount local position (replaces the fixed mount pos), " +
@@ -577,6 +584,7 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> ConfirmUndoOffset(ControlBoard b) => _confirmUndoOffset[(int)b];
     internal static ConfigEntry<float> ConfirmUndoSize(ControlBoard b) => _confirmUndoSize[(int)b];
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
+    internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
     internal static ConfigEntry<float> BoardTilt(ControlBoard b) => _boardTilt[(int)b];
     internal static ConfigEntry<float> BoardYaw(ControlBoard b) => _boardYaw[(int)b];
