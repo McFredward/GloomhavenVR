@@ -1,28 +1,42 @@
 // FILLED BY WORKER A — the ghost card-hand fan.
 //
-// Cosmetic fan of card BACKS on a remote player's non-dominant hand. This file NEVER reads a
-// single byte of game card data (no AbilityCardUI, no CardFace.Adopt, no CharacterClass): every
-// card is a back-on-both-faces slab built from the mod's own procedural card-back material
-// (CardMesh.CreateBackMaterial → CardMesh.GetBackTexture). In Gloomhaven you never see another
-// player's hand, so backs-only is the whole feature — it opens no cheat vector (PLAN2 anti-cheat).
+// Cosmetic fan of card slabs on a remote player's non-dominant hand. By DEFAULT every card is a
+// back-on-both-faces slab built from the mod's own procedural card-back material
+// (CardMesh.CreateBackMaterial → CardMesh.GetBackTexture) — no game card data is read at all, so a
+// hand shows only backs (PLAN2 anti-cheat: you never see another player's cards during selection).
+//
+// FRONT ART (multiplayer "see teammates' cards" feature): when — and ONLY when — the game's OWN
+// reveal rule permits (RevealGate.ShowRoundCardFronts(remoteActor), which mirrors vanilla
+// AbilityCardUI: hidden iff online && scenario && !IsUnderMyControl && phase == SelectAbilityCards),
+// each slab additionally shows the REAL card face (art + enhancement stickers) by CLONING the remote
+// actor's own AbilityCardUI.fullAbilityCard widget onto the slab's owner-facing (−Z) side (see
+// RemoteCardArt). We NEVER transmit or synthesize fronts over the wire and NEVER adopt the live
+// widget — the fronts are read locally from the already-host-replicated CPlayerActor hand and only
+// rendered when the gate is open; during the secret selection phase every card is a BACK. Every game
+// deref is null-guarded and fails safe to BACKS (no leak) on any error.
 //
 // Geometry mirrors Cards/CardFan.Relayout (arc radius, per-card step, curvature-by-fill, tilt,
 // z-stagger) so a remote hand reads exactly like the local one, but with LOCAL constants seeded to
 // the CardsConfig defaults — this stays self-contained and does not depend on the game's live Fan
 // config being initialised.
 
+using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
 /// <summary>
-/// A cosmetic fan of card BACKS (never fronts) on a remote player's non-dominant hand, sized to
+/// A cosmetic fan of card slabs on a remote player's non-dominant hand, sized to
 /// <c>owner.HandCardCount</c>. Attached under <see cref="RemoteAvatar.NonDominantHandHolder"/>
 /// (falling back to <see cref="RemoteAvatar.Root"/>), floated a palm standoff up the hand normal
 /// and arced to face <see cref="RemoteAvatar.HeadHolder"/> — mirroring <see cref="CardFan"/>.
-/// Purely visual: reads no game state, only the broadcast hand-card COUNT.
+/// Shows card BACKS by default; when <see cref="RevealGate.ShowRoundCardFronts"/> permits for the
+/// remote actor it additionally overlays each slab with the REAL cloned card face
+/// (<see cref="RemoteCardArt"/>). The broadcast COUNT drives the fan size; the fronts are read
+/// locally from the remote actor's own hand and gated strictly on the reveal rule.
 /// </summary>
 internal sealed class RemoteHandFan
 {
@@ -46,9 +60,17 @@ internal sealed class RemoteHandFan
 
     private GameObject? _root;              // fan pivot; child of the current hand holder
     private Transform? _holder;            // the holder we are currently parented under
-    private readonly System.Collections.Generic.List<GameObject> _cards = new(MaxCards);
+    private readonly List<GameObject> _cards = new(MaxCards);
+    private readonly List<RemoteCardArt> _faces = new(MaxCards); // per-slab cloned-front overlays (parallel to _cards)
     private int _builtCount = -1;          // how many card slabs currently exist (-1 = never built)
     private bool _poseInit;                // snap (no ease) on the first pose after (re)activation
+
+    /// <summary>Diagnostics dedup: whether the fan is CURRENTLY showing cloned fronts (vs backs), so we
+    /// log exactly once on each backs↔fronts transition (never per frame, never card identities).</summary>
+    private bool _frontsShown;
+
+    /// <summary>Reused scratch buffer for the remote actor's HAND-pile card widgets (no per-frame alloc).</summary>
+    private readonly List<AbilityCardUI> _handBuffer = new(MaxCards);
 
     public RemoteHandFan(RemoteAvatar owner)
     {
@@ -103,6 +125,96 @@ internal sealed class RemoteHandFan
 
         PoseFan(holder, dt);
         LayoutCards(count);
+        UpdateFaces(count);
+    }
+
+    // ------------------------------------------------------------------ front art (gated) --
+
+    /// <summary>
+    /// Per-frame anti-cheat gate + front rendering. When <see cref="RevealGate.ShowRoundCardFronts"/>
+    /// is true for the remote actor (never during the secret selection phase), overlay each slab with
+    /// a CLONE of that actor's real hand-card face (<see cref="RemoteCardArt"/>); otherwise show BACKS.
+    /// Every game deref is guarded and fails safe to BACKS on any error — no front can leak.
+    /// </summary>
+    private void UpdateFaces(int count)
+    {
+        bool showFronts = false;
+        int frontCount = 0;
+        try
+        {
+            // Resolve the remote actor and the game's own reveal rule. NetPlayerActors.ActorFor and
+            // RevealGate.ShowRoundCardFronts are both null-safe and degrade to no-front off-scenario.
+            CPlayerActor? actor = NetPlayerActors.ActorFor(_owner.PlayerId);
+            // Also require an actual running scenario before touching the game's hand UI (the clone's
+            // widget lifecycle depends on scenario singletons); off-scenario we simply show backs.
+            if (actor != null && RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor))
+            {
+                ResolveHandFronts(actor);   // fills _handBuffer with the actor's HAND-pile widgets
+                showFronts = _handBuffer.Count > 0;
+            }
+        }
+        catch (System.Exception ex)
+        {
+            // ANY failure → no fronts, backs only (fail-safe = no cheat).
+            showFronts = false;
+            _handBuffer.Clear();
+            VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
+        }
+
+        for (int i = 0; i < _faces.Count; i++)
+        {
+            RemoteCardArt face = _faces[i];
+            // Only slab indices that both (a) are within the built fan and (b) map to a resolved hand
+            // widget with a real full card get a front; everything else stays a back.
+            if (showFronts && i < count && i < _handBuffer.Count)
+            {
+                AbilityCardUI widget = _handBuffer[i];
+                FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
+                if (full != null && face.ShowFront(full))
+                {
+                    frontCount++;
+                    continue;
+                }
+            }
+            face.HideFront();
+        }
+
+        // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
+        bool nowFronts = frontCount > 0;
+        if (nowFronts != _frontsShown)
+        {
+            _frontsShown = nowFronts;
+            VRLog.Info("Net", nowFronts
+                ? $"Remote hand fan [player {_owner.PlayerId}] flipped to FRONTS (reveal gate open, {frontCount} card(s))."
+                : $"Remote hand fan [player {_owner.PlayerId}] flipped back to BACKS (reveal gate closed).");
+        }
+    }
+
+    /// <summary>
+    /// Fill <see cref="_handBuffer"/> with the remote actor's live HAND-pile card widgets, in hand
+    /// order — the exact set the local fan draws (<c>widget.CardType == CardPileType.Hand</c>). Read
+    /// straight off the game's own <c>CardsHandManager.GetHand(actor).cardsUI</c> (publicized). This
+    /// deliberately EXCLUDES Round/Discard/Lost/Active piles, so the secret round-selection cards are
+    /// never even candidates for a front here. Cleared + refilled each call; no allocation.
+    /// </summary>
+    private void ResolveHandFronts(CPlayerActor actor)
+    {
+        _handBuffer.Clear();
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null)
+            return;
+        CardsHandUI hand = manager.GetHand(actor);
+        if (hand == null)
+            return;
+        List<AbilityCardUI> cards = hand.cardsUI; // publicized private field
+        if (cards == null)
+            return;
+        for (int i = 0; i < cards.Count && _handBuffer.Count < MaxCards; i++)
+        {
+            AbilityCardUI c = cards[i];
+            if (c != null && c.CardType == CardPileType.Hand && c.fullAbilityCard != null)
+                _handBuffer.Add(c);
+        }
     }
 
     /// <summary>Float the fan a palm standoff up the hand normal and arc it to face the owner's head,
@@ -199,17 +311,24 @@ internal sealed class RemoteHandFan
         }
     }
 
-    /// <summary>Destroy and recreate exactly <paramref name="count"/> back-on-both-faces slabs. Only
-    /// called when the count changes (cheap). Re-applies the mod layer so the owned head camera
-    /// renders the new slabs.</summary>
+    /// <summary>Destroy and recreate exactly <paramref name="count"/> back-on-both-faces slabs, each
+    /// with its own (initially hidden) cloned-front overlay. Only called when the count changes
+    /// (cheap). Re-applies the mod layer so the owned head camera renders the new slabs.</summary>
     private void Rebuild(int count)
     {
+        // Tear down existing front overlays first (each owns cloned game widgets — no leaks), then the
+        // slabs they hang off.
+        for (int i = _faces.Count - 1; i >= 0; i--)
+            _faces[i].Destroy();
+        _faces.Clear();
+
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
             if (_cards[i] != null)
                 Object.Destroy(_cards[i]);
         }
         _cards.Clear();
+        _frontsShown = false;
 
         Mesh mesh = SharedCardMesh;
         Material back = CardMesh.CreateBackMaterial(); // shared: back texture on a Standard material
@@ -226,6 +345,7 @@ internal sealed class RemoteHandFan
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             _cards.Add(card);
+            _faces.Add(new RemoteCardArt(card.transform, CardWidth, CardHeight));
         }
 
         _builtCount = count;
@@ -237,13 +357,26 @@ internal sealed class RemoteHandFan
 
     private void Hide()
     {
+        // Drop any cloned fronts so a hidden hand keeps no game-widget clones alive.
+        for (int i = 0; i < _faces.Count; i++)
+            _faces[i].HideFront();
+        if (_frontsShown)
+        {
+            _frontsShown = false;
+            VRLog.Info("Net", $"Remote hand fan [player {_owner.PlayerId}] hidden — cloned fronts released.");
+        }
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
     }
 
     public void Destroy()
     {
+        for (int i = _faces.Count - 1; i >= 0; i--)
+            _faces[i].Destroy();
+        _faces.Clear();
         _cards.Clear();
+        _handBuffer.Clear();
+        _frontsShown = false;
         if (_root != null)
         {
             Object.Destroy(_root);
