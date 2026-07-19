@@ -64,14 +64,32 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         TickGuard.Run("FigureGrab.OffsetAnchorSelect", TickOffsetAnchorSelect);
         TickGuard.Run("FigureGrab.LaserGrab", TickLaserGrab);
 
-        // (Issue #3) The held pose is baked ONCE at grab from a grab-angle-independent base and then
-        // RIDES THE HAND (localRotation under the hand anchor) — no per-frame re-derivation, so
-        // turning the hand turns the mini with it while the grab angle never changes the hold.
+        // (Issue A) The held rotation is a FIXED CONSTANT anchor-LOCAL rotation
+        // (FigureGrabConfig.HeldUprightRotation) applied at grab — no world-up / head derivation and
+        // no per-frame re-derivation — so it RIDES THE HAND (turning the hand turns the mini) while
+        // the grab approach angle never changes the resting hold and it never clips into the palm.
 
         // Keep the held figure's stat panel locked to that figure even if the laser sweeps
         // another figure on the board (risk #5 — the game's hover would otherwise re-target).
         if (HeldFigures.Count > 0)
             StatPanelSurface.ReassertHeld();
+    }
+
+    /// <summary>
+    /// Issue C — freeze the animation-driven position of every held figure (local + remote) AFTER
+    /// the Animator has run this frame. A figure grabbed mid-walk (or in any animation) would
+    /// otherwise translate straight out of the hand: the suppressed <c>ActorBehaviour.ApplyMotion</c>
+    /// is what normally re-zeros the animated mesh each LateUpdate. Re-pinning it here reinstates
+    /// exactly that one write so the mesh rides the hand while the clip keeps playing. Runs in
+    /// LateUpdate precisely so it lands after the animation update; a strict no-op when nothing is
+    /// held (offline or otherwise).
+    /// </summary>
+    private void LateUpdate()
+    {
+        if (HeldFigures.Count > 0)
+            TickGuard.Run("FigureGrab.PinHeld", HeldFigures.PinAnimatedRoots);
+        if (NetHeldFigures.Count > 0)
+            TickGuard.Run("FigureGrab.PinNetHeld", NetHeldFigures.PinAnimatedRoots);
     }
 
     private void RefreshRegistry()

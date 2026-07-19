@@ -80,6 +80,25 @@ internal static class FigureGrabConfig
     internal static float HeldFaceYawFor(HandSide side)
         => side == HandSide.Left ? -HeldFaceYawDegrees.Value : HeldFaceYawDegrees.Value;
 
+    /// <summary>
+    /// Issue A — the upright held orientation as a FIXED CONSTANT rotation RELATIVE TO THE
+    /// GRABANCHOR (NOT derived from world up, the player's head, the figure's board rotation,
+    /// or the grab-moment anchor orientation), so the mini sits the SAME way in the palm no
+    /// matter the approach angle and RIDES THE HAND (turn the hand → it turns with it).
+    ///
+    /// The mod's GrabAnchor is authored so its +Y points OUT OF THE PALM (see
+    /// <c>HandVisuals</c>: the palm anchor's +Y is the palm normal, GrabAnchor inherits it), and
+    /// the board mini's model local +Y is its up axis — so an IDENTITY base already stands the
+    /// mini upright out of the palm, exactly the good "perfect horizontal grab" hold (palm up →
+    /// mini up). Because it is anchor-LOCAL, grabbing from directly above (palm down) makes the
+    /// mini extend OUT of the palm (harmlessly downward) instead of standing world-upright and
+    /// clipping INTO the hand — the whole bug. <see cref="HeldTiltDegrees"/> then tips it toward
+    /// the face and the MIRROR-CORRECT <see cref="HeldFaceYawFor"/> spins the readable front
+    /// toward the player (negated for the left hand, tilt mirror-invariant), both live-tunable.
+    /// </summary>
+    internal static Quaternion HeldUprightRotation(HandSide side)
+        => Quaternion.Euler(HeldTiltDegrees.Value, HeldFaceYawFor(side), 0f);
+
     /// <summary>Legacy palm-pose rotation (tilt only), relative to the GrabAnchor.</summary>
     internal static Vector3 HeldEuler => new(HeldTiltDegrees.Value, 0f, 0f);
 

@@ -57,14 +57,25 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     // Live-pose bases captured at grab (so re-applying the config pose never compounds):
     // the mini's anchor-local scale at board size, and the hand anchor it rides. NOTE: the
-    // figure's grab-time world rotation is deliberately NOT captured — at grab the held pose is
-    // baked ONCE from a GRAB-ANGLE-INDEPENDENT base (see ApplyUprightPose: upright, facing the
-    // player, built from world-up + the horizontal to-head direction, NOT from the figure's board
-    // rotation, the approach angle, or the wrist). Baked into localRotation under the hand anchor,
-    // so it then RIDES THE HAND — turn the hand and the mini turns with it (user #3: "fixed
-    // relative to the hand, not the world"), but HOW it was grabbed never changes the resting hold.
+    // held ROTATION is a FIXED CONSTANT local rotation relative to the anchor
+    // (FigureGrabConfig.HeldUprightRotation) — NOT derived from world up, the head, the figure's
+    // board rotation, or the grab-moment anchor orientation. So the mini sits the SAME way in the
+    // palm regardless of the grab approach angle AND rides the hand — turn the hand and the mini
+    // turns with it (user #3: "fixed relative to the hand, not the world"), while HOW it was
+    // grabbed never changes the resting hold and it never clips into a downward-pointing palm.
     private Transform? _anchor;
     private Vector3 _heldBaseScale = Vector3.one;
+
+    // Issue B — render-on-top state so a mini held in FRONT of the opaque control board (PlayTray)
+    // is not painted over by the board's on-top HUD widgets (queue 4000, ZTest Always, ZWrite off).
+    // On grab we snapshot each held renderer's ORIGINAL shared materials and swap in per-renderer
+    // INSTANCE materials whose renderQueue is pushed just past those widgets; the shader's own ZTest
+    // (LEqual) + ZWrite are left intact so the 3D mini still self-occludes correctly and is hidden
+    // naturally when moved BEHIND real world geometry. Restored verbatim on release. ONLY the held
+    // mini is affected — never the rest of the board's figures.
+    private const int HeldRenderQueue = 4100;
+    private Renderer[]? _heldRenderers;
+    private Material[][]? _origSharedMats;
 
     // R2 hardening: the actor's authoritative board cell at grab time. If the game moves the
     // figure to a different cell while it is held (a remote player's or the server's networked
@@ -173,8 +184,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // world-scale as it enters the hand (no scale pop). Snapshot that scale as the LIVE-TUNE
         // base: HeldScale zooms on top of the board scale, re-derived (never compounded) every
         // time a tunable changes. The held ROTATION is NOT snapshotted from the board — it is a
-        // fixed canonical upright-facing-player pose computed in ApplyUprightPose, so the mini
-        // snaps to the same orientation regardless of the grab approach angle.
+        // fixed constant anchor-local rotation (FigureGrabConfig.HeldUprightRotation), so the mini
+        // snaps to the same orientation in the palm regardless of the grab approach angle.
         Transform anchor = hand.Rig.GrabAnchor;
         t.SetParent(anchor, worldPositionStays: true);
         _anchor = anchor;
@@ -182,15 +193,19 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _attached = true;
 
         ApplyHeldPose();
+        ApplyRenderOnTop(); // Issue B — draw the held mini over the opaque control board
         Live.Add(this);
 
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
         GameObject anchorGo = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
         StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character, hand.Side);
 
+        // Issue A — one-shot grab diagnostic: the FIXED anchor-LOCAL rotation chosen for the hold
+        // (grab-angle-independent; rides the hand). World rotation shown for reference only.
         VRLog.Info("FigureGrab",
-            $"{hand.Side} grabbed figure ({Describe()}); hand={Fmt(anchor.rotation)} " +
-            $"held={Fmt(t.rotation)} (baked ONCE from a grab-angle-independent base; then rides the hand).");
+            $"{hand.Side} grabbed figure ({Describe()}); localRot={Fmt(t.localRotation)} " +
+            $"(fixed constant relative to the hand anchor; grab-angle-independent, rides the hand) " +
+            $"hand={Fmt(anchor.rotation)} worldHeld={Fmt(t.rotation)}.");
     }
 
     /// <summary>
@@ -214,63 +229,63 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // (mirrored across the hand's left-right axis for the left hand).
         t.localPosition = FigureGrabConfig.HeldOffsetFor(side);
 
-        if (FigureGrabConfig.HeldUpright.Value)
-            ApplyUprightPose(t, _anchor, side);
-        else
-            t.localRotation = Quaternion.Euler(FigureGrabConfig.HeldEuler); // legacy flat-on-palm (tilt only, mirror-invariant)
+        // Issue A: a FIXED CONSTANT anchor-LOCAL rotation (grab-angle-independent) that rides the
+        // hand — never a world rotation. Upright mode stands the mini out of the palm and faces it
+        // (mirror-correct); legacy mode lays it flat (tilt only, mirror-invariant).
+        t.localRotation = FigureGrabConfig.HeldUpright.Value
+            ? FigureGrabConfig.HeldUprightRotation(side)
+            : Quaternion.Euler(FigureGrabConfig.HeldEuler);
 
         t.localScale = _heldBaseScale * FigureGrabConfig.HeldScale.Value;
     }
 
     /// <summary>
-    /// Stand the mini UPRIGHT in WORLD space (feet→head along world up) and yaw it to face the
-    /// player — a FIXED canonical hold. The base rotation is built purely from world up and the
-    /// horizontal direction to the player's head, so it is <b>independent of the figure's board
-    /// rotation and of the angle the hand grabbed it from</b>: the mini snaps to the exact same
-    /// orientation in the hand no matter how it was approached or plucked. (Assumes model local
-    /// +Z = front / +Y = up; <see cref="FigureGrabConfig.HeldFaceYawDegrees"/> corrects models
-    /// whose readable side differs — e.g. 180 if it faces away.) Written as a WORLD rotation ONCE
-    /// at grab (via <c>t.rotation</c>), which bakes a localRotation under the hand anchor. Because
-    /// the base is derived from world-up + the head (NOT the figure's board rotation or the
-    /// grab-approach angle), every grab produces the SAME resting hold — then, being baked as a
-    /// localRotation, it RIDES THE HAND: turning the hand turns the mini with it (user #3). It is
-    /// NOT re-derived per frame (that made it world-fixed / hand-independent, which the user did
-    /// not want).
+    /// Issue B — push the held mini's renderers just past the control board's on-top HUD widgets so
+    /// a mini held in FRONT of the opaque board is never occluded by it. Snapshots each renderer's
+    /// original SHARED materials, then swaps in per-renderer INSTANCE materials (so no shared bundle
+    /// material is mutated globally → the rest of that class's board minis are untouched) with the
+    /// renderQueue bumped to <see cref="HeldRenderQueue"/>. ZTest/ZWrite are deliberately left at
+    /// the shader's defaults (LEqual + on), so the mini still self-occludes correctly and is hidden
+    /// when moved BEHIND real world geometry — only the draw ORDER changes, letting the nearer mini
+    /// win over the board widgets (which draw ZWrite-off, so they never own the depth). Restored by
+    /// <see cref="RestoreRenderers"/> on release.
     /// </summary>
-    private static void ApplyUprightPose(Transform t, Transform anchor, HandSide side)
+    private void ApplyRenderOnTop()
     {
-        // Direction from the pinch point to the player's head (horizontal) → where the mini's
-        // readable front should point so it faces the player. Fall back to the hand's forward if
-        // the head pose is momentarily unavailable, then to world forward.
-        Camera? head = GloomhavenVR.Rig.VRRigDriver.HeadCamera;
-        Vector3 toHead = head != null ? head.transform.position - t.position : anchor.forward;
-        toHead.y = 0f;
-        if (toHead.sqrMagnitude < 1e-6f)
+        GameObject? root = Root;
+        if (root == null)
+            return;
+        _heldRenderers = root.GetComponentsInChildren<Renderer>(true);
+        _origSharedMats = new Material[_heldRenderers.Length][];
+        for (int i = 0; i < _heldRenderers.Length; i++)
         {
-            toHead = anchor.forward;
-            toHead.y = 0f;
-            if (toHead.sqrMagnitude < 1e-6f)
-                toHead = Vector3.forward;
+            Renderer r = _heldRenderers[i];
+            if (r == null)
+                continue;
+            _origSharedMats[i] = r.sharedMaterials;      // snapshot the ORIGINAL shared assets
+            Material[] instances = r.materials;          // per-renderer INSTANCES (no global mutation)
+            for (int m = 0; m < instances.Length; m++)
+            {
+                if (instances[m] != null)
+                    instances[m].renderQueue = HeldRenderQueue;
+            }
         }
-        toHead.Normalize();
+    }
 
-        // Canonical upright pose: local +Y along WORLD UP (upright, exactly as it stands on the
-        // board) and local +Z along the horizontal to-head direction (readable front faces the
-        // player). Derived ONLY from world up + head, NOT from the grab-time figure rotation —
-        // this is what makes the hold identical regardless of the grab approach angle.
-        Quaternion worldRot = Quaternion.LookRotation(toHead, Vector3.up);
-
-        // User inspection adjustments, in the mini's own frame: tilt tips it toward the face,
-        // yaw spins the readable front toward the player. Item 2: the yaw is MIRRORED for the left
-        // hand (negated) while the tilt (pitch about X) is mirror-invariant, so the left-hand pose
-        // is the mirror image of the tuned right-hand pose. The auto-facing above is world-geometry
-        // (faces the head regardless of hand), so it needs no mirroring.
-        worldRot *= Quaternion.Euler(
-            FigureGrabConfig.HeldTiltDegrees.Value,
-            FigureGrabConfig.HeldFaceYawFor(side),
-            0f);
-
-        t.rotation = worldRot; // baked into localRotation (child of the moving anchor)
+    /// <summary>Issue B — restore the renderers' original shared materials (idempotent).</summary>
+    private void RestoreRenderers()
+    {
+        if (_heldRenderers != null && _origSharedMats != null)
+        {
+            for (int i = 0; i < _heldRenderers.Length; i++)
+            {
+                Renderer r = _heldRenderers[i];
+                if (r != null && _origSharedMats[i] != null)
+                    r.sharedMaterials = _origSharedMats[i];
+            }
+        }
+        _heldRenderers = null;
+        _origSharedMats = null;
     }
 
     public void OnRelease(VRHand hand, Vector3 velocity)
@@ -283,6 +298,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     internal void Restore()
     {
         Live.Remove(this);
+        RestoreRenderers(); // Issue B — undo the render-on-top swap (idempotent)
         if (_attached)
         {
             GameObject? root = Root;
