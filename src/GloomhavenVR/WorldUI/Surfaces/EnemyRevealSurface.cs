@@ -127,6 +127,7 @@ internal sealed class EnemyRevealSurface
     private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last planted at (re-plant on recenter)
     private bool _lastVisible;
     private bool _dropLogged;                        // one-shot per reveal: log the applied plant pose
+    private float _lastDiagTime = -99f;              // throttle for the movement diagnostic (~1/s)
 
     // Host-rect pin (test #23): largest fitted width seen this reveal + the time it
     // last grew; the fit freezes once it has held at that max for FitPinSettleSeconds.
@@ -320,28 +321,48 @@ internal sealed class EnemyRevealSurface
     /// reveal re-plants in front of the head there; a plain world-grab does NOT bump
     /// RigPoseVersion, so it can never move the reveal.
     /// </summary>
-    private void PlantPose(Camera head, float scale)
+    private void PlantPose(Camera head, Transform? rig)
     {
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
         if (_placed && poseVersion == _facedPoseVersion)
-            return; // already planted — hold the absolute world pose, immune to board motion
+            return; // already planted — hold the RIG-LOCAL pose, re-projected each frame
 
-        Vector3 headPos = head.transform.position;
-        Vector3 gaze = head.transform.rotation * Vector3.forward;
+        // RIG-LOCAL plant (user #5 — the CORRECT decoupling). Read the head's pose RELATIVE to
+        // the rig root, NOT world space. The HeadCamera is a CHILD of RigRoot, and WorldGrab
+        // moves/rotates/scales RigRoot about the grab pivot — so a WORLD-fixed pose SWINGS out
+        // of view when the player world-grabs to reposition the board (the residual "reacts to
+        // board movement": world-grab rotates the view, a world-fixed reveal stays put and
+        // slides off). Storing rig-LOCAL and re-projecting through the LIVE rig each frame
+        // (Place) keeps the reveal glued to the PHYSICAL head through any grab — world-grab
+        // moves head AND reveal together (both are rig children), so it stays in front of the
+        // face and never appears to move with the board. No follow, so it also never chases a
+        // head movement (user #5: "nothing to do with head movements").
+        Vector3 headPosL;
+        Quaternion headRotL;
+        if (rig != null)
+        {
+            headPosL = rig.InverseTransformPoint(head.transform.position);
+            headRotL = Quaternion.Inverse(rig.rotation) * head.transform.rotation;
+        }
+        else
+        {
+            // No rig (dev harness) — world frame IS the head frame; Place() applies verbatim.
+            headPosL = head.transform.position;
+            headRotL = head.transform.rotation;
+        }
+        Vector3 gazeL = headRotL * Vector3.forward;
 
-        // Upright billboard facing the head (yaw only), +Z toward the viewer — the uGUI
-        // convention every surface here shares.
-        Vector3 away = gaze;
-        away.y = 0f;
-        away = away.sqrMagnitude > 1e-4f ? away.normalized : Vector3.forward;
-        _rotation = Quaternion.LookRotation(away, Vector3.up);
+        // Upright billboard facing the head (yaw only), +Z toward the viewer — built purely
+        // from the rig-local gaze heading, never any board / tray / rig-root term.
+        Vector3 awayL = gazeL;
+        awayL.y = 0f;
+        awayL = awayL.sqrMagnitude > 1e-4f ? awayL.normalized : Vector3.forward;
+        _rotation = Quaternion.LookRotation(awayL, Vector3.up);
 
-        // Along the ACTUAL gaze (pitch included) at a comfortable reading distance, dropped
-        // slightly below the gaze line so a player looking down at the diorama reads it in
-        // place without looking up (item 3). WORLD units: the head pose is already in world
-        // (diorama) space, so × the head-frame scale keeps a FIXED comfortable REAL distance
-        // / apparent size regardless of the board's zoom or position.
-        _position = headPos + gaze * (RevealReadingDistance * scale) - Vector3.up * (RevealViewDrop * scale);
+        // Along the ACTUAL gaze (pitch included) at a reading distance, dropped slightly below
+        // the gaze line (item 3). RAW rig-local metres: Place() projects through the rig (whose
+        // lossyScale is the diorama scale) so it lands at a FIXED comfortable REAL distance.
+        _position = headPosL + gazeL * RevealReadingDistance - Vector3.up * RevealViewDrop;
 
         _placed = true;
         _facedPoseVersion = poseVersion;
@@ -349,10 +370,11 @@ internal sealed class EnemyRevealSurface
         if (!_dropLogged)
         {
             _dropLogged = true;
-            VRLog.Info("WorldUI", $"ENEMY REVEAL planted (world-anchored, plant-once) y={_position.y:F3} m " +
-                                  $"(gaze reading distance {RevealReadingDistance:F2} m × scale, dropped {RevealViewDrop:F2} m) — " +
-                                  "held as an ABSOLUTE world pose: no head-follow, immune to board/tray/world-grab; " +
-                                  "re-centres only on recenter/rebuild.");
+            float worldY = rig != null ? rig.TransformPoint(_position).y : _position.y;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL planted (RIG-LOCAL, plant-once) world-y={worldY:F3} m " +
+                                  $"(gaze reading distance {RevealReadingDistance:F2} m, dropped {RevealViewDrop:F2} m) — " +
+                                  "glued to the physical head via the live rig, NO follow: world-grab keeps it in front " +
+                                  "of the face (never swings with the board), and it never chases head movement.");
         }
     }
 
@@ -393,14 +415,33 @@ internal sealed class EnemyRevealSurface
                 _placedMetersPerPx = metersPerPx; // freeze at the pinned (max) width
         }
 
-        // Plant once in the forward view, then apply the stored ABSOLUTE world pose verbatim
-        // (user #5). No rig re-projection: nothing about the board / tray / world-grab feeds
-        // this after the plant, so the reveal can never drift with board handling.
-        PlantPose(head, scale);
+        // Plant once (rig-local) in the forward view, then re-project through the LIVE rig each
+        // frame (user #5). World-grab moves the rig ROOT and the head-child together, so the
+        // reveal rides the physical head and never swings with the board; no follow, so it
+        // never chases a head movement either.
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        PlantPose(head, rig);
+
+        Vector3 worldPos = rig != null ? rig.TransformPoint(_position) : _position;
+        Quaternion worldRot = rig != null ? rig.rotation * _rotation : _rotation;
 
         Transform host = _panel.HostTransform;
-        host.SetPositionAndRotation(_position, _rotation);
+        host.SetPositionAndRotation(worldPos, worldRot);
         host.localScale = Vector3.one * (metersPerPx * scale);
+
+        // Decisive diagnostic (throttled ~1/s while visible): the reveal host WORLD pose vs the
+        // rig's world yaw. If a future log still shows "moves with the board", this proves
+        // whether the host world position is actually changing and whether it tracks the rig
+        // yaw (world-grab) or something else. Cheap; remove once the coupling is confirmed gone.
+        float now = Time.unscaledTime;
+        if (now - _lastDiagTime >= 1f)
+        {
+            _lastDiagTime = now;
+            float rigYaw = rig != null ? rig.eulerAngles.y : 0f;
+            float rigScale = rig != null ? rig.lossyScale.x : 1f;
+            VRLog.Info("WorldUI", $"ENEMY REVEAL diag: host world pos={worldPos} yaw={worldRot.eulerAngles.y:F1}° " +
+                                  $"| rig yaw={rigYaw:F1}° rigScale={rigScale:F1} — rig-local plant held.");
+        }
     }
 
     /// <summary>
