@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using AStar;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -60,6 +61,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private Transform? _anchor;
     private Vector3 _heldBaseScale = Vector3.one;
     private Quaternion _heldBoardRot = Quaternion.identity;
+
+    // R2 hardening: the actor's authoritative board cell at grab time. If the game moves the
+    // figure to a different cell while it is held (a remote player's or the server's networked
+    // action on its turn), the held mini would otherwise ride the hand at a now-stale board
+    // position and jump on release; we auto-release instead (polled by FigureGrabDriver).
+    private Point _grabCell;
 
     /// <summary>
     /// Re-apply the held pose from <see cref="FigureGrabConfig"/> to every held mini — the
@@ -146,6 +153,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         // Suppress the game's per-frame transform writes for THIS actor only.
         HeldFigures.Add(_actor);
+
+        // Snapshot the authoritative cell so we can auto-release if the game moves the figure
+        // on the board while it is held (R2 hardening).
+        CActor? ca = Character;
+        _grabCell = ca != null ? ca.ArrayIndex : default;
 
         // Ride the hand's grab anchor. worldPositionStays keeps the mini at its board
         // world-scale AND its upright board rotation as it enters the hand (no pop). Snapshot
@@ -268,7 +280,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             if (root != null)
             {
                 Transform t = root.transform;
-                t.SetParent(_origParent, worldPositionStays: false);
+                // R2: the original parent may have been destroyed while the figure was held
+                // (actor removed / scene teardown). Unity's `!= null` catches a destroyed object,
+                // so we unparent to the scene root instead of passing a dead Transform to
+                // SetParent (which would throw).
+                Transform? parent = _origParent != null ? _origParent : null;
+                t.SetParent(parent, worldPositionStays: false);
                 t.localPosition = _origLocalPos;
                 t.localRotation = _origLocalRot;
                 t.localScale = _origLocalScale;
@@ -286,6 +303,23 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             StatPanelSurface.ClearHeldFigure(Character);
             _holder = null;
         }
+    }
+
+    /// <summary>
+    /// R2 hardening: true when the game has moved this held figure to a DIFFERENT authoritative
+    /// board cell since it was grabbed (a networked move on a remote/enemy turn). Polled by
+    /// <see cref="FigureGrabDriver"/> each frame; a true result triggers an immediate
+    /// <see cref="Restore"/> so the mini snaps to its real cell instead of riding the hand stale.
+    /// Also true when the actor/character was destroyed under us. Cheap (one struct compare).
+    /// </summary>
+    internal bool AuthoritativeCellChanged()
+    {
+        if (!_attached)
+            return false;
+        CActor? ca = Character;
+        if (ca == null || _actor == null || _actor.m_RootGameObject == null)
+            return true; // actor/root gone — release and let the driver prune
+        return ca.ArrayIndex != _grabCell;
     }
 
     private string Describe()
