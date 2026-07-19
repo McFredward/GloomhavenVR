@@ -146,6 +146,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly EnemyRevealSurface _enemyReveal = new();
         private readonly DecisionDockSurface _decisionDock = new();
         private readonly DamageTooltipSurface _damageTooltip = new();
+        private readonly DamagePreviewSurface _damagePreview = new();
         private readonly TrayControlDockSurface _trayControls = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
@@ -206,6 +207,7 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("EnemyRevealSurface", _enemyReveal.Tick));
             update.Add(("DecisionDockSurface", _decisionDock.Tick)); // after ModalFallback.Tick
             update.Add(("DamageTooltipSurface", _damageTooltip.Tick)); // after the dock
+            update.Add(("DamagePreviewSurface", _damagePreview.Tick)); // after the dock: mirrors flat HP-cost preview onto the adopted bar (bug #3)
             update.Add(("TrayControlDockSurface", _trayControls.Tick));
             update.Add(("WristHud", _wristHud.Tick));
             update.Add(("FlatScreen", _flatScreen.Tick));
@@ -260,6 +262,7 @@ internal sealed class WorldUIModule : IVRModule
             _enemyReveal.Shutdown();
             _decisionDock.Shutdown();
             _damageTooltip.Shutdown();
+            _damagePreview.Shutdown();
             _trayControls.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
