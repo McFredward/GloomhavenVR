@@ -168,6 +168,21 @@ if ($depsMissing) {
 
 # --- 6. build the mod -------------------------------------------------------
 Step "Building GloomhavenVR ($Configuration)"
+
+# Show exactly which commit is being built and warn on a behind/dirty tree, so a stale
+# DLL can never be deployed unnoticed (the running mod logs the same stamp on startup).
+$builtHash    = (git -C $root rev-parse --short=9 HEAD 2>$null)
+$builtBranch  = (git -C $root rev-parse --abbrev-ref HEAD 2>$null)
+$builtSubject = (git -C $root show -s --format=%s HEAD 2>$null)
+Write-Host "    commit $builtHash [$builtBranch] `"$builtSubject`"" -ForegroundColor Yellow
+if (git -C $root status --porcelain --untracked-files=no 2>$null) {
+    Write-Host "    WARNING: working tree is DIRTY - the build will be tagged '-dirty'." -ForegroundColor Yellow
+}
+$behind = (git -C $root rev-list --count "HEAD..@{u}" 2>$null)
+if ($behind -and [int]$behind -gt 0) {
+    Write-Host "    WARNING: branch is $behind commit(s) BEHIND upstream - 'git pull' for the latest." -ForegroundColor Red
+}
+
 dotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 
@@ -219,5 +234,6 @@ if (Test-Path $legacyPreloader) {
 Write-Host "    plugin + RuntimeDeps + preloader + natives$(if ($bundle) { ' + gloomhavenvr.bundle' }) deployed"
 
 Write-Host ""
+Write-Host "Deployed commit $builtHash [$builtBranch] `"$builtSubject`" - this exact stamp appears in LogOutput.log at startup." -ForegroundColor Green
 Write-Host "Done. Launch Gloomhaven and check BepInEx\LogOutput.log." -ForegroundColor Green
 Write-Host "If something fails, drop LogOutput.log + openxr-diagnostics.log + Player.log into .planning/debug/."

@@ -324,9 +324,11 @@ public class Plugin : BaseUnityPlugin
     }
 
     private void LogStartupSummary() =>
-        VRLog.Info($"v{MyPluginInfo.PLUGIN_VERSION} build {BuildInfo.GitHash} ({BuildInfo.BuildTimeUtc}) loaded — " +
+        VRLog.Info($"v{MyPluginInfo.PLUGIN_VERSION} build {BuildInfo.GitHash} [{BuildInfo.GitBranch}] " +
+                   $"\"{BuildInfo.GitSubject}\" (built {BuildInfo.BuildTimeUtc}) loaded — " +
                    $"{_modules.Count} modules initialized, " +
-                   $"VR {(VRSession.IsRunning ? $"RUNNING on '{VRSession.RuntimeName}'" : "not running")}.");
+                   $"VR {(VRSession.IsRunning ? $"RUNNING on '{VRSession.RuntimeName}'" : "not running")}. " +
+                   $"IF THIS IS NOT THE COMMIT YOU EXPECTED, install.ps1 deployed a stale DLL — rebuild.");
 
     /// <summary>
     /// ScriptEngine (F6 hot reload) calls OnDestroy on the old instance before loading

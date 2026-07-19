@@ -75,6 +75,16 @@
       <Output TaskParameter="ConsoleOutput" PropertyName="_GitHash" />
       <Output TaskParameter="ExitCode" PropertyName="_GitExit" />
     </Exec>
+    <Exec Command="git rev-parse --abbrev-ref HEAD" ConsoleToMSBuild="true" ContinueOnError="true"
+          WorkingDirectory="$(MSBuildProjectDirectory)" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitBranch" />
+    </Exec>
+    <!-- %s (subject) is left literal by MSBuild (s is not a hex digit); %cd would be
+         mis-escaped as 0xCD, so use %s only and take the date from the build time. -->
+    <Exec Command="git show -s --format=%s HEAD" ConsoleToMSBuild="true" ContinueOnError="true"
+          WorkingDirectory="$(MSBuildProjectDirectory)" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitSubject" />
+    </Exec>
     <Exec Command="git status --porcelain --untracked-files=no" ConsoleToMSBuild="true" ContinueOnError="true"
           WorkingDirectory="$(MSBuildProjectDirectory)" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_GitDirty" />
@@ -82,12 +92,19 @@
     <PropertyGroup>
       <_GitHash Condition="'$(_GitExit)' != '0' or '$(_GitHash)' == ''">unknown</_GitHash>
       <_GitHash Condition="'$(_GitDirty)' != ''">$(_GitHash)-dirty</_GitHash>
+      <_GitBranch Condition="'$(_GitBranch)' == ''">?</_GitBranch>
+      <_GitSubject Condition="'$(_GitSubject)' == ''">?</_GitSubject>
+      <!-- Sanitize the subject so it can't break the generated C# string literal or the
+           MSBuild item list: strip quotes/backslashes/semicolons/pipes. -->
+      <_GitSubjectSafe>$(_GitSubject.Replace('&quot;','_').Replace('\','/').Replace(';',',').Replace('|',' '))</_GitSubjectSafe>
       <_BuildTime>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss'))</_BuildTime>
       <_BuildInfoFile>$(IntermediateOutputPath)BuildInfo.g.cs</_BuildInfoFile>
     </PropertyGroup>
     <ItemGroup>
       <_L Include="namespace GloomhavenVR { internal static class BuildInfo {" />
       <_L Include="public const string GitHash = &quot;$(_GitHash)&quot;%3B" />
+      <_L Include="public const string GitBranch = &quot;$(_GitBranch)&quot;%3B" />
+      <_L Include="public const string GitSubject = &quot;$(_GitSubjectSafe)&quot;%3B" />
       <_L Include="public const string BuildTimeUtc = &quot;$(_BuildTime) UTC&quot;%3B } }" />
     </ItemGroup>
     <WriteLinesToFile File="$(_BuildInfoFile)" Lines="@(_L)" Overwrite="true" WriteOnlyWhenDifferent="false" />
