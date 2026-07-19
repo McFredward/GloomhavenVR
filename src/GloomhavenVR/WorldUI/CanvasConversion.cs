@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
-using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -180,6 +179,13 @@ internal sealed class ConvertedPanel
     /// <summary>Next frame the background-hide re-assert sweep runs (pooled/late fades).</summary>
     public int BackgroundSweepNextFrame;
 
+    // ---- item 5 (pause-menu size consistency): one-shot fit layout-settle gate ------------
+    /// <summary>Last measured visible-content size while a one-shot fit settles (stability clock).</summary>
+    public Vector2 FitOneShotStableSize;
+
+    /// <summary>Consecutive fit checks the measured content size has held steady (see <c>SettleOneShotFit</c>).</summary>
+    public int FitOneShotStableCount;
+
     // ---- initial-flicker settle window (sub-item A) ---------------------------------------
     /// <summary>
     /// EVERY-FRAME settle deadline (unscaled time) after Convert for a floated modal host:
@@ -208,43 +214,6 @@ internal sealed class ConvertedPanel
 
     /// <summary>Earliest unscaled time the render-hidden modal host may be revealed (see <see cref="RevealPending"/>).</summary>
     public float RevealNotBefore;
-
-    // ---- render-on-top (floated-MODAL sky/diorama occlusion fix) --------------------------
-    /// <summary>
-    /// Opt-in (<see cref="CanvasConversion.Convert"/> <c>renderOnTop</c>, floated MODAL windows
-    /// only): every uGUI graphic in the converted subtree is switched to ZTest Always so the modal
-    /// renders OVER all opaque geometry and can NEVER be occluded. The enclosing scenario backdrop
-    /// ('GH_SkySphere', shader 'AMP_SkyShader') writes depth and exposes no <c>_ZWrite</c> to
-    /// toggle, so a world-space menu (uGUI ZTests LEqual) dragged to the shell edge otherwise clips
-    /// behind it — this keeps the sky rendered and lifts the menu above it instead of disabling the
-    /// sky. Reversible: the game reparents these SAME graphics back to their 2D home on Release, so
-    /// each graphic's original material / ZTest state is recorded in <see cref="RenderOnTopGraphics"/>
-    /// and restored — the 2D UI must NOT be left stuck at ZTest Always.
-    /// </summary>
-    public bool RenderOnTopEnabled;
-
-    /// <summary>Graphics switched to ZTest Always while floated, with the state to restore on Release.</summary>
-    public readonly List<GraphicOverlayRecord> RenderOnTopGraphics = new(64);
-
-    /// <summary>Next frame the render-on-top sweep re-runs (pooled/late graphics need ZTest Always too).</summary>
-    public int RenderOnTopSweepNextFrame;
-}
-
-/// <summary>
-/// A uGUI graphic switched to ZTest Always for a floated render-on-top modal (see
-/// <see cref="ConvertedPanel.RenderOnTopEnabled"/>). Two mutually-exclusive restore modes:
-/// an INSTANCE material swapped onto <see cref="Graphic.material"/> (regular Image/Text —
-/// restore the original ref, destroy the instance), or a TMP FONT material whose
-/// <c>_ZTestMode</c> value was overridden (restore the value — <see cref="TMP_Text.fontMaterial"/>
-/// is already a per-object instance, so no shared asset is mutated).
-/// </summary>
-internal struct GraphicOverlayRecord
-{
-    public Graphic Graphic;
-    public Material? OriginalMaterial; // instance-swap path: the ref to put back on Release
-    public Material? Instance;         // instance-swap path: the instance we created (destroy on Release)
-    public Material? TmpMaterial;      // TMP path: the font material whose _ZTestMode we changed
-    public int TmpOriginalZTest;       // TMP path: the _ZTestMode value to restore
 }
 
 /// <summary>
@@ -355,16 +324,11 @@ internal static class CanvasConversion
     /// (the floated-modal FLICKER, see ModalFallback). A dominant order lifts a host out of
     /// that ambiguity; adopted nested canvases keep <c>overrideSorting</c> cleared, so they
     /// inherit this order and stay ordered with the host.
-    /// <paramref name="renderOnTop"/> (floated MODAL windows only, default false so other
-    /// surfaces — initiative/actor-bars/combat-log — stay depth-tested and occluded by the
-    /// diorama) switches every uGUI graphic in the subtree to ZTest Always so the modal renders
-    /// OVER all opaque geometry (the sky dome, the diorama) and can never be occluded — the sky
-    /// stays rendered. Reversible on <see cref="Release"/> (see <see cref="ApplyRenderOnTop"/>).
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
-        bool transparentBackground = false, bool renderOnTop = false, bool fitOneShot = false)
+        bool transparentBackground = false, bool fitOneShot = false)
     {
         if (target == null)
         {
@@ -506,21 +470,11 @@ internal static class CanvasConversion
             HideFullScreenBackground(panel, initial: true);
         }
 
-        // Sky/diorama occlusion fix: switch every uGUI graphic in the subtree to ZTest Always so a
-        // floated MODAL renders OVER all opaque geometry — the enclosing sky dome ('AMP_SkyShader',
-        // depth-writing, no _ZWrite) would otherwise clip a menu dragged to the shell edge. Only
-        // floated modals opt in; reversible on Release (the game reparents these graphics back to 2D).
-        if (renderOnTop)
-        {
-            panel.RenderOnTopEnabled = true;
-            ApplyRenderOnTop(panel, initial: true);
-        }
-
         // Sub-item A: for a floated modal that gets the mod-layer move and/or the
         // background hide, re-run BOTH every frame for a short settle window so a backing
         // the game instantiates / fades in a few frames after Convert is treated before its
         // first visible frame — killing the reported ~1 s initial flicker.
-        if (useModLayer || transparentBackground || renderOnTop)
+        if (useModLayer || transparentBackground)
         {
             panel.EarlySettleUntil = Time.unscaledTime + EarlySettleSeconds;
             // Item 3a (DECISIVE initial-flicker fix): create the host RENDER-HIDDEN and pop it in
@@ -806,117 +760,6 @@ internal static class CanvasConversion
                                   (initial ? "(transparent background)." : "(late fade-in)."));
     }
 
-    // ---- render-on-top (floated-MODAL sky/diorama occlusion fix) --------------------------
-
-    private const string ZTestOverlayProp = "_ZTest";        // GloomhavenVR/Overlay etc.
-    private const string ZTestTmpProp = "_ZTestMode";        // TMP distance-field shader
-    private const string ZTestGuiProp = "unity_GUIZTestMode"; // built-in UI/Default shader
-
-    private static readonly int AlwaysZTest = (int)UnityEngine.Rendering.CompareFunction.Always;
-
-    // Scratch buffer (render-on-top sweep only; reused, no per-call allocations).
-    private static readonly List<Graphic> RenderOnTopScratch = new(64);
-
-    /// <summary>
-    /// Switch every uGUI graphic in the converted subtree to ZTest Always so a floated MODAL
-    /// renders OVER all opaque geometry (the enclosing sky dome writes depth with no <c>_ZWrite</c>
-    /// toggle, and would otherwise clip a world-space menu dragged to the shell edge). The sky is
-    /// left rendered — only the menu is lifted above it.
-    ///
-    /// Per graphic, two reversible modes so NO shared game material is mutated:
-    /// - TMP text renders through its FONT material (<c>_ZTestMode</c>); <see cref="TMP_Text.fontMaterial"/>
-    ///   is already a per-object instance, so the value is overridden there and the original value
-    ///   recorded for restore.
-    /// - Image/RawImage/legacy Text: a per-graphic INSTANCE of <see cref="Graphic.material"/> is
-    ///   created, ZTest set on it (<c>unity_GUIZTestMode</c> for UI/Default, <c>_ZTest</c> for Overlay),
-    ///   and swapped in; the original ref is put back and the instance destroyed on <see cref="Release"/>.
-    ///
-    /// Change-gated (a graphic already recorded is skipped) and swept from <see cref="Tick"/>/
-    /// <see cref="LateTick"/> so pooled/late graphics (menu list items, fade-ins) are caught too;
-    /// existing swapped instances hold on their own (their assigned material persists). Raycasting is
-    /// geometric (unchanged), so poke/laser clicks are unaffected.
-    /// </summary>
-    private static void ApplyRenderOnTop(ConvertedPanel panel, bool initial)
-    {
-        if (panel.Target == null)
-            return;
-        panel.RenderOnTopSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
-
-        RenderOnTopScratch.Clear();
-        panel.Target.GetComponentsInChildren(includeInactive: false, RenderOnTopScratch);
-        int switched = 0;
-        for (int i = 0; i < RenderOnTopScratch.Count; i++)
-        {
-            Graphic g = RenderOnTopScratch[i];
-            if (g == null || !g.enabled || IsRenderOnTopRecorded(panel, g))
-                continue;
-
-            if (g is TMP_Text tmp)
-            {
-                // TMP renders via its font material (_ZTestMode). fontMaterial is a per-object
-                // instance, so this mutates only this text; record the value to restore it.
-                Material? fm = tmp.fontMaterial;
-                if (fm == null || !fm.HasProperty(ZTestTmpProp))
-                    continue;
-                int orig = fm.GetInt(ZTestTmpProp);
-                fm.SetInt(ZTestTmpProp, AlwaysZTest);
-                panel.RenderOnTopGraphics.Add(new GraphicOverlayRecord
-                {
-                    Graphic = g, TmpMaterial = fm, TmpOriginalZTest = orig,
-                });
-                switched++;
-            }
-            else
-            {
-                Material orig = g.material;
-                if (orig == null)
-                    continue;
-                var inst = new Material(orig); // per-graphic instance, never the shared game asset
-                ApplyZTestAlways(inst);
-                g.material = inst;
-                panel.RenderOnTopGraphics.Add(new GraphicOverlayRecord
-                {
-                    Graphic = g, OriginalMaterial = orig, Instance = inst,
-                });
-                switched++;
-            }
-        }
-        RenderOnTopScratch.Clear();
-
-        if (switched > 0)
-            VRLog.Info("WorldUI", $"MODAL ON-TOP: switched {switched} graphic material(s) in " +
-                                  $"'{panel.HostGo.name}' to ZTest Always (total {panel.RenderOnTopGraphics.Count}) — " +
-                                  "the floated modal renders over the sky/diorama and can no longer be occluded" +
-                                  (initial ? "." : " (pooled/late graphics)."));
-    }
-
-    /// <summary>
-    /// Set ZTest Always on an INSTANCE material via whichever property its shader exposes:
-    /// Overlay's <c>_ZTest</c>, TMP's <c>_ZTestMode</c>, and the built-in UI shader's
-    /// <c>unity_GUIZTestMode</c> (the game's menu Images use <c>UI/Default</c>). A plain UI
-    /// material that does not report any of these still honours <c>unity_GUIZTestMode</c> in its
-    /// <c>ZTest [unity_GUIZTestMode]</c> pass, so it is set unconditionally as the fallback.
-    /// </summary>
-    private static void ApplyZTestAlways(Material m)
-    {
-        bool applied = false;
-        if (m.HasProperty(ZTestOverlayProp)) { m.SetInt(ZTestOverlayProp, AlwaysZTest); applied = true; }
-        if (m.HasProperty(ZTestTmpProp)) { m.SetInt(ZTestTmpProp, AlwaysZTest); applied = true; }
-        if (m.HasProperty(ZTestGuiProp)) { m.SetInt(ZTestGuiProp, AlwaysZTest); applied = true; }
-        if (!applied)
-            m.SetInt(ZTestGuiProp, AlwaysZTest); // UI/Default honours it even when HasProperty is false
-    }
-
-    private static bool IsRenderOnTopRecorded(ConvertedPanel panel, Graphic g)
-    {
-        for (int i = 0; i < panel.RenderOnTopGraphics.Count; i++)
-        {
-            if (ReferenceEquals(panel.RenderOnTopGraphics[i].Graphic, g))
-                return true;
-        }
-        return false;
-    }
-
     // ---- 2D flatten (test #21) ------------------------------------------------------------
 
     /// <summary>Local rotation counts as 3D beyond this angle (degrees) off identity.</summary>
@@ -1046,45 +889,28 @@ internal static class CanvasConversion
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
     /// <summary>
-    /// Tests #13/#14: size a converted panel's HOST rect to the target's actual
-    /// VISIBLE content bounds. Game windows often convert with a full-screen stretch
-    /// root (story window 1920x1080 around a small strip; initiative track likewise)
-    /// — the host rect is what the laser (RayUguiDriver) and poke plane intersect,
-    /// so a full-window host registers a huge invisible plane that shadows the scene.
-    ///
-    /// Bounds = union of all enabled child <see cref="Graphic"/>s under
-    /// <paramref name="contentRoot"/> (or the whole target) whose effective alpha is
-    /// visible — invisible click-catchers (the story box's full-area alpha-0 skip
-    /// button) stay clickable (GraphicRaycaster raycasts per-graphic, not per-host-
-    /// rect) but no longer size the panel. Zero-draw-size graphics (collapsed
-    /// layout cells) are skipped too (test #16). The union is clamped to the
-    /// TARGET's own frame (not the current — possibly already shrunk — host rect),
-    /// so a later content GROWTH (multi-page story, log lines) re-expands the host
-    /// up to the window's original rect (test #14: one-shot fits under-covered
-    /// later pages) — unless the target converted with a degenerate rect
-    /// (<see cref="ConvertedPanel.FitFrameDegenerate"/>): overflowing content
-    /// bounds then stand on their own (test #16: the zero-size objectives
-    /// container must measure its full text, not the 100 px placeholder).
-    ///
-    /// The target is shifted so the content bound is centered on the host pose;
-    /// Release() still restores the exact 2D home (originals captured at Convert).
-    ///
-    /// No-op within <see cref="FitChangeFraction"/> (2 %) of the current host rect —
-    /// this doubles as the cheap dirty check for the periodic re-fit.
-    ///
-    /// Returns false when no visible content was measurable yet (e.g. the window is
-    /// still fading in) — the caller retries later. Returns true once the host
-    /// matches the visible content (fitted now or already within tolerance).
+    /// Item 5 (pause-menu size consistency): consecutive fit checks the measured visible-content
+    /// size must hold steady before a one-shot menu commits its single fit + lock. The window lays
+    /// out over several frames after Show (children/spacers activate late, the fade/scale animation
+    /// runs), so a fit taken on the FIRST measurable frame locked a different rect each open — the
+    /// reported "taller on the 2nd+ open". Requiring the size to settle first makes every open land
+    /// on the same fully laid-out visible-button bounds. At 72 Hz these run consecutively (the
+    /// one-shot path re-checks every frame), so this is a fraction of a second.
     /// </summary>
-    internal static bool FitHostToContent(ConvertedPanel panel, RectTransform? contentRoot = null)
-    {
-        if (panel == null || panel.Target == null || panel.HostRect == null)
-            return true; // nothing to do, do not retry
+    private const int OneShotSettleChecks = 6;
 
-        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
-                             && contentRoot.IsChildOf(panel.Target)
-            ? contentRoot
-            : panel.Target;
+    /// <summary>
+    /// Measure the visible-content size (padded, clamped to the target frame) and its center in
+    /// host-local space, WITHOUT applying anything. False when nothing visible is measurable yet
+    /// (still fading in) or the measured content is degenerate (mid scale-in). Shared by the
+    /// per-frame fit (<see cref="FitHostToContent"/>) and the one-shot layout-settle gate
+    /// (<see cref="SettleOneShotFit"/>) so both measure content the exact same way.
+    /// </summary>
+    private static bool TryMeasureContent(ConvertedPanel panel, RectTransform root,
+        out Vector2 size, out Vector2 center)
+    {
+        size = Vector2.zero;
+        center = Vector2.zero;
 
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
@@ -1149,20 +975,68 @@ internal static class CanvasConversion
             max = Vector2.Min(max, frameMax);
         }
 
-        Vector2 size = max - min;
-        if (size.x < 32f || size.y < 32f)
+        Vector2 sz = max - min;
+        if (sz.x < 32f || sz.y < 32f)
             return false; // degenerate (mid scale-in animation) — caller retries
 
         const float Padding = 12f;
-        size += Vector2.one * (2f * Padding);
-        size.x = Mathf.Min(size.x, frameMax.x - frameMin.x);
-        size.y = Mathf.Min(size.y, frameMax.y - frameMin.y);
+        sz += Vector2.one * (2f * Padding);
+        sz.x = Mathf.Min(sz.x, frameMax.x - frameMin.x);
+        sz.y = Mathf.Min(sz.y, frameMax.y - frameMin.y);
+
+        size = sz;
+        center = (min + max) * 0.5f;
+        return true;
+    }
+
+    /// <summary>
+    /// Tests #13/#14: size a converted panel's HOST rect to the target's actual
+    /// VISIBLE content bounds. Game windows often convert with a full-screen stretch
+    /// root (story window 1920x1080 around a small strip; initiative track likewise)
+    /// — the host rect is what the laser (RayUguiDriver) and poke plane intersect,
+    /// so a full-window host registers a huge invisible plane that shadows the scene.
+    ///
+    /// Bounds = union of all enabled child <see cref="Graphic"/>s under
+    /// <paramref name="contentRoot"/> (or the whole target) whose effective alpha is
+    /// visible — invisible click-catchers (the story box's full-area alpha-0 skip
+    /// button) stay clickable (GraphicRaycaster raycasts per-graphic, not per-host-
+    /// rect) but no longer size the panel. Zero-draw-size graphics (collapsed
+    /// layout cells) are skipped too (test #16). The union is clamped to the
+    /// TARGET's own frame (not the current — possibly already shrunk — host rect),
+    /// so a later content GROWTH (multi-page story, log lines) re-expands the host
+    /// up to the window's original rect (test #14: one-shot fits under-covered
+    /// later pages) — unless the target converted with a degenerate rect
+    /// (<see cref="ConvertedPanel.FitFrameDegenerate"/>): overflowing content
+    /// bounds then stand on their own (test #16: the zero-size objectives
+    /// container must measure its full text, not the 100 px placeholder).
+    ///
+    /// The target is shifted so the content bound is centered on the host pose;
+    /// Release() still restores the exact 2D home (originals captured at Convert).
+    ///
+    /// No-op within <see cref="FitChangeFraction"/> (2 %) of the current host rect —
+    /// this doubles as the cheap dirty check for the periodic re-fit.
+    ///
+    /// Returns false when no visible content was measurable yet (e.g. the window is
+    /// still fading in) — the caller retries later. Returns true once the host
+    /// matches the visible content (fitted now or already within tolerance).
+    /// </summary>
+    internal static bool FitHostToContent(ConvertedPanel panel, RectTransform? contentRoot = null)
+    {
+        if (panel == null || panel.Target == null || panel.HostRect == null)
+            return true; // nothing to do, do not retry
+
+        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
+                             && contentRoot.IsChildOf(panel.Target)
+            ? contentRoot
+            : panel.Target;
+
+        if (!TryMeasureContent(panel, root, out Vector2 size, out Vector2 center))
+            return false; // nothing visible / degenerate yet (fade-in) — caller retries
 
         // Dirty check (test #14): within 2 % of the current host rect (size AND
         // centering) — nothing to do. Host pivot is centered, so local origin ==
         // rect center and |center| is the content's off-center error directly.
         Rect host = panel.HostRect.rect;
-        Vector2 center = (min + max) * 0.5f;
         float tolX = Mathf.Max(host.width, size.x) * FitChangeFraction;
         float tolY = Mathf.Max(host.height, size.y) * FitChangeFraction;
         if (Mathf.Abs(size.x - host.width) <= tolX && Mathf.Abs(size.y - host.height) <= tolY
@@ -1223,6 +1097,17 @@ internal static class CanvasConversion
     {
         if (!panel.FitEnabled || Time.unscaledTime < panel.FitNotBefore)
             return;
+
+        // Item 5 (pause-menu size consistency): a one-shot full-screen menu must land the SAME
+        // compact size on EVERY open. Defer its single fit until the window's layout has SETTLED
+        // (deterministic rebuild + a stable measured rect across N checks) instead of committing on
+        // the first measurable frame, which locked a different rect each open.
+        if (panel.FitOneShot && !panel.FitOneShotApplied)
+        {
+            SettleOneShotFit(panel);
+            return;
+        }
+
         if (panel.FitMeasuredOnce && Time.frameCount < panel.FitNextCheckFrame)
             return;
 
@@ -1230,16 +1115,6 @@ internal static class CanvasConversion
         {
             panel.FitMeasuredOnce = true;
             panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
-            // Item 1: a full-screen menu fits exactly ONCE. Once the single resize has
-            // landed on the visible-button bounds, disable the fit so the host rect is
-            // frozen — the per-frame re-fit flicker the P6 exemption avoided can never
-            // recur, and the panel stays the same compact size for the rest of the open.
-            if (panel.FitOneShot && panel.FitOneShotApplied)
-            {
-                panel.FitEnabled = false;
-                VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fitted once to " +
-                                      "its visible content — host rect locked (compact, consistent, no re-fit flicker).");
-            }
         }
         else if (!panel.FitMeasuredOnce && Time.unscaledTime >= panel.FitFirstDeadline)
         {
@@ -1254,6 +1129,81 @@ internal static class CanvasConversion
             panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
         }
         // else: not yet measurable and before the deadline — retry next frame.
+    }
+
+    /// <summary>
+    /// Item 5 (pause-menu size consistency — "it must ALWAYS look like the first time"): drive a
+    /// one-shot menu's single content fit only AFTER its layout has settled. Root cause of the
+    /// "taller on 2nd+ open": the game populates/animates the window over several frames after Show
+    /// (children activate late, fade/scale runs), so the OLD one-shot committed on the first
+    /// measurable frame — a warm re-open measured MORE laid-out content than a cold first open and
+    /// locked a taller rect. Fix: every frame force a deterministic layout rebuild, measure the
+    /// visible content, and only commit the single fit + lock once that measurement has held steady
+    /// for <see cref="OneShotSettleChecks"/> consecutive checks (or the first-warn deadline forces
+    /// it, so an animated/unmeasurable menu still opens). The measure matches the final laid-out
+    /// tree, identical every open. The reveal stays gated on <see cref="ConvertedPanel.FitOneShotApplied"/>,
+    /// so the menu pops in already at its stable compact size — never flashing the full rect.
+    /// </summary>
+    private static void SettleOneShotFit(ConvertedPanel panel)
+    {
+        RectTransform? contentRoot = panel.FitContentRoot;
+        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
+                             && contentRoot.IsChildOf(panel.Target)
+            ? contentRoot
+            : panel.Target;
+
+        // Deterministic layout: rebuild pending layout NOW so every open measures the same settled
+        // tree regardless of how warm the layout was (a cold first open is laid out identically to a
+        // warm re-open before we measure).
+        Canvas.ForceUpdateCanvases();
+        if (panel.Target != null)
+            LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Target);
+
+        bool measurable = TryMeasureContent(panel, root, out Vector2 size, out _);
+        bool deadline = Time.unscaledTime >= panel.FitFirstDeadline;
+
+        if (!measurable)
+        {
+            // Nothing visible yet — keep retrying until the deadline, then give up to the full rect
+            // (the reveal's deadline floor still pops the menu in, never an invisible one).
+            if (deadline && !panel.FitGaveUpLogged)
+            {
+                panel.FitGaveUpLogged = true;
+                panel.FitEnabled = false;
+                panel.FitMeasuredOnce = true;
+                VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' one-shot fit found nothing " +
+                                      $"measurable after {FitFirstWarnSeconds:F1}s — keeping the full rect.");
+            }
+            return;
+        }
+
+        // Stability gate: the measured size must hold steady across consecutive checks.
+        float tolX = Mathf.Max(panel.FitOneShotStableSize.x, size.x) * FitChangeFraction;
+        float tolY = Mathf.Max(panel.FitOneShotStableSize.y, size.y) * FitChangeFraction;
+        if (panel.FitOneShotStableCount > 0
+            && Mathf.Abs(size.x - panel.FitOneShotStableSize.x) <= tolX
+            && Mathf.Abs(size.y - panel.FitOneShotStableSize.y) <= tolY)
+        {
+            panel.FitOneShotStableCount++;
+        }
+        else
+        {
+            panel.FitOneShotStableSize = size;
+            panel.FitOneShotStableCount = 1;
+        }
+
+        if (panel.FitOneShotStableCount < OneShotSettleChecks && !deadline)
+            return; // still settling — keep measuring
+
+        // Settled (or deadline forced): commit the single fit and LOCK. FitMeasuredOnce is still
+        // false here, so FitHostToContent applies the now-stable size immediately (no shrink damping).
+        FitHostToContent(panel, contentRoot);
+        panel.FitMeasuredOnce = true;
+        panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
+        panel.FitEnabled = false; // one-shot: freeze the rect (no per-frame re-fit flicker)
+        VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fitted ONCE after its " +
+                              $"layout settled ({panel.FitOneShotStableCount} stable check(s)) — host rect locked " +
+                              "(same compact size every open, no re-fit flicker).");
     }
 
     /// <summary>Restore the panel into its original 2D home and destroy the host.</summary>
@@ -1300,24 +1250,6 @@ internal static class CanvasConversion
                 g.enabled = true;
         }
         panel.HiddenBackgrounds.Clear();
-
-        // Render-on-top: restore each graphic's original material / ZTest state — the game reparents
-        // these SAME graphics back to their 2D home, which must NOT be left stuck at ZTest Always.
-        for (int i = 0; i < panel.RenderOnTopGraphics.Count; i++)
-        {
-            GraphicOverlayRecord rec = panel.RenderOnTopGraphics[i];
-            if (rec.Instance != null)
-            {
-                if (rec.Graphic != null) // Unity fake-null: destroyed by a scene unload
-                    rec.Graphic.material = rec.OriginalMaterial; // put the original ref back
-                Object.Destroy(rec.Instance);                    // drop the instance we created
-            }
-            else if (rec.TmpMaterial != null)
-            {
-                rec.TmpMaterial.SetInt(ZTestTmpProp, rec.TmpOriginalZTest); // TMP: restore the value
-            }
-        }
-        panel.RenderOnTopGraphics.Clear();
 
         // Un-flatten (test #21) BEFORE the root restore below: original local
         // rotation and z go back per recorded transform (x/y stayed game-owned
@@ -1424,11 +1356,6 @@ internal static class CanvasConversion
             if (panel.HideBackground && (earlySettle || Time.frameCount >= panel.BackgroundSweepNextFrame))
                 HideFullScreenBackground(panel, initial: false);
 
-            // Render-on-top: re-sweep so pooled/late graphics (menu list items, fade-ins) also get
-            // ZTest Always; graphics already swapped hold their assigned instance material on their own.
-            if (panel.RenderOnTopEnabled && (earlySettle || Time.frameCount >= panel.RenderOnTopSweepNextFrame))
-                ApplyRenderOnTop(panel, initial: false);
-
             // Item 3a: reveal the render-hidden modal host once its settle delay has passed. The
             // treatments for THIS frame already ran above (canvas still disabled → harmless), and
             // LateTick re-treats once more (canvas now enabled) before the frame renders — so the
@@ -1516,8 +1443,6 @@ internal static class CanvasConversion
             }
             if (panel.HideBackground)
                 HideFullScreenBackground(panel, initial: false);
-            if (panel.RenderOnTopEnabled)
-                ApplyRenderOnTop(panel, initial: false);
         }
     }
 

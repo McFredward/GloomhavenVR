@@ -116,7 +116,12 @@ internal static class ModalCloseButton
         rect.anchoredPosition = Vector2.zero;
         rect.localScale = Vector3.one;
         rect.localRotation = Quaternion.Euler(0f, 0f, angleDeg);
-        rect.localPosition = new Vector3(0f, 0f, 0f);
+        // Item 4 (centering fix): anchor (0.5,0.5) + anchoredPosition zero already puts the bar's
+        // pivot at the PLATE CENTER. The old `localPosition = (0,0,0)` here OVERRODE that and snapped
+        // the bar to the parent's LOCAL ORIGIN — which is the plate's PIVOT corner (top-right, the
+        // plate pivots at (1,1)), NOT its center — so the whole X sat offset up-and-right (the
+        // reported "still not centered"). Only normalize z; keep the centered x/y from the anchor.
+        rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
 
         var img = go.AddComponent<Image>();
         img.color = GlyphColor; // brass "X" (matches the settings-panel grab bar)
