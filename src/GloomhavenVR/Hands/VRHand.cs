@@ -199,6 +199,13 @@ internal sealed class VRHand : MonoBehaviour
     /// </summary>
     public RayUguiDriver RayUgui { get; private set; } = null!;
 
+    /// <summary>
+    /// Far-ray grab-at-a-distance for world panels (feature #8; inert unless this is the
+    /// dominant hand and <see cref="Ray"/> is active). Drags a window by its drag bar with
+    /// the laser, alongside the near-hand grip grab.
+    /// </summary>
+    public RayGrabDriver RayGrab { get; private set; } = null!;
+
     /// <summary>Proximity grab interactor.</summary>
     public ProximityGrabber Grabber { get; private set; } = null!;
 
@@ -210,6 +217,27 @@ internal sealed class VRHand : MonoBehaviour
 
     /// <summary>Current curl 0..1 of a finger (smoothed).</summary>
     public float GetCurl(Finger finger) => _curler.GetCurl(finger);
+
+    /// <summary>
+    /// The current aim ray in WORLD space — the OpenXR aim ("pointer") pose when the device
+    /// delivers it, else the index-knuckle origin + hand-forward fallback. Mirrors exactly
+    /// how <see cref="RayInteractor.Tick"/> seeds its pick, but is readable even while the
+    /// hand HOLDS a grabbable (the ray's own pick is suppressed then): feature #8's
+    /// laser-carry slides the window along THIS ray every frame during the drag.
+    /// </summary>
+    public void GetAimRay(out Vector3 origin, out Vector3 direction)
+    {
+        if (HasPointerPose)
+        {
+            origin = PointerOrigin;
+            direction = PointerDirection;
+        }
+        else
+        {
+            origin = Rig.GetFinger(Finger.Index).Root.position;
+            direction = Rig.Root.forward;
+        }
+    }
 
     /// <summary>Fire a haptic preset on this hand's controller (rate-limited for HoverTick).</summary>
     public void SendHaptic(HapticPreset preset)
@@ -242,6 +270,7 @@ internal sealed class VRHand : MonoBehaviour
         Poke = new PokeInteractor(this);
         Ray = new RayInteractor(this);
         RayUgui = new RayUguiDriver(this);
+        RayGrab = new RayGrabDriver(this);
         Grabber = new ProximityGrabber(this);
         PalmGate = new PalmGate(this);
 
@@ -279,6 +308,7 @@ internal sealed class VRHand : MonoBehaviour
     {
         Ray?.DestroyVisuals();
         RayUgui?.Cancel();
+        RayGrab?.Cancel();
         Poke?.CancelAll();
         Grabber?.CancelAll();
     }
@@ -337,10 +367,14 @@ internal sealed class VRHand : MonoBehaviour
         _curler.Tick(Time.deltaTime);
 
         // Interactors see the fresh pose; deterministic order (RayUgui consumes the
-        // ray's pick of THIS frame, so it ticks right after the ray).
+        // ray's pick of THIS frame, so it ticks right after the ray). RayGrab ticks AFTER
+        // RayUgui so a UI click on a window wins over dragging its bar, and BEFORE the
+        // Grabber so a laser-carry it starts (Held set via ForceGrab) suppresses any
+        // proximity trigger-grab that frame (Grabber early-outs on Held != null).
         Poke.Tick();
         Ray.Tick();
         RayUgui.Tick();
+        RayGrab.Tick();
         Grabber.Tick();
         PalmGate.Tick();
     }
@@ -474,6 +508,7 @@ internal sealed class VRHand : MonoBehaviour
         {
             Poke.CancelAll();
             RayUgui.Cancel();
+            RayGrab.Cancel();
             Grabber.CancelAll();
         }
     }
