@@ -108,8 +108,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// Hands are GLOBAL tabs (no per-board Oak/Steel/Bronze selector, no element cycle) — their
     /// settings apply to every board.
     /// </summary>
-    private enum DebugCategory { Buttons, Panels, Overlays, Widgets, Board, Fan, Hands, Figures }
-    private const int DebugCategoryCount = 8;
+    private enum DebugCategory { Buttons, Panels, Overlays, Widgets, Board, Fan, Hands, Figures, Wrist }
+    private const int DebugCategoryCount = 9;
 
     /// <summary>
     /// SINGLE source of truth for category → elements (re-slice by editing this one table). A
@@ -129,6 +129,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         System.Array.Empty<DebugElement>(),                                                                  // Fan (global)
         System.Array.Empty<DebugElement>(),                                                                  // Hands (global)
         System.Array.Empty<DebugElement>(),                                                                  // Figures (global)
+        System.Array.Empty<DebugElement>(),                                                                  // Wrist (global)
     };
 
     /// <summary>GLOBAL tabs (Fan, Hands) apply to every board — no per-board selector, no element cycle.</summary>
@@ -889,6 +890,19 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddFigureStepper(Loc.Mod("fig_scale"), FigureGrabConfig.HeldScale, 0.1f, 0.2f, 5f,
             v => $"{v:0.00}x");
 
+        // WRIST category (GLOBAL, item 10): live-tune the left-wrist overview HUD pose — its TILT
+        // (pitch/yaw/roll on top of the flat-on-hand base) and its POSITION offset (X/Y/Z, meters)
+        // from the wrist anchor. WristHud re-reads + re-applies these every Tick (WristHud.ApplyPose),
+        // so nudging a stepper moves the watch-face HUD immediately. Backed today by WristHud's local
+        // statics (in-session); the parent swaps them for [WorldUI] config entries (persist + live) —
+        // see the report. Shown only under the Wrist tab.
+        AddWristStepper(Loc.Mod("wrist_pitch"), () => WristHud.PitchDeg, v => WristHud.PitchDeg = v, 2f, v => $"{v:0}°");
+        AddWristStepper(Loc.Mod("wrist_yaw"),   () => WristHud.YawDeg,   v => WristHud.YawDeg = v,   2f, v => $"{v:0}°");
+        AddWristStepper(Loc.Mod("wrist_roll"),  () => WristHud.RollDeg,  v => WristHud.RollDeg = v,  2f, v => $"{v:0}°");
+        AddWristStepper(Loc.Mod("wrist_x"), () => WristHud.OffsetX, v => WristHud.OffsetX = v, 0.002f, v => $"{v * 1000f:0}mm");
+        AddWristStepper(Loc.Mod("wrist_y"), () => WristHud.OffsetY, v => WristHud.OffsetY = v, 0.002f, v => $"{v * 1000f:0}mm");
+        AddWristStepper(Loc.Mod("wrist_z"), () => WristHud.OffsetZ, v => WristHud.OffsetZ = v, 0.002f, v => $"{v * 1000f:0}mm");
+
         // Single visibility pass: master DebugMenu gate ANDed with each row's own predicate
         // (category/element scope). Never more than a handful of rows visible at once.
         _refreshers.Add(() =>
@@ -985,6 +999,23 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         MiniStepper(row,
             () => format(entry.Value),
             d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
+    }
+
+    /// <summary>
+    /// Item 10: a global WRIST-HUD pose stepper row bound to a WristHud getter/setter (degrees for
+    /// pitch/yaw/roll, mm for the X/Y/Z offset). Setting the value re-poses the wrist HUD live —
+    /// WristHud.ApplyPose re-reads it every Tick — and (once the parent wires the [WorldUI] config
+    /// entries behind these accessors) persists via BepInEx. Shown only under the Wrist tab.
+    /// </summary>
+    private void AddWristStepper(string label, Func<float> get, Action<float> set, float step,
+        Func<float, string> format)
+    {
+        var row = Row();
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Wrist);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => format(get()),
+            d => set(get() + d * step));
     }
 
     /// <summary>Held-figure boolean row (e.g. Upright) — same live-apply/persist path as the steppers.</summary>
@@ -1218,6 +1249,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugCategory.Fan => Loc.Mod("cat_fan"),
         DebugCategory.Hands => Loc.Mod("hands"),
         DebugCategory.Figures => Loc.Mod("cat_figures"),
+        DebugCategory.Wrist => Loc.Mod("cat_wrist"),
         _ => c.ToString(),
     };
 
