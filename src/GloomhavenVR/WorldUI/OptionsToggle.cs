@@ -68,16 +68,37 @@ internal sealed class OptionsToggle
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
-        // Re-acquire only when our cached reference is Unity-DEAD (destroyed/scene change), NOT
-        // merely when the singleton reports uninitialized (a mod-close deactivation nulls the
-        // singleton but leaves the object alive — that is the case we must survive to reopen).
+        // Cheap re-acquire every frame: cached ref (survives deactivation) or the singleton.
         if (_menu == null && Singleton<ESCMenu>.IsInitialized)
             _menu = Singleton<ESCMenu>.Instance;
+        // EXPENSIVE recovery + diagnostic ONLY on an actual tap (never per-frame): if the cache
+        // and singleton are both empty when the user presses to (re)open, scan the scene INCLUDING
+        // inactive objects. The game's Singleton clears its ref only in OnDestroy, so this recovers
+        // an ESCMenu that is alive but lost to the singleton (deactivated / reparented by the modal
+        // float). If this ALSO finds nothing, the object was genuinely DESTROYED on close — the log
+        // line then says so unambiguously (build 08600b7's log proved every post-close tap produced
+        // a perfect shortTap yet OptionsToggle still hit menu==null: this pins destroyed-vs-lost).
+        if (_menu == null && NonDominantHold.ShortTapThisFrame)
+        {
+            ESCMenu[] found = Object.FindObjectsOfType<ESCMenu>(includeInactive: true);
+            if (found.Length > 0)
+            {
+                _menu = found[0];
+                VRLog.Info("WorldUI", $"OptionsToggle: ESCMenu recovered by scene scan (incl-inactive, " +
+                                      $"active={found[0].gameObject.activeInHierarchy}) — singleton had lost it.");
+            }
+            else
+            {
+                VRLog.Info("WorldUI", $"OPTIONS TAP: no ESCMenu object exists (Singleton.IsInitialized=" +
+                                      $"{Singleton<ESCMenu>.IsInitialized}, scene-scan incl-inactive found none) — " +
+                                      "the game DESTROYED the pause menu on close; a reload currently re-creates it.");
+            }
+        }
         ESCMenu? menu = _menu;
         if (menu == null)
         {
-            _open = false; // no pause menu (wrong scene) — drop the state
-            _spentPressId = NonDominantHold.PressId; // spend any in-flight press across the scene boundary
+            _open = false; // no pause menu (wrong scene / destroyed) — drop the state
+            _spentPressId = NonDominantHold.PressId; // spend any in-flight press across the boundary
             return;
         }
 
