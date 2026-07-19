@@ -137,6 +137,14 @@ internal sealed class VRRigDriver : MonoBehaviour
     private string _rebuildTrigger = "initial";
     private bool _frozeGameCameraControl;
 
+    // Per-frame maintenance ticks, each routed through the shared Core.TickGuard so a
+    // throw in one (most plausibly MixedReality.Tick) is isolated + attributed instead of
+    // aborting the rest and flooding an anonymous per-frame NullReferenceException. The
+    // delegates are cached here ONCE (built in Awake) so the guarded loop allocates
+    // nothing per frame; the CameraPolicy step reads its bool arg from a field.
+    private (string name, System.Action fn)[] _tailSteps = System.Array.Empty<(string, System.Action)>();
+    private bool _tickSceneLoaded;
+
     // Menu rig anchor: where the menu camera stood when we took its vantage — recenter
     // puts the player's head back there (real 1:1 scale, no table math).
     private Vector3 _menuAnchorPos;
@@ -151,6 +159,18 @@ internal sealed class VRRigDriver : MonoBehaviour
     {
         Instance = this;
         VREvents.SceneLoaded += OnSceneLoaded;
+
+        // Build the guarded tick list once — order matches the original Update() tail
+        // exactly (HeadCullingMask → HeadClearColor → ClipPlanes → CameraPolicy →
+        // MixedReality). Cached delegates → zero per-frame allocation in the loop.
+        _tailSteps = new (string, System.Action)[]
+        {
+            ("Rig.HeadCullingMask", TickHeadCullingMask),
+            ("Rig.HeadClearColor", TickHeadClearColor),
+            ("Rig.ClipPlanes", TickClipPlanes),
+            ("Rig.CameraPolicy", () => TickCameraPolicy(_tickSceneLoaded)),
+            ("Rig.MixedReality", MixedReality.Tick),
+        };
     }
 
     private void OnSceneLoaded(SceneLoadedEvent e)
@@ -237,13 +257,14 @@ internal sealed class VRRigDriver : MonoBehaviour
             _pendingRecenter = false;
         }
 
-        TickHeadCullingMask();
-        TickHeadClearColor();
-        TickClipPlanes();
-        TickCameraPolicy(sceneRecheck);
+        // Per-frame maintenance ticks, each ISOLATED + attributed via the shared
+        // Core.TickGuard (throw in one can't abort the rest; the log names the thrower).
         // MR runs LAST so its key-color clear wins the frame over TickHeadClearColor's
         // VoidColor (docs: MixedReality precedence) — no-op unless MR mode is on.
-        MixedReality.Tick();
+        _tickSceneLoaded = sceneRecheck;
+        var tail = _tailSteps;
+        for (int i = 0; i < tail.Length; i++)
+            TickGuard.Run(tail[i].name, tail[i].fn);
     }
 
     private void OnDestroy()
