@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace GloomhavenVR.Board.FigureGrab;
 
@@ -35,6 +36,26 @@ internal static class NetHeldFigures
     }
 
     internal static int Count => Held.Count;
+
+    /// <summary>
+    /// Issue C (remote): freeze the animation-driven translation on every REMOTELY-held figure,
+    /// identical to <see cref="HeldFigures.PinAnimatedRoots"/>. <c>Net/NetFigures.Tick</c> eases the
+    /// ROOT toward the synced pose, but the game's <c>ApplyMotion</c> re-zero of
+    /// <c>m_AnimatedGameObject.localPosition</c> is suppressed for these actors too, so a figure a
+    /// peer grabbed mid-walk would otherwise drift out of the synced pose. Called from the same
+    /// LateUpdate, after the Animator, so both hands' held figures stay pinned.
+    /// </summary>
+    internal static void PinAnimatedRoots()
+    {
+        foreach (ActorBehaviour a in Held)
+        {
+            if (a == null)
+                continue;
+            GameObject animated = a.m_AnimatedGameObject;
+            if (animated != null)
+                animated.transform.localPosition = Vector3.zero;
+        }
+    }
 
     internal static void Clear() => Held.Clear();
 

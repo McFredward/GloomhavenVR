@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace GloomhavenVR.Board.FigureGrab;
 
@@ -53,6 +54,30 @@ internal static class HeldFigures
     }
 
     internal static int Count => Held.Count;
+
+    /// <summary>
+    /// Issue C: re-pin every held actor's ANIMATED object at its (hand-riding) root — freezing the
+    /// animation-driven translation. The game's <c>ApplyMotion</c> normally re-zeros
+    /// <c>m_AnimatedGameObject.localPosition</c> every LateUpdate (ActorBehaviour:611) to absorb the
+    /// walk/loco clip's root translation; we suppress <c>ApplyMotion</c> for held figures
+    /// (<see cref="ActorBehaviour_HeldTransform_Patch"/>), so without this a figure grabbed
+    /// mid-animation would animate straight OUT of the hand. Zeroing the animated child's
+    /// localPosition each frame reproduces exactly that one write, so the mesh stays in the hand
+    /// while the Animator keeps visually playing the clip (bones still move). MUST be called from a
+    /// LateUpdate so it runs AFTER the Animator's update. Composes with the remote-held path
+    /// (<see cref="NetHeldFigures.PinAnimatedRoots"/>).
+    /// </summary>
+    internal static void PinAnimatedRoots()
+    {
+        foreach (ActorBehaviour a in Held)
+        {
+            if (a == null)
+                continue;
+            GameObject animated = a.m_AnimatedGameObject;
+            if (animated != null)
+                animated.transform.localPosition = Vector3.zero;
+        }
+    }
 
     internal static void Clear()
     {
