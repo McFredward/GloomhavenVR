@@ -49,6 +49,9 @@ internal static class WorldUIConfig
     /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
     internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
+    /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
+    internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
+
     /// <summary>Show the intro (pre-menu scenes) on the floating screen in VR too.</summary>
     internal static ConfigEntry<bool> ShowIntro = null!;
 
@@ -225,6 +228,11 @@ internal static class WorldUIConfig
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
+        DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", true,
+            "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
+            "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
+            "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
+            "uncontrolled default XR mirror otherwise).");
         ShowIntro = _file.Bind("WorldUI", "ShowIntro", true,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +
             "too. Off = old behavior: intro plays on the desktop only and the HMD shows a " +

@@ -207,7 +207,7 @@ internal sealed class FlatScreen
     /// composite blit (the old 2D-menu overlay / blackscreen fallback) is skipped, so no
     /// menu composite, both-eyes/side-by-side, or UI overlay reaches the desktop.
     /// </summary>
-    private static bool DesktopMirrorLeftEye => true;
+    private static bool DesktopMirrorLeftEye => WorldUIConfig.DesktopMirrorLeftEye.Value;
     /// <summary>True while we currently hold <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> at LeftEye.</summary>
     private bool _mirrorModeApplied;
     /// <summary>Original mirror mode captured once so VR-off / hot-reload restores it.</summary>
