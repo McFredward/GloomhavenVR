@@ -44,6 +44,14 @@ internal sealed class UguiPointer
     private GameObject? _pressed;
     private GameObject? _pressedClickHandler;
 
+    // Drag state (P?: sliders/scrollbars/scroll-rects only move via IDragHandler —
+    // Down/Up/Click alone never budge a Slider handle). Cached on Press, driven by
+    // Drag() every held frame, torn down on Release/Cancel — mirrors
+    // PointerInputModule's initializePotentialDrag → beginDrag → drag → endDrag flow.
+    private GameObject? _dragTarget;
+    private bool _dragging;
+    private Vector2 _lastDragPos;
+
     internal UguiPointer(HandSide side, bool farRay = false)
     {
         _side = side;
@@ -208,6 +216,48 @@ internal sealed class UguiPointer
         _pressed = pressTarget != null ? pressTarget : _hovered;
         _pressedClickHandler = ExecuteEvents.GetEventHandler<IPointerClickHandler>(_hovered);
         data.pointerPress = _pressed;
+
+        // Prime a potential drag (StandaloneInputModule parity): notify the drag handler
+        // it MIGHT start dragging, and cache it so Drag() can drive it each held frame.
+        // Many controls have no IDragHandler — then _dragTarget stays null and Drag() no-ops.
+        _dragging = false;
+        _lastDragPos = screenPos;
+        _dragTarget = ExecuteEvents.GetEventHandler<IDragHandler>(_hovered);
+        data.pointerDrag = _dragTarget;
+        data.useDragThreshold = false; // VR laser: begin dragging on the first move, no pixel threshold
+        if (_dragTarget != null)
+            ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.initializePotentialDrag);
+    }
+
+    /// <summary>
+    /// Drive a drag while the trigger is held (called every frame by RayUguiDriver with
+    /// the same clamped-into-rect screen point used for the raycast, so deltas are
+    /// consistent). Updates position + delta, fires beginDrag on the first movement and
+    /// dragHandler every frame thereafter. A Slider handle / scrollbar / scroll-rect
+    /// moves here — it responds to OnDrag, never to Down/Up/Click. No-op when nothing
+    /// draggable sits under the press.
+    /// </summary>
+    internal void Drag(Vector2 screenPos)
+    {
+        if (_pressed == null || _dragTarget == null)
+        {
+            _lastDragPos = screenPos;
+            return;
+        }
+
+        PointerEventData data = GetData();
+        data.delta = screenPos - _lastDragPos;
+        data.position = screenPos;
+        _lastDragPos = screenPos;
+
+        if (!_dragging)
+        {
+            _dragging = true;
+            data.dragging = true;
+            ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.beginDragHandler);
+            Core.VRLog.Info("Interact", $"uGUI drag begin: '{_dragTarget.name}' ({_sourceTag}).");
+        }
+        ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.dragHandler);
     }
 
     /// <summary>Pointer-up (+ click when released over the same handler).</summary>
@@ -234,6 +284,15 @@ internal sealed class UguiPointer
             Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
         }
 
+        // End any active drag (StandaloneInputModule fires endDrag after up+click) and
+        // settle the drag fields so the control comes to rest.
+        if (_dragging && _dragTarget != null)
+            ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.endDragHandler);
+        _dragging = false;
+        data.dragging = false;
+        data.pointerDrag = null;
+        _dragTarget = null;
+
         data.pointerPress = null;
         data.eligibleForClick = false;
         _pressed = null;
@@ -247,6 +306,14 @@ internal sealed class UguiPointer
         {
             PointerEventData data = GetData();
             ExecuteEvents.Execute(_pressed, data, ExecuteEvents.pointerUpHandler);
+            if (_dragging && _dragTarget != null)
+                ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.endDragHandler);
+            data.dragging = false;
+            data.pointerDrag = null;
+            data.pointerPress = null;
+            data.eligibleForClick = false;
+            _dragging = false;
+            _dragTarget = null;
             _pressed = null;
             _pressedClickHandler = null;
         }

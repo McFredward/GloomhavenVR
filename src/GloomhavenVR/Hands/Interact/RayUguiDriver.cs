@@ -190,6 +190,12 @@ internal sealed class RayUguiDriver
         bool hit = _pointer.TryRaycast(canvas, screenPos, out RaycastResult top);
         _pointer.SetHovered(hit ? top.gameObject : null);
 
+        // Drive drag with the SAME clamped-into-rect screen point used for the raycast,
+        // so a Slider/scrollbar/scroll-rect handle moves under the sweeping laser (it
+        // only responds to OnDrag). Before the release check so a held-and-moving ray
+        // forwards a drag on every frame it stays held.
+        _pointer.Drag(screenPos);
+
         // Trigger STATE, not the up edge — a mode/hands hiccup must still release.
         if (!_hand.TriggerPressed)
         {
