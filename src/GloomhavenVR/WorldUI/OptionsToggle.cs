@@ -49,12 +49,31 @@ internal sealed class OptionsToggle
     /// </summary>
     private int _spentPressId = -1;
 
+    /// <summary>
+    /// Cached ESCMenu (REOPEN fix). Root cause found in the press-diagnostic log: after the mod
+    /// CLOSES the menu via <c>menu.Hide()</c>, its GameObject is DEACTIVATED and
+    /// <c>Singleton&lt;ESCMenu&gt;.IsInitialized</c> flips FALSE (the game's own close/gamepad-escape
+    /// leaves it initialized — which is why external closes reopened fine, but a mod X-close did
+    /// not). With the singleton null, <see cref="Tick"/> early-returned and no X could ever reopen
+    /// it until a scenario reload re-created the singleton — exactly the reported symptom. A
+    /// deactivated (not destroyed) MonoBehaviour is still a live C# reference, so we cache it the
+    /// first time the singleton is valid and keep using it: reopen re-activates its GameObject and
+    /// calls Show(). The cache self-invalidates on scene unload (the object is destroyed →
+    /// Unity-null), where it is re-acquired from the fresh singleton.
+    /// </summary>
+    private ESCMenu? _menu;
+
     public void Tick()
     {
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
-        ESCMenu? menu = Singleton<ESCMenu>.IsInitialized ? Singleton<ESCMenu>.Instance : null;
+        // Re-acquire only when our cached reference is Unity-DEAD (destroyed/scene change), NOT
+        // merely when the singleton reports uninitialized (a mod-close deactivation nulls the
+        // singleton but leaves the object alive — that is the case we must survive to reopen).
+        if (_menu == null && Singleton<ESCMenu>.IsInitialized)
+            _menu = Singleton<ESCMenu>.Instance;
+        ESCMenu? menu = _menu;
         if (menu == null)
         {
             _open = false; // no pause menu (wrong scene) — drop the state
