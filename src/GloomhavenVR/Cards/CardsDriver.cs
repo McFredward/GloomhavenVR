@@ -535,6 +535,35 @@ internal sealed class CardsDriver : MonoBehaviour
                                 $"split ×{CardsConfig.FanHoverSplitScale.Value:F2}.");
         }
 
+        // Post-rebuild per-frame interaction + status path (hover / laser / fingertip /
+        // slot / initiative ticks). ISOLATED + ATTRIBUTED, mirroring WorldUIModule.TickGuard:
+        // Unity logs an unhandled MonoBehaviour.Update exception to Player.log as an ANONYMOUS
+        // per-frame "NullReferenceException" with NO stack in this Player build — a flood that
+        // is impossible to attribute to a subsystem. Wrapping this path catches the FIRST throw
+        // WITH its stack + a [Cards] tag, throttles repeats to one line / 10 s, and never lets a
+        // single throwing tick starve the Rebuild / CardActionQueue path above (the reopen
+        // guarantee). NOT a claimed root-cause fix: the change-deduped "fan state" line at the
+        // end of this path keeps logging all session in the reference log, which proves this
+        // path already runs to completion every frame — so this guard is the attribution net the
+        // NEXT hardware run uses to CONFIRM or EXONERATE Cards as the flood's source (a silent
+        // guard exonerates Cards and redirects the hunt to the other raw MonoBehaviour.Updates).
+        try
+        {
+            TickInteractionsAndStatus();
+        }
+        catch (System.Exception ex)
+        {
+            NoteTickThrow(ex);
+        }
+    }
+
+    /// <summary>
+    /// The per-frame interaction + status tick path, split out of <see cref="Update"/> so the
+    /// whole path can be isolated by the attribution guard there. Contains no top-level early
+    /// return — every branch falls through to <see cref="LogFanState"/>.
+    /// </summary>
+    private void TickInteractionsAndStatus()
+    {
         UpdatePalmGate();
 
         // Modal input-block (menu open): while a modal window floats
@@ -597,6 +626,43 @@ internal sealed class CardsDriver : MonoBehaviour
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
         LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
         LogFanState(hand);
+    }
+
+    // ------------------------------------------------- per-frame tick attribution guard --
+
+    // Throttle state for the Cards per-frame tick guard (see the try/catch in Update). Same
+    // contract as WorldUIModule.TickGuard: first throw logged once WITH its stack, further
+    // throws summarized at most once / 10 s so an every-frame throw can't itself flood the log.
+    private bool _tickThrowOpened;
+    private float _tickThrowLastLog;
+    private long _tickThrowCount;
+
+    /// <summary>
+    /// Attribute + throttle an exception thrown by the per-frame interaction/status path.
+    /// Turns the otherwise ANONYMOUS, stackless per-frame NullReferenceException flood Unity
+    /// would write for an unhandled Update throw into a single traced [Cards] Error (subsystem +
+    /// message + stack) plus a throttled repeat summary — so the root deref is finally
+    /// attributable from Player.log alone, without swallowing the bug silently.
+    /// </summary>
+    private void NoteTickThrow(System.Exception ex)
+    {
+        _tickThrowCount++;
+        float now = Time.unscaledTime;
+        if (!_tickThrowOpened)
+        {
+            _tickThrowOpened = true;
+            _tickThrowLastLog = now;
+            VRLog.Error("Cards", "Per-frame Cards tick threw and was ISOLATED — the Rebuild / " +
+                                 "CardActionQueue path is never starved by it. This is the source of " +
+                                 "any anonymous per-frame NullReferenceException flood attributed to " +
+                                 $"the Cards subsystem. {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+        }
+        else if (now - _tickThrowLastLog >= 10f)
+        {
+            _tickThrowLastLog = now;
+            VRLog.Error("Cards", $"Per-frame Cards tick is still throwing ({_tickThrowCount} time(s) so far) — " +
+                                 $"latest {ex.GetType().Name}: {ex.Message}. Fix the deref; the tick stays isolated.");
+        }
     }
 
     // ------------------------------------------------------------------ fan diagnostics --
