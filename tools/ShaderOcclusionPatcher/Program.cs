@@ -63,8 +63,8 @@ namespace ShaderOcclusionPatcher
                     case "restore":
                         if (backupDir is null) { Console.Error.WriteLine("--backup-dir is required for restore."); return 1; }
                         return Engine.RunRestore(gameData, Path.GetFullPath(backupDir));
-                    case "dump": // undocumented diagnostic: full pass-state JSON of the target shaders
-                        return Engine.RunDump(gameData);
+                    case "dump": // diagnostic: full pass-state + referenced-globals dump (text + JSON)
+                        return Engine.RunDump(gameData, manifestOut);
                     default:
                         PrintUsage();
                         return 1;
@@ -87,12 +87,16 @@ namespace ShaderOcclusionPatcher
                   ShaderOcclusionPatcher patch   --game-data <Gloomhaven_Data> --backup-dir <dir> [--manifest-out <file>]
                   ShaderOcclusionPatcher verify  --game-data <Gloomhaven_Data> [--manifest-out <file>]
                   ShaderOcclusionPatcher restore --game-data <Gloomhaven_Data> --backup-dir <dir>
+                  ShaderOcclusionPatcher dump    --game-data <Gloomhaven_Data> [--shaders a,b,c] [--manifest-out <file>]
 
                 scan    read-only: locate the target shaders, dump per-pass zTest/zWrite/queue.
                 patch   back up originals (never overwriting existing backups), then set
                         zTest Always(8) -> LEqual(4) in place. Idempotent.
                 verify  re-read current values; exit 0 when no Always passes remain.
                 restore copy every backed-up file back into the game dir.
+                dump    diagnostic: all subshaders/passes (LOD, tags, state) plus the global
+                        names each shader's programs reference, with depth-fade watchlist
+                        matches; writes dump-manifest.json. --shaders overrides the target list.
                 """);
         }
     }
