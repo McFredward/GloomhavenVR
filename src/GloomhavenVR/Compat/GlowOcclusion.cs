@@ -95,6 +95,15 @@ internal static class GlowOcclusion
     private static readonly HashSet<string> _loggedMissing = [];
 
     // ---- sweep driver + per-scene sweep state ------------------------------------------------
+
+    /// <summary>
+    /// Optional post-sweep hook, invoked (guarded) at the end of every <see cref="Sweep"/> so
+    /// other occlusion work — <see cref="OcclusionProbe"/>'s target discovery — can ride the same
+    /// schedule instead of running a second census. Subscribers must not throw; a failure is
+    /// caught and logged once.
+    /// </summary>
+    internal static event Action? PostSweep;
+
     private static SweepDriver? _driver;
     private static int _sweepIndex;                                   // per scene, for the heartbeat
     private static bool _richCensusPrinted;                           // per scene
@@ -258,6 +267,17 @@ internal static class GlowOcclusion
         catch (Exception e)
         {
             LogFirstFailure($"sweep threw: {e.Message}");
+        }
+
+        // Shared-cadence hook (OcclusionProbe target discovery) — isolated so a subscriber
+        // failure can never poison the census/enforcement above or vice versa.
+        try
+        {
+            PostSweep?.Invoke();
+        }
+        catch (Exception e)
+        {
+            LogFirstFailure($"post-sweep hook threw: {e.Message}");
         }
     }
 
