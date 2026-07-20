@@ -56,37 +56,16 @@ internal sealed class CompatModule : IVRModule
         // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
-        // ISSUE #4 — occlusion stack. Registration ORDER MATTERS: sceneLoaded handlers fire in
-        // subscription order, so per scene load we get census (pristine shipped state) → wall
-        // depth enforcement → ZTest enforcement. All reflection-only, VR-gated, reversible.
-        //  1. Occlusion census (always-on diagnostic): per-shader-group report of queue/ZWrite/ZTest
-        //     over all world renderers — the evidence engine for the wall-ZWrite hypothesis.
-        GlowOcclusion.InstallCensus();
-        //  2. Walls: WallFadeDisable pins the GLOBAL fade shader int off (Harmony); WallSolidifier
-        //     neutralizes the fade driver components (legacy, proven absent) AND — config-gated
-        //     "SolidWallDepth", default on — forces wall materials to write depth at Geometry queue
-        //     so transparent VFX/UI behind a wall can no longer paint over it.
+        // ISSUE #4 — walls. WallFadeDisable pins the GLOBAL fade shader int (ToggleWallFade) off
+        // via a Harmony postfix on Main.Update, so the flat game's see-behind wall fade never
+        // activates in VR and walls always render solid. Reflection-guarded, VR-gated, reversible.
+        //
+        // The real occlusion fix lives elsewhere: the head camera now renders FORWARD
+        // (VRRigDriver, config Plugin.ForwardRendering), which stops the SkyBackdrop depth-reset
+        // from wiping wall depth for the transparent pass. The former symptom-chase stack
+        // (occlusion census, wall depth solidifier, line-of-sight probe, depth-testing shader
+        // swaps, tiles-occlusion CommandBuffer mirror) never had a visible effect and was removed.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
-        WallSolidifier.Install();
-        //  3. ZTest enforcement — FULLY REVERTED at the user's request (it never fixed the real
-        //     bleeders anyway: the census proved they expose no _ZTest property). Not installed.
-        //  4. Occlusion probe (line-of-sight hide) — FULLY REVERTED: the user rejected ANY
-        //     toggling ("flames must never go on/off"). Not installed. NOTE the persisted-config
-        //     trap that bit us here: flipping a BepInEx default does NOT change an already-saved
-        //     cfg value — the probe kept running from the old `OcclusionProbe = true` file. The
-        //     only reliable off is not installing (this), not a default flip.
-        //  5. Depth shader swap + TorchLightShadows + ActorBars bar depth-test — FULLY REVERTED:
-        //     the Overlay/Amp_Basic replacements visibly changed the original look (darker unseen
-        //     tiles, static moths, altered flames), which the user explicitly forbids. Not
-        //     installed. The occlusion problem stays OPEN until a solution exists that preserves
-        //     the original look 1:1 (e.g. exact-copy shader variants that only add ZTest).
-        //     The always-on CENSUS above stays — evidence only, mutates nothing.
-        //  6. Tiles-occlusion MIRROR (look-preserving, the game's native mechanism): replicate
-        //     TilesOcclusionGenerator's screen-space occlusion-map CommandBuffer onto the VR head
-        //     camera with the head camera's matrices/dimensions, so the VFX shaders' own
-        //     per-pixel self-hiding (flames/moths behind walls) works from the VR viewpoint.
-        //     Copied materials, zero writes to game state, config-gated, reversible.
-        TilesOcclusionMirror.Install();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -124,16 +103,8 @@ internal sealed class CompatModule : IVRModule
 
     public void Shutdown()
     {
-        // LIFO restore: the occlusion probe was installed last (and only toggles enabled flags),
-        // so it unhooks first — before GlowOcclusion tears down the sweep driver it rides on.
-        // Then ZTest enforcement (applied AFTER wall solidification) reverts before the walls,
-        // so a renderer touched by both ends on WallSolidifier's true originals.
-        TilesOcclusionMirror.Uninstall();
-        DepthShaderSwap.Uninstall();
-        OcclusionProbe.Uninstall();
-        GlowOcclusion.Uninstall();
-        WallSolidifier.Uninstall();
-
+        // WallFadeDisable is a Harmony patch reverted by VRSession's UnpatchAll on hot-reload;
+        // nothing else to tear down here now that the occlusion symptom-chase stack is gone.
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
