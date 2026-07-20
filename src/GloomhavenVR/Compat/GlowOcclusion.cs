@@ -106,6 +106,7 @@ internal static class GlowOcclusion
 
     private static SweepDriver? _driver;
     private static int _sweepIndex;                                   // per scene, for the heartbeat
+    private static bool _depthTexLogged;                              // once per scene: depth-texture evidence
     private static bool _richCensusPrinted;                           // per scene
     private static readonly HashSet<string> _printedSuspectShaders = []; // per scene
 
@@ -226,6 +227,7 @@ internal static class GlowOcclusion
             return;
         // Per-scene census state reset + schedule restart (2s/5s/10s/20s/40s, then every ~15s).
         _sweepIndex = 0;
+        _depthTexLogged = false;
         _richCensusPrinted = false;
         _printedSuspectShaders.Clear();
         if (_driver != null)
@@ -258,6 +260,21 @@ internal static class GlowOcclusion
             (int candidates, int corrected) = _fixHooked ? RunEnforcementSweep() : (0, 0);
 
             // Heartbeat: every sweep, one Debug line — traceable without Info-level noise.
+            // Occlusion evidence (fire-through-walls saga): is the head camera's depth texture
+            // actually being generated? The soft-particle depth-fade fix (VRRigDriver sets
+            // DepthTextureMode.Depth) only works if Unity really produces _CameraDepthTexture in
+            // our MultiPass stereo setup — log the live state once per scene so the next hardware
+            // log answers it definitively.
+            if (!_depthTexLogged && _sweepIndex >= 2)
+            {
+                _depthTexLogged = true;
+                Camera? head = Rig.VRRigDriver.HeadCamera;
+                Texture? depthTex = Shader.GetGlobalTexture("_CameraDepthTexture");
+                VRLog.Info(Name,
+                    $"DEPTH-TEX evidence: headCam.depthTextureMode={(head != null ? head.depthTextureMode.ToString() : "<no head>")}, "
+                    + $"global _CameraDepthTexture={(depthTex != null ? $"{depthTex.width}x{depthTex.height} ({depthTex.graphicsFormat})" : "NULL — depth texture NOT generated, soft-particle fade cannot work")}.");
+            }
+
             VRLog.Debug(Name,
                 $"sweep #{_sweepIndex} scene='{SceneManager.GetActiveScene().name}' "
                 + $"worldRenderers={world} shaderGroups={groupCount} suspects={suspects} "
