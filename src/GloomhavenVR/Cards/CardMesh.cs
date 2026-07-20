@@ -263,6 +263,15 @@ internal static class CardMesh
         var ring = new System.Collections.Generic.List<int>(24);
         var walls = new System.Collections.Generic.List<int>(30);
 
+        // Task #5a: planar UV from the cap's local XY, normalized 0..1 across the footprint —
+        // the SAME convention CardMesh.Build uses for the card front (u = x/width + 0.5,
+        // v = y/height + 0.5). Applied to EVERY vertex (top, bevel ring AND walls) so the grain
+        // texture maps sensibly instead of the old single (0.5, 0.5) texel. Because the mapping
+        // is continuous in XY it is watertight at the top→bevel fold (shared XY → shared UV → no
+        // seam). The vertical walls share their edge's XY, so they sample a THIN grain strip along
+        // that edge (a subtle stretched grain — acceptable per the task, texture set to Repeat).
+        Vector2 Uv(Vector3 p) => new(p.x / width + 0.5f, p.y / height + 0.5f);
+
         // Add a quad (a,b,c,d looping the rim) to submesh <sm> with flat normal <n>. Winding is
         // chosen from the outward normal so the face is always visible from its +n (OUTSIDE) side.
         //
@@ -280,7 +289,8 @@ internal static class CardMesh
         {
             int b0 = verts.Count;
             verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
-            for (int i = 0; i < 4; i++) { norms.Add(n); uvs.Add(new Vector2(0.5f, 0.5f)); }
+            norms.Add(n); norms.Add(n); norms.Add(n); norms.Add(n);
+            uvs.Add(Uv(a)); uvs.Add(Uv(b)); uvs.Add(Uv(c)); uvs.Add(Uv(d));
             Vector3 rh = Vector3.Cross(b - a, c - a); // RH normal of triangle (a,b,c)
             if (Vector3.Dot(rh, n) > 0f)
             {

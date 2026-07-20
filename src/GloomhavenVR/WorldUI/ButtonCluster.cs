@@ -477,7 +477,10 @@ internal sealed class ButtonCluster
         {
             Shader? lit = Cards.PlayTray.BoardLitShader();
             if (lit != null)
-                return new Material(lit) { color = color };
+                // Task #5a: route through the shared keycap-material helper so the cluster's
+                // Undo|Ready|Skip caps get the same carved-grain _MainTex as the tray keycaps
+                // (grayscale grain × colour) when the bundle ships it — plain tint otherwise.
+                return Cards.PlayTray.NewKeycapMaterial(lit, color);
             return WorldUIAssets.CreateFlatMaterial(color); // overlay:false → Standard/Sprites fallback
         }
 
