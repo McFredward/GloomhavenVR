@@ -4,6 +4,8 @@ using GloomhavenVR.Compat;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -87,23 +89,31 @@ internal static class ActorBars
         /// </summary>
         public ActorBehaviour? Actor;
 
-        // ---- occlusion probe state (Compat.OcclusionProbe integration) -----------------------
-        // Health bars are CanvasRenderer-driven so the shader-based probe can't see them; the same
-        // head→anchor linecast with 2-probe hysteresis runs here instead, throttled to the probe
-        // interval per bar. OccHidden feeds the existing HostGo.SetActive hide path (item 6).
+        // ---- depth-test state (Compat.DepthShaderSwap integration) ---------------------------
+        // Health bars are world-space UI: Unity's UI shaders declare `ZTest [unity_GUIZTestMode]`,
+        // which effectively resolves to Always, so bar pixels bleed through walls. The old fix
+        // (line-of-sight probe + SetActive hide) TOGGLED the bar and is retired per user mandate.
+        // Instead every Graphic under the adopted host gets a PER-INSTANCE copy of its material
+        // with unity_GUIZTestMode forced to LEqual — the per-material value beats the global, so
+        // bar pixels depth-test against walls while the bar stays enabled and billboarding
+        // (occluded naturally, no toggling). Rescanned on a slow cadence because HealthBar pools
+        // new division-mark Graphics after adopt.
 
-        /// <summary>Consecutive blocked probes (hide at 2).</summary>
-        public int OccBlocked;
+        /// <summary>Per-graphic (graphic, original material, our LEqual instance) for restore.</summary>
+        public readonly List<(Graphic g, Material orig, Material inst)> DepthMats = new();
 
-        /// <summary>Consecutive clear probes (show at 2).</summary>
-        public int OccClear;
+        /// <summary>Instance IDs of graphics already given a depth-testing material.</summary>
+        public readonly HashSet<int> DepthMatIds = new();
 
-        /// <summary>True while the bar is hidden because a wall blocks the line of sight.</summary>
-        public bool OccHidden;
+        /// <summary>Next unscaled time this bar is rescanned for new (pooled) graphics.</summary>
+        public float NextDepthScan;
 
-        /// <summary>Next unscaled time this bar's line of sight is probed (~0.2 s cadence).</summary>
-        public float NextOccProbe;
+        /// <summary>True once the one-shot per-bar log line fired.</summary>
+        public bool DepthLogged;
     }
+
+    /// <summary>Rescan cadence for late-spawned bar graphics (HealthBar mark pooling).</summary>
+    private const float DepthScanIntervalSeconds = 2f;
 
     private static readonly HashSet<WorldspaceDisplayPanelBase> Owned = new();
     private static readonly Dictionary<WorldspacePanelUIController, Adopted> Adoptions = new();
@@ -190,53 +200,29 @@ internal static class ActorBars
                 hide = adopted.Actor != null && HeldFigures.Owns(adopted.Actor);
             }
 
-            // Track point + anchor first — the occlusion probe needs the anchor position.
             // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
             // scales with the diorama by construction — zooming the table keeps the
             // bar exactly above the miniature instead of inside it.
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
 
-            // Occlusion (Compat.OcclusionProbe gate): bars are world-space UI canvases and bleed
-            // through walls exactly like the depth-ignoring VFX, so the same head→anchor linecast
-            // with 2-blocked/2-clear hysteresis hides them. Throttled to the probe interval per
-            // bar (LateTick is per-frame); ownership is trivial here — the HostGo active flag is
-            // already ours (same mechanism as the held-mini hide), so no game state is claimed.
-            if (!hide && haveTrack && OcclusionProbe.Enabled)
+            // Wall occlusion (Compat.DepthShaderSwap gate): the bar's graphics run per-instance
+            // materials with unity_GUIZTestMode=LEqual so wall depth occludes them naturally —
+            // the bar itself stays enabled and billboarding (no toggling; the old linecast+hide
+            // probe is retired). Slow rescan catches graphics pooled after adopt (health marks).
+            if (DepthShaderSwap.BarsDepthTest)
             {
                 float now = Time.unscaledTime;
-                if (now >= adopted.NextOccProbe)
+                if (now >= adopted.NextDepthScan)
                 {
-                    adopted.NextOccProbe = now + OcclusionProbe.ProbeIntervalSeconds;
-                    Transform? self = controller.m_ObjectToTrack != null
-                        ? controller.m_ObjectToTrack.transform : null;
-                    if (OcclusionProbe.LinecastBlocked(headPos, pos, self, out RaycastHit occHit))
-                    {
-                        adopted.OccClear = 0;
-                        if (++adopted.OccBlocked >= 2 && !adopted.OccHidden)
-                        {
-                            adopted.OccHidden = true;
-                            OcclusionProbe.LogHide($"ActorBar {controller.name}", occHit);
-                        }
-                    }
-                    else
-                    {
-                        adopted.OccBlocked = 0;
-                        if (++adopted.OccClear >= 2 && adopted.OccHidden)
-                        {
-                            adopted.OccHidden = false;
-                            OcclusionProbe.LogShow($"ActorBar {controller.name}");
-                        }
-                    }
+                    adopted.NextDepthScan = now + DepthScanIntervalSeconds;
+                    ApplyBarDepthTest(adopted, controller.name);
                 }
-                hide |= adopted.OccHidden;
             }
-            else if (adopted.OccHidden && !OcclusionProbe.Enabled)
+            else if (adopted.DepthMats.Count > 0)
             {
-                // Live config-off: release the occlusion hide immediately.
-                adopted.OccHidden = false;
-                adopted.OccBlocked = 0;
-                adopted.OccClear = 0;
+                // Live config-off: give every graphic its original material back.
+                RestoreBarDepthTest(adopted);
             }
 
             if (panel.HostGo.activeSelf == hide)
@@ -400,12 +386,112 @@ internal static class ActorBars
     /// <summary>One-shot guard so a not-ready ActorBar's OnUpdatedZoom NRE is logged once, not per frame.</summary>
     private static bool s_zoomWarned;
 
+    private static readonly List<Graphic> GraphicScratch = new(64);
+
+    /// <summary>
+    /// Force every Graphic under the adopted bar host to DEPTH-TEST against walls: assign a
+    /// per-instance copy of its material with <c>unity_GUIZTestMode</c> = LEqual(4). Unity's
+    /// UI/Default shader declares <c>ZTest [unity_GUIZTestMode]</c> and the per-material value
+    /// beats the global, so world-space bar pixels are occluded by wall depth while the bar stays
+    /// enabled and billboarding — no toggling. TMP distance-field text: its SDF shaders use the
+    /// same <c>unity_GUIZTestMode</c> bracket in UI mode; some variants expose <c>_ZTestMode</c>
+    /// instead — both are set (unconditionally for the former, since it is a bracket lookup and
+    /// not a declared Property, HasProperty-guarded for the latter). Idempotent per graphic
+    /// (instance-ID set); originals snapshotted for restore. Only graphics under hosts ActorBars
+    /// owns/adopts are ever touched.
+    /// </summary>
+    private static void ApplyBarDepthTest(Adopted adopted, string barName)
+    {
+        GameObject host = adopted.Panel.HostGo;
+        if (host == null)
+            return;
+
+        GraphicScratch.Clear();
+        host.GetComponentsInChildren(includeInactive: true, GraphicScratch);
+        int added = 0;
+        for (int i = 0; i < GraphicScratch.Count; i++)
+        {
+            Graphic g = GraphicScratch[i];
+            if (g == null)
+                continue;
+            int id = g.GetInstanceID();
+            if (adopted.DepthMatIds.Contains(id))
+                continue;
+            try
+            {
+                Material src = g.material;
+                if (src == null)
+                    continue; // not wired yet — retried next scan
+                var inst = new Material(src);
+                // Not a declared shader Property (bracket lookup only) ⇒ HasProperty is false;
+                // SetInt still creates the per-material override that wins over the global.
+                inst.SetInt("unity_GUIZTestMode", (int)CompareFunction.LessEqual);
+                if (inst.HasProperty("_ZTestMode"))
+                    inst.SetInt("_ZTestMode", (int)CompareFunction.LessEqual);
+                g.material = inst;
+                adopted.DepthMatIds.Add(id);
+                adopted.DepthMats.Add((g, src, inst));
+                added++;
+            }
+            catch
+            {
+                // Leave this graphic vanilla; retried on the next scan.
+            }
+        }
+        GraphicScratch.Clear();
+
+        if (added > 0)
+        {
+            if (!adopted.DepthLogged)
+            {
+                adopted.DepthLogged = true;
+                VRLog.Info("WorldUI",
+                    $"bar depth-test: forced unity_GUIZTestMode=LEqual on {added} graphics ('{barName}').");
+            }
+            else
+            {
+                VRLog.Debug("WorldUI",
+                    $"bar depth-test: +{added} late graphics on '{barName}' ({adopted.DepthMats.Count} total).");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Mirror of the adopted-state restore: give every touched Graphic its original material back
+    /// and destroy our per-instance copies. Called on release, shutdown (ReleaseAll) and live
+    /// config-off.
+    /// </summary>
+    private static void RestoreBarDepthTest(Adopted adopted)
+    {
+        for (int i = 0; i < adopted.DepthMats.Count; i++)
+        {
+            (Graphic g, Material orig, Material inst) = adopted.DepthMats[i];
+            if (g != null)
+            {
+                try { g.material = orig; }
+                catch { /* graphic destroyed under us */ }
+            }
+            if (inst != null)
+            {
+                try { Object.Destroy(inst); }
+                catch { /* already gone with the scene */ }
+            }
+        }
+        adopted.DepthMats.Clear();
+        adopted.DepthMatIds.Clear();
+        adopted.DepthLogged = false;
+        adopted.NextDepthScan = 0f;
+    }
+
     private static void Release(WorldspacePanelUIController controller)
     {
         // NOTE: the key may be Unity-dead ("== null" true) but the CLR reference is
         // still a valid dictionary key — always use it for the map ops.
         if (Adoptions.TryGetValue(controller, out Adopted adopted))
+        {
+            RestoreBarDepthTest(adopted);
             CanvasConversion.Release(adopted.Panel);
+        }
         Adoptions.Remove(controller);
         Owned.Remove(controller);
     }
@@ -413,7 +499,10 @@ internal static class ActorBars
     internal static void ReleaseAll()
     {
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
+        {
+            RestoreBarDepthTest(pair.Value);
             CanvasConversion.Release(pair.Value.Panel);
+        }
         Adoptions.Clear();
         Owned.Clear();
     }
