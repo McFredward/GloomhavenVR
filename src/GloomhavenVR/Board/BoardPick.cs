@@ -51,6 +51,7 @@ internal static class BoardPick
 
     private static int _frame = -1;
     private static PickSource _source;
+    private static bool _inScenario;
     private static VRHand? _hand;
     private static Vector3 _rayOrigin;
     private static Vector3 _rayDirection;
@@ -73,6 +74,23 @@ internal static class BoardPick
     }
 
     public static bool Active => Source != PickSource.None;
+
+    /// <summary>
+    /// True while the mod is in a LIVE scenario (VR laser context): not Menu2D/ModalUI and a
+    /// scenario <see cref="Controller"/> exists — regardless of whether a hand actually produced a
+    /// pick this frame. Distinguishes "in a scenario but the ray gave no pick" (source==None yet
+    /// InScenario) from "outside a scenario / behind a modal" (both false), which <see cref="Active"/>
+    /// alone cannot. Consumed by <see cref="Patches.HexHoverClear"/> to kill the stale cursor-hover
+    /// star even when no VR pick is produced.
+    /// </summary>
+    public static bool InScenario
+    {
+        get
+        {
+            EnsureFresh();
+            return _inScenario;
+        }
+    }
 
     /// <summary>The hand providing the current pick (null while inactive).</summary>
     public static VRHand? SourceHand
@@ -171,6 +189,7 @@ internal static class BoardPick
     {
         _frame = -1;
         _source = PickSource.None;
+        _inScenario = false;
         _hand = null;
         _hasHit = false;
         _hitCollider = null;
@@ -189,6 +208,7 @@ internal static class BoardPick
     private static void Compute()
     {
         _source = PickSource.None;
+        _inScenario = false;
         _hand = null;
         _hasHit = false;
         _hitCollider = null;
@@ -205,6 +225,10 @@ internal static class BoardPick
         Controller? controller = Controller.Instance;
         if (controller == null)
             return;
+
+        // Past the mode + Controller gate: we are in a live scenario. Record it even if no hand
+        // produces a pick below (source stays None) so HexHoverClear can still kill a stale star.
+        _inScenario = true;
         int mask = controller.m_ActiveSelectionRaycastLayer.value;
 
         if (!BoardConfig.ForceFarMode.Value)

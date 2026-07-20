@@ -1,3 +1,4 @@
+using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Hands;
 
 namespace GloomhavenVR.Board;
@@ -100,7 +101,16 @@ internal static class TargetingUx
         // (not the hover path); leave its DoShow flag alone.
         bool levelEditor = SaveData.Instance?.Global?.GameMode == EGameMode.LevelEditor;
 
-        bool suppress = display != null && !targeting && !levelEditor;
+        // REGRESSION FIX (task #4): while a figure is GRABBED/HELD in a hand the grab flow docks
+        // the SAME ActorStatPanel next to the mini (StatPanelSurface.ShowHeldFigure → ActorStatPanel
+        // .Show), but the game's Show() early-outs whenever CanShow() sees DoShow == false
+        // (ActorStatPanel.cs:389, verified). Suppressing here would therefore KILL the grab-info
+        // panel — a path that was already perfectly tuned. So we never suppress while any figure is
+        // held: folding HeldFigures.Count into the gate flips `suppress` false, which drops through
+        // to the restore branch below and raises DoShow back up so Show() succeeds.
+        bool figureHeld = HeldFigures.Count > 0;
+
+        bool suppress = display != null && !targeting && !levelEditor && !figureHeld;
 
         ActorStatPanel panel = Singleton<ActorStatPanel>.Instance;
         if (suppress)

@@ -1,4 +1,5 @@
 using HarmonyLib;
+using UnityEngine;
 
 namespace GloomhavenVR.Board.Patches;
 
@@ -25,22 +26,36 @@ namespace GloomhavenVR.Board.Patches;
 ///
 /// FIX: a Postfix on <c>WorldspaceStarHexDisplay.Update()</c> (so it runs AFTER the
 /// tail re-activation at :487 and gets the last word) deactivates the cursor star
-/// whenever the VR pick owns the pointer but hits no hex
-/// (<see cref="BoardPick.Active"/> &amp;&amp; !<see cref="BoardPick.HasHit"/>). This covers
-/// BOTH "laser off the board" and "over the board but off a hex" — the game's own
-/// <c>DisplayCursorHoverStar()</c> null branch has already cleared everything else
-/// (tile ref, stat panel, outlines), so only the star's SetActive(false) was missing.
+/// whenever the mod is in a live scenario and the VR laser is NOT genuinely resolving
+/// to a hex. "Resolving to a hex" is judged the same way the game does
+/// (<c>Interactable()?.GetComponent&lt;TileBehaviour&gt;()?.m_ClientTile != null</c>,
+/// WSHD.cs:3212): a real hex hover means the VR pick both hit a collider AND that
+/// collider carries a <c>TileBehaviour</c> with a live <c>m_ClientTile</c>. Anything
+/// else — laser off the board (no hit), laser over a non-hex gap, laser on a FIGURE /
+/// prop (a <c>CInteractableActor</c>, no TileBehaviour), OR no VR pick produced at all
+/// (<c>source==None</c>, ray untracked / mode policy) — is "not on a hex", so any lit
+/// cursor star is stale and gets killed.
+///
+/// Why this is stronger than the old <c>Active &amp;&amp; !HasHit</c> gate:
+/// - <c>source==None</c> gap: with no VR pick, <see cref="BoardPick.Active"/> was false
+///   and the postfix NO-OPPED, so the game's fallback (stale) mouse position could keep
+///   a star lit / Update's tail could re-activate a star parented to a stale tile. We
+///   now gate on <see cref="BoardPick.InScenario"/> instead, which is true even when no
+///   hand produced a pick, so the stale star is cleared in that case too.
+/// - figure hover: a laser on a mini hits a collider (HasHit) but resolves to NO
+///   TileBehaviour, so the game's own null branch already cleared the tile ref but left
+///   the previous hex's star lit; we now kill it.
 ///
 /// SCOPE / SAFETY:
 /// - <c>s_CursorHighlightedStar</c> is EXCLUSIVELY the cursor-hover indicator
-///   (HexMode.Cursor). Placement / movement / TargetSelection highlights live in
-///   separate star dictionaries, so real multi-frame target-selection highlighting is
-///   untouched — only the stale hover star is killed.
-/// - Only runs while <see cref="BoardPick.Active"/> (never in Menu2D/ModalUI, never
-///   when VR isn't picking), so vanilla mouse behaviour outside a live VR pick is intact.
-/// - Re-hover restores the star: the game's own path re-shows it on the next hex (the
-///   null branch nulled <c>s_CursorHighlightedTile</c>, and Update's tail re-activates
-///   it once a tile resolves again).
+///   (HexMode.Cursor). Placement / movement / attack / ability TargetSelection highlights
+///   live in SEPARATE star dictionaries (s_PlacementStars, s_AttackStars, s_AbilityStars,
+///   s_PossibleMoveStars, … — verified WSHD.cs:113-141), so real multi-frame targeting
+///   highlighting is untouched — only the stale single hover star is killed.
+/// - Only runs while <see cref="BoardPick.InScenario"/> (never in Menu2D/ModalUI, never
+///   outside a scenario Controller), so vanilla behaviour outside a live scenario is intact.
+/// - When the VR pick IS on a real hex we early-return, leaving the game's fresh star up;
+///   re-hover therefore restores the star normally.
 /// </summary>
 [HarmonyPatch(typeof(WorldspaceStarHexDisplay), nameof(WorldspaceStarHexDisplay.Update))]
 internal static class HexHoverClear
@@ -50,13 +65,29 @@ internal static class HexHoverClear
 
     private static void Postfix(WorldspaceStarHexDisplay __instance)
     {
-        // Only intervene while the VR laser owns the pick and is on NO hex.
-        // (Active is false in Menu2D/ModalUI or when VR isn't picking → vanilla.)
-        if (!BoardPick.Active || BoardPick.HasHit)
+        // Outside a live scenario (Menu2D/ModalUI, no Controller) leave vanilla behaviour alone.
+        if (!BoardPick.InScenario)
+            return;
+
+        // Keep the game's fresh star ONLY while the VR pick is genuinely on a hex tile — mirror the
+        // game's own hex-validity test (TileBehaviour with a live m_ClientTile). Every other case
+        // (off-board, non-hex, on a figure, or no pick at all) means a lit cursor star is stale.
+        if (PickIsOnHex())
             return;
 
         HexSelect_Control? star = CursorStarRef(__instance);
         if (star != null && star.gameObject.activeSelf)
             star.gameObject.SetActive(false);
+    }
+
+    private static bool PickIsOnHex()
+    {
+        if (!BoardPick.Active || !BoardPick.HasHit)
+            return false;
+        Collider? collider = BoardPick.HitCollider;
+        if (collider == null)
+            return false;
+        TileBehaviour? tile = collider.GetComponentInParent<TileBehaviour>();
+        return tile != null && tile.m_ClientTile != null;
     }
 }
