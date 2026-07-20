@@ -620,6 +620,17 @@ internal static class ModalFallback
         public bool FullScreenMenu;
 
         /// <summary>
+        /// Issue #1: this window got a ONE-SHOT content fit (fitOneShot) at Convert — the ESC
+        /// menu (width-hug) OR a pause/options confirmation dialog. Its board-relative scale was
+        /// derived at Convert from the PRE-fit rect (the full window), so once the single fit
+        /// shrinks the host to the visible dialog/button bounds the scale must be re-derived from
+        /// the fitted width (the 5b re-scale block). Gates that re-derive so non-one-shot modals
+        /// (story/message/rewards, whose default per-frame fit also flips FitOneShotApplied) never
+        /// re-scale and keep their existing sizing.
+        /// </summary>
+        public bool OneShotFitted;
+
+        /// <summary>
         /// Grabbable/scalable world affordance for this floated modal (sub-item B): the
         /// menu can be repositioned + two-hand-resized like the control board via the shared
         /// <see cref="PanelGrabHandle"/>. Null for the end-of-scenario Sieg/Niederlage
@@ -1050,15 +1061,18 @@ internal static class ModalFallback
         for (int i = 0; i < Converted.Count; i++)
             Converted[i].Grab?.Tick();
 
-        // 5b. Item 1 (pause-menu size): once a full-screen menu's ONE-SHOT content fit has shrunk
-        //     the host rect from the full window (1920x…) to the visible-button bounds, re-derive
-        //     its board-relative scale from the FITTED width and push it to the grab — the scale
-        //     first derived at Convert used the pre-fit rect, so the fitted panel would otherwise
-        //     render mis-sized. Runs once per open (ScaleReDerived latch).
+        // 5b. Item 1 (pause-menu size) + issue #1 (confirmations): once a ONE-SHOT content fit has
+        //     shrunk the host rect from the full window (1920x…) to the visible button/dialog
+        //     bounds, re-derive its board-relative scale from the FITTED width and push it to the
+        //     grab — the scale first derived at Convert used the pre-fit rect, so the fitted panel
+        //     would otherwise render mis-sized (a full-window-derived scale on a shrunk host renders
+        //     tiny). Gated on OneShotFitted so it covers BOTH the ESC menu and the pause/options
+        //     confirmation dialogs, and never fires for non-one-shot modals whose default per-frame
+        //     fit also flips FitOneShotApplied. Runs once per open (ScaleReDerived latch).
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
-            if (wp.ScaleReDerived || !wp.FullScreenMenu || wp.Grab == null
+            if (wp.ScaleReDerived || !wp.OneShotFitted || wp.Grab == null
                 || !wp.Panel.IsAlive || !wp.Panel.FitOneShotApplied)
                 continue;
             float refit = DeriveWindowScale(wp.Panel);
@@ -1716,13 +1730,51 @@ internal static class ModalFallback
     /// full-window backing/blur rectangle (user #8 part 2): the ESC / Options menus and
     /// the end-of-scenario Results / Rewards / adventure-completion panels. For these the
     /// backing image is disabled while floated so only the foreground content shows; every
-    /// other modal (confirmation boxes, story box, events, messages) keeps its backing.
+    /// other modal (story box, events, messages) keeps its backing.
+    ///
+    /// PAUSE/OPTIONS CONFIRMATIONS (issue #1): the generic-warning confirmation boxes the
+    /// pause menu spawns (restart round/turn, skip mission/tutorial, quit dungeon — all
+    /// <c>UIConfirmationBoxManager.MainMenuInstance.ShowGenericWarningConfirmation</c>,
+    /// UIScenarioEscMenu.cs, plus the multiplayer/character confirmations) are a full-window
+    /// DARK OVERLAY behind a small centered dialog box. Un-hidden it floated as the reported
+    /// "big dark FLAT full-screen rectangle" with the popup in the middle. It IS the same
+    /// un-hidden full-window backing the ESC/Options menus get stripped of, so these
+    /// confirmation IDs join the transparent-background family: the dark overlay is disabled
+    /// and only the centered dialog box remains, floated on its own world-space board panel.
     /// </summary>
     private static bool WantsTransparentBackground(UIWindowID id) =>
         id == UIWindowID.ESCMenu || id == UIWindowID.Options
         || id == UIWindowID.OptionsSubmenu || id == UIWindowID.ViceOptionsSubmenu
         || id == UIWindowID.ResultsPanel || id == UIWindowID.RewardsPanel
-        || id == UIWindowID.AdventureCompletionPanel;
+        || id == UIWindowID.AdventureCompletionPanel
+        || MenuConfirmations.Contains(id);
+
+    /// <summary>
+    /// Issue #1: pause/options-spawned CONFIRMATION dialogs — the family that must be treated
+    /// exactly like the other floated submenus (own world-space board panel, grab bar, X
+    /// close, one-shot content fit, hidden full-window dark backing, no flicker) rather than
+    /// floating as a big dark flat rectangle. Every member is a <c>ConfirmationBox</c>-style
+    /// window a scenario menu button opens:
+    /// - <c>MainMenuConfirmationBox</c> — THE reported one: restart round/turn, skip
+    ///   mission/tutorial, quit dungeon (UIScenarioEscMenu.cs →
+    ///   UIConfirmationBoxManager.MainMenuInstance.ShowGenericWarningConfirmation;
+    ///   verified in the runtime log as 'Confirmation Box_MainMenu_pc'/'_gamepad').
+    /// - <c>ConfirmationBox</c> — the in-scenario generic confirmation ('Confirmation Box_pc'/
+    ///   '_gamepad'); normally physicalized by <see cref="Surfaces.DialogSurface"/>, so it only
+    ///   reaches this fallback when that surface is off (<see cref="IsFallbackWindow"/>).
+    /// - <c>MutiplayerConfirmationBox</c> / <c>CharacterConfirmationBox</c> — the multiplayer /
+    ///   character-assign confirmations reachable from the multiplayer submenu.
+    /// These stay BLOCKING (they assert ModalUI like any genuine prompt) and are NOT sticky —
+    /// so clicking Yes/No (or the mod X) closes them cleanly through the normal release path;
+    /// only their VISUAL treatment is unified with the submenus.
+    /// </summary>
+    private static readonly HashSet<UIWindowID> MenuConfirmations = new()
+    {
+        UIWindowID.MainMenuConfirmationBox,
+        UIWindowID.ConfirmationBox,
+        UIWindowID.MutiplayerConfirmationBox,
+        UIWindowID.CharacterConfirmationBox,
+    };
 
     private static bool TryConvertWindow(UIWindow window)
     {
@@ -1783,11 +1835,26 @@ internal static class ModalFallback
             // width — height-capped only, NOT enrolled in the content fit — so both the rail and the
             // slider panel stay inside the visible/clickable host rect.
             bool escMenuWidthHug = fullScreenMenu && window.ID == UIWindowID.ESCMenu;
+            // Issue #1: a pause/options-spawned CONFIRMATION dialog (restart round/turn, skip
+            // mission/tutorial, quit dungeon, multiplayer/character confirms). These are NOT a
+            // full-screen menu (a small centered dialog box behind a full-window DARK OVERLAY), so
+            // fullScreenMenu is false — but they get the SAME submenu treatment: the dark overlay is
+            // hidden (transparentBg, via WantsTransparentBackground) AND the host is content-fit
+            // ONCE and LOCKED so it hugs the visible dialog box and the per-frame re-fit that made it
+            // FLICKER can never recur (the un-hidden overlay + per-frame fit were exactly the
+            // reported "big dark flat rectangle that flickers").
+            bool isConfirmDialog = MenuConfirmations.Contains(window.ID);
             // Options family: do NOT enroll in the content fit at all (fitContent:false) — the fit
             // would width-collapse it. It floats at its own (full) width, with only the height cap
             // trimming the tall empty bottom. Every other window keeps the default (fit pokeable
-            // hosts): non-menu modals fit as before, the ESC menu one-shot-fits (fitContent:null).
+            // hosts): non-menu modals fit as before, the ESC menu + confirmations one-shot-fit
+            // (fitContent:null).
             bool? fitContent = fullScreenMenu && !escMenuWidthHug ? false : (bool?)null;
+            // One-shot content fit (fit once → lock, no per-frame re-fit flicker): the ESC menu
+            // (compact width-hug column) AND every pause/options confirmation dialog (hugs the
+            // centered dialog box once its dark overlay is hidden). The Options family stays OUT
+            // (full width, height-capped only, see above); non-menu modals keep the default fit.
+            bool oneShotFit = escMenuWidthHug || isConfirmDialog;
             // User #8 part 2: the full-screen menu family (ESC / Options / Results / Rewards)
             // floats as an opaque backing rectangle — hide that backing so only the
             // foreground content shows.
@@ -1822,15 +1889,21 @@ internal static class ModalFallback
                 fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
                 useModLayer: true, transparentBackground: transparentBg,
-                // Issue 3: WIDTH-hug one-shot fit for the ESC menu only; the whole family gets the
-                // HEIGHT cap. Issue 5: keep the backing disabled on release for the menu family.
-                fitOneShot: escMenuWidthHug, capHeightToCanvas: fullScreenMenu,
+                // Issue 3: WIDTH-hug one-shot fit for the ESC menu; issue #1: confirmation dialogs
+                // one-shot-fit too. The full-screen-menu family gets the HEIGHT cap (confirmations do
+                // not — the one-shot fit already hugs their compact box). Issue 5: keep the backing
+                // disabled on release for the full-screen-menu family only.
+                fitOneShot: oneShotFit, capHeightToCanvas: fullScreenMenu,
                 keepBackgroundHidden: fullScreenMenu);
 
             if (escMenuWidthHug)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is the ESC menu — one-shot " +
                                       "content fit (compact width-hug + height cap, locked after the single fit " +
                                       "so the per-frame re-fit flicker cannot recur).");
+            else if (isConfirmDialog)
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is a pause/options confirmation " +
+                                      "dialog — treated like a submenu: full-window dark overlay hidden, one-shot " +
+                                      "content fit hugging the dialog box (locked, no re-fit flicker), grab + X.");
             else if (fullScreenMenu)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is an Options-family menu — " +
                                       "FULL width preserved (height-capped only, no width-hug fit) so both the " +
@@ -1866,11 +1939,14 @@ internal static class ModalFallback
                 grab = new GrabbableModal();
                 grab.Build(panel, extraScale, name);
                 // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
-                // clickable) closes THIS window through the game's own Escape/Hide path. ONLY the
-                // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium) —
-                // NOT click-through windows like the Story/dialog (user: "the dialog must be
-                // clicked through, it may not have an X") nor the Sieg/Niederlage results panels.
-                if (NonBlockingMenus.Contains(window.ID))
+                // clickable) closes THIS window through the game's own Escape/Hide path. The
+                // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium), and
+                // issue #1 adds the pause/options CONFIRMATION dialogs — a confirmation is a genuine
+                // Yes/No decision, so its X routes through UIWindow.Escape (== cancel/No), exactly
+                // like the submenus close. Still EXCLUDED: click-through windows like the Story/
+                // dialog (user: "the dialog must be clicked through, it may not have an X" — that is
+                // the story/subtitle box, not a confirmation) and the Sieg/Niederlage results panels.
+                if (NonBlockingMenus.Contains(window.ID) || isConfirmDialog)
                     ModalCloseButton.Attach(panel, window);
             }
 
@@ -1879,6 +1955,9 @@ internal static class ModalFallback
                 Window = window,
                 Panel = panel,
                 FullScreenMenu = fullScreenMenu,
+                // Issue #1: ESC menu + confirmations one-shot-fit → the 5b block re-derives their
+                // board-relative scale from the fitted (shrunk) width so they render board-sized.
+                OneShotFitted = oneShotFit,
                 Grab = grab,
                 ExtraScale = extraScale,
                 // Item 6: reachable menus stay floated in parallel even when the game's single-window
