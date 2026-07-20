@@ -65,6 +65,21 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     internal const float MinScale = 0.15f;
     internal const float MaxScale = 2f;
 
+    /// <summary>
+    /// LOST-MENU FIX (laser swallows board clicks): optional NARROW collider matching the
+    /// VISIBLE drag-bar strip only. When set, the far ray (<see cref="RayGrabDriver"/>) tests
+    /// EXCLUSIVELY this collider — never the wider registered grab ZONE — so a trigger aimed
+    /// past the window at the board/cards no longer starts a laser-carry of the window. The
+    /// registered zone collider stays as-is for the near-hand palm grab
+    /// (<see cref="ProximityGrabber"/> highlight/grip range), which is deliberately generous.
+    /// Null (tray / combat log / settings panel, which never set it) keeps the old behavior:
+    /// the laser tests the registered collider.
+    /// </summary>
+    internal Collider? BarCollider { get; private set; }
+
+    /// <summary>Split the laser target off the palm zone: the ray grabs ONLY this bar strip.</summary>
+    internal void SetBarCollider(Collider bar) => BarCollider = bar;
+
     private IPanelGrabOwner? _owner;
     private MeshRenderer? _bar;
     private Color _barBaseColor;
