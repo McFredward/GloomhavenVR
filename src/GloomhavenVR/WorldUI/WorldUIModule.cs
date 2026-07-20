@@ -156,6 +156,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly AvatarMirror _avatarMirror = new();
         private readonly OptionsToggle _optionsToggle = new();
         private readonly WorldTooltips _tooltips = new();
+        private readonly HexHintFacing _hexHintFacing = new();
         private readonly DevPanels _devPanels = new();
 
         /// <summary>
@@ -223,6 +224,10 @@ internal sealed class WorldUIModule : IVRModule
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
+                // Task #4: re-face the hover hex-hint panels (PropInfoSurface docks them at a
+                // fixed cached-seat pose) to the LIVE head. Runs last so nothing re-rotates the
+                // host afterward; PropInfoSurface's Update placement already ran (position kept).
+                ("HexHintFacing.Late", _hexHintFacing.LateTick),
             };
         }
 
@@ -269,6 +274,7 @@ internal sealed class WorldUIModule : IVRModule
             _settingsPanel.Shutdown();
             _avatarMirror.Shutdown();
             _tooltips.Shutdown();
+            _hexHintFacing.Shutdown();
             _devPanels.Shutdown();
             ActorBars.ReleaseAll();
         }
