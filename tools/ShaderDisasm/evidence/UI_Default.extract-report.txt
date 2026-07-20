@@ -1,0 +1,64 @@
+
+################ SHADER 'UI/Default'  (unity_builtin_extra, pathId=10770) ################
+
+-- Properties --
+   _MainTex                         type=4 "Sprite Texture"
+   _Color                           type=0 "Tint"
+   _StencilComp                     type=2 "Stencil Comparison"
+   _Stencil                         type=2 "Stencil ID"
+   _StencilOp                       type=2 "Stencil Operation"
+   _StencilWriteMask                type=2 "Stencil Write Mask"
+   _StencilReadMask                 type=2 "Stencil Read Mask"
+   _ColorMask                       type=2 "Color Mask"
+   _UseUIAlphaClip                  type=2 "Use Alpha Clip"
+
+-- Shader keyword name table (6) --
+   [0] STEREO_INSTANCING_ON
+   [1] UNITY_SINGLE_PASS_STEREO
+   [2] STEREO_MULTIVIEW_ON
+   [3] STEREO_CUBEMAP_RENDER_ON
+   [4] UNITY_UI_CLIP_RECT
+   [5] UNITY_UI_ALPHACLIP
+
+== SubShader 0  tags=[CanUseSpriteAtlas=true, IGNOREPROJECTOR=true, PreviewType=Plane, QUEUE=Transparent, RenderType=Transparent] ==
+
+  -- Pass 0 name='Default' zTest=0 zTestProp='unity_GUIZTestMode' zWrite=0 tags=[CanUseSpriteAtlas=true, IGNOREPROJECTOR=true, PreviewType=Plane, QUEUE=Transparent, RenderType=Transparent] --
+     nameIndices: $Globals=0, UnityPerCamera=1, UnityPerDraw=2, UnityPerFrame=3, _ClipRect=5, _Color=4, _MainTex=13, _MainTex_ST=6, _ScreenParams=9, _TextureSampleAdd=14, _UIMaskSoftnessX=7, _UIMaskSoftnessY=8, glstate_matrix_projection=11, unity_MatrixVP=12, unity_ObjectToWorld=10
+     [progVertex] 12 sub-program(s):
+        blob=0    gpu=DX11VertexSM40   keywords=[]
+        blob=0    gpu=DX11VertexSM40   keywords=[]
+        blob=0    gpu=DX11VertexSM40   keywords=[]
+        blob=1    gpu=DX11VertexSM40   keywords=[UNITY_UI_ALPHACLIP]
+        blob=1    gpu=DX11VertexSM40   keywords=[UNITY_UI_ALPHACLIP]
+        blob=1    gpu=DX11VertexSM40   keywords=[UNITY_UI_ALPHACLIP]
+        blob=2    gpu=DX11VertexSM40   keywords=[UNITY_UI_CLIP_RECT]
+        blob=2    gpu=DX11VertexSM40   keywords=[UNITY_UI_CLIP_RECT]
+        blob=2    gpu=DX11VertexSM40   keywords=[UNITY_UI_CLIP_RECT]
+        blob=3    gpu=DX11VertexSM40   keywords=[UNITY_UI_CLIP_RECT UNITY_UI_ALPHACLIP]
+        blob=3    gpu=DX11VertexSM40   keywords=[UNITY_UI_CLIP_RECT UNITY_UI_ALPHACLIP]
+        blob=3    gpu=DX11VertexSM40   keywords=[UNITY_UI_CLIP_RECT UNITY_UI_ALPHACLIP]
+     [progFragment] 12 sub-program(s):
+        blob=4    gpu=DX11PixelSM40    keywords=[]
+        blob=4    gpu=DX11PixelSM40    keywords=[]
+        blob=4    gpu=DX11PixelSM40    keywords=[]
+        blob=5    gpu=DX11PixelSM40    keywords=[UNITY_UI_ALPHACLIP]
+        blob=5    gpu=DX11PixelSM40    keywords=[UNITY_UI_ALPHACLIP]
+        blob=5    gpu=DX11PixelSM40    keywords=[UNITY_UI_ALPHACLIP]
+        blob=6    gpu=DX11PixelSM40    keywords=[UNITY_UI_CLIP_RECT]
+        blob=6    gpu=DX11PixelSM40    keywords=[UNITY_UI_CLIP_RECT]
+        blob=6    gpu=DX11PixelSM40    keywords=[UNITY_UI_CLIP_RECT]
+        blob=7    gpu=DX11PixelSM40    keywords=[UNITY_UI_CLIP_RECT UNITY_UI_ALPHACLIP]
+        blob=7    gpu=DX11PixelSM40    keywords=[UNITY_UI_CLIP_RECT UNITY_UI_ALPHACLIP]
+        blob=7    gpu=DX11PixelSM40    keywords=[UNITY_UI_CLIP_RECT UNITY_UI_ALPHACLIP]
+
+-- Blob: 1573 compressed bytes, platforms=[GLES3] --
+
+   [platform 0 = GLES3] decompressed 9980 bytes (raw dumped)
+      blob#0 (platIdx 0) at 0xAA size 1300 kind=VERTEX -> UI_Default.GLES3.blob00.VERTEX.dxbc
+      blob#1 (platIdx 1) at 0x6CA size 1300 kind=VERTEX -> UI_Default.GLES3.blob01.VERTEX.dxbc
+      blob#2 (platIdx 2) at 0xCEA size 1300 kind=VERTEX -> UI_Default.GLES3.blob02.VERTEX.dxbc
+      blob#3 (platIdx 3) at 0x1322 size 1300 kind=VERTEX -> UI_Default.GLES3.blob03.VERTEX.dxbc
+      blob#4 (platIdx 4) at 0x192A size 608 kind=PIXEL -> UI_Default.GLES3.blob04.PIXEL.dxbc
+      blob#5 (platIdx 5) at 0x1C22 size 684 kind=PIXEL -> UI_Default.GLES3.blob05.PIXEL.dxbc
+      blob#6 (platIdx 6) at 0x1F66 size 776 kind=PIXEL -> UI_Default.GLES3.blob06.PIXEL.dxbc
+      blob#7 (platIdx 7) at 0x2346 size 852 kind=PIXEL -> UI_Default.GLES3.blob07.PIXEL.dxbc
