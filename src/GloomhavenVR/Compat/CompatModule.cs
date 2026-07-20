@@ -68,25 +68,19 @@ internal sealed class CompatModule : IVRModule
         //     so transparent VFX/UI behind a wall can no longer paint over it.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
         WallSolidifier.Install();
-        //  3. ZTest enforcement (config-gated "OpaqueWorldGlow", default on): ANY world renderer
-        //     material with ZTest Always is forced to LEqual so it respects depth — excluding the
-        //     mod layer, UI canvases, actor outlines and the mod's head/hands rig.
-        GlowOcclusion.InstallEnforcement();
-        //  4. Occlusion probe (config-gated "OcclusionProbe", default on): line-of-sight hide for
-        //     the census-proven HARDCODED depth-ignoring shaders (fire/torch particles, hex decals,
-        //     X-ray floor tiles, moths, …), their point lights, and — via ActorBars — world-space
-        //     health bars: a wall between head and target disables the renderer/light until the
-        //     line of sight clears. Target discovery rides GlowOcclusion's sweep (PostSweep hook).
-        //     (NOW default-OFF: superseded by DepthShaderSwap below; kept as an opt-in fallback.)
-        OcclusionProbe.Install();
-        //  5. Depth shader swap (config-gated "DepthShaderSwap", default on): PURE RENDER-STATE
-        //     fix for the census-proven hardcoded draw-on-top shaders — per-renderer instance
-        //     materials are permanently swapped to depth-testing replacements (game's Amp_Basic /
-        //     bundled GloomhavenVR/Overlay), so walls occlude flames, decals, unseen tiles, moths
-        //     etc. naturally with zero toggling; torch/candle lights additionally get hard shadows
-        //     ("TorchLightShadows") so their light stops at walls. Rides the same PostSweep hook.
-        //     Also gates ActorBars' health-bar unity_GUIZTestMode depth-test.
-        DepthShaderSwap.Install();
+        //  3. ZTest enforcement — FULLY REVERTED at the user's request (it never fixed the real
+        //     bleeders anyway: the census proved they expose no _ZTest property). Not installed.
+        //  4. Occlusion probe (line-of-sight hide) — FULLY REVERTED: the user rejected ANY
+        //     toggling ("flames must never go on/off"). Not installed. NOTE the persisted-config
+        //     trap that bit us here: flipping a BepInEx default does NOT change an already-saved
+        //     cfg value — the probe kept running from the old `OcclusionProbe = true` file. The
+        //     only reliable off is not installing (this), not a default flip.
+        //  5. Depth shader swap + TorchLightShadows + ActorBars bar depth-test — FULLY REVERTED:
+        //     the Overlay/Amp_Basic replacements visibly changed the original look (darker unseen
+        //     tiles, static moths, altered flames), which the user explicitly forbids. Not
+        //     installed. The occlusion problem stays OPEN until a solution exists that preserves
+        //     the original look 1:1 (e.g. exact-copy shader variants that only add ZTest).
+        //     The always-on CENSUS above stays — evidence only, mutates nothing.
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)

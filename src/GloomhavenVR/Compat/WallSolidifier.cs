@@ -228,7 +228,14 @@ internal static class WallSolidifier
             // report once per scene only if a sweep actually finds live drivers.
             SweepLegacyQuiet();
 
-            bool fixOn = _solidWallDepth?.Value ?? true;
+            // FULLY REVERTED at the user's request (occlusion round 6): no wall material may be
+            // mutated. Hard-off regardless of the persisted cfg value — a BepInEx default flip
+            // does NOT override an already-saved `SolidWallDepth = true` (the trap that kept the
+            // occlusion probe alive one round). Inventory/diagnostic logging below still runs.
+            // (The census also proved walls at queue 2000 occlude opaque objects correctly, so
+            // this mutation never had anything real to fix.)
+            const bool fixOn = false;
+            _ = _solidWallDepth; // cfg entry kept bound for the description; value ignored.
 
             var walls = new HashSet<Renderer>();
             int fromWall = CollectFromComponentType(WallType, walls);
