@@ -96,6 +96,8 @@ internal sealed class BoardModule : IVRModule
         _driverGo.AddComponent<BoardDriver>();
         // P8: figure grab (grip-grab a mini into the hand to inspect it).
         _driverGo.AddComponent<FigureGrab.FigureGrabDriver>();
+        // Feature #3: laser + dominant-hand "A" (primaryButton) → game hex ping.
+        _driverGo.AddComponent<BoardPing>();
 
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
     }
