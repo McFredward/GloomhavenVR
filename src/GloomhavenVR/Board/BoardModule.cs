@@ -81,6 +81,10 @@ internal sealed class BoardModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.MF_FindInteractableAtMousePosition_Patch));
         VRSession.Harmony?.PatchAll(typeof(Patches.InputManager_CursorPosition_Patch));
         VRSession.Harmony?.PatchAll(typeof(Patches.UIManager_IsPointerOverUI_Patch));
+        // Feature #3 fix: clear the stale cursor-hover hex highlight when the VR laser
+        // is on no hex (WorldspaceStarHexDisplay never deactivates s_CursorHighlightedStar
+        // on a null pick; see HexHoverClear).
+        VRSession.Harmony?.PatchAll(typeof(Patches.HexHoverClear));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
         // P8: suppress the game's per-frame figure-transform writes for HELD actors only,
         // so a grabbed mini can ride the hand (gated by HeldFigures.Owns).
