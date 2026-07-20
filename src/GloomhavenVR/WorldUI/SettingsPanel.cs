@@ -542,6 +542,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     private void Build()
     {
+        // ROOT-CAUSE guard (bug #5): the holder GameObject is a plain scene object (NOT
+        // DontDestroyOnLoad), so a scene unload destroys it AND every row/widget it owns,
+        // yet this SettingsPanel instance survives on the DontDestroyOnLoad WorldUI driver.
+        // SetOpen() then sees the Unity-null _holder and calls Build() AGAIN. If the
+        // accumulation lists were not reset first, the rebuild would append a second set of
+        // rows/refreshers on top of the stale, destroyed ones — every refresh would deref a
+        // destroyed row (NRE flood, aborting the rest of RefreshAll) and the duplicated rows
+        // would stack into the "super long / not embedded" layout. Clearing here guarantees
+        // exactly ONE clean set per build (Build is only ever reached with _holder == null,
+        // so the previous holder and its rows are already gone).
+        _refreshers.Clear();
+        _debugRows.Clear();
+        _debugRowVisible.Clear();
+
         MixedReality.Bind(); // MR config may be read below before VRRigDriver's first tick
 
         BuildFrame();
@@ -918,6 +932,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             for (int i = 0; i < _debugRows.Count; i++)
             {
                 GameObject go = _debugRows[i];
+                // A row can be Unity-null if its holder was destroyed out from under us
+                // (e.g. a scene unload) while the panel instance survived; skip it rather
+                // than let go.activeSelf throw every refresh (bug #5 flood). The Build()
+                // list-clear below is the real fix; this is the belt-and-braces guard.
+                if (go == null)
+                    continue;
                 bool show = on && _debugRowVisible[i]();
                 if (go.activeSelf != show)
                     go.SetActive(show);
