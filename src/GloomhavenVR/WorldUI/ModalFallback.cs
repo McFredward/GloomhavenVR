@@ -1937,7 +1937,16 @@ internal static class ModalFallback
             if (IsGrabbableModal(window.ID))
             {
                 grab = new GrabbableModal();
-                grab.Build(panel, extraScale, name);
+                // Problem #4 (HUD bleed-through): the pause/options/confirmation menu family gets a
+                // coplanar DEPTH MASK behind its content so the game's transparent HUD (initiative
+                // track, button-cluster labels) that sits BEHIND the floated menu is depth-occluded by
+                // it — the menu writes no depth of its own (ZWrite OFF, deliberate, so hands/board still
+                // occlude it), so without the mask that HUD bled through. Gated to EXACTLY the floated
+                // full-screen menu (ESC/Options family, fullScreenMenu) + the pause/options confirmation
+                // dialogs (isConfirmDialog); normal small modals/tooltips/story and content windows
+                // (Compendium, friend list) get no mask.
+                bool wantDepthMask = fullScreenMenu || isConfirmDialog;
+                grab.Build(panel, extraScale, name, depthMask: wantDepthMask);
                 // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
                 // clickable) closes THIS window through the game's own Escape/Hide path. The
                 // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium), and
