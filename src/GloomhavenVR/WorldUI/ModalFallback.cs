@@ -118,6 +118,26 @@ internal static class ModalFallback
     private const float MinWindowScaleFactor = 0.15f;
 
     /// <summary>
+    /// LOST-MENU RECALL (incident fix): how long a floated STICKY full-screen menu whose game
+    /// window is OPEN may stay continuously outside the head view / out of reach before it is
+    /// recalled in front of the HMD. An open menu gates card/board input BY DESIGN, so a menu
+    /// the user laser-carried away and lost is an invisible input blocker — the whole session
+    /// looked broken ("could not pick up cards any more") because the open ESC menu sat
+    /// off-view. Long enough that briefly looking away never yanks the menu around.
+    /// </summary>
+    private const float RecallOutOfViewSeconds = 6f;
+
+    /// <summary>Recall distance threshold, REAL meters (scaled by the diorama WorldScale like
+    /// the placement itself): a menu farther than this from the head counts as lost even if
+    /// its center is technically inside the frustum (unreadably far away).</summary>
+    private const float RecallDistanceMeters = 4f;
+
+    /// <summary>Frustum margin for the recall visibility test: the panel CENTER may sit this
+    /// far outside the viewport (fraction) and still count as visible — a half-on-screen menu
+    /// at the view edge is findable and must not be yanked back.</summary>
+    private const float RecallViewMargin = 0.2f;
+
+    /// <summary>
     /// THE FLICKER FIX (recurring): sortingOrder for a floated modal's host canvas.
     ///
     /// Root cause — NOT per-frame churn (the logs prove every floated modal is converted,
@@ -657,6 +677,16 @@ internal static class ModalFallback
         /// touches sub-canvases the game legitimately keeps hidden (closed option tabs).
         /// </summary>
         public Canvas? WindowCanvas;
+
+        /// <summary>
+        /// LOST-MENU RECALL: unscaled time-stamp since when this panel's host has been
+        /// CONTINUOUSLY out of the head view (or beyond the recall distance). 0 = currently
+        /// visible / grabbed / not tracked. When the elapsed span exceeds
+        /// <see cref="RecallOutOfViewSeconds"/> the panel is re-placed in front of the HMD
+        /// (<see cref="TickMenuRecall"/>) so an OPEN menu can never be invisibly lost while
+        /// it blocks card/board input.
+        /// </summary>
+        public float OutOfViewSince;
     }
 
     private static readonly List<WindowPanel> Converted = new(4);
@@ -1040,6 +1070,14 @@ internal static class ModalFallback
                                   "compact, consistent every open.");
         }
 
+        // 5c. LOST-MENU RECALL (incident fix): a floated STICKY full-screen menu whose game
+        //     window is still OPEN blocks card/board input BY DESIGN — so it must never be
+        //     lost off-view (the user laser-carried the ESC menu away, it drifted out of
+        //     sight, and every later trigger aimed at the cards hit its grab zone: the whole
+        //     session read as "cards can't be picked up" with no visible reason). Runs after
+        //     the grab follow so it sees the final host pose of this tick.
+        TickMenuRecall();
+
         // Issue #9 (multi-highlight): mark EVERY parallel-open sub-window's ESC-menu tab, not just
         // the single one the game's single-select toggle group leaves 'on'. Runs after the
         // release/convert loops so Converted reflects exactly which windows float this tick.
@@ -1076,6 +1114,98 @@ internal static class ModalFallback
         // The manual chord path forces the screen inside FlatScreen regardless.
         ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0);
         VRModeStateMachine.SetAuxModal(wantLock); // ModalUI only for genuine blockers (item 3b)
+    }
+
+    // ---- lost-menu recall (incident fix) ------------------------------------------------
+
+    /// <summary>
+    /// LOST-MENU RECALL: for each floated STICKY full-screen-menu panel (ESC/Options family)
+    /// whose game window is OPEN, track how long its host has been continuously outside the
+    /// head camera's view frustum (center test with a generous margin) OR farther than
+    /// <see cref="RecallDistanceMeters"/> (real scale) from the head. After
+    /// <see cref="RecallOutOfViewSeconds"/> the panel is RECALLED: re-placed with the exact
+    /// placement used at float time (in front of the HMD at reading distance, upright,
+    /// facing the user) — grabbable panels via <see cref="GrabbableModal.PlaceFrameAt"/>
+    /// (placing the host directly would be snapped back by the next follow tick, the
+    /// RefloatOpenWindows lesson), others via <see cref="PlaceAtHmd"/>. This guarantees the
+    /// user always SEES the menu that is blocking card/board input. The timer resets
+    /// whenever the panel is visible, while a hand grips it (the user is deliberately
+    /// carrying it — never yank it out of their grip), and on recall. Unscaled time — the
+    /// pause menu may freeze timeScale.
+    /// </summary>
+    private static void TickMenuRecall()
+    {
+        if (Converted.Count == 0)
+            return;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return;
+        float now = Time.unscaledTime;
+        float scale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        Vector3 headPos = head.transform.position;
+
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            // Only sticky full-screen menus (ESC/Options family) with their game window OPEN
+            // participate — those are the ones that gate input while open. Closed/sticky-hidden
+            // floats, non-sticky modals and panels on their way out are left alone.
+            if (!wp.Sticky || !wp.FullScreenMenu || wp.UserClosing || wp.Window == null
+                || !wp.Window.IsOpen || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+            {
+                wp.OutOfViewSince = 0f;
+                continue;
+            }
+            // A gripped panel is being deliberately placed — never recall mid-carry.
+            if (wp.Grab != null && wp.Grab.IsGrabbed)
+            {
+                wp.OutOfViewSince = 0f;
+                continue;
+            }
+
+            Vector3 pos = wp.Panel.HostGo.transform.position;
+            bool visible = IsInHeadView(head, pos)
+                           && Vector3.Distance(headPos, pos) <= RecallDistanceMeters * scale;
+            if (visible)
+            {
+                wp.OutOfViewSince = 0f;
+                continue;
+            }
+            if (wp.OutOfViewSince <= 0f)
+            {
+                wp.OutOfViewSince = now;
+                continue;
+            }
+            float outFor = now - wp.OutOfViewSince;
+            if (outFor < RecallOutOfViewSeconds)
+                continue;
+
+            // RECALL — the same placement the window floated with.
+            if (wp.Grab != null)
+            {
+                if (!ComputeHmdPose(out Vector3 p, out Quaternion r, out _))
+                    continue; // no head pose this tick — retry next tick, timer keeps running
+                wp.Grab.PlaceFrameAt(p, r);
+            }
+            else
+            {
+                PlaceAtHmd(wp.Panel, wp.ExtraScale);
+            }
+            wp.OutOfViewSince = 0f;
+            VRLog.Info("WorldUI", $"MODAL RECALL: '{wp.Window.name}' was open but out of view for " +
+                                  $"{outFor:F0}s — recalled in front of the HMD (it blocks card/board " +
+                                  "input while open).");
+        }
+    }
+
+    /// <summary>Panel center inside the head frustum (with <see cref="RecallViewMargin"/> slack,
+    /// so a half-on-screen menu at the view edge still counts as visible).</summary>
+    private static bool IsInHeadView(Camera head, Vector3 worldPos)
+    {
+        Vector3 vp = head.WorldToViewportPoint(worldPos);
+        return vp.z > 0f
+               && vp.x >= -RecallViewMargin && vp.x <= 1f + RecallViewMargin
+               && vp.y >= -RecallViewMargin && vp.y <= 1f + RecallViewMargin;
     }
 
     // ---- full-screen-menu selection guard (P6 flicker fix) ------------------------------

@@ -40,6 +40,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private const float MinBarWidth = 0.04f;
 
     /// <summary>
+    /// LOST-MENU FIX: cross-section pad of the LASER-only bar collider, in bar-local units
+    /// (the bar cube is unit-sized, scaled to barWidth × BarThickness × BarThickness — so
+    /// 1.5 ≈ a 3.6 cm strip). Just enough slack to point at the 2.4 cm visible bar
+    /// comfortably, WITHOUT re-growing the swallow-everything zone the incident showed:
+    /// the palm ZONE collider (5 cm, 62% width) had been the laser target too, and since
+    /// the floated menu sits between the user and the board, every trigger aimed at the
+    /// cards hit it and dragged the (possibly off-view) menu instead.
+    /// </summary>
+    private const float BarColliderPad = 1.5f;
+
+    /// <summary>
     /// Item 3: the brass grab bar must OCCLUDE the menu content behind it (foreground is
     /// foreground). The floated menu host is a WORLD-space canvas at
     /// <c>ModalFallback.ModalHostSortingOrder = 1000</c>, and Unity sorts EVERY renderer by
@@ -63,6 +74,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     private float _spawnWorldScale = 1f;
     private string _logName = "Menu";
+
+    /// <summary>DIAG-throttle (spam fix): seconds between MODAL DIAG snapshot lines while the host moves.</summary>
+    private const float DiagThrottleSeconds = 1f;
+
+    // DIAG-throttle state: last host pose (movement detection) + per-panel next-allowed stamp.
+    private Vector3 _diagLastPos;
+    private Quaternion _diagLastRot = Quaternion.identity;
+    private float _diagNextAllowed;
 
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
@@ -169,6 +188,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         host.SetPositionAndRotation(_frame.position, _frame.rotation);
         host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * factor);
 
+        // DIAG SPAM FIX: while the host is being carried/moved, its position changes every
+        // frame, so CanvasConversion's change-gated MODAL DIAG snapshot (host pos rounded to
+        // cm) emitted one line PER FRAME for the whole drag (hundreds of lines in the incident
+        // log). Throttle it to ~1 line/s per panel by gating the panel's Diagnostic opt-in.
+        ThrottleDiagWhileMoving(host);
+
         // Bar/zone track the live host rect. The holder is now identity, so these frame-local
         // metres must carry worldScale themselves to reach the host's world size (the frame's
         // own localScale contributes the user grab factor). unit = world metres per host pixel.
@@ -177,6 +202,43 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float halfHeight = rect.height * unit * 0.5f;
         float width = rect.width * unit;
         SyncBar(halfHeight, width, worldScale);
+    }
+
+    /// <summary>
+    /// DIAG SPAM FIX: gate <c>ConvertedPanel.Diagnostic</c> so the change-gated MODAL DIAG
+    /// snapshot fires at most ~1/s per panel WHILE the host pose is actually changing (a
+    /// carry/laser-drag/recall); a static host keeps Diagnostic permanently ON, so every
+    /// state CHANGE (open/close/adopt, canvas/order flips, the settle line after a drag
+    /// ends) still logs immediately and unthrottled. Diagnostic also gates the per-frame
+    /// adopted-sorting re-assert in CanvasConversion — while a panel is mid-drag that guard
+    /// runs at the throttle cadence instead, which the 30-frame adoption sweep already
+    /// backstops (pre-guard behavior, only ever during active movement of THIS panel).
+    /// </summary>
+    private void ThrottleDiagWhileMoving(Transform host)
+    {
+        // Movement epsilon: 5 mm at diorama scale — below the snapshot's own cm rounding,
+        // so anything smaller never spammed in the first place. Rotation guards a pure spin.
+        float eps = 0.005f * _spawnWorldScale;
+        bool moving = (host.position - _diagLastPos).sqrMagnitude > eps * eps
+                      || Quaternion.Angle(host.rotation, _diagLastRot) > 0.5f;
+        _diagLastPos = host.position;
+        _diagLastRot = host.rotation;
+
+        if (!moving)
+        {
+            _panel.Diagnostic = true; // static host: change-gated DIAG stays fully live
+            return;
+        }
+        float now = Time.unscaledTime;
+        if (now >= _diagNextAllowed)
+        {
+            _diagNextAllowed = now + DiagThrottleSeconds;
+            _panel.Diagnostic = true; // one snapshot line for this second of movement
+        }
+        else
+        {
+            _panel.Diagnostic = false; // swallow the per-frame pos-churn lines
+        }
     }
 
     // ---- build ------------------------------------------------------------------------------
@@ -195,7 +257,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
         bar.name = "Bar";
-        Object.Destroy(bar.GetComponent<Collider>());
+        // LOST-MENU FIX: keep the primitive's BoxCollider as the LASER-only drag-bar target
+        // instead of destroying it. The unit box scaled by the bar transform matches the
+        // VISIBLE brass strip exactly (padded slightly via BarColliderPad); handed to the
+        // shared handle as BarCollider so RayGrabDriver ray-tests ONLY this strip. It is a
+        // trigger on the mod render layer, so the physics ray (RayInteractor) still ignores
+        // it, and it is NOT registered with VRInteractables — the palm grab keeps using the
+        // generous frame zone below (near-grab is deliberate; the laser was the problem).
+        var barCollider = bar.GetComponent<BoxCollider>();
+        barCollider.isTrigger = true;
+        barCollider.size = new Vector3(1f, BarColliderPad, BarColliderPad);
         bar.transform.SetParent(_frame, worldPositionStays: false);
         bar.transform.localScale = new Vector3(0.2f, BarThickness, BarThickness);
         var mr = bar.GetComponent<MeshRenderer>();
@@ -217,6 +288,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _grabZone.size = new Vector3(0.25f, 0.05f, 0.05f);
         _handle = frameGo.AddComponent<PanelGrabHandle>();
         _handle.Init(this, mr, "WorldUI", $"{_logName} menu");
+        // LOST-MENU FIX: split laser vs palm — the far ray grabs ONLY the visible bar strip.
+        _handle.SetBarCollider(barCollider);
 
         // Render-only mod layer — grabs/pokes route through the registries, not layers.
         VRLayers.Apply(holderGo);

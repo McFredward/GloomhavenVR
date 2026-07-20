@@ -67,11 +67,18 @@ internal sealed class RayGrabDriver
         var entries = VRInteractables.Grabbables;
         for (int i = 0; i < entries.Count; i++)
         {
-            Collider col = entries[i].Collider;
-            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy)
-                continue;
             // Only panel/modal drag handles are laser-draggable; cards etc. are not.
             if (entries[i].Target is not PanelGrabHandle handle || !handle.CanGrab)
+                continue;
+            // LOST-MENU FIX: when the handle exposes a dedicated BAR collider (floated modal
+            // windows), the laser tests ONLY that narrow visible drag-bar strip. The wider
+            // registered grab ZONE stays palm-only (ProximityGrabber) — a floated menu sits
+            // between the user and the board, and ray-testing its generous zone made EVERY
+            // trigger aimed at the cards/board start a laser-carry of the menu instead. The
+            // hover beam-clamp (UiHitOverride below) follows the same collider, so the beam
+            // only latches onto the visible bar too.
+            Collider col = handle.BarCollider != null ? handle.BarCollider : entries[i].Collider;
+            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy)
                 continue;
             if (col.Raycast(ray, out RaycastHit hit, bestDist))
             {
