@@ -1,6 +1,6 @@
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using GloomhavenVR.Board.FigureGrab;
-using GloomhavenVR.Compat;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
@@ -89,7 +89,7 @@ internal static class ActorBars
         /// </summary>
         public ActorBehaviour? Actor;
 
-        // ---- depth-test state (Compat.DepthShaderSwap integration) ---------------------------
+        // ---- depth-test state ([WorldUI] BarsOccluded gate) ----------------------------------
         // Health bars are world-space UI: Unity's UI shaders declare `ZTest [unity_GUIZTestMode]`,
         // which effectively resolves to Always, so bar pixels bleed through walls. The old fix
         // (line-of-sight probe + SetActive hide) TOGGLED the bar and is retired per user mandate.
@@ -114,6 +114,32 @@ internal static class ActorBars
 
     /// <summary>Rescan cadence for late-spawned bar graphics (HealthBar mark pooling).</summary>
     private const float DepthScanIntervalSeconds = 2f;
+
+    // ---- BarsOccluded config (standalone binding) --------------------------------------------
+    // FRESH key in its OWN module file (dev.gloomhavenvr.bars.cfg) on purpose: the BepInEx
+    // persisted-config trap means flipping a default on an EXISTING key does nothing once a
+    // stale value is saved — a brand-new key name guarantees the default (true) actually
+    // applies on every rig. Not in WorldUIConfig because that file predates the trap lesson.
+    private static ConfigFile? s_barsConfigFile;
+    private static ConfigEntry<bool>? s_barsOccluded;
+
+    /// <summary>Config gate for the bar depth-test (lazily bound, read live every scan).</summary>
+    private static bool BarsOccluded
+    {
+        get
+        {
+            if (s_barsOccluded == null)
+            {
+                s_barsConfigFile = ModuleConfig.Create("bars");
+                s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", true,
+                    "Actor HP/effect bars depth-test against the world: walls occlude them like "
+                    + "any world object instead of the bar shining through. Look-preserving — "
+                    + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "
+                    + "where a wall is in front. Disable to get the vanilla draw-on-top bars.");
+            }
+            return s_barsOccluded.Value;
+        }
+    }
 
     private static readonly HashSet<WorldspaceDisplayPanelBase> Owned = new();
     private static readonly Dictionary<WorldspacePanelUIController, Adopted> Adoptions = new();
@@ -206,11 +232,11 @@ internal static class ActorBars
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
 
-            // Wall occlusion (Compat.DepthShaderSwap gate): the bar's graphics run per-instance
+            // Wall occlusion ([WorldUI] BarsOccluded gate): the bar's graphics run per-instance
             // materials with unity_GUIZTestMode=LEqual so wall depth occludes them naturally —
             // the bar itself stays enabled and billboarding (no toggling; the old linecast+hide
             // probe is retired). Slow rescan catches graphics pooled after adopt (health marks).
-            if (DepthShaderSwap.BarsDepthTest)
+            if (BarsOccluded)
             {
                 float now = Time.unscaledTime;
                 if (now >= adopted.NextDepthScan)

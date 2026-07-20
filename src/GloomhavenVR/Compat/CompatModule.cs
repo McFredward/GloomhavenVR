@@ -81,6 +81,12 @@ internal sealed class CompatModule : IVRModule
         //     installed. The occlusion problem stays OPEN until a solution exists that preserves
         //     the original look 1:1 (e.g. exact-copy shader variants that only add ZTest).
         //     The always-on CENSUS above stays — evidence only, mutates nothing.
+        //  6. Tiles-occlusion MIRROR (look-preserving, the game's native mechanism): replicate
+        //     TilesOcclusionGenerator's screen-space occlusion-map CommandBuffer onto the VR head
+        //     camera with the head camera's matrices/dimensions, so the VFX shaders' own
+        //     per-pixel self-hiding (flames/moths behind walls) works from the VR viewpoint.
+        //     Copied materials, zero writes to game state, config-gated, reversible.
+        TilesOcclusionMirror.Install();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -122,6 +128,7 @@ internal sealed class CompatModule : IVRModule
         // so it unhooks first — before GlowOcclusion tears down the sweep driver it rides on.
         // Then ZTest enforcement (applied AFTER wall solidification) reverts before the walls,
         // so a renderer touched by both ends on WallSolidifier's true originals.
+        TilesOcclusionMirror.Uninstall();
         DepthShaderSwap.Uninstall();
         OcclusionProbe.Uninstall();
         GlowOcclusion.Uninstall();
