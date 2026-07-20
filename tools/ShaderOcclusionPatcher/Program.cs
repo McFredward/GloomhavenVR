@@ -32,6 +32,14 @@ namespace ShaderOcclusionPatcher
                         case "--game-data": gameData = args[++i]; break;
                         case "--backup-dir": backupDir = args[++i]; break;
                         case "--manifest-out": manifestOut = args[++i]; break;
+                        // Diagnostic override: comma-separated shader names replace the built-in
+                        // target list for scan/dump (NOT for patch — the patch set stays curated).
+                        case "--shaders":
+                            if (command is "scan" or "dump")
+                                Engine.TargetShaders = args[++i]
+                                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                            else { Console.Error.WriteLine("--shaders is only valid with scan/dump."); return 1; }
+                            break;
                         default:
                             Console.Error.WriteLine($"Unknown option: {args[i]}");
                             PrintUsage();

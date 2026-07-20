@@ -68,7 +68,7 @@ public static class Engine
 {
     private enum Mode { Scan, Verify, Patch }
 
-    public static readonly string[] TargetShaders =
+    public static string[] TargetShaders =
     {
         "VFX/ParticleMasterUnlitAdd_Shd",
         "SimpleParticleAlphaDFade",

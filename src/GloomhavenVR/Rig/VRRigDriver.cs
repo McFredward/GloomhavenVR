@@ -458,6 +458,18 @@ internal sealed class VRRigDriver : MonoBehaviour
         // FOV is owned by the XR display (per-eye projection) — no need to copy.
         _camera.stereoTargetEye = StereoTargetEyeMask.Both;
 
+        // OCCLUSION (the fire/glow-through-walls saga, final root cause): the game's VFX shaders
+        // (torch/candle flames+glow, DFade clouds, distortion) SOFT-FADE against
+        // _CameraDepthTexture — big glow billboards physically poke through thin walls, and the
+        // depth-fade term is what hides those poked-through fragments in the flat game (its camera
+        // gets the depth texture via the game's own stack, incl. the PostProcessLayer the mod
+        // kill-switches). Our mod-created head camera shipped with DepthTextureMode.None, so the
+        // fade sampled nothing and FAILED OPEN → glow rendered fully through walls. All serialized
+        // shader pass states were proven clean (ZTest LEqual, walls ZWrite On) — the ONLY missing
+        // piece was this depth texture. One extra depth prepass per eye is the cost; the visual
+        // result is the game's ORIGINAL intended soft-particle look.
+        _camera.depthTextureMode = DepthTextureMode.Depth;
+
         // We drive the pose via TrackedPoseDriver — switch off the implicit XR camera
         // tracking the display subsystem would otherwise apply on top.
         XRDevice.DisableAutoXRCameraTracking(_camera, true);
