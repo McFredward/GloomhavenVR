@@ -273,6 +273,19 @@ internal static class GlowOcclusion
                 VRLog.Info(Name,
                     $"DEPTH-TEX evidence: headCam.depthTextureMode={(head != null ? head.depthTextureMode.ToString() : "<no head>")}, "
                     + $"global _CameraDepthTexture={(depthTex != null ? $"{depthTex.width}x{depthTex.height} ({depthTex.graphicsFormat})" : "NULL — depth texture NOT generated, soft-particle fade cannot work")}.");
+
+                // OCCLUSION-GLOBALS evidence (the flame-through-walls linchpin): the game's VFX
+                // shaders reference _EnableOcclusionMap / ToggleWallFade / _TilesOcclusionMap. If
+                // any of these is 0 / null in our render, the shader's own wall-occlusion path is
+                // simply switched OFF — which would explain why NOTHING we do downstream helps.
+                Texture? tiles = Shader.GetGlobalTexture("_TilesOcclusionMap");
+                Texture? objOcc = Shader.GetGlobalTexture("_ObjectOcclusion");
+                VRLog.Info(Name,
+                    $"OCCLUSION-GLOBALS evidence: _EnableOcclusionMap={Shader.GetGlobalFloat("_EnableOcclusionMap"):0.###}, "
+                    + $"ToggleWallFade={Shader.GetGlobalInt("ToggleWallFade")}, _ToggleWallfade={Shader.GetGlobalInt("_ToggleWallfade")}, "
+                    + $"_TilesOcclusionMap={(tiles != null ? $"{tiles.width}x{tiles.height}" : "NULL")}, "
+                    + $"_ObjectOcclusion={(objOcc != null ? $"{objOcc.width}x{objOcc.height}" : "NULL")}, "
+                    + $"tilesOcclusionOffsetScale={Shader.GetGlobalFloat("tilesOcclusionOffsetScale"):0.###}.");
             }
 
             VRLog.Debug(Name,
