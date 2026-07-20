@@ -46,6 +46,9 @@ internal static class WorldUIConfig
     /// <summary>World-canvas scale in millimeters per uGUI pixel (at diorama scale 1).</summary>
     internal static ConfigEntry<float> CanvasScaleMm = null!;
 
+    /// <summary>Initiative track 3D depth effect: max total front-to-back z spread (px), live-tunable.</summary>
+    internal static ConfigEntry<float> InitiativeDepthMaxSpreadPx = null!;
+
     /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
     internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
@@ -86,6 +89,9 @@ internal static class WorldUIConfig
 
     /// <summary>Legacy: world panels re-orient with the rig yaw per frame (HUD-like). Default false (P6).</summary>
     internal static ConfigEntry<bool> PanelsFollowView = null!;
+
+    /// <summary>Hover hex-hint (prop-info) panels drift to the center of view with lazy damped motion while shown.</summary>
+    internal static ConfigEntry<bool> HexHintFollowView = null!;
 
     // ---- combat log panel layout (test #19: movable/scalable/pinnable like the tray) -----
     /// <summary>Combat log anchor mode: true = re-derive from the seat anchor, false = pinned in the world.</summary>
@@ -233,6 +239,12 @@ internal static class WorldUIConfig
             "scene variants load and buttons commit without gamepad long-press flows.");
         CanvasScaleMm = _file.Bind("WorldUI", "CanvasScaleMm", 1.0f,
             "World-canvas scale: millimeters per uGUI pixel at diorama scale 1 (default 1 px = 1 mm).");
+        InitiativeDepthMaxSpreadPx = _file.Bind("WorldUI", "InitiativeDepthMaxSpreadPx", 10f,
+            "Initiative track 3D depth effect: the MAXIMUM total front-to-back z spread (uGUI " +
+            "pixels) between the shallowest and deepest initiative portrait. The authored row " +
+            "depth is compressed proportionally to land at this cap (never amplified). Higher = " +
+            "stronger recession; 0 = flat. Live-tunable in the debug menu (Panels -> Initiative). " +
+            "Range 0..40.");
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
@@ -325,6 +337,13 @@ internal static class WorldUIConfig
             "the live rig yaw every frame, so they swing around the table with every snap " +
             "turn / world grab — perceived as a floating HUD. Default false: panels are " +
             "FIXED IN THE WORLD at the table and re-anchor only on rig rebuild or recenter.");
+        HexHintFollowView = _file.Bind("WorldUI", "HexHintFollowView", true,
+            "While a board-field hover hint (the TextInfoPanel/PropInfoPanel popups, e.g. " +
+            "'Geschlossene Tür') is shown, drift it to a comfortable reading spot near the " +
+            "CENTER of the player's field of view with LAZY (critically-damped) motion that " +
+            "follows the head and settles, instead of leaving it at PropInfoSurface's fixed " +
+            "table dock. Either way it stays upright and billboards toward the head. Off = " +
+            "keep the dock position and only re-face it to the head.");
         ModalStyle = _file.Bind("WorldUI", "ModalStyle", "window",
             "How in-scenario 2D fallback windows (story boxes, events, tutorials, ESC " +
             "menu, rewards, choice dialogs, ...) are made operable in VR (P8, test #12). " +

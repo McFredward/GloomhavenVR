@@ -864,6 +864,21 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value += d * 5f;
             });
 
+        // Initiative-only 3D depth row (shown only when Element == Initiative): live-tune the
+        // initiative track's front-to-back portrait spread cap ([WorldUI] InitiativeDepthMaxSpreadPx,
+        // px). InitiativeTrackSurface.NormalizeDepth re-reads it every tick and re-clamps, so the
+        // recession updates live (0 = flat). Analogous to the Board Tilt/Yaw row above.
+        var initDepthRow = Row();
+        RegisterDebugRow(initDepthRow.gameObject, () => PerBoard() && CurrentElement() == DebugElement.Initiative);
+        Label(initDepthRow, "3D depth", 16f, flexible: true);
+        MiniStepper(initDepthRow,
+            () => $"{WorldUIConfig.InitiativeDepthMaxSpreadPx.Value:0}px",
+            d =>
+            {
+                ConfigEntry<float> e = WorldUIConfig.InitiativeDepthMaxSpreadPx;
+                e.Value = Mathf.Clamp(e.Value + d * 1f, 0f, 40f);
+            });
+
         // Reset element (per-board categories only — resets the selected element).
         var actionRow = Row();
         RegisterDebugRow(actionRow.gameObject, PerBoard);
