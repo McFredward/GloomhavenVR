@@ -9,7 +9,14 @@ using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Compat;
 
 /// <summary>
-/// ISSUE #4 endgame — LINE-OF-SIGHT OCCLUSION PROBE for shaders that CANNOT be depth-corrected.
+/// SUPERSEDED (opt-in fallback only) — LINE-OF-SIGHT OCCLUSION PROBE for shaders that cannot be
+/// depth-corrected via material properties. RETIRED per user mandate: the binary hide/show (with
+/// its ~1s hysteresis delay) toggles objects on/off, which is rejected — <see cref="DepthShaderSwap"/>
+/// now fixes the same shaders as PURE RENDER STATE (permanent instance-material swap to
+/// depth-testing replacements; walls occlude naturally, no toggling). The probe stays compiled as
+/// an opt-in fallback: config default is now FALSE, and while disabled it discovers nothing and
+/// restores anything it ever hid. The <see cref="WorldUI.ActorBars"/> integration was removed —
+/// bars now depth-test their materials instead (see ActorBars).
 ///
 /// The census (see <see cref="GlowOcclusion"/>) proved the remaining bleed-through elements use
 /// game shaders with HARDCODED depth behavior: they expose no _ZTest/_ZWrite material properties
@@ -26,9 +33,8 @@ namespace GloomhavenVR.Compat;
 /// the renderer is disabled, and re-enabled after 2 consecutive clear probes (hysteresis kills
 /// flicker at wall edges). Unity <see cref="Light"/>s parented under — or within ~1.5 world units
 /// of — a targeted renderer are probed the same way, because shadowless lights illuminate through
-/// walls. World-space health bars get the same treatment inside
-/// <see cref="WorldUI.ActorBars"/> (gated on <see cref="Enabled"/>, probing via
-/// <see cref="LinecastBlocked"/>).
+/// walls. (World-space health bars are no longer probed here — <see cref="WorldUI.ActorBars"/>
+/// depth-tests its graphics' materials instead.)
 ///
 /// TARGET DISCOVERY rides <see cref="GlowOcclusion"/>'s existing sweep schedule (the
 /// <see cref="GlowOcclusion.PostSweep"/> hook — ~2s/5s/10s/20s/40s after scene load, then every
@@ -49,7 +55,7 @@ internal static class OcclusionProbe
     private const string Name = "OcclusionProbe";
     private const string DriverName = "GloomhavenVR.OcclusionProbe";
 
-    /// <summary>Probe cadence — also used by <see cref="WorldUI.ActorBars"/> for bar probes.</summary>
+    /// <summary>Probe cadence.</summary>
     internal const float ProbeIntervalSeconds = 0.2f;
 
     /// <summary>Round-robin budget: at most this many targets probed per 0.2 s tick.</summary>
@@ -135,10 +141,10 @@ internal static class OcclusionProbe
     private static int _shows;
 
     /// <summary>
-    /// True when the probe is installed and config-enabled — the gate
-    /// <see cref="WorldUI.ActorBars"/> reads for health-bar occlusion.
+    /// True when the probe is installed and config-enabled. Default is now OFF — the probe is a
+    /// fallback superseded by <see cref="DepthShaderSwap"/>.
     /// </summary>
-    internal static bool Enabled => _installed && (_enabled?.Value ?? true);
+    internal static bool Enabled => _installed && (_enabled?.Value ?? false);
 
     // ------------------------------------------------------------------ install / uninstall
 
@@ -185,13 +191,13 @@ internal static class OcclusionProbe
             return;
         // Standalone module config file (dev.gloomhavenvr.probe.cfg) — no edit to Plugin.cs needed.
         _configFile = ModuleConfig.Create("probe");
-        _enabled = _configFile.Bind("Compat", "OcclusionProbe", true,
-            "Line-of-sight occlusion probe: hides fire/torch particles, hex decals, X-ray floor "
-            + "tiles, moths and similar depth-ignoring VFX (plus their point lights and world-space "
-            + "health bars) whenever a wall stands between the player's head and them, so nothing "
-            + "bleeds through solid geometry in VR. These shaders hardcode 'draw on top' and cannot "
-            + "be depth-corrected via material properties. Binary hide with flicker hysteresis; "
-            + "everything is restored when the line of sight clears. Disable if VFX pop wrongly.");
+        _enabled = _configFile.Bind("Compat", "OcclusionProbe", false,
+            "LEGACY FALLBACK (default off — superseded by DepthShaderSwap): line-of-sight "
+            + "occlusion probe that HIDES fire/torch particles, hex decals, X-ray floor tiles, "
+            + "moths and similar depth-ignoring VFX (plus their point lights) whenever a wall "
+            + "stands between the player's head and them. Binary hide with flicker hysteresis "
+            + "(~1s reaction delay). Only enable if the render-state DepthShaderSwap fix is "
+            + "disabled or misbehaves on your hardware.");
         _shaderConfig = _configFile.Bind("Compat", "OcclusionProbeShaders", DefaultShaders,
             "Comma-separated shader names whose renderers the occlusion probe manages. Seeded with "
             + "the census-proven depth-ignoring set; tunable without rebuild.");
@@ -255,6 +261,15 @@ internal static class OcclusionProbe
     {
         if (!_installed || !VRSession.IsRunning)
             return;
+
+        if (!Enabled)
+        {
+            // Superseded-by-default: while OFF (the new default), don't waste sweeps discovering
+            // targets; just release anything still held from a live config flip.
+            if (_rendererList.Count > 0 || _lightList.Count > 0)
+                RestoreAll("config off");
+            return;
+        }
 
         try
         {
@@ -568,7 +583,6 @@ internal static class OcclusionProbe
     /// <paramref name="to"/> (target). Ignores triggers, the mod layer, TransparentFX/UI,
     /// hits inside <paramref name="self"/>'s own hierarchy, and hits within
     /// <see cref="EndClearanceWU"/> of the far end (the target's own mounting surface).
-    /// Also used by <see cref="WorldUI.ActorBars"/> for health-bar probes.
     /// </summary>
     internal static bool LinecastBlocked(Vector3 from, Vector3 to, Transform? self, out RaycastHit hit)
     {
@@ -608,8 +622,7 @@ internal static class OcclusionProbe
 
     /// <summary>
     /// First ~10 transitions verbose (hides include occluder collider name + layer — the evidence
-    /// for the real wall layer), then counts only (sweep heartbeat). Shared with the ActorBars
-    /// health-bar probes so the budget is global.
+    /// for the real wall layer), then counts only (sweep heartbeat).
     /// </summary>
     internal static void LogHide(string label, in RaycastHit hit)
     {

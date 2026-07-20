@@ -77,7 +77,16 @@ internal sealed class CompatModule : IVRModule
         //     X-ray floor tiles, moths, …), their point lights, and — via ActorBars — world-space
         //     health bars: a wall between head and target disables the renderer/light until the
         //     line of sight clears. Target discovery rides GlowOcclusion's sweep (PostSweep hook).
+        //     (NOW default-OFF: superseded by DepthShaderSwap below; kept as an opt-in fallback.)
         OcclusionProbe.Install();
+        //  5. Depth shader swap (config-gated "DepthShaderSwap", default on): PURE RENDER-STATE
+        //     fix for the census-proven hardcoded draw-on-top shaders — per-renderer instance
+        //     materials are permanently swapped to depth-testing replacements (game's Amp_Basic /
+        //     bundled GloomhavenVR/Overlay), so walls occlude flames, decals, unseen tiles, moths
+        //     etc. naturally with zero toggling; torch/candle lights additionally get hard shadows
+        //     ("TorchLightShadows") so their light stops at walls. Rides the same PostSweep hook.
+        //     Also gates ActorBars' health-bar unity_GUIZTestMode depth-test.
+        DepthShaderSwap.Install();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -119,6 +128,7 @@ internal sealed class CompatModule : IVRModule
         // so it unhooks first — before GlowOcclusion tears down the sweep driver it rides on.
         // Then ZTest enforcement (applied AFTER wall solidification) reverts before the walls,
         // so a renderer touched by both ends on WallSolidifier's true originals.
+        DepthShaderSwap.Uninstall();
         OcclusionProbe.Uninstall();
         GlowOcclusion.Uninstall();
         WallSolidifier.Uninstall();
