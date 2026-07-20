@@ -72,6 +72,12 @@ internal sealed class CompatModule : IVRModule
         //     material with ZTest Always is forced to LEqual so it respects depth — excluding the
         //     mod layer, UI canvases, actor outlines and the mod's head/hands rig.
         GlowOcclusion.InstallEnforcement();
+        //  4. Occlusion probe (config-gated "OcclusionProbe", default on): line-of-sight hide for
+        //     the census-proven HARDCODED depth-ignoring shaders (fire/torch particles, hex decals,
+        //     X-ray floor tiles, moths, …), their point lights, and — via ActorBars — world-space
+        //     health bars: a wall between head and target disables the renderer/light until the
+        //     line of sight clears. Target discovery rides GlowOcclusion's sweep (PostSweep hook).
+        OcclusionProbe.Install();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -109,8 +115,11 @@ internal sealed class CompatModule : IVRModule
 
     public void Shutdown()
     {
-        // LIFO restore: ZTest enforcement was applied AFTER wall solidification, so revert it
-        // first — a renderer touched by both then ends on WallSolidifier's true originals.
+        // LIFO restore: the occlusion probe was installed last (and only toggles enabled flags),
+        // so it unhooks first — before GlowOcclusion tears down the sweep driver it rides on.
+        // Then ZTest enforcement (applied AFTER wall solidification) reverts before the walls,
+        // so a renderer touched by both ends on WallSolidifier's true originals.
+        OcclusionProbe.Uninstall();
         GlowOcclusion.Uninstall();
         WallSolidifier.Uninstall();
 

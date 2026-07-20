@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Board.FigureGrab;
+using GloomhavenVR.Compat;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
@@ -85,6 +86,23 @@ internal static class ActorBars
         /// figure was not yet resolvable at adopt — re-resolved lazily while something is held.
         /// </summary>
         public ActorBehaviour? Actor;
+
+        // ---- occlusion probe state (Compat.OcclusionProbe integration) -----------------------
+        // Health bars are CanvasRenderer-driven so the shader-based probe can't see them; the same
+        // head→anchor linecast with 2-probe hysteresis runs here instead, throttled to the probe
+        // interval per bar. OccHidden feeds the existing HostGo.SetActive hide path (item 6).
+
+        /// <summary>Consecutive blocked probes (hide at 2).</summary>
+        public int OccBlocked;
+
+        /// <summary>Consecutive clear probes (show at 2).</summary>
+        public int OccClear;
+
+        /// <summary>True while the bar is hidden because a wall blocks the line of sight.</summary>
+        public bool OccHidden;
+
+        /// <summary>Next unscaled time this bar's line of sight is probed (~0.2 s cadence).</summary>
+        public float NextOccProbe;
     }
 
     private static readonly HashSet<WorldspaceDisplayPanelBase> Owned = new();
@@ -171,18 +189,63 @@ internal static class ActorBars
                     adopted.Actor = ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack);
                 hide = adopted.Actor != null && HeldFigures.Owns(adopted.Actor);
             }
+
+            // Track point + anchor first — the occlusion probe needs the anchor position.
+            // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
+            // scales with the diorama by construction — zooming the table keeps the
+            // bar exactly above the miniature instead of inside it.
+            bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
+            Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
+
+            // Occlusion (Compat.OcclusionProbe gate): bars are world-space UI canvases and bleed
+            // through walls exactly like the depth-ignoring VFX, so the same head→anchor linecast
+            // with 2-blocked/2-clear hysteresis hides them. Throttled to the probe interval per
+            // bar (LateTick is per-frame); ownership is trivial here — the HostGo active flag is
+            // already ours (same mechanism as the held-mini hide), so no game state is claimed.
+            if (!hide && haveTrack && OcclusionProbe.Enabled)
+            {
+                float now = Time.unscaledTime;
+                if (now >= adopted.NextOccProbe)
+                {
+                    adopted.NextOccProbe = now + OcclusionProbe.ProbeIntervalSeconds;
+                    Transform? self = controller.m_ObjectToTrack != null
+                        ? controller.m_ObjectToTrack.transform : null;
+                    if (OcclusionProbe.LinecastBlocked(headPos, pos, self, out RaycastHit occHit))
+                    {
+                        adopted.OccClear = 0;
+                        if (++adopted.OccBlocked >= 2 && !adopted.OccHidden)
+                        {
+                            adopted.OccHidden = true;
+                            OcclusionProbe.LogHide($"ActorBar {controller.name}", occHit);
+                        }
+                    }
+                    else
+                    {
+                        adopted.OccBlocked = 0;
+                        if (++adopted.OccClear >= 2 && adopted.OccHidden)
+                        {
+                            adopted.OccHidden = false;
+                            OcclusionProbe.LogShow($"ActorBar {controller.name}");
+                        }
+                    }
+                }
+                hide |= adopted.OccHidden;
+            }
+            else if (adopted.OccHidden && !OcclusionProbe.Enabled)
+            {
+                // Live config-off: release the occlusion hide immediately.
+                adopted.OccHidden = false;
+                adopted.OccBlocked = 0;
+                adopted.OccClear = 0;
+            }
+
             if (panel.HostGo.activeSelf == hide)
                 panel.HostGo.SetActive(!hide);
             if (hide)
                 continue;
 
-            if (!TryGetTrackPoint(controller, out Vector3 track))
+            if (!haveTrack)
                 continue;
-
-            // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
-            // scales with the diorama by construction — zooming the table keeps the
-            // bar exactly above the miniature instead of inside it.
-            Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
 
             // Billboard: uGUI front faces -forward → +Z away from the viewer.
             Vector3 fromHead = pos - headPos;
