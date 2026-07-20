@@ -106,6 +106,21 @@ internal static class HandSuppression
     private static bool _lifted;
     private static int _burnCount;
 
+    /// <summary>
+    /// TASK #10: BurnActive is held for a short TAIL past the last burn registration so no flat
+    /// frame ever leaks. BurnCardFx's per-card effect detection FLICKERS on/off between frames —
+    /// the card's <c>CardEffects</c> FXTask is transiently unreadable while its face is re-adopted,
+    /// which produces the per-frame "Burn/ghost effect playing" spam in the log and oscillated this
+    /// ref-count (BeginBurn/EndBurn every frame). That oscillation strobed BurnActive, and with it
+    /// the game's flat screen-space burning card onto the FlatScreen modal mirror at the start/end
+    /// of a burn (the reported flash). Refreshing the hold on every Begin AND End keeps BurnActive
+    /// solid across the flicker and for a beat past the true end.
+    /// </summary>
+    private static float _burnHoldUntil = float.NegativeInfinity;
+
+    /// <summary>Seconds BurnActive stays true past the last burn registration (task #10 tail hold).</summary>
+    private const float BurnTailSeconds = 0.5f;
+
     /// <summary>Master switch, owned by CardsModule (true while VR/dev cards run).</summary>
     internal static bool Active { get; set; }
 
@@ -121,15 +136,21 @@ internal static class HandSuppression
     /// is active we keep the lift DOWN so nothing composites onto FlatScreen — the
     /// world-space smoke plume (bounded by <see cref="BurnCardFx"/>) still signals the burn.
     /// </summary>
-    internal static bool BurnActive => _burnCount > 0;
+    internal static bool BurnActive => _burnCount > 0 || Time.unscaledTime < _burnHoldUntil;
 
-    /// <summary>Register/unregister a live burn animation (balanced by BurnCardFx).</summary>
-    internal static void BeginBurn() => _burnCount++;
+    /// <summary>Register/unregister a live burn animation (balanced by BurnCardFx). Both edges
+    /// refresh the tail hold so a per-frame flip-flop of the detection never drops BurnActive.</summary>
+    internal static void BeginBurn()
+    {
+        _burnCount++;
+        _burnHoldUntil = Time.unscaledTime + BurnTailSeconds;
+    }
 
     internal static void EndBurn()
     {
         if (_burnCount > 0)
             _burnCount--;
+        _burnHoldUntil = Time.unscaledTime + BurnTailSeconds; // hold past a flip-flop / the true end so no flat frame leaks
     }
 
     /// <summary>
@@ -205,6 +226,7 @@ internal static class HandSuppression
     {
         _lifted = false;
         _burnCount = 0;
+        _burnHoldUntil = float.NegativeInfinity;
         if (!_armed)
             return;
         _armed = false;

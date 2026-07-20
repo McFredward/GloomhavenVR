@@ -2394,6 +2394,20 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.SetWantedSlots(0);
             return;
         }
+        // TASK #9 (BUG A/B): during a short rest the game presents a burn/redraw choice for a
+        // RANDOMLY sacrificed card — shown display-only in the LEFT slot (PresentShortRestCard),
+        // committed via the docked dialog. NO card placement into either slot is expected, so the
+        // "wanted slot" glow must stay OFF. Without this gate the CardsSelection branch below lit
+        // BOTH empty slots (a short rest is not IsShortRestSelected once its confirm ran
+        // Select(false), and no card sits in _occupants — PlacePickCard leaves them empty), and the
+        // pulsing teal glow behind the sacrificed card made it appear to glitch (BUG B: the user's
+        // "tied to the overlay" — the glow drew over/around the display card). IsShortRestChoosing
+        // is true exactly while ShortRestedCard != null, i.e. the whole burn/redraw choice.
+        if (CardsGameApi.IsShortRestChoosing(hand))
+        {
+            _tray.SetWantedSlots(0);
+            return;
+        }
         CardHandMode mode = CardsGameApi.Mode(hand);
         int mask = 0;
         if (mode == CardHandMode.CardsSelection)
