@@ -2112,6 +2112,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // ready state here for the CONFIRM accent below.
         bool ready = hand != null && CardsGameApi.IsSelectionReady(hand);
 
+        // Solo-host card-selection rescue (bug #5b): when hosting online with no other
+        // players the game leaves BOTH commit affordances dead (SP ReadyButton
+        // deactivated, MP ready toggle forced non-interactable until someone connects),
+        // so the round can never advance. Re-run the game's own re-enable each tick while
+        // stuck; a no-op in every other case (≥2 players, offline, other phases). Once it
+        // flips the toggle interactable the CONFIRM visibility below surfaces the button.
+        CardsGameApi.EnsureSoloHostSelectionCommittable();
+
         // Test #23 item 4: the REAL ReadyButton / UndoButton dock at these same
         // positions when the native-controls surface is active. While a native
         // widget holds, its mod-drawn twin hides (they overlap) and its state mirror

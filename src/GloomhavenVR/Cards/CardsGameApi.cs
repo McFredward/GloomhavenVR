@@ -747,6 +747,73 @@ internal static class CardsGameApi
         return t != null && t.gameObject.activeInHierarchy && t.IsInteractable;
     }
 
+    private static bool _soloHostRescueLogged;
+
+    /// <summary>
+    /// SOLO-HOST card-selection rescue (bug #5b). When a host is online with no other
+    /// players, the game deactivates the single-player ReadyButton AND forces the MP
+    /// ready toggle UNINTERACTABLE — either at card-selection start
+    /// (<c>Choreographer</c> OnShow solo branch: <c>flag19 = AllPlayers.Count == 1</c> →
+    /// <c>UIReadyToggle.SetInteractable(false)</c>, Choreographer.cs:12569-12572) or when
+    /// the user starts hosting mid-selection (<c>OnSwitchedToMultiplayer</c>:
+    /// <c>readyButton.Toggle(false)</c> + <c>SetInteractable(false)</c>,
+    /// Choreographer.cs:14501-14504). The toggle is then re-enabled ONLY when another
+    /// player connects (<c>OnPlayerConnected</c>/<c>OnUserEnter</c> →
+    /// <c>InitiativeTrack.CheckRoundAbilityCardsOrLongRestSelected()</c>,
+    /// Choreographer.cs:14524/14537) or on a fresh card (de)select event
+    /// (<c>CardsHandUI</c> calls the same method, CardsHandUI.cs:1952/2022/2228/2264).
+    /// A solo host who finished selecting BEFORE hosting therefore has NO confirm
+    /// affordance and the round cannot advance — the reported blocking bug.
+    ///
+    /// This replicates EXACTLY the re-enable the connect handler runs: it calls the
+    /// game's own idempotent <c>CheckRoundAbilityCardsOrLongRestSelected()</c>, which
+    /// online sets <c>UIReadyToggle.SetInteractable(IsCardSelectionReady())</c>
+    /// (InitiativeTrack.cs:797-799) — the toggle becomes interactable IFF every owned
+    /// actor has a valid selection (the game's own gate). No network action is sent
+    /// here; once interactable the tray CONFIRM surfaces via
+    /// <see cref="ReadyToggleAvailable"/> and a deliberate press routes through the
+    /// game's normal <c>UIReadyToggle.ReadyUp</c> path. For a single participant
+    /// <c>WaitForStateSyncBeforeProceeding</c> self-completes (no other participant to
+    /// await, UIReadyToggle.cs:691) → <c>ReadyProceed</c> → <c>Proceed</c>.
+    ///
+    /// Strictly scoped: no-op unless ONLINE + HOST + exactly one player (solo) +
+    /// SelectAbilityCardsOrLongRest + the toggle is currently stuck non-interactable.
+    /// With ≥2 players it never fires, so normal multiplayer is untouched.
+    /// </summary>
+    internal static void EnsureSoloHostSelectionCommittable()
+    {
+        if (!FFSNetwork.IsOnline || !FFSNetwork.IsHost
+            || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return;
+        if (FFSNet.PlayerRegistry.AllPlayers == null || FFSNet.PlayerRegistry.AllPlayers.Count != 1)
+            return;
+        UIReadyToggle? t = ReadyToggle();
+        if (t == null || !t.gameObject.activeInHierarchy || t.IsInteractable)
+            return; // already usable (or absent) — nothing to rescue
+
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track == null)
+            return;
+        // The game's own re-enable — the exact call OnPlayerConnected makes. Idempotent
+        // and change-gated internally (UIReadyToggle.SetInteractable no-ops when the
+        // value is unchanged), so running it each tick while stuck is cheap and only
+        // flips the toggle the moment every owned actor's selection is valid.
+        track.CheckRoundAbilityCardsOrLongRestSelected();
+        if (!_soloHostRescueLogged && t.IsInteractable)
+        {
+            _soloHostRescueLogged = true;
+            VRLog.Info("Cards", "Solo-host rescue (#5b): re-enabled the MP ready toggle for a " +
+                                "solo online host (no other players) via the game's own " +
+                                "CheckRoundAbilityCardsOrLongRestSelected — tray CONFIRM now commits selection.");
+        }
+        else if (t.IsInteractable == false)
+        {
+            // Selection not yet valid for every owned actor; allow the log to fire once
+            // it becomes committable.
+            _soloHostRescueLogged = false;
+        }
+    }
+
     /// <summary>
     /// Has this hand's player CONFIRMED card selection — the exact state the 2D
     /// ready toggle shows? Readiness is per PLAYER in the game's model
