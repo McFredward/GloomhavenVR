@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- standalone console tool: no game refs, no embedded-PDB requirement -->
+    <DebugType>portable</DebugType>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AssetsTools.NET" Version="3.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Unity class database (from UABEA, MIT) — needed because player-built
+         serialized files (sharedassets*.assets etc.) have stripped type trees. -->
+    <None Include="classdata.tpk" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
