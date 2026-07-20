@@ -95,6 +95,7 @@ public class Plugin : BaseUnityPlugin
 
     /// <summary>Clear color of the owned head camera (the void around menus). Default black.</summary>
     internal static ConfigEntry<UnityEngine.Color> VoidColor = null!;
+    internal static ConfigEntry<bool> ForwardRendering = null!;
 
     /// <summary>Force the ray interactor on in every VR mode (accessibility/preference).</summary>
     internal static ConfigEntry<bool> RayAlwaysOn = null!;
@@ -258,6 +259,17 @@ public class Plugin : BaseUnityPlugin
             "and outside the diorama. Default pure black. For DEBUGGING set a dark grey " +
             "(e.g. 1F2126FF): grey distinguishes 'camera renders but content missing' from " +
             "'camera dead / not rendering' (pitch black), which is invaluable in HMD reports.");
+        ForwardRendering = Config.Bind(
+            "Rig", "ForwardRendering", true,
+            "Render the mod's head camera in FORWARD instead of the game's DeferredShading. " +
+            "This is the fix for transparent effects (fire/torch glow, hex selection ring, health " +
+            "bars) rendering THROUGH walls in VR: the sky depth-reset renderer (queue 1999, ZTest " +
+            "Always) has no deferred pass, so on a deferred camera it runs in the forward-opaque " +
+            "fallback AFTER the walls and wipes their depth, leaving nothing for transparents to " +
+            "test against. Forward rendering restores strict queue order (reset 1999 runs BEFORE " +
+            "walls 2000, walls overwrite it), so the depth buffer keeps the walls and transparents " +
+            "occlude correctly. Disable ONLY if forward lighting looks wrong (deferred handles many " +
+            "dynamic lights per pixel; forward has a per-object light limit).");
         RayAlwaysOn = Config.Bind(
             "Hands", "RayAlwaysOn", false,
             "Keep the laser/ray interactor enabled in every VR mode instead of only in " +

@@ -458,6 +458,21 @@ internal sealed class VRRigDriver : MonoBehaviour
         // FOV is owned by the XR display (per-eye projection) — no need to copy.
         _camera.stereoTargetEye = StereoTargetEyeMask.Both;
 
+        // OCCLUSION ROOT CAUSE (transparent effects through walls — flames, hex ring, health bars):
+        // the SkyBackdrop DepthResetRenderer (Overlay shader, ZTest Always, queue 1999) resets depth
+        // to far so the near sky sphere doesn't occlude the floated board/menus. The Overlay shader
+        // has NO deferred pass, so on a DEFERRED camera it renders in the forward-opaque FALLBACK —
+        // AFTER the deferred G-buffer walls — and its ZTest-Always wipes the wall depth for the whole
+        // transparent pass, so every transparent effect (queue 3000-4000, even ZTest LEqual like the
+        // patched hex ring) draws over walls. Opaque figures are unaffected (occluded in the G-buffer
+        // BEFORE the wipe) — which is exactly the observed split. FORWARD rendering restores strict
+        // per-queue order: the reset (1999) runs BEFORE the walls (2000), the walls overwrite it, the
+        // depth buffer keeps the walls, and transparents occlude correctly (the reset's original
+        // design assumption). Config-gated so forward's per-object light limit can be reverted if the
+        // dungeon lighting regresses.
+        if (Plugin.ForwardRendering.Value)
+            _camera.renderingPath = RenderingPath.Forward;
+
         // OCCLUSION (the fire/glow-through-walls saga, final root cause): the game's VFX shaders
         // (torch/candle flames+glow, DFade clouds, distortion) SOFT-FADE against
         // _CameraDepthTexture — big glow billboards physically poke through thin walls, and the
@@ -539,7 +554,8 @@ internal sealed class VRRigDriver : MonoBehaviour
                           $"(base {baseScale:F1}, config {Plugin.WorldScale.Value:F1}, " +
                           $"tile size {UnityGameEditorRuntime.s_TileSize.x:F2}); owned head camera " +
                           $"'GloomhavenVR.HeadCamera' (anchor '{anchor.name}' mask 0x{anchor.cullingMask:X8} → " +
-                          $"head 0x{_camera!.cullingMask:X8}) — trigger: {_rebuildTrigger}.");
+                          $"head 0x{_camera!.cullingMask:X8}, renderingPath={_camera.renderingPath}/actual={_camera.actualRenderingPath}) " +
+                          $"— trigger: {_rebuildTrigger}.");
         VRCameraPolicy.Sweep("scenario rig built");
     }
 
