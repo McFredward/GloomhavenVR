@@ -1923,6 +1923,14 @@ internal static class ModalFallback
             float extraScale = DeriveWindowScale(panel);
             int staggerIndex = Converted.Count;
             PlaceAtHmd(panel, extraScale, staggerIndex);
+            // ONE-SHOT FACING (task #1): the host was just yawed to face the head (ComputeHmdPose,
+            // PanelPlacement convention) — a spawn-only orient, not a per-frame billboard, so once
+            // the grab frame is seeded from it below the user's grab-rotation is authoritative and
+            // persists. Log the applied yaw (window name) for on-device diagnosis.
+            if (panel.HostGo != null)
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) one-shot facing applied — " +
+                                      $"yawed {panel.HostGo.transform.eulerAngles.y:F1}° to face the head upright " +
+                                      "(spawn-only; grab-rotation authoritative afterwards).");
             // Narrower measure root for the content fit (story window: the visible
             // UICharacterStoryBox, not the 1920x1080 stretch root). The fit itself
             // runs centrally in CanvasConversion.Tick (test #14 item 1).
@@ -2101,12 +2109,23 @@ internal static class ModalFallback
             // in the foreground of its parent (nearer → also draws in front among equal-order hosts).
             pos -= fwd * (SecondaryForegroundMeters * scale * staggerIndex);
         }
-        // Facing is YAW-ONLY (upright): flatten the gaze forward to the horizontal plane. Canvas
-        // front faces -forward, so pointing +Z away from the viewer makes the panel face them.
-        Vector3 flat = fwd;
+        // Facing is YAW-ONLY (upright) and points the readable face AT THE HEAD — same
+        // convention as PanelPlacement.Facing: flatten the vector FROM the head TO the placed
+        // position (NOT the raw gaze forward). For a centred primary window the two coincide,
+        // but a STAGGERED secondary (a confirmation dialog over the pause menu, offset right+
+        // down) turned parallel to the gaze read as "not facing the player"; yawing to the
+        // panel-to-head direction turns it to actually face them. Canvas front faces -forward,
+        // so pointing +Z away from the head makes the panel face them. Applied ONCE at placement
+        // (spawn / presence-regain refloat) — never per frame, so a later grab-rotation persists.
+        Vector3 flat = pos - h.position;
         flat.y = 0f;
         if (flat.sqrMagnitude < 1e-4f)
-            flat = Vector3.forward;
+        {
+            flat = fwd;
+            flat.y = 0f;
+            if (flat.sqrMagnitude < 1e-4f)
+                flat = Vector3.forward;
+        }
         rot = Quaternion.LookRotation(flat.normalized, Vector3.up);
         return true;
     }
