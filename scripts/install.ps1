@@ -14,6 +14,9 @@
       5. builds the provisional Unity.XR.* RuntimeDeps if missing
       6. dotnet build -c Release
       7. copies plugin + RuntimeDeps + preloader + natives into BepInEx
+      8. patches the game's shader assets for VR depth occlusion (ZTest
+         Always -> LEqual; originals backed up to <GameDir>\GloomhavenVR_Backup,
+         undone by scripts\uninstall.ps1)
 
     Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
@@ -232,6 +235,34 @@ if (Test-Path $legacyPreloader) {
 }
 
 Write-Host "    plugin + RuntimeDeps + preloader + natives$(if ($bundle) { ' + gloomhavenvr.bundle' }) deployed"
+
+# --- 8. shader occlusion patch (VR depth fix) --------------------------------
+# Some game shaders serialize "ZTest Always" in their pass render state and
+# bleed through walls in VR. ShaderOcclusionPatcher flips exactly that value
+# (8=Always -> 4=LEqual) inside the compiled Shader assets; the shader
+# programs stay byte-identical, so nothing changes visually. Originals are
+# copied into <GameDir>\GloomhavenVR_Backup BEFORE each file is written and
+# existing backups are never overwritten, so the pristine files survive
+# repeated installs. Re-running is a no-op on an already-patched install.
+# Undo: scripts\uninstall.ps1 (or Steam "Verify integrity of game files").
+Step "Shader occlusion patch (VR depth fix - scans ~3300 asset bundles, takes a few minutes)"
+$gameDataDir = Split-Path $managed -Parent                 # ...\<GH>_Data
+$backupDir   = Join-Path $GamePath "GloomhavenVR_Backup"
+$patcherProj = Join-Path $root "tools\ShaderOcclusionPatcher\ShaderOcclusionPatcher.csproj"
+$patcherDll  = Join-Path $root "tools\ShaderOcclusionPatcher\bin\Release\net8.0\ShaderOcclusionPatcher.dll"
+
+dotnet build $patcherProj -c Release --nologo -v quiet
+if ($LASTEXITCODE -ne 0) { Write-Error "ShaderOcclusionPatcher build failed." }
+
+dotnet $patcherDll patch --game-data $gameDataDir --backup-dir $backupDir
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "SHADER OCCLUSION PATCH FAILED - install aborted." -ForegroundColor Red
+    Write-Host "The patcher backs up every file BEFORE writing it, so nothing is lost:" -ForegroundColor Red
+    Write-Host "  restore:  .\scripts\uninstall.ps1   (or copy $backupDir back manually," -ForegroundColor Red
+    Write-Host "            or Steam 'Verify integrity of game files')" -ForegroundColor Red
+    Write-Error "ShaderOcclusionPatcher patch step failed (see output above)."
+}
 
 Write-Host ""
 Write-Host "Deployed commit $builtHash [$builtBranch] `"$builtSubject`" - this exact stamp appears in LogOutput.log at startup." -ForegroundColor Green
