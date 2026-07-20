@@ -14,9 +14,10 @@
       5. builds the provisional Unity.XR.* RuntimeDeps if missing
       6. dotnet build -c Release
       7. copies plugin + RuntimeDeps + preloader + natives into BepInEx
-      8. patches the game's shader assets for VR depth occlusion (ZTest
-         Always -> LEqual; originals backed up to <GameDir>\GloomhavenVR_Backup,
-         undone by scripts\uninstall.ps1)
+      8. leaves the game data UNMODIFIED. If a <GameDir>\GloomhavenVR_Backup
+         exists from a previous install that shader-patched the game, it is
+         RESTORED so the original shader assets are back (VR occlusion is now
+         fixed in-code via Forward rendering, so no game data is ever patched)
 
     Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
@@ -236,32 +237,37 @@ if (Test-Path $legacyPreloader) {
 
 Write-Host "    plugin + RuntimeDeps + preloader + natives$(if ($bundle) { ' + gloomhavenvr.bundle' }) deployed"
 
-# --- 8. shader occlusion patch (VR depth fix) --------------------------------
-# Some game shaders serialize "ZTest Always" in their pass render state and
-# bleed through walls in VR. ShaderOcclusionPatcher flips exactly that value
-# (8=Always -> 4=LEqual) inside the compiled Shader assets; the shader
-# programs stay byte-identical, so nothing changes visually. Originals are
-# copied into <GameDir>\GloomhavenVR_Backup BEFORE each file is written and
-# existing backups are never overwritten, so the pristine files survive
-# repeated installs. Re-running is a no-op on an already-patched install.
-# Undo: scripts\uninstall.ps1 (or Steam "Verify integrity of game files").
-Step "Shader occlusion patch (VR depth fix - scans ~3300 asset bundles, takes a few minutes)"
+# --- 8. restore any previously shader-patched game data ----------------------
+# The mod NO LONGER patches game data. VR depth occlusion is fixed entirely
+# in-code: the head camera renders Forward (VRRigDriver / Plugin.ForwardRendering),
+# which keeps wall depth for the transparent pass. So a fresh install touches
+# nothing under *_Data. If an OLDER install shader-patched the game (leaving a
+# <GameDir>\GloomhavenVR_Backup of the pristine originals), restore it now so the
+# game data ends up unmodified. No backup => nothing to do.
+Step "Restoring original game data (if a previous install patched it)"
 $gameDataDir = Split-Path $managed -Parent                 # ...\<GH>_Data
 $backupDir   = Join-Path $GamePath "GloomhavenVR_Backup"
-$patcherProj = Join-Path $root "tools\ShaderOcclusionPatcher\ShaderOcclusionPatcher.csproj"
-$patcherDll  = Join-Path $root "tools\ShaderOcclusionPatcher\bin\Release\net8.0\ShaderOcclusionPatcher.dll"
 
-dotnet build $patcherProj -c Release --nologo -v quiet
-if ($LASTEXITCODE -ne 0) { Write-Error "ShaderOcclusionPatcher build failed." }
+if (Test-Path $backupDir) {
+    $patcherProj = Join-Path $root "tools\ShaderOcclusionPatcher\ShaderOcclusionPatcher.csproj"
+    $patcherDll  = Join-Path $root "tools\ShaderOcclusionPatcher\bin\Release\net8.0\ShaderOcclusionPatcher.dll"
 
-dotnet $patcherDll patch --game-data $gameDataDir --backup-dir $backupDir
-if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Write-Host "SHADER OCCLUSION PATCH FAILED - install aborted." -ForegroundColor Red
-    Write-Host "The patcher backs up every file BEFORE writing it, so nothing is lost:" -ForegroundColor Red
-    Write-Host "  restore:  .\scripts\uninstall.ps1   (or copy $backupDir back manually," -ForegroundColor Red
-    Write-Host "            or Steam 'Verify integrity of game files')" -ForegroundColor Red
-    Write-Error "ShaderOcclusionPatcher patch step failed (see output above)."
+    dotnet build $patcherProj -c Release --nologo -v quiet
+    if ($LASTEXITCODE -ne 0) { Write-Error "ShaderOcclusionPatcher build failed." }
+
+    $restoredCount = (Get-ChildItem -Path $backupDir -File -Recurse | Measure-Object).Count
+    dotnet $patcherDll restore --game-data $gameDataDir --backup-dir $backupDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "SHADER RESTORE FAILED." -ForegroundColor Red
+        Write-Host "The pristine originals are still in $backupDir - restore them with" -ForegroundColor Red
+        Write-Host "  .\scripts\uninstall.ps1   (or copy $backupDir back manually," -ForegroundColor Red
+        Write-Host "            or Steam 'Verify integrity of game files')" -ForegroundColor Red
+        Write-Error "ShaderOcclusionPatcher restore step failed (see output above)."
+    }
+    Write-Host "    restored $restoredCount file(s) from a previous shader patch - game data is now unmodified." -ForegroundColor Green
+} else {
+    Write-Host "    no GloomhavenVR_Backup found - game data was never patched, nothing to restore."
 }
 
 Write-Host ""
