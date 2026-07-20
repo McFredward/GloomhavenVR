@@ -2710,6 +2710,68 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         return _boardLitShader;
     }
 
+    // ---- keycap grain texture (task #5a: carved-wood/parchment surface) ----------------
+    private const string GrainAlbedoPath = "Assets/Bundle/Table/KeycapGrain_albedo.png";
+    private const string GrainNormalPath = "Assets/Bundle/Table/KeycapGrain_normal.png";
+    private static Texture2D? _grainAlbedo;
+    private static Texture2D? _grainNormal;
+    private static bool _grainProbed; // includes the cached "not found" state (no per-material retry)
+
+    /// <summary>
+    /// Task #5a: load the shared tileable grain texture ONCE from whichever loaded bundle holds
+    /// it (same probe pattern as <see cref="BoardLitShader"/>/<see cref="OverlayShader"/>), so
+    /// every keycap material reuses one <see cref="Texture2D"/>. Caches the "not found" state
+    /// too, so an older bundle without the texture never retries. Sets Repeat wrap so the planar
+    /// keycap UVs (CardMesh.BuildBeveledKeycap) tile cleanly. Logged once each way.
+    /// </summary>
+    private static void EnsureGrainLoaded()
+    {
+        if (_grainProbed)
+            return;
+        _grainProbed = true;
+        foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+        {
+            if (b == null) continue;
+            _grainAlbedo ??= b.LoadAsset<Texture2D>(GrainAlbedoPath);
+            _grainNormal ??= b.LoadAsset<Texture2D>(GrainNormalPath);
+            if (_grainAlbedo != null && _grainNormal != null) break;
+        }
+        if (_grainAlbedo != null)
+        {
+            _grainAlbedo.wrapMode = TextureWrapMode.Repeat;
+            if (_grainNormal != null)
+                _grainNormal.wrapMode = TextureWrapMode.Repeat;
+            VRLog.Info("Cards", $"Keycap grain texture loaded ('{GrainAlbedoPath}'" +
+                                $"{(_grainNormal != null ? " + normal map" : "")}) — 3D board keycaps get a " +
+                                "carved wood/parchment surface (grayscale grain × per-submesh state tint).");
+        }
+        else
+        {
+            VRLog.Info("Cards", $"Keycap grain texture '{GrainAlbedoPath}' not in bundle (older bundle) — " +
+                                "board keycaps keep the plain per-state tint (white _MainTex).");
+        }
+    }
+
+    /// <summary>
+    /// Task #5a: a BoardLit keycap material tinted <paramref name="color"/>, with the shared
+    /// carved-grain texture assigned to <c>_MainTex</c> (and the normal map to <c>_BumpMap</c>
+    /// when present) IF the bundle ships it. BoardLit does <c>alb = tex2D(_MainTex,uv) * _Color</c>,
+    /// so a grayscale grain × the per-submesh state colour keeps the top-state / lit-bevel /
+    /// dark-wall value signalling while adding surface texture. Graceful fallback: if the grain
+    /// texture is absent the material is EXACTLY as before (white _MainTex, plain tint).
+    /// </summary>
+    internal static Material NewKeycapMaterial(Shader shader, Color color)
+    {
+        var m = new Material(shader) { color = color };
+        EnsureGrainLoaded();
+        if (_grainAlbedo != null)
+        {
+            if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", _grainAlbedo);
+            if (_grainNormal != null && m.HasProperty("_BumpMap")) m.SetTexture("_BumpMap", _grainNormal);
+        }
+        return m;
+    }
+
     /// <summary>
     /// Item 5: the lit shader for the square keycap body, falling back to Standard/Legacy/Sprites
     /// when the bundle lacks BoardLit. BoardLit shades side walls even in an unlit scene; the
@@ -3132,9 +3194,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     var mf = capCube.GetComponent<MeshFilter>();
                     if (mf != null)
                         mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, SquareCapBevel);
-                    capMaterial = new Material(shader) { color = DisabledColor };                 // [0] top
-                    capBevelMaterial = new Material(shader) { color = BevelTint(DisabledColor) }; // [1] bright bevel
-                    capWallMaterial = new Material(shader) { color = WallTint(DisabledColor) };   // [2] dark warm wall
+                    // Task #5a: each submesh material carries the shared carved-grain texture on
+                    // _MainTex (grayscale grain × the state/bevel/wall tint) when the bundle ships
+                    // it — a real wood/parchment surface — else EXACTLY the prior plain tint.
+                    capMaterial = NewKeycapMaterial(shader, DisabledColor);                 // [0] top
+                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor)); // [1] bright bevel
+                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor));   // [2] dark warm wall
                     capCube.GetComponent<MeshRenderer>().sharedMaterials =
                         new[] { capMaterial, capBevelMaterial, capWallMaterial };
                 }
