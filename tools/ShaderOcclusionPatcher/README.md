@@ -40,7 +40,20 @@ scan    --game-data <Gloomhaven_Data> [--manifest-out <file>]   read-only report
 patch   --game-data <Gloomhaven_Data> --backup-dir <dir>        backup + patch in place (idempotent)
 verify  --game-data <Gloomhaven_Data>                           exit 0 = fully patched
 restore --game-data <Gloomhaven_Data> --backup-dir <dir>        copy backups back
+dump    --game-data <Gloomhaven_Data> [--shaders a,b,c] [--manifest-out <file>]
 ```
+
+`dump` is a read-only diagnostic: for every matched shader it prints **all**
+subshaders (LOD + tags) and **all** passes (tags incl. LightMode/RenderType,
+zTest/zWrite/cull/blend state), plus the set of global names the compiled
+programs reference (per-pass `m_NameIndices` keys + shader props + keyword
+names; LZ4 blob strings-scan as fallback when a layout exposes no names) with
+matches against a depth-fade watchlist (`_CameraDepthTexture`,
+`unity_GUIZTestMode`, `ToggleWallFade`, `_InvFade`, `_DepthFade`, ...). It also
+looks inside `Resources/unity_builtin_extra` / `unity default resources` so
+Unity built-ins like `UI/Default` resolve (scan/patch scope stays untouched).
+Results also land in `dump-manifest.json`. `--shaders` (also valid for `scan`)
+overrides the target list for diagnostics only — the patch set stays curated.
 
 - Scan scope: `globalgamemanagers(.assets)`, `resources.assets`,
   `sharedassets*.assets`, `level0..N`, and **all**
@@ -80,6 +93,40 @@ tricks, ...). The tool flags them and leaves them untouched by design.
 
 Patching `resources.assets` changes exactly **2 bytes** (the float
 `8.0 -> 4.0`); everything else in the 42 MB file is byte-identical.
+
+## Subshader coverage + referenced globals (2026-07 dump of pristine GH_Data)
+
+Audit prompted by a hardware screenshot of a torch flame
+(`VFX/ParticleMasterUnlitAdd_Shd`) bleeding through a wall despite its
+serialized `ZTest LEqual`:
+
+- **Coverage:** scan/patch/dump always iterated the full `m_SubShaders` and
+  `m_Passes` arrays (no `[0]`-only bug). The dump proves every target shader
+  ships with **exactly one SubShader** (LOD 0 or 100, single variant), so no
+  hidden subshader/pass with a different ZTest exists. **No new `ZTest Always`
+  passes surfaced** — `OmniDecal_Shd 0/0` remains the only one.
+- **The flame bleed is therefore not serialized pass state.**
+  `ParticleMasterUnlitAdd`'s single pass references `_TilesOcclusionMap` /
+  `_EnableOcclusionMap` / `ToggleWallFade` cbuffer / `_ToggleWallfade` — the
+  game does its wall-hiding **in the fragment shader** via an occlusion-map
+  global, so geometry the map doesn't cover (VR walls/camera angles) shows
+  through regardless of depth test.
+
+Referenced-globals watchlist per shader (union over all passes; `dump` prints
+the full name lists):
+
+| Shader | Depth-fade capable? | Watchlist hits |
+|---|---|---|
+| `VFX/ParticleMasterUnlitAdd_Shd` | **yes** | `_CameraDepthTexture`, `_DepthFade_Distance`, `_Toggle_DepthFade` (prop, def **0** = off), `ToggleWallFade`, `_ToggleWallfade`, `_TilesOcclusionMap` |
+| `SimpleParticleAlphaDFade` | **yes** | `_CameraDepthTexture`, `_DepthFade` (def 0), `_DepthFadeDistance` |
+| `OmniDecal_Shd` | **yes** (depth-reconstructing decal) | `_CameraDepthTexture`, `_CameraNormalsTexture` |
+| `KriptoFX/RFX4/DistortionParticles` | keyword only | `SOFTPARTICLES_ON`, `_InvFade` (grab-pass distortion) |
+| `VFX/GPU_Bits_Shd` | **no** | — |
+| `VFX/HexWaypointPath_Shd` | **no** | — |
+| `Amp_Basic_Unseen` | **no** | — |
+| `Amp_Basic_WallFade` | no (vertex wallfade) | `_ToggleWallFadeOff`, `_TOGGLEWALLFADEOFF_ON` |
+| `VFX/WingFlap_Shd` | no (occlusion map) | `ToggleWallFade`, `_ToggleWallfade`, `_TilesOcclusionMap` |
+| `UI/Default` (unity_builtin_extra) | n/a | `zTest` **driven by `unity_GUIZTestMode`** (serialized val 0; Unity sets Always for overlay UI at runtime) — health bars ignore depth via this global, not via serialized state |
 
 ## Addressables CRC check (investigated)
 

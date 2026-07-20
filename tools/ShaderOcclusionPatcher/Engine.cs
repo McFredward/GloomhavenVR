@@ -61,6 +61,48 @@ public sealed class Manifest
 }
 
 // ---------------------------------------------------------------------------
+// dump model (diagnostic `dump` command)
+// ---------------------------------------------------------------------------
+
+public sealed class DumpPassRecord
+{
+    public int Index { get; set; }
+    public int Type { get; set; }                 // 0=Normal 1=Use 2=Grab
+    public string Name { get; set; } = "";
+    public Dictionary<string, string> Tags { get; set; } = new();
+    public float ZTest { get; set; }
+    public string ZTestProp { get; set; } = "";
+    public float ZWrite { get; set; }
+    public string ZWriteProp { get; set; } = "";
+    public float SrcBlend { get; set; }
+    public float DstBlend { get; set; }
+    public string Queue { get; set; } = "";
+    public List<string> ReferencedNames { get; set; } = new();  // per-pass m_NameIndices keys
+    public List<string> WatchlistHits { get; set; } = new();
+}
+
+public sealed class DumpSubShaderRecord
+{
+    public int Index { get; set; }
+    public int Lod { get; set; }
+    public Dictionary<string, string> Tags { get; set; } = new();
+    public List<DumpPassRecord> Passes { get; set; } = new();
+}
+
+public sealed class DumpShaderRecord
+{
+    public string Name { get; set; } = "";
+    public string File { get; set; } = "";        // "file" or "bundle:CAB"
+    public long PathId { get; set; }
+    public int SubShaderCount { get; set; }
+    public List<DumpSubShaderRecord> SubShaders { get; set; } = new();
+    public bool NamesFromBlobFallback { get; set; }
+    public int ReferencedNamesTotal { get; set; }
+    public List<string> ReferencedNames { get; set; } = new();  // union: passes + props + keywords (capped)
+    public List<string> WatchlistHits { get; set; } = new();
+}
+
+// ---------------------------------------------------------------------------
 // engine
 // ---------------------------------------------------------------------------
 
@@ -188,13 +230,41 @@ public static class Engine
         return 0;
     }
 
-    /// <summary>Diagnostic: print raw serialized state of every matched shader (tags, stencil, queue, props).</summary>
-    public static int RunDump(string gameData)
+    /// <summary>
+    /// Globals we specifically look for in each shader's referenced-name set.
+    /// Matched case-insensitively as substrings (so e.g. "SoftParticle" hits
+    /// the SOFTPARTICLES_ON keyword and "_DepthFade" hits _DepthFade_Distance).
+    /// </summary>
+    public static readonly string[] GlobalsWatchlist =
+    {
+        "_CameraDepthTexture",
+        "_CameraDepthNormalsTexture",
+        "unity_GUIZTestMode",
+        "ToggleWallFade",
+        "_ToggleWallFadeLocal",
+        "SoftParticle",
+        "_InvFade",
+        "_FadeDistance",
+        "_DepthFade",
+    };
+
+    /// <summary>Cap for the referenced-name list stored per shader in the dump JSON.</summary>
+    private const int DumpNameCap = 400;
+
+    /// <summary>
+    /// Diagnostic: print + JSON-dump raw serialized state of every matched shader
+    /// (all subshaders with LOD/tags, all passes with tags/state) and the set of
+    /// global names its programs reference (per-pass m_NameIndices, shader props,
+    /// keyword names; LZ4 blob strings-scan as fallback), with watchlist matches.
+    /// </summary>
+    public static int RunDump(string gameData, string? manifestOut)
     {
         var am = new AssetsManager();
         am.LoadClassPackage(Path.Combine(AppContext.BaseDirectory, "classdata.tpk"));
         string loaded = "";
         void EnsureDb(string v) { if (loaded != v) { am.LoadClassDatabaseFromPackage(v); loaded = v; } }
+
+        var records = new List<DumpShaderRecord>();
 
         void DumpFile(AssetsFileInstance inst, string label)
         {
@@ -205,36 +275,21 @@ public static class Engine
                 try { bf = am.GetBaseField(inst, info); } catch { continue; }
                 var pf = bf["m_ParsedForm"];
                 if (pf.IsDummy || !TargetShaders.Contains(pf["m_Name"].AsString)) continue;
-                Console.WriteLine($"\n===== {pf["m_Name"].AsString}  ({label}, pathId={info.PathId}) =====");
-                Console.WriteLine($"  props: " + string.Join(", ",
-                    pf["m_PropInfo"]["m_Props"]["Array"].Select(p =>
-                        $"{p["m_Name"].AsString}(def={p["m_DefValue[0]"].AsFloat})")));
-                var subs = pf["m_SubShaders"]["Array"];
-                for (int si = 0; si < subs.Children.Count; si++)
-                {
-                    var sub = subs.Children[si];
-                    Console.WriteLine($"  subshader {si} LOD={sub["m_LOD"].AsInt} tags=[{DumpTags(sub["m_Tags"])}]");
-                    var passes = sub["m_Passes"]["Array"];
-                    for (int pi = 0; pi < passes.Children.Count; pi++)
-                    {
-                        var pass = passes.Children[pi];
-                        var st = pass["m_State"];
-                        Console.WriteLine($"    pass {pi} type={pass["m_Type"].AsInt} name='{st["m_Name"].AsString}' tags=[{DumpTags(st["m_Tags"])}]");
-                        foreach (var fld in new[] { "zClip", "zTest", "zWrite", "culling", "offsetFactor", "offsetUnits", "alphaToMask" })
-                        {
-                            var f = st[fld];
-                            if (f.IsDummy) continue;
-                            Console.WriteLine($"      {fld}: val={f["val"].AsFloat} name='{f["name"].AsString}'");
-                        }
-                        var b = st["rtBlend0"];
-                        if (!b.IsDummy)
-                            Console.WriteLine($"      blend0: src={b["srcBlend"]["val"].AsFloat} dst={b["destBlend"]["val"].AsFloat}");
-                    }
-                }
+                records.Add(DumpOneShader(bf, pf, label, info.PathId));
             }
         }
 
-        foreach (var path in EnumerateSerializedFiles(gameData))
+        // dump-only extra scope: Unity built-in shaders (UI/Default etc.) live in
+        // Resources/unity_builtin_extra + "unity default resources" — the
+        // scan/patch enumeration deliberately excludes them, but for diagnostics
+        // we want to resolve built-ins too.
+        var builtinFiles = new[]
+        {
+            Path.Combine(gameData, "Resources", "unity_builtin_extra"),
+            Path.Combine(gameData, "Resources", "unity default resources"),
+        }.Where(File.Exists);
+
+        foreach (var path in EnumerateSerializedFiles(gameData).Concat(builtinFiles))
         {
             var inst = am.LoadAssetsFile(path, false);
             DumpFile(inst, Path.GetFileName(path));
@@ -257,7 +312,222 @@ public static class Engine
             am.UnloadBundleFile(bun);
             am.UnloadAllAssetsFiles(true);
         }
+
+        var missing = TargetShaders.Except(records.Select(r => r.Name)).ToList();
+        foreach (var m in missing)
+            Console.WriteLine($"\nNOT FOUND anywhere in game files: '{m}'");
+
+        manifestOut ??= Path.Combine(Environment.CurrentDirectory, "dump-manifest.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(manifestOut))!);
+        File.WriteAllText(manifestOut, JsonSerializer.Serialize(new
+        {
+            Tool = "ShaderOcclusionPatcher",
+            Version = Cli.ToolVersion,
+            Mode = "dump",
+            Date = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss'Z'"),
+            GameData = gameData,
+            Watchlist = GlobalsWatchlist,
+            NotFound = missing,
+            Shaders = records,
+        }, JsonOpts));
+        Console.WriteLine($"\nDump JSON written: {manifestOut}");
         return 0;
+    }
+
+    private static DumpShaderRecord DumpOneShader(AssetTypeValueField bf, AssetTypeValueField pf,
+        string label, long pathId)
+    {
+        string name = pf["m_Name"].AsString;
+        var rec = new DumpShaderRecord { Name = name, File = label, PathId = pathId };
+        var shaderNames = new SortedSet<string>(StringComparer.Ordinal);
+
+        Console.WriteLine($"\n===== {name}  ({label}, pathId={pathId}) =====");
+        var propsArr = pf["m_PropInfo"]["m_Props"]["Array"];
+        if (!propsArr.IsDummy)
+        {
+            foreach (var p in propsArr) shaderNames.Add(p["m_Name"].AsString);
+            Console.WriteLine("  props: " + string.Join(", ",
+                propsArr.Select(p => $"{p["m_Name"].AsString}(def={p["m_DefValue[0]"].AsFloat})")));
+        }
+        // shader-wide keyword names (Unity 2021.2+ parsed form; dummy on older layouts)
+        var kwArr = pf["m_KeywordNames"]["Array"];
+        if (!kwArr.IsDummy)
+            foreach (var k in kwArr) shaderNames.Add(k.AsString);
+
+        var subs = pf["m_SubShaders"]["Array"];
+        rec.SubShaderCount = subs.Children.Count;
+        for (int si = 0; si < subs.Children.Count; si++)
+        {
+            var sub = subs.Children[si];
+            var subRec = new DumpSubShaderRecord
+            {
+                Index = si,
+                Lod = sub["m_LOD"].IsDummy ? 0 : sub["m_LOD"].AsInt,
+                Tags = ReadTagsDict(sub["m_Tags"]),
+            };
+            Console.WriteLine($"  subshader {si} LOD={subRec.Lod} tags=[{DumpTags(sub["m_Tags"])}]");
+            var passes = sub["m_Passes"]["Array"];
+            for (int pi = 0; pi < passes.Children.Count; pi++)
+            {
+                var pass = passes.Children[pi];
+                var st = pass["m_State"];
+                var passNames = new SortedSet<string>(StringComparer.Ordinal);
+                var ni = pass["m_NameIndices"]["Array"];
+                if (!ni.IsDummy)
+                    foreach (var pair in ni) passNames.Add(pair["first"].AsString);
+
+                var pRec = new DumpPassRecord
+                {
+                    Index = pi,
+                    Type = pass["m_Type"].IsDummy ? 0 : pass["m_Type"].AsInt,
+                    Name = st.IsDummy ? "" : st["m_Name"].AsString,
+                    Tags = st.IsDummy ? new() : ReadTagsDict(st["m_Tags"]),
+                };
+                Console.WriteLine($"    pass {pi} type={pRec.Type} name='{pRec.Name}' tags=[{DumpTags(st["m_Tags"])}]");
+                if (!st.IsDummy)
+                {
+                    foreach (var fld in new[] { "zClip", "zTest", "zWrite", "culling", "offsetFactor", "offsetUnits", "alphaToMask" })
+                    {
+                        var f = st[fld];
+                        if (f.IsDummy) continue;
+                        float val = f["val"].AsFloat;
+                        string prop = f["name"].IsDummy ? "" : f["name"].AsString;
+                        // a state value driven by a property (e.g. zTest name
+                        // 'unity_GUIZTestMode') is a referenced global too
+                        if (prop.Length > 0 && prop != "<noninit>")
+                            passNames.Add(prop);
+                        switch (fld)
+                        {
+                            case "zTest": pRec.ZTest = val; pRec.ZTestProp = prop; break;
+                            case "zWrite": pRec.ZWrite = val; pRec.ZWriteProp = prop; break;
+                        }
+                        Console.WriteLine($"      {fld}: val={val} name='{prop}'");
+                    }
+                    var b = st["rtBlend0"];
+                    if (!b.IsDummy)
+                    {
+                        pRec.SrcBlend = b["srcBlend"]["val"].AsFloat;
+                        pRec.DstBlend = b["destBlend"]["val"].AsFloat;
+                        Console.WriteLine($"      blend0: src={pRec.SrcBlend} dst={pRec.DstBlend}");
+                    }
+                    pRec.Queue = ReadQueueTag(st["m_Tags"]);
+                }
+                if (pRec.Queue.Length == 0) pRec.Queue = ReadQueueTag(sub["m_Tags"]);
+                shaderNames.UnionWith(passNames);
+                pRec.ReferencedNames = passNames.ToList();
+                pRec.WatchlistHits = MatchWatchlist(passNames);
+                Console.WriteLine($"      refs ({passNames.Count}): {string.Join(", ", passNames)}");
+                subRec.Passes.Add(pRec);
+            }
+            rec.SubShaders.Add(subRec);
+        }
+
+        // fallback: no names in the parsed form at all -> strings-scan the LZ4 blob
+        if (shaderNames.Count == 0)
+        {
+            rec.NamesFromBlobFallback = true;
+            shaderNames.UnionWith(ExtractBlobIdentifiers(bf));
+            Console.WriteLine($"  (no parsed-form names; blob strings-scan found {shaderNames.Count} identifiers)");
+        }
+
+        rec.ReferencedNames = shaderNames.Take(DumpNameCap).ToList();
+        rec.ReferencedNamesTotal = shaderNames.Count;
+        rec.WatchlistHits = MatchWatchlist(shaderNames);
+        Console.WriteLine(rec.WatchlistHits.Count == 0
+            ? "  WATCHLIST: (no matches)"
+            : $"  WATCHLIST: {string.Join(", ", rec.WatchlistHits)}");
+        return rec;
+    }
+
+    private static List<string> MatchWatchlist(IEnumerable<string> names) =>
+        names.Where(n => GlobalsWatchlist.Any(w => n.Contains(w, StringComparison.OrdinalIgnoreCase)))
+             .Distinct().OrderBy(n => n, StringComparer.Ordinal).ToList();
+
+    private static Dictionary<string, string> ReadTagsDict(AssetTypeValueField tagMap)
+    {
+        var d = new Dictionary<string, string>();
+        if (tagMap.IsDummy) return d;
+        var tags = tagMap["tags"]["Array"];
+        if (tags.IsDummy) return d;
+        foreach (var p in tags) d[p["first"].AsString] = p["second"].AsString;
+        return d;
+    }
+
+    /// <summary>
+    /// Last-resort name source: decompress the shader's LZ4 program blob segments
+    /// and scan for ASCII identifiers. Only used when the parsed form exposes no
+    /// names (older serialization layouts).
+    /// </summary>
+    private static SortedSet<string> ExtractBlobIdentifiers(AssetTypeValueField bf)
+    {
+        var found = new SortedSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var blobField = bf["compressedBlob"]["Array"];
+            var offsets = bf["offsets"]["Array"];
+            var compLens = bf["compressedLengths"]["Array"];
+            var decompLens = bf["decompressedLengths"]["Array"];
+            if (blobField.IsDummy || offsets.IsDummy || compLens.IsDummy || decompLens.IsDummy)
+                return found;
+            byte[] blob = blobField.AsByteArray;
+
+            for (int i = 0; i < offsets.Children.Count; i++)          // per platform
+            {
+                var offs = offsets.Children[i]["Array"];
+                var cls = compLens.Children[i]["Array"];
+                var dls = decompLens.Children[i]["Array"];
+                for (int j = 0; j < offs.Children.Count; j++)          // per segment
+                {
+                    long off = offs.Children[j].AsLong;
+                    int clen = (int)cls.Children[j].AsLong;
+                    int dlen = (int)dls.Children[j].AsLong;
+                    if (off < 0 || clen <= 0 || dlen <= 0 || off + clen > blob.Length) continue;
+                    byte[] decompressed;
+                    if (clen == dlen)
+                    {
+                        decompressed = new byte[dlen];
+                        Array.Copy(blob, off, decompressed, 0, dlen);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            using var ms = new MemoryStream(blob, (int)off, clen);
+                            using var lz4 = new AssetsTools.NET.Extra.Decompressors.LZ4.Lz4DecoderStream(ms);
+                            decompressed = new byte[dlen];
+                            int read = 0, r;
+                            while (read < dlen && (r = lz4.Read(decompressed, read, dlen - read)) > 0)
+                                read += r;
+                        }
+                        catch { continue; }
+                    }
+                    ScanIdentifiers(decompressed, found);
+                }
+            }
+        }
+        catch { /* diagnostic only */ }
+        return found;
+    }
+
+    private static void ScanIdentifiers(byte[] data, SortedSet<string> sink)
+    {
+        int start = -1;
+        for (int i = 0; i <= data.Length; i++)
+        {
+            byte c = i < data.Length ? data[i] : (byte)0;
+            bool idChar = c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                          || (start >= 0 && c >= '0' && c <= '9');
+            if (idChar)
+            {
+                if (start < 0) start = i;
+            }
+            else if (start >= 0)
+            {
+                if (i - start >= 3 && i - start <= 64)
+                    sink.Add(System.Text.Encoding.ASCII.GetString(data, start, i - start));
+                start = -1;
+            }
+        }
     }
 
     private static string DumpTags(AssetTypeValueField tagMap)
