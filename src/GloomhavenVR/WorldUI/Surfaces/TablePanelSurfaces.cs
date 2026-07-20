@@ -241,7 +241,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// We KEEP the depth (the user likes the recession) but CLAMP the row's TOTAL
     /// front-to-back spread to a small hard maximum: whatever the authored range, the
     /// deepest and shallowest portrait may differ by at most
-    /// <see cref="MaxDepthSpreadPixels"/>. Each portrait's authored z is remapped
+    /// <see cref="WorldUIConfig.InitiativeDepthMaxSpreadPx"/>. Each portrait's authored z is remapped
     /// proportionally by a single factor (order/direction/relative spacing preserved)
     /// so the raw spread (max − min z) is scaled down to land at exactly the cap and
     /// the rest scale with it — never amplified (a row already flatter than the cap is
@@ -259,7 +259,9 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// release so the 2D UI is left exactly as the game authored it (the framework's
     /// root-only restore never touches these deep children).
     /// </summary>
-    private const float MaxDepthSpreadPixels = 10f; // total front↔back ≤ 10 px ≈ ±0.5 cm at 1 mm/px × scale — tune
+    // Cap the row's TOTAL front↔back depth spread. Live-tunable via the debug menu
+    // (Panels -> Initiative) — read fresh each tick from
+    // WorldUIConfig.InitiativeDepthMaxSpreadPx (default 10 px ≈ ±0.5 cm at 1 mm/px × scale).
 
     /// <summary>Raw spread (max − min z) below this (px) counts as flat — a row with no authored depth is a no-op.</summary>
     private const float DepthEpsilonPixels = 0.5f;
@@ -307,7 +309,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     }
 
     /// <summary>
-    /// Clamp the row's TOTAL front-to-back depth spread to <see cref="MaxDepthSpreadPixels"/>
+    /// Clamp the row's TOTAL front-to-back depth spread to <see cref="WorldUIConfig.InitiativeDepthMaxSpreadPx"/>
     /// (see the field docs): scale every active portrait's authored local z by the single
     /// factor that maps the raw spread (max − min z) onto the cap. Change-gated writes;
     /// nothing to fight since the game never animates portrait z (Select/Deselect toggle
@@ -347,9 +349,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             return; // flat row (or depth not yet laid out) — nothing to compress
 
         // Single proportional factor: remap the FULL front↔back spread onto the cap so
-        // the extremes never differ by more than MaxDepthSpreadPixels, order/direction
-        // and relative spacing preserved. Compress only, never amplify a gentle row.
-        float scale = Mathf.Min(1f, MaxDepthSpreadPixels / rawSpread);
+        // the extremes never differ by more than the (live) cap, order/direction and
+        // relative spacing preserved. Compress only, never amplify a gentle row. Read the
+        // cap fresh each tick so a debug-menu change simply re-clamps next tick (idempotent
+        // — the target is always recomputed from the recorded RAW z, never a prior scale).
+        float maxSpread = Mathf.Max(0f, WorldUIConfig.InitiativeDepthMaxSpreadPx.Value);
+        float scale = Mathf.Min(1f, maxSpread / rawSpread);
         for (int i = 0; i < _depthScratch.Count; i++)
         {
             Transform t = _depthScratch[i];
