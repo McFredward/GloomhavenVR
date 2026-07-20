@@ -63,6 +63,31 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     private const int BarSortingOrder = 1100;
 
+    /// <summary>
+    /// Problem #4 (HUD bleed-through) — DEPTH MASK render queue. The floated menu host is a
+    /// WORLD-space canvas that writes NO depth on purpose (ZWrite OFF, so hands/board still occlude
+    /// the menu — a hard requirement), so transparent HUD (the initiative track, button-cluster
+    /// labels) sitting BEHIND the menu is never depth-occluded and bleeds through. The mask is a
+    /// color-invisible depth-WRITING quad coplanar with the menu; it must render AFTER all opaque
+    /// geometry (so nearer hands/board depth is already in the buffer and their LEqual wins) and
+    /// BEFORE the menu's own transparent UI (~queue 3000, so the menu draws on top and its LEqual
+    /// passes at the stamped plane, while HUD-behind fails). Geometry-Last+... i.e. one below the
+    /// Transparent boundary (2999): strictly &gt; 2500 (transparent → after every opaque draw) and
+    /// strictly &lt; 3000 (before the UI). Mirrors <see cref="Core.SkyBackdrop"/>'s reset-queue idea,
+    /// localized to the menu plane. The mask's MeshRenderer keeps the DEFAULT sortingOrder 0 (below
+    /// the host canvas's 1000), so on EITHER transparent-sort axis — renderQueue or sortingOrder —
+    /// it composites before the menu content.
+    /// </summary>
+    private static readonly int DepthMaskQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 1; // 2999
+
+    /// <summary>
+    /// Problem #4: coplanar offset (real metres at diorama scale 1) placing the depth mask a HAIR
+    /// BEHIND the menu content plane — +Z is AWAY from the viewer (the canvas front faces −Z toward
+    /// the player; see <c>ModalFallback.ComputeHmdPose</c>), i.e. toward the far plane. Just enough
+    /// that the mask never z-fights the menu's own graphics, far smaller than any HUD gap behind it.
+    /// </summary>
+    private const float DepthMaskBehindMeters = 0.002f;
+
     private ConvertedPanel _panel = null!;
     private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
 
@@ -86,6 +111,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
     private Transform? _bar;
+    private Transform? _depthMask;              // problem #4: coplanar depth-writing quad (menu family only)
+    private bool _wantDepthMask;               // set by Build for the pause/options/confirmation family
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
 
@@ -106,11 +133,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// frame is seeded at the host's CURRENT world pose (the host was just placed at the
     /// HMD), so the first follow tick keeps the panel exactly where it spawned — no jump.
     /// </summary>
-    internal void Build(ConvertedPanel panel, float extraScale, string logName)
+    /// <param name="depthMask">Problem #4: create the coplanar depth mask (pause/options/confirmation
+    /// family only) so transparent HUD behind the floated menu is depth-occluded by it.</param>
+    internal void Build(ConvertedPanel panel, float extraScale, string logName, bool depthMask = false)
     {
         _panel = panel;
         _extraScale = extraScale;
         _logName = logName;
+        _wantDepthMask = depthMask;
         // Item 2: snapshot the diorama scale now — the menu keeps THIS size regardless of later zoom.
         _spawnWorldScale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
         EnsureFrame();
@@ -202,6 +232,24 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float halfHeight = rect.height * unit * 0.5f;
         float width = rect.width * unit;
         SyncBar(halfHeight, width, worldScale);
+        SyncDepthMask(rect, unit, worldScale);
+    }
+
+    /// <summary>
+    /// Problem #4: size + place the depth mask on the LIVE host rect each tick so it stays coplanar
+    /// with the (grabbable, resizable, content-fittable) menu. Frame-local metres = pixels × unit;
+    /// the frame's own localScale carries the user grab factor on top (exactly like the bar), so the
+    /// quad's WORLD footprint always matches the host canvas. Centred on the frame origin (= the host
+    /// centre, host pivot 0.5,0.5) and pushed a hair to +Z (behind the content, toward far).
+    /// </summary>
+    private void SyncDepthMask(Rect rect, float unit, float worldScale)
+    {
+        if (_depthMask == null)
+            return;
+        float w = Mathf.Max(rect.width * unit, 1e-4f);
+        float h = Mathf.Max(rect.height * unit, 1e-4f);
+        _depthMask.localScale = new Vector3(w, h, 1f);
+        _depthMask.localPosition = new Vector3(0f, 0f, DepthMaskBehindMeters * worldScale);
     }
 
     /// <summary>
@@ -291,10 +339,83 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // LOST-MENU FIX: split laser vs palm — the far ray grabs ONLY the visible bar strip.
         _handle.SetBarCollider(barCollider);
 
+        // Problem #4: the coplanar depth mask (menu family only). Built BEFORE VRLayers.Apply so it
+        // is swept onto the mod layer 27 with the rest of the holder — only the HMD head camera draws
+        // it, never the game's mono UI Camera.
+        if (_wantDepthMask && _depthMask == null)
+            BuildDepthMask();
+
         // Render-only mod layer — grabs/pokes route through the registries, not layers.
         VRLayers.Apply(holderGo);
         VRLog.Info("WorldUI", $"MODAL GRAB: '{_logName}' is now a grabbable/scalable world element " +
                               "(grip the bar to move, two hands to resize 0.5x-2x).");
+    }
+
+    /// <summary>
+    /// Problem #4: build the color-invisible depth-writing quad that stamps the floated menu's depth
+    /// into the buffer, exactly the <see cref="Core.SkyBackdrop"/> depth-reset material state but
+    /// LEqual (not Always) and localized to the menu plane.
+    ///
+    /// MATERIAL: the bundled <c>GloomhavenVR/Overlay</c> shader (the only one exposing the render
+    /// state as properties) forced to <c>_ZWrite=1</c> (WRITE depth), <c>_ZTest=4</c> (LEqual — closer
+    /// hands/board still win), <c>_Cull=0</c> (two-sided), <c>_SrcBlend=0 (Zero)/_DstBlend=1 (One)</c>
+    /// so <c>colour = 0*src + 1*dst = dst</c> — the framebuffer colour is UNCHANGED (nothing hidden,
+    /// no tint), only depth is written. renderQueue <see cref="DepthMaskQueue"/> (2999) draws it after
+    /// every opaque object and before the menu's transparent UI (~3000).
+    ///
+    /// ORDERING (why it works): opaque hands/board (queue ≤2500) draw first, laying down their near
+    /// depth. The mask (2999, transparent) draws next: where a hand/board is NEARER than the menu
+    /// plane its LEqual FAILS (mask depth &gt; the nearer depth) so that near depth is preserved — the
+    /// menu stays occludable by closer things; elsewhere it WRITES the menu-plane depth. The menu UI
+    /// (3000, ZWrite off, LEqual) draws last and PASSES at its own plane (equal ≤ the mask depth a
+    /// hair behind it), so the menu is fully visible. Transparent HUD behind the menu (also ~3000,
+    /// but FARTHER than the mask) FAILS LEqual against the stamped depth → correctly occluded. Nothing
+    /// is disabled and no colour changes anywhere.
+    /// </summary>
+    private void BuildDepthMask()
+    {
+        if (_frame == null)
+            return;
+
+        var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = "DepthMask";
+        Object.Destroy(quad.GetComponent<Collider>()); // depth-only; never a poke/laser target
+        quad.transform.SetParent(_frame, worldPositionStays: false);
+        quad.transform.localRotation = Quaternion.identity;
+        quad.transform.localPosition = new Vector3(0f, 0f, DepthMaskBehindMeters); // real z set per-tick
+        quad.transform.localScale = new Vector3(1e-4f, 1e-4f, 1f);                 // real size set per-tick
+
+        var mr = quad.GetComponent<MeshRenderer>();
+        // Colour is irrelevant (Zero/One blend discards src) — clear keeps intent obvious.
+        Material mat = WorldUIAssets.CreateFlatMaterial(Color.clear, overlay: true);
+        bool depthCapable = mat.HasProperty("_ZWrite") && mat.HasProperty("_ZTest");
+        if (mat.HasProperty("_ZWrite")) mat.SetInt("_ZWrite", 1);   // WRITE depth (stamp the menu plane)
+        if (mat.HasProperty("_ZTest")) mat.SetInt("_ZTest", 4);     // LEqual — closer hands/board still occlude
+        if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", 0);       // two-sided (menu can be viewed from either face)
+        if (mat.HasProperty("_SrcBlend")) mat.SetInt("_SrcBlend", 0); // Zero  ┐ colour = 0*src + 1*dst
+        if (mat.HasProperty("_DstBlend")) mat.SetInt("_DstBlend", 1); // One   ┘   = dst (UNCHANGED)
+        mat.renderQueue = DepthMaskQueue;                            // 2999: after opaque, before the menu UI
+        mr.sharedMaterial = mat;
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+        mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        // Deliberately DO NOT set mr.sortingOrder — default 0 keeps the mask below the host canvas's
+        // sortingOrder 1000, so on the sortingOrder axis too it composites BEFORE the menu content.
+
+        _depthMask = quad.transform;
+
+        if (depthCapable)
+            VRLog.Info("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' created — depth-writing quad on mod layer " +
+                                  $"{Core.VRLayers.ModLayer}, renderQueue {DepthMaskQueue}, ZWrite 1 / ZTest LEqual / " +
+                                  $"Cull Off / Blend Zero One, coplanar +{DepthMaskBehindMeters * 1000f:F1} mm behind " +
+                                  "the menu plane. Transparent HUD behind the menu now fails ZTest against the stamped " +
+                                  "menu depth (occluded); the menu still draws (LEqual at its plane) and closer hands/" +
+                                  "board still occlude both the mask and the menu.");
+        else
+            VRLog.Warn("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' — the Overlay shader (gloomhavenvr.bundle) is " +
+                                  "unavailable, so the mask material cannot write depth; HUD may still bleed through the " +
+                                  "menu until the bundle ships the 'GloomhavenVR/Overlay' shader.");
     }
 
     private void SyncBar(float halfHeight, float width, float worldScale)
@@ -321,11 +442,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// <summary>Destroy the mod-owned holder (the game host is released separately by the caller).</summary>
     internal void Destroy()
     {
+        // Problem #4: the depth mask is a child of the holder → destroyed with it below. Log once so a
+        // hardware run can pair each create with its destroy (menu name).
+        if (_depthMask != null)
+            VRLog.Info("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' destroyed with the menu.");
         if (_holder != null)
             Object.Destroy(_holder.gameObject);
         _holder = null;
         _frame = null;
         _bar = null;
+        _depthMask = null;
         _grabZone = null;
         _handle = null;
     }
