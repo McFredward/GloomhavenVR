@@ -591,26 +591,29 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         UpdatePalmGate();
 
-        // Modal input-block (menu open): while a modal window floats
-        // (ModalFallback.WindowModalActive — the floated-window authority the BoardPick
-        // gate already trusts), NOTHING behind the menu may be clicked. Force every card
-        // non-poke/non-grab and skip all card/board/browse/active laser picks (clearing any
-        // live hover). Exemptions live OUTSIDE this driver and stay untouched: the tray's
-        // PanelGrabHandle / panel-grab (on the Grab interactor, still in the ModalUI mask)
-        // and the modal window host itself (its own uGUI path). Releases automatically when
-        // the menu closes — the next Rebuild restores each card's zone poke/grab flags.
-        bool modalBlock = WorldUI.ModalFallback.WindowModalActive;
+        // Modal input-block: while a BLOCKING modal floats (story/results/durability — NOT the
+        // player-reachable pause/ESC/Options family), nothing behind it may be clicked. Force every
+        // card non-poke/non-grab and skip all card/board/browse/active laser picks (clearing any
+        // live hover). Keyed on BlockingWindowModalActive, NOT WindowModalActive: the reachable
+        // menus (NonBlockingMenus) must impose ZERO restrictions — the user keeps grabbing cards /
+        // picking hexes with the pause menu open (explicit requirement). WindowModalActive was the
+        // bug here twice over: it is "ANY floated window", so (a) an open ESC menu froze all card
+        // input, and (b) a CLOSED menu whose sticky float hadn't been released yet STILL counted as
+        // open ("I closed the menu but cards stayed dead"). Exemptions live OUTSIDE this driver and
+        // stay untouched: the tray's PanelGrabHandle / panel-grab and the modal window host itself.
+        // Releases automatically — the next Rebuild restores each card's zone poke/grab flags.
+        bool modalBlock = WorldUI.ModalFallback.BlockingWindowModalActive;
         if (modalBlock != _modalInputBlocked)
         {
             _modalInputBlocked = modalBlock;
             if (modalBlock)
             {
-                VRLog.Info("Cards", "Modal input-block ENGAGED — menu open: cards made " +
-                                    "non-poke/non-grab and all card/board laser picks gated off.");
+                VRLog.Info("Cards", "Modal input-block ENGAGED — BLOCKING modal open (not the pause/options " +
+                                    "family): cards made non-poke/non-grab and all card/board laser picks gated off.");
             }
             else
             {
-                VRLog.Info("Cards", "Modal input-block RELEASED — menu closed: restoring card poke/grab + laser picks.");
+                VRLog.Info("Cards", "Modal input-block RELEASED — blocking modal closed: restoring card poke/grab + laser picks.");
                 _dirty = true; // Rebuild re-applies each card's zone Grabbable/PokeSelectEnabled next frame
             }
         }
