@@ -181,12 +181,17 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         {
             if (_highlight.Active)
                 return;
-            bool applied = _highlight.Apply(root);
-            VRLog.Info("FigureGrab", applied
-                ? $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}) — emissive glow on the "
-                  + "figure's own materials (wall-occluded, subtle)."
-                : $"pre-grab highlight SKIPPED ({Describe()}) — no emissive-capable material; no ring "
-                  + "shown (avoids a see-through highlight).");
+            // Scale the ANIMATED visual root (the game never writes its scale), not the actor root:
+            // shader-agnostic, occlusion-correct, and it can't perturb the root grab collider.
+            Transform scaleTarget = _actor.m_AnimatedGameObject != null
+                ? _actor.m_AnimatedGameObject.transform
+                : root.transform;
+            bool glow = _highlight.Apply(root, scaleTarget);
+            VRLog.Info("FigureGrab",
+                $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}) — uniform scale pop on the "
+                + $"figure's own renderers (wall-occluded, shader-agnostic)"
+                + (glow ? " + warm emissive glow (shader supports _EmissionColor)."
+                        : " (shader has no _EmissionColor — scale pop only)."));
         }
         else
         {
