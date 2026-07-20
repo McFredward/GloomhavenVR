@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using AStar;
 using GloomhavenVR.Core;
@@ -7,7 +6,6 @@ using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.WorldUI.Surfaces;
 using ScenarioRuleLibrary;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace GloomhavenVR.Board.FigureGrab;
 
@@ -79,22 +77,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private Renderer[]? _heldRenderers;
     private Material[][]? _origSharedMats;
 
-    // TASK B (perspective fix) — the game's actor selection glow (ActorBehaviour.m_Hilight) renders
-    // THROUGH terrain by design (ZTest Always), so a grabbed/once-grabbed figure's highlight shows
-    // through walls and floors. While the highlight is on we force ITS renderer instance materials'
-    // _ZTest/_ZTestMode to LEqual (CompareFunction.LessEqual == 4) so the glow is occluded by walls
-    // like everything else, snapshotting the original SHARED materials and restoring them verbatim
-    // on clear/release (nothing persists past release — the reported symptom). If the highlight
-    // exposes NO depth-test property (can't be made depth-correct safely) we take the acceptable
-    // fallback: DON'T activate the game highlight at all — the figure already visibly moves to the
-    // hand, so feedback survives while correctness (no see-through) is guaranteed. Path logged once.
-    private static readonly int ZTestProp = Shader.PropertyToID("_ZTest");
-    private static readonly int ZTestModeProp = Shader.PropertyToID("_ZTestMode");
-    private static bool _hilightPathLogged;
-    private static bool _hilightFailLogged;
-    private bool _highlightActive;
-    private Renderer[]? _hilightRenderers;
-    private Material[][]? _hilightOrigSharedMats;
+    // TASK #2 (pre-grab highlight) — a subtle warm-gold EMISSIVE glow on the figure's OWN materials,
+    // shown while a hand is in proximity reach of the figure it WOULD grab (the offset-anchor winner;
+    // see FigureGrabDriver.SelectByOffsetAnchor, which already suppresses every non-winner so this
+    // hover callback only ever fires on the single grab candidate). Deliberately NOT the game's
+    // m_Hilight ring: that draws ZTest Always and shows through walls, whereas a glow on the figure's
+    // own material inherits the figure's shader ZTest (LEqual) and is occluded by terrain exactly
+    // like the mini — occlusion-correct by construction under this mod's Forward rendering. See
+    // FigureHighlight for the snapshot/restore + no-leak mechanics.
+    private readonly FigureHighlight _highlight = new();
 
     // R2 hardening: the actor's authoritative board cell at grab time. If the game moves the
     // figure to a different cell while it is held (a remote player's or the server's networked
@@ -170,149 +161,49 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             _suppressRight = suppressed;
     }
 
+    /// <summary>
+    /// TASK #2 — pre-grab proximity highlight. Driven by the grab system's hover callback
+    /// (<see cref="IGrabHighlight"/>): the <see cref="ProximityGrabber"/> raises this with
+    /// <c>true</c> when this figure becomes the hand's nearest grab candidate and <c>false</c>
+    /// when it stops. Because <see cref="FigureGrabDriver.SelectByOffsetAnchor"/> suppresses every
+    /// figure except the offset-anchor winner for that hand, this only ever fires on the single
+    /// figure that would actually be grabbed. On highlight we apply a subtle emissive glow to the
+    /// figure's own materials (occlusion-correct — see <see cref="FigureHighlight"/>); on un-hover
+    /// (and on grab, since the grabber clears the highlight before <see cref="OnGrab"/>) we restore.
+    /// </summary>
     public void OnGrabHighlight(VRHand hand, bool highlighted)
     {
-        // Reuse the game's own actor highlight ring — but make it DEPTH-CORRECT (TASK B) so a
-        // grabbed figure's selection glow is hidden by walls instead of punching through them.
         GameObject? root = Root;
         if (root == null)
             return;
 
         if (highlighted)
-            ActivateDepthCorrectHighlight(root);
-        else
-            ClearHighlight(root);
-    }
-
-    /// <summary>
-    /// TASK B — turn on the game selection highlight but force its renderers to respect depth.
-    /// Snapshots the highlight renderers' SHARED materials, swaps in per-renderer INSTANCE
-    /// materials with <c>_ZTest</c>/<c>_ZTestMode</c> forced to <see cref="CompareFunction.LessEqual"/>
-    /// so the glow can no longer draw through walls. If NO material exposes a depth-test property the
-    /// glow can't be made depth-correct safely, so we take the fallback and DON'T activate the game
-    /// highlight at all (the figure still visibly moves to the hand). Never throws into the game.
-    /// </summary>
-    private void ActivateDepthCorrectHighlight(GameObject root)
-    {
-        try
         {
-            GameObject? hilight = _actor != null ? _actor.m_Hilight : null;
-            if (hilight == null)
-            {
-                // No highlight object to punch through — just use the vanilla path.
-                SafeSetHilighted(root, true);
-                _highlightActive = true;
+            if (_highlight.Active)
                 return;
-            }
-
-            Renderer[] renderers = hilight.GetComponentsInChildren<Renderer>(includeInactive: true);
-            var snap = new Material[renderers.Length][];
-            bool depthCorrectable = false;
-            for (int i = 0; i < renderers.Length; i++)
-            {
-                Renderer r = renderers[i];
-                if (r == null)
-                    continue;
-                snap[i] = r.sharedMaterials;              // snapshot the ORIGINAL shared assets
-                Material[] instances = r.materials;       // per-renderer INSTANCES (no global mutation)
-                foreach (Material m in instances)
-                {
-                    if (m == null)
-                        continue;
-                    if (m.HasProperty(ZTestProp))
-                    {
-                        m.SetInt(ZTestProp, (int)CompareFunction.LessEqual);
-                        depthCorrectable = true;
-                    }
-                    if (m.HasProperty(ZTestModeProp))
-                    {
-                        m.SetInt(ZTestModeProp, (int)CompareFunction.LessEqual);
-                        depthCorrectable = true;
-                    }
-                }
-            }
-
-            if (depthCorrectable)
-            {
-                _hilightRenderers = renderers;
-                _hilightOrigSharedMats = snap;
-                _highlightActive = true;
-                SafeSetHilighted(root, true);
-                if (!_hilightPathLogged)
-                {
-                    _hilightPathLogged = true;
-                    VRLog.Info("FigureGrab",
-                        "grab-highlight = DEPTH-FIX path: forced m_Hilight renderer instance materials "
-                        + "_ZTest/_ZTestMode → LEqual(4) so the game selection glow respects walls "
-                        + "(hidden behind terrain). Original shared materials restored on release.");
-                }
-            }
-            else
-            {
-                // Fallback: no depth-test property → can't be made depth-correct. Undo the instance
-                // swap and DON'T show the game highlight (prevents any see-through). The mini already
-                // moves to the hand, so grab feedback remains.
-                RestoreHilightMaterials(renderers, snap);
-                _highlightActive = false;
-                if (!_hilightPathLogged)
-                {
-                    _hilightPathLogged = true;
-                    VRLog.Info("FigureGrab",
-                        "grab-highlight = SKIP path: m_Hilight exposes no _ZTest/_ZTestMode to make it "
-                        + "depth-correct, so the game selection highlight is NOT activated on grab "
-                        + "(prevents see-through through walls). The figure still moves to the hand.");
-                }
-            }
+            bool applied = _highlight.Apply(root);
+            VRLog.Info("FigureGrab", applied
+                ? $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}) — emissive glow on the "
+                  + "figure's own materials (wall-occluded, subtle)."
+                : $"pre-grab highlight SKIPPED ({Describe()}) — no emissive-capable material; no ring "
+                  + "shown (avoids a see-through highlight).");
         }
-        catch (Exception e)
+        else
         {
-            if (!_hilightFailLogged)
-            {
-                _hilightFailLogged = true;
-                VRLog.Warn("FigureGrab", $"grab-highlight depth-fix threw (highlight left off): {e.Message}");
-            }
-            // Leave the highlight OFF on failure rather than risk a see-through glow.
-            SafeSetHilighted(root, false);
-            _highlightActive = false;
+            ClearHighlight();
         }
     }
 
     /// <summary>
-    /// TASK B — clear the grab highlight and restore any depth-fix material swap (idempotent). Called
-    /// on un-hover AND from <see cref="Restore"/> so the highlight can never persist past release.
+    /// Clear the pre-grab highlight and restore the figure's materials (idempotent). Called on
+    /// un-hover AND from <see cref="Restore"/> so the glow can never persist past a grab/release.
     /// </summary>
-    private void ClearHighlight(GameObject? root)
+    private void ClearHighlight()
     {
-        if (_hilightRenderers != null && _hilightOrigSharedMats != null)
-            RestoreHilightMaterials(_hilightRenderers, _hilightOrigSharedMats);
-        _hilightRenderers = null;
-        _hilightOrigSharedMats = null;
-        _highlightActive = false;
-        if (root != null)
-            SafeSetHilighted(root, false);
-    }
-
-    private static void RestoreHilightMaterials(Renderer[] renderers, Material[][] origShared)
-    {
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            Renderer r = renderers[i];
-            if (r != null && origShared[i] != null)
-                r.sharedMaterials = origShared[i];
-        }
-    }
-
-    private static void SafeSetHilighted(GameObject root, bool on)
-    {
-        try { ActorBehaviour.SetHilighted(root, on); }
-        catch (Exception e)
-        {
-            if (!_hilightFailLogged)
-            {
-                _hilightFailLogged = true;
-                VRLog.Warn("FigureGrab", $"SetHilighted threw: {e.Message}");
-            }
-        }
+        if (!_highlight.Active)
+            return;
+        _highlight.Clear();
+        VRLog.Info("FigureGrab", $"pre-grab highlight CLEARED ({Describe()}).");
     }
 
     public void OnGrab(VRHand hand)
@@ -466,12 +357,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         Live.Remove(this);
         RestoreRenderers(); // Issue B — undo the render-on-top swap (idempotent)
 
-        // TASK B — guarantee the grab highlight (and its depth-fix material swap) never persists
-        // past release, even if OnGrabHighlight(false) was not delivered (the reported "visible
-        // through walls once grabbed" symptom). Root may be Unity-fake-null if the actor was torn
-        // down; ClearHighlight is null-safe and still restores our snapshot.
-        if (_highlightActive || _hilightRenderers != null)
-            ClearHighlight(Root);
+        // Guarantee the pre-grab highlight never persists past release, even if OnGrabHighlight(false)
+        // was not delivered (e.g. the grab consumed the highlight, or the actor was torn down under
+        // us). ClearHighlight is idempotent and restores the figure's original materials.
+        ClearHighlight();
         if (_attached)
         {
             GameObject? root = Root;
