@@ -56,9 +56,12 @@ internal sealed class CompatModule : IVRModule
         // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
-        // ISSUE #4 — walls. WallFadeDisable pins the GLOBAL fade shader int (ToggleWallFade) off
-        // via a Harmony postfix on Main.Update, so the flat game's see-behind wall fade never
-        // activates in VR and walls always render solid. Reflection-guarded, VR-gated, reversible.
+        // ISSUE #4 — walls. WallFadeDisable pins the GLOBAL fade shader int (ToggleWallFade)
+        // via a Harmony postfix on Main.Update. It consults [Compat] WallFade LIVE each call:
+        // OFF (default) pins 0 so the see-behind fade never activates and walls render solid;
+        // ON pins 1 so the game's own view-dependent fade runs — evaluated by the wall shaders
+        // against the mod's head camera, i.e. it follows the HMD. Reflection-guarded, VR-gated,
+        // reversible, live-togglable from the VR settings panel.
         //
         // The real occlusion fix lives elsewhere: the head camera now renders FORWARD
         // (VRRigDriver, config Plugin.ForwardRendering), which stops the SkyBackdrop depth-reset

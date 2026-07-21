@@ -53,6 +53,13 @@ public class Plugin : BaseUnityPlugin
     /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.</summary>
     internal static ConfigEntry<bool> Experimental3DMap = null!;
 
+    /// <summary>
+    /// [Rig] Demeo-style world tilt (degrees, 0-60): the whole diorama APPEARS tilted toward
+    /// the player by counter-rotating the tracking space around the board center
+    /// (VRRigDriver.TickWorldTilt). World coordinates never change — multiplayer-safe.
+    /// </summary>
+    internal static ConfigEntry<float> WorldTiltDegrees = null!;
+
     /// <summary>Disable PPv2 (PostProcessLayer/PostProcessVolume) while VR runs (P1 default: on).</summary>
     internal static ConfigEntry<bool> DisablePostProcessing = null!;
 
@@ -61,6 +68,12 @@ public class Plugin : BaseUnityPlugin
 
     /// <summary>Extra comma-separated component type full names to disable while VR runs.</summary>
     internal static ConfigEntry<string> DisableComponents = null!;
+
+    /// <summary>
+    /// [Compat] Re-enable the game's own view-dependent wall see-through fade in VR
+    /// (OFF = walls always solid, the VR default). Consulted live by WallFadeDisable.
+    /// </summary>
+    internal static ConfigEntry<bool> WallFade = null!;
 
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
@@ -176,6 +189,18 @@ public class Plugin : BaseUnityPlugin
             "the floating screen, because the map scene was never authored for a free VR " +
             "camera (test #8: giant map below the player, black flat window). The wish is " +
             "saved here so it survives into a later phase.");
+        WorldTiltDegrees = Config.Bind(
+            "Rig", "WorldTiltDegrees", 0f,
+            "Demeo-style world tilt in degrees (0-60, 0 = off/default). The ENTIRE play area " +
+            "(board, figures, everything) appears tilted toward you — great when playing " +
+            "reclined or lying down. Implemented rig-side: the VR tracking space is " +
+            "counter-rotated around the board center, so your viewpoint orbits up and over " +
+            "the board while world coordinates stay untouched (multiplayer-safe: boards and " +
+            "figures never move for anyone; other players merely see your avatar orbit, " +
+            "which is the physically honest picture). COMFORT WARNING: tilting reorients " +
+            "gravity relative to your head — the horizon no longer matches your inner ear. " +
+            "Increase in small steps (the settings panel steps 5 degrees) and prefer " +
+            "moderate angles. Live: changes apply immediately and persist.");
         DisablePostProcessing = Config.Bind(
             "Compat", "DisablePostProcessing", true,
             "Disable PostProcessing v2 (PostProcessLayer/PostProcessVolume) while VR is active. " +
@@ -187,6 +212,16 @@ public class Plugin : BaseUnityPlugin
             "Compat", "DisableComponents", "",
             "Extra comma-separated component type full names (optionally 'FullName, Assembly') " +
             "to disable while VR is active, e.g. 'BeautifyEffect.Beautify'.");
+        WallFade = Config.Bind(
+            "Compat", "WallFade", false,
+            "Re-enable the game's own see-through wall fade in VR. When ON, a wall fades " +
+            "exactly while the angle of your view onto it would hide the play area behind it " +
+            "(the game's own view-dependent shader logic, evaluated against your headset eye " +
+            "position because the mod's head camera is the one rendering the scene) and " +
+            "turns solid again as soon as it no longer occludes. OFF (default) pins the fade " +
+            "off so walls always render solid — the VR behavior so far. Purely visual and " +
+            "local (a shader global): multiplayer peers are unaffected. Live-togglable from " +
+            "the VR settings panel.");
         PrimaryHand = Config.Bind(
             "Hands", "PrimaryHand", "Right",
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
