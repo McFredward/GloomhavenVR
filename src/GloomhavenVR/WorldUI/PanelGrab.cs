@@ -100,12 +100,12 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     // Gesture anchors (captured on every hand-count change).
     private Vector3 _anchorPos;        // palm (one-hand) or midpoint (two-hand) at engage
-    private float _anchorHeading;      // hand yaw (one-hand) or pair heading (two-hand), deg
+    private float _anchorHeading;      // pair heading at engage (two-hand), deg
+    private Quaternion _anchorHandRot = Quaternion.identity; // hand rotation at engage (one-hand)
     private float _anchorDistance;     // palm distance at engage (two-hand)
     private Vector3 _rootPos0;
     private Quaternion _rootRot0 = Quaternion.identity;
     private float _rootScale0 = 1f;
-    private float _lastHeading;        // last valid heading (degenerate-pose fallback)
 
     /// <summary><paramref name="logName"/>/<paramref name="logChannel"/> keep the owner's log identity ("Tray grab: …" etc.).</summary>
     internal void Init(IPanelGrabOwner owner, MeshRenderer bar, string logChannel, string logName)
@@ -261,11 +261,21 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         if (_handB == null)
         {
             // One hand: rigid carry (yaw-only spin when the owner lets us rotate).
+            //
+            // Cards task #4 fix (vertical move rotated the board): the yaw used to be
+            // derived from the HORIZONTAL PROJECTION of the hand's forward
+            // (HandHeading). Raising or lowering the arm PITCHES the controller, and
+            // as forward approaches vertical its horizontal projection shrinks — tiny
+            // wrist noise then swings the projected heading by tens of degrees, so a
+            // purely vertical carry spun the board although the wrist never yawed.
+            // The yaw is now the TWIST of the actual wrist rotation delta about world
+            // up (swing-twist decomposition): pure pitch/roll contributes exactly
+            // zero, a deliberate wrist yaw still turns the board 1:1.
             Vector3 palm = _handA.Rig.PalmCenter.position;
             Quaternion spin = Quaternion.identity;
             if (carryYaw)
             {
-                float dYaw = Mathf.DeltaAngle(_anchorHeading, HandHeading(_handA));
+                float dYaw = TwistYawDegrees(_handA.transform.rotation * Quaternion.Inverse(_anchorHandRot));
                 spin = Quaternion.Euler(0f, dYaw, 0f);
             }
             Vector3 targetPos = palm + spin * (_rootPos0 - _anchorPos);
@@ -313,7 +323,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         if (_handB == null)
         {
             _anchorPos = _handA.Rig.PalmCenter.position;
-            _anchorHeading = HandHeading(_handA);
+            _anchorHandRot = _handA.transform.rotation; // wrist-twist yaw reference (task #4)
         }
         else
         {
@@ -325,15 +335,23 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         }
     }
 
-    /// <summary>Horizontal heading of the hand's pointing direction (stable fallback near vertical).</summary>
-    private float HandHeading(VRHand hand)
+    /// <summary>
+    /// The TWIST (yaw) component of a rotation delta about world up, in degrees
+    /// (-180..180) — swing-twist decomposition: project the quaternion's vector part
+    /// onto the up axis and renormalize. Pure pitch/roll deltas return 0, so a
+    /// vertically carried board no longer picks up phantom yaw (cards task #4).
+    /// </summary>
+    private static float TwistYawDegrees(Quaternion delta)
     {
-        Vector3 fwd = hand.transform.forward;
-        fwd.y = 0f;
-        if (fwd.sqrMagnitude < 0.01f)
-            return _lastHeading; // pointing straight up/down — keep the last stable value
-        _lastHeading = HeadingDegrees(fwd);
-        return _lastHeading;
+        float y = delta.y; // dot(vector part, world up)
+        float w = delta.w;
+        float mag = Mathf.Sqrt(y * y + w * w);
+        if (mag < 1e-6f)
+            return 0f; // pure 180° swing about a horizontal axis — no usable twist
+        float yaw = 2f * Mathf.Atan2(y / mag, w / mag) * Mathf.Rad2Deg;
+        if (yaw > 180f) yaw -= 360f;
+        else if (yaw < -180f) yaw += 360f;
+        return yaw;
     }
 
     private static float HeadingDegrees(Vector3 dir) =>

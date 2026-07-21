@@ -58,6 +58,12 @@ internal sealed class CardsDriver : MonoBehaviour
     private Vector3 _switchScale = Vector3.one;
     private bool _fakeActive;
     private VRHand? _gateHand;
+
+    // Task #9 (empty-fan feedback): ghost placard shown when the palm gate opens on an
+    // empty hand; _gateWasRevealed edge-detects the gesture so the hint fires once per
+    // roll, never per frame.
+    private readonly EmptyFanHint _emptyFanHint = new();
+    private bool _gateWasRevealed;
     private CardsHandUI? _boundHand;
 
     // ------------------------------------------------------------------ lifecycle --
@@ -344,6 +350,7 @@ internal sealed class CardsDriver : MonoBehaviour
         _insertGap = -1;
         _insertHighlightCard = null;
         VRCard.InteractionBlockedHand = null;
+        _emptyFanHint.Destroy(); // task #9: ghost placard teardown
         _fan.Destroy();
         _browser.Destroy();
         _half.Destroy();
@@ -636,6 +643,10 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdateFanHoverSplit();
         UpdateSlotHighlight();
         UpdateFanInsertion(); // after the slot highlight so its precedence check reads a fresh slot
+        if (_modalInputBlocked)
+            _emptyFanHint.Hide(); // task #9: never linger under a modal
+        else
+            _emptyFanHint.Tick();
         _fan.Tick();
         _half.Tick();
         _browser.Tick(); // held reading fan follows the grabbing hand (item 5)
@@ -861,6 +872,23 @@ internal sealed class CardsDriver : MonoBehaviour
             // Demeo mirrors with OnCardHandHide (CardHandView.cs:691) — softer item by default.
             PlayCardSound(CardsConfig.FanHideSound.Value, _gateHand.transform);
         }
+
+        // Task #9 (empty-fan feedback): the palm rolled open but there is nothing to
+        // fan — show the ghost "no hand cards" placard at the fan spot so the gesture
+        // visibly worked (it used to show NOTHING, which read as a bug). Edge-triggered
+        // on the reveal gesture; only in the real hand-fan context (CardsSelection with
+        // a bound hand, no modal, not the dev fake hand) so pick flows / dialogs, where
+        // an empty fan is expected, never flash it.
+        if (revealed && !_gateWasRevealed && !allowFan
+            && !_modalInputBlocked && !_fakeActive && _boundHand != null
+            && CardsGameApi.Mode(_boundHand) == CardHandMode.CardsSelection)
+        {
+            _emptyFanHint.Show(_gateHand);
+            PlayCardSound(CardsConfig.FanHideSound.Value, _gateHand.transform); // the soft hide tick
+            VRLog.Info("Cards", "Empty fan: palm gate opened with ZERO hand cards — ghost " +
+                                "\"no hand cards\" placard shown at the fan spot (fades ~1.5 s).");
+        }
+        _gateWasRevealed = revealed;
     }
 
     // ------------------------------------------------------------------ card audio --
@@ -1710,10 +1738,15 @@ internal sealed class CardsDriver : MonoBehaviour
                 grabbable = true;
                 // Field occupants stay valid only while the game still reports them
                 // selected (an undo / "choose other card" returns them to the fan).
+                // Task #11 free swap: while a pick-reopen (cancel → re-select) is in
+                // flight the game momentarily reports EVERYTHING deselected — do not
+                // prune on that transient or the still-placed card would snap to the
+                // fan mid-swap; the reopen's completion re-runs this with final state.
                 for (int i = _fieldCards.Count - 1; i >= 0; i--)
                 {
                     VRCard occupant = _fieldCards[i];
-                    if (occupant == null || occupant.GameCard == null || !occupant.GameCard.IsSelected)
+                    if (occupant == null || occupant.GameCard == null
+                        || (!_pickReopenBusy && !occupant.GameCard.IsSelected))
                         _fieldCards.RemoveAt(i);
                 }
                 // Item 9: the SELECTABLE widgets become the fan. In CardsSelection the
@@ -1724,12 +1757,25 @@ internal sealed class CardsDriver : MonoBehaviour
                 // one authoritative TryCommitPick → SelectCard seam. Track the source
                 // pile for the change-deduped Info line below.
                 CardPileType pickSource = CardPileType.None;
+                // Task #11 (b): while the game's "Karten verbrennen / Wähle eine andere
+                // Karte" confirm popup is open it flips EVERY widget unselectable
+                // (OnCardSelected LoseCard branch, CardsHandUI.cs:2046-2052) — which
+                // used to empty the fan the moment the required cards were placed. The
+                // eligible cards must stay browsable/swappable through the whole flow,
+                // so while that popup is open the fan keeps the widgets of the pick
+                // source pile (the game's own selectableCardTypes) that are not
+                // currently selected. Grabbing one triggers the reopen seam
+                // (OnCardGrabbed → game's own "choose another card"), which restores
+                // real selectability before any commit can run.
+                bool confirmOpen = CardsGameApi.IsPickConfirmDialogOpen(hand);
                 for (int i = 0; i < _widgetBuffer.Count; i++)
                 {
                     AbilityCardUI widget = _widgetBuffer[i];
                     if (widget.AbilityCard == null || widget.IsLongRest)
                         continue;
-                    if (!widget.IsSelectable)
+                    bool eligible = widget.IsSelectable
+                        || (confirmOpen && !widget.IsSelected && CardsGameApi.IsPickEligible(hand, widget));
+                    if (!eligible)
                         continue;
                     if (pickSource == CardPileType.None)
                         pickSource = widget.CardType;
@@ -1920,6 +1966,14 @@ internal sealed class CardsDriver : MonoBehaviour
         // the hand is working right next to CONFIRM — arm the suppression guard.
         if (_tray.SlotOf(card) >= 0 || _fieldCards.Contains(card))
             _tray.NoteSlotActivity();
+        // Task #11 (free swap): grabbing ANY pick card (a placed one off the tray OR a
+        // fresh candidate from the fan) while the game's burn/lose CONFIRM popup is
+        // open re-opens the selection through the game's own "choose another card"
+        // seam — see ReopenPickSelection. Without this the take-back ran UnselectCard
+        // under a live popup, a state the 2D game forbids (it locks all cards while
+        // the popup shows), and the stale popup's commit then indexed an empty
+        // selectedCardsUI → GlobalErrorMessage → dumped to the main menu.
+        MaybeReopenPickSelection(card);
         if (_fan.Contains(card))
         {
             _fanOriginCards.Add(card); // reorder: eligible for a fan-gap commit on release
@@ -2030,8 +2084,12 @@ internal sealed class CardsDriver : MonoBehaviour
             // Fan → empty slot: play the card. The snap itself is PlaceCard's SetHome —
             // a quick local lerp into the slot (CardLerpSpeed) — plus a click pulse
             // so the zap is felt, not just seen (test #13).
+            // Task #5 (double sound): NO mod place sound here — the queued SelectCard's
+            // AbilityCardUI.ToggleSelect plays the card's serialized profile click for a
+            // locally-controlled hand (mouseDownAudioItem, AbilityCardUI.cs:1182-1185),
+            // and our thunk on top made every slot placement sound doubled. The game's
+            // click IS the placement sound on all Select/Unselect paths.
             hand.SendHaptic(HapticPreset.ClickPulse);
-            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
             // SelectCard is the spin-wait path — queued; outcome verified against
             // the authoritative round pile afterwards.
             _tray.PlaceCard(card, slot);
@@ -2060,7 +2118,8 @@ internal sealed class CardsDriver : MonoBehaviour
             // authoritative round pile like the plain play, newcomer bounced to the fan
             // on rejection.
             hand.SendHaptic(HapticPreset.ClickPulse);
-            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
+            // Task #5: no mod sound — the queued Unselect+Select pair below already plays
+            // the game's own profile clicks (ToggleSelect both ways); ours made a third.
             VRCard displaced = _tray.Occupant(slot)!;
             CAbilityCard? displacedAbility = displaced.GameCard?.AbilityCard;
             _tray.RemoveCard(displaced);
@@ -2109,10 +2168,9 @@ internal sealed class CardsDriver : MonoBehaviour
         else if (wasInTray)
         {
             // Tray → elsewhere: take the card back.
-            // More-card-sounds: soft undo click. The game's own distinctive sounds do not
-            // fire here — the queued UnselectCard only plays the card's generic serialized
-            // AudioButtonProfile click (AbilityCardUI.ToggleSelect), not a take-back sound.
-            PlayCardSound(CardsConfig.CardTakeBackSound.Value, card.transform);
+            // Task #5: no mod sound — the queued UnselectCard plays the card's serialized
+            // profile click via AbilityCardUI.ToggleSelect (deselect path, AbilityCardUI.cs:1184);
+            // the soft undo click on top doubled it.
             _tray.RemoveCard(card);
             _fan.Add(card);
             CardsHandUI handRef = gameHand;
@@ -2209,6 +2267,131 @@ internal sealed class CardsDriver : MonoBehaviour
     private bool _pickCommitBusy;
 
     /// <summary>
+    /// Task #11 (free swap): true while a pick REOPEN — the queued cancel of the
+    /// game's burn/lose confirm popup plus the re-select of the cards that stay
+    /// placed — is in flight. Guards the Rebuild field prune (everything reads
+    /// deselected mid-cancel) and lets <see cref="TryCommitPick"/> queue a select for
+    /// a card whose stale IsSelected has not been cleared yet.
+    /// </summary>
+    private bool _pickReopenBusy;
+
+    /// <summary>Scratch for the abilities that must be re-selected after a reopen cancel.</summary>
+    private readonly List<CAbilityCard> _reopenKeep = new(4);
+
+    /// <summary>
+    /// Task #11 (crash + free swap): the game's 2D pick flow shows the
+    /// "Karten verbrennen" / "Wähle eine andere Karte" popup the moment the required
+    /// number of cards is selected and LOCKS every card until an option resolves — so
+    /// its commit callback may safely index <c>selectedCardsUI[0]/[1]</c>. VR free
+    /// placement broke that invariant: plucking a card back off the tray while the
+    /// popup was open ran UnselectCard underneath it, and the popup's commit then
+    /// crashed (IndexOutOfRange → GlobalErrorMessage → main menu; Player.log 59952-60089).
+    ///
+    /// The honest VR equivalent of that pluck is the popup's own CANCEL option
+    /// ("choose another card"): the instant a pick card is grabbed while the popup is
+    /// open, queue the game's <c>DialogPopup.Cancel()</c> (which deselects ALL cards
+    /// and restores selectability — the exact 2D path) and then re-select the cards
+    /// that remain physically placed, excluding the grabbed one. Result: the popup can
+    /// NEVER be open with an incomplete selection, swapping works indefinitely (place
+    /// the last card → popup reopens through the game's own OnCardSelected), and the
+    /// commit affordance only exists while the required cards are actually placed.
+    /// All game calls are the game's own local-selection seams (network-synced by the
+    /// game itself) — no game state is faked.
+    /// </summary>
+    private void MaybeReopenPickSelection(VRCard card)
+    {
+        CardsHandUI? hand = CurrentHand();
+        if (hand == null || _pickReopenBusy || card.GameCard == null)
+            return;
+        if (!IsPickMode(CardsGameApi.Mode(hand)))
+            return;
+        if (!CardsGameApi.IsPickConfirmDialogOpen(hand))
+            return;
+        // Grab-time reopen applies to PLACED field cards only (take it back / re-seat
+        // it): the choice must reopen the instant the placement is physically undone.
+        // Grabbing a FAN card leaves the popup alone — a swap only commits on the
+        // release INTO a slot (BeginPickSwapReopen from HandlePickRelease), so a
+        // change-of-mind void release changes nothing. Browse/active cards are
+        // read-only and never reach this.
+        if (!_fieldCards.Contains(card))
+            return;
+
+        // Keep every OTHER placed card selected.
+        _reopenKeep.Clear();
+        for (int i = 0; i < _fieldCards.Count; i++)
+        {
+            VRCard placed = _fieldCards[i];
+            if (placed == null || ReferenceEquals(placed, card) || placed.GameCard == null)
+                continue;
+            _reopenKeep.Add(placed.GameCard.AbilityCard);
+        }
+        EnqueuePickReopen(hand, "placed card grabbed back");
+    }
+
+    /// <summary>
+    /// Task #11 (free swap, fan → slot while the popup is open): a fan candidate was
+    /// dropped into a slot while the confirm popup still showed the full selection.
+    /// Reopen through the game's cancel seam first, keeping all placements EXCEPT the
+    /// most recent one (its slot goes to the incoming card — it returns to the fan);
+    /// the caller then queues the incoming card's select, which re-completes the
+    /// selection and re-opens the popup with the swapped set. Runs before the commit
+    /// so the game never sees a select while the popup locks the cards.
+    /// </summary>
+    private void BeginPickSwapReopen(CardsHandUI hand, VRCard incoming)
+    {
+        if (_pickReopenBusy || !CardsGameApi.IsPickConfirmDialogOpen(hand))
+            return;
+
+        _reopenKeep.Clear();
+        for (int i = 0; i < _fieldCards.Count - 1; i++) // all but the most recent placement
+        {
+            VRCard placed = _fieldCards[i];
+            if (placed == null || ReferenceEquals(placed, incoming) || placed.GameCard == null)
+                continue;
+            _reopenKeep.Add(placed.GameCard.AbilityCard);
+        }
+        // Physically free the displaced placement now — the queued cancel deselects it
+        // and it is not re-selected, so it returns to the fan instead of waiting for
+        // the reconcile prune.
+        if (_fieldCards.Count > 0)
+        {
+            VRCard displaced = _fieldCards[_fieldCards.Count - 1];
+            if (displaced != null && !ReferenceEquals(displaced, incoming))
+            {
+                _fieldCards.RemoveAt(_fieldCards.Count - 1);
+                RelayoutField();
+                _fan.Add(displaced);
+            }
+        }
+        EnqueuePickReopen(hand, "fan card swap-in");
+    }
+
+    /// <summary>Queue the actual reopen: the game's own "choose another card"
+    /// (DialogPopup.Cancel → deselect all + restore selectability) followed by the
+    /// re-selects of <see cref="_reopenKeep"/>. Serialized one call per frame by
+    /// <see cref="CardActionQueue"/> (the select paths spin-wait).</summary>
+    private void EnqueuePickReopen(CardsHandUI hand, string why)
+    {
+        _pickReopenBusy = true;
+        VRLog.Info("Cards", $"Pick reopen ({why}): burn/lose confirm popup open → pressing the game's " +
+                            "own \"choose another card\" (DialogPopup.Cancel) and re-selecting " +
+                            $"{_reopenKeep.Count} still-placed card(s). The popup can never stay open " +
+                            "with an incomplete selection.");
+        CardsHandUI handRef = hand;
+        CardActionQueue.Enqueue(() => CardsGameApi.CancelPickConfirmDialog());
+        for (int i = 0; i < _reopenKeep.Count; i++)
+        {
+            CAbilityCard keep = _reopenKeep[i];
+            CardActionQueue.Enqueue(() => CardsGameApi.SelectCard(handRef, keep));
+        }
+        CardActionQueue.Enqueue(() => { }, () =>
+        {
+            _pickReopenBusy = false;
+            _dirty = true;
+        });
+    }
+
+    /// <summary>
     /// Release routing for the modal pick modes (test #28: the candidate homes into
     /// the LEFT slot recess, not a centre field). Accept rules mirror the play slots
     /// (test #15): the glow that telegraphed the drop wins, the generous capture
@@ -2244,14 +2427,40 @@ internal sealed class CardsDriver : MonoBehaviour
         if (accept)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
-            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
-            PlaceOnField(card);
+            // Task #11 (free swap): a fan candidate dropped into a slot while the
+            // confirm popup shows the completed selection — reopen through the game's
+            // own "choose another card" first (displaces the most recent placement),
+            // THEN queue this card's select; the popup reopens with the swapped set.
             if (!wasOnField)
-                TryCommitPick(card, gameHand, "drop-slot");
+                BeginPickSwapReopen(gameHand, card);
+            // Task #5 (double sound): a commit queues CardsHandUI.SelectCard, whose
+            // AbilityCardUI.ToggleSelect plays the card's own serialized profile click
+            // (mouseDownAudioItem, AbilityCardUI.cs:1184) one frame later — our thunk on
+            // top made TWO sounds per placement. Play ours ONLY for the game-silent
+            // re-drop of an already-placed card; the commit lets the game's click be
+            // the one placement sound.
+            // Re-seating a field card that a reopen deselected (grab-back → change of
+            // mind → drop back into the slot) must ALSO commit, even after the reopen
+            // queue already drained — its widget reads unselected then.
+            bool willCommit = !wasOnField || _pickReopenBusy
+                              || (card.GameCard != null && !card.GameCard.IsSelected);
+            if (!willCommit)
+                PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform);
+            PlaceOnField(card);
+            // Commit through the one seam. Also on a re-drop DURING a pick reopen
+            // (task #11): the reopen's cancel deselected this card, so re-seating it
+            // must re-select it — the queued select lands after the cancel resolves.
+            if (willCommit)
+                TryCommitPick(card, gameHand, wasOnField ? "re-drop" : "drop-slot");
         }
         else if (wasOnField)
         {
-            PlayCardSound(CardsConfig.CardTakeBackSound.Value, card.transform); // more-card-sounds: undo click
+            // Task #5: the queued UnselectCard below plays the game's own profile click
+            // (ToggleSelect deselect path) — no mod sound on top. During a pick reopen
+            // the card is already deselected (the game plays nothing), so the soft undo
+            // click keeps audible feedback for that case.
+            if (_pickReopenBusy)
+                PlayCardSound(CardsConfig.CardTakeBackSound.Value, card.transform);
             _fieldCards.Remove(card);
             RelayoutField();
             _fan.Add(card);
@@ -2285,7 +2494,10 @@ internal sealed class CardsDriver : MonoBehaviour
         AbilityCardUI? widget = card.GameCard;
         if (widget == null)
             return;
-        if (widget.IsSelected)
+        // During a pick reopen (task #11) the widget's IsSelected is stale — the queued
+        // cancel is about to deselect everything — so the commit must be queued anyway
+        // (CardsHandUI.SelectCard itself no-ops on a genuinely selected card).
+        if (widget.IsSelected && !_pickReopenBusy)
         {
             VRLog.Info("Cards", $"Pick commit skipped (seam={seam}) — '{CardsGameApi.CardName(widget)}' " +
                                 "is already selected (no double-commit).");
@@ -2502,9 +2714,14 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         else if (IsPickMode(mode))
         {
-            int want = PickTargetSlot(); // Slot1 first, then Slot2 (two-card burn)
-            if (want >= 0)
-                mask |= 1 << want;
+            // Task #11 (a): glow EVERY still-unfilled pick position — placement order is
+            // irrelevant to the game (it only counts selections), so a two-card burn
+            // pulses BOTH slot overlays until both cards are laid, then none; a one-card
+            // burn pulses the left slot only. Previously only the single "next" slot
+            // glowed, which read as "the other slot is not a target".
+            int want = CardsGameApi.PickCardsWanted();
+            for (int i = _fieldCards.Count; i < want && i < 2; i++)
+                mask |= 1 << i;
         }
         _tray.SetWantedSlots(mask);
     }

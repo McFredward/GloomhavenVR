@@ -155,6 +155,80 @@ internal static class CardsGameApi
         return max > 0 ? max : 2;
     }
 
+    /// <summary>
+    /// Task #11: is the PICK CONFIRM DialogPopup live for a modal pick flow? The game
+    /// opens exactly ONE dialog in the lose/discard pick flows — the
+    /// "Karten verbrennen" / "Wähle eine andere Karte" popup shown the moment
+    /// <c>selectedCardsUI.Count == maxCardsSelected</c> (<c>OnCardSelected</c> LoseCard
+    /// branch, CardsHandUI.cs:2029-2116, <c>UIManager.Instance.dialogPopup.Show(...,
+    /// allowHide: false, cancelOption: 1)</c>). While it is open the game marks every
+    /// hand widget unselectable (<c>SetSelectable(false)</c>, :2046-2052) — in 2D no
+    /// selection change is possible until an option resolves. Verified:
+    /// <c>public DialogPopup dialogPopup</c> (UIManager) and
+    /// <c>public bool IsOpen()</c> (DialogPopup.cs:426).
+    /// </summary>
+    internal static bool IsPickConfirmDialogOpen(CardsHandUI hand)
+    {
+        if (hand == null)
+            return false;
+        CardHandMode mode = Mode(hand);
+        if (mode != CardHandMode.LoseCard && mode != CardHandMode.DiscardCard)
+            return false;
+        UIManager? ui = UIManager.Instance;
+        DialogPopup? popup = ui != null ? ui.dialogPopup : null;
+        return popup != null && popup.IsOpen();
+    }
+
+    /// <summary>
+    /// Task #11 (free swap): press the pick confirm dialog's CANCEL option — the game's
+    /// own "Wähle eine andere Karte" ("choose another card") path. Verified:
+    /// <c>public void Cancel()</c> (DialogPopup.cs:389) invokes
+    /// <c>optionButtons[cancelOption].ExtendedButton.onClick</c>; the LoseCard/
+    /// DiscardCard confirm popup is shown with <c>cancelOption: 1</c>
+    /// (CardsHandUI.cs:2116), whose callback restores card selectability and runs
+    /// <c>DeselectAllCards()</c> + <c>TakeDamagePanel.ToggleVisibility(true)</c>
+    /// (CardsHandUI.cs:2099-2115). This is the exact 2D flow of clicking "choose
+    /// another card" — LOCAL UI only, the game's own seams handle any network sync.
+    /// MUST be queued (<see cref="CardActionQueue"/>): DeselectAllCards funnels into
+    /// the spin-wait deselect path.
+    /// </summary>
+    internal static void CancelPickConfirmDialog()
+    {
+        UIManager? ui = UIManager.Instance;
+        DialogPopup? popup = ui != null ? ui.dialogPopup : null;
+        if (popup != null && popup.IsOpen())
+            popup.Cancel();
+    }
+
+    /// <summary>
+    /// The pile(s) the current modal pick draws its candidates from — the game's own
+    /// <c>selectableCardTypes</c> (private, publicized; stored by
+    /// <c>CardsHandUI.UpdateView</c>, CardsHandUI.cs:580, from the
+    /// <c>CardsHandManager.Show(..., selectableCardType, ...)</c> parameter — Discarded
+    /// for the two-card burn, Hand for the one-card burn). Used to keep the ELIGIBLE
+    /// fan visible while the confirm popup has flipped every widget unselectable.
+    /// </summary>
+    internal static bool IsPickEligible(CardsHandUI hand, AbilityCardUI widget)
+    {
+        if (hand == null || widget == null)
+            return false;
+        List<CardPileType> piles = hand.selectableCardTypes;
+        if (piles == null || piles.Count == 0)
+            return false;
+        for (int i = 0; i < piles.Count; i++)
+        {
+            CardPileType pile = piles[i];
+            if (pile == CardPileType.Any || pile == widget.CardType)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>How many cards are currently selected in this hand (the game's own
+    /// <c>SelectedCards.Count</c> — CardsHandUI.cs:222).</summary>
+    internal static int SelectedCount(CardsHandUI hand) =>
+        hand != null && hand.SelectedCards != null ? hand.SelectedCards.Count : 0;
+
     // ---------------------------------------------------- selection (spin-wait path) --
 
     /// <summary>
