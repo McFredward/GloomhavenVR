@@ -54,8 +54,22 @@ internal static class CardsConfig
     /// <summary>How the palm fan reveals: "tilt" (Demeo palm-flip gate) or "always" (open whenever cards exist).</summary>
     internal static ConfigEntry<string> RevealMode = null!;
 
-    /// <summary>Supination (roll-axis) enter value for RevealMode=tilt (higher = more deliberate roll).</summary>
-    internal static ConfigEntry<float> SupinationThreshold = null!;
+    /// <summary>
+    /// RevealMode=tilt: supination (roll-axis dot) above which the fan OPENS. Default 0.6 =
+    /// Demeo's exact reveal threshold (Dot(hand.right, avatarUp) &gt; 0.6, a ~53° palm-up
+    /// cone — decompiled-demeo CardHandController.cs:474). Replaces the old
+    /// SupinationThreshold (0.2, deliberately generous) after the user judged Demeo's
+    /// angle right and ours wrong (fan-reveal parity pass).
+    /// </summary>
+    internal static ConfigEntry<float> RevealEnterDot = null!;
+
+    /// <summary>
+    /// RevealMode=tilt: supination dot below which the fan CLOSES. Demeo closes at the
+    /// same 0.6 it opens at (no hysteresis, CardHandController.cs:452-456); we keep a
+    /// small dead band (default 0.5) so the roll-axis measure cannot chatter at the
+    /// boundary. Always clamped below RevealEnterDot by the gate.
+    /// </summary>
+    internal static ConfigEntry<float> RevealExitDot = null!;
 
     /// <summary>Fan arc radius in real meters (diorama scale applied automatically).</summary>
     internal static ConfigEntry<float> FanRadius = null!;
@@ -235,11 +249,25 @@ internal static class CardsConfig
     /// <summary>G4: fan-follow dead zone in real meters — the fan only chases the palm once it drifts past this (Demeo ViewHelper minDistanceToMove).</summary>
     internal static ConfigEntry<float> FanFollowDeadzone = null!;
 
-    /// <summary>G5: reveal preset — "generous" (our deliberate P6 default, test #10) or "demeo" (tighter 53° supination cone).</summary>
-    internal static ConfigEntry<string> RevealPreset = null!;
-
     /// <summary>G5: suppress the reveal gate on the hand that is currently grabbing something (Demeo CardHandController.cs:475).</summary>
     internal static ConfigEntry<bool> RevealIgnoreWhenGrabbing = null!;
+
+    // ---- Demeo-style fan-out reveal animation + sound (fan-reveal parity pass) ----
+
+    /// <summary>Fan-out reveal animation length in seconds (unscaled time). 0 = instant (pre-animation behavior).</summary>
+    internal static ConfigEntry<float> FanOpenDuration = null!;
+
+    /// <summary>Extra per-card delay (seconds) by distance from the fan center — a tiny outward ripple on reveal.</summary>
+    internal static ConfigEntry<float> FanOpenStagger = null!;
+
+    /// <summary>Quick-collapse animation length in seconds on hide (unscaled time). 0 = the fan vanishes instantly.</summary>
+    internal static ConfigEntry<float> FanCloseDuration = null!;
+
+    /// <summary>Game audio item played once when the fan reveals ("" = silent).</summary>
+    internal static ConfigEntry<string> FanRevealSound = null!;
+
+    /// <summary>Game audio item played once when the fan hides ("" = silent).</summary>
+    internal static ConfigEntry<string> FanHideSound = null!;
 
     // ---- GLOBAL hand-fan geometry (in-VR debug menu, "Fan" category) ----------------------
     // Item 8's four LOCAL consts in CardFan (per-card step cap 14°, arc scale ×1.3, radius scale
@@ -277,11 +305,22 @@ internal static class CardsConfig
             "hand: turning the palm up / toward you, measured on the ROLL axis alone (pitching or " +
             "pointing the arm has no effect — hardware test #10). 'always' = the fan is out " +
             "whenever a card phase has cards, no gesture at all.");
-        SupinationThreshold = _file.Bind("Cards", "SupinationThreshold", 0.2f,
-            "RevealMode=tilt: supination amount above which the fan opens. Scale: -1 palm fully " +
-            "down, 0 palm vertical (thumb up), +1 palm fully up/toward the face. 0.2 = roll just " +
-            "past vertical. Closes again below (SupinationThreshold - 0.35) — wide hysteresis, " +
-            "the fan never flickers at the boundary.");
+        RevealEnterDot = _file.Bind("Cards", "RevealEnterDot", 0.6f,
+            new ConfigDescription(
+                "RevealMode=tilt: supination amount above which the fan OPENS. Scale: -1 palm " +
+                "fully down, 0 palm vertical (thumb up), +1 palm fully up/toward the face. " +
+                "Default 0.6 = Demeo's exact reveal threshold (Dot(hand.right, avatarUp) > 0.6, " +
+                "~53° palm-up cone, decompiled CardHandController.cs:474). Live-tunable from the " +
+                "in-VR debug menu (Fan category).",
+                new AcceptableValueRange<float>(-0.95f, 0.95f)));
+        RevealExitDot = _file.Bind("Cards", "RevealExitDot", 0.5f,
+            new ConfigDescription(
+                "RevealMode=tilt: supination amount below which the fan CLOSES. Demeo closes at " +
+                "the same 0.6 it opens at (no hysteresis, CardHandController.cs:452-456); the " +
+                "0.5 default keeps a small dead band so the gate cannot chatter at the boundary. " +
+                "The gate always clamps this below RevealEnterDot. Live-tunable from the in-VR " +
+                "debug menu (Fan category).",
+                new AcceptableValueRange<float>(-0.95f, 0.95f)));
         FanRadius = _file.Bind("Cards", "FanRadius", 0.16f,
             "Palm fan arc radius in real-world meters (diorama scale is applied automatically).");
         FanArcDegrees = _file.Bind("Cards", "FanArcDegrees", 70f,
@@ -575,13 +614,44 @@ internal static class CardsConfig
             "Demeo parity (G4): fan-follow dead zone (real meters). The fan holds still until the " +
             "palm drifts past this, then eases to it — kills micro-jitter (Demeo minDistanceToMove). " +
             "Only used when FanFollowSmoothing > 0.");
-        RevealPreset = _file.Bind("Cards", "RevealPreset", "generous",
-            "Demeo parity (G5): 'generous' = our deliberate wide supination gate (hardware test " +
-            "#10 — a small wrist roll reveals; the default). 'demeo' = Demeo's tighter ~53-degree " +
-            "palm-up cone. Overrides the enter/exit supination thresholds when set to 'demeo'.");
         RevealIgnoreWhenGrabbing = _file.Bind("Cards", "RevealIgnoreWhenGrabbing", true,
             "Demeo parity (G5): don't open the fan on the hand that is currently grabbing " +
             "something (Demeo suppresses the reveal on the busy hand). false = the old behavior.");
+
+        // ---- Demeo-style fan-out reveal animation + sound (fan-reveal parity pass) ----
+        // Demeo seeds every card at the MIDDLE slot and lerps it out to its fan slot
+        // (CardHandView.ChangeCards doFanAnimation, decompiled CardHandView.cs:577-580; the
+        // lerp runs at lerpTime += dt * cardMoveSpeed, :430-431). cardMoveSpeed itself is a
+        // serialized prefab value (not in code); Demeo's flip-transition wait of
+        // 1/cardMoveSpeed + 0.1 s (:540) implies the fan-in completes in ~1/cardMoveSpeed s.
+        // 0.18 s ease-out + a tiny stagger reproduces the short/snappy feel.
+        FanOpenDuration = _file.Bind("Cards", "FanOpenDuration", 0.18f,
+            new ConfigDescription(
+                "Fan-out reveal animation (Demeo CardHandView fan-in): seconds each card takes " +
+                "to fly from the collapsed center stack to its fan slot (ease-out, UNSCALED " +
+                "time — runs even while the game pauses simulation time). 0 = instant.",
+                new AcceptableValueRange<float>(0f, 0.6f)));
+        FanOpenStagger = _file.Bind("Cards", "FanOpenStagger", 0.02f,
+            new ConfigDescription(
+                "Fan-out reveal: extra start delay in seconds PER SLOT of distance from the fan " +
+                "center — the fan ripples outward instead of all cards moving at once. Demeo " +
+                "moves all cards simultaneously (0); a tiny stagger reads livelier. 0 = none.",
+                new AcceptableValueRange<float>(0f, 0.08f)));
+        FanCloseDuration = _file.Bind("Cards", "FanCloseDuration", 0.12f,
+            new ConfigDescription(
+                "Fan hide: seconds the cards take to collapse back into the center stack before " +
+                "the fan disappears (unscaled time). 0 = vanish instantly (pre-animation behavior).",
+                new AcceptableValueRange<float>(0f, 0.4f)));
+        FanRevealSound = _file.Bind("Cards", "FanRevealSound", "PlaySound_EnemyCardDraw",
+            "Game audio item played once when the palm fan reveals (Demeo plays " +
+            "MotherbrainAudio.OnCardHandShow, CardHandView.cs:682). PlaySound_EnemyCardDraw is " +
+            "the game's card-draw whoosh (InitiativeTrack.cs:59); alternatives found in " +
+            "GH.Runtime: PlaySound_CardUI_SelectCard, PlaySound_UICardTabSelect, " +
+            "PlaySound_CardUI_DiscardedCard, PlaySound_CardUI_BurnedCard. Empty = silent.");
+        FanHideSound = _file.Bind("Cards", "FanHideSound", "PlaySound_UICardTabSelect",
+            "Game audio item played once when the palm fan hides (Demeo plays " +
+            "MotherbrainAudio.OnCardHandHide, CardHandView.cs:691). PlaySound_UICardTabSelect " +
+            "is the soft card-tab tick. Empty = silent.");
 
         // ---- GLOBAL hand-fan geometry (in-VR "Fan" debug category) ----
         FanPerCardStepDegrees = _file.Bind("Cards", "FanPerCardStepDegrees", 14f,
@@ -613,10 +683,6 @@ internal static class CardsConfig
                 new AcceptableValueRange<float>(0.5f, 3f)));
     }
 
-    /// <summary>True when the Demeo reveal preset is selected ([Cards] RevealPreset = demeo).</summary>
-    internal static bool RevealDemeo =>
-        string.Equals(RevealPreset.Value, "demeo", System.StringComparison.OrdinalIgnoreCase);
-
     /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
     internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
 
@@ -626,13 +692,6 @@ internal static class CardsConfig
     /// <summary>True when the fan should be out without a gesture ([Cards] RevealMode = always).</summary>
     internal static bool RevealAlways =>
         string.Equals(RevealMode.Value, "always", System.StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Gate exit value derived from the enter value (wide hysteresis). May go negative:
-    /// on the supination scale, 0 is palm-vertical, so closing can require rolling
-    /// back BELOW vertical — that is intended (the fan never flickers).
-    /// </summary>
-    internal static float SupinationExitThreshold => Mathf.Max(-0.6f, SupinationThreshold.Value - 0.35f);
 
     internal static Vector3 TrayOffset => new(TrayRight.Value, -TrayDown.Value, TrayForward.Value);
 

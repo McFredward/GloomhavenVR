@@ -828,16 +828,17 @@ internal sealed class CardsDriver : MonoBehaviour
 
         // Live-tunable gate feel (P7): pure supination (roll-axis) measure on the raw
         // device pose — pitching/pointing the arm no longer factors in (test #10).
+        // Thresholds: [Cards] RevealEnterDot/RevealExitDot, defaults = the Demeo-derived
+        // 0.6 enter / 0.5 exit (Demeo shows AND hides at Dot(hand.right, avatarUp) = 0.6,
+        // decompiled CardHandController.cs:452-456/474; the dead band is ours). Live-tunable
+        // from the debug menu's Fan category.
         PalmGate gate = _gateHand.PalmGate;
-        gate.EnterThreshold = CardsConfig.SupinationThreshold.Value;
-        gate.ExitThreshold = CardsConfig.SupinationExitThreshold;
+        gate.EnterThreshold = CardsConfig.RevealEnterDot.Value;
+        gate.ExitThreshold = CardsConfig.RevealExitDot.Value;
         gate.RollAxisOnly = true;
         gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
-        // G5 (DEMEO-HANDS-CARDS §4): the reveal preset harmlessly overrides the
-        // Enter/Exit thresholds above when [Cards] RevealPreset=demeo (tight cone);
-        // and while the dominant hand holds something the gate stays put so a pluck
-        // never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
-        gate.ApplyDemeoPreset(CardsConfig.RevealDemeo);
+        // G5 (DEMEO-HANDS-CARDS §4): while the dominant hand holds something the gate stays
+        // put so a pluck never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
         gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
 
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
@@ -849,9 +850,62 @@ internal sealed class CardsDriver : MonoBehaviour
             : gate.Enabled && (gate.IsOpen || _laserHover != null);
         bool shouldOpen = allowFan && revealed;
         if (shouldOpen && !_fan.IsOpen)
+        {
             _fan.Open(_gateHand);
+            // Demeo plays MotherbrainAudio.OnCardHandShow with the fan animation
+            // (CardHandView.cs:682) — edge-triggered here, once per reveal.
+            PlayFanSound(CardsConfig.FanRevealSound.Value, _gateHand.transform);
+        }
         else if (!shouldOpen && _fan.IsOpen)
+        {
             _fan.Close();
+            // Demeo mirrors with OnCardHandHide (CardHandView.cs:691) — softer item by default.
+            PlayFanSound(CardsConfig.FanHideSound.Value, _gateHand.transform);
+        }
+    }
+
+    // ------------------------------------------------------------------ fan audio --
+
+    // One-shot warn guard per configured item name, so a typo in [Cards] FanRevealSound
+    // logs once instead of every reveal.
+    private static string? _warnedFanSound;
+
+    /// <summary>
+    /// Fan reveal/hide sound via the game's own ClockStone audio system — the exact call
+    /// shape the game uses for card UI sounds (<c>AudioController.Play("PlaySound_CardUI_...",
+    /// transform, null, attachToParent: false)</c>, FullAbilityCard.cs:590), positioned at the
+    /// fan hand. Direct reference like every other game call in this module (publicized refs).
+    /// Guarded: an empty/unknown item or a not-yet-alive audio controller (main menu, scene
+    /// load) is skipped silently — audio must never break the reveal path. Edge-triggered by
+    /// the caller, never per frame.
+    /// </summary>
+    private static void PlayFanSound(string item, Transform at)
+    {
+        if (string.IsNullOrEmpty(item))
+            return;
+        try
+        {
+            if (!AudioController.IsValidAudioID(item))
+            {
+                if (_warnedFanSound != item)
+                {
+                    _warnedFanSound = item;
+                    VRLog.Warn("Cards", $"Fan sound '{item}' is not a known audio item (yet?) — skipped. " +
+                                        "Known card items: PlaySound_EnemyCardDraw, PlaySound_CardUI_SelectCard, " +
+                                        "PlaySound_UICardTabSelect, PlaySound_CardUI_DiscardedCard, PlaySound_CardUI_BurnedCard.");
+                }
+                return;
+            }
+            AudioController.Play(item, at, null, attachToParent: false);
+        }
+        catch (System.Exception ex)
+        {
+            if (_warnedFanSound != item)
+            {
+                _warnedFanSound = item;
+                VRLog.Warn("Cards", $"Fan sound '{item}' failed to play: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
     }
 
     // ------------------------------------------------------------------ fan laser --

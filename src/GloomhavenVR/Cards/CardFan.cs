@@ -39,6 +39,17 @@ internal sealed class CardFan
     private int _insertGap = -1;
     private GameObject? _overlay; // the gold gap glow (shared CardGlow recipe); child of _root
 
+    // Fan-out reveal animation (Demeo fan-in: every card seeds at the MIDDLE slot's pose and
+    // lerps out to its own slot — decompiled CardHandView.cs:577-580, lerp at :430-431/444-462).
+    // Elapsed seconds since Open (-1 = not animating). Runs on UNSCALED time: the game pauses
+    // simulation time during selection, and the reveal must stay frame-rate independent.
+    private float _openElapsed = -1f;
+
+    // Quick-collapse on hide (reverse fan-in): elapsed seconds since Close (-1 = not
+    // collapsing). While active the root stays visible and Tick blends the cards back into
+    // the center stack, then deactivates the root.
+    private float _closeElapsed = -1f;
+
     internal bool IsOpen { get; private set; }
 
     /// <summary>
@@ -71,6 +82,10 @@ internal sealed class CardFan
         _followInit = true; // G4: snap to the palm on the first Tick, don't ease in
         IsOpen = true;
         Current = this; // expose the open fan to the net presence sender (hand-card count)
+        _closeElapsed = -1f; // reopen mid-collapse: the open animation takes over from here
+        // Demeo fan-in: start the fan-out reveal (cards seed collapsed at the center pose
+        // this frame via the Relayout blend at t=0, then Tick flies them out). 0 = instant.
+        _openElapsed = CardsConfig.FanOpenDuration.Value > 0f ? 0f : -1f;
         Relayout(instant: true);
     }
 
@@ -81,8 +96,19 @@ internal sealed class CardFan
             Current = null;
         ClearFingertipHover(); // test #9: drop any fingertip pop/split
         _insertGap = -1;       // hand reorder: drop any open gap so a reopen starts closed
+        _openElapsed = -1f;
         if (_overlay != null)
             _overlay.SetActive(false);
+        // Quick collapse (reverse of the Demeo fan-in): keep the root visible and let Tick
+        // blend the cards back into the center stack before hiding — a cheap mirrored
+        // hide animation. Disabled (or nothing to animate) = the pre-animation instant off.
+        if (_root != null && _root.gameObject.activeSelf && _cards.Count > 0
+            && CardsConfig.FanCloseDuration.Value > 0f)
+        {
+            _closeElapsed = 0f;
+            return;
+        }
+        _closeElapsed = -1f;
         if (_root != null)
             _root.gameObject.SetActive(false);
     }
@@ -94,6 +120,8 @@ internal sealed class CardFan
         ClearFingertipHover();
         _cards.Clear();
         _insertGap = -1;
+        _openElapsed = -1f;
+        _closeElapsed = -1f;
         _overlay = null; // destroyed with _root (its parent) below
         if (_root != null)
         {
@@ -110,6 +138,14 @@ internal sealed class CardFan
     {
         ClearFingertipHover(); // card set/indices change — re-resolve on the next Tick scan
         _insertGap = -1;       // reorder: card set changed; the driver re-pushes the gap next frame
+        // Collapse-in-flight: the card set changed under a hide animation — finish the hide
+        // instantly so a stale stack never lingers under the incoming set.
+        if (!IsOpen && _closeElapsed >= 0f)
+        {
+            _closeElapsed = -1f;
+            if (_root != null)
+                _root.gameObject.SetActive(false);
+        }
         if (_overlay != null)
             _overlay.SetActive(false);
         _cards.Clear();
@@ -353,12 +389,39 @@ internal sealed class CardFan
     /// <summary>Follow the palm (rigidly or eased) and face the head every frame while open.</summary>
     internal void Tick()
     {
-        if (!IsOpen || _root == null || _hand == null)
+        if (_root == null)
+            return;
+
+        // Hide animation: after Close() the root stays visible while the cards blend back
+        // into the center stack; finish by deactivating. Runs on unscaled time like the
+        // reveal (the fan stays frozen in place — it no longer follows the palm).
+        if (!IsOpen)
+        {
+            if (_closeElapsed >= 0f)
+                TickCollapse();
+            return;
+        }
+
+        if (_hand == null)
             return;
 
         Transform? palm = _hand.Rig.PalmCenter;
         if (palm == null)
             return;
+
+        // Fan-out reveal: advance the open animation and re-blend the homes every frame
+        // (Relayout applies the collapsed→slot lerp while _openElapsed >= 0). dt is capped
+        // so a hitch cannot teleport the cards; unscaled so a paused game still animates.
+        if (_openElapsed >= 0f)
+        {
+            _openElapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            Relayout(instant: true);
+            if (_openElapsed >= OpenAnimTotal(_cards.Count))
+            {
+                _openElapsed = -1f;
+                Relayout(instant: false); // hand the (identical) homes back to the normal per-card lerp
+            }
+        }
 
         // Test #9: pop the fan card the free hand's index tip is touching (before the
         // follow/face math so a hover-driven split relayouts this same frame).
@@ -513,6 +576,16 @@ internal sealed class CardFan
         float chord = n > 1 ? 2f * radius * Mathf.Sin(step * 0.5f * Mathf.Deg2Rad) : w;
         float strip = Mathf.Clamp(chord, w * 0.25f, w);
 
+        // Fan-out reveal (Demeo fan-in, CardHandView.cs:577-580): the collapsed pose is the
+        // MIDDLE slot's base arc pose — every card seeds there and flies out to its own slot.
+        int mid = n / 2;
+        float midAngle = start + step * mid;
+        float midRad = midAngle * Mathf.Deg2Rad;
+        var collapsedRot = Quaternion.Euler(0f, 0f, -midAngle * tiltFactor);
+        var collapsedXY = new Vector2(Mathf.Sin(midRad) * radius,
+                                      (Mathf.Cos(midRad) - 1f) * radius * archFactor);
+        bool opening = _openElapsed >= 0f;
+
         for (int i = 0; i < n; i++)
         {
             VRCard card = _cards[i];
@@ -542,7 +615,19 @@ internal sealed class CardFan
             if (_insertGap >= 0)
                 pos += rot * new Vector3(GapOffset(i, _insertGap), 0f, 0f);
 
-            card.SetHome(_root, pos, rot, 1f, instant);
+            // Fan-out reveal blend: fly each card from the collapsed center pose to its slot
+            // with an ease-out and a tiny outward stagger. instant is forced so VRCard tracks
+            // the blend exactly (its own home-lerp would double-smooth the motion). Each card
+            // keeps its OWN z-stagger while collapsed so the draw order never flickers.
+            if (opening)
+            {
+                float e = OpenProgress(i, mid);
+                var collapsed = new Vector3(collapsedXY.x, collapsedXY.y, -ZStagger * i);
+                pos = Vector3.Lerp(collapsed, pos, e);
+                rot = Quaternion.Slerp(collapsedRot, rot, e);
+            }
+
+            card.SetHome(_root, pos, rot, 1f, instant || opening);
 
             if (i == n - 1)
                 card.ResetColliderRegion(); // fully exposed
@@ -605,6 +690,97 @@ internal sealed class CardFan
         // FanHoverSplitScale (global, live-tunable) keeps the gap proportional to the wider card spacing.
         float splitScale = Mathf.Max(0f, CardsConfig.FanHoverSplitScale.Value);
         return Mathf.Sign(signed) * Mathf.Exp(-x * x) * CardsConfig.FanSplitMultiplier.Value * splitScale;
+    }
+
+    // ------------------------------------------------------------------ reveal / hide animation --
+
+    /// <summary>
+    /// Ease-out cubic progress (0..1) of card <paramref name="i"/> in the fan-out reveal:
+    /// starts after a per-card delay proportional to its slot distance from the center
+    /// (FanOpenStagger — the fan ripples outward), then runs FanOpenDuration seconds.
+    /// Demeo lerps all cards simultaneously (CardHandView.cs:430-431); the stagger is our
+    /// small flourish and 0 restores Demeo-exact timing.
+    /// </summary>
+    private float OpenProgress(int i, int mid)
+    {
+        float dur = Mathf.Max(0.01f, CardsConfig.FanOpenDuration.Value);
+        float delay = Mathf.Abs(i - mid) * Mathf.Max(0f, CardsConfig.FanOpenStagger.Value);
+        float p = Mathf.Clamp01((_openElapsed - delay) / dur);
+        float inv = 1f - p;
+        return 1f - inv * inv * inv;
+    }
+
+    /// <summary>Total reveal-animation length for <paramref name="n"/> cards (base duration + the last card's stagger delay).</summary>
+    private static float OpenAnimTotal(int n)
+    {
+        int mid = n / 2;
+        int far = Mathf.Max(mid, n - 1 - mid);
+        return Mathf.Max(0.01f, CardsConfig.FanOpenDuration.Value)
+               + far * Mathf.Max(0f, CardsConfig.FanOpenStagger.Value);
+    }
+
+    /// <summary>
+    /// Hide animation (reverse fan-in): blend every card from its base arc slot back into
+    /// the collapsed center pose with an ease-in (accelerating shut reads snappy), then
+    /// deactivate the root. Unscaled time, dt capped against hitches; allocation-free.
+    /// Split/gap offsets are ignored — the collapse starts from the base fan shape.
+    /// </summary>
+    private void TickCollapse()
+    {
+        float dur = Mathf.Max(0.01f, CardsConfig.FanCloseDuration.Value);
+        _closeElapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+        float p = Mathf.Clamp01(_closeElapsed / dur);
+        float e = p * p; // ease-in
+
+        int n = _cards.Count;
+        if (n > 0 && _root != null)
+        {
+            // Same base geometry as Relayout (no split/gap — the hover sources are inactive
+            // once closed) — see Relayout for the term-by-term derivation.
+            float radius = Mathf.Max(0.02f, CardsConfig.FanEffectiveRadius.Value);
+            float maxArc = Mathf.Clamp(CardsConfig.FanArcSweepDegrees.Value, 5f, 180f);
+            float stepCap = Mathf.Clamp(CardsConfig.FanPerCardStepDegrees.Value, 1f, 60f);
+            float archFactor = CardsConfig.FanFlatCurvatureFactor.Value;
+            float tiltFactor = CardsConfig.FanTiltFactor.Value;
+            if (CardsConfig.FanCurveByFill.Value)
+            {
+                float fill = Mathf.Clamp01((float)n / Mathf.Max(1, CardsConfig.FanMaxHandForCurve.Value));
+                archFactor *= fill;
+                tiltFactor *= fill;
+            }
+            float step = n > 1 ? Mathf.Min(stepCap, maxArc / (n - 1)) : 0f;
+            float start = -step * (n - 1) * 0.5f;
+
+            int mid = n / 2;
+            float midAngle = start + step * mid;
+            float midRad = midAngle * Mathf.Deg2Rad;
+            var collapsedRot = Quaternion.Euler(0f, 0f, -midAngle * tiltFactor);
+            var collapsedXY = new Vector2(Mathf.Sin(midRad) * radius,
+                                          (Mathf.Cos(midRad) - 1f) * radius * archFactor);
+
+            for (int i = 0; i < n; i++)
+            {
+                VRCard card = _cards[i];
+                if (card == null || card.IsHeld)
+                    continue;
+                float angle = start + step * i;
+                float rad = angle * Mathf.Deg2Rad;
+                var rot = Quaternion.Euler(0f, 0f, -angle * tiltFactor);
+                var pos = new Vector3(Mathf.Sin(rad) * radius,
+                                      (Mathf.Cos(rad) - 1f) * radius * archFactor,
+                                      -ZStagger * i);
+                var collapsed = new Vector3(collapsedXY.x, collapsedXY.y, -ZStagger * i);
+                card.SetHome(_root, Vector3.Lerp(pos, collapsed, e),
+                    Quaternion.Slerp(rot, collapsedRot, e), 1f, instant: true);
+            }
+        }
+
+        if (p >= 1f)
+        {
+            _closeElapsed = -1f;
+            if (_root != null)
+                _root.gameObject.SetActive(false);
+        }
     }
 
     // ------------------------------------------------------------------ laser pick --
