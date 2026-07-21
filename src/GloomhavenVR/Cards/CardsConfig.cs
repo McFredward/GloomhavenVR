@@ -55,11 +55,11 @@ internal static class CardsConfig
     internal static ConfigEntry<string> RevealMode = null!;
 
     /// <summary>
-    /// RevealMode=tilt: pure hand ROLL (degrees around the finger axis) above which the
-    /// fan OPENS. 0 = palm flat down, 90 = palm vertical (thumb up), 180 = palm fully
-    /// up/toward the face; pitch/yaw of the arm are irrelevant. Replaces the old
-    /// RevealEnterDot after the user rejected the dot-based gate (needed nearly 180° of
-    /// roll and mixed pitch in — reveal-angle round 2).
+    /// RevealMode=tilt: hand ROLL (degrees, Demeo-measure scale — asin of
+    /// dot(side·handRight, worldUp)) above which the fan OPENS. 0 = knuckles-up flat
+    /// hand, 90 = palm fully toward the face; pitch/yaw of the arm are irrelevant BY
+    /// CONSTRUCTION (roll gate v3 — the v2 projected-angle measure degenerated when
+    /// the fingers pitched toward vertical and false-fired on pure pitch).
     /// </summary>
     internal static ConfigEntry<float> RevealEnterDegrees = null!;
 
@@ -268,6 +268,17 @@ internal static class CardsConfig
     /// <summary>Game audio item played once when the fan hides ("" = silent).</summary>
     internal static ConfigEntry<string> FanHideSound = null!;
 
+    // ---- Card interaction sounds (more-card-sounds pass) ----
+
+    /// <summary>Game audio item played once when a card is GRABBED from the fan/tray/piles ("" = silent).</summary>
+    internal static ConfigEntry<string> CardGrabSound = null!;
+
+    /// <summary>Game audio item played once when a card is PLACED into a board slot / pick field ("" = silent).</summary>
+    internal static ConfigEntry<string> CardPlaceSound = null!;
+
+    /// <summary>Game audio item played once when a slotted/picked card is TAKEN BACK to the fan ("" = silent).</summary>
+    internal static ConfigEntry<string> CardTakeBackSound = null!;
+
     // ---- GLOBAL hand-fan geometry (in-VR debug menu, "Fan" category) ----------------------
     // Item 8's four LOCAL consts in CardFan (per-card step cap 14°, arc scale ×1.3, radius scale
     // ×1.12, hover-split scale ×1.45) are now LIVE-TUNABLE global ConfigEntries so the hand fan's
@@ -310,23 +321,40 @@ internal static class CardsConfig
             "hand: turning the palm up / toward you, measured on the ROLL axis alone (pitching or " +
             "pointing the arm has no effect — hardware test #10). 'always' = the fan is out " +
             "whenever a card phase has cards, no gesture at all.");
-        RevealEnterDegrees = _file.Bind("Cards", "RevealEnterDegrees", 95f,
+        RevealEnterDegrees = _file.Bind("Cards", "RevealEnterDegrees", 60f,
             new ConfigDescription(
-                "RevealMode=tilt: pure hand ROLL in DEGREES above which the fan OPENS — the " +
-                "rotation of the hand around its own forward (finger) axis, measured against " +
-                "the pitch-neutral up, so pitching or pointing the arm has NO effect. Scale: " +
-                "0 = palm flat down, 90 = palm vertical (thumb up), 180 = palm fully up/toward " +
-                "the face (negative = rolled the other way, which never opens the fan). Default " +
-                "95 = a comfortable supination just past vertical. Live-tunable from the in-VR " +
-                "debug menu (Fan category).",
-                new AcceptableValueRange<float>(20f, 170f)));
-        RevealExitDegrees = _file.Bind("Cards", "RevealExitDegrees", 80f,
+                "RevealMode=tilt: hand ROLL in DEGREES above which the fan OPENS. Roll gate " +
+                "v3 uses DEMEO'S OWN measure — the tilt of the hand's RIGHT axis toward world " +
+                "up (supination), asin-mapped to degrees — which pitching or pointing the arm " +
+                "cannot affect BY CONSTRUCTION (pitch rotates about that very axis). Scale: " +
+                "0 = knuckles-up flat hand, 90 = palm fully rolled toward the face (negative " +
+                "= rolled the other way, which never opens the fan). Default 60 = a " +
+                "comfortable supination well past vertical (Demeo's own threshold is ~37°). " +
+                "NOTE: the scale CHANGED from the old v2 measure (whose default was 95 on a " +
+                "0-180 scale) — old out-of-range values are auto-reset once. Live-tunable " +
+                "from the in-VR debug menu (Fan category).",
+                new AcceptableValueRange<float>(15f, 85f)));
+        RevealExitDegrees = _file.Bind("Cards", "RevealExitDegrees", 45f,
             new ConfigDescription(
-                "RevealMode=tilt: hand roll in DEGREES below which the fan CLOSES (same scale " +
-                "as RevealEnterDegrees). The 15° default dead band under the 95° enter keeps " +
-                "the gate from chattering at the boundary; the gate always clamps this below " +
+                "RevealMode=tilt: hand roll in DEGREES below which the fan CLOSES (same " +
+                "Demeo-measure scale as RevealEnterDegrees: 0 = flat, 90 = palm fully toward " +
+                "the face). The 15° default dead band under the 60° enter keeps the gate from " +
+                "chattering at the boundary; the gate always clamps this below " +
                 "RevealEnterDegrees. Live-tunable from the in-VR debug menu (Fan category).",
-                new AcceptableValueRange<float>(10f, 165f)));
+                new AcceptableValueRange<float>(5f, 80f)));
+        // One-time migration (roll gate v3): the v2 measure ran on a 0-180° scale with 95/80
+        // defaults; the Demeo measure caps at 90° and defaults 60/45. Old cfg values above the
+        // new range maxima are clamped by BepInEx on load (95 → 85, exits ≥ 80 → 80), so the
+        // old-scale SIGNATURE is enter pinned at the 85° max AND exit ≥ 75° — a pair that is
+        // physically absurd on the new scale (near-full crank enter with a barely-lower exit)
+        // but exactly what any old-scale config lands on. Requiring BOTH avoids eating a
+        // deliberately step-maxed new-scale enter from the in-VR panel. Reset both to the new
+        // defaults (persisted immediately by BepInEx).
+        if (RevealEnterDegrees.Value >= 84.9f && RevealExitDegrees.Value >= 75f)
+        {
+            RevealEnterDegrees.Value = 60f;
+            RevealExitDegrees.Value = 45f;
+        }
         FanRadius = _file.Bind("Cards", "FanRadius", 0.16f,
             "Palm fan arc radius in real-world meters (diorama scale is applied automatically).");
         FanArcDegrees = _file.Bind("Cards", "FanArcDegrees", 70f,
@@ -658,6 +686,31 @@ internal static class CardsConfig
             "Game audio item played once when the palm fan hides (Demeo plays " +
             "MotherbrainAudio.OnCardHandHide, CardHandView.cs:691). PlaySound_UICardTabSelect " +
             "is the soft card-tab tick. Empty = silent.");
+
+        // ---- Card interaction sounds (more-card-sounds pass) ----
+        // The game plays NO sound of its own at these physical VR moments: grabbing a card is a
+        // pure VR interaction, and the slot drop / take-back only fire the game's own (serialized
+        // AudioButtonProfile) click when the QUEUED SelectCard/UnselectCard resolves a frame later
+        // via AbilityCardUI.ToggleSelect. PlaySound_CardUI_SelectCard itself is only fired by the
+        // game on the HALF-ACTION click (FullAbilityCard.OnAbilityClick:632/647 — a different
+        // action, which the VR half-selection path already routes through, so no sound is added
+        // THERE), never on the CardsHandUI.SelectCard slot path — no stacking.
+        CardGrabSound = _file.Bind("Cards", "CardGrabSound", "PlaySound_UICardTabSelect",
+            "Game audio item played once when a card is grabbed (plucked from the fan, a board " +
+            "slot, the pick field, or a pile/active column — proximity grab and laser pluck " +
+            "alike). PlaySound_UICardTabSelect is the game's soft card-tab tick — a quiet pick. " +
+            "Alternatives: PlaySound_UIButtonSelect, PlaySound_CardUI_SelectCard. Empty = silent.");
+        CardPlaceSound = _file.Bind("Cards", "CardPlaceSound", "PlaySound_CardUI_SelectCard",
+            "Game audio item played once when a held card is placed into a board slot (play, " +
+            "swap, reorder) or laid onto the pick field. PlaySound_CardUI_SelectCard is the " +
+            "game's own card-select sound (the game only fires it on half-action clicks, not on " +
+            "the slot-select path, so this does not stack). Alternatives: " +
+            "PlaySound_ScenarioUI_TileConfirm, PlaySound_UIButtonSelect. Empty = silent.");
+        CardTakeBackSound = _file.Bind("Cards", "CardTakeBackSound", "PlaySound_UIUndoHex",
+            "Game audio item played once when a slotted/picked card is taken back to the hand " +
+            "fan (released away from the slots — the UnselectCard path). PlaySound_UIUndoHex is " +
+            "the game's soft hex-cancel click — reads as an undo. Alternatives: " +
+            "PlaySound_ScenarioUIUndo, PlaySound_UICardTabSelect. Empty = silent.");
 
         // ---- GLOBAL hand-fan geometry (in-VR "Fan" debug category) ----
         FanPerCardStepDegrees = _file.Bind("Cards", "FanPerCardStepDegrees", 14f,
