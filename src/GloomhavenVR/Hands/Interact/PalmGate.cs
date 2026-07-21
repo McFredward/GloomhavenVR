@@ -20,7 +20,11 @@ namespace GloomhavenVR.Hands.Interact;
 /// supination BEYOND "palm faces me". <see cref="UseDevicePalmNormal"/> (default on)
 /// evaluates the raw device pose instead (-Y of the grip pose = out of the physical
 /// palm), matching what the wrist actually does. Thresholds are set per frame by the
-/// Cards driver from [Cards] SupinationThreshold.
+/// Cards driver from [Cards] RevealEnterDot / RevealExitDot (defaults = the
+/// Demeo-derived 0.6 enter / 0.5 exit — Demeo shows and hides its card hand at
+/// Dot(hand.right, avatarUp) = 0.6 with no hysteresis, decompiled
+/// CardHandController.cs:452-456/474; the 0.1 dead band is ours, so the roll-axis
+/// measure cannot chatter at the boundary).
 ///
 /// P7 (hardware test #10): even the raw-pose cone test mixed PITCH into the measure —
 /// dot(palmNormal, toHead) also grows when the wrist pitches toward the face, so the
@@ -33,28 +37,28 @@ namespace GloomhavenVR.Hands.Interact;
 /// </summary>
 internal sealed class PalmGate
 {
+    // Demeo-derived defaults (fan-reveal parity pass): Demeo shows the card hand at
+    // Dot(hand.right, avatarUp) > 0.6 (~53° palm-up cone) and hides it below the SAME
+    // 0.6 — no hysteresis gap (decompiled CardHandController.cs:452-456,474). We keep a
+    // small dead band (0.5 exit) so the roll-axis measure doesn't chatter. The Cards
+    // driver overwrites both every frame from [Cards] RevealEnterDot / RevealExitDot.
     private const float DefaultEnterDot = 0.6f;
-    private const float DefaultExitDot = 0.35f;
+    private const float DefaultExitDot = 0.5f;
 
-    // G5 (DEMEO-HANDS-CARDS §4 row G5, §5 Group C): Demeo reveals the hand at a tight
-    // ~53° cone — Dot(hand.right, avatarUp) > 0.6, closing at the same 0.6 with no
-    // hysteresis gap (CardHandController.cs:452-456,474). We keep a hair of dead band
-    // (0.6 enter / 0.5 exit) so the roll-axis measure doesn't chatter at the boundary,
-    // vs our deliberately generous P6 default (SupinationThreshold 0.2 / exit -0.15).
-    private const float DemeoEnterDot = 0.6f;
-    private const float DemeoExitDot = 0.5f;
+    /// <summary>Minimum enter-exit dead band enforced in <see cref="Tick"/> — a hand-edited
+    /// config can never invert the hysteresis into an every-frame open/close flicker.</summary>
+    private const float MinHysteresis = 0.02f;
 
     private readonly VRHand _hand;
     private bool _enabled = true;
-    private bool _demeoPreset;
     private bool _busySuppressed;
 
     internal PalmGate(VRHand hand) => _hand = hand;
 
-    /// <summary>Dot(palmNormal, toHMD) above which the gate opens. Default = P2 constant 0.6.</summary>
+    /// <summary>Supination dot above which the gate opens. Default = Demeo's 0.6 (CardHandController.cs:474).</summary>
     public float EnterThreshold = DefaultEnterDot;
 
-    /// <summary>Dot(palmNormal, toHMD) below which the gate closes. Default = P2 constant 0.35.</summary>
+    /// <summary>Supination dot below which the gate closes. Default 0.5 (Demeo's 0.6 minus our dead band).</summary>
     public float ExitThreshold = DefaultExitDot;
 
     /// <summary>
@@ -82,21 +86,6 @@ internal sealed class PalmGate
     /// for a clean build before the driver wires it.
     /// </summary>
     public bool IgnoreWhenHandBusy { get; set; }
-
-    /// <summary>
-    /// G5 reveal preset (DEMEO-HANDS-CARDS §4 row G5): forward [Cards] RevealPreset via
-    /// <c>CardsConfig.RevealDemeo</c>. <c>false</c> = generous P6 default (uses the
-    /// driver-set <see cref="EnterThreshold"/>/<see cref="ExitThreshold"/>, byte-identical
-    /// to today); <c>true</c> = Demeo's tight cone (<see cref="DemeoEnterDot"/>/
-    /// <see cref="DemeoExitDot"/>), ignoring the driver-set thresholds.
-    /// </summary>
-    public void ApplyDemeoPreset(bool demeo)
-    {
-        if (_demeoPreset == demeo)
-            return;
-        _demeoPreset = demeo;
-        Core.VRLog.Debug("Interact", $"PalmGate reveal preset → {(demeo ? "demeo" : "generous")}.");
-    }
 
     /// <summary>True while the palm faces the headset.</summary>
     public bool IsOpen { get; private set; }
@@ -193,10 +182,11 @@ internal sealed class PalmGate
             CurrentDot = Vector3.Dot(normal, toHead.normalized);
         }
 
-        // Preset selects the cone: generous uses the driver-set thresholds (byte-identical
-        // to the P6 default); demeo uses the tight constants and ignores those thresholds.
-        float enter = _demeoPreset ? DemeoEnterDot : EnterThreshold;
-        float exit = _demeoPreset ? DemeoExitDot : ExitThreshold;
+        // Driver-set thresholds ([Cards] RevealEnterDot/RevealExitDot, defaults = the
+        // Demeo-derived 0.6/0.5). Exit is clamped below enter so a hand-edited config can
+        // never invert the hysteresis into an open/close flicker.
+        float enter = EnterThreshold;
+        float exit = Mathf.Min(ExitThreshold, enter - MinHysteresis);
 
         if (!IsOpen && CurrentDot > enter)
             SetOpen(true);
