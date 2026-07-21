@@ -74,6 +74,15 @@ internal sealed class HandRig
     /// <summary>Where grabbed objects snap (palm-aligned).</summary>
     public Transform GrabAnchor = null!;
 
+    /// <summary>
+    /// The style the visuals were ACTUALLY built with (additive to the frozen P2
+    /// contract). Can differ from the requested <c>[Hands] HandStyle</c> when a styled
+    /// prefab is missing from an old bundle and the build degraded to the Glove pair —
+    /// per-style tunables (scale/seat trims, VRHand.SyncVisualOffset) key off THIS so
+    /// a degraded glove is never shrunk by the Plate scale.
+    /// </summary>
+    public HandStyle VisualStyle = HandStyle.Glove;
+
     private readonly FingerJoints[] _fingers = new FingerJoints[5];
 
     /// <summary>World-space palm normal (points out of the palm).</summary>

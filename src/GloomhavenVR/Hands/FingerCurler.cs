@@ -21,10 +21,24 @@ internal sealed class FingerCurler
     private static readonly Vector3 FingerMaxAngles = new(65f, 80f, 50f);
     private static readonly Vector3 ThumbMaxAngles = new(25f, 45f, 60f);
 
+    /// <summary>
+    /// Per-STYLE curl-range clamp, indexed by (int)<see cref="HandStyle"/> (Glove/
+    /// Plate/Arcane). The AI-generated styled meshes are not authored dead-straight —
+    /// the Plate gauntlet's fingers are visibly PRE-CURLED and the Arcane digits are
+    /// long and thin — so the glove's full 65/80/50-degree range over-closes them:
+    /// fingertips folded into the palm / collapsed into "donut" blobs at full fist
+    /// (9-pose Blender render matrix, unity/hand-prep/rig_hand.py RIG_HAND_POSES=1).
+    /// 0.72/0.85 were picked from those renders: the fist closes naturally without the
+    /// tips digging in. Style-intrinsic constants, not user preferences — and the
+    /// matching preview renders use the same values via RIG_HAND_CURL_SCALE.
+    /// </summary>
+    private static readonly float[] StyleCurlScale = { 1f, 0.72f, 0.85f };
+
     /// <summary>Smoothing rate (1/s). ~60 ms to close most of the gap.</summary>
     private const float LerpSpeed = 18f;
 
     private readonly HandRig _rig;
+    private readonly float _curlScale;
     private readonly Quaternion[][] _baseRotations = new Quaternion[5][];
     private readonly float[] _current = new float[5];
     private readonly float[] _target = new float[5];
@@ -32,6 +46,7 @@ internal sealed class FingerCurler
     internal FingerCurler(HandRig rig)
     {
         _rig = rig;
+        _curlScale = StyleCurlScale[(int)HandStyles.Clamp((int)rig.VisualStyle)];
         for (int f = 0; f < 5; f++)
         {
             FingerJoints joints = rig.GetFinger((Finger)f);
@@ -61,7 +76,7 @@ internal sealed class FingerCurler
             _current[f] = Mathf.Lerp(_current[f], _target[f], k);
 
             FingerJoints joints = _rig.GetFinger((Finger)f);
-            Vector3 max = f == (int)Finger.Thumb ? ThumbMaxAngles : FingerMaxAngles;
+            Vector3 max = (f == (int)Finger.Thumb ? ThumbMaxAngles : FingerMaxAngles) * _curlScale;
             Quaternion[] baseRot = _baseRotations[f];
             float curl = _current[f];
 
