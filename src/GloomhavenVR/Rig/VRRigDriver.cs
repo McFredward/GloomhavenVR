@@ -325,36 +325,58 @@ internal sealed class VRRigDriver : MonoBehaviour
         Plugin.WorldTiltDegrees != null ? Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f) : 0f;
 
     /// <summary>
-    /// The yaw-only (horizon-aligned) part of a rig rotation. Exact for our poses: every
-    /// rig writer produces either yaw-only rotations or yaw-only ⊕ our own pitch about the
-    /// yaw-local right axis, and the tilt clamp (≤ 60°) keeps the forward projection well
-    /// away from the vertical degeneracy.
+    /// The yaw-only (horizon-aligned) part of a rig rotation, via swing–twist decomposition
+    /// about world up: for a unit quaternion q, the twist around Y is
+    /// <c>normalize(0, q.y, 0, q.w)</c>. This is EXACT for every pose our writers produce —
+    /// algebraically, twist(T ∘ Y) = Y for ANY tilt T about a HORIZONTAL axis composed onto a
+    /// yaw Y (the horizontal tilt vector is orthogonal to the yaw vector, so the y/w
+    /// components of the product are just cos(t/2)·(sin, cos of the half-yaw)), and likewise
+    /// twist(Y₂ ∘ T ∘ Y) = Y₂·Y for snap-turn's world-up compositions. The former
+    /// forward-projection version was only exact while the tilt axis was the yaw's own right
+    /// axis; the player-relative tilt axis (TickWorldTilt) broke that assumption — projection
+    /// would have bled a per-frame yaw drift into the healing loop.
     /// </summary>
     private static Quaternion YawOnly(Quaternion rotation)
     {
-        Vector3 forward = rotation * Vector3.forward;
-        forward.y = 0f;
-        if (forward.sqrMagnitude < 1e-8f)
-            return Quaternion.identity; // unreachable at ≤60° tilt; safe fallback
-        return Quaternion.LookRotation(forward.normalized, Vector3.up);
+        float y = rotation.y;
+        float w = rotation.w;
+        float mag = Mathf.Sqrt(y * y + w * w);
+        if (mag < 1e-6f)
+            return Quaternion.identity; // pure 180° flip about a horizontal axis; unreachable
+        return new Quaternion(0f, y / mag, 0f, w / mag);
     }
 
     /// <summary>
     /// Assert the world tilt on the scenario rig (LOCAL-ONLY, rig-side — Demeo model):
-    /// reconstruct the desired pose as <c>pitch(target°, about the rig-yaw's horizontal
-    /// right axis) ∘ yawOnly(current)</c> and rotate the rig into it around the BOARD
-    /// CENTER (<c>CameraController.FocusPoint</c> — the same orbit focus the rig was built
-    /// at). Because the rotation happens about the pivot, the player's virtual head orbits
-    /// up and over the board while the board itself appears to tilt toward them; world
-    /// coordinates of every game object are untouched, so nothing changes for multiplayer
-    /// peers except our own (honestly moved) avatar pose.
+    /// reconstruct the desired pose as <c>tilt(target°, about the PLAYER-RELATIVE horizontal
+    /// axis) ∘ yawOnly(current)</c> and rotate the rig into it around the BOARD CENTER
+    /// (<c>CameraController.FocusPoint</c> — the same orbit focus the rig was built at).
+    /// Because the rotation happens about the pivot, the player's virtual head orbits up and
+    /// over the board while the board itself appears to tilt toward them; world coordinates
+    /// of every game object are untouched, so nothing changes for multiplayer peers except
+    /// our own (honestly moved) avatar pose.
+    ///
+    /// TILT AXIS (hardware round 1 fix — the world used to tip to the RIGHT): the axis must
+    /// be derived from the HEAD, not the rig yaw (rig yaw is set by recenter/spawn-circle/
+    /// snap-turn and can face anywhere relative to where the player actually stands). Let
+    /// <c>d</c> = the horizontal (flattened) direction from the HMD to the pivot; the axis is
+    /// <c>up × d</c> — the horizontal perpendicular, i.e. the player's right when facing the
+    /// board. Rotating the RIG by +target about that axis makes the WORLD appear rotated by
+    /// −target about it, which raises the board's far edge and dips the near edge — the play
+    /// area tips TOWARD the player, like tilting a picture frame toward you, wherever they
+    /// stand. Recomputed every frame, so walking around the board keeps the tilt facing you;
+    /// the recompute is a fixed point while you stand still (tilting about <c>up × d</c> maps
+    /// the vertical head–pivot plane onto itself, so <c>d</c> — and with it the axis — is
+    /// unchanged by the tilt's own head motion: no feedback drift). Degenerate case (head
+    /// directly above the pivot): fall back to the rig-yaw right axis.
     ///
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
     /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
     /// the same frame; snap turn (RotateAround world-up) preserves the pitch and lands
-    /// within epsilon; WorldGrab's two-hand yaw-flatten is healed before render. At the
-    /// default 0° with no tilt ever applied the method returns before touching the
-    /// transform — bit-identical to the pre-feature rig.
+    /// within epsilon; WorldGrab's two-hand yaw-flatten is healed before render. YawOnly's
+    /// swing–twist decomposition keeps the yaw extraction exact under the head-relative
+    /// (non-yaw-aligned) tilt axis. At the default 0° with no tilt ever applied the method
+    /// returns before touching the transform — bit-identical to the pre-feature rig.
     /// </summary>
     private void TickWorldTilt()
     {
@@ -371,8 +393,23 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         Transform rig = _rigRoot.transform;
         Quaternion yawOnly = YawOnly(rig.rotation);
+
+        // Player-relative tilt axis: horizontal perpendicular of the flattened head→pivot
+        // line, sign chosen so the world tips toward the head (see header). Reading the head
+        // position AFTER this frame's writers (LateUpdate) is exact: the tilt itself never
+        // moves the head out of the head–pivot vertical plane, so the axis is stable.
+        Vector3 axis;
+        Vector3 headToPivot = _camera != null
+            ? controller.FocusPoint - _camera.transform.position
+            : Vector3.zero;
+        headToPivot.y = 0f;
+        if (headToPivot.sqrMagnitude > 1e-6f)
+            axis = Vector3.Cross(Vector3.up, headToPivot.normalized);
+        else
+            axis = yawOnly * Vector3.right; // head above pivot / camera gone — previous behavior
+
         Quaternion desired = target > 0f
-            ? Quaternion.AngleAxis(target, yawOnly * Vector3.right) * yawOnly
+            ? Quaternion.AngleAxis(target, axis) * yawOnly
             : yawOnly;
 
         // Comfort: a vignette pulse on actual ANGLE CHANGES (stepper presses / config edits)

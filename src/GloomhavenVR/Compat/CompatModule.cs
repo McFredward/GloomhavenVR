@@ -56,19 +56,25 @@ internal sealed class CompatModule : IVRModule
         // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
-        // ISSUE #4 — walls. WallFadeDisable pins the GLOBAL fade shader int (ToggleWallFade)
-        // via a Harmony postfix on Main.Update. It consults [Compat] WallFade LIVE each call:
-        // OFF (default) pins 0 so the see-behind fade never activates and walls render solid;
-        // ON pins 1 so the game's own view-dependent fade runs — evaluated by the wall shaders
-        // against the mod's head camera, i.e. it follows the HMD. Reflection-guarded, VR-gated,
-        // reversible, live-togglable from the VR settings panel.
+        // ISSUE #4 — walls. The see-through fade has TWO inputs (wall-shader disassembly,
+        // see WallFadeDisable / Core.WallFadeOcclusionFeed headers):
+        // 1. WallFadeDisable pins the GLOBAL gate int (ToggleWallFade) via a Harmony postfix
+        //    on Main.Update, consulting [Compat] WallFade LIVE each call: OFF (default) pins 0
+        //    so walls render solid; ON pins 1 so the wall shaders' fade logic runs.
+        // 2. WallFadeOcclusionFeed mirrors the game's TilesOcclusionGenerator CommandBuffer
+        //    (the screen-space _TilesOcclusionMap the fade condition samples) onto the VR
+        //    head camera — without it the map is only valid for the parked game camera's
+        //    viewpoint and the fade never triggers (hardware round 1). Same live toggle:
+        //    OFF keeps the CB detached (zero cost).
+        // Both are VR-gated, reversible, live-togglable from the VR settings panel.
         //
-        // The real occlusion fix lives elsewhere: the head camera now renders FORWARD
-        // (VRRigDriver, config Plugin.ForwardRendering), which stops the SkyBackdrop depth-reset
-        // from wiping wall depth for the transparent pass. The former symptom-chase stack
-        // (occlusion census, wall depth solidifier, line-of-sight probe, depth-testing shader
-        // swaps, tiles-occlusion CommandBuffer mirror) never had a visible effect and was removed.
+        // (Context: the flames-through-walls occlusion fix is the head camera's Forward
+        // rendering — VRRigDriver / Plugin.ForwardRendering. An earlier occlusion-map mirror
+        // was removed in the af95ad0 cleanup as "no visible effect"; correctly so THEN,
+        // because ToggleWallFade was pinned 0 at the time — the gate and the map need each
+        // other, which is why both now hang off the one WallFade toggle.)
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
+        WallFadeOcclusionFeed.Install();
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
@@ -107,7 +113,8 @@ internal sealed class CompatModule : IVRModule
     public void Shutdown()
     {
         // WallFadeDisable is a Harmony patch reverted by VRSession's UnpatchAll on hot-reload;
-        // nothing else to tear down here now that the occlusion symptom-chase stack is gone.
+        // the occlusion feed detaches its CommandBuffer and destroys its material copies.
+        WallFadeOcclusionFeed.Uninstall();
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
