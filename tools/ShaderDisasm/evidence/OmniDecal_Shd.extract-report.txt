@@ -1,0 +1,52 @@
+
+################ SHADER 'OmniDecal_Shd'  (resources.assets, pathId=556) ################
+
+-- Properties --
+   _HexMask                         type=4 "HexMask"
+   _HexColour                       type=0 "HexColour"
+   _Offset                          type=1 "Offset"
+   _Scale                           type=2 "Scale"
+   _ScaleB                          type=2 "ScaleB"
+   _BorderStep                      type=1 "BorderStep"
+   _MainTex                         type=4 "Projector Texture"
+   _BorderFlameIntensity            type=2 "BorderFlameIntensity"
+   _BorderLineIntensity             type=2 "BorderLineIntensity"
+   _HexIntensity                    type=2 "HexIntensity"
+   _OmniMin                         type=2 "OmniMin"
+   _OmniMax                         type=2 "OmniMax"
+   _NW_On                           type=2 "NW_On"
+   _NE_On                           type=2 "NE_On"
+   _E_On                            type=2 "E_On"
+   _SE_On                           type=2 "SE_On"
+   _SW_On                           type=2 "SW_On"
+   _W_On                            type=2 "W_On"
+   _HexTargetFrame                  type=4 "TargetFrame"
+   _TargetFrameIntensity            type=2 "TargetFrameIntensity"
+   _CrossHair                       type=2 "CrossHair"
+   _HexRotation                     type=2 "HexRotation"
+
+-- Shader keyword name table (5) --
+   [0] STEREO_INSTANCING_ON
+   [1] UNITY_SINGLE_PASS_STEREO
+   [2] STEREO_MULTIVIEW_ON
+   [3] STEREO_CUBEMAP_RENDER_ON
+   [4] INSTANCING_ON
+
+== SubShader 0  tags=[RenderType=Transparent] ==
+
+  -- Pass 0 name='Unlit' zTest=8 zTestProp='<noninit>' zWrite=0 tags=[LIGHTMODE=FORWARDBASE, RenderType=Transparent] --
+     nameIndices: $Globals=11, UnityPerCamera=0, UnityPerCameraRare=12, UnityPerDraw=1, UnityPerFrame=2, _BorderFlameIntensity=29, _BorderLineIntensity=27, _BorderStep=17, _CameraDepthTexture=6, _CameraNormalsTexture=10, _CrossHair=31, _E_On=22, _HexColour=13, _HexIntensity=28, _HexMask=7, _HexRotation=19, _HexTargetFrame=9, _MainTex=8, _NE_On=21, _NW_On=26, _Offset=18, _OmniMax=15, _OmniMin=14, _ProjectionParams=3, _SE_On=23, _SW_On=24, _Scale=20, _ScaleB=16, _SinTime=33, _TargetFrameIntensity=30, _Time=32, _W_On=25, unity_CameraInvProjection=34, unity_CameraToWorld=35, unity_MatrixVP=5, unity_ObjectToWorld=4, unity_WorldToObject=36
+     [progVertex] 3 sub-program(s):
+        blob=0    gpu=DX11VertexSM50   keywords=[]
+        blob=0    gpu=DX11VertexSM50   keywords=[]
+        blob=0    gpu=DX11VertexSM50   keywords=[]
+     [progFragment] 3 sub-program(s):
+        blob=1    gpu=DX11PixelSM50    keywords=[]
+        blob=1    gpu=DX11PixelSM50    keywords=[]
+        blob=1    gpu=DX11PixelSM50    keywords=[]
+
+-- Blob: 2384 compressed bytes, platforms=[GLES3] --
+
+   [platform 0 = GLES3] decompressed 6800 bytes (raw dumped)
+      blob#0 (platIdx 0) at 0x62 size 768 kind=VERTEX -> OmniDecal_Shd.GLES3.blob00.VERTEX.dxbc
+      blob#1 (platIdx 1) at 0x42E size 5576 kind=PIXEL -> OmniDecal_Shd.GLES3.blob01.PIXEL.dxbc

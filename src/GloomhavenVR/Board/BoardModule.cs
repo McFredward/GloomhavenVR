@@ -69,6 +69,8 @@ internal sealed class BoardModule : IVRModule
         // P8: figure-grab config (dev.gloomhavenvr.figuregrab.cfg) — bound up-front so
         // FigureGrabbable.CanGrab can read the toggle from frame one.
         FigureGrab.FigureGrabConfig.Bind();
+        // Issue #6: hex-highlight swim mitigation config (dev.gloomhavenvr.hexhighlight.cfg).
+        HexHighlightFix.BindConfig();
 
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {
@@ -85,6 +87,10 @@ internal sealed class BoardModule : IVRModule
         // is on no hex (WorldspaceStarHexDisplay never deactivates s_CursorHighlightedStar
         // on a null pick; see HexHoverClear).
         VRSession.Harmony?.PatchAll(typeof(Patches.HexHoverClear));
+        // Issue #6: the hex-selection highlight's shader (OmniDecal_Shd) is a screen-space
+        // depth-reconstruction projector whose layers swim with head pose in VR stereo —
+        // zero the offending layers after every game material write (see HexHighlightFix).
+        VRSession.Harmony?.PatchAll(typeof(HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
         // P8: suppress the game's per-frame figure-transform writes for HELD actors only,
         // so a grabbed mini can ride the hand (gated by HeldFigures.Owns).
@@ -122,6 +128,7 @@ internal sealed class BoardModule : IVRModule
             BoardClickDriver.Reset();
             AoeControl.Reset();
             TargetingUx.Reset();
+            HexHighlightFix.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }
