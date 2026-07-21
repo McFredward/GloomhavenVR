@@ -169,6 +169,15 @@ internal sealed class VRRigDriver : MonoBehaviour
     private Vector3 _menuAnchorPos;
     private Quaternion _menuAnchorYaw;
 
+    // Demeo-style WORLD TILT ([Rig] WorldTiltDegrees, scenario rig only): the whole diorama
+    // APPEARS tilted toward the player by pitching the TRACKING SPACE (this rig root) around
+    // the board center — the player's viewpoint orbits up and over the board; no game-world
+    // object ever moves. Maintained by TickWorldTilt (LateUpdate — after every Update-phase
+    // rig writer, before rendering); _tiltActive gates the exact-no-op fast path at 0°, and
+    // _lastTiltTarget dedupes the comfort vignette pulse to actual angle changes.
+    private bool _tiltActive;
+    private float _lastTiltTarget;
+
     // Head camera clear color: [Rig] VoidColor (default pure black since test #6 —
     // the diagnostic-grey era is over; the config description documents that a dark
     // grey helps debugging "renders but empty" vs "camera dead"). Live-tunable via
@@ -299,6 +308,93 @@ internal sealed class VRRigDriver : MonoBehaviour
         var tail = _tailSteps;
         for (int i = 0; i < tail.Length; i++)
             TickGuard.Run(tail[i].name, tail[i].fn);
+    }
+
+    /// <summary>
+    /// LateUpdate runs AFTER every Update-phase rig writer (WorldGrab, SnapTurn, Comfort,
+    /// Recenter) and BEFORE rendering — the world tilt is (re)asserted here so any writer
+    /// that flattened the rig back to yaw-only this frame (WorldGrab's two-hand solve,
+    /// Recenter) is healed before the player ever sees an untilted frame.
+    /// </summary>
+    private void LateUpdate() => TickGuard.Run("Rig.WorldTilt", TickWorldTilt);
+
+    // ---- Demeo-style world tilt ([Rig] WorldTiltDegrees) -----------------------------------
+
+    /// <summary>Configured tilt target, clamped to the supported 0-60° range (0 while unbound).</summary>
+    private static float TargetTiltDegrees =>
+        Plugin.WorldTiltDegrees != null ? Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f) : 0f;
+
+    /// <summary>
+    /// The yaw-only (horizon-aligned) part of a rig rotation. Exact for our poses: every
+    /// rig writer produces either yaw-only rotations or yaw-only ⊕ our own pitch about the
+    /// yaw-local right axis, and the tilt clamp (≤ 60°) keeps the forward projection well
+    /// away from the vertical degeneracy.
+    /// </summary>
+    private static Quaternion YawOnly(Quaternion rotation)
+    {
+        Vector3 forward = rotation * Vector3.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 1e-8f)
+            return Quaternion.identity; // unreachable at ≤60° tilt; safe fallback
+        return Quaternion.LookRotation(forward.normalized, Vector3.up);
+    }
+
+    /// <summary>
+    /// Assert the world tilt on the scenario rig (LOCAL-ONLY, rig-side — Demeo model):
+    /// reconstruct the desired pose as <c>pitch(target°, about the rig-yaw's horizontal
+    /// right axis) ∘ yawOnly(current)</c> and rotate the rig into it around the BOARD
+    /// CENTER (<c>CameraController.FocusPoint</c> — the same orbit focus the rig was built
+    /// at). Because the rotation happens about the pivot, the player's virtual head orbits
+    /// up and over the board while the board itself appears to tilt toward them; world
+    /// coordinates of every game object are untouched, so nothing changes for multiplayer
+    /// peers except our own (honestly moved) avatar pose.
+    ///
+    /// Per-frame reconstruction (not an incremental delta) is what makes every composition
+    /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
+    /// the same frame; snap turn (RotateAround world-up) preserves the pitch and lands
+    /// within epsilon; WorldGrab's two-hand yaw-flatten is healed before render. At the
+    /// default 0° with no tilt ever applied the method returns before touching the
+    /// transform — bit-identical to the pre-feature rig.
+    /// </summary>
+    private void TickWorldTilt()
+    {
+        if (_kind != RigKind.Scenario || _rigRoot == null)
+            return;
+
+        float target = TargetTiltDegrees;
+        if (target <= 0f && !_tiltActive)
+            return; // fast path: feature off and nothing to undo — zero writes, 0° bit-identical
+
+        CameraController controller = CameraController.s_CameraController;
+        if (controller == null)
+            return; // anchor died mid-frame; the Update health check tears down next tick
+
+        Transform rig = _rigRoot.transform;
+        Quaternion yawOnly = YawOnly(rig.rotation);
+        Quaternion desired = target > 0f
+            ? Quaternion.AngleAxis(target, yawOnly * Vector3.right) * yawOnly
+            : yawOnly;
+
+        // Comfort: a vignette pulse on actual ANGLE CHANGES (stepper presses / config edits)
+        // masks the instant horizon reorientation; per-frame healing never pulses.
+        if (!Mathf.Approximately(target, _lastTiltTarget))
+        {
+            _lastTiltTarget = target;
+            ComfortVignette.Pulse();
+        }
+
+        float error = Quaternion.Angle(rig.rotation, desired);
+        if (error > 0.01f)
+        {
+            // Rotate the rig into the desired pose AROUND the board center so the pose
+            // change reads as the viewpoint orbiting the board, not the world snapping.
+            Vector3 pivot = controller.FocusPoint;
+            Quaternion delta = desired * Quaternion.Inverse(rig.rotation);
+            rig.position = pivot + delta * (rig.position - pivot);
+            rig.rotation = desired;
+        }
+
+        _tiltActive = target > 0f;
     }
 
     private void OnDestroy()
@@ -652,6 +748,14 @@ internal sealed class VRRigDriver : MonoBehaviour
         if (controller == null)
             return;
 
+        // World tilt composition: the seat math below is authored for a yaw-only rig
+        // (seatYaw reads the current rotation; offsets assume a level horizon). Flatten the
+        // tilt out first — TickWorldTilt re-applies the configured tilt on top of the fresh
+        // seat in LateUpdate this same frame, so a recenter lands at the standard table-edge
+        // seat viewed through the tilt, with no untilted frame ever rendered.
+        if (_tiltActive)
+            _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
+
         float scale = _rigRoot.transform.localScale.x;
 
         // Spawn circle (FEATURE D): give each player a distinct azimuth around the focus
@@ -740,6 +844,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         bool hadRig = _kind != RigKind.None;
         bool wasMenu = _kind == RigKind.Menu;
         _kind = RigKind.None;
+        _tiltActive = false; // the tilted transform dies with the rig; a new rig re-tilts fresh
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;

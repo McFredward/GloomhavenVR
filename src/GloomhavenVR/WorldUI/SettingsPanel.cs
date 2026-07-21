@@ -638,6 +638,14 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     Mathf.Clamp(ComfortSettings.TableHeightOffset.Value + delta * 0.05f, -0.4f, 0.6f);
             });
 
+        // Demeo-style world tilt ([Rig] WorldTiltDegrees, 5° steps, 0-60): the diorama appears
+        // tilted toward the player (rig-side counter-rotation — VRRigDriver.TickWorldTilt reads
+        // the entry every frame, so stepping applies live; BepInEx persists on set).
+        Stepper("World tilt",
+            () => $"{Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f):0}°",
+            delta => Plugin.WorldTiltDegrees.Value =
+                Mathf.Clamp(Plugin.WorldTiltDegrees.Value + delta * 5f, 0f, 60f));
+
         var vignetteRow = Row();
         Label(vignetteRow, Loc.Mod("vignette"), 16f, flexible: true);
         ToggleButton(vignetteRow,
@@ -686,6 +694,14 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Toggle(Loc.Mod("world_ui_surfaces"),
             () => WorldUIConfig.Master.Value,
             v => WorldUIConfig.Master.Value = v);
+
+        // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
+        // view-dependent wall fade run (it follows the HMD — see WallFadeDisable); OFF
+        // (default) keeps walls always solid. Applies LIVE — the Harmony postfix consults
+        // the entry every frame, no restart needed.
+        Toggle("Wall see-through",
+            () => Plugin.WallFade.Value,
+            v => Plugin.WallFade.Value = v);
 
         Toggle(Loc.Mod("disable_post"),
             () => Plugin.DisablePostProcessing.Value,
