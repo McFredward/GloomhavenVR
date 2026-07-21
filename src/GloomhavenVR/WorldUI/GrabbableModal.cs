@@ -88,6 +88,13 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     private const float DepthMaskBehindMeters = 0.002f;
 
+    /// <summary>
+    /// Task #6: padding (host px) around the visible-content union the depth mask covers — matches
+    /// the content fit's 12 px pad, so on a fully-populated fitted window the mask still spans
+    /// essentially the whole host rect (behavior unchanged there).
+    /// </summary>
+    private const float DepthMaskPaddingPx = 12f;
+
     private ConvertedPanel _panel = null!;
     private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
 
@@ -232,24 +239,49 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float halfHeight = rect.height * unit * 0.5f;
         float width = rect.width * unit;
         SyncBar(halfHeight, width, worldScale);
-        SyncDepthMask(rect, unit, worldScale);
+        SyncDepthMask(unit, worldScale);
     }
 
     /// <summary>
-    /// Problem #4: size + place the depth mask on the LIVE host rect each tick so it stays coplanar
-    /// with the (grabbable, resizable, content-fittable) menu. Frame-local metres = pixels × unit;
-    /// the frame's own localScale carries the user grab factor on top (exactly like the bar), so the
-    /// quad's WORLD footprint always matches the host canvas. Centred on the frame origin (= the host
-    /// centre, host pivot 0.5,0.5) and pushed a hair to +Z (behind the content, toward far).
+    /// Problem #4 + task #6: size + place the depth mask each tick so it stays coplanar with the
+    /// (grabbable, resizable, content-fittable) menu — but covering ONLY the union bounding rect of
+    /// the window's actually-VISIBLE graphics (<see cref="CanvasConversion.TryMeasureVisibleUnion"/>),
+    /// NOT the full host rect. The Options submenu hosts a full-width rect whose right side is EMPTY
+    /// until an item is opened; a full-rect mask stamped menu-plane depth across that emptiness and
+    /// depth-occluded OTHER MENUS behind it (task #6). With the content union, the mask hugs the left
+    /// rail (plus the opened pane / an open dropdown list — the union grows automatically), and the
+    /// empty region stays truly transparent: world AND other menus show through. Disjoint content
+    /// clusters are covered by their single union rect (a bridge of masked emptiness between them is
+    /// accepted — it only matters when clusters are far apart, which the menu family never is).
+    /// No visible content → mask disabled entirely.
+    ///
+    /// Units: the union comes in HOST-LOCAL px; frame-local metres = px × unit (the frame origin is
+    /// the host centre — pivot 0.5,0.5 — and the frame's own localScale carries the user grab factor
+    /// on top, exactly like the bar), pushed a hair to +Z (behind the content, toward far). The
+    /// per-tick Graphic walk is the accepted cost (~100 graphics on the biggest menu, only for the
+    /// masked pause/options family).
     /// </summary>
-    private void SyncDepthMask(Rect rect, float unit, float worldScale)
+    private void SyncDepthMask(float unit, float worldScale)
     {
         if (_depthMask == null)
             return;
-        float w = Mathf.Max(rect.width * unit, 1e-4f);
-        float h = Mathf.Max(rect.height * unit, 1e-4f);
+        if (!CanvasConversion.TryMeasureVisibleUnion(_panel, out Vector2 min, out Vector2 max))
+        {
+            // Nothing visible (window still fading in / everything hidden) — no depth stamp at all.
+            if (_depthMask.gameObject.activeSelf)
+                _depthMask.gameObject.SetActive(false);
+            return;
+        }
+        min -= Vector2.one * DepthMaskPaddingPx;
+        max += Vector2.one * DepthMaskPaddingPx;
+        Vector2 center = (min + max) * 0.5f;
+        float w = Mathf.Max((max.x - min.x) * unit, 1e-4f);
+        float h = Mathf.Max((max.y - min.y) * unit, 1e-4f);
+        if (!_depthMask.gameObject.activeSelf)
+            _depthMask.gameObject.SetActive(true);
         _depthMask.localScale = new Vector3(w, h, 1f);
-        _depthMask.localPosition = new Vector3(0f, 0f, DepthMaskBehindMeters * worldScale);
+        _depthMask.localPosition = new Vector3(center.x * unit, center.y * unit,
+            DepthMaskBehindMeters * worldScale);
     }
 
     /// <summary>

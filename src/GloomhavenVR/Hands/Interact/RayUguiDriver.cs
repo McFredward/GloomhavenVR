@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.Hands.Interact;
 
@@ -37,6 +38,21 @@ internal sealed class RayUguiDriver
 
     /// <summary>A physics hit closer than the UI plane by more than this blocks the UI hit (meters, scale 1).</summary>
     private const float OcclusionEpsilonMeters = 0.005f;
+
+    /// <summary>
+    /// Task #8 (thumbstick scrolling): stick-Y deadzone below which no scroll fires. Deliberately
+    /// generous so resting-drift on the pointing hand's stick never nudges a hovered list, and a
+    /// diagonal snap-turn flick (x-axis, engage 0.7) with incidental y-tilt barely scrolls.
+    /// </summary>
+    private const float ScrollDeadzone = 0.3f;
+
+    /// <summary>
+    /// Task #8: scroll speed in mouse-wheel NOTCHES per second at FULL stick deflection (the
+    /// PointerEventData.scrollDelta unit; each ScrollRect multiplies by its own scrollSensitivity
+    /// px/notch, so the felt speed matches how that list scrolls with a real wheel). Tunable v1
+    /// constant — promote to WorldUIConfig if hardware testing wants live tuning.
+    /// </summary>
+    private const float ScrollNotchesPerSecond = 40f;
 
     private readonly VRHand _hand;
     private readonly UguiPointer _pointer;
@@ -137,12 +153,44 @@ internal sealed class RayUguiDriver
         if (_pointer.Hovered != null && !ReferenceEquals(_pointer.Hovered, previous))
             _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
 
+        TickStickScroll(); // task #8: pointing hand's thumbstick scrolls a hovered ScrollRect
+
         if (_hand.TriggerDown && hit && _hand.Grabber.Held == null)
         {
             _pressing = true;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
+    }
+
+    /// <summary>
+    /// Task #8 (thumbstick scrolling): while the beam hovers uGUI that sits inside a
+    /// <see cref="ScrollRect"/>, the POINTING hand's thumbstick Y scrolls it — a
+    /// synthesized mouse-wheel notch stream via the established ExecuteEvents pattern
+    /// (<see cref="UguiPointer.Scroll"/>), so ScrollRects (settings lists, the
+    /// compendium, an open dropdown's item list) respond exactly as to a wheel.
+    ///
+    /// Stick contention: this reads ONLY the Y axis and ONLY while actually hovering a
+    /// scrollable; SnapTurn/AoE read the X axis (SnapTurn engages at |x| ≥ 0.7), so
+    /// neither consumes the other's input — a deliberate straight-up push scrolls, a
+    /// deliberate sideways flick turns. Unscaled time: menus pause the game clock.
+    /// </summary>
+    private void TickStickScroll()
+    {
+        GameObject? hovered = _pointer.Hovered;
+        if (hovered == null)
+            return;
+        float y = _hand.Thumbstick.y;
+        if (Mathf.Abs(y) < ScrollDeadzone)
+            return;
+        ScrollRect? scrollable = hovered.GetComponentInParent<ScrollRect>();
+        if (scrollable == null || !scrollable.isActiveAndEnabled)
+            return;
+        // Deadzone-normalized response, so speed ramps smoothly from 0 at the deadzone
+        // edge to ScrollNotchesPerSecond at full deflection.
+        float response = (Mathf.Abs(y) - ScrollDeadzone) / (1f - ScrollDeadzone);
+        float notches = Mathf.Sign(y) * response * ScrollNotchesPerSecond * Time.unscaledDeltaTime;
+        _pointer.Scroll(new Vector2(0f, notches));
     }
 
     /// <summary>
@@ -189,6 +237,8 @@ internal sealed class RayUguiDriver
         Vector2 screenPos = ToScreen(canvas, point);
         bool hit = _pointer.TryRaycast(canvas, screenPos, out RaycastResult top);
         _pointer.SetHovered(hit ? top.gameObject : null);
+
+        TickStickScroll(); // task #8: stick-scroll stays live during a held trigger too
 
         // Drive drag with the SAME clamped-into-rect screen point used for the raycast,
         // so a Slider/scrollbar/scroll-rect handle moves under the sweeping laser (it

@@ -260,6 +260,26 @@ internal sealed class UguiPointer
         ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.dragHandler);
     }
 
+    /// <summary>
+    /// Task #8 (thumbstick scrolling): synthesize a mouse-wheel scroll on the hovered
+    /// object — <c>scrollDelta</c> in wheel notches, dispatched up the hierarchy to the
+    /// nearest <see cref="IScrollHandler"/> (a <see cref="ScrollRect"/> multiplies it by
+    /// its own <c>scrollSensitivity</c> px/notch), exactly how StandaloneInputModule
+    /// forwards <c>Input.mouseScrollDelta</c>. Mirrors the established ExecuteEvents
+    /// click/drag pattern above; no-op when nothing is hovered. The delta is cleared
+    /// afterwards so the shared PointerEventData never leaks a stale scroll into the
+    /// next press/drag event.
+    /// </summary>
+    internal void Scroll(Vector2 scrollDelta)
+    {
+        if (_hovered == null)
+            return;
+        PointerEventData data = GetData();
+        data.scrollDelta = scrollDelta;
+        ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.scrollHandler);
+        data.scrollDelta = Vector2.zero;
+    }
+
     /// <summary>Pointer-up (+ click when released over the same handler).</summary>
     internal void Release(Vector2 screenPos)
     {
