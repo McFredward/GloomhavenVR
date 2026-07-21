@@ -225,9 +225,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     // ---- portrait depth normalization (user #3) ---------------------------------------
     /// <summary>
-    /// The game authors the initiative row with real 3D DEPTH: each portrait
-    /// (a direct child of <c>initiativeTrackHolder</c> — the avatar behaviour
-    /// transform) carries a serialized local z, so the row RECEDES/steps in depth.
+    /// The game authors the initiative row with real 3D DEPTH: transforms NESTED inside
+    /// each portrait (the avatar image, and the selection frame that pops the acting
+    /// actor forward) carry a serialized local z — NOT the portrait's direct
+    /// <c>initiativeTrackHolder</c> child, whose local z are ~equal (an earlier remap of
+    /// only those direct children did nothing and never went flat at 0). So the row
+    /// RECEDES/steps in depth and the selected portrait is raised.
     /// On the flat perspective UI camera that reads as gentle 2D styling, but on the
     /// world-space host the z is multiplied by the host scale
     /// (<see cref="WorldUIConfig.CanvasScaleMm"/> mm per uGUI pixel × the tray/diorama
@@ -269,8 +272,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Authored (raw) local z per portrait transform, for idempotent remap + restore.</summary>
     private readonly Dictionary<Transform, float> _rawDepth = new(16);
 
-    /// <summary>Live portrait transforms this tick (reused; no per-frame allocation).</summary>
-    private readonly List<Transform> _depthScratch = new(16);
+    /// <summary>Depth-bearing transforms this tick (reused; no per-frame allocation).</summary>
+    private readonly List<Transform> _depthScratch = new(64);
+
+    /// <summary>DFS work stack for the per-portrait subtree walk (reused; no per-frame allocation).</summary>
+    private readonly List<Transform> _depthStack = new(64);
 
     /// <summary>
     /// Host canvas this surface registered its per-portrait depth picker against
@@ -310,10 +316,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     /// <summary>
     /// Clamp the row's TOTAL front-to-back depth spread to <see cref="WorldUIConfig.InitiativeDepthMaxSpreadPx"/>
-    /// (see the field docs): scale every active portrait's authored local z by the single
-    /// factor that maps the raw spread (max − min z) onto the cap. Change-gated writes;
-    /// nothing to fight since the game never animates portrait z (Select/Deselect toggle
-    /// selection visuals only).
+    /// (see the field docs): walk every active portrait's SUBTREE and scale each authored
+    /// non-zero local z by the single factor that maps the raw protrusion spread (from the
+    /// flat holder plane) onto the cap — so cap 0 collapses the whole row (portraits AND
+    /// their selection frames) onto one plane. Change-gated writes; nothing to fight since
+    /// the game never animates portrait z (Select/Deselect toggle material FX + a child
+    /// selection object's visibility, never a transform z/scale).
     /// </summary>
     private void NormalizeDepth()
     {
@@ -323,36 +331,69 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         if (holder == null)
             return;
 
+        // The row's visible recession/emphasis is authored NOT on the holder's DIRECT
+        // children (their local z are ~equal — remapping only those did nothing and 0 was
+        // never flat) but on transforms NESTED inside each portrait: the avatar image, and
+        // the selection frame whose forward z pops the acting actor toward the head ("manche
+        // hervorgehoben"). The game's own selection path never moves a portrait transform in
+        // z or scale (Select → selectionObject.SetActive + material _FXAnim only), so the
+        // pop is authored geometry, not an animated offset — a subtree walk reaches all of
+        // it. Zeroing local z on this single world-space uGUI canvas removes ONLY the
+        // geometric protrusion; draw order is hierarchy-based, so the selection glow stays
+        // visible (whose turn it is is never hidden) — the row just goes flat.
         _depthScratch.Clear();
-        float rawMin = float.PositiveInfinity;
-        float rawMax = float.NegativeInfinity;
-        foreach (Transform child in holder)
+        float rawMin = 0f; // the holder plane (local z == 0) is the shallow reference
+        float rawMax = 0f;
+        foreach (Transform rootChild in holder)
         {
-            if (!child.gameObject.activeSelf)
+            if (!rootChild.gameObject.activeSelf)
                 continue;
-            _depthScratch.Add(child);
-            // Record the authored z once; thereafter the remap reads from here, so a
-            // prior frame's compressed value never becomes the new baseline.
-            if (!_rawDepth.TryGetValue(child, out float raw))
+            _depthStack.Add(rootChild);
+            while (_depthStack.Count > 0)
             {
-                raw = child.localPosition.z;
-                _rawDepth[child] = raw;
+                int last = _depthStack.Count - 1;
+                Transform t = _depthStack[last];
+                _depthStack.RemoveAt(last);
+
+                // Record the authored z once; thereafter the remap reads from here, so a
+                // prior frame's compressed value never becomes the new baseline. Only
+                // depth-BEARING transforms are tracked (|z| >= epsilon) — a flat transform's
+                // target is always 0, so tracking it would only add pointless writes.
+                if (!_rawDepth.TryGetValue(t, out float raw))
+                {
+                    raw = t.localPosition.z;
+                    if (Mathf.Abs(raw) >= DepthEpsilonPixels)
+                        _rawDepth[t] = raw;
+                }
+                if (_rawDepth.ContainsKey(t))
+                {
+                    _depthScratch.Add(t);
+                    if (raw < rawMin)
+                        rawMin = raw;
+                    if (raw > rawMax)
+                        rawMax = raw;
+                }
+
+                for (int i = 0; i < t.childCount; i++)
+                {
+                    Transform c = t.GetChild(i);
+                    if (c.gameObject.activeSelf)
+                        _depthStack.Add(c);
+                }
             }
-            if (raw < rawMin)
-                rawMin = raw;
-            if (raw > rawMax)
-                rawMax = raw;
         }
 
         float rawSpread = rawMax - rawMin;
         if (_depthScratch.Count == 0 || rawSpread < DepthEpsilonPixels)
-            return; // flat row (or depth not yet laid out) — nothing to compress
+            return; // genuinely flat row (or depth not yet laid out) — nothing to compress
 
-        // Single proportional factor: remap the FULL front↔back spread onto the cap so
-        // the extremes never differ by more than the (live) cap, order/direction and
-        // relative spacing preserved. Compress only, never amplify a gentle row. Read the
-        // cap fresh each tick so a debug-menu change simply re-clamps next tick (idempotent
-        // — the target is always recomputed from the recorded RAW z, never a prior scale).
+        // Single proportional factor: remap the FULL protrusion spread (deepest ↔ shallowest,
+        // measured from the flat holder plane) onto the cap so the extremes never differ by
+        // more than the (live) cap, order/direction and relative spacing preserved. Compress
+        // only, never amplify. At cap 0 the factor is 0 → every tracked transform's local z
+        // collapses to 0, so EVERY portrait (and its selection frame) sits on the one flat
+        // plane: a truly flat row at all times. Read the cap fresh each tick so a debug-menu
+        // change re-clamps next tick (idempotent — target always from the recorded RAW z).
         float maxSpread = Mathf.Max(0f, WorldUIConfig.InitiativeDepthMaxSpreadPx.Value);
         float scale = Mathf.Min(1f, maxSpread / rawSpread);
         for (int i = 0; i < _depthScratch.Count; i++)
