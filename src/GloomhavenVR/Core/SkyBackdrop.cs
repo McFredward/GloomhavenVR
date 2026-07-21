@@ -71,7 +71,7 @@ namespace GloomhavenVR.Core;
 ///    We only do two things:
 ///      (1) drop the sphere material to <see cref="RenderQueue.Background"/> (1000) so the sky
 ///          draws FIRST (colour + its near shell depth), BEFORE scene opaque geometry; then
-///      (2) add a REAL depth-reset renderer — a head-centred sphere at ~the far plane, a
+///      (2) add a REAL depth-reset renderer — a head-FACING flat QUAD at ~the far plane, a
 ///          persistent GameObject on the MOD LAYER (so ONLY the head camera draws it — it can
 ///          never pollute a game camera's depth), whose material is the bundled
 ///          <c>GloomhavenVR/Overlay</c> shader forced to <c>ZTest Always, ZWrite On,
@@ -80,11 +80,23 @@ namespace GloomhavenVR.Core;
 ///          order, this draw lands DETERMINISTICALLY AFTER the sky (1000) and BEFORE all scene
 ///          opaque geometry (2000+). <c>Blend Zero One</c> leaves the COLOUR buffer untouched
 ///          (result = dst — the sky colour survives), while <c>ZWrite On</c> + <c>ZTest Always</c>
-///          OVERWRITES the depth buffer to ~far in every view direction. The scene's opaque
-///          geometry + all mod visuals then render against a depth buffer that no longer holds
-///          the sphere's near shell depth → the sphere is a pure colour backdrop that can
-///          occlude nothing, yet its sky is fully VISIBLE. Holds ALWAYS (board and laser
-///          benefit too).
+///          OVERWRITES the depth buffer to ~far. The scene's opaque geometry + all mod visuals
+///          then render against a depth buffer that no longer holds any near sky-shell depth →
+///          the sky is a pure colour backdrop that can occlude nothing, yet is fully VISIBLE.
+///          Holds ALWAYS (board and laser benefit too).
+///
+///      WHY A FLAT QUAD, NOT A HEAD-CENTRED SPHERE (fixes the "see-through inside a hex
+///      highlight that moves with the head"): a sphere centred on the head writes depth
+///      R·cos(theta) — a FIXED screen-space RADIAL gradient (farthest at screen centre, ~30%
+///      nearer at the edge of a 90° FOV). Where a highlighted hex overhangs the VOID around the
+///      floating diorama (no opaque board writes real depth there), that reset depth IS the scene
+///      depth the game's hex-highlight glow reads back (its border-flame/crosshair is a
+///      depth-FADING transparent effect). A world-fixed hex sliding across that screen-fixed
+///      radial gradient as the head moves made the fade shimmer inside the white = "moves with the
+///      head." A flat quad PERPENDICULAR to the view axis has CONSTANT view-space z → a UNIFORM
+///      depth across the whole screen (no radial gradient), so the readback no longer depends on
+///      where the hex sits on screen → the head-tracking reveal is gone. Occlusion and sky
+///      visibility are unchanged (still ~far, still colour = dst).
 ///
 ///    WHY THIS SHOWS COLOUR WHERE v1/v2 WENT BLACK: the sphere is NEVER suppressed — no
 ///    <c>enabled=false</c>, no <c>forceRenderingOff</c>, no CommandBuffer.DrawRenderer of it.
@@ -126,11 +138,19 @@ internal static class SkyBackdrop
     private const int ScanIntervalFrames = 60;
 
     /// <summary>
-    /// Radius of the depth-reset sphere as a fraction of the head camera's far clip plane.
-    /// Just under 1 so the sphere is never clipped by the far plane (which would leave those
-    /// directions un-reset), while writing ~far depth so ALL foreground geometry passes ZTest.
+    /// Distance of the depth-reset QUAD in front of the head, as a fraction of the head camera's
+    /// far clip plane. Just under 1 so the plane is never clipped by the far plane (which would
+    /// leave the view un-reset), while writing ~far depth so ALL foreground geometry passes ZTest.
     /// </summary>
     private const float DepthResetFarFraction = 0.98f;
+
+    /// <summary>
+    /// How much larger than the reset distance the head-facing reset quad is drawn, so a single
+    /// flat plane fully covers even a very wide / asymmetric VR (per-eye) frustum with generous
+    /// margin. A large factor is FREE here — the quad writes no colour and a UNIFORM depth, so
+    /// oversizing costs nothing visually and only guarantees full frustum coverage.
+    /// </summary>
+    private const float DepthResetCoverFactor = 8f;
 
     /// <summary>
     /// Render queue for the depth-reset draw: Geometry-1 (1999). It MUST fall strictly AFTER
@@ -153,12 +173,12 @@ internal static class SkyBackdrop
     private static string? _zwriteProp;
     private static float _savedZWrite;
 
-    // DepthResetRenderer route — a real, head-centred depth-reset object drawn by the head
+    // DepthResetRenderer route — a real, head-facing depth-reset quad drawn by the head
     // camera only (mod layer). Assets (mesh + material) are built lazily and reused.
     private static GameObject? _resetGo;   // hosts the reset MeshRenderer (mod layer)
     private static MeshRenderer? _resetRenderer;
     private static Material? _resetMat;    // Overlay shader forced ZWrite-On/ZTest-Always/Blend-Zero-One, queue 1999
-    private static Mesh? _resetMesh;       // a unit sphere (built-in primitive mesh)
+    private static Mesh? _resetMesh;       // a unit quad (built-in primitive mesh) — head-facing far plane
     private static bool _resetWarned;      // one-shot warning when the Overlay material is unavailable
 
     private static bool _applied;   // mechanism effects currently active
@@ -315,7 +335,7 @@ internal static class SkyBackdrop
                                $"keeps rendering the animated AMP_SkyShader COLOUR — the vanilla path that already works, " +
                                $"so the sky is VISIBLE). We drop its material to renderQueue Background({BackgroundQueue}) " +
                                $"so it draws FIRST, then a REAL depth-reset renderer (mod-layer, head-only) at " +
-                               $"renderQueue {DepthResetQueue} draws a head-centred far sphere through the bundled Overlay " +
+                               $"renderQueue {DepthResetQueue} draws a head-FACING far quad (uniform depth) through the bundled Overlay " +
                                $"shader (ZWrite-On/ZTest-Always/Blend-Zero-One): an ORDINARY opaque DRAW that overwrites " +
                                $"depth to ~far WITHOUT touching colour. Ascending render-queue order slots it AFTER the sky " +
                                $"(1000) and BEFORE scene opaque (2000), so the sky occludes nothing yet stays visible. " +
@@ -366,8 +386,8 @@ internal static class SkyBackdrop
             if (mat.renderQueue != BackgroundQueue)
                 mat.renderQueue = BackgroundQueue;
 
-            // (2) A real, head-centred depth-reset renderer at queue 1999: overwrites depth to
-            //     ~far AFTER the sky, BEFORE scene opaque — an ordinary draw, tiled-GPU safe.
+            // (2) A real, head-FACING depth-reset quad at queue 1999: overwrites depth to a
+            //     UNIFORM ~far AFTER the sky, BEFORE scene opaque — an ordinary draw, tiled-GPU safe.
             EnsureResetAssets();
             EnsureResetObject();
             UpdateResetObject(); // follows the (moving) head, scales with the live far clip plane
@@ -415,19 +435,21 @@ internal static class SkyBackdrop
     // ---- depth-reset renderer (DepthResetRenderer route) --------------------------------------
 
     /// <summary>
-    /// Build (once, reused) the depth-reset assets: a unit sphere mesh and an Overlay-shader
+    /// Build (once, reused) the depth-reset assets: a unit quad mesh and an Overlay-shader
     /// material forced to write depth without touching colour, pinned to queue 1999. Both are
-    /// cheap and idempotent.
+    /// cheap and idempotent. A flat quad (not a sphere) so the written depth is UNIFORM across the
+    /// screen — a head-centred sphere writes a screen-space radial depth gradient that a
+    /// depth-fading hex highlight over the void reads back as a head-tracking see-through artifact.
     /// </summary>
     private static void EnsureResetAssets()
     {
         if (_resetMesh == null)
         {
-            // Grab the built-in unit sphere mesh. DestroyImmediate the temporary GameObject in
-            // the SAME frame (we are in Update, before rendering) so its MeshRenderer never draws
-            // a stray white sphere at the origin for a frame. The mesh itself is a shared built-in
-            // asset and survives the GameObject's destruction.
-            GameObject tmp = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            // Grab the built-in unit quad mesh (1x1 in XY, normal ±Z). DestroyImmediate the
+            // temporary GameObject in the SAME frame (we are in Update, before rendering) so its
+            // MeshRenderer never draws a stray quad at the origin for a frame. The mesh itself is a
+            // shared built-in asset and survives the GameObject's destruction.
+            GameObject tmp = GameObject.CreatePrimitive(PrimitiveType.Quad);
             MeshFilter? mf = tmp.GetComponent<MeshFilter>();
             _resetMesh = mf != null ? mf.sharedMesh : null;
             UnityEngine.Object.DestroyImmediate(tmp);
@@ -441,7 +463,7 @@ internal static class SkyBackdrop
                 _resetMat = new Material(overlay) { name = "GloomhavenVR.SkyBackdrop.DepthReset" };
                 _resetMat.SetFloat("_ZTest", (int)CompareFunction.Always); // always write, whatever depth is there
                 _resetMat.SetFloat("_ZWrite", 1f);                          // WRITE depth (reset it to ~far)
-                _resetMat.SetFloat("_Cull", (int)CullMode.Off);            // seen from inside → draw both sides
+                _resetMat.SetFloat("_Cull", (int)CullMode.Off);            // draw regardless of quad facing
                 _resetMat.SetFloat("_SrcBlend", (int)BlendMode.Zero);      // colour result = 0*src + 1*dst
                 _resetMat.SetFloat("_DstBlend", (int)BlendMode.One);       //   = dst UNCHANGED (sky colour kept)
                 // Pin the draw AFTER the sky (Background 1000) and BEFORE scene opaque (2000):
@@ -490,15 +512,21 @@ internal static class SkyBackdrop
         _resetRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
         VRLog.Info("Core", $"SkyBackdrop: depth-reset renderer created (mod layer {VRLayers.ModLayer}, " +
-                           $"renderQueue {DepthResetQueue}) — a head-centred far sphere that overwrites depth to ~far " +
+                           $"renderQueue {DepthResetQueue}) — a head-FACING far quad that overwrites depth to a UNIFORM ~far " +
                            $"AFTER the Background sky draws and BEFORE scene opaque, via an ordinary Overlay-shader draw " +
-                           $"(Blend Zero One leaves the sky colour untouched). No renderer suppression, no depth clear.");
+                           $"(Blend Zero One leaves the sky colour untouched). Uniform depth (flat plane, not a head-centred " +
+                           $"sphere) so a depth-fading hex highlight over the void reads no head-tracking see-through. " +
+                           $"No renderer suppression, no depth clear.");
     }
 
     /// <summary>
-    /// Refresh the reset sphere's pose every frame: centre it on the head and scale it to just
-    /// under the live far clip plane (TickClipPlanes changes it under WorldGrab zoom), so it
-    /// writes ~far depth in every view direction without being clipped by the far plane.
+    /// Refresh the reset quad's pose every frame: a head-FACING flat plane placed just under the
+    /// live far clip plane (TickClipPlanes changes it under WorldGrab zoom), oversized to cover the
+    /// whole frustum. Because the plane is PERPENDICULAR to the view axis its view-space z — and
+    /// therefore its written depth — is UNIFORM across the screen: no head-centred radial gradient,
+    /// so a depth-fading hex highlight over the void no longer reads a head-tracking see-through.
+    /// Re-posed here in Update (before rendering) so it faces the CURRENT head orientation with no
+    /// latency; the large cover factor absorbs the two per-eye (stereo) frustums and any asymmetry.
     /// </summary>
     private static void UpdateResetObject()
     {
@@ -508,14 +536,17 @@ internal static class SkyBackdrop
         if (head == null)
             return;
 
+        Transform ht = head.transform;
         float far = Mathf.Max(1f, head.farClipPlane);
-        // Primitive sphere has diameter 1 (radius 0.5); scale s ⇒ radius 0.5*s. Want
-        // radius = DepthResetFarFraction * far ⇒ s = 2 * fraction * far.
-        float scale = 2f * DepthResetFarFraction * far;
+        float dist = DepthResetFarFraction * far;   // just under the far plane → not clipped
+        // Unit quad lies in local XY (1x1); scaling X/Y sizes it, its normal follows local Z.
+        // Placing it at head + forward*dist with the head's rotation makes the quad plane
+        // perpendicular to the view axis at a constant view-space z = dist ⇒ uniform depth.
+        float size = DepthResetCoverFactor * dist;
         Transform t = _resetGo.transform;
-        t.position = head.transform.position;
-        t.rotation = Quaternion.identity;
-        t.localScale = Vector3.one * scale;
+        t.position = ht.position + ht.forward * dist;
+        t.rotation = ht.rotation;
+        t.localScale = new Vector3(size, size, 1f);
     }
 
     private static void RemoveResetObject()
