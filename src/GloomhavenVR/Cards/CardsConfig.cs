@@ -687,30 +687,36 @@ internal static class CardsConfig
             "MotherbrainAudio.OnCardHandHide, CardHandView.cs:691). PlaySound_UICardTabSelect " +
             "is the soft card-tab tick. Empty = silent.");
 
-        // ---- Card interaction sounds (more-card-sounds pass) ----
-        // The game plays NO sound of its own at these physical VR moments: grabbing a card is a
-        // pure VR interaction, and the slot drop / take-back only fire the game's own (serialized
-        // AudioButtonProfile) click when the QUEUED SelectCard/UnselectCard resolves a frame later
-        // via AbilityCardUI.ToggleSelect. PlaySound_CardUI_SelectCard itself is only fired by the
-        // game on the HALF-ACTION click (FullAbilityCard.OnAbilityClick:632/647 — a different
-        // action, which the VR half-selection path already routes through, so no sound is added
-        // THERE), never on the CardsHandUI.SelectCard slot path — no stacking.
+        // ---- Card interaction sounds (more-card-sounds pass; task #5 double-sound fix) ----
+        // VERIFIED against the decompiled game (AbilityCardUI.cs:1182-1185): EVERY queued
+        // SelectCard/UnselectCard resolves through AbilityCardUI.ToggleSelect, which plays the
+        // card's serialized profile click (interactionAudioProfile.mouseDownAudioItem) for a
+        // locally-controlled hand — so any select/unselect-backed drop already sounds on its own.
+        // The mod therefore plays its own sound ONLY at moments the game is silent: the grab
+        // itself, the tray→tray reorder, the pick-card re-drop, and take-backs that happen while
+        // the game already deselected the card (pick reopen). Playing CardPlaceSound on the
+        // select-backed placement paths stacked with the game's click = the reported "two sounds
+        // at once" per slot placement.
         CardGrabSound = _file.Bind("Cards", "CardGrabSound", "PlaySound_UICardTabSelect",
             "Game audio item played once when a card is grabbed (plucked from the fan, a board " +
             "slot, the pick field, or a pile/active column — proximity grab and laser pluck " +
-            "alike). PlaySound_UICardTabSelect is the game's soft card-tab tick — a quiet pick. " +
+            "alike). The game plays nothing of its own on a physical grab. " +
+            "PlaySound_UICardTabSelect is the game's soft card-tab tick — a quiet pick. " +
             "Alternatives: PlaySound_UIButtonSelect, PlaySound_CardUI_SelectCard. Empty = silent.");
         CardPlaceSound = _file.Bind("Cards", "CardPlaceSound", "PlaySound_CardUI_SelectCard",
-            "Game audio item played once when a held card is placed into a board slot (play, " +
-            "swap, reorder) or laid onto the pick field. PlaySound_CardUI_SelectCard is the " +
-            "game's own card-select sound (the game only fires it on half-action clicks, not on " +
-            "the slot-select path, so this does not stack). Alternatives: " +
-            "PlaySound_ScenarioUI_TileConfirm, PlaySound_UIButtonSelect. Empty = silent.");
+            "Game audio item played once when a held card lands somewhere the GAME plays no " +
+            "sound of its own: a tray→tray reorder or a pick-card re-drop. Placements that " +
+            "select a card (fan→slot, swap, pick commit) intentionally play NO mod sound — the " +
+            "game's own AbilityCardUI profile click (mouseDownAudioItem) fires there when the " +
+            "queued SelectCard resolves, and doubling it was the two-sounds-per-placement bug. " +
+            "Alternatives: PlaySound_ScenarioUI_TileConfirm, PlaySound_UIButtonSelect. Empty = silent.");
         CardTakeBackSound = _file.Bind("Cards", "CardTakeBackSound", "PlaySound_UIUndoHex",
-            "Game audio item played once when a slotted/picked card is taken back to the hand " +
-            "fan (released away from the slots — the UnselectCard path). PlaySound_UIUndoHex is " +
-            "the game's soft hex-cancel click — reads as an undo. Alternatives: " +
-            "PlaySound_ScenarioUIUndo, PlaySound_UICardTabSelect. Empty = silent.");
+            "Game audio item played once when a card is taken back while the game stays silent " +
+            "(pick reopen — the card was already deselected by the game's own \"choose another " +
+            "card\" path). Normal take-backs play the game's own profile click via the queued " +
+            "UnselectCard and add no mod sound. PlaySound_UIUndoHex is the game's soft " +
+            "hex-cancel click — reads as an undo. Alternatives: PlaySound_ScenarioUIUndo, " +
+            "PlaySound_UICardTabSelect. Empty = silent.");
 
         // ---- GLOBAL hand-fan geometry (in-VR "Fan" debug category) ----
         FanPerCardStepDegrees = _file.Bind("Cards", "FanPerCardStepDegrees", 14f,

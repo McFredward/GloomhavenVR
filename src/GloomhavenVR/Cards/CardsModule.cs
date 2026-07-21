@@ -41,6 +41,10 @@ internal sealed class CardsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(CardsHandManager_ShowHands_Patch));
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_OnDestroy_Patch));
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_DestroyCardUI_Patch));
+        // Damage-negation burn flow hardening (task #11) + hover-FX suppression (task #10).
+        VRSession.Harmony?.PatchAll(typeof(CardsHandUI_OnLoseCardClick_Gate));
+        VRSession.Harmony?.PatchAll(typeof(TakeDamagePanel_BurnHover_Skip));
+        VRSession.Harmony?.PatchAll(typeof(DialogPopup_Show_HoverStrip));
 
         HandSuppression.Active = true;
 
