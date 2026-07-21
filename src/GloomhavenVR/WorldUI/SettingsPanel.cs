@@ -754,6 +754,14 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(maskRow, Loc.Mod("head_mask"), 16f, flexible: true);
         CycleButton(maskRow, 120f, MaskLabel, CycleMask);
 
+        // Hand style: cycles Glove → Plate → Arcane (writes [Hands] HandStyle; HandsDriver
+        // subscribes SettingChanged and rebuilds the hand visuals live, mirroring the
+        // control-board selector). Synchronized: the choice rides the avatar rig packet
+        // (AvatarState.HandStyle) so other VR players see it on your remote avatar.
+        var handStyleRow = Row();
+        Label(handStyleRow, Loc.Mod("hands"), 16f, flexible: true);
+        CycleButton(handStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+
         Toggle(Loc.Mod("mirror"),
             () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
             v => { if (Net.NetModule.MirrorEnabled != null) Net.NetModule.MirrorEnabled.Value = v; });
@@ -1532,6 +1540,30 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
         int cur = Mathf.Clamp(Net.NetModule.MaskId.Value, 0, Net.HeadMaskLibrary.MaskCount - 1);
         Net.NetModule.MaskId.Value = (cur + 1) % Net.HeadMaskLibrary.MaskCount;
+    }
+
+    /// <summary>Cycle-button readout for the hand-style picker (enum name, like the
+    /// control-board selector's Oak/Steel/Bronze).</summary>
+    private static string HandStyleLabel()
+    {
+        try
+        {
+            return Plugin.HandStyle != null ? Plugin.HandStyle.Value.ToString() : Hands.HandStyle.Glove.ToString();
+        }
+        catch
+        {
+            return Hands.HandStyle.Glove.ToString();
+        }
+    }
+
+    /// <summary>Advance the hand style Glove→Plate→Arcane→Glove (writes [Hands] HandStyle;
+    /// BepInEx persists on set and HandsDriver live-rebuilds via SettingChanged).</summary>
+    private static void CycleHandStyle()
+    {
+        if (Plugin.HandStyle == null)
+            return;
+        int cur = (int)Hands.HandStyles.Clamp((int)Plugin.HandStyle.Value);
+        Plugin.HandStyle.Value = (Hands.HandStyle)((cur + 1) % Hands.HandStyles.Count);
     }
 
     /// <summary>Cycle-button readout for the remote-boards visibility setting.</summary>

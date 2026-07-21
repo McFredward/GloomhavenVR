@@ -62,13 +62,36 @@ internal static class HandVisuals
 
     /// <summary>
     /// Build the hand visual + rig under <paramref name="handRoot"/> (the wrist-space
-    /// child of the tracked pose). Returns a complete <see cref="HandRig"/> always.
+    /// child of the tracked pose) using the LOCAL player's chosen style
+    /// (<c>[Hands] HandStyle</c>). Returns a complete <see cref="HandRig"/> always.
     /// </summary>
-    internal static HandRig Build(Transform handRoot, HandSide side)
+    internal static HandRig Build(Transform handRoot, HandSide side) =>
+        Build(handRoot, side, LocalStyle());
+
+    /// <summary>The locally-configured hand style; Glove when the config is not bound
+    /// (early init / hot reload) so callers never throw.</summary>
+    internal static HandStyle LocalStyle()
+    {
+        try
+        {
+            return Plugin.HandStyle != null ? HandStyles.Clamp((int)Plugin.HandStyle.Value) : HandStyle.Glove;
+        }
+        catch
+        {
+            return HandStyle.Glove;
+        }
+    }
+
+    /// <summary>
+    /// Build the hand visual + rig for an EXPLICIT style — used by <see cref="Net.RemoteAvatar"/>
+    /// to render a remote player's transmitted choice. Missing styled prefab degrades to the
+    /// Glove pair, then to the procedural hand (the contract always completes).
+    /// </summary>
+    internal static HandRig Build(Transform handRoot, HandSide side, HandStyle style)
     {
         var rig = new HandRig { Root = handRoot };
 
-        GameObject? prefab = TryLoadPrefab(side);
+        GameObject? prefab = TryLoadPrefab(side, style);
         if (prefab != null)
         {
             GameObject instance = Object.Instantiate(prefab, handRoot, worldPositionStays: false);
@@ -90,7 +113,7 @@ internal static class HandVisuals
                 smr.quality = SkinQuality.Bone4;
                 smr.updateWhenOffscreen = true;
             }
-            VRLog.Info("Hands", $"{side}: glove prefab loaded from bundle.");
+            VRLog.Info("Hands", $"{side}: glove prefab loaded from bundle (style {style}).");
         }
         else
         {
@@ -115,11 +138,25 @@ internal static class HandVisuals
 
     // ---- bundle loading ---------------------------------------------------------------
 
-    private static GameObject? TryLoadPrefab(HandSide side)
+    private static GameObject? TryLoadPrefab(HandSide side, HandStyle style)
     {
         AssetBundle? bundle = GetBundle();
         if (bundle == null)
             return null;
+
+        string suffix = side == HandSide.Left ? "L" : "R";
+
+        // Styled pair first (Plate/Arcane resolve to their own prefabs; Glove to the
+        // original VRHand pair). An OLD bundle without the styled prefab falls back to
+        // the Glove pair — graceful degradation, mirrors the head-mask placeholder rule.
+        if (style != HandStyle.Glove)
+        {
+            var styled = bundle.LoadAsset<GameObject>(
+                $"Assets/Bundle/Hands/{HandStyles.BaseName(style)}_{suffix}.prefab");
+            if (styled != null)
+                return styled;
+            VRLog.Warn("Hands", $"{side}: style {style} prefab not in bundle (old bundle?) — falling back to Glove.");
+        }
 
         string[] candidates = side == HandSide.Left
             ? new[] { "Assets/Bundle/Hands/VRHand_L.prefab", "Assets/Bundle/Hands/HandLeft.prefab" }

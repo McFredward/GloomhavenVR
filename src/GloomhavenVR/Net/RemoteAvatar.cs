@@ -31,10 +31,11 @@ internal sealed class RemoteAvatar
     private readonly Transform _rightHolder;
     private readonly Color _tint;
 
-    private readonly HandRig? _leftRig;
-    private readonly HandRig? _rightRig;
-    private readonly FingerCurler? _leftCurler;
-    private readonly FingerCurler? _rightCurler;
+    // Not readonly: rebuilt in place when the sender switches their hand style.
+    private HandRig? _leftRig;
+    private HandRig? _rightRig;
+    private FingerCurler? _leftCurler;
+    private FingerCurler? _rightCurler;
 
     private readonly RemoteHandFan _handFan;
     private readonly RemoteControlBoard _controlBoard;
@@ -43,6 +44,7 @@ internal sealed class RemoteAvatar
     private bool _hasTarget;
     private float _appliedScale = -1f;
     private int _appliedMaskId = -1; // which HeadMaskLibrary mask the head currently shows
+    private int _appliedHandStyle = -1; // which HandStyle the hand holders currently wear
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -126,15 +128,15 @@ internal sealed class RemoteAvatar
 
         _leftHolder = new GameObject("Hand_Left").transform;
         _leftHolder.SetParent(_root.transform, worldPositionStays: false);
-        _leftRig = HandVisuals.Build(_leftHolder, HandSide.Left);
-        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig) : null;
         _leftHolder.gameObject.SetActive(false);
 
         _rightHolder = new GameObject("Hand_Right").transform;
         _rightHolder.SetParent(_root.transform, worldPositionStays: false);
-        _rightRig = HandVisuals.Build(_rightHolder, HandSide.Right);
-        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
         _rightHolder.gameObject.SetActive(false);
+
+        // Default Glove until the first packet reports the sender's real style —
+        // mirrors the mask-0 default above.
+        BuildHands(0);
 
         // Whole subtree onto the mod layer so the owned head camera renders it (no-op when
         // VR is not running, exactly like the local hands).
@@ -174,6 +176,11 @@ internal sealed class RemoteAvatar
         // Swap the head mask when the sender's choice changes (cheap; only on change).
         if (state.MaskId != _appliedMaskId)
             BuildHeadMask(state.MaskId);
+
+        // Swap the hand pair when the sender's HAND STYLE changes (same pattern; peers
+        // without the styled prefab in their bundle degrade to Glove inside HandVisuals).
+        if (state.HandStyle != _appliedHandStyle)
+            BuildHands(state.HandStyle);
 
         // Apply sender scale to the part holders when it changes (cosmetic sizing only).
         float scale = state.WorldScale > 0f ? state.WorldScale : 1f;
@@ -267,6 +274,31 @@ internal sealed class RemoteAvatar
         if (_root != null)
             Object.Destroy(_root);
         VRLog.Info("Net", $"Remote avatar destroyed for player {PlayerId}.");
+    }
+
+    // ---- hands -------------------------------------------------------------------------
+
+    /// <summary>(Re)build both hand visuals for the given wire hand-style: clears the hand
+    /// holders' children, rebuilds the rigs + curlers with the sender's chosen prefab pair
+    /// (Glove fallback inside <see cref="HandVisuals"/>), and re-applies the mod layer.
+    /// Cheap and only on change — mirrors <see cref="BuildHeadMask"/>.</summary>
+    private void BuildHands(int handStyle)
+    {
+        var style = Hands.HandStyles.Clamp(handStyle);
+        _appliedHandStyle = handStyle;
+
+        for (int i = _leftHolder.childCount - 1; i >= 0; i--)
+            Object.Destroy(_leftHolder.GetChild(i).gameObject);
+        for (int i = _rightHolder.childCount - 1; i >= 0; i--)
+            Object.Destroy(_rightHolder.GetChild(i).gameObject);
+
+        _leftRig = HandVisuals.Build(_leftHolder, HandSide.Left, style);
+        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig) : null;
+        _rightRig = HandVisuals.Build(_rightHolder, HandSide.Right, style);
+        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
+
+        // Keep the whole subtree on the mod layer so the owned head camera renders it.
+        VRLayers.Apply(_root);
     }
 
     // ---- head mask ----------------------------------------------------------------------

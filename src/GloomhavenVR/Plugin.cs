@@ -78,6 +78,10 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
 
+    /// <summary>Visible hand model style (Glove/Plate/Arcane). Live-rebuilds on change
+    /// (HandsDriver) and is synced to other VR players (Net.AvatarState.HandStyle).</summary>
+    internal static ConfigEntry<Hands.HandStyle> HandStyle = null!;
+
     /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down). One of the four [Hands] seat controls.</summary>
     internal static ConfigEntry<float> GripPitchOffsetDegrees = null!;
 
@@ -226,6 +230,14 @@ public class Plugin : BaseUnityPlugin
             "Hands", "PrimaryHand", "Right",
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
             "for board targeting.");
+        HandStyle = Config.Bind(
+            "Hands", "HandStyle", Hands.HandStyle.Glove,
+            "Which hand model to wear: Glove (leather glove, default), Plate (plate-armor " +
+            "gauntlet) or Arcane (arcane-runes mage glove). Applies live (the hands rebuild " +
+            "on change) and is synchronized in multiplayer so other VR players see your " +
+            "chosen hands on your avatar. Falls back to Glove when the styled prefab is " +
+            "missing from an older asset bundle, and to the procedural hand without any " +
+            "bundle.");
         GripPitchOffsetDegrees = Config.Bind(
             "Hands", "GripPitchOffsetDegrees", -30f,
             "Pitch offset (degrees) between the tracked OpenXR grip pose and the visual hand " +

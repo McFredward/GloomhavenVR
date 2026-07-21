@@ -54,12 +54,25 @@ internal sealed class HandsDriver : MonoBehaviour
         // Dominance is live-switchable (Menu2D trigger switch / settings panel toggle
         // both write [Hands] PrimaryHand) — reapply the per-hand masks on change.
         Plugin.PrimaryHand.SettingChanged += OnPrimaryHandChanged;
+        // Hand STYLE is live-switchable too (settings panel cycle writes [Hands]
+        // HandStyle) — tear the hand tree down; TickRig rebuilds it next frame with the
+        // newly selected prefab pair (the same rig-rebuild chain a scene swap uses,
+        // mirroring CardsConfig.Board.SettingChanged -> CardsDriver.RebuildBoard).
+        Plugin.HandStyle.SettingChanged += OnHandStyleChanged;
     }
 
     private void OnDisable()
     {
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         Plugin.PrimaryHand.SettingChanged -= OnPrimaryHandChanged;
+        Plugin.HandStyle.SettingChanged -= OnHandStyleChanged;
+    }
+
+    private void OnHandStyleChanged(object sender, System.EventArgs e)
+    {
+        VRLog.Info("Hands", $"[Hands] HandStyle is now '{Plugin.HandStyle.Value}' — " +
+                            "rebuilding the hand visuals.");
+        TearDown(); // TickRig re-Builds under the current rig root on the next frame
     }
 
     private void OnPrimaryHandChanged(object sender, System.EventArgs e)
