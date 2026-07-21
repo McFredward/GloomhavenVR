@@ -38,6 +38,19 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// <summary>Every grabbable currently held in a hand — the live-tune broadcast target.</summary>
     private static readonly HashSet<FigureGrabbable> Live = new();
 
+    // GLIDE-BACK — on release the mini no longer snaps home instantly: it GLIDES (fast,
+    // ease-out, unscaled time) from the release pose in the hand back to its home board pose
+    // (where the ghost stands), and only on ARRIVAL does the game regain transform control
+    // (HeldFigures.Remove) — which also tears the ghost down (FigureGhosts reconciles on the
+    // held-sets) and flips the net send from "held @ gliding pose" to "released", so PEERS see
+    // the same mini-glide home streamed frame by frame (their existing ease smooths it) with
+    // only a sub-frame residual snap at the end. Registry of every in-flight glide, ticked
+    // from FigureGrabDriver.Update via TickGlides.
+    private static readonly List<FigureGrabbable> Gliding = new();
+
+    /// <summary>Glide time from hand to home — fast but visible (ease-out, unscaled).</summary>
+    private const float GlideDurationSeconds = 0.28f;
+
     private readonly ActorBehaviour _actor;
 
     private VRHand? _holder;
@@ -86,6 +99,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // like the mini — occlusion-correct by construction under this mod's Forward rendering. See
     // FigureHighlight for the snapshot/restore + no-leak mechanics.
     private readonly FigureHighlight _highlight = new();
+
+    // GLIDE-BACK per-instance state: the LOCAL pose (under the restored original parent) the
+    // mini had at release, glided toward the captured original local pose (_origLocalPos/Rot/
+    // Scale — the exact end state of the old instant path, so zero drift by construction).
+    private bool _glideActive;
+    private float _glideStartTime;
+    private Vector3 _glideFromPos;
+    private Quaternion _glideFromRot = Quaternion.identity;
+    private Vector3 _glideFromScale = Vector3.one;
 
     // R2 hardening: the actor's authoritative board cell at grab time. If the game moves the
     // figure to a different cell while it is held (a remote player's or the server's networked
@@ -219,6 +241,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         GameObject? root = Root;
         if (_actor == null || root == null)
             return;
+
+        // Re-grab during a release glide: complete the glide instantly FIRST (snap to the home
+        // local pose, resume game control for one call's breadth) so the original pose captured
+        // below is the true board pose, never a mid-glide sample. HeldFigures.Add below re-enters
+        // the held set in the same call, so FigureGhosts never sees a released frame — the ghost
+        // (and its captured home pose) survives the re-grab untouched.
+        if (_glideActive)
+            FinishGlide(root.transform);
 
         _holder = hand;
         Transform t = root.transform;
@@ -363,8 +393,132 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
+        // GLIDE-BACK: instead of the instant restore, ease the mini from the hand back to its
+        // home pose (~0.28 s, ease-out). Falls back to the exact old instant path whenever a
+        // safe glide is impossible (dead root/parent, teardown mid-hold).
+        if (TryBeginGlide())
+        {
+            VRLog.Info("FigureGrab",
+                $"{hand.Side} released figure ({Describe()}) — gliding home ({GlideDurationSeconds:0.00}s).");
+            return;
+        }
         Restore();
         VRLog.Info("FigureGrab", $"{hand.Side} released figure ({Describe()}).");
+    }
+
+    /// <summary>
+    /// Begin the release glide: reparent the mini back under its original parent KEEPING the
+    /// current world pose (the release pose in the hand), then let <see cref="TickGlide"/> ease
+    /// the LOCAL pose to the captured original local TRS — whose end state is bit-identical to
+    /// the old instant restore (same parent, same local pos/rot/scale), so no drift is possible.
+    /// The hand is freed immediately (stat panel undocked, holder cleared → re-grab works), but
+    /// the actor STAYS in <see cref="HeldFigures"/> until arrival, which (a) keeps the game's
+    /// transform writers suppressed (ActorBehaviour_HeldTransform_Patch), (b) keeps the home
+    /// ghost alive (FigureGhosts reconciles on the held-sets), and (c) keeps the net send
+    /// streaming the gliding pose so peers watch the same glide. False when a glide is unsafe
+    /// (caller falls back to the instant <see cref="Restore"/>).
+    /// </summary>
+    private bool TryBeginGlide()
+    {
+        if (!_attached || _glideActive)
+            return false;
+        GameObject? root = Root;
+        // Unity-null checks: a destroyed original parent (scene teardown mid-hold) or dead root
+        // means the instant path's own hardening should run instead.
+        if (root == null || _origParent == null || _actor == null || !HeldFigures.Owns(_actor))
+            return false;
+
+        Live.Remove(this);
+        RestoreRenderers(); // Issue B — undo the render-on-top swap (idempotent)
+        ClearHighlight();
+
+        Transform t = root.transform;
+        t.SetParent(_origParent, worldPositionStays: true); // keep the in-hand world pose
+        _attached = false;
+        _anchor = null;
+
+        _glideFromPos = t.localPosition;
+        _glideFromRot = t.localRotation;
+        _glideFromScale = t.localScale;
+        _glideStartTime = Time.unscaledTime;
+        _glideActive = true;
+        Gliding.Add(this);
+
+        if (_holder != null)
+        {
+            StatPanelSurface.ClearHeldFigure(_holder.Side, Character);
+            _holder = null;
+        }
+        return true;
+    }
+
+    /// <summary>Advance every in-flight release glide. Called once per frame from
+    /// <see cref="FigureGrabDriver"/> (before the config gate, so an in-flight glide always
+    /// completes). Iterates backwards — a finished glide removes itself from the list.</summary>
+    internal static void TickGlides()
+    {
+        for (int i = Gliding.Count - 1; i >= 0; i--)
+            Gliding[i].TickGlide();
+    }
+
+    /// <summary>Complete every in-flight glide instantly (driver teardown / module shutdown) so no
+    /// static registry entry survives a scene change with the game's writes still suppressed.</summary>
+    internal static void FinishAllGlides()
+    {
+        for (int i = Gliding.Count - 1; i >= 0; i--)
+        {
+            FigureGrabbable g = Gliding[i];
+            GameObject? root = g.Root;
+            g.FinishGlide(root != null ? root.transform : null);
+        }
+    }
+
+    private void TickGlide()
+    {
+        GameObject? root = Root;
+        if (root == null)
+        {
+            FinishGlide(null); // actor torn down mid-glide — just resume game control
+            return;
+        }
+
+        Transform t = root.transform;
+        float u = (Time.unscaledTime - _glideStartTime) / GlideDurationSeconds; // unscaled: pause-proof
+        if (u >= 1f)
+        {
+            FinishGlide(t);
+            return;
+        }
+
+        float e = 1f - (1f - u) * (1f - u) * (1f - u); // cubic ease-out — fast start, soft landing
+        t.localPosition = Vector3.LerpUnclamped(_glideFromPos, _origLocalPos, e);
+        t.localRotation = Quaternion.SlerpUnclamped(_glideFromRot, _origLocalRot, e);
+        t.localScale = Vector3.LerpUnclamped(_glideFromScale, _origLocalScale, e);
+    }
+
+    /// <summary>
+    /// Complete (or cancel) the glide instantly: snap to the exact end pose of the old instant
+    /// path and hand the actor back to the game (<see cref="HeldFigures"/> removal → next
+    /// ActorBehaviour.Update re-asserts the authoritative cell pose; the ghost is torn down by
+    /// the next FigureGhosts.Tick). Idempotent; <paramref name="t"/> may be null when the root
+    /// died mid-glide.
+    /// </summary>
+    private void FinishGlide(Transform? t)
+    {
+        if (!_glideActive)
+            return;
+        _glideActive = false;
+        Gliding.Remove(this);
+
+        if (t != null)
+        {
+            t.localPosition = _origLocalPos;
+            t.localRotation = _origLocalRot;
+            t.localScale = _origLocalScale;
+        }
+
+        if (_actor != null)
+            HeldFigures.Remove(_actor);
     }
 
     /// <summary>Restore the real transform and resume the game's transform writes (idempotent).</summary>
@@ -372,6 +526,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     {
         Live.Remove(this);
         RestoreRenderers(); // Issue B — undo the render-on-top swap (idempotent)
+
+        // Cancel any in-flight release glide by completing it instantly (scenario teardown,
+        // driver prune/disable, authoritative-move auto-release): same end state, no drift.
+        if (_glideActive)
+        {
+            GameObject? glideRoot = Root;
+            FinishGlide(glideRoot != null ? glideRoot.transform : null);
+        }
 
         // Guarantee the pre-grab highlight never persists past release, even if OnGrabHighlight(false)
         // was not delivered (e.g. the grab consumed the highlight, or the actor was torn down under
