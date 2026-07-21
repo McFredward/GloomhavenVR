@@ -39,6 +39,16 @@ namespace GloomhavenVR.Board;
 /// re-applies after every material re-creation (<c>m_Material = new Material(_exampleMaterial)</c>
 /// on each refresh). The pre-swap renderQueue (4000) is re-asserted after the swap.
 ///
+/// OCCLUSION: vanilla's decal ran ZTest Always, so the highlight drew THROUGH
+/// walls and figures. The stable shader exports the true floor-point depth per
+/// pixel (SV_Depth of the ray∩plane point — the box mesh's own fragments sit
+/// below the floor and would z-fail under a naive LEqual) and defaults ZTest to
+/// LEqual, so figures standing on the hex and walls in front now occlude the
+/// highlight like any other geometry, while ZWrite stays off. Config
+/// <c>StableZTest</c> (4=LEqual default, 8=vanilla Always) and
+/// <c>StableDepthBias</c> (anti-z-fight bias vs the tile floor) are re-applied on
+/// every swap/postfix for on-device experiments; the applied ZTest is logged.
+///
 /// FALLBACK (old bundle without the shader, or <c>SwapStableShader=false</c>): the
 /// previous mitigation stays — zero the swimming layers (<c>_BorderFlameIntensity</c>,
 /// <c>_CrossHair</c> by default; <c>_BorderLineIntensity</c>/<c>_HexIntensity</c> as
@@ -65,6 +75,8 @@ internal static class HexHighlightFix
     // -------- config (own file: dev.gloomhavenvr.hexhighlight.cfg) --------
 
     internal static ConfigEntry<bool>? SwapStableShader;
+    internal static ConfigEntry<int>? StableZTest;
+    internal static ConfigEntry<float>? StableDepthBias;
     internal static ConfigEntry<bool>? KillBorderFlame;
     internal static ConfigEntry<bool>? KillCrosshair;
     internal static ConfigEntry<bool>? KillBorderLine;
@@ -85,6 +97,20 @@ internal static class HexHighlightFix
             "GloomhavenVR/HexDecalStable (same look, no screen-space depth reconstruction " +
             "— removes the per-eye 'reflection' that swims with head movement). When the " +
             "shader is missing from an older bundle, the Kill* knobs below apply instead.");
+        StableZTest = config.Bind(
+            "HexHighlight", "StableZTest", 4,
+            "ZTest (UnityEngine.Rendering.CompareFunction) applied to the stable hex decal. " +
+            "4 = LEqual (default): the shader exports the true floor-point depth per pixel " +
+            "(SV_Depth), so figures standing on the hex and walls in front occlude the " +
+            "highlight like normal geometry. 8 = Always: vanilla behavior — the highlight " +
+            "draws through everything (on-device fallback if the depth export misbehaves). " +
+            "Re-applied on every highlight state change, so edits take effect live.");
+        StableDepthBias = config.Bind(
+            "HexHighlight", "StableDepthBias", 0.0002f,
+            "Camera-ward depth-buffer-space bias added to the stable hex decal's exported " +
+            "depth. Prevents z-fighting speckle against the tile floor the highlight lies " +
+            "on. Raise slightly if the highlight speckles/dropouts; lower toward 0 if it " +
+            "visibly bleeds over the very bottom of figure bases.");
         KillBorderFlame = config.Bind(
             "HexHighlight", "KillBorderFlame", true,
             "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
@@ -118,6 +144,8 @@ internal static class HexHighlightFix
     private static bool _stableFoundLogged;
     private static bool _stableMissLogged;
     private static bool _knobsBypassLogged;
+    /// <summary>Last ZTest value logged for the stable shader; -1 = none yet (log on change only).</summary>
+    private static int _lastLoggedZTest = -1;
 
     /// <summary>
     /// The bundled stable decal shader, or null when no loaded bundle ships it (old
@@ -183,6 +211,7 @@ internal static class HexHighlightFix
         Swapped.Clear();
         _materialDumps = 0;
         _errorLogs = 0;
+        _lastLoggedZTest = -1;
     }
 
     private static void DumpMaterial(Material mat)
@@ -234,6 +263,8 @@ internal static class HexHighlightFix
         private static readonly int BorderLineIntensity = Shader.PropertyToID("_BorderLineIntensity");
         private static readonly int HexIntensity = Shader.PropertyToID("_HexIntensity");
         private static readonly int CrossHair = Shader.PropertyToID("_CrossHair");
+        private static readonly int VRZTest = Shader.PropertyToID("_VRZTest");
+        private static readonly int VRDepthBias = Shader.PropertyToID("_VRDepthBias");
 
         private static void Postfix(HexSelect_Control __instance)
         {
@@ -293,7 +324,12 @@ internal static class HexHighlightFix
         {
             Shader? current = mat.shader;
             if (current != null && current.name == StableShaderName)
-                return true; // already swapped (postfix re-runs on every state change)
+            {
+                // Already swapped (postfix re-runs on every state change) — still
+                // re-assert the occlusion knobs so live config edits take effect.
+                ApplyOcclusionKnobs(mat);
+                return true;
+            }
             // Only swap the shader we ported. Anything else (game update, other
             // variant) is left alone so the fallback knobs still govern it.
             if (current == null || current.name != OriginalShaderName)
@@ -307,11 +343,38 @@ internal static class HexHighlightFix
             int queue = mat.renderQueue; // 4000 in the shipped game
             mat.shader = stable;
             mat.renderQueue = queue > 0 ? queue : 4000;
+            ApplyOcclusionKnobs(mat);
             Swapped.Add(mat);
             // Keep the restore list tidy across long sessions: drop destroyed entries.
             if (Swapped.Count > 512)
                 Swapped.RemoveAll(m => m == null);
             return true;
+        }
+
+        /// <summary>
+        /// (Re-)apply the occlusion knobs to a stable-shader material: ZTest
+        /// (default 4 = LEqual — with the shader's per-pixel SV_Depth export the
+        /// highlight is occluded by figures on the hex and by walls; 8 = vanilla
+        /// draw-through) and the anti-z-fight depth bias. Logged when the applied
+        /// ZTest changes.
+        /// </summary>
+        private static void ApplyOcclusionKnobs(Material mat)
+        {
+            int zTest = StableZTest?.Value ?? 4;
+            mat.SetFloat(VRZTest, zTest);
+            float bias = StableDepthBias?.Value ?? 0.0002f;
+            mat.SetFloat(VRDepthBias, bias);
+            if (_lastLoggedZTest != zTest)
+            {
+                _lastLoggedZTest = zTest;
+                string meaning = zTest switch
+                {
+                    4 => "LEqual — highlight occluded by figures/walls via per-pixel depth export",
+                    8 => "Always — vanilla draw-through",
+                    _ => "custom CompareFunction",
+                };
+                VRLog.Info(Scope, $"stable hex decal ZTest={zTest} ({meaning}), depthBias={bias:0.######}.");
+            }
         }
     }
 }

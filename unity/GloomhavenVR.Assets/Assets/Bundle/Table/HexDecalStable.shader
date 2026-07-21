@@ -64,9 +64,37 @@
 //   * output           : pow(float4(I*_HexColour.rgb, I), 0.35), alpha blend
 // Pass state from the serialized shader (scratch dump of m_State): Cull Front,
 // ZWrite Off, Blend SrcAlpha OneMinusSrcAlpha, BlendOp Add, ColorMask RGBA,
-// serialized ZTest Always (8). ZTest is exposed as [_VRZTest] (default 8 =
-// vanilla) so the mod can flip it to LEqual without a bundle rebuild if
-// through-wall bleed needs the occlusion treatment.
+// serialized ZTest Always (8).
+//
+// OCCLUSION (deliberate departure from vanilla): ZTest Always made the highlight
+// draw THROUGH walls and figures. This port instead depth-tests at the TRUE
+// shaded point — the fragment shader already knows the floor point P it shades,
+// so it exports P's device depth via SV_Depth (clip.z/clip.w of P; on
+// UNITY_REVERSED_Z platforms — D3D11, our target — that raw value is already in
+// depth-buffer space, on GL-style platforms it is NDC [-1,1] and gets remapped
+// to [0,1]) and the pass runs ZTest [_VRZTest], default 4 = LEqual. Why not a
+// plain LEqual on the rasterized fragments: the mesh is a Cull-Front BOX whose
+// visible fragments are its far faces BELOW/BEHIND the floor — their own raster
+// depth would fail against the floor's depth buffer and z-kill the entire
+// visible highlight when looking down. With the exported depth the hardware
+// tests P (on the floor plane) instead, for every fragment — top, bottom and
+// SIDE faces of the box all export the depth of the same floor intersection, so
+// the highlight behaves as one consistent depth surface. Consequences:
+//   * figures standing on the hex (opaque queues 2000-2500, depth already
+//     written when this queue-4000 decal draws) occlude it automatically;
+//   * walls between camera and hex hide it;
+//   * ZWrite Off stays — SV_Depth participates in the depth TEST while the
+//     depth WRITE remains masked (D3D11 output-merger: an exported oDepth
+//     replaces the interpolated depth for the comparison; DepthWriteMask
+//     independently gates the write), so the transparent decal never pollutes
+//     the depth buffer.
+// [_VRDepthBias] nudges the exported depth a hair toward the camera so the
+// decal never z-fights the tile floor itself, which lies exactly on the y=0
+// plane we shade (floor mesh depth comes from a different vertex pipeline →
+// low-order-bit mismatch → 50% speckle without the bias). Cost of exporting
+// depth: early-z is disabled for this draw — negligible for one small decal.
+// _VRZTest stays material-driven so on-device experiments (8 = vanilla
+// draw-through) need no bundle rebuild; HexHighlightFix sets and logs it.
 //
 // Property NAMES match the original exactly: HexSelect_Control keeps calling
 // ProjectorMaterialAdjustment() (SetColor/SetFloat/SetInt on these names) after
@@ -101,11 +129,17 @@ Shader "GloomhavenVR/HexDecalStable"
         _TargetFrameIntensity ("TargetFrameIntensity", Float) = 0
         _CrossHair ("CrossHair", Float) = 0
         _HexRotation ("HexRotation", Float) = 0
-        // Mod-side extra (not in the original): serialized vanilla ZTest is
-        // Always (8); ShaderOcclusionPatcher would flip the ORIGINAL to LEqual
-        // (4) in game data, which the user declined — so default to vanilla 8
-        // and leave 4 reachable at runtime via SetFloat without game-data edits.
-        _VRZTest ("ZTest", Float) = 8
+        // Mod-side extras (not in the original). _VRZTest: vanilla serialized
+        // ZTest Always (8) drew the highlight through walls and figures; with
+        // the per-pixel SV_Depth export (see header) the default is now 4 =
+        // LEqual so the highlight respects occlusion. 8 restores vanilla
+        // draw-through at runtime via SetFloat — HexHighlightFix applies the
+        // configured value on every swap.
+        _VRZTest ("ZTest", Float) = 4
+        // Camera-ward bias (depth-buffer space) added to the exported depth so
+        // the decal never z-fights the tile floor it lies on. ~2e-4 ≈ a few mm
+        // at typical viewing distance under reversed-Z; runtime-tunable.
+        _VRDepthBias ("Depth bias", Float) = 0.0002
     }
     SubShader
     {
@@ -145,6 +179,7 @@ Shader "GloomhavenVR/HexDecalStable"
             float _OmniMin, _OmniMax;
             float _NW_On, _NE_On, _E_On, _SE_On, _SW_On, _W_On;
             float _TargetFrameIntensity, _CrossHair, _HexRotation;
+            float _VRDepthBias;
 
             v2f vert (appdata v)
             {
@@ -154,7 +189,7 @@ Shader "GloomhavenVR/HexDecalStable"
                 return o;
             }
 
-            fixed4 frag (v2f i) : SV_Target
+            fixed4 frag (v2f i, out float oDepth : SV_Depth) : SV_Target
             {
                 // ---- stable stand-in for the original's depth reconstruction ----
                 // Per-pixel view ray ∩ decal-local plane y=0 (the tile floor plane).
@@ -171,6 +206,29 @@ Shader "GloomhavenVR/HexDecalStable"
                 // Rays that leave the box before reaching the plane land outside the
                 // hex footprint — exactly like the original when the depth buffer held
                 // floor beyond the box — and are killed by the same radial falloff.
+
+                // ---- per-pixel depth of the TRUE shaded point (occlusion) ----
+                // The rasterized fragment sits on the box's far/side faces, but the
+                // pixel visually shows floor point P — export P's device depth so
+                // ZTest LEqual compares what the pixel actually SHOWS against the
+                // depth buffer. Figures on the hex (opaque queues, depth written long
+                // before this queue-4000 decal) and walls then occlude the highlight;
+                // ZWrite Off keeps the buffer untouched (SV_Depth feeds the TEST, the
+                // masked WRITE stays off — see header).
+                float4 clipP = UnityObjectToClipPos(float4(P, 1.0));
+                float depthP = clipP.z / clipP.w;
+#if defined(UNITY_REVERSED_Z)
+                // D3D11-style reversed-Z: clip.z/w is already in depth-buffer space
+                // (1 = near); bias TOWARD the camera = larger value.
+                depthP += _VRDepthBias;
+#else
+                // GL-style: clip.z/w is NDC [-1,1] → remap to [0,1]; closer = smaller.
+                depthP = depthP * 0.5 + 0.5 - _VRDepthBias;
+#endif
+                // Degenerate rays (plane intersection behind the camera → clipP.w<=0)
+                // yield garbage depth, but their color is already killed by the radial
+                // falloff below; clamp so the export stays well-defined regardless.
+                oDepth = saturate(depthP);
 
                 // ---- flipbook frame (asm lines 39-63): 8x8 grid, ~20 cells/s ----
                 // frame = round(frac(_Time.y * 0.3125) * 64); u = col/8, v = (7-row)/8.
