@@ -94,6 +94,30 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Forward offset (meters, device-space Z) of the visual hand from the grip pose (positive = toward the fingertips). One of the four [Hands] seat controls.</summary>
     internal static ConfigEntry<float> HandForwardOffset = null!;
 
+    // ---- per-STYLE hand tunables (indexed by (int)Hands.HandStyle: Glove/Plate/Arcane) ----
+    // The three hand models differ hugely in raw bulk (measured on the prepped meshes,
+    // all normalized to the same 0.19 m wrist->middle-tip length): knuckle-region width
+    // glove 0.123 m vs plate 0.198 m, palm thickness glove 0.042 m vs plate 0.084 m /
+    // arcane 0.072 m, four-finger MCP span glove 0.074 m vs plate 0.101 m / arcane
+    // 0.113 m — the armored styles read 1.5-2x too big at scale 1. These entries scale
+    // and trim each style independently; the shared [Hands] seat controls above stay
+    // the device-space baseline for all styles.
+
+    /// <summary>Uniform visual scale per style (1 = author size). Applied live by VRHand.SyncVisualOffset.</summary>
+    internal static ConfigEntry<float>[] HandStyleScale = null!;
+
+    /// <summary>Per-style pitch trim (degrees), ADDED to GripPitchOffsetDegrees while that style is worn.</summary>
+    internal static ConfigEntry<float>[] HandStylePitchTrim = null!;
+
+    /// <summary>Per-style lateral (X) trim (meters), ADDED to HandLateralOffset while that style is worn.</summary>
+    internal static ConfigEntry<float>[] HandStyleLateralTrim = null!;
+
+    /// <summary>Per-style vertical (Y) trim (meters), ADDED to HandVerticalOffset while that style is worn.</summary>
+    internal static ConfigEntry<float>[] HandStyleVerticalTrim = null!;
+
+    /// <summary>Per-style forward (Z) trim (meters), ADDED to HandForwardOffset while that style is worn.</summary>
+    internal static ConfigEntry<float>[] HandStyleForwardTrim = null!;
+
     /// <summary>Visible laser starts at the index fingertip instead of the aim pose (test #6).</summary>
     internal static ConfigEntry<bool> LaserFingerOrigin = null!;
 
@@ -284,6 +308,7 @@ public class Plugin : BaseUnityPlugin
             "EXACTLY at the tracked grip pose. Default -0.06 sits the wrist just behind the " +
             "grip origin so the palm wraps the controller handle. Hot-reloadable: edit while " +
             "the game runs and the hands re-seat on the next frame.");
+        BindHandStyleEntries();
         LaserFingerOrigin = Config.Bind(
             "Hands", "LaserFingerOrigin", true,
             "Start the VISIBLE laser beam at the hand rig's index fingertip (converging on " +
@@ -370,6 +395,58 @@ public class Plugin : BaseUnityPlugin
         {
             InitModules();
             LogStartupSummary();
+        }
+    }
+
+    /// <summary>
+    /// Bind the per-STYLE [Hands] entries (scale + 4 seat trims for each of Glove/Plate/
+    /// Arcane). Scale defaults are EVIDENCE-BASED: all three meshes are normalized to the
+    /// same 0.19 m hand length by the prep pipeline, but the armored styles are 1.5-2x
+    /// bulkier (knuckle-region width 0.198/0.14+ m and palm thickness 0.084/0.072 m vs
+    /// the glove's 0.123/0.042 m; four-finger MCP span 0.101/0.113 m vs 0.074 m —
+    /// measured on the prepped GLBs). 0.62 matches the Plate knuckle width and the
+    /// Arcane MCP span to the glove's real-world hand bulk; trims default to 0 (the
+    /// global seat controls remain the shared baseline). All five live-apply per frame
+    /// via VRHand.SyncVisualOffset — no rebuild needed.
+    /// </summary>
+    private void BindHandStyleEntries()
+    {
+        string[] styles = { "Glove", "Plate", "Arcane" }; // index == (int)Hands.HandStyle
+        float[] scaleDefaults = { 1.00f, 0.62f, 0.62f };
+        int n = styles.Length;
+        HandStyleScale = new ConfigEntry<float>[n];
+        HandStylePitchTrim = new ConfigEntry<float>[n];
+        HandStyleLateralTrim = new ConfigEntry<float>[n];
+        HandStyleVerticalTrim = new ConfigEntry<float>[n];
+        HandStyleForwardTrim = new ConfigEntry<float>[n];
+        for (int i = 0; i < n; i++)
+        {
+            string s = styles[i];
+            HandStyleScale[i] = Config.Bind(
+                "Hands", $"{s}Scale", scaleDefaults[i],
+                $"Uniform visual scale of the {s} hand style (1 = authored size). The " +
+                "styled meshes share the same 0.19 m hand length but differ hugely in " +
+                "bulk — the armored styles default below 1 so their knuckle width " +
+                "matches the leather glove's real-world hand size. Applies live " +
+                "(no rebuild); grabbed objects, the card fan and the wrist HUD keep " +
+                "their own size (the rig sockets they attach to are scale-compensated).");
+            HandStylePitchTrim[i] = Config.Bind(
+                "Hands", $"{s}PitchTrimDegrees", 0f,
+                $"Extra pitch (degrees) ADDED to GripPitchOffsetDegrees while the {s} " +
+                "style is worn. Lets a bulky style seat differently on the controller " +
+                "without disturbing the other styles. Applies live.");
+            HandStyleLateralTrim[i] = Config.Bind(
+                "Hands", $"{s}LateralTrim", 0f,
+                $"Extra lateral (X) offset (meters) ADDED to HandLateralOffset while " +
+                $"the {s} style is worn. Applies live.");
+            HandStyleVerticalTrim[i] = Config.Bind(
+                "Hands", $"{s}VerticalTrim", 0f,
+                $"Extra vertical (Y) offset (meters) ADDED to HandVerticalOffset while " +
+                $"the {s} style is worn. Applies live.");
+            HandStyleForwardTrim[i] = Config.Bind(
+                "Hands", $"{s}ForwardTrim", 0f,
+                $"Extra forward (Z) offset (meters) ADDED to HandForwardOffset while " +
+                $"the {s} style is worn. Applies live.");
         }
     }
 

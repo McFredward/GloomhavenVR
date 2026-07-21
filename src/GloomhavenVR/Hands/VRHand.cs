@@ -77,6 +77,7 @@ internal sealed class VRHand : MonoBehaviour
     private float _appliedLateralOffset = float.NaN;
     private float _appliedVerticalOffset = float.NaN;
     private float _appliedForwardOffset = float.NaN;
+    private float _appliedStyleScale = float.NaN;
 
     // Velocity ring buffer (palm position, world) — fixed size, no allocations.
     private const int VelocitySamples = 8;
@@ -334,14 +335,22 @@ internal sealed class VRHand : MonoBehaviour
     /// </summary>
     private void SyncVisualOffset()
     {
-        float pitch = Plugin.GripPitchOffsetDegrees.Value;
-        float lateral = Plugin.HandLateralOffset.Value;
-        float vertical = Plugin.HandVerticalOffset.Value;
-        float forward = Plugin.HandForwardOffset.Value;
+        // Per-STYLE tunables (scale + seat trims) ride on top of the four global seat
+        // controls, keyed by the style the visuals were ACTUALLY built with
+        // (Rig.VisualStyle — an old bundle may have degraded Plate/Arcane to Glove).
+        // Before the rig exists (first call from Initialize) fall back to the
+        // configured style; Build applies the initial scale itself either way.
+        int style = (int)(Rig != null ? Rig.VisualStyle : HandVisuals.LocalStyle());
+        float pitch = Plugin.GripPitchOffsetDegrees.Value + StyleTrim(Plugin.HandStylePitchTrim, style);
+        float lateral = Plugin.HandLateralOffset.Value + StyleTrim(Plugin.HandStyleLateralTrim, style);
+        float vertical = Plugin.HandVerticalOffset.Value + StyleTrim(Plugin.HandStyleVerticalTrim, style);
+        float forward = Plugin.HandForwardOffset.Value + StyleTrim(Plugin.HandStyleForwardTrim, style);
+        float scale = HandVisuals.StyleScale((HandStyle)style);
         if (pitch == _appliedGripPitch
             && lateral == _appliedLateralOffset
             && vertical == _appliedVerticalOffset
-            && forward == _appliedForwardOffset)
+            && forward == _appliedForwardOffset
+            && scale == _appliedStyleScale)
             return;
         _appliedGripPitch = pitch;
         _appliedLateralOffset = lateral;
@@ -349,6 +358,26 @@ internal sealed class VRHand : MonoBehaviour
         _appliedForwardOffset = forward;
         _handRoot.localPosition = new Vector3(lateral, vertical, forward);
         _handRoot.localRotation = Quaternion.Euler(-pitch, 0f, 0f);
+        if (Rig != null)
+        {
+            // Live scale re-apply (stepper/config edit): scales the hand subtree and
+            // re-normalizes the attachment sockets so held objects/fan/HUD keep size.
+            HandVisuals.ApplyStyleScale(_handRoot, Rig, scale);
+            _appliedStyleScale = scale;
+        }
+    }
+
+    /// <summary>Safe per-style trim read (0 until the config array is bound).</summary>
+    private static float StyleTrim(BepInEx.Configuration.ConfigEntry<float>[]? entries, int style)
+    {
+        try
+        {
+            return entries != null ? entries[style].Value : 0f;
+        }
+        catch
+        {
+            return 0f;
+        }
     }
 
     private void Update()

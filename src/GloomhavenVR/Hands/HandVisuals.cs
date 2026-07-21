@@ -91,7 +91,8 @@ internal static class HandVisuals
     {
         var rig = new HandRig { Root = handRoot };
 
-        GameObject? prefab = TryLoadPrefab(side, style);
+        GameObject? prefab = TryLoadPrefab(side, style, out HandStyle effectiveStyle);
+        rig.VisualStyle = prefab != null ? effectiveStyle : HandStyle.Glove;
         if (prefab != null)
         {
             GameObject instance = Object.Instantiate(prefab, handRoot, worldPositionStays: false);
@@ -113,7 +114,8 @@ internal static class HandVisuals
                 smr.quality = SkinQuality.Bone4;
                 smr.updateWhenOffscreen = true;
             }
-            VRLog.Info("Hands", $"{side}: glove prefab loaded from bundle (style {style}).");
+            VRLog.Info("Hands", $"{side}: glove prefab loaded from bundle (style {effectiveStyle}, " +
+                                $"scale {StyleScale(effectiveStyle):0.00}).");
         }
         else
         {
@@ -122,7 +124,77 @@ internal static class HandVisuals
 
         // Synthesize whatever the asset did not provide so the contract always holds.
         FillMissingAnchors(handRoot, rig, side);
+
+        // Externally-parented anchors become scale-compensated SOCKETS, then the
+        // per-style visual scale is applied (see ApplyStyleScale). Order matters:
+        // sockets first, so the compensation below sees the final hierarchy.
+        rig.Wrist = CreateSocket(rig.Wrist, "Socket_Wrist");
+        rig.PalmCenter = CreateSocket(rig.PalmCenter, "Socket_Palm");
+        rig.GrabAnchor = CreateSocket(rig.GrabAnchor, "Socket_Grab");
+        ApplyStyleScale(handRoot, rig, StyleScale(rig.VisualStyle));
         return rig;
+    }
+
+    /// <summary>
+    /// The configured uniform visual scale of a style ([Hands] GloveScale/PlateScale/
+    /// ArcaneScale), clamped to a sane range; 1 when the config is not bound yet.
+    /// </summary>
+    internal static float StyleScale(HandStyle style)
+    {
+        try
+        {
+            var entries = Plugin.HandStyleScale;
+            if (entries == null)
+                return 1f;
+            return Mathf.Clamp(entries[(int)HandStyles.Clamp((int)style)].Value, 0.2f, 3f);
+        }
+        catch
+        {
+            return 1f;
+        }
+    }
+
+    /// <summary>
+    /// Apply a per-style uniform visual scale to the whole hand subtree, then
+    /// counter-scale the attachment SOCKETS so everything the rest of the mod parents
+    /// INTO the hand (card fan under PalmCenter, grabbed objects under GrabAnchor, the
+    /// wrist HUD under Wrist) keeps its own world size. The compensation is numeric
+    /// (reference lossyScale over the socket parent's lossyScale) so it is exact for
+    /// any hierarchy the anchors ended up in (FBX bone, procedural child of PalmCenter,
+    /// or handRoot itself). Positions/rotations of the anchors are untouched — only
+    /// scale is normalized. Called at build time and live by VRHand.SyncVisualOffset
+    /// whenever the scale entry changes.
+    /// </summary>
+    internal static void ApplyStyleScale(Transform handRoot, HandRig rig, float scale)
+    {
+        handRoot.localScale = Vector3.one * scale;
+        float reference = handRoot.parent != null ? handRoot.parent.lossyScale.x : 1f;
+        NormalizeSocket(rig.Wrist, reference);
+        NormalizeSocket(rig.PalmCenter, reference);
+        NormalizeSocket(rig.GrabAnchor, reference);
+    }
+
+    /// <summary>Zero-offset child used as a scale-compensated attachment point. No-op
+    /// (returns the anchor) when the anchor already IS a socket (live re-apply).</summary>
+    private static Transform CreateSocket(Transform anchor, string name)
+    {
+        if (anchor == null || anchor.name == name)
+            return anchor!;
+        var socket = new GameObject(name).transform;
+        socket.SetParent(anchor, worldPositionStays: false);
+        socket.localPosition = Vector3.zero;
+        socket.localRotation = Quaternion.identity;
+        return socket;
+    }
+
+    private static void NormalizeSocket(Transform socket, float referenceScale)
+    {
+        if (socket == null || socket.parent == null)
+            return;
+        float parentLossy = socket.parent.lossyScale.x;
+        socket.localScale = parentLossy > 1e-6f
+            ? Vector3.one * (referenceScale / parentLossy)
+            : Vector3.one;
     }
 
     /// <summary>Release the cached bundle (module shutdown / hot reload).</summary>
@@ -138,8 +210,9 @@ internal static class HandVisuals
 
     // ---- bundle loading ---------------------------------------------------------------
 
-    private static GameObject? TryLoadPrefab(HandSide side, HandStyle style)
+    private static GameObject? TryLoadPrefab(HandSide side, HandStyle style, out HandStyle effectiveStyle)
     {
+        effectiveStyle = HandStyle.Glove;
         AssetBundle? bundle = GetBundle();
         if (bundle == null)
             return null;
@@ -154,7 +227,10 @@ internal static class HandVisuals
             var styled = bundle.LoadAsset<GameObject>(
                 $"Assets/Bundle/Hands/{HandStyles.BaseName(style)}_{suffix}.prefab");
             if (styled != null)
+            {
+                effectiveStyle = style;
                 return styled;
+            }
             VRLog.Warn("Hands", $"{side}: style {style} prefab not in bundle (old bundle?) — falling back to Glove.");
         }
 

@@ -60,6 +60,11 @@ from mathutils.kdtree import KDTree
 #   RIG_HAND_EMBED   "0" -> do not embed textures in the FBX (path_mode STRIP; the loose
 #                    albedo PNG is what Unity binds anyway). Default "1" (original glove).
 #   RIG_HAND_RENDER_DIR  when set, write offscreen verification renders (rest + fist)
+#   RIG_HAND_POSES   "1" -> render the FULL runtime pose matrix instead of rest+fist:
+#                    open / half / fist / thumbtuck / point / per-finger curls, driven
+#                    with the EXACT FingerCurler convention (per-joint max angles
+#                    65/80/50 deg for fingers, 25/45/60 for the thumb, local +X)
+#                    so the renders show what the mod will actually display.
 SRC = os.environ.get("RIG_HAND_SRC",
                      "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb")
 NAME = os.environ.get("RIG_HAND_NAME", "VRHand")
@@ -71,9 +76,65 @@ RENDER_DIR = os.environ.get("RIG_HAND_RENDER_DIR", "")
 OUT_DIR = os.environ.get(
     "RIG_HAND_OUT_DIR",
     "/home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Assets/Bundle/Hands")
+POSE_MATRIX = os.environ.get("RIG_HAND_POSES", "0") != "0"
+# Preview of the RUNTIME per-style curl clamp (FingerCurler.StyleCurlScale): scales every
+# pose's joint angles, so the after-renders show exactly what the mod displays in-game.
+CURL_SCALE = float(os.environ.get("RIG_HAND_CURL_SCALE", "1.0"))
 NEG_Y = Vector((0.0, -1.0, 0.0))  # palm-out / flexion reference
 
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+
+# Runtime curl convention (src/GloomhavenVR/Hands/FingerCurler.cs): per-joint FULL-curl
+# angles in degrees around local +X, scaled by the 0..1 curl value.
+#   fingers: root 65, mid 80, tip 50      thumb: root 25, mid 45, tip 60
+CURL_MAX_FINGER = (65.0, 80.0, 50.0)
+CURL_MAX_THUMB = (25.0, 45.0, 60.0)
+
+# Pose matrix rendered by RIG_HAND_POSES=1 — curl value per finger, mirroring what
+# VRHand.UpdateCurlTargets actually produces on hardware:
+#   open      controller untouched, curls 0
+#   half      trigger+grip half pulled
+#   fist      full grip+trigger (the pose test's worst case)
+#   thumbtuck idle rest pose: thumb on the stick (0.65), light 0.15 rest curl
+#   point     grip held, index extended (UI pointing — the pose players stare at)
+#   curl_*    one finger alone at full curl (isolates per-finger weight bleed)
+POSES = {
+    "open":      {"Thumb": 0.0, "Index": 0.0, "Middle": 0.0, "Ring": 0.0, "Pinky": 0.0},
+    "half":      {"Thumb": 0.5, "Index": 0.5, "Middle": 0.5, "Ring": 0.5, "Pinky": 0.5},
+    "fist":      {"Thumb": 1.0, "Index": 1.0, "Middle": 1.0, "Ring": 1.0, "Pinky": 1.0},
+    "thumbtuck": {"Thumb": 0.65, "Index": 0.15, "Middle": 0.15, "Ring": 0.15, "Pinky": 0.15},
+    "point":     {"Thumb": 0.65, "Index": 0.0, "Middle": 1.0, "Ring": 1.0, "Pinky": 1.0},
+    "curl_index":  {"Thumb": 0.1, "Index": 1.0, "Middle": 0.1, "Ring": 0.1, "Pinky": 0.1},
+    "curl_middle": {"Thumb": 0.1, "Index": 0.1, "Middle": 1.0, "Ring": 0.1, "Pinky": 0.1},
+    "curl_ring":   {"Thumb": 0.1, "Index": 0.1, "Middle": 0.1, "Ring": 1.0, "Pinky": 0.1},
+    "curl_pinky":  {"Thumb": 0.1, "Index": 0.1, "Middle": 0.1, "Ring": 0.1, "Pinky": 1.0},
+}
+
+
+def apply_pose(arm, curls):
+    """Pose the armature exactly like the runtime FingerCurler (local-X, per-joint max)."""
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode='POSE')
+    for pb in arm.pose.bones:
+        pb.rotation_mode = 'XYZ'
+        pb.rotation_euler = (0.0, 0.0, 0.0)
+    for f in FINGERS:
+        maxes = CURL_MAX_THUMB if f == "Thumb" else CURL_MAX_FINGER
+        c = curls.get(f, 0.0)
+        for i, seg in enumerate(("Root", "Mid", "Tip")):
+            arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = \
+                (math.radians(maxes[i] * c * CURL_SCALE), 0.0, 0.0)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
+
+
+def clear_pose(arm):
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode='POSE')
+    for pb in arm.pose.bones:
+        pb.rotation_euler = (0.0, 0.0, 0.0)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
 
 # Joint positions (metres, LEFT hand, in the imported GLB's world space:
 # +Z fingers, +Y back of hand, palm at -Y). Estimated from mesh clustering
@@ -111,6 +172,13 @@ if JOINTS_JSON:
     WRIST_MODE = _jd.get("wrist_mode", "protect")
     _JSON_CAP_UV = tuple(_jd.get("cap_uv", (0.5, 0.5)))
     print(f"[rig_hand] joints loaded from {JOINTS_JSON} (asset {NAME}, wrist_mode {WRIST_MODE})")
+
+# ALTERNATIVE-HAND-ONLY fixes (pose-matrix QA, 2026-07): the region-aware finger-weight
+# cap in skin() and the flat-shaded hole fills in _fix_new_face_uvs() repair the Plate/
+# Arcane curl distortions (palm fan sheet, thumb-index batwing membrane, starburst palm
+# cap). They are GATED to JSON-driven builds so the DEFAULT no-env invocation still
+# reproduces the original glove FBX byte-for-byte (documented invariant above).
+ALT_HAND = bool(JOINTS_JSON)
 
 # ---- PRIORITY-3: watertight inner "backing core" (OPT-IN, OFF by default) -------------
 # The AI outer shell is 310 non-manifold shells with small see-through gaps (worst on the
@@ -231,6 +299,13 @@ def _fix_new_face_uvs(bm, new_faces):
     for f in new_faces:
         if not f.is_valid:
             continue
+        # Flat-shade the fill (ALT hands only — the glove build stays byte-identical):
+        # a large cap (the palm disc of the alternative hands) otherwise smooth-blends
+        # its fan normals with the surrounding shell and renders as an ugly radial
+        # STARBURST gradient (render-verified on the 9-pose matrix). A flat facet reads
+        # as an intentional armor/leather plate instead.
+        if ALT_HAND:
+            f.smooth = False
         for loop in f.loops:
             src = None
             for other in loop.vert.link_loops:
@@ -468,6 +543,40 @@ def skin(mesh, arm, joints, wrist, palm):
     verts = mesh.data.vertices
     nV = len(verts)
 
+    # POSE-MATRIX FIX (membrane/fan stretch): the raw 1/(d^P) blend gives verts that are
+    # FAR from every finger chain (mid-palm, thumb-index webbing rim) a substantial
+    # residual finger weight, so a fist pulled a batwing membrane between the thumb and
+    # index (Arcane) and a radial "fan" sheet across the palm (Plate) — render-verified
+    # on the 9-pose matrix. Finger influence is now DISTANCE-CAPPED with a smoothstep
+    # taper, and the cap is REGION-AWARE (a flat cap render-verified WRONG: it also ate
+    # the thick armored knuckles, so fingers only folded at their outer half):
+    #   - verts BEHIND the MCP (chain projection t < 0.05 — palm surface, webbing rim)
+    #     fade fast: full finger weight within 12 mm of the chain, none beyond 18 mm;
+    #   - verts ALONG the digit (t >= 0.05 — the finger's own shell incl. knuckle
+    #     armor, measured up to ~11 mm off-axis) keep weights to 14 mm, none past 22 mm.
+    # The faded share moves to the wrist bone so the palm stays rigid with the hand
+    # instead of chasing the fingers; the KD smoothing pass below blends the taper ring.
+    PALM_SOFT, PALM_CAP = 0.012, 0.018
+    DIGIT_SOFT, DIGIT_CAP = 0.014, 0.022
+
+    def finger_fade(d, soft, cap):
+        if d <= soft:
+            return 1.0
+        if d >= cap:
+            return 0.0
+        t = (d - soft) / (cap - soft)
+        return 1.0 - t * t * (3.0 - 2.0 * t)      # smoothstep down
+
+    chain_ends = {}
+    for f in FINGERS:
+        a = finger_segs[f][0][1]                  # MCP (root head)
+        b = finger_segs[f][2][2]                  # tip end
+        chain_ends[f] = (a, b, (b - a), max((b - a).length_squared, 1e-9))
+
+    def on_digit(co, f):
+        a, b, ab, L2 = chain_ends[f]
+        return (co - a).dot(ab) / L2 >= 0.05
+
     # Verts BELOW the wrist crease (long cuffs on the alternative hands; the original
     # glove has no geometry below z=0) are rigid armor/cloth around the forearm — bind
     # them 100% to the wrist bone, or distant finger chains pick up partial weights and
@@ -488,12 +597,28 @@ def skin(mesh, arm, joints, wrist, palm):
             dmin = min(_seg_dist(co, a, b) for _, a, b in finger_segs[f])
             if dmin < best_d:
                 best_d, best_f = dmin, f
+        if ALT_HAND:
+            soft, cap = (DIGIT_SOFT, DIGIT_CAP) if on_digit(co, best_f) else (PALM_SOFT, PALM_CAP)
+            fade = finger_fade(best_d, soft, cap)
+        else:
+            fade = 1.0     # original glove: keep the shipped weighting byte-for-byte
+        if fade <= 0.0:
+            vert_w[v.index] = {"Anchor_Wrist": 1.0}   # palm/webbing rim: rigid with the hand
+            continue
         cands = [("Anchor_Wrist", dW)]
         for nm, a, b in finger_segs[best_f]:
             cands.append((nm, _seg_dist(co, a, b)))
         raws = [(nm, 1.0 / (d ** P + EPS)) for nm, d in cands]
         tot = sum(w for _, w in raws)
-        vert_w[v.index] = {nm: w / tot for nm, w in raws}
+        w = {nm: wv / tot for nm, wv in raws}
+        if fade < 1.0:
+            # taper band: shift the faded share of the finger weights onto the wrist
+            fsum = sum(wv for nm, wv in w.items() if nm != "Anchor_Wrist")
+            for nm in list(w):
+                if nm != "Anchor_Wrist":
+                    w[nm] *= fade
+            w["Anchor_Wrist"] = w.get("Anchor_Wrist", 0.0) + fsum * (1.0 - fade)
+        vert_w[v.index] = w
 
     # ---- pass 2: position-based Laplacian smoothing (blend across shells) ---------------
     kd = KDTree(nV)
@@ -788,21 +913,29 @@ def main():
 
         if RENDER_DIR:
             os.makedirs(RENDER_DIR, exist_ok=True)
-            render_views(side, "rest")
-            # fist pose: +40deg on every finger joint (what the pose test asserts)
-            bpy.ops.object.mode_set(mode='POSE')
-            for f in FINGERS:
-                for seg in ("Root", "Mid", "Tip"):
-                    arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = \
-                        (math.radians(40.0), 0.0, 0.0)
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.context.view_layer.update()
-            render_views(side, "fist")
-            bpy.ops.object.mode_set(mode='POSE')
-            for pb in arm.pose.bones:
-                pb.rotation_euler = (0.0, 0.0, 0.0)
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.context.view_layer.update()
+            if POSE_MATRIX:
+                # Full runtime pose matrix (RIG_HAND_POSES=1): every pose the mod's
+                # FingerCurler can produce, with the real per-joint max angles.
+                for pose_name, curls in POSES.items():
+                    apply_pose(arm, curls)
+                    render_views(side, pose_name)
+                clear_pose(arm)
+            else:
+                render_views(side, "rest")
+                # fist pose: +40deg on every finger joint (what the pose test asserts)
+                bpy.ops.object.mode_set(mode='POSE')
+                for f in FINGERS:
+                    for seg in ("Root", "Mid", "Tip"):
+                        arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = \
+                            (math.radians(40.0), 0.0, 0.0)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.context.view_layer.update()
+                render_views(side, "fist")
+                bpy.ops.object.mode_set(mode='POSE')
+                for pb in arm.pose.bones:
+                    pb.rotation_euler = (0.0, 0.0, 0.0)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.context.view_layer.update()
 
         meshes = [mesh] + ([core] if core else [])
         export_fbx(os.path.join(OUT_DIR, fname), meshes, arm)

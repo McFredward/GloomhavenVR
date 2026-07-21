@@ -948,6 +948,22 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddHandStepper(Loc.Mod("hand_z"), Plugin.HandForwardOffset, 0.002f, degrees: false);
         AddHandStepper(Loc.Mod("hand_pitch"), Plugin.GripPitchOffsetDegrees, 1f, degrees: true);
 
+        // Per-STYLE rows (item: per-style hand settings). Each row drives the entry of
+        // the style CURRENTLY worn ([Hands] HandStyle — cycle it with the main panel's
+        // hand-style button), so only the active style's values are ever shown/tuned:
+        // uniform visual scale plus the four seat TRIMS added on top of the shared seat
+        // controls above. All live-apply per frame (VRHand.SyncVisualOffset).
+        AddStyleStepper("Style scale", () => Plugin.HandStyleScale, 0.02f, 0.2f, 3f,
+            v => $"{v:0.00}x");
+        AddStyleStepper("Style X trim", () => Plugin.HandStyleLateralTrim, 0.002f, -0.2f, 0.2f,
+            v => $"{v * 1000f:0}mm");
+        AddStyleStepper("Style Y trim", () => Plugin.HandStyleVerticalTrim, 0.002f, -0.2f, 0.2f,
+            v => $"{v * 1000f:0}mm");
+        AddStyleStepper("Style Z trim", () => Plugin.HandStyleForwardTrim, 0.002f, -0.2f, 0.2f,
+            v => $"{v * 1000f:0}mm");
+        AddStyleStepper("Style pitch trim", () => Plugin.HandStylePitchTrim, 1f, -90f, 90f,
+            v => $"{v:0}°");
+
         // FIGURES category (GLOBAL): live-tune the HELD board-figure pose — the mini is centered
         // in the palm and hard to place offline (user hardware feedback). Each stepper writes a
         // [FigureGrab] entry, which persists (dev.gloomhavenvr.figuregrab.cfg) AND live-applies:
@@ -1099,6 +1115,51 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         MiniStepper(row,
             () => degrees ? $"{entry.Value:0}°" : $"{entry.Value * 1000f:0}mm",
             d => entry.Value += d * step);
+    }
+
+    /// <summary>
+    /// Per-STYLE hand stepper row: drives the [Hands] entry of the style CURRENTLY worn
+    /// (indexed by [Hands] HandStyle into the given per-style entry array), so the Hands
+    /// tab only ever shows the active style's scale/trims. Writing persists (BepInEx) and
+    /// live-applies (VRHand.SyncVisualOffset re-reads per frame). Shown only under the
+    /// Hands tab; shows "—" while the config is not bound yet.
+    /// </summary>
+    private void AddStyleStepper(string label, Func<ConfigEntry<float>[]?> entries, float step,
+        float min, float max, Func<float, string> format)
+    {
+        var row = Row();
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Hands);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () =>
+            {
+                ConfigEntry<float>? e = ActiveStyleEntry(entries);
+                return e != null ? format(e.Value) : "—";
+            },
+            d =>
+            {
+                ConfigEntry<float>? e = ActiveStyleEntry(entries);
+                if (e != null)
+                    e.Value = Mathf.Clamp(e.Value + d * step, min, max);
+            });
+    }
+
+    /// <summary>The active-style element of a per-style [Hands] entry array (null-safe).</summary>
+    private static ConfigEntry<float>? ActiveStyleEntry(Func<ConfigEntry<float>[]?> entries)
+    {
+        try
+        {
+            ConfigEntry<float>[]? arr = entries();
+            if (arr == null)
+                return null;
+            int style = (int)Hands.HandStyles.Clamp(
+                Plugin.HandStyle != null ? (int)Plugin.HandStyle.Value : 0);
+            return arr[style];
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
