@@ -7,22 +7,31 @@ using UnityEngine;
 namespace GloomhavenVR.Compat;
 
 /// <summary>
-/// ISSUE #4 — the flat game fades/hides walls (and other props) so its top-down camera can
-/// see behind them. The whole effect is gated by a single global shader int,
-/// <c>ToggleWallFade</c>: the wall shaders only fade when it is <c>1</c>, and the game's own
-/// DebugMenu "disable wall fade" simply sets it to <c>0</c> (decompiled
-/// <c>GH.Runtime/DebugMenu.cs:1968</c>). The fade CONDITION itself lives entirely in the wall
-/// shaders (no C# feeds a position — the only CPU-side control is this 0/1 int), so it is
-/// evaluated per rendering camera from the camera built-ins. In VR the one stereo camera is
-/// the mod's own head-tracked <c>GloomhavenVR.HeadCamera</c> (VRRigDriver owns it; every game
-/// camera is swept out of stereo by VRCameraPolicy), which means: with the global at <c>1</c>,
-/// a wall fades exactly while the HMD's view angle onto it would occlude the play area, and
-/// un-fades when not — the game's own behavior, driven by the player's real head.
+/// ISSUE #4 — the flat game fades/hides walls so its top-down camera can see behind them.
+/// This patch owns HALF of the mechanism: the global int GATE <c>ToggleWallFade</c>. The wall
+/// shaders only run their fade logic when it is <c>1</c> (verified in the DXBC disassembly of
+/// <c>Amp_Basic_WallFade</c> / <c>Amp_Low/Amp_Basic_WallFade_Low</c>: the low variant's
+/// fragment starts with <c>ine cb0[4].x, 0</c> on exactly this global; the game's own
+/// DebugMenu "disable wall fade" simply sets it to <c>0</c>, decompiled
+/// <c>GH.Runtime/DebugMenu.cs:1968</c>).
+///
+/// The gate is NOT the whole story (hardware round 1 falsified that theory): behind the gate,
+/// the fade CONDITION samples the screen-space play-area occlusion map
+/// <c>_TilesOcclusionMap</c> and discards the wall fragment when it is nearer than the play
+/// area behind that pixel. That map is rendered per frame by the game's
+/// <c>TilesOcclusionGenerator</c> CommandBuffer from the camera it runs on — in VR that is
+/// the parked game camera, so the head camera's render has no valid map and the fade never
+/// triggers even with the gate open. <see cref="Core.WallFadeOcclusionFeed"/> (installed by
+/// <see cref="CompatModule"/>, same [Compat] WallFade toggle) supplies that missing input by
+/// mirroring the generator's CommandBuffer onto the head camera. With BOTH halves in place a
+/// wall fades exactly while it occludes the play area from the HMD, and un-fades when not —
+/// the game's own behavior, driven by the player's real head.
 ///
 /// [Compat] WallFade decides which way the global is pinned (consulted LIVE on every call,
 /// so the settings-panel toggle applies instantly, no re-patching):
 /// - OFF (default): pin <c>0</c> — walls always solid, the VR behavior so far.
-/// - ON: pin <c>1</c> — the game's own view-dependent fade runs, now following the HMD.
+/// - ON: pin <c>1</c> — the gate opens; with the occlusion feed active the game's own
+///   view-dependent fade runs, following the HMD.
 ///
 /// The global is natively asserted to <c>1</c> from several places: <c>Main.Start</c>
 /// (<c>GH.Runtime/Main.cs:47</c>), <c>ActivateWallFadeInGame.Start/Update</c>, and
