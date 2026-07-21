@@ -1,53 +1,59 @@
 using System;
-using GloomhavenVR.Rig;
 using UnityEngine;
 
 namespace GloomhavenVR.Hands.Interact;
 
 /// <summary>
-/// "Palm turned toward the face" detector with hysteresis (FROZEN Phase-2 API;
+/// "Palm rolled toward the face" detector with hysteresis (FROZEN Phase-2 API;
 /// P6 additive: tunable thresholds + device-pose normal).
 /// Phase-3b shows/hides the card fan on this gate (ARCHITECTURE §4).
 ///
-/// Opens when dot(palmNormal, toHMD) &gt; <see cref="EnterThreshold"/>, closes when it
-/// drops below <see cref="ExitThreshold"/> — the dead band prevents flicker at the
-/// boundary. Ticked every frame by <see cref="VRHand"/>; state is queryable
-/// (<see cref="IsOpen"/>) and edge-observable (<see cref="Changed"/>, main thread).
+/// ROLL-ONLY measure (hardware feedback, reveal-angle round 2): the gate reads pure
+/// FOREARM/HAND ROLL — the hand's rotation around its own forward (finger) axis —
+/// so PITCH and YAW of the arm are irrelevant by construction. Earlier measures
+/// (dot(palmNormal, toHead); then a roll-plane dot against world-up OR the head
+/// direction) still mixed pitch in via the head reference and effectively demanded
+/// close to a full 180° supination, which the user rejected as uncomfortable.
 ///
-/// P6 (hardware test #8): the gate used the VISUAL rig's palm normal, which includes
-/// the [Hands] GripPitchOffsetDegrees rotation (default -30°) between the tracked
-/// grip pose and the hand model — so opening the fan demanded that pitch of wrist
-/// supination BEYOND "palm faces me". <see cref="UseDevicePalmNormal"/> (default on)
-/// evaluates the raw device pose instead (-Y of the grip pose = out of the physical
-/// palm), matching what the wrist actually does. Thresholds are set per frame by the
-/// Cards driver from [Cards] RevealEnterDot / RevealExitDot (defaults = the
-/// Demeo-derived 0.6 enter / 0.5 exit — Demeo shows and hides its card hand at
-/// Dot(hand.right, avatarUp) = 0.6 with no hysteresis, decompiled
-/// CardHandController.cs:452-456/474; the 0.1 dead band is ours, so the roll-axis
-/// measure cannot chatter at the boundary).
+/// Math: let F = the hand's forward (finger) axis and U = the back-of-hand "up"
+/// (−palm normal). The PITCH-NEUTRAL up is Uref = normalize(worldUp − F·dot(worldUp, F))
+/// (≡ normalize(cross(F, cross(worldUp, F)))) — exactly where U would point at zero
+/// roll for the CURRENT pitch/yaw. The roll angle is the angle between U (projected
+/// into the plane ⊥ F) and Uref: 0° = palm flat down, 90° = palm vertical (thumb up),
+/// 180° = palm fully up/toward the face. Pitch-invariant by construction. The angle
+/// is SIGNED by roll direction (supination positive, pronation negative, mirrored
+/// per hand) so twisting the palm DOWN-and-out can never open the fan.
 ///
-/// P7 (hardware test #10): even the raw-pose cone test mixed PITCH into the measure —
-/// dot(palmNormal, toHead) also grows when the wrist pitches toward the face, so the
-/// gesture only felt reliable when players rolled AND pitched. With
-/// <see cref="RollAxisOnly"/> the gate instead measures pure SUPINATION: the roll
-/// angle of the palm normal around the forearm/controller axis. Both reference
-/// directions (world up and the horizontal to-head direction) are projected into the
-/// plane perpendicular to the roll axis, so pitching or yawing the arm cannot move
-/// the measure — only turning the palm up / toward you does.
+/// Opens when the roll exceeds <see cref="EnterDegrees"/> (default 95° — a
+/// comfortable supination just past vertical), closes below <see cref="ExitDegrees"/>
+/// (default 80°); the dead band prevents flicker at the boundary. Ticked every frame
+/// by <see cref="VRHand"/>; state is queryable (<see cref="IsOpen"/>) and
+/// edge-observable (<see cref="Changed"/>, main thread).
+///
+/// Vector sources (P6, hardware test #8): with <see cref="UseDevicePalmNormal"/>
+/// (default on) the hand frame is the raw DEVICE grip pose — −Y out of the physical
+/// palm, +Z along the fingers — which excludes the [Hands] GripPitchOffsetDegrees
+/// visual-rig rotation; otherwise the visual rig's PalmNormal/PalmCenter.forward
+/// (the simulated-hands path, which poses the rig directly).
 /// </summary>
 internal sealed class PalmGate
 {
-    // Demeo-derived defaults (fan-reveal parity pass): Demeo shows the card hand at
-    // Dot(hand.right, avatarUp) > 0.6 (~53° palm-up cone) and hides it below the SAME
-    // 0.6 — no hysteresis gap (decompiled CardHandController.cs:452-456,474). We keep a
-    // small dead band (0.5 exit) so the roll-axis measure doesn't chatter. The Cards
-    // driver overwrites both every frame from [Cards] RevealEnterDot / RevealExitDot.
-    private const float DefaultEnterDot = 0.6f;
-    private const float DefaultExitDot = 0.5f;
+    // Reveal-angle round 2 defaults: open at 95° of pure supination (just past palm-
+    // vertical — comfortable, no full wrist crank), close at 80° (15° dead band so the
+    // measure cannot chatter at the boundary). The Cards driver overwrites both every
+    // frame from [Cards] RevealEnterDegrees / RevealExitDegrees.
+    private const float DefaultEnterDegrees = 95f;
+    private const float DefaultExitDegrees = 80f;
 
-    /// <summary>Minimum enter-exit dead band enforced in <see cref="Tick"/> — a hand-edited
-    /// config can never invert the hysteresis into an every-frame open/close flicker.</summary>
-    private const float MinHysteresis = 0.02f;
+    /// <summary>Minimum enter-exit dead band (degrees) enforced in <see cref="Tick"/> — a
+    /// hand-edited config can never invert the hysteresis into an every-frame flicker.</summary>
+    private const float MinHysteresisDegrees = 3f;
+
+    /// <summary>Above this roll the direction SIGN is ignored: near 180° the roll-plane
+    /// cross product degenerates (U ≈ −Uref) and the sign gets noisy, while pronating
+    /// this far past palm-down is anatomically impossible anyway — a hand up here is
+    /// always supinated.</summary>
+    private const float SignSaturationDegrees = 150f;
 
     private readonly VRHand _hand;
     private bool _enabled = true;
@@ -55,26 +61,17 @@ internal sealed class PalmGate
 
     internal PalmGate(VRHand hand) => _hand = hand;
 
-    /// <summary>Supination dot above which the gate opens. Default = Demeo's 0.6 (CardHandController.cs:474).</summary>
-    public float EnterThreshold = DefaultEnterDot;
+    /// <summary>Signed roll (degrees) above which the gate opens. 0 = palm down, 90 = palm vertical (thumb up), 180 = palm fully up/toward the face.</summary>
+    public float EnterDegrees = DefaultEnterDegrees;
 
-    /// <summary>Supination dot below which the gate closes. Default 0.5 (Demeo's 0.6 minus our dead band).</summary>
-    public float ExitThreshold = DefaultExitDot;
+    /// <summary>Signed roll (degrees) below which the gate closes (hysteresis; clamped below <see cref="EnterDegrees"/>).</summary>
+    public float ExitDegrees = DefaultExitDegrees;
 
     /// <summary>
-    /// Evaluate the palm normal in the DEVICE (grip-pose) frame instead of the visual
-    /// hand rig — removes the [Hands] GripPitchOffsetDegrees penalty (see class doc).
+    /// Evaluate the hand frame from the DEVICE (grip-pose) rotation instead of the
+    /// visual hand rig — removes the [Hands] GripPitchOffsetDegrees penalty (class doc).
     /// </summary>
     public bool UseDevicePalmNormal = true;
-
-    /// <summary>
-    /// P7 (hardware test #10): measure pure supination (roll around the forearm/
-    /// controller axis) instead of the full 3D palm-to-head cone — pitch and yaw of
-    /// the arm no longer contribute, only turning the palm up/toward you does.
-    /// <see cref="CurrentDot"/> then reads: -1 palm fully down, 0 palm vertical
-    /// (thumb up), +1 palm fully up / toward the face.
-    /// </summary>
-    public bool RollAxisOnly;
 
     /// <summary>
     /// G5 busy-hand gate (DEMEO-HANDS-CARDS §5 Group C): when true and the gate hand is
@@ -87,10 +84,13 @@ internal sealed class PalmGate
     /// </summary>
     public bool IgnoreWhenHandBusy { get; set; }
 
-    /// <summary>True while the palm faces the headset.</summary>
+    /// <summary>True while the palm is rolled toward the headset.</summary>
     public bool IsOpen { get; private set; }
 
-    /// <summary>Latest dot(palmNormal, toHMD) — for debug overlays and tuning.</summary>
+    /// <summary>Latest SIGNED roll in DEGREES (0 palm down, 90 thumb up, 180 palm fully up;
+    /// negative = pronation) — for debug overlays and tuning. Name kept for the frozen
+    /// Phase-2 surface (DevConsole prints it); the unit changed from dot to degrees with
+    /// the roll-only rework.</summary>
     public float CurrentDot { get; private set; }
 
     /// <summary>Fired on open/close transitions.</summary>
@@ -134,64 +134,65 @@ internal sealed class PalmGate
             Core.VRLog.Debug("Interact", "PalmGate reveal restored — gate hand free.");
         }
 
-        // Head position: the rig's head camera in VR; Camera.main in the desktop sim.
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return;
-
-        Vector3 palm = _hand.Rig.PalmCenter.position;
-        Vector3 toHead = head.transform.position - palm;
-        if (toHead.sqrMagnitude < 1e-8f)
-            return;
-
-        // Palm normal: -Y of the grip pose (physical palm; simulated hands have no
-        // grip-pitch offset applied to the device transform either) or the visual rig.
-        Vector3 normal = UseDevicePalmNormal
-            ? _hand.transform.rotation * Vector3.down
-            : _hand.Rig.PalmNormal;
-
-        if (RollAxisOnly)
+        // Hand frame — SAME sources as before the rework: raw device grip pose (−Y out
+        // of the physical palm, +Z along the fingers) or the visual rig for sim hands.
+        Vector3 palmNormal;
+        Vector3 forward;
+        if (UseDevicePalmNormal)
         {
-            // Roll axis ≈ forearm/controller axis: +Z of the same frame the normal
-            // came from (the normal is perpendicular to it by construction).
-            Vector3 axis = UseDevicePalmNormal
-                ? _hand.transform.rotation * Vector3.forward
-                : _hand.Rig.PalmCenter.forward;
-
-            // Project the references into the roll plane so pitch/yaw drop out.
-            Vector3 upRef = Vector3.up - axis * Vector3.Dot(Vector3.up, axis);
-            Vector3 headRef = toHead.normalized;
-            headRef -= axis * Vector3.Dot(headRef, axis);
-
-            float upSq = upRef.sqrMagnitude;
-            float headSq = headRef.sqrMagnitude;
-            if (upSq < 1e-4f && headSq < 1e-4f)
-                return; // arm points straight up/down at the head — roll undefined, hold state
-
-            // Supination = palm normal rolled toward "up" OR toward the face — take
-            // the friendlier of the two so both palm-up and palm-at-face count.
-            float dot = float.NegativeInfinity;
-            if (upSq >= 1e-4f)
-                dot = Vector3.Dot(normal, upRef / Mathf.Sqrt(upSq));
-            if (headSq >= 1e-4f)
-                dot = Mathf.Max(dot, Vector3.Dot(normal, headRef / Mathf.Sqrt(headSq)));
-            CurrentDot = dot;
+            Quaternion device = _hand.transform.rotation;
+            palmNormal = device * Vector3.down;
+            forward = device * Vector3.forward;
         }
         else
         {
-            CurrentDot = Vector3.Dot(normal, toHead.normalized);
+            palmNormal = _hand.Rig.PalmNormal;
+            forward = _hand.Rig.PalmCenter.forward;
         }
 
-        // Driver-set thresholds ([Cards] RevealEnterDot/RevealExitDot, defaults = the
-        // Demeo-derived 0.6/0.5). Exit is clamped below enter so a hand-edited config can
-        // never invert the hysteresis into an open/close flicker.
-        float enter = EnterThreshold;
-        float exit = Mathf.Min(ExitThreshold, enter - MinHysteresis);
+        // Pitch-neutral up: the world-up component perpendicular to the finger axis —
+        // where the back-of-hand would point at ZERO roll for the current pitch/yaw.
+        Vector3 upRef = Vector3.up - forward * Vector3.Dot(Vector3.up, forward);
+        if (upRef.sqrMagnitude < 1e-4f)
+            return; // fingers point straight up/down — roll undefined, hold state
+
+        // Back-of-hand up, projected into the same roll plane (⊥ finger axis).
+        Vector3 up = -palmNormal;
+        Vector3 upProj = up - forward * Vector3.Dot(up, forward);
+        if (upProj.sqrMagnitude < 1e-6f)
+            return; // degenerate rig frame — hold state
+
+        upRef.Normalize();
+        upProj.Normalize();
+
+        // Roll magnitude (0..180°, pitch/yaw-invariant) + direction sign. Rotating the
+        // back-of-hand from Uref toward the thumb side is SUPINATION; the cross-product
+        // sign of that rotation is mirrored between hands (right-hand supination turns
+        // negative around +F, left-hand positive), hence the per-side flip. Past the
+        // saturation angle the sign is forced positive (see SignSaturationDegrees).
+        float rollDeg = Vector3.Angle(upRef, upProj);
+        float turn = Vector3.Dot(Vector3.Cross(upRef, upProj), forward);
+        float side = _hand.Side == HandSide.Right ? -1f : 1f;
+        bool supinating = turn * side >= 0f || rollDeg >= SignSaturationDegrees;
+        CurrentDot = supinating ? rollDeg : -rollDeg;
+
+        // Driver-set thresholds ([Cards] RevealEnterDegrees/RevealExitDegrees). Exit is
+        // clamped below enter so a hand-edited config can never invert the hysteresis.
+        float enter = EnterDegrees;
+        float exit = Mathf.Min(ExitDegrees, enter - MinHysteresisDegrees);
 
         if (!IsOpen && CurrentDot > enter)
+        {
+            Core.VRLog.Info("Interact",
+                $"PalmGate OPEN ({_hand.Side}): roll {CurrentDot:F0}° (enter {enter:F0}°, exit {exit:F0}°).");
             SetOpen(true);
+        }
         else if (IsOpen && CurrentDot < exit)
+        {
+            Core.VRLog.Info("Interact",
+                $"PalmGate CLOSE ({_hand.Side}): roll {CurrentDot:F0}° (enter {enter:F0}°, exit {exit:F0}°).");
             SetOpen(false);
+        }
     }
 
     private void SetOpen(bool open)

@@ -641,6 +641,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         transform.localScale = worldScale;
         ResetColliderRegion(); // full card again (fan strips, see SetColliderRegion)
         _laserPopped = false;
+        _releaseGlide = 0f; // re-grab mid-glide: the held pose takes over cleanly
         try
         {
             Grabbed?.Invoke(this, hand);
@@ -674,10 +675,35 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
     }
 
+    /// <summary>How long (unscaled seconds) the post-release home flight runs on unscaled
+    /// time. The flight itself is the existing exponential home-lerp (CardLerpSpeed 14/s
+    /// ≈ 95 % converged in ~0.21 s — a fast but visible ease-out glide); this window only
+    /// keeps it moving while the game pauses simulation time (card phases pause timeScale,
+    /// same reason the fan reveal animation runs unscaled).</summary>
+    private const float ReleaseGlideSeconds = 0.35f;
+
+    /// <summary>Unscaled seconds of release glide remaining (0 = none). See <see cref="OnRelease"/>.</summary>
+    private float _releaseGlide;
+
     public override void OnRelease(VRHand hand, Vector3 velocity)
     {
+        // Glide-back, not teleport: base.OnRelease → DetachFromHand restores the PRE-GRAB
+        // parent AND the pre-grab LOCAL pose (worldPositionStays: false) — the card used to
+        // SNAP to its origin the instant the fingers opened. Mirror OnGrab's fly-in: keep
+        // the world pose across the re-parent so the card stays at the release point, then
+        // let Update's home-lerp fly it back to whatever home the layout asserts next
+        // (fan slot on a void release, tray slot on a play, …). Layout-owned instant seeds
+        // (fan open/close animation, pool return) still win via _instantNext — the glide
+        // never fights them. Side benefit: CardsDriver's drop routing now samples the card
+        // at its REAL drop position instead of the already-snapped-home pose.
+        Vector3 worldPos = transform.position;
+        Quaternion worldRot = transform.rotation;
+        Vector3 worldScale = transform.localScale;
         base.OnRelease(hand, velocity); // restore pre-grab parent
-        transform.localScale = Vector3.one * _homeScale;
+        transform.position = worldPos;
+        transform.rotation = worldRot;
+        transform.localScale = worldScale; // scale glides home with the pose (was an instant snap)
+        _releaseGlide = ReleaseGlideSeconds;
         try
         {
             Released?.Invoke(this, hand, velocity);
@@ -768,6 +794,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         }
 
         float dt = Time.deltaTime;
+        // Release glide window: run the home-lerp on UNSCALED time for a beat after a
+        // release so the glide-back plays even while the game pauses simulation time.
+        // The exponential form below is frame-rate independent either way; take the
+        // larger of the two dts so a running timeScale never slows the flight down.
+        if (_releaseGlide > 0f)
+        {
+            float udt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
+            _releaseGlide -= udt;
+            dt = Mathf.Max(dt, udt);
+        }
         float speed = CardsConfig.CardLerpSpeed.Value;
         // Pop from ANY hover source: grabber/poke-select (_popped), laser (_laserPopped),
         // or a light fingertip touch (_pokeHover, test #9).
@@ -785,6 +821,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         if (_instantNext)
         {
             _instantNext = false;
+            _releaseGlide = 0f; // an instant seed (fan open/close anim, pool) owns the pose now
             transform.localPosition = target;
             transform.localRotation = _homeRot;
             transform.localScale = Vector3.one * scale;
@@ -806,6 +843,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _laserPopped = false;
         _pokeHover = false;
         _pop = 0f;
+        _releaseGlide = 0f;
     }
 
     private void OnDestroy()
