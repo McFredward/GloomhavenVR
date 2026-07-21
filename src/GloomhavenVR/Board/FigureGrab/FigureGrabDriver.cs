@@ -48,10 +48,19 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     // grabber itself would consider before we narrow it to the offset-anchor-nearest figure.
     private const float ReachMeters = 0.13f;
 
-    private void OnDestroy() => ReleaseAll();
+    private void OnDestroy()
+    {
+        ReleaseAll();
+        FigureGhosts.Clear();
+    }
 
     private void Update()
     {
+        // TASK #3 — reconcile home-spot ghosts against the local + remote held-sets (spawn is done at
+        // grab time; this only tears down ghosts whose figure was released, incl. remote releases).
+        // Runs even when local figure-grab is disabled so REMOTE-held ghosts still appear/clear.
+        TickGuard.Run("FigureGrab.Ghosts", FigureGhosts.Tick);
+
         if (!FigureGrabConfig.GrabFigures.Value)
         {
             if (_adoptions.Count > 0)
