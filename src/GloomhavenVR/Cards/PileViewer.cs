@@ -7,13 +7,11 @@ using UnityEngine;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// Discard/burnt pile stacks (hardware test #21, [Cards] PileViewer): two small physical
-/// card piles that FLOAT side by side at a fixed point centered ABOVE the control board
-/// (TASK #8, <see cref="PlayTray.PileFloatMount"/> — height <see cref="PlayTray.PileFloatHeight"/>),
-/// each rendered as a stack of card slabs with a live count and a localized caption. Because
-/// the float mount is a child of the board root, the piles inherit the board's live scale, so
-/// they hover above it AND track a board resize. (The character-items pile — item 4 below —
-/// stays docked off the board's RIGHT edge on <see cref="PlayTray.PileMount"/>.) Poking a stack (finger or board laser) TOGGLES the pile
+/// Discard/burnt pile stacks on the control board (hardware test #21, [Cards]
+/// PileViewer): two small physical card piles docked off the board's RIGHT edge
+/// (<see cref="PlayTray.PileMount"/> — the only free edge, see the BuildMounts
+/// collision math), each rendered as a stack of card slabs with a live count and a
+/// localized caption. Poking a stack (finger or board laser) TOGGLES the pile
 /// browse fan; pinch-grabbing it raises the browse while held and dismisses on
 /// release (<see cref="PileBrowser"/>; open/close policy and content live in
 /// CardsDriver). Purely informational — counts are read straight from the
@@ -66,41 +64,35 @@ internal sealed class PileViewer
 
     internal void EnsureBuilt(PlayTray tray)
     {
-        // TASK #8: the discard + burnt piles FLOAT at a fixed point centered ABOVE the board
-        // (tray.PileFloatMount); the character-items pile stays docked off the RIGHT edge
-        // (tray.PileMount). Both mounts are board-root children, so all three stacks inherit the
-        // board's live scale — the float height and the visual sizes track a board resize.
-        Transform? floatMount = tray.PileFloatMount;
         Transform? mount = tray.PileMount;
-        if (floatMount == null || mount == null)
+        if (mount == null)
             return;
         // Round-2: the inter-stack gap is PER-BOARD (debug-menu tunable), seeded 0.116 (Oak).
-        // For the floating pair this is now the HORIZONTAL centre-to-centre gap (side by side).
         float spacing = CardsConfig.PileSpacing(CardsConfig.CurrentBoard).Value;
         // A tray teardown destroys the stacks with the mount — the Unity fake-null
         // makes the == checks below true and the stacks rebuild from scratch.
         if (_discard == null)
         {
-            _discard = PileStack.Create(floatMount, PileKind.Discard,
+            _discard = PileStack.Create(mount, PileKind.Discard,
                 new Color(0.55f, 0.48f, 0.34f), Caption(PileKind.Discard), this,
-                new Vector3(-spacing * 0.5f, 0f, 0f)); // floats LEFT of centre, above the board
+                new Vector3(PlayTray.PileStackOffsetX, spacing * 0.5f, 0f));
             tray.RegisterLaserTarget(_discard.GetComponent<Collider>(), _discard);
         }
         if (_burnt == null)
         {
-            _burnt = PileStack.Create(floatMount, PileKind.Burnt,
+            _burnt = PileStack.Create(mount, PileKind.Burnt,
                 new Color(0.45f, 0.22f, 0.16f), Caption(PileKind.Burnt), this,
-                new Vector3(spacing * 0.5f, 0f, 0f)); // floats RIGHT of centre, beside the discard pile
+                new Vector3(PlayTray.PileStackOffsetX, -spacing * 0.5f, 0f));
             tray.RegisterLaserTarget(_burnt.GetComponent<Collider>(), _burnt);
         }
-        // Item 4: the character-items stack, alone on the right-edge mount (its floating
-        // neighbours moved above the board). Same physical stack + poke/grab, but its browse is
-        // the item pile (routed to _itemsBrowse in DispatchPoke/DispatchGrab).
+        // Item 4: the character-items stack, mounted BELOW the burnt pile (a further
+        // −spacing down). Same physical stack + poke/grab, but its browse is the item
+        // pile (routed to _itemsBrowse in DispatchPoke/DispatchGrab).
         if (_items == null)
         {
             _items = PileStack.Create(mount, PileKind.Items,
                 new Color(0.30f, 0.42f, 0.26f), Caption(PileKind.Items), this,
-                new Vector3(PlayTray.PileStackOffsetX, 0f, 0f));
+                new Vector3(PlayTray.PileStackOffsetX, -spacing * 1.5f, 0f));
             tray.RegisterLaserTarget(_items.GetComponent<Collider>(), _items);
         }
         _itemsBrowse.SetAnchor(mount);
@@ -124,11 +116,8 @@ internal sealed class PileViewer
     }
 
     /// <summary>
-    /// Round-2 live-apply: re-seat the pile stacks from the active board's per-board SCALE and
-    /// inter-stack SPACING. TASK #8: the floating discard/burnt pair sits side by side above the
-    /// board (discard at −spacing/2, burnt at +spacing/2 along the mount X); the items pile sits
-    /// on the right-edge mount. The per-board SCALE multiplies on top of the board-root's live
-    /// scale, so the piles both float above the board AND track its current size. Called from
+    /// Round-2 live-apply: re-seat both pile stacks from the active board's per-board SCALE and
+    /// inter-stack SPACING (discard upper at +spacing/2, burn lower at −spacing/2). Called from
     /// <see cref="EnsureBuilt"/> and by CardsDriver when the debug menu / cfg edits either.
     /// </summary>
     internal void ApplyLayout()
@@ -139,17 +128,17 @@ internal sealed class PileViewer
         if (_discard != null)
         {
             _discard.transform.localScale = Vector3.one * scale;
-            _discard.transform.localPosition = new Vector3(-spacing * 0.5f, 0f, 0f);
+            _discard.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, spacing * 0.5f, 0f);
         }
         if (_burnt != null)
         {
             _burnt.transform.localScale = Vector3.one * scale;
-            _burnt.transform.localPosition = new Vector3(spacing * 0.5f, 0f, 0f);
+            _burnt.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, -spacing * 0.5f, 0f);
         }
         if (_items != null)
         {
             _items.transform.localScale = Vector3.one * scale;
-            _items.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, 0f, 0f);
+            _items.transform.localPosition = new Vector3(PlayTray.PileStackOffsetX, -spacing * 1.5f, 0f);
         }
     }
 
