@@ -153,6 +153,8 @@ def mirror_mesh_x(o):
 #      boundary verts leaves the interior detail untouched, so fingers/knuckles keep their shape;
 #   3. recalc_face_normals for consistent outward winding (belt-and-suspenders with the Cull Off
 #      two-sided glove material).
+# The WRIST STUMP is deliberately left OPEN (no cap): the two-sided glove material shows the
+# lit interior shell when looking in from behind — a hollow glove, not a plugged disc.
 # Result (offscreen green-background render, 5 POVs): boundary edges 16 074 -> ~90, enclosed
 # "see-through" pixels 51 -> ~4 (all on the back-of-hand crinkle; none on the palm/relaxed view),
 # silhouette coverage unchanged. The exported, skinned FBX renders 0 see-through px at REST from
@@ -163,26 +165,21 @@ WT_BWELD = float(os.environ.get("RIG_HAND_WT_BWELD", "0.0018"))   # boundary-onl
 WT_PASSES = int(os.environ.get("RIG_HAND_WT_PASSES", "3"))
 WT_ENABLE = os.environ.get("RIG_HAND_WATERTIGHT", "1") != "0"     # ON by default
 
-# UV for freshly created cap/fill faces. BMesh gives NEW faces zeroed loop UVs, so every
-# filled hole and the wrist fan-cap sampled texel (0,0) of the albedo atlas — which is pure
-# BLACK (RGB 1,0,0). In-game that rendered the wrist stump as thick black pie-slice stripes
-# (the fan triangles) radiating from the rim centroid. Small hole fills now INHERIT the UV
-# of an existing loop on the same vertex (they blend into the surrounding texture); the
-# wrist cap gets this uniform texel on every corner — a flat dark-leather glove interior.
-# Chosen by scanning VRHand_albedo.png for a dark, uniform 32 px block:
+# UV fallback for freshly created hole-fill faces. BMesh gives NEW faces zeroed loop UVs,
+# so filled holes would sample texel (0,0) of the albedo atlas — which is pure BLACK.
+# Small hole fills INHERIT the UV of an existing loop on the same vertex (they blend into
+# the surrounding texture); a corner with no prior loop falls back to this texel, chosen by
+# scanning VRHand_albedo.png for a dark, uniform 32 px block:
 # px(752,1968) of 2048², mean RGB (74,56,37), std < 1.
 CAP_UV = (0.3672, 0.0391)
 
 
-def _fix_new_face_uvs(bm, new_faces, uniform=False):
+def _fix_new_face_uvs(bm, new_faces):
     """Give the zero-UV loops of freshly created faces sensible texture coords.
 
-    uniform=False: each corner copies the UV of any PRE-EXISTING loop on the same vertex
-    (hole fills disappear into the surrounding texture); corners with no prior loop
-    (e.g. a fan hub vertex) fall back to CAP_UV.
-    uniform=True: every corner gets CAP_UV — a deliberately flat interior tint (wrist cap;
-    inheriting there would smear the whole atlas across the fan because the ragged rim's
-    UVs are scattered islands).
+    Each corner copies the UV of any PRE-EXISTING loop on the same vertex (hole fills
+    disappear into the surrounding texture); corners with no prior loop fall back to
+    CAP_UV (a flat dark-leather texel).
     Returns the number of loops written."""
     uv = bm.loops.layers.uv.active
     if uv is None or not new_faces:
@@ -193,10 +190,6 @@ def _fix_new_face_uvs(bm, new_faces, uniform=False):
         if not f.is_valid:
             continue
         for loop in f.loops:
-            if uniform:
-                loop[uv].uv = CAP_UV
-                fixed += 1
-                continue
             src = None
             for other in loop.vert.link_loops:
                 if other.face not in new_set:
@@ -238,38 +231,27 @@ def make_watertight(o):
         uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
         bm.to_mesh(me); bm.free(); me.update()
 
-    # 3) cap the OPEN WRIST STUMP. The hand ends in a wide hollow cylinder at min-Z; in-game the
-    #    arm/cuff plugs into it, so a cap there is a hidden seam. Left open it is the see-through
-    #    path a curled hand exposes (background straight up the hollow wrist and out between the
-    #    fingers). The rim is a ragged near-loop (not a clean loop, so holes_fill/triangle_fill
-    #    leave it), so we FAN-cap it: add a vertex at the rim centroid and a triangle per rim
-    #    boundary edge. Only edges in the wrist band (both ends within 2 cm of min-Z) are used, so
-    #    the finger/knuckle boundaries are untouched.
+    # 3) the OPEN WRIST STUMP stays OPEN — no cap. A fan/tri cap here (tried in earlier
+    #    revisions) always reads as a flat "pie-chart" disc plugging the glove, which is
+    #    exactly what the player sees when the hand curls. Instead we rely on the glove
+    #    material being two-sided (Cull Off + VFACE normal flip in BoardLit.shader): looking
+    #    into the stump from behind shows the LIT INTERIOR of the glove shell, sampling the
+    #    same albedo texels as the outside — a genuine hollow glove. The rim is a ragged
+    #    near-loop (NOT a clean loop), so step 2's holes_fill cannot cap it; the guard below
+    #    verifies that stays true (if a future weld tweak turned the rim into a clean loop,
+    #    holes_fill would silently plug it again).
     bm = bmesh.new(); bm.from_mesh(me)
-    bm.verts.ensure_lookup_table()
     zmin = min(v.co.z for v in bm.verts)
     band = zmin + 0.020
-    wrist_edges = [e for e in bm.edges
-                   if e.is_boundary and e.verts[0].co.z < band and e.verts[1].co.z < band]
-    if wrist_edges:
-        rim_verts = {v for e in wrist_edges for v in e.verts}
-        centroid = sum((v.co for v in rim_verts), Vector()) / len(rim_verts)
-        hub = bm.verts.new(centroid)
-        made = 0
-        cap_faces = []
-        for e in wrist_edges:
-            try:
-                cap_faces.append(bm.faces.new((e.verts[0], e.verts[1], hub))); made += 1
-            except ValueError:
-                pass  # face already exists
-        # Uniform dark-leather UV on the whole cap: the fan corners' own UVs are scattered
-        # atlas islands, so inheriting would smear the entire texture across the stump —
-        # the in-game "black pie-chart stripes" defect. One flat texel reads as a clean
-        # glove interior instead.
-        uv_fixed += _fix_new_face_uvs(bm, cap_faces, uniform=True)
-        log(f"watertight: wrist fan-cap over {len(wrist_edges)} rim edges ({made} tris)")
-    bm.to_mesh(me); bm.free(); me.update()
-    log(f"watertight: assigned real UVs to {uv_fixed} loops of filled/cap faces "
+    wrist_open = sum(1 for e in bm.edges
+                     if e.is_boundary and e.verts[0].co.z < band and e.verts[1].co.z < band)
+    bm.free()
+    if wrist_open == 0:
+        raise SystemExit("watertight: wrist rim got sealed by holes_fill — it must stay open "
+                         "(no cap); loosen WT_BWELD or exclude the wrist band from step 2")
+    log(f"watertight: wrist rim left OPEN ({wrist_open} boundary edges in the 2 cm min-Z band; "
+        f"interior visible via two-sided material)")
+    log(f"watertight: assigned real UVs to {uv_fixed} loops of filled faces "
         f"(new BMesh faces default to UV (0,0) — a BLACK texel in this atlas)")
 
     # 4) consistent outward normals
