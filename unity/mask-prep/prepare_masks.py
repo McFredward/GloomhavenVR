@@ -23,7 +23,7 @@
 #     <index>    0/1/2 -> writes Mask_<index>.fbx + Mask_<index>_albedo.png
 #     render     optional: also write front + 3/4 verification PNGs to out/
 
-import bpy, sys, math, os
+import bpy, bmesh, sys, math, os
 from mathutils import Vector
 
 argv = sys.argv[sys.argv.index("--")+1:]
@@ -38,6 +38,138 @@ TEX_MAX       = 2048     # albedo downscale cap
 # Per-mask Blender pre-rotation (degrees) to reach canonical up=+Z, face=-Y.
 # All three current Hunyuan outputs are already canonical -> identity.
 PRE_ROT_EULER = {0: (0, 0, 0), 1: (0, 0, 0), 2: (0, 0, 0)}
+
+# --- WATERTIGHT PASS knobs (mirrors unity/hand-prep/rig_hand.py; same AI-shell disease:
+# thousands of disconnected Hunyuan shells whose seams tear open under decimation and
+# read as see-through cracks even on the two-sided HeadUnlit material). Two stages:
+#   PRE-decimate: one global weld while the shell seams are still EXACTLY coincident
+#     (raw mesh, ~1.4 mm edges) so the collapse decimator sees one connected surface
+#     and cannot tear the seams apart. Threshold is tiny relative to raw edge length.
+#   POST-scale (final 0.22 m frame): rig_hand's close loop — global weld, then a few
+#     passes of (fill small holes -> boundary-only weld -> fill again), then
+#     recalc_face_normals. holes_fill is EXTENT-LIMITED: only boundary regions whose
+#     bounding-box diagonal <= WT_MAX_HOLE m get capped, so any big intentional
+#     opening (open mask back / neck) stays open — the two-sided material shows the
+#     interior shell there, exactly like the hand's open wrist stump.
+# New fill faces inherit UVs from surrounding loops (BMesh zeroes them -> would sample
+# the atlas's (0,0) texel); unresolved corners fall back to the face average.
+WT_ENABLE    = os.environ.get("MASK_WATERTIGHT", "1") != "0"
+WT_RAW_WELD  = float(os.environ.get("MASK_WT_RAW_WELD", "0.0004"))  # pre-decimate, raw m
+WT_MERGE     = float(os.environ.get("MASK_WT_MERGE", "0.0005"))     # final-scale global weld (m)
+WT_BWELD     = float(os.environ.get("MASK_WT_BWELD", "0.0018"))     # boundary-only gap weld (m)
+WT_PASSES    = int(os.environ.get("MASK_WT_PASSES", "3"))
+WT_MAX_HOLE  = float(os.environ.get("MASK_WT_MAX_HOLE", "0.045"))   # max hole bbox diag (m)
+
+
+def _gap_stats(me):
+    """(boundary_edges, nonmanifold_edges, shells) of a mesh."""
+    bm = bmesh.new(); bm.from_mesh(me)
+    nb = sum(1 for e in bm.edges if e.is_boundary)
+    nm = sum(1 for e in bm.edges if not e.is_manifold)
+    parent = list(range(len(bm.verts)))
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+    for e in bm.edges:
+        a, b = find(e.verts[0].index), find(e.verts[1].index)
+        if a != b: parent[a] = b
+    shells = len({find(i) for i in range(len(parent))})
+    bm.free()
+    return nb, nm, shells
+
+
+def _small_hole_edges(bm, max_diag):
+    """Boundary edges belonging to connected boundary regions whose bounding-box
+    diagonal is <= max_diag (metres). Big rims (open mask back) are excluded."""
+    bedges = [e for e in bm.edges if e.is_boundary]
+    if not bedges:
+        return []
+    idx = {}
+    parent = []
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+    for e in bedges:
+        for v in e.verts:
+            if v not in idx:
+                idx[v] = len(parent); parent.append(len(parent))
+    for e in bedges:
+        a, b = find(idx[e.verts[0]]), find(idx[e.verts[1]])
+        if a != b: parent[a] = b
+    regions = {}
+    for e in bedges:
+        regions.setdefault(find(idx[e.verts[0]]), []).append(e)
+    out = []
+    for edges in regions.values():
+        xs = [v.co for e in edges for v in e.verts]
+        mn = Vector((min(c.x for c in xs), min(c.y for c in xs), min(c.z for c in xs)))
+        mx = Vector((max(c.x for c in xs), max(c.y for c in xs), max(c.z for c in xs)))
+        if (mx - mn).length <= max_diag:
+            out.extend(edges)
+    return out
+
+
+def _fix_new_face_uvs(bm, new_faces):
+    """Give the zero-UV loops of freshly created fill faces sensible texture coords:
+    inherit from any PRE-EXISTING loop on the same vertex, else the face average of
+    resolved corners. Returns loops written (rig_hand.py pattern, generic fallback)."""
+    uv = bm.loops.layers.uv.active
+    if uv is None or not new_faces:
+        return 0
+    new_set = set(new_faces)
+    fixed = 0
+    for f in new_faces:
+        if not f.is_valid:
+            continue
+        resolved = []
+        pending = []
+        for loop in f.loops:
+            src = None
+            for other in loop.vert.link_loops:
+                if other.face not in new_set:
+                    src = other[uv].uv.copy()
+                    break
+            if src is not None:
+                loop[uv].uv = src; resolved.append(src); fixed += 1
+            else:
+                pending.append(loop)
+        if pending and resolved:
+            avg = resolved[0].copy()
+            for u in resolved[1:]:
+                avg += u
+            avg /= len(resolved)
+            for loop in pending:
+                loop[uv].uv = avg; fixed += 1
+    return fixed
+
+
+def close_small_holes(obj, tag):
+    """rig_hand-style close loop on the FINAL-scale mesh (in place)."""
+    me = obj.data
+    before = _gap_stats(me)
+    bm = bmesh.new(); bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WT_MERGE)
+    bm.to_mesh(me); bm.free(); me.update()
+    uv_fixed = 0
+    for _ in range(WT_PASSES):
+        bm = bmesh.new(); bm.from_mesh(me)
+        res = bmesh.ops.holes_fill(bm, edges=_small_hole_edges(bm, WT_MAX_HOLE), sides=0)
+        uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
+        bnd = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
+        if bnd:
+            bmesh.ops.remove_doubles(bm, verts=bnd, dist=WT_BWELD)
+        res = bmesh.ops.holes_fill(bm, edges=_small_hole_edges(bm, WT_MAX_HOLE), sides=0)
+        uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
+        bm.to_mesh(me); bm.free(); me.update()
+    # consistent outward winding (belt-and-suspenders with the two-sided material)
+    bm = bmesh.new(); bm.from_mesh(me)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me); bm.free(); me.update()
+    after = _gap_stats(me)
+    print(f"WATERTIGHT[{tag}] boundary {before[0]}->{after[0]} | nonmanifold "
+          f"{before[1]}->{after[1]} | shells {before[2]}->{after[2]} | uv_loops_fixed {uv_fixed}")
 
 name = f"Mask_{index}"
 os.makedirs(out_dir, exist_ok=True)
@@ -63,6 +195,17 @@ rx, ry, rz = PRE_ROT_EULER.get(index, (0, 0, 0))
 if (rx, ry, rz) != (0, 0, 0):
     obj.rotation_euler = (math.radians(rx), math.radians(ry), math.radians(rz))
     bpy.ops.object.transform_apply(rotation=True)
+
+# --- PRE-decimate global weld: fuse the coincident Hunyuan shell seams while they are
+# still exact, so decimation collapses ONE connected surface instead of tearing the
+# thousands of shells apart into see-through cracks (see WATERTIGHT knobs above) ---
+if WT_ENABLE:
+    pre = _gap_stats(obj.data)
+    bm = bmesh.new(); bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WT_RAW_WELD)
+    bm.to_mesh(obj.data); bm.free(); obj.data.update()
+    post = _gap_stats(obj.data)
+    print(f"WATERTIGHT[raw weld] boundary {pre[0]}->{post[0]} | shells {pre[2]}->{post[2]}")
 
 # --- decimate hard to the tri budget ---
 tris = sum(len(p.vertices) - 2 for p in obj.data.polygons)  # fan estimate
@@ -100,6 +243,11 @@ bpy.ops.object.transform_apply(location=True)
 s = TARGET_HEIGHT / dims.z
 obj.scale = (s, s, s)
 bpy.ops.object.transform_apply(scale=True)
+
+# --- POST-scale watertight close loop: weld residual seams + cap the small decimation
+# cracks (extent-limited, so a big intentional back/neck opening stays open) ---
+if WT_ENABLE:
+    close_small_holes(obj, name)
 
 # --- downscale the albedo texture ---
 for img in bpy.data.images:
