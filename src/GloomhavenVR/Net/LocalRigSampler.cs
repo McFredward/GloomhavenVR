@@ -27,6 +27,10 @@ internal static class LocalRigSampler
         // Stamp the locally-chosen head mask (read live so changing it updates remotes at once).
         state.MaskId = (byte)LocalMaskId();
 
+        // Stamp the locally-chosen hand style the same way (additive trailing byte on the
+        // wire; old peers ignore it and render default Glove hands).
+        state.HandStyle = (byte)HandVisuals.LocalStyle();
+
         Camera? head = VRRigDriver.HeadCamera;
         if (head != null)
         {

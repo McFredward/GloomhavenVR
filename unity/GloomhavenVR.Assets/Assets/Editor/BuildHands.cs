@@ -6,7 +6,10 @@
 //   (BuildAll at the tail exits the editor 0/1; do NOT pass -quit.)
 //
 // What it does, deterministically (no hand-authoring in the GUI):
-//  1. Imports VRHand_{L,R}_rig.fbx. The FBX armatures are ALREADY named to the mod's
+//  1. Imports each hand set's {base}_{L,R}_rig.fbx — three selectable sets ship:
+//     VRHand (leather glove), VRHandPlate (plate gauntlet), VRHandArcane (mage glove);
+//     the mod's [Hands] HandStyle setting picks the pair at runtime (HandVisuals.cs).
+//     The FBX armatures are ALREADY named to the mod's
 //     rig contract (Anchor_Wrist, Anchor_Palm, Anchor_{Finger}_{Root|Mid|Tip},
 //     Anchor_IndexTip, Anchor_Grab) and posed so fingers curl to the palm under
 //     +local-X. We import with animationType=None (no Avatar) and optimizeGameObjects
@@ -35,9 +38,17 @@ namespace GloomhavenVR
     {
         private const string Hands = "Assets/Bundle/Hands";
         private const string ShaderName = "GloomhavenVR/BoardLit"; // self-contained, bundled, baked-lit
-        // Leather-glove base colour, extracted from the FBX's single embedded texture and
-        // committed as a loose PNG (both hands share one atlas). No normal map is embedded.
-        private const string AlbedoPath = Hands + "/VRHand_albedo.png";
+        // Per-set albedo, extracted from each source GLB and committed as a loose PNG
+        // (each L/R pair shares one atlas). No normal maps are used (BoardLit flat bump).
+        //   VRHand       — original leather glove (default style)
+        //   VRHandPlate  — plate-armor gauntlet   (prepare_hand.py + rig_hand.py, Hunyuan3D)
+        //   VRHandArcane — arcane-runes mage glove (same pipeline)
+        private static readonly (string baseName, string albedo)[] HandSets =
+        {
+            ("VRHand",       Hands + "/VRHand_albedo.png"),
+            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png"),
+            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png"),
+        };
 
         // Every transform name the mod's HandVisuals.MapPrefabRig resolves by name.
         private static readonly string[] ContractBones =
@@ -55,8 +66,11 @@ namespace GloomhavenVR
             try
             {
                 AssetDatabase.Refresh();
-                BuildHand("VRHand_L_rig.fbx", "VRHand_L");
-                BuildHand("VRHand_R_rig.fbx", "VRHand_R");
+                foreach ((string baseName, string albedo) in HandSets)
+                {
+                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo);
+                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo);
+                }
                 AssetsBuilder.BuildAll(); // exits the editor (0/1)
             }
             catch (System.Exception e)
@@ -67,13 +81,13 @@ namespace GloomhavenVR
             }
         }
 
-        private static void BuildHand(string fbxName, string rootName)
+        private static void BuildHand(string fbxName, string rootName, string albedoPath)
         {
             string fbx = $"{Hands}/{fbxName}";
             Debug.Log($"[GloomhavenVR] === building {rootName} from {fbx} ===");
 
             ImportModel(fbx);
-            Material mat = BuildMaterial(rootName);
+            Material mat = BuildMaterial(rootName, albedoPath);
             AssemblePrefab(fbx, rootName, mat);
         }
 
@@ -105,14 +119,14 @@ namespace GloomhavenVR
             importer.SaveAndReimport();
         }
 
-        private static Material BuildMaterial(string rootName)
+        private static Material BuildMaterial(string rootName, string albedoPath)
         {
             Shader shader = Shader.Find(ShaderName)
                             ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
 
-            var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(AlbedoPath);
+            var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(albedoPath);
             if (albedo == null)
-                Debug.LogWarning($"[GloomhavenVR] Albedo not found at {AlbedoPath} — hand will be an untextured tint.");
+                Debug.LogWarning($"[GloomhavenVR] Albedo not found at {albedoPath} — hand will be an untextured tint.");
 
             var mat = new Material(shader) { name = rootName };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);

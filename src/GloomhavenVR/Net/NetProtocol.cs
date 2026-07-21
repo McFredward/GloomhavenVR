@@ -90,6 +90,14 @@ internal static class NetProtocol
     /// remote card fans / boards sit on the correct non-dominant side).</summary>
     public const byte FlagDominantRight = 1 << 5;
 
+    /// <summary>Rig packet: a 1-byte HAND STYLE (0 Glove / 1 Plate / 2 Arcane) trails the packet
+    /// (after the optional held-figure block). ADDITIVE v3 extension — no version bump: the v3
+    /// reader validates only the bytes its known flags demand and ignores both unknown flag bits
+    /// and trailing bytes, so peers built before this flag parse the packet unchanged and simply
+    /// render the default Glove hands. Readers that DO know the flag get the sender's choice and
+    /// clamp it to the shipped style range.</summary>
+    public const byte FlagHandStyle = 1 << 6;
+
     // ---- extras (type 1) flag bits --------------------------------------------------------
 
     /// <summary>Extras packet: a control-board pose (pos+rot+scale) is present.</summary>

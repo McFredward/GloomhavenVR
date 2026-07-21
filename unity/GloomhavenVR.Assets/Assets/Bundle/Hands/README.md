@@ -38,3 +38,31 @@ Conventions:
 - Keep polycount as-is (the "slim" gloves are already low-poly).
 - Everything in this folder except `*.md` / `*.txt` / dotfiles is packed into
   `gloomhavenvr.bundle` by `Assets/Editor/BuildBundles.cs`.
+
+## Alternative hand styles (selectable at runtime)
+
+Three skinned hand SETS ship in the bundle; the mod's `[Hands] HandStyle` setting
+(VR settings panel, live rebuild) picks the pair, and the choice is synced to other
+VR players (`Net.AvatarState.HandStyle`, additive wire-v3 trailing byte):
+
+| Style  | Prefab pair | Source |
+|---|---|---|
+| Glove (default) | `VRHand_L/R.prefab` | original leather glove (`Hand_prepped.glb`, hardcoded joints in `rig_hand.py`) |
+| Plate  | `VRHandPlate_L/R.prefab` | Hunyuan3D plate-armor gauntlet (`hunyuan3d-a22a9142…glb`) |
+| Arcane | `VRHandArcane_L/R.prefab` | Hunyuan3D arcane-runes mage glove (`hunyuan3d-31b7b393…glb`) |
+
+Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
+
+1. `prepare_hand.py <raw.glb> <HandPlate|HandArcane>` — canonicalize orientation
+   (mirror to the LEFT-hand contract frame), pre-decimate global weld, decimate,
+   de-lean, wrist/finger landmark detection -> `ressources/hands/<name>_prepped.glb`
+   (gitignored) + `unity/hand-prep/<name>_joints.json` (committed) + the loose
+   `VRHand<Style>_albedo.png` here.
+2. `rig_hand.py` with `RIG_HAND_SRC/RIG_HAND_NAME/RIG_HAND_JOINTS/RIG_HAND_EMBED=0`
+   -> `VRHand<Style>_L/R_rig.fbx` here (same 19-bone contract rig as the glove; the
+   default no-env invocation still builds the original glove unchanged).
+3. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
+   `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
+
+Missing styled prefabs (old bundle) degrade to the Glove pair at runtime; no bundle
+at all still degrades to the procedural hand.

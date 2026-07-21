@@ -43,6 +43,16 @@ internal struct AvatarState
     public byte MaskId;
 
     /// <summary>
+    /// Which HAND STYLE the sender picked in VR settings (<c>[Hands] HandStyle</c>:
+    /// 0 Glove / 1 Plate / 2 Arcane — see <see cref="Hands.HandStyle"/>). Carried as an
+    /// ADDITIVE trailing byte gated by <see cref="NetProtocol.FlagHandStyle"/>, so v3
+    /// peers built before this field simply ignore it and render the default Glove hands
+    /// (no version bump, no compat break). Receivers clamp to the shipped style range and
+    /// degrade Plate/Arcane to Glove when the styled prefab is missing from their bundle.
+    /// </summary>
+    public byte HandStyle;
+
+    /// <summary>
     /// Sender's rig <c>lossyScale</c> (game units per real meter). The receiver sizes the
     /// remote hands/head by this so a 15 cm real hand reads the same physical size above the
     /// shared board regardless of the sender's diorama zoom. 1 when unknown.

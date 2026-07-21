@@ -43,11 +43,29 @@
 #   axis with +X curling toward -Y. Verified numerically by the pose test below.
 # ---------------------------------------------------------------------------------------
 
-import bpy, bmesh, math, os, sys
+import bpy, bmesh, json, math, os, sys
 from mathutils import Vector, Matrix
 from mathutils.kdtree import KDTree
 
-SRC = "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb"
+# ---- GENERALIZATION (alternative hand styles) -----------------------------------------
+# The DEFAULT invocation (no env) reproduces the original glove build byte-for-byte:
+# same source, same hardcoded joints, same output names. Alternative hands (prepared by
+# prepare_hand.py) are rigged by pointing these env vars at their artifacts:
+#   RIG_HAND_SRC     input prepped GLB     (default: the original Hand_prepped.glb)
+#   RIG_HAND_NAME    asset base name       (default "VRHand" -> VRHand_L_rig.fbx / _R_;
+#                    e.g. "VRHandPlate" -> VRHandPlate_L_rig.fbx / VRHandPlate_R_rig.fbx)
+#   RIG_HAND_JOINTS  path to a <model>_joints.json from prepare_hand.py — replaces the
+#                    hardcoded joint/anchor constants + CAP_UV and switches the watertight
+#                    pass's wrist handling to the JSON's "wrist_mode"
+#   RIG_HAND_EMBED   "0" -> do not embed textures in the FBX (path_mode STRIP; the loose
+#                    albedo PNG is what Unity binds anyway). Default "1" (original glove).
+#   RIG_HAND_RENDER_DIR  when set, write offscreen verification renders (rest + fist)
+SRC = os.environ.get("RIG_HAND_SRC",
+                     "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb")
+NAME = os.environ.get("RIG_HAND_NAME", "VRHand")
+JOINTS_JSON = os.environ.get("RIG_HAND_JOINTS", "")
+EMBED_TEX = os.environ.get("RIG_HAND_EMBED", "1") != "0"
+RENDER_DIR = os.environ.get("RIG_HAND_RENDER_DIR", "")
 # OUT_DIR: overridable via env so this can target an isolated worktree without
 # touching the main checkout. Default remains the main checkout (unchanged behaviour).
 OUT_DIR = os.environ.get(
@@ -73,6 +91,26 @@ PALM_L       = Vector((0.010, -0.005, 0.055))   # palm centre
 GRAB_L       = Vector((0.008, -0.015, 0.065))   # grip point (fingers close against palm)
 INDEXTIP_L   = Vector((-0.013, 0.012, 0.178))   # index fingertip point anchor
 TIP_TAIL_LEN = 0.014                            # leaf-bone (Tip) tail length along finger dir
+
+# Wrist handling in the watertight pass: 'require_open' (original glove — the ragged rim
+# must stay open, hard-fail if a fill seals it) or 'protect' (alternative hands — wrist-
+# band boundary edges are EXCLUDED from hole fills; a naturally closed cuff is fine).
+WRIST_MODE = "require_open"
+
+# RIG_HAND_JOINTS: replace the hardcoded landmark constants with prepare_hand.py's
+# per-model detection output. CAP_UV is overridden further below (defined later).
+_JSON_CAP_UV = None
+if JOINTS_JSON:
+    with open(JOINTS_JSON) as _f:
+        _jd = json.load(_f)
+    JOINTS_L = {f: [Vector(p) for p in _jd["joints"][f]] for f in FINGERS}
+    WRIST_L = Vector(_jd["wrist"])
+    PALM_L = Vector(_jd["palm"])
+    GRAB_L = Vector(_jd["grab"])
+    INDEXTIP_L = Vector(_jd["indextip"])
+    WRIST_MODE = _jd.get("wrist_mode", "protect")
+    _JSON_CAP_UV = tuple(_jd.get("cap_uv", (0.5, 0.5)))
+    print(f"[rig_hand] joints loaded from {JOINTS_JSON} (asset {NAME}, wrist_mode {WRIST_MODE})")
 
 # ---- PRIORITY-3: watertight inner "backing core" (OPT-IN, OFF by default) -------------
 # The AI outer shell is 310 non-manifold shells with small see-through gaps (worst on the
@@ -171,7 +209,11 @@ WT_ENABLE = os.environ.get("RIG_HAND_WATERTIGHT", "1") != "0"     # ON by defaul
 # the surrounding texture); a corner with no prior loop falls back to this texel, chosen by
 # scanning VRHand_albedo.png for a dark, uniform 32 px block:
 # px(752,1968) of 2048², mean RGB (74,56,37), std < 1.
+# For alternative hands the equivalent texel is scanned per model by prepare_hand.py and
+# arrives via the joints JSON.
 CAP_UV = (0.3672, 0.0391)
+if _JSON_CAP_UV is not None:
+    CAP_UV = _JSON_CAP_UV
 
 
 def _fix_new_face_uvs(bm, new_faces):
@@ -211,6 +253,16 @@ def make_watertight(o):
         return nb
 
     before = _nonman("before")
+    # Wrist-band protection ('protect' mode, alternative hands): the cuff rim of a
+    # prepped Hunyuan hand can be a CLEAN boundary loop, which holes_fill would plug
+    # with an ugly pie-disc. Exclude everything in the bottom band from fills/welds.
+    zmin_all = min(v.co.z for v in me.vertices)
+    band_top = zmin_all + 0.02
+    protect = WRIST_MODE == "protect"
+
+    def _in_band(v):
+        return v.co.z < band_top
+
     # 1) global weld of coincident shell seams
     bm = bmesh.new(); bm.from_mesh(me)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WT_MERGE)
@@ -222,12 +274,17 @@ def make_watertight(o):
     uv_fixed = 0
     for _ in range(WT_PASSES):
         bm = bmesh.new(); bm.from_mesh(me)
-        res = bmesh.ops.holes_fill(bm, edges=bm.edges, sides=0)
+        edges1 = bm.edges if not protect else \
+            [e for e in bm.edges if not (_in_band(e.verts[0]) and _in_band(e.verts[1]))]
+        res = bmesh.ops.holes_fill(bm, edges=edges1, sides=0)
         uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
-        bnd = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
+        bnd = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)
+               and not (protect and _in_band(v))]
         if bnd:
             bmesh.ops.remove_doubles(bm, verts=bnd, dist=WT_BWELD)
-        res = bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)
+        edges2 = [e for e in bm.edges if e.is_boundary
+                  and not (protect and _in_band(e.verts[0]) and _in_band(e.verts[1]))]
+        res = bmesh.ops.holes_fill(bm, edges=edges2, sides=0)
         uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
         bm.to_mesh(me); bm.free(); me.update()
 
@@ -246,11 +303,15 @@ def make_watertight(o):
     wrist_open = sum(1 for e in bm.edges
                      if e.is_boundary and e.verts[0].co.z < band and e.verts[1].co.z < band)
     bm.free()
-    if wrist_open == 0:
+    if wrist_open == 0 and not protect:
         raise SystemExit("watertight: wrist rim got sealed by holes_fill — it must stay open "
                          "(no cap); loosen WT_BWELD or exclude the wrist band from step 2")
-    log(f"watertight: wrist rim left OPEN ({wrist_open} boundary edges in the 2 cm min-Z band; "
-        f"interior visible via two-sided material)")
+    if protect:
+        log(f"watertight: wrist band protected from fills — {wrist_open} boundary edges remain "
+            f"in the 2 cm min-Z band ({'open rim' if wrist_open else 'naturally closed cuff'})")
+    else:
+        log(f"watertight: wrist rim left OPEN ({wrist_open} boundary edges in the 2 cm min-Z band; "
+            f"interior visible via two-sided material)")
     log(f"watertight: assigned real UVs to {uv_fixed} loops of filled faces "
         f"(new BMesh faces default to UV (0,0) — a BLACK texel in this atlas)")
 
@@ -407,10 +468,19 @@ def skin(mesh, arm, joints, wrist, palm):
     verts = mesh.data.vertices
     nV = len(verts)
 
+    # Verts BELOW the wrist crease (long cuffs on the alternative hands; the original
+    # glove has no geometry below z=0) are rigid armor/cloth around the forearm — bind
+    # them 100% to the wrist bone, or distant finger chains pick up partial weights and
+    # SHRED the cuff into stretched sheets when a fist is made (render-verified).
+    CUFF_Z = -0.002
+
     # ---- pass 1: raw proximity weights (dict per vertex) --------------------------------
     vert_w = [dict() for _ in range(nV)]
     for v in verts:
         co = v.co
+        if co.z < CUFF_Z:
+            vert_w[v.index] = {"Anchor_Wrist": 1.0}
+            continue
         dW = _seg_dist(co, *wrist_seg)
         # nearest finger by its closest segment
         best_f, best_d = None, 1e9
@@ -437,6 +507,9 @@ def skin(mesh, arm, joints, wrist, palm):
     for _ in range(ITERS):
         smoothed = [None] * nV
         for v in verts:
+            if v.co.z < CUFF_Z:                  # cuff stays rigidly on the wrist bone
+                smoothed[v.index] = vert_w[v.index]
+                continue
             acc = dict(vert_w[v.index])          # start from self
             near = kd.find_range(v.co, RADIUS)
             cnt = 0
@@ -563,7 +636,7 @@ def sample_weights(mesh, joints):
 def build_core(src_mesh, arm, joints, wrist, palm, side):
     """Watertight inset backing core skinned to the same armature (see CORE_* notes)."""
     me = src_mesh.data.copy()
-    core = bpy.data.objects.new(f"VRHand_{side}_core", me)
+    core = bpy.data.objects.new(f"{NAME}_{side}_core", me)
     bpy.context.scene.collection.objects.link(core)
     bpy.ops.object.select_all(action='DESELECT')
     core.select_set(True)
@@ -620,8 +693,8 @@ def export_fbx(path, meshes, arm):
         # a real-world ~0.19 m hand. Mesh/bone orientation and rolls are unchanged
         # (bake_space_transform stays on), so the rig contract is preserved.
         apply_scale_options='FBX_SCALE_ALL',
-        path_mode='COPY',
-        embed_textures=True,
+        path_mode='COPY' if EMBED_TEX else 'STRIP',
+        embed_textures=EMBED_TEX,
         mesh_smooth_type='FACE',
         use_armature_deform_only=False,
         bake_anim=False,
@@ -641,10 +714,10 @@ def build_hand(side):
         joints = {f: [mirror_x(v) for v in joints[f]] for f in FINGERS}
         wrist, palm, grab, itip = (mirror_x(v) for v in (wrist, palm, grab, itip))
 
-    mesh.name = f"VRHand_{side}_mesh"
+    mesh.name = f"{NAME}_{side}_mesh"
     if WT_ENABLE:
         make_watertight(mesh)   # close AI see-through holes BEFORE skinning (proximity re-skins)
-    arm = build_armature(joints, wrist, palm, grab, itip, f"VRHand_{side}")
+    arm = build_armature(joints, wrist, palm, grab, itip, f"{NAME}_{side}")
     skin(mesh, arm, joints, wrist, palm)
     sample_weights(mesh, joints)
     results = pose_test(mesh, arm, joints, side)
@@ -652,11 +725,55 @@ def build_hand(side):
     return mesh, arm, joints, results, core
 
 
+def render_views(side, tag):
+    """Offscreen verification renders of the CURRENT scene (mesh + armature), rest or
+    posed. Only runs when RIG_HAND_RENDER_DIR is set — the default build is untouched."""
+    world = bpy.data.worlds.get("RigW") or bpy.data.worlds.new("RigW")
+    world.use_nodes = True
+    world.node_tree.nodes["Background"].inputs[1].default_value = 1.2
+    scn = bpy.context.scene
+    scn.world = world
+    scn.render.engine = 'BLENDER_EEVEE_NEXT'
+    scn.render.resolution_x = 640
+    scn.render.resolution_y = 640
+
+    cam = bpy.data.objects.get("RigCam")
+    if cam is None:
+        cam_data = bpy.data.cameras.new("RigCam")
+        cam_data.lens = 50
+        cam = bpy.data.objects.new("RigCam", cam_data)
+        scn.collection.objects.link(cam)
+        sun_d = bpy.data.lights.new("RigSun", 'SUN')
+        sun_d.energy = 3.0
+        sun = bpy.data.objects.new("RigSun", sun_d)
+        scn.collection.objects.link(sun)
+    scn.camera = cam
+    sun = bpy.data.objects["RigSun"]
+
+    ctr = Vector((0, 0, 0.05))
+    d = 0.62
+
+    def look_at(o, frm, to):
+        o.rotation_euler = (to - frm).to_track_quat('-Z', 'Y').to_euler()
+
+    mirror = -1.0 if side == "R" else 1.0
+    for shot, off in {"back": Vector((0, d, 0.08)), "palm": Vector((0, -d, 0.08)),
+                      "threeq": Vector((mirror * -d * 0.7, d * 0.7, d * 0.4))}.items():
+        pos = ctr + off
+        cam.location = pos
+        look_at(cam, pos, ctr)
+        sun.location = pos
+        look_at(sun, pos, ctr)
+        scn.render.filepath = os.path.join(RENDER_DIR, f"{NAME}_{side}_{tag}_{shot}.png")
+        bpy.ops.render.render(write_still=True)
+        log("render", scn.render.filepath)
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     summary = {}
 
-    for side, fname in (("L", "VRHand_L_rig.fbx"), ("R", "VRHand_R_rig.fbx")):
+    for side, fname in (("L", f"{NAME}_L_rig.fbx"), ("R", f"{NAME}_R_rig.fbx")):
         log(f"==================== BUILD {side} ====================")
         mesh, arm, joints, results, core = build_hand(side)
         allpass = print_table(results, side)
@@ -668,6 +785,25 @@ def main():
             pb.rotation_mode = 'XYZ'
             pb.rotation_euler = (0.0, 0.0, 0.0)
         bpy.ops.object.mode_set(mode='OBJECT')
+
+        if RENDER_DIR:
+            os.makedirs(RENDER_DIR, exist_ok=True)
+            render_views(side, "rest")
+            # fist pose: +40deg on every finger joint (what the pose test asserts)
+            bpy.ops.object.mode_set(mode='POSE')
+            for f in FINGERS:
+                for seg in ("Root", "Mid", "Tip"):
+                    arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = \
+                        (math.radians(40.0), 0.0, 0.0)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.context.view_layer.update()
+            render_views(side, "fist")
+            bpy.ops.object.mode_set(mode='POSE')
+            for pb in arm.pose.bones:
+                pb.rotation_euler = (0.0, 0.0, 0.0)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.context.view_layer.update()
+
         meshes = [mesh] + ([core] if core else [])
         export_fbx(os.path.join(OUT_DIR, fname), meshes, arm)
         # wipe scene for the next hand
