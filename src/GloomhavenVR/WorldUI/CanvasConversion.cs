@@ -251,6 +251,21 @@ internal struct NestedCanvasRecord
 
     /// <summary>Raycaster added by us (destroyed on Release); null when the canvas already had one.</summary>
     public GraphicRaycaster? AddedRaycaster;
+
+    /// <summary>
+    /// Task #7 (dropdowns): TRUE for a transient uGUI-Dropdown overlay canvas — the
+    /// "Dropdown List" the Dropdown spawns inside the subtree and the fullscreen
+    /// "Blocker" it parents under the ROOT (host) canvas. These MUST keep
+    /// <c>overrideSorting</c> so they render ON TOP of the whole menu (that is their
+    /// entire purpose); clearing it — the generic adoption behavior — dropped the open
+    /// list to host order at its hierarchy position, i.e. BEHIND siblings drawn later,
+    /// and the "vanished" list then blocked re-opening (TMP_Dropdown.Show is a no-op
+    /// while <c>m_Dropdown != null</c>). See <see cref="CanvasConversion.AdoptCanvas"/>.
+    /// </summary>
+    public bool KeepOverrideSorting;
+
+    /// <summary>Sorting order re-asserted while adopted (only when <see cref="KeepOverrideSorting"/>).</summary>
+    public int OverlaySortingOrder;
 }
 
 /// <summary>
@@ -677,62 +692,169 @@ internal static class CanvasConversion
     /// bring canvases after conversion, and the game can flip overrideSorting back
     /// on live (AbilityCardUI/CardHighlight set it; ToggleSortingOrder's sortingOrder
     /// writes are harmless with override off) — re-asserted here, silently.
+    ///
+    /// TASK #7 (dropdown menus unusable in VR) — two carve-outs, both verified against
+    /// the decompiled <c>TMP_Dropdown</c> (Unity.TextMeshPro.dll; <c>ExtendedDropdown</c>
+    /// derives from it):
+    /// - The "Dropdown List" the Dropdown spawns INSIDE the subtree on open
+    ///   (<c>Show()</c>: canvas with <c>overrideSorting=true, sortingOrder=30000</c>)
+    ///   and the fullscreen "Blocker" it parents under the ROOT canvas — the HOST
+    ///   (<c>CreateBlocker(rootCanvas)</c>: order 29999, clear Image, Button→Hide) are
+    ///   adopted KEEPING overrideSorting: an open dropdown must render ON TOP of the
+    ///   whole menu, and the Blocker must catch outside-clicks to close it. Generic
+    ///   adoption cleared the override → the list dropped to host order at its
+    ///   hierarchy position (BEHIND siblings drawn later, "vanished"), and since
+    ///   <c>Show()</c> is a no-op while <c>m_Dropdown != null</c>, the next click on
+    ///   the dropdown could not reopen it either. Their orders are re-based from the
+    ///   game's 30000/29999 to <see cref="DropdownListSortingOrder"/>/<see
+    ///   cref="DropdownBlockerSortingOrder"/> — still above every host canvas (1000)
+    ///   and the ModalCloseButton X (1100), but BELOW the laser beam/dot visuals
+    ///   (RayInteractor.RayVisualSortingOrder=5000) so the pointer dot stays visible
+    ///   over the open list. Registered as nested raycast surfaces like everything
+    ///   else, so the laser clicks the item Toggles and the Blocker
+    ///   (UguiPointer.Beats: 4000/3999 beat host content; the list beats the Blocker).
+    /// - The game DESTROYS both on close (<c>DelayedDestroyDropdownList</c>/
+    ///   <c>DestroyBlocker</c>) — dead records are pruned at sweep time so the
+    ///   adoption list cannot grow per open/close cycle and Release has nothing
+    ///   stale to restore.
+    /// Returns true when a NEW canvas was adopted this pass (callers re-run the
+    /// mod-layer sweep immediately so a freshly spawned list/blocker never renders
+    /// on the game UI layer).
     /// </summary>
-    private static void AdoptNestedCanvases(ConvertedPanel panel)
+    private static bool AdoptNestedCanvases(ConvertedPanel panel)
     {
-        panel.CanvasSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
+        // Task #7: modal hosts now run this scan EVERY frame (see Tick) — advance the
+        // periodic schedule only when it was actually due, otherwise the per-frame runs
+        // would push the deadline forever forward and the schedule-driven consumers
+        // (the ApplyModLayer re-sweep for pooled children) would never fire again.
+        if (Time.frameCount >= panel.CanvasSweepNextFrame)
+            panel.CanvasSweepNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
         if (panel.Target == null)
-            return;
+            return false;
 
+        // Task #7: prune records whose canvas the game destroyed (a closed dropdown
+        // list/blocker). Nothing to restore — the GameObject is gone.
+        for (int i = panel.AdoptedCanvases.Count - 1; i >= 0; i--)
+        {
+            if (panel.AdoptedCanvases[i].Canvas == null)
+                panel.AdoptedCanvases.RemoveAt(i);
+        }
+
+        bool anyNew = false;
         CanvasScratch.Clear();
         panel.Target.GetComponentsInChildren(includeInactive: true, CanvasScratch);
         for (int i = 0; i < CanvasScratch.Count; i++)
-        {
-            Canvas nested = CanvasScratch[i];
-            if (nested == null)
-                continue;
-
-            if (IsAdopted(panel, nested))
-            {
-                // Re-assert per sweep (change-only writes; no log — the adoption
-                // line below already documented this canvas once).
-                if (nested.overrideSorting)
-                    nested.overrideSorting = false;
-                if (nested.worldCamera != panel.HostCanvas.worldCamera)
-                    nested.worldCamera = panel.HostCanvas.worldCamera;
-                continue;
-            }
-
-            var record = new NestedCanvasRecord
-            {
-                Canvas = nested,
-                OriginalOverrideSorting = nested.overrideSorting,
-                OriginalWorldCamera = nested.worldCamera,
-            };
-            nested.overrideSorting = false;
-            nested.worldCamera = panel.HostCanvas.worldCamera;
-            if (nested.GetComponent<GraphicRaycaster>() == null)
-                record.AddedRaycaster = nested.gameObject.AddComponent<GraphicRaycaster>();
-
-            UguiPokeSurfaces.RegisterNested(panel.HostCanvas, nested);
-            panel.AdoptedCanvases.Add(record);
-            VRLog.Info("WorldUI", $"Adopted nested canvas '{nested.name}' in '{panel.HostGo.name}' " +
-                                  $"(overrideSorting {record.OriginalOverrideSorting}→false, " +
-                                  $"sortingOrder={nested.sortingOrder}, raycaster " +
-                                  (record.AddedRaycaster != null ? "added" : "existing") +
-                                  ") — inherits host sorting/depth, raycasts merged with the host.");
-        }
+            anyNew |= AdoptCanvas(panel, CanvasScratch[i]);
         CanvasScratch.Clear();
+
+        // Task #7: the Dropdown's fullscreen "Blocker" is parented under the ROOT
+        // canvas — the HOST — i.e. OUTSIDE the converted target subtree the loop above
+        // scans. Adopt it from the host's DIRECT children, name-gated so mod-owned
+        // sibling canvases (ModalCloseButton's X) are never touched.
+        if (panel.HostRect != null)
+        {
+            for (int i = 0; i < panel.HostRect.childCount; i++)
+            {
+                Transform child = panel.HostRect.GetChild(i);
+                if (child == null || child.name != DropdownBlockerName)
+                    continue;
+                Canvas? blocker = child.GetComponent<Canvas>();
+                if (blocker != null)
+                    anyNew |= AdoptCanvas(panel, blocker);
+            }
+        }
+        return anyNew;
     }
 
-    private static bool IsAdopted(ConvertedPanel panel, Canvas nested)
+    /// <summary>Name of the transient list GameObject a uGUI/TMP Dropdown spawns on open.</summary>
+    private const string DropdownListName = "Dropdown List";
+
+    /// <summary>Name of the fullscreen close-on-outside-click catcher a Dropdown parents under the root canvas.</summary>
+    private const string DropdownBlockerName = "Blocker";
+
+    /// <summary>
+    /// Task #7: adopted sorting order of an open "Dropdown List" — above every host canvas
+    /// (1000) and the modal X (1100), below the laser beam/dot visuals (5000).
+    /// </summary>
+    private const int DropdownListSortingOrder = 4000;
+
+    /// <summary>Task #7: adopted order of the Dropdown "Blocker" — one under the list, same rationale.</summary>
+    private const int DropdownBlockerSortingOrder = 3999;
+
+    private static bool IsDropdownOverlay(Canvas nested) =>
+        nested.name == DropdownListName || nested.name == DropdownBlockerName;
+
+    /// <summary>
+    /// Adopt (or re-assert) ONE nested canvas for <paramref name="panel"/> — see
+    /// <see cref="AdoptNestedCanvases"/> for the contract, incl. the task-#7 dropdown
+    /// overlay carve-out. Returns true only when the canvas was NEWLY adopted.
+    /// </summary>
+    private static bool AdoptCanvas(ConvertedPanel panel, Canvas nested)
     {
+        if (nested == null || ReferenceEquals(nested, panel.HostCanvas))
+            return false;
+
+        // Already adopted → re-assert per sweep (change-only writes; no log — the
+        // adoption line below already documented this canvas once).
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
-            if (ReferenceEquals(panel.AdoptedCanvases[i].Canvas, nested))
-                return true;
+            NestedCanvasRecord existing = panel.AdoptedCanvases[i];
+            if (!ReferenceEquals(existing.Canvas, nested))
+                continue;
+            if (existing.KeepOverrideSorting)
+            {
+                // Task #7: a dropdown overlay stays TOP-sorted while it lives.
+                if (!nested.overrideSorting)
+                    nested.overrideSorting = true;
+                if (nested.sortingOrder != existing.OverlaySortingOrder)
+                    nested.sortingOrder = existing.OverlaySortingOrder;
+            }
+            else if (nested.overrideSorting)
+            {
+                nested.overrideSorting = false;
+            }
+            if (nested.worldCamera != panel.HostCanvas.worldCamera)
+                nested.worldCamera = panel.HostCanvas.worldCamera;
+            return false;
         }
-        return false;
+
+        bool overlay = IsDropdownOverlay(nested);
+        var record = new NestedCanvasRecord
+        {
+            Canvas = nested,
+            OriginalOverrideSorting = nested.overrideSorting,
+            OriginalWorldCamera = nested.worldCamera,
+            KeepOverrideSorting = overlay,
+            OverlaySortingOrder = nested.name == DropdownBlockerName
+                ? DropdownBlockerSortingOrder
+                : DropdownListSortingOrder,
+        };
+        if (overlay)
+        {
+            nested.overrideSorting = true;                    // keep the on-top contract
+            nested.sortingOrder = record.OverlaySortingOrder; // re-based below the ray visuals
+        }
+        else
+        {
+            nested.overrideSorting = false;
+        }
+        nested.worldCamera = panel.HostCanvas.worldCamera;
+        if (nested.GetComponent<GraphicRaycaster>() == null)
+            record.AddedRaycaster = nested.gameObject.AddComponent<GraphicRaycaster>();
+
+        UguiPokeSurfaces.RegisterNested(panel.HostCanvas, nested);
+        panel.AdoptedCanvases.Add(record);
+        VRLog.Info("WorldUI", overlay
+            ? $"Adopted DROPDOWN overlay canvas '{nested.name}' in '{panel.HostGo.name}' " +
+              $"(overrideSorting KEPT, sortingOrder re-based →{record.OverlaySortingOrder}, raycaster " +
+              (record.AddedRaycaster != null ? "added" : "existing") +
+              ") — renders on top of the menu, raycasts merged with the host (task #7)."
+            : $"Adopted nested canvas '{nested.name}' in '{panel.HostGo.name}' " +
+              $"(overrideSorting {record.OriginalOverrideSorting}→false, " +
+              $"sortingOrder={nested.sortingOrder}, raycaster " +
+              (record.AddedRaycaster != null ? "added" : "existing") +
+              ") — inherits host sorting/depth, raycasts merged with the host.");
+        return true;
     }
 
     // ---- dedicated mod layer for floated modals (user #8: UI-Camera double-draw) ----------
@@ -1093,6 +1215,67 @@ internal static class CanvasConversion
 
         size = sz;
         center = (min + max) * 0.5f;
+        return true;
+    }
+
+    /// <summary>
+    /// Task #6 (depth mask must not occlude other menus through EMPTY panel regions):
+    /// measure the raw union bounding rect — HOST-LOCAL pixels, min/max corners — of the
+    /// window's actually-VISIBLE graphics, with the exact same visibility test the
+    /// content fit uses (<see cref="TryMeasureContent"/>: enabled, not culled, effective
+    /// alpha ≥ 0.05, non-degenerate draw rect) but WITHOUT the fit's target-frame clamp
+    /// or padding: <see cref="GrabbableModal.SyncDepthMask"/> sizes the coplanar depth
+    /// mask to THIS union each tick, so the mask stamps depth only where opaque content
+    /// actually renders (the Options submenu's left rail + the opened pane) instead of
+    /// across the full host rect — the empty region stays truly transparent, other
+    /// menus behind it included. Unclamped on purpose: an open dropdown list may extend
+    /// content and the mask should back it wherever it draws. Returns false when nothing
+    /// visible is measurable (caller disables the mask). Reuses the fit scratch buffers
+    /// (single-threaded, never re-entered).
+    /// </summary>
+    internal static bool TryMeasureVisibleUnion(ConvertedPanel panel, out Vector2 min, out Vector2 max)
+    {
+        min = default;
+        max = default;
+        if (panel == null || panel.Target == null || panel.HostRect == null)
+            return false;
+
+        Vector2 mn = new(float.MaxValue, float.MaxValue);
+        Vector2 mx = new(float.MinValue, float.MinValue);
+        bool any = false;
+
+        GraphicScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: false, GraphicScratch);
+        for (int i = 0; i < GraphicScratch.Count; i++)
+        {
+            Graphic g = GraphicScratch[i];
+            if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
+                continue;
+            // Effective alpha: own color × hierarchy (CanvasGroup) alpha — matches the
+            // fit's visibility test, so a CanvasGroup-hidden pane never grows the mask.
+            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
+                continue;
+            var rect = (RectTransform)g.transform;
+            Rect drawRect = rect.rect;
+            if (drawRect.width < 0.5f || drawRect.height < 0.5f)
+                continue;
+            rect.GetWorldCorners(CornerScratch);
+            for (int c = 0; c < 4; c++)
+            {
+                Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
+                if (local.x < mn.x) mn.x = local.x;
+                if (local.y < mn.y) mn.y = local.y;
+                if (local.x > mx.x) mx.x = local.x;
+                if (local.y > mx.y) mx.y = local.y;
+            }
+            any = true;
+        }
+        GraphicScratch.Clear();
+
+        if (!any)
+            return false;
+        min = mn;
+        max = mx;
         return true;
     }
 
@@ -1506,12 +1689,21 @@ internal static class CanvasConversion
 
             // Tests #19/#20: pooled/late children may bring nested canvases after
             // Convert, and the game can flip overrideSorting back on live.
-            if (earlySettle || Time.frameCount >= panel.CanvasSweepNextFrame)
+            // Task #7: MODAL hosts (Diagnostic) sweep EVERY frame — a uGUI Dropdown
+            // spawns its "Dropdown List"/"Blocker" canvases mid-life on a click, and on
+            // the 30-frame schedule the open list stayed laser-unclickable (not yet
+            // raycast-merged) for up to ~0.4 s. The scan is a cheap component walk of
+            // the (few) floated modal subtrees; writes stay change-gated. The heavier
+            // mod-layer re-sweep still runs only on schedule OR when this pass actually
+            // adopted a NEW canvas (the fresh list/blocker must leave the game UI layer
+            // before the game's mono UI Camera double-draws it).
+            bool sweepDue = Time.frameCount >= panel.CanvasSweepNextFrame;
+            if (earlySettle || sweepDue || panel.Diagnostic)
             {
-                AdoptNestedCanvases(panel);
+                bool adoptedNew = AdoptNestedCanvases(panel);
                 // User #8: a freshly adopted/pooled child spawns on the game's UI layer —
                 // re-assert the mod-layer move so the UI Camera never picks it up.
-                if (panel.ModLayerEnabled)
+                if (panel.ModLayerEnabled && (earlySettle || sweepDue || adoptedNew))
                     ApplyModLayer(panel, initial: false);
             }
 
@@ -1625,6 +1817,11 @@ internal static class CanvasConversion
         {
             Canvas nested = panel.AdoptedCanvases[i].Canvas;
             if (nested == null)
+                continue;
+            // Task #7: dropdown overlays (list/blocker) KEEP overrideSorting by design —
+            // AdoptCanvas re-asserts their top order; clearing it here would re-create
+            // the vanishing-dropdown bug this guard must not fight.
+            if (panel.AdoptedCanvases[i].KeepOverrideSorting)
                 continue;
             if (nested.overrideSorting)
             {
