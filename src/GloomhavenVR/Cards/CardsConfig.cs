@@ -261,6 +261,12 @@ internal static class CardsConfig
     /// <summary>Fan (global): hover-split scale — multiplies FanSplitMultiplier so the hover gap stays proportional to the (wider) card spacing. Seeded to the old local 1.45.</summary>
     internal static ConfigEntry<float> FanHoverSplitScale = null!;
 
+    /// <summary>
+    /// Browse fan (global): offset ADDED to the poke-toggle pile BROWSE fan's fixed above-board
+    /// anchor, board-local meters (in-VR debug menu, Piles element). Z NEGATIVE = toward the player.
+    /// </summary>
+    internal static ConfigEntry<Vector3> BrowseFanOffset = null!;
+
     internal static void Bind()
     {
         if (_file != null)
@@ -611,6 +617,14 @@ internal static class CardsConfig
                 "fan opens around a hovered card stays proportional to the (wider) card spacing. " +
                 "Seeded 1.45 (the old item-8 local const).",
                 new AcceptableValueRange<float>(0.5f, 3f)));
+        BrowseFanOffset = _file.Bind("Cards", "BrowseFanOffset", Vector3.zero,
+            "Pile BROWSE fan anchor offset, board-local meters ADDED to the fixed above-board base " +
+            "pose (x 0, y board-top + 0.26, z -0.05). X = along the board's long axis (+right), " +
+            "Y = up above the board face, Z = out of the board face (NEGATIVE = toward the player). " +
+            "GLOBAL (not per-board): the anchor is board-LOCAL, so it already rides every board's " +
+            "own pose and scale. Live: PileBrowser re-reads it every frame while a browse fan is " +
+            "open, so the in-VR debug menu's Piles-element 'Browse X/Y/Z' steppers move the open " +
+            "fan immediately. Seeded 0 (today's placement).");
     }
 
     /// <summary>True when the Demeo reveal preset is selected ([Cards] RevealPreset = demeo).</summary>
