@@ -163,6 +163,49 @@ WT_BWELD = float(os.environ.get("RIG_HAND_WT_BWELD", "0.0018"))   # boundary-onl
 WT_PASSES = int(os.environ.get("RIG_HAND_WT_PASSES", "3"))
 WT_ENABLE = os.environ.get("RIG_HAND_WATERTIGHT", "1") != "0"     # ON by default
 
+# UV for freshly created cap/fill faces. BMesh gives NEW faces zeroed loop UVs, so every
+# filled hole and the wrist fan-cap sampled texel (0,0) of the albedo atlas — which is pure
+# BLACK (RGB 1,0,0). In-game that rendered the wrist stump as thick black pie-slice stripes
+# (the fan triangles) radiating from the rim centroid. Small hole fills now INHERIT the UV
+# of an existing loop on the same vertex (they blend into the surrounding texture); the
+# wrist cap gets this uniform texel on every corner — a flat dark-leather glove interior.
+# Chosen by scanning VRHand_albedo.png for a dark, uniform 32 px block:
+# px(752,1968) of 2048², mean RGB (74,56,37), std < 1.
+CAP_UV = (0.3672, 0.0391)
+
+
+def _fix_new_face_uvs(bm, new_faces, uniform=False):
+    """Give the zero-UV loops of freshly created faces sensible texture coords.
+
+    uniform=False: each corner copies the UV of any PRE-EXISTING loop on the same vertex
+    (hole fills disappear into the surrounding texture); corners with no prior loop
+    (e.g. a fan hub vertex) fall back to CAP_UV.
+    uniform=True: every corner gets CAP_UV — a deliberately flat interior tint (wrist cap;
+    inheriting there would smear the whole atlas across the fan because the ragged rim's
+    UVs are scattered islands).
+    Returns the number of loops written."""
+    uv = bm.loops.layers.uv.active
+    if uv is None or not new_faces:
+        return 0
+    new_set = set(new_faces)
+    fixed = 0
+    for f in new_faces:
+        if not f.is_valid:
+            continue
+        for loop in f.loops:
+            if uniform:
+                loop[uv].uv = CAP_UV
+                fixed += 1
+                continue
+            src = None
+            for other in loop.vert.link_loops:
+                if other.face not in new_set:
+                    src = other[uv].uv.copy()
+                    break
+            loop[uv].uv = src if src is not None else CAP_UV
+            fixed += 1
+    return fixed
+
 
 def make_watertight(o):
     """Weld the fragmented AI shell into one connected, hole-closed surface (in place)."""
@@ -180,14 +223,19 @@ def make_watertight(o):
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WT_MERGE)
     bm.to_mesh(me); bm.free(); me.update()
 
-    # 2) iterative boundary-close passes
+    # 2) iterative boundary-close passes. Every face holes_fill creates has ZEROED loop
+    #    UVs (would sample the atlas's black (0,0) texel) — inherit surrounding UVs
+    #    immediately, inside the same bmesh session, while the new-face refs are valid.
+    uv_fixed = 0
     for _ in range(WT_PASSES):
         bm = bmesh.new(); bm.from_mesh(me)
-        bmesh.ops.holes_fill(bm, edges=bm.edges, sides=0)
+        res = bmesh.ops.holes_fill(bm, edges=bm.edges, sides=0)
+        uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
         bnd = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
         if bnd:
             bmesh.ops.remove_doubles(bm, verts=bnd, dist=WT_BWELD)
-        bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)
+        res = bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)
+        uv_fixed += _fix_new_face_uvs(bm, res.get("faces", []))
         bm.to_mesh(me); bm.free(); me.update()
 
     # 3) cap the OPEN WRIST STUMP. The hand ends in a wide hollow cylinder at min-Z; in-game the
@@ -208,13 +256,21 @@ def make_watertight(o):
         centroid = sum((v.co for v in rim_verts), Vector()) / len(rim_verts)
         hub = bm.verts.new(centroid)
         made = 0
+        cap_faces = []
         for e in wrist_edges:
             try:
-                bm.faces.new((e.verts[0], e.verts[1], hub)); made += 1
+                cap_faces.append(bm.faces.new((e.verts[0], e.verts[1], hub))); made += 1
             except ValueError:
                 pass  # face already exists
+        # Uniform dark-leather UV on the whole cap: the fan corners' own UVs are scattered
+        # atlas islands, so inheriting would smear the entire texture across the stump —
+        # the in-game "black pie-chart stripes" defect. One flat texel reads as a clean
+        # glove interior instead.
+        uv_fixed += _fix_new_face_uvs(bm, cap_faces, uniform=True)
         log(f"watertight: wrist fan-cap over {len(wrist_edges)} rim edges ({made} tris)")
     bm.to_mesh(me); bm.free(); me.update()
+    log(f"watertight: assigned real UVs to {uv_fixed} loops of filled/cap faces "
+        f"(new BMesh faces default to UV (0,0) — a BLACK texel in this atlas)")
 
     # 4) consistent outward normals
     bm = bmesh.new(); bm.from_mesh(me)

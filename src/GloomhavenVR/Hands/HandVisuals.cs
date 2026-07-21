@@ -79,11 +79,12 @@ internal static class HandVisuals
             // renders the mod layer only) — the hands vanished in front of the menu.
             // Re-layer the whole glove subtree onto the mod layer here.
             Core.VRLayers.Apply(instance);
-            // Force consistent, best skin quality. SkinQuality.Auto follows the game's
-            // per-scene QualitySettings.skinWeights, so the intro (lower quality level)
-            // skinned the fingers with fewer bones than the menu/scenario — the fist/finger
-            // deformation looked worse in the intro. Pin 4 bones/vertex everywhere.
-            // updateWhenOffscreen avoids stale-bounds frustum culling of the hand.
+            // Pin best per-renderer skin quality (4 bones/vertex) + updateWhenOffscreen
+            // (avoids stale-bounds frustum culling). NOTE: this pin alone is NOT enough —
+            // the global QualitySettings.skinWeights is a hard CAP that per-renderer
+            // quality can only lower (the intro boots on the 'Fastest' level = ONE bone,
+            // which is why the original 5b119e0 pin "didn't hold" there). The global
+            // 4-bone floor is enforced per frame by HandsDriver.EnforceGlobalSkinWeights.
             foreach (var smr in instance.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
                 smr.quality = SkinQuality.Bone4;
