@@ -924,8 +924,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // the fan-out animation length, all live: UpdatePalmGate re-reads the degrees
         // every frame and CardFan reads the duration at each reveal, so tuning is
         // interactive in-headset. Same Fan tab as the geometry rows.
-        AddFanStepper("Reveal enter °", CardsConfig.RevealEnterDegrees, 5f, 20f, 170f, v => $"{v:0}°");
-        AddFanStepper("Reveal exit °", CardsConfig.RevealExitDegrees, 5f, 10f, 165f, v => $"{v:0}°");
+        // Bounds match the v3 asin-roll scale (0° flat … 90° palm to face; CardsConfig clamps 15-85 / 5-80).
+        AddFanStepper("Reveal enter °", CardsConfig.RevealEnterDegrees, 5f, 15f, 85f, v => $"{v:0}°");
+        AddFanStepper("Reveal exit °", CardsConfig.RevealExitDegrees, 5f, 5f, 80f, v => $"{v:0}°");
         AddFanStepper("Open time", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
 
         // HANDS category (GLOBAL, both hands; NOT per-board). These surface the existing [Hands] seat
