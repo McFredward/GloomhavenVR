@@ -89,7 +89,9 @@ internal sealed class BoardModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.HexHoverClear));
         // Issue #6: the hex-selection highlight's shader (OmniDecal_Shd) is a screen-space
         // depth-reconstruction projector whose layers swim with head pose in VR stereo —
-        // zero the offending layers after every game material write (see HexHighlightFix).
+        // swap the material onto the bundled stereo-stable GloomhavenVR/HexDecalStable
+        // after every game material write (fallback: zero the offending layers when the
+        // bundle lacks the shader; see HexHighlightFix).
         VRSession.Harmony?.PatchAll(typeof(HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
         // P8: suppress the game's per-frame figure-transform writes for HELD actors only,

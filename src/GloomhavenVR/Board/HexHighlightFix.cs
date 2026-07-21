@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using HarmonyLib;
@@ -7,88 +8,63 @@ namespace GloomhavenVR.Board;
 
 /// <summary>
 /// Kills the head-coupled "reflection" swimming inside the hex-selection highlight
-/// (user issue #6, second attempt — the depth-reset-quad fix in build 149c8dfa7 did
-/// NOT remove it, which exonerates the mod's depth reset as the sole cause).
+/// (user issue #6; on hardware the artifact shows only in the RIGHT eye — classic
+/// multipass staleness).
 ///
 /// GROUND TRUTH (DXBC disassembly of the game's shader, 2026-07-21; evidence in
-/// tools/ShaderDisasm — extraction via ShaderDisasm + DXDecompiler, same pipeline as
-/// tools/ShaderDisasm/FINDINGS.md):
+/// tools/ShaderDisasm/evidence/OmniDecal_Shd.*):
 ///
-/// The highlight mesh <c>HexSelect_Control.HexProjector</c> uses shader
-/// <b><c>OmniDecal_Shd</c></b> (resources.assets pathId 556, single pass 'Unlit',
-/// serialized ZTest Always→LEqual by ShaderOcclusionPatcher, an Amplify/ASE shader).
-/// Its fragment program is a <b>screen-space depth-reconstruction projector</b>:
-/// <code>
-///   uv    = screenPos.xy / screenPos.w                    // per-pixel SCREEN uv
-///   d     = tex2D(_CameraDepthTexture, uv).r              // scene depth at that pixel
-///   ndc   = float3(uv, 1-d) * 2 - 1
-///   view  = (unity_CameraInvProjection * ndc)  (w-divide, z flip)
-///   world = unity_CameraToWorld * view
-///   obj   = unity_WorldToObject * world                   // hex pattern drawn in obj space
-/// </code>
-/// EVERY visible component — soft fill (t1 <c>_HexMask</c>.a), crisp border band
-/// (mask^20 ring), animated border flames (t2 <c>_MainTex</c> "Projector Texture",
-/// 8x8 flipbook over <c>_Time</c>), pulsing target frame / crosshair (t3
-/// <c>_HexTargetFrame</c> x <c>_SinTime</c>) — is sampled at that RECONSTRUCTED
-/// object-space position. (<c>_CameraNormalsTexture</c> is also referenced but nothing
-/// in the entire game ever binds it, so that term is a constant — not the swimmer.)
+/// The highlight mesh <c>HexSelect_Control.HexProjector</c> ('HexCenter_Proj', the
+/// builtin Cube scaled (2, 0.3, 2) — a Cull-Front decal BOX) uses shader
+/// <b><c>OmniDecal_Shd</c></b>. Its fragment program is a screen-space
+/// depth-reconstruction projector: it derives the shaded surface point from
+/// <c>_CameraDepthTexture</c> + <c>unity_CameraInvProjection</c>/<c>unity_CameraToWorld</c>
+/// per pixel, and samples EVERY visible layer (soft fill, crisp border, animated
+/// border flames, pulsing target frame) at that reconstructed object-space position.
+/// In the mod's multipass XR the depth texture / UnityPerCameraRare matrices bound
+/// during the right-eye pass are stale left-eye/mono state → the pattern lands
+/// differently per eye and per head pose (the "reflection").
 ///
-/// WHY IT SWIMS IN VR: reconstruction is only stable when screen-uv, depth texture,
-/// <c>unity_CameraInvProjection</c> and <c>unity_CameraToWorld</c> all describe the SAME
-/// viewpoint. In the mod's multipass XR rendering the raster position and
-/// <c>_CameraDepthTexture</c> are per-eye, but <c>unity_CameraInvProjection</c> /
-/// <c>unity_CameraToWorld</c> come from the camera's MONO state (UnityPerCameraRare is
-/// not stereo-aware; the Quest's per-eye frusta are asymmetric and laterally offset).
-/// The reconstructed pattern therefore lands slightly differently for every eye and
-/// every head pose — the projected texture layers slide across the floor like a
-/// reflection ("bewegt sich heftig mit dem Kopf"). No ZTest/depth-reset change can fix
-/// that; it is baked into the shader's projection math.
+/// PROPER FIX (this class, config <c>SwapStableShader</c>): swap the material's
+/// shader to the bundled <b><c>GloomhavenVR/HexDecalStable</c></b>
+/// (unity/GloomhavenVR.Assets/Assets/Bundle/Table/HexDecalStable.shader) — an
+/// instruction-for-instruction port of the recovered OmniDecal algebra that replaces
+/// the depth reconstruction with an analytic per-pixel view-ray ∩ tile-plane
+/// intersection (only per-eye-correct inputs; no depth texture, no screen-space
+/// UVs → inherently stereo-stable; equivalence argument in the shader header).
+/// Property NAMES are identical, so the game's per-state writes in
+/// <c>ProjectorMaterialAdjustment()</c> keep landing, and Unity carries all matching
+/// property values (textures included) across the <c>Material.shader</c> assignment.
+/// The swap happens in the same postfix that previously only zeroed layers, so it
+/// re-applies after every material re-creation (<c>m_Material = new Material(_exampleMaterial)</c>
+/// on each refresh). The pre-swap renderQueue (4000) is re-asserted after the swap.
 ///
-/// LEAST-INVASIVE RUNTIME MITIGATION (this class): the shader exposes independent
-/// intensity properties for each projected layer, and <c>HexSelect_Control</c> rewrites
-/// them on every state change in exactly one method, <c>ProjectorMaterialAdjustment()</c>
-/// (HexSelect_Control.cs:696, sets _HexColour/_HexIntensity/_BorderLineIntensity/
-/// _BorderFlameIntensity/_TargetFrameIntensity/_CrossHair + the six edge toggles).
-/// A postfix there gets the last word after EVERY game write (RefreshHexUI → HexUpdate
-/// → ProjectorMaterialAdjustment, incl. material re-creation) and zeroes the layers
-/// that read as the swimming "reflection", while keeping the white selection look
-/// (fill + border) intact by default:
+/// FALLBACK (old bundle without the shader, or <c>SwapStableShader=false</c>): the
+/// previous mitigation stays — zero the swimming layers (<c>_BorderFlameIntensity</c>,
+/// <c>_CrossHair</c> by default; <c>_BorderLineIntensity</c>/<c>_HexIntensity</c> as
+/// bisect knobs). When the swap IS active the kill knobs are bypassed: the layers
+/// no longer swim, so the full vanilla look comes back.
 ///
-///  - <c>_BorderFlameIntensity</c> → 0   (default ON)  — the animated flame flipbook,
-///    the sharpest/brightest moving layer and prime suspect for "reflection".
-///  - <c>_CrossHair</c> → 0              (default ON)  — the _SinTime-pulsing target
-///    frame graphic drawn INSIDE the hex during target selection.
-///  - <c>_BorderLineIntensity</c> → 0    (default OFF) — crisp border ring; config
-///    bisect knob if the artifact persists.
-///  - <c>_HexIntensity</c> → 0           (default OFF) — soft fill; bisect knob only.
+/// SHUTDOWN: swapped materials are tracked and restored to the original shader in
+/// <see cref="Reset"/> (best effort — the game recreates materials from
+/// <c>_exampleMaterial</c> on the next refresh anyway).
 ///
-/// NAME→TERM CAVEAT (from the disassembly): the compiled blob strips names, so the
-/// pairing of {_BorderFlameIntensity, _BorderLineIntensity, _HexIntensity} to
-/// {flame-texture term (cb0[10].y), crisp-band term (cb0[9].w), fill term (cb0[10].x)}
-/// is inferred semantically. If Amplify packed them in property order instead, "flame"
-/// and "line" swap — either way the config knobs cover all combinations, and killing
-/// both border terms is one config flip away.
-///
-/// PROPER FIX (follow-up, out of scope here): a drop-in replacement shader in the mod's
-/// asset bundle that reproduces OmniDecal_Shd's algebra (fully recovered in the
-/// disassembly) but uses the INTERPOLATED MESH object-space position instead of the
-/// depth reconstruction — identical look on the flat board floor, inherently
-/// stereo-stable. This class is the correct host for the runtime material swap once
-/// the bundle ships that shader.
-///
-/// SAFETY: postfix body is fully try/caught (WorldUI lesson: an unguarded NRE in a
-/// per-frame game path starves input); it only runs when the game itself just rewrote
-/// the material (state changes), so cost is a few SetFloats, not per-frame work.
-/// Reversible: unpatching restores vanilla behaviour on the next state change (the
-/// game recreates the material from <c>_exampleMaterial</c> on every cache-changed
-/// refresh, so no lasting mutation survives).
+/// SAFETY: postfix body fully try/caught (WorldUI lesson: an unguarded NRE in a
+/// per-frame game path starves input); work happens only when the game itself just
+/// rewrote the material (state changes), not per-frame.
 /// </summary>
 internal static class HexHighlightFix
 {
     private const string Scope = "HexHighlightFix";
 
+    /// <summary>Bundle asset path of the stable decal shader (BuildBundles packs everything under Assets/Bundle/).</summary>
+    private const string StableShaderAssetPath = "Assets/Bundle/Table/HexDecalStable.shader";
+    private const string StableShaderName = "GloomhavenVR/HexDecalStable";
+    private const string OriginalShaderName = "OmniDecal_Shd";
+
     // -------- config (own file: dev.gloomhavenvr.hexhighlight.cfg) --------
 
+    internal static ConfigEntry<bool>? SwapStableShader;
     internal static ConfigEntry<bool>? KillBorderFlame;
     internal static ConfigEntry<bool>? KillCrosshair;
     internal static ConfigEntry<bool>? KillBorderLine;
@@ -103,31 +79,84 @@ internal static class HexHighlightFix
             return;
         ConfigFile config = _file = ModuleConfig.Create("hexhighlight");
 
+        SwapStableShader = config.Bind(
+            "HexHighlight", "SwapStableShader", true,
+            "Replace the hex highlight's OmniDecal_Shd with the mod's stereo-stable " +
+            "GloomhavenVR/HexDecalStable (same look, no screen-space depth reconstruction " +
+            "— removes the per-eye 'reflection' that swims with head movement). When the " +
+            "shader is missing from an older bundle, the Kill* knobs below apply instead.");
         KillBorderFlame = config.Bind(
             "HexHighlight", "KillBorderFlame", true,
-            "Zero _BorderFlameIntensity on hex highlight materials (OmniDecal_Shd). Kills the " +
-            "animated border-flame layer of the hex selection highlight — the screen-space " +
-            "depth-projected layer that swims with head movement in VR (the 'reflection'). " +
-            "The white fill and border line stay.");
+            "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
+            "_BorderFlameIntensity on hex highlight materials (OmniDecal_Shd). Kills the " +
+            "animated border-flame layer — the screen-space depth-projected layer that " +
+            "swims with head movement in VR. The white fill and border line stay.");
         KillCrosshair = config.Bind(
             "HexHighlight", "KillCrosshair", true,
-            "Zero _CrossHair on hex highlight materials. Kills the pulsing target-frame/" +
-            "crosshair graphic projected INSIDE the hex during target selection — same " +
-            "swimming projection, drawn mid-hex.");
+            "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
+            "_CrossHair. Kills the pulsing target-frame/crosshair graphic projected " +
+            "INSIDE the hex during target selection — same swimming projection.");
         KillBorderLine = config.Bind(
             "HexHighlight", "KillBorderLine", false,
-            "Bisect knob: additionally zero _BorderLineIntensity (the crisp border ring). " +
-            "Enable if the swimming artifact persists with the flame/crosshair killed. " +
-            "Changes the look (hex loses its sharp outline).");
+            "FALLBACK bisect knob: additionally zero _BorderLineIntensity (the crisp " +
+            "border ring). Enable if the swimming artifact persists with the " +
+            "flame/crosshair killed. Changes the look (hex loses its sharp outline).");
         KillFill = config.Bind(
             "HexHighlight", "KillFill", false,
-            "Bisect knob: additionally zero _HexIntensity (the soft white fill). Only for " +
-            "diagnosis — this removes most of the highlight.");
+            "FALLBACK bisect knob: additionally zero _HexIntensity (the soft white fill). " +
+            "Only for diagnosis — this removes most of the highlight.");
         LogMaterialDump = config.Bind(
             "HexHighlight", "LogMaterialDump", true,
             "Log the hex highlight material's shader name and full property dump for the " +
             "first few materials seen (evidence for tuning the fix).");
     }
+
+    // -------- stable shader lookup (OverlayShader/BoardLitShader probe pattern) --------
+
+    private static Shader? _stableShader;
+    private static Shader? _originalShader;   // kept for best-effort restore on Reset()
+    private static bool _stableFoundLogged;
+    private static bool _stableMissLogged;
+    private static bool _knobsBypassLogged;
+
+    /// <summary>
+    /// The bundled stable decal shader, or null when no loaded bundle ships it (old
+    /// bundle). Like GloomhavenVR/Overlay it is referenced only by runtime C#, so
+    /// Shader.Find fails until it is loaded explicitly from a bundle; re-probed until
+    /// present so a late bundle load still resolves. Logged once each way.
+    /// </summary>
+    private static Shader? StableShader()
+    {
+        if (_stableShader == null)
+        {
+            _stableShader = Shader.Find(StableShaderName);
+            if (_stableShader == null)
+            {
+                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+                {
+                    if (b == null) continue;
+                    var s = b.LoadAsset<Shader>(StableShaderAssetPath);
+                    if (s != null) { _stableShader = s; break; }
+                }
+            }
+        }
+        if (_stableShader != null && !_stableFoundLogged)
+        {
+            _stableFoundLogged = true;
+            VRLog.Info(Scope, $"stable hex decal shader '{StableShaderName}' loaded — hex highlight " +
+                              "materials will be swapped off the depth-reconstructing OmniDecal_Shd.");
+        }
+        else if (_stableShader == null && !_stableMissLogged)
+        {
+            _stableMissLogged = true;
+            VRLog.Warn(Scope, $"stable hex decal shader '{StableShaderName}' NOT found (older bundle?) — " +
+                              "falling back to zeroing the swimming OmniDecal layers.");
+        }
+        return _stableShader;
+    }
+
+    /// <summary>Materials this class swapped; restored to the original shader on Reset().</summary>
+    private static readonly List<Material> Swapped = new();
 
     // -------- diagnostics --------
 
@@ -138,6 +167,20 @@ internal static class HexHighlightFix
 
     internal static void Reset()
     {
+        // Best-effort restore (hot-reload hygiene). Destroyed materials compare == null.
+        if (_originalShader != null)
+        {
+            foreach (Material mat in Swapped)
+            {
+                try
+                {
+                    if (mat != null && mat.shader != null && mat.shader.name == StableShaderName)
+                        mat.shader = _originalShader;
+                }
+                catch { /* restoring is cosmetic; never throw during shutdown */ }
+            }
+        }
+        Swapped.Clear();
         _materialDumps = 0;
         _errorLogs = 0;
     }
@@ -178,7 +221,8 @@ internal static class HexHighlightFix
     /// <summary>
     /// Postfix on the ONE method that writes every hex-highlight material property
     /// (verified decompiled GH.Runtime, HexSelect_Control.cs:696-772). Runs after each
-    /// game write, so the neutralized values always win without per-frame polling.
+    /// game write — including right after every material re-creation in
+    /// ActivateHexObject — so the swap/neutralization always wins without polling.
     /// </summary>
     [HarmonyPatch(typeof(HexSelect_Control), "ProjectorMaterialAdjustment")]
     internal static class HexSelect_ProjectorMaterialAdjustment_Patch
@@ -205,6 +249,20 @@ internal static class HexHighlightFix
                     DumpMaterial(mat);
                 }
 
+                if (SwapStableShader?.Value == true && TrySwapStable(mat))
+                {
+                    // Stable shader active: the layers no longer swim, so the kill
+                    // knobs are bypassed and the full vanilla look returns.
+                    if (!_knobsBypassLogged)
+                    {
+                        _knobsBypassLogged = true;
+                        VRLog.Info(Scope, "stable shader swap active — layer-kill fallback knobs bypassed.");
+                    }
+                    return;
+                }
+
+                // Fallback: previous least-invasive mitigation (swap off or shader
+                // missing from an old bundle) — zero the swimming layers.
                 if (KillBorderFlame?.Value == true)
                     mat.SetFloat(BorderFlameIntensity, 0f);
                 if (KillCrosshair?.Value == true)
@@ -222,6 +280,38 @@ internal static class HexHighlightFix
                     VRLog.Error(Scope, $"postfix failed: {e}");
                 }
             }
+        }
+
+        /// <summary>
+        /// Swap <paramref name="mat"/> onto the bundled stable shader. True when the
+        /// material now runs (or already ran) the stable shader; false → caller uses
+        /// the zeroing fallback. Unity keeps all matching property values (textures
+        /// included) across the shader assignment; the pre-swap renderQueue (4000,
+        /// from the game's _exampleMaterial) is re-asserted afterwards.
+        /// </summary>
+        private static bool TrySwapStable(Material mat)
+        {
+            Shader? current = mat.shader;
+            if (current != null && current.name == StableShaderName)
+                return true; // already swapped (postfix re-runs on every state change)
+            // Only swap the shader we ported. Anything else (game update, other
+            // variant) is left alone so the fallback knobs still govern it.
+            if (current == null || current.name != OriginalShaderName)
+                return false;
+
+            Shader? stable = StableShader();
+            if (stable == null)
+                return false;
+
+            _originalShader ??= current;
+            int queue = mat.renderQueue; // 4000 in the shipped game
+            mat.shader = stable;
+            mat.renderQueue = queue > 0 ? queue : 4000;
+            Swapped.Add(mat);
+            // Keep the restore list tidy across long sessions: drop destroyed entries.
+            if (Swapped.Count > 512)
+                Swapped.RemoveAll(m => m == null);
+            return true;
         }
     }
 }
