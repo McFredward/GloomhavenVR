@@ -116,6 +116,37 @@ internal sealed class HandsDriver : MonoBehaviour
             Build(parent, simulate); // includes rebuilding after external destruction
         else if (_handsRoot.transform.parent != parent)
             Reparent(parent, simulate);
+
+        EnforceGlobalSkinWeights();
+    }
+
+    /// <summary>
+    /// INTRO FINGER DISTORTION (repeat complaint — root cause of the 5b119e0 miss):
+    /// at boot the game enables its LOWEST quality level ("[PlatformLayer.cs] Enabling
+    /// QualitySettings named Fastest", Player.log), whose skinWeights is ONE bone; the
+    /// user's saved graphics settings only apply once the menu is up. Unity's global
+    /// <see cref="QualitySettings.skinWeights"/> is a hard CAP that per-renderer
+    /// <see cref="SkinnedMeshRenderer.quality"/> can only lower, never raise — so the
+    /// Bone4 pin in HandVisuals was silently clamped to 1 bone during the intro, and
+    /// curling a finger snapped every vertex rigidly to its single heaviest bone
+    /// (proximity-skinned glove → extreme tearing). Enforce a 4-bone global floor every
+    /// frame while hands exist; the game re-lowers it on quality-level swaps and via its
+    /// own skin-weights selector, hence re-assert (cheap enum compare) instead of
+    /// set-once. Raising the global only lifts a cap — meshes authored with fewer
+    /// weights are unaffected.
+    /// </summary>
+    private void EnforceGlobalSkinWeights()
+    {
+        SkinWeights current = QualitySettings.skinWeights;
+        if ((int)current >= (int)SkinWeights.FourBones)
+            return;
+        QualitySettings.skinWeights = SkinWeights.FourBones;
+        string quality = QualitySettings.names[QualitySettings.GetQualityLevel()];
+        float rootScale = _handsRoot != null ? _handsRoot.transform.lossyScale.x : -1f;
+        float worldScale = _left != null ? _left.WorldScale : -1f;
+        VRLog.Info("Hands", $"Global skinWeights raised {current} → FourBones (quality level '{quality}'); " +
+                            $"the global value CAPS per-renderer SkinQuality, so the Bone4 pin alone cannot fix " +
+                            $"1-bone intro skinning. handsRoot lossyScale={rootScale:F2}, hand WorldScale={worldScale:F2}.");
     }
 
     private void OnDestroy() => TearDown();
