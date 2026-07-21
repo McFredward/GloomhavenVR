@@ -107,19 +107,41 @@ internal static class HandSuppression
     private static int _burnCount;
 
     /// <summary>
-    /// TASK #10: BurnActive is held for a short TAIL past the last burn registration so no flat
-    /// frame ever leaks. BurnCardFx's per-card effect detection FLICKERS on/off between frames —
-    /// the card's <c>CardEffects</c> FXTask is transiently unreadable while its face is re-adopted,
-    /// which produces the per-frame "Burn/ghost effect playing" spam in the log and oscillated this
-    /// ref-count (BeginBurn/EndBurn every frame). That oscillation strobed BurnActive, and with it
-    /// the game's flat screen-space burning card onto the FlatScreen modal mirror at the start/end
-    /// of a burn (the reported flash). Refreshing the hold on every Begin AND End keeps BurnActive
-    /// solid across the flicker and for a beat past the true end.
+    /// TASK #10: BurnActive is held for a short TAIL past the last burn registration so the
+    /// per-frame flicker of the FX detection never drops it. BurnCardFx's per-card effect
+    /// detection FLICKERS on/off between frames — the card's <c>CardEffects</c> FXTask is
+    /// transiently unreadable while its face is re-adopted, which produces the per-frame
+    /// "Burn/ghost effect playing" spam in the log and oscillated this ref-count
+    /// (BeginBurn/EndBurn every frame). Refreshing the hold on every Begin AND End keeps
+    /// BurnActive solid across that flicker.
     /// </summary>
     private static float _burnHoldUntil = float.NegativeInfinity;
 
     /// <summary>Seconds BurnActive stays true past the last burn registration (task #10 tail hold).</summary>
     private const float BurnTailSeconds = 0.5f;
+
+    /// <summary>
+    /// TASK #5 (residual end-of-burn flash): a short-rest / burn-redraw LEAVES the game
+    /// UI-locked (<see cref="VRMode.ModalUI"/>) for a short, VARIABLE resolution window AFTER
+    /// the burn FX — and its 0.5 s tail — have already ended (the sacrificed card is removed,
+    /// the piles settle, THEN <c>UIManager.ToggleLockUI</c> releases). During that trailing lock
+    /// nothing is converted/floated, so <c>FlatScreen.WantVisible</c>'s ModalUI catch-all raises
+    /// the full desktop-mirror quad for a few frames — the flash the fixed wall-clock tail could
+    /// not cover, because the lock routinely outlasts 0.5 s. So once a burn is seen we ALSO latch
+    /// BurnActive across the trailing lock: it stays true while the mode is still ModalUI and
+    /// self-releases the instant the mode leaves ModalUI (lock cleared → the burn flow is truly
+    /// over). Burns that never enter ModalUI (a card lost/discarded from the hand plays in
+    /// CardSelection/HalfSelection) clear the latch on the very first post-tail read, so it can
+    /// never linger there. A hard cap is a final stuck-on guard should the mode somehow never
+    /// leave ModalUI.
+    /// </summary>
+    private static bool _burnModalLatch;
+
+    /// <summary>Absolute cap on the ModalUI latch past the last burn registration (stuck-on guard).</summary>
+    private static float _burnLatchCapUntil = float.NegativeInfinity;
+
+    /// <summary>Longest the trailing-ModalUI latch may hold past the last burn registration.</summary>
+    private const float BurnModalLatchCapSeconds = 6f;
 
     /// <summary>Master switch, owned by CardsModule (true while VR/dev cards run).</summary>
     internal static bool Active { get; set; }
@@ -135,22 +157,57 @@ internal static class HandSuppression
     /// <c>FlatScreen</c> then mirrors the burning card into the VR modal quad. While a burn
     /// is active we keep the lift DOWN so nothing composites onto FlatScreen — the
     /// world-space smoke plume (bounded by <see cref="BurnCardFx"/>) still signals the burn.
+    /// TASK #5: past the wall-clock tail, keep suppressing across the burn's trailing UI-lock
+    /// until the game actually leaves ModalUI (self-releasing — see <see cref="_burnModalLatch"/>).
     /// </summary>
-    internal static bool BurnActive => _burnCount > 0 || Time.unscaledTime < _burnHoldUntil;
+    internal static bool BurnActive
+    {
+        get
+        {
+            if (_burnCount > 0)
+                return true;
+            float now = Time.unscaledTime;
+            if (now < _burnHoldUntil)
+                return true;
+            // Trailing UI-lock latch (task #5): the burn FX + its 0.5 s tail are over, but a
+            // short-rest / burn-redraw leaves the game in ModalUI a beat longer while it
+            // resolves. Hold until the lock releases so the empty ModalUI catch-all in
+            // FlatScreen.WantVisible never flashes; clear the instant the mode is no longer
+            // ModalUI (or at the hard cap) so suppression can never stick on.
+            if (_burnModalLatch)
+            {
+                if (now < _burnLatchCapUntil
+                    && VRModeStateMachine.CurrentMode == VRMode.ModalUI)
+                    return true;
+                _burnModalLatch = false;
+            }
+            return false;
+        }
+    }
 
     /// <summary>Register/unregister a live burn animation (balanced by BurnCardFx). Both edges
-    /// refresh the tail hold so a per-frame flip-flop of the detection never drops BurnActive.</summary>
+    /// refresh the tail hold + arm the trailing-ModalUI latch so neither a per-frame flip-flop of
+    /// the detection nor the post-FX UI-lock resolution ever drops BurnActive.</summary>
     internal static void BeginBurn()
     {
         _burnCount++;
-        _burnHoldUntil = Time.unscaledTime + BurnTailSeconds;
+        RefreshBurnHold();
     }
 
     internal static void EndBurn()
     {
         if (_burnCount > 0)
             _burnCount--;
-        _burnHoldUntil = Time.unscaledTime + BurnTailSeconds; // hold past a flip-flop / the true end so no flat frame leaks
+        RefreshBurnHold(); // hold past a flip-flop / the true end + across the trailing UI-lock
+    }
+
+    /// <summary>Refresh both the wall-clock tail and the trailing-ModalUI latch window.</summary>
+    private static void RefreshBurnHold()
+    {
+        float now = Time.unscaledTime;
+        _burnHoldUntil = now + BurnTailSeconds;
+        _burnModalLatch = true;
+        _burnLatchCapUntil = now + BurnModalLatchCapSeconds;
     }
 
     /// <summary>
@@ -227,6 +284,8 @@ internal static class HandSuppression
         _lifted = false;
         _burnCount = 0;
         _burnHoldUntil = float.NegativeInfinity;
+        _burnModalLatch = false;
+        _burnLatchCapUntil = float.NegativeInfinity;
         if (!_armed)
             return;
         _armed = false;
