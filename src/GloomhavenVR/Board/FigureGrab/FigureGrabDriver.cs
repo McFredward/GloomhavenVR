@@ -51,6 +51,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private void OnDestroy()
     {
         ReleaseAll();
+        FigureGrabbable.FinishAllGlides(); // land any in-flight release glide (no stale suppression)
         FigureGhosts.Clear();
         FigureRingSuppressor.Clear();
     }
@@ -61,6 +62,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // grab time; this only tears down ghosts whose figure was released, incl. remote releases).
         // Runs even when local figure-grab is disabled so REMOTE-held ghosts still appear/clear.
         TickGuard.Run("FigureGrab.Ghosts", FigureGhosts.Tick);
+
+        // GLIDE-BACK — advance every in-flight release glide (released mini easing home). Before
+        // the config gate so a glide started just before GrabFigures was toggled off still lands
+        // (the toggle's ReleaseAll → Restore also finishes glides instantly as a backstop).
+        TickGuard.Run("FigureGrab.Glide", FigureGrabbable.TickGlides);
 
         if (!FigureGrabConfig.GrabFigures.Value)
         {

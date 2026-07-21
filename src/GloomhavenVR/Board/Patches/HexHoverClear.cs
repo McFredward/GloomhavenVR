@@ -1,5 +1,6 @@
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.Board.Patches;
 
@@ -56,6 +57,34 @@ namespace GloomhavenVR.Board.Patches;
 ///   outside a scenario Controller), so vanilla behaviour outside a live scenario is intact.
 /// - When the VR pick IS on a real hex we early-return, leaving the game's fresh star up;
 ///   re-hover therefore restores the star normally.
+///
+/// STALE HOVER HINT (second stale-hover bug, same family — verified in the decompiled
+/// WSHD 2026-07-21): the info hint shown when hovering a loot tile ("2 Gold"), a closed
+/// door, etc. is <c>UITextInfoPanel</c> (plus <c>UIPropInfoPanel</c> for carryable quest
+/// items), shown by <c>ShowTooltipForTile</c> (WSHD.cs:3370) — which only runs when a NEW
+/// valid tile is hovered (<c>s_CursorHighlightedTile != clientTile</c>, WSHD.cs:3251). The
+/// hide lives INSIDE <c>ShowTooltipForTile</c> (WSHD.cs:3574-3575); the no-tile branch of
+/// <c>DisplayCursorHoverStar</c> (WSHD.cs:3212-3218) clears the stat panel, the cursor tile
+/// and the outlines but NEVER hides these two panels. So once shown, the hint can only be
+/// replaced by hovering another tile — with a mouse that's near-immediate, but in VR the
+/// laser can simply cease to exist (grabbing a figure turns the ray off: "ray OFF — hand is
+/// holding a grabbable"), leaving the hint stuck on screen indefinitely. FIX: in the same
+/// not-on-a-hex branch that kills the stale star, hide the two panels exactly the way
+/// <c>ShowTooltipForTile</c> does (<c>UITextInfoPanel.Hide()</c> +
+/// <c>UIPropInfoPanel.Hide(EPropType.QuestItem)</c>), guarded so it is a no-op when nothing
+/// is showing:
+/// - the text panel is only Hide()-den while its <c>UIWindow.IsVisible</c> (so a panel the
+///   game temp-hid — card viewer open, gamepad tooltip toggle — is left untouched and we
+///   never spam Hide every frame);
+/// - the prop panel uses the game's own typed <c>Hide(QuestItem)</c>, which self-no-ops
+///   unless a quest-item hint is the current content — trap / hazardous / difficult-terrain
+///   tooltips keep their own <c>IHoverable OnCursorEnter/Exit</c> lifecycle (HoverRegisterer
+///   fires OnCursorExit itself on a missed raycast, so those cannot go stale this way).
+/// Re-hovering a tile re-shows the hint normally: the game's null branch already cleared
+/// <c>s_CursorHighlightedTile</c>, so the next real hex hover re-runs ShowTooltipForTile.
+/// UITextInfoPanel content is ONLY ever populated from ShowTooltipForTile (verified: every
+/// other caller in GH.Runtime just hides / temp-hides it), so hiding it here can never
+/// fight another feature's tooltip.
 /// </summary>
 [HarmonyPatch(typeof(WorldspaceStarHexDisplay), nameof(WorldspaceStarHexDisplay.Update))]
 internal static class HexHoverClear
@@ -78,6 +107,41 @@ internal static class HexHoverClear
         HexSelect_Control? star = CursorStarRef(__instance);
         if (star != null && star.gameObject.activeSelf)
             star.gameObject.SetActive(false);
+
+        // Stale hover hint (see class doc): nothing is hovered, so any visible tile info hint
+        // ("2 Gold" loot, closed door, quest item) is stale — hide it the way the game does.
+        HideStaleTooltips();
+    }
+
+    /// <summary>
+    /// Hide the tile-hover info panels when the VR pick is not on a hex — the exact pair
+    /// <c>ShowTooltipForTile</c> hides before showing fresh content (WSHD.cs:3574-3575).
+    /// Guarded to a strict no-op when nothing is visible/current, so calling it every
+    /// not-on-a-hex frame is cheap and can never fight a live hover.
+    /// </summary>
+    private static void HideStaleTooltips()
+    {
+        if (Singleton<UITextInfoPanel>.IsInitialized)
+        {
+            UITextInfoPanel? text = Singleton<UITextInfoPanel>.Instance;
+            if (text != null)
+            {
+                // Only while actually visible: skips panels the game temp-hid (card viewer /
+                // tooltip toggle) and avoids per-frame Hide spam once cleared.
+                UIWindow? window = text.GetComponent<UIWindow>();
+                if (window != null && window.IsVisible)
+                    text.Hide();
+            }
+        }
+
+        if (Singleton<UIPropInfoPanel>.IsInitialized)
+        {
+            UIPropInfoPanel? prop = Singleton<UIPropInfoPanel>.Instance;
+            // Typed hide self-no-ops unless the CURRENT content is the quest-item hint —
+            // trap/terrain tooltips (own IHoverable exit lifecycle) are never touched.
+            if (prop != null)
+                prop.Hide(UIPropInfoPanel.EPropType.QuestItem);
+        }
     }
 
     private static bool PickIsOnHex()
