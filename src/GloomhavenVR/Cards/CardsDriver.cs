@@ -826,16 +826,15 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // Live-tunable gate feel (P7): pure supination (roll-axis) measure on the raw
-        // device pose — pitching/pointing the arm no longer factors in (test #10).
-        // Thresholds: [Cards] RevealEnterDot/RevealExitDot, defaults = the Demeo-derived
-        // 0.6 enter / 0.5 exit (Demeo shows AND hides at Dot(hand.right, avatarUp) = 0.6,
-        // decompiled CardHandController.cs:452-456/474; the dead band is ours). Live-tunable
-        // from the debug menu's Fan category.
+        // Live-tunable gate feel (reveal-angle round 2): PalmGate measures pure hand ROLL
+        // around the finger axis in DEGREES (0 palm down, 90 thumb up, 180 palm fully up;
+        // pitch/yaw of the arm are irrelevant by construction). Thresholds: [Cards]
+        // RevealEnterDegrees/RevealExitDegrees, defaults 95° enter / 80° exit — a
+        // comfortable supination just past vertical, with a hysteresis dead band so the
+        // gate cannot chatter. Live-tunable from the debug menu's Fan category.
         PalmGate gate = _gateHand.PalmGate;
-        gate.EnterThreshold = CardsConfig.RevealEnterDot.Value;
-        gate.ExitThreshold = CardsConfig.RevealExitDot.Value;
-        gate.RollAxisOnly = true;
+        gate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
+        gate.ExitDegrees = CardsConfig.RevealExitDegrees.Value;
         gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
         // G5 (DEMEO-HANDS-CARDS §4): while the dominant hand holds something the gate stays
         // put so a pluck never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).

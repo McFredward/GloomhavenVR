@@ -55,21 +55,20 @@ internal static class CardsConfig
     internal static ConfigEntry<string> RevealMode = null!;
 
     /// <summary>
-    /// RevealMode=tilt: supination (roll-axis dot) above which the fan OPENS. Default 0.6 =
-    /// Demeo's exact reveal threshold (Dot(hand.right, avatarUp) &gt; 0.6, a ~53° palm-up
-    /// cone — decompiled-demeo CardHandController.cs:474). Replaces the old
-    /// SupinationThreshold (0.2, deliberately generous) after the user judged Demeo's
-    /// angle right and ours wrong (fan-reveal parity pass).
+    /// RevealMode=tilt: pure hand ROLL (degrees around the finger axis) above which the
+    /// fan OPENS. 0 = palm flat down, 90 = palm vertical (thumb up), 180 = palm fully
+    /// up/toward the face; pitch/yaw of the arm are irrelevant. Replaces the old
+    /// RevealEnterDot after the user rejected the dot-based gate (needed nearly 180° of
+    /// roll and mixed pitch in — reveal-angle round 2).
     /// </summary>
-    internal static ConfigEntry<float> RevealEnterDot = null!;
+    internal static ConfigEntry<float> RevealEnterDegrees = null!;
 
     /// <summary>
-    /// RevealMode=tilt: supination dot below which the fan CLOSES. Demeo closes at the
-    /// same 0.6 it opens at (no hysteresis, CardHandController.cs:452-456); we keep a
-    /// small dead band (default 0.5) so the roll-axis measure cannot chatter at the
-    /// boundary. Always clamped below RevealEnterDot by the gate.
+    /// RevealMode=tilt: hand roll (degrees) below which the fan CLOSES — the hysteresis
+    /// dead band under RevealEnterDegrees so the gate cannot chatter at the boundary.
+    /// Always clamped below RevealEnterDegrees by the gate. Replaces the old RevealExitDot.
     /// </summary>
-    internal static ConfigEntry<float> RevealExitDot = null!;
+    internal static ConfigEntry<float> RevealExitDegrees = null!;
 
     /// <summary>Fan arc radius in real meters (diorama scale applied automatically).</summary>
     internal static ConfigEntry<float> FanRadius = null!;
@@ -311,22 +310,23 @@ internal static class CardsConfig
             "hand: turning the palm up / toward you, measured on the ROLL axis alone (pitching or " +
             "pointing the arm has no effect — hardware test #10). 'always' = the fan is out " +
             "whenever a card phase has cards, no gesture at all.");
-        RevealEnterDot = _file.Bind("Cards", "RevealEnterDot", 0.6f,
+        RevealEnterDegrees = _file.Bind("Cards", "RevealEnterDegrees", 95f,
             new ConfigDescription(
-                "RevealMode=tilt: supination amount above which the fan OPENS. Scale: -1 palm " +
-                "fully down, 0 palm vertical (thumb up), +1 palm fully up/toward the face. " +
-                "Default 0.6 = Demeo's exact reveal threshold (Dot(hand.right, avatarUp) > 0.6, " +
-                "~53° palm-up cone, decompiled CardHandController.cs:474). Live-tunable from the " +
-                "in-VR debug menu (Fan category).",
-                new AcceptableValueRange<float>(-0.95f, 0.95f)));
-        RevealExitDot = _file.Bind("Cards", "RevealExitDot", 0.5f,
-            new ConfigDescription(
-                "RevealMode=tilt: supination amount below which the fan CLOSES. Demeo closes at " +
-                "the same 0.6 it opens at (no hysteresis, CardHandController.cs:452-456); the " +
-                "0.5 default keeps a small dead band so the gate cannot chatter at the boundary. " +
-                "The gate always clamps this below RevealEnterDot. Live-tunable from the in-VR " +
+                "RevealMode=tilt: pure hand ROLL in DEGREES above which the fan OPENS — the " +
+                "rotation of the hand around its own forward (finger) axis, measured against " +
+                "the pitch-neutral up, so pitching or pointing the arm has NO effect. Scale: " +
+                "0 = palm flat down, 90 = palm vertical (thumb up), 180 = palm fully up/toward " +
+                "the face (negative = rolled the other way, which never opens the fan). Default " +
+                "95 = a comfortable supination just past vertical. Live-tunable from the in-VR " +
                 "debug menu (Fan category).",
-                new AcceptableValueRange<float>(-0.95f, 0.95f)));
+                new AcceptableValueRange<float>(20f, 170f)));
+        RevealExitDegrees = _file.Bind("Cards", "RevealExitDegrees", 80f,
+            new ConfigDescription(
+                "RevealMode=tilt: hand roll in DEGREES below which the fan CLOSES (same scale " +
+                "as RevealEnterDegrees). The 15° default dead band under the 95° enter keeps " +
+                "the gate from chattering at the boundary; the gate always clamps this below " +
+                "RevealEnterDegrees. Live-tunable from the in-VR debug menu (Fan category).",
+                new AcceptableValueRange<float>(10f, 165f)));
         FanRadius = _file.Bind("Cards", "FanRadius", 0.16f,
             "Palm fan arc radius in real-world meters (diorama scale is applied automatically).");
         FanArcDegrees = _file.Bind("Cards", "FanArcDegrees", 70f,

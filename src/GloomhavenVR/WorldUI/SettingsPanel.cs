@@ -903,12 +903,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             v => $"{v * 1000f:0}mm");
         AddFanStepper(Loc.Mod("fan_split"), CardsConfig.FanHoverSplitScale, 0.05f, 0.5f, 3f, v => $"{v:0.00}x");
 
-        // Fan-reveal parity pass: the palm-gate reveal angle (Demeo-derived defaults 0.6/0.5,
-        // decompiled CardHandController.cs:452-456/474) + the fan-out animation length, all
-        // live: UpdatePalmGate re-reads the dots every frame and CardFan reads the duration at
-        // each reveal, so tuning is interactive in-headset. Same Fan tab as the geometry rows.
-        AddFanStepper("Reveal enter", CardsConfig.RevealEnterDot, 0.05f, -0.95f, 0.95f, v => $"{v:0.00}");
-        AddFanStepper("Reveal exit", CardsConfig.RevealExitDot, 0.05f, -0.95f, 0.95f, v => $"{v:0.00}");
+        // Reveal-angle round 2: the palm-gate reveal is a pure hand-ROLL angle in DEGREES
+        // (0 = palm down, 90 = thumb up, 180 = palm fully up; pitch/yaw irrelevant) +
+        // the fan-out animation length, all live: UpdatePalmGate re-reads the degrees
+        // every frame and CardFan reads the duration at each reveal, so tuning is
+        // interactive in-headset. Same Fan tab as the geometry rows.
+        AddFanStepper("Reveal enter °", CardsConfig.RevealEnterDegrees, 5f, 20f, 170f, v => $"{v:0}°");
+        AddFanStepper("Reveal exit °", CardsConfig.RevealExitDegrees, 5f, 10f, 165f, v => $"{v:0}°");
         AddFanStepper("Open time", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
 
         // HANDS category (GLOBAL, both hands; NOT per-board). These surface the existing [Hands] seat
