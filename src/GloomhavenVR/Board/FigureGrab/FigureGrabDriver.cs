@@ -52,6 +52,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     {
         ReleaseAll();
         FigureGhosts.Clear();
+        FigureRingSuppressor.Clear();
     }
 
     private void Update()
@@ -99,6 +100,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             TickGuard.Run("FigureGrab.PinHeld", HeldFigures.PinAnimatedRoots);
         if (NetHeldFigures.Count > 0)
             TickGuard.Run("FigureGrab.PinNetHeld", NetHeldFigures.PinAnimatedRoots);
+
+        // TASK #2 — keep the game's selection ring OFF under every in-hand figure (local AND
+        // remote-held), restoring the game's intent on release; the ghost's own ring copy at the
+        // home cell is the only ring the player sees while a figure is held. Runs in LateUpdate so
+        // it lands after the game's Update writes and before render; unconditional (not gated on
+        // GrabFigures) so remote-held figures stay covered, and a strict no-op when nothing is held.
+        TickGuard.Run("FigureGrab.RingSuppress", FigureRingSuppressor.Tick);
     }
 
     private void RefreshRegistry()

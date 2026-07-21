@@ -114,16 +114,21 @@ internal static class FigureOverlay
     }
 
     /// <summary>
-    /// TASK #3 helper: build a self-contained, FROZEN translucent snapshot of the figure's visual
-    /// subtree at world pose <paramref name="worldPos"/>/<paramref name="worldRot"/>/
-    /// <paramref name="worldScale"/>. The subtree is Instantiated (so bones keep their exact current
-    /// local pose — a frozen snapshot with no Animator), then every non-visual component
-    /// (Animator/Cloth/Collider/Rigidbody and ALL game scripts) is destroyed and every renderer is
-    /// re-tinted with <paramref name="ghostMat"/>. Returns the ghost root, or null if the subtree is
-    /// missing. Caller owns the object and destroys it on release.
+    /// TASK #3 helper: build a self-contained, translucent ghost of the figure's visual subtree at
+    /// world pose <paramref name="worldPos"/>/<paramref name="worldRot"/>/<paramref name="worldScale"/>.
+    /// The subtree is Instantiated and stripped of game logic (Cloth/Collider/Rigidbody and ALL
+    /// scripts) and of VFX (task #3: ParticleSystems, trails, and any renderer on a distort/FX
+    /// shader such as <c>Amp_CharDistort_Low</c> — these previously kept simulating and were
+    /// re-tinted into a fog/mist blob at the home cell); every remaining renderer is re-tinted with
+    /// <paramref name="ghostMat"/>. Task #4: the <c>Animator</c> is KEPT (root motion disabled,
+    /// events muted since their script receivers are stripped) so the ghost plays the same idle in
+    /// place at the home pose. <paramref name="preserveOriginal"/> (task #2, the actor's
+    /// <c>m_Hilight</c> selection ring): the matching subtree in the ghost keeps its ORIGINAL
+    /// materials so the ring at the home cell looks exactly like the game's own. Returns the ghost
+    /// root, or null if the subtree is missing. Caller owns the object and destroys it on release.
     /// </summary>
     internal static GameObject? BuildFrozenGhost(GameObject animatedRoot, Vector3 worldPos, Quaternion worldRot,
-        Vector3 worldScale, Material ghostMat)
+        Vector3 worldScale, Material ghostMat, Transform? preserveOriginal = null)
     {
         if (animatedRoot == null)
             return null;
@@ -134,16 +139,41 @@ internal static class FigureOverlay
         ghost.transform.SetPositionAndRotation(worldPos, worldRot);
         ghost.transform.localScale = worldScale;
 
-        // Strip everything that could animate, simulate, collide, or run game logic — leave ONLY the
-        // Transform hierarchy + the mesh renderers so it is an inert frozen silhouette.
+        // Task #2 — locate the ghost's twin of the live selection ring BEFORE any stripping (the
+        // mapping walks sibling-index chains, which Instantiate preserves exactly).
+        Transform? ringTwin = preserveOriginal != null
+            ? FindTwin(animatedRoot.transform, preserveOriginal, ghost.transform)
+            : null;
+
+        // TASK #4 — keep the Animator so the ghost plays the same idle clip in place. The game
+        // scripts that normally zero/drive the animated root are stripped below, so root motion is
+        // disabled (the pose must stay put at the home cell); animation events are muted because
+        // their MonoBehaviour receivers are gone; always-animate so an offscreen home cell never
+        // freezes the ghost mid-pose.
         foreach (Animator a in ghost.GetComponentsInChildren<Animator>(true))
-            if (a != null) Object.Destroy(a);
+        {
+            if (a == null)
+                continue;
+            a.applyRootMotion = false;
+            a.fireEvents = false;
+            a.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        }
         foreach (Cloth c in ghost.GetComponentsInChildren<Cloth>(true))
             if (c != null) Object.Destroy(c);
         foreach (Collider col in ghost.GetComponentsInChildren<Collider>(true))
             if (col != null) Object.Destroy(col);
         foreach (Rigidbody rb in ghost.GetComponentsInChildren<Rigidbody>(true))
             if (rb != null) Object.Destroy(rb);
+        // TASK #3 — kill every particle system (fog/mist). The system must be destroyed BEFORE its
+        // ParticleSystemRenderer (RequireComponent dependency); the renderer falls in the renderer
+        // sweep below. Stop+clear immediately so nothing emits during the deferred-Destroy frame.
+        foreach (ParticleSystem ps in ghost.GetComponentsInChildren<ParticleSystem>(true))
+        {
+            if (ps == null)
+                continue;
+            ps.Stop(withChildren: true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            Object.Destroy(ps);
+        }
         foreach (MonoBehaviour mb in ghost.GetComponentsInChildren<MonoBehaviour>(true))
         {
             if (mb == null)
@@ -152,12 +182,24 @@ internal static class FigureOverlay
             Object.Destroy(mb);
         }
 
-        // Re-tint every renderer to the translucent ghost material (one shared instance).
+        // Re-tint every KEPT renderer to the translucent ghost material (one shared instance);
+        // destroy VFX renderers outright (task #3). The ring twin keeps its original materials.
         var tint = new List<Renderer>(8);
         foreach (Renderer r in ghost.GetComponentsInChildren<Renderer>(true))
         {
             if (r == null)
                 continue;
+            if (r is ParticleSystemRenderer or TrailRenderer or LineRenderer || HasVfxShader(r))
+            {
+                r.enabled = false;    // instant off; the Destroy itself is deferred
+                Object.Destroy(r);
+                continue;
+            }
+            if (ringTwin != null && (r.transform == ringTwin || r.transform.IsChildOf(ringTwin)))
+            {
+                tint.Add(r);          // counts as visual content, but keeps the game's ring look
+                continue;
+            }
             int subs = 1;
             if (r is SkinnedMeshRenderer smr && smr.sharedMesh != null)
                 subs = smr.sharedMesh.subMeshCount;
@@ -182,6 +224,49 @@ internal static class FigureOverlay
         return ghost;
     }
 
+    /// <summary>Task #3: true when any of the renderer's ORIGINAL materials uses a VFX-family
+    /// shader (distort/particle/fog — the figures carry e.g. <c>Amp_CharDistort_Low</c> for such
+    /// effects). Those must be destroyed, not re-tinted, or they render as a mist blob.</summary>
+    private static bool HasVfxShader(Renderer r)
+    {
+        Material[] mats = r.sharedMaterials;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            Material m = mats[i];
+            if (m == null || m.shader == null)
+                continue;
+            string shaderName = m.shader.name;
+            if (shaderName.Contains("Distort") || shaderName.Contains("Particle")
+                || shaderName.Contains("Fog") || shaderName.Contains("FX"))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Map <paramref name="source"/> (a descendant of <paramref name="sourceRoot"/>) to its
+    /// structural twin under <paramref name="cloneRoot"/> via the sibling-index chain — Instantiate
+    /// preserves child order exactly. Null when source is not a descendant or the chain breaks.</summary>
+    private static Transform? FindTwin(Transform sourceRoot, Transform source, Transform cloneRoot)
+    {
+        var chain = new List<int>(8);
+        Transform? t = source;
+        while (t != null && t != sourceRoot)
+        {
+            chain.Add(t.GetSiblingIndex());
+            t = t.parent;
+        }
+        if (t == null)
+            return null; // not under the animated root
+        Transform twin = cloneRoot;
+        for (int i = chain.Count - 1; i >= 0; i--)
+        {
+            if (chain[i] >= twin.childCount)
+                return null;
+            twin = twin.GetChild(chain[i]);
+        }
+        return twin;
+    }
+
     private static Material[] FillMaterials(int count, Material mat)
     {
         count = Mathf.Max(1, count);
@@ -202,7 +287,9 @@ internal sealed class OverlayPulse : MonoBehaviour
 {
     private Material? _mat;
     private Color _base;
-    private const float PulseHz = 1.6f;
+    // Task #5a: slowed from 1.6 Hz to less than half — a calm breathing pulse instead of a strobe.
+    // Intensity range (Floor/Ceil) deliberately unchanged.
+    private const float PulseHz = 0.7f;
     private const float Floor = 0.45f; // dimmest intensity
     private const float Ceil = 1.0f;   // brightest intensity
 

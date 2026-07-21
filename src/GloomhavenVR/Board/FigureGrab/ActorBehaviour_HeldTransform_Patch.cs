@@ -46,4 +46,25 @@ internal static class ActorBehaviour_HeldTransform_Patch
     [HarmonyPatch("LateUpdate")]
     private static bool LateUpdate_Prefix(ActorBehaviour __instance)
         => !HeldFigures.Owns(__instance) && !NetHeldFigures.Owns(__instance);
+
+    /// <summary>
+    /// TASK #2 — while a figure is held (by anyone), the game's selection-ring toggles
+    /// (<c>public static void SetHilighted(GameObject, bool)</c> — the ONLY place the game
+    /// SetActives <c>m_Hilight</c>, verified in the decompiled ActorBehaviour) are routed to
+    /// <see cref="FigureRingSuppressor.RecordGameIntent"/> instead of the ring itself: the ring
+    /// stays off under the in-hand mini, and the recorded intent (select OR deselect mid-hold) is
+    /// re-applied exactly on release. Vanilla behavior for every non-held actor.
+    /// </summary>
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(ActorBehaviour.SetHilighted))]
+    private static bool SetHilighted_Prefix(UnityEngine.GameObject gameObject, bool hilight)
+    {
+        if (gameObject == null)
+            return true;
+        ActorBehaviour actor = ActorBehaviour.GetActorBehaviour(gameObject);
+        if (actor == null || (!HeldFigures.Owns(actor) && !NetHeldFigures.Owns(actor)))
+            return true;
+        FigureRingSuppressor.RecordGameIntent(actor, hilight);
+        return false; // held: the live ring stays suppressed; the ghost's ring shows the state
+    }
 }

@@ -41,6 +41,26 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 ///   the pending release (no re-conversion). If a window still churns
 ///   (&gt;<see cref="ChurnWarnCount"/> conversions in <see cref="ChurnWindowSeconds"/>)
 ///   one warning names it.
+///
+/// CRITICAL SINGLETON SAFETY (game-breaking-bug fix): the game's <c>Singleton&lt;T&gt;</c> base
+/// nulls its static <c>_instance</c> UNCONDITIONALLY in <c>OnDestroy</c> and steals it in
+/// <c>Awake</c>. An earlier dual-panel build Instantiated a live SECOND <c>ActorStatPanel</c>
+/// (clone) — when that clone was destroyed at runtime its base OnDestroy nulled the game's
+/// <c>Singleton&lt;ActorStatPanel&gt;.Instance</c>, and the next
+/// <c>WorldspaceStarHexDisplay.HideActorStatPanel()</c> (invoked from
+/// <c>Choreographer.ProcessMessage(StartTurn)</c> via the ENEMY_TURN banner's OnShown) threw an
+/// NRE inside the message pump → the enemy turn never ran → soft-lock. The rework:
+/// - the second panel is a DUMB VISUAL SNAPSHOT of the real panel's UI hierarchy: Instantiated
+///   under an INACTIVE holder (so Awake — and therefore the Singleton steal — can never run),
+///   with the <c>ActorStatPanel</c>/<c>UIWindow</c>/every Singleton-derived component
+///   DestroyImmediate'd while still never-activated (Unity skips OnDestroy for components whose
+///   Awake never ran, so the game's <c>_instance</c> is untouched at both ends of the copy's
+///   life), THEN handed to the regular convert/place machinery;
+/// - <see cref="HealSingleton"/> runs EVERY Tick regardless of state and re-asserts the last
+///   known live real panel whenever <c>Instance</c> is observed null while that panel object
+///   still exists — a belt-and-braces guard for the game loop.
+/// No code path in this mod ever writes null (or anything but the REAL panel) into
+/// <c>Singleton&lt;ActorStatPanel&gt;._instance</c>.
 /// </summary>
 internal sealed class StatPanelSurface
 {
@@ -52,6 +72,14 @@ internal sealed class StatPanelSurface
 
     /// <summary>Conversions inside one window above which the single churn warning fires.</summary>
     private const int ChurnWarnCount = 5;
+
+    /// <summary>How long the REAL panel shows the second hand's figure before the static snapshot
+    /// copy is taken (lets the game's async portrait/addressable loads land first).</summary>
+    private const float CopySnapshotDelaySeconds = 0.35f;
+
+    /// <summary>Give up on a pending snapshot after this long past the delay (e.g. the game's
+    /// <c>CanShow()</c> gate refused the Show); the real panel then re-binds to the primary.</summary>
+    private const float CopySnapshotTimeoutSeconds = 2f;
 
     private sealed class Watch
     {
@@ -81,10 +109,11 @@ internal sealed class StatPanelSurface
     // not own a StatPanelSurface instance — hence static) and drive TWO panels from them:
     //   • the game's SINGLE ActorStatPanel Singleton shows the PRIMARY held figure (the first hand
     //     to grab — so a single hold behaves EXACTLY as before), docked at that hand;
-    //   • a lazily-created CLONE of that panel (a second ActorStatPanel instance, Instantiated and
-    //     bound to the second CActor, with the game Singleton left pointing at the real one) shows
-    //     the SECONDARY held figure, docked at the OTHER hand.
-    // If only one hand holds, no clone is created and behaviour is identical to the old single panel.
+    //   • the SECONDARY held figure gets a STATIC VISUAL SNAPSHOT of the panel (see the class doc's
+    //     singleton-safety note — never a live second ActorStatPanel): the real panel briefly shows
+    //     the second figure, a component-stripped copy of its hierarchy is taken, and the copy is
+    //     parked at the second hand while the real panel re-binds to the first hand's figure.
+    // If only one hand holds, no copy is created and behaviour is identical to the old single panel.
     private readonly struct HeldReg
     {
         public HeldReg(Transform anchor, ScenarioRuleLibrary.CActor actor, GloomhavenVR.Hands.HandSide side, long seq)
@@ -99,7 +128,7 @@ internal sealed class StatPanelSurface
     private static readonly HeldReg?[] _reg = new HeldReg?[2];
     private static long _seqCounter;
 
-    // Derived each reconcile: PRIMARY (real panel) + SECONDARY (clone panel) docking state.
+    // Derived each reconcile: PRIMARY (real panel) + SECONDARY (snapshot copy) docking state.
     private static Transform? _heldAnchor;
     private static ScenarioRuleLibrary.CActor? _heldActor;
     private static float _heldSideSign = 1f;
@@ -107,12 +136,19 @@ internal sealed class StatPanelSurface
     private static ScenarioRuleLibrary.CActor? _held2Actor;
     private static float _held2SideSign = 1f;
 
-    // The second, cloned ActorStatPanel (created lazily when a second hand holds a figure). Persists
-    // hidden between uses; never Destroyed at runtime (its Singleton-base OnDestroy would null the
-    // game's real instance) — only torn down at Shutdown with the real instance restored after.
-    private static ActorStatPanel? _clone;
-    private static ActorStatPanel? _realPanel; // last-known REAL singleton, for singleton self-heal
-    private readonly Watch _clonePanel = new();
+    // ---- second-panel STATIC SNAPSHOT state (singleton-safe; see class doc) ------------
+    private static GameObject? _copyHolder;   // inactive parent — the copy Awakes only once converted
+    private static RectTransform? _copyRect;  // the stripped copy's root RectTransform
+    private static ConvertedPanel? _copyPanel;
+    private static ScenarioRuleLibrary.CActor? _copyActor;    // the actor the current copy portrays
+    private static ScenarioRuleLibrary.CActor? _pendingCopyActor; // snapshot requested for this actor
+    private static float _pendingCopyAt;
+    private static float _pendingCopyDeadline;
+
+    /// <summary>Last-known REAL game panel — the ONLY value <see cref="HealSingleton"/> may ever
+    /// write back into <c>Singleton&lt;ActorStatPanel&gt;._instance</c>. Never a copy (copies carry
+    /// no ActorStatPanel component at all), never null.</summary>
+    private static ActorStatPanel? _realPanel;
 
     /// <summary>Viewer-relative dock side for a hand: RIGHT hand → viewer-LEFT (-1), LEFT hand →
     /// viewer-RIGHT (+1), so the holding hand never occludes its own panel (item 5).</summary>
@@ -131,8 +167,6 @@ internal sealed class StatPanelSurface
         _actorPanel.OnHidden = () => ScheduleRelease(_actorPanel);
         _enemyTurnPanel.OnShown = () => _enemyTurnPanel.PendingShow = true;
         _enemyTurnPanel.OnHidden = () => ScheduleRelease(_enemyTurnPanel);
-        _clonePanel.OnShown = () => _clonePanel.PendingShow = true;
-        _clonePanel.OnHidden = () => ScheduleRelease(_clonePanel);
 
         // P5 (MISSION A.8): Board announces miniature pokes on the bus; opening the
         // game's own ActorStatPanel window here triggers the conversion above via its
@@ -143,8 +177,8 @@ internal sealed class StatPanelSurface
     /// <summary>
     /// TASK #4: register a figure held in <paramref name="holdingHand"/> so its info panel docks at
     /// that hand. The FIRST-held hand takes the game's real ActorStatPanel; a SECOND-held hand takes
-    /// a cloned panel. <see cref="Reconcile"/> then (re)binds both panels. Replaces the old single
-    /// static held anchor.
+    /// a static snapshot copy. <see cref="Reconcile"/> then (re)binds both panels. Replaces the old
+    /// single static held anchor.
     /// </summary>
     internal static void ShowHeldFigure(Transform anchor, ScenarioRuleLibrary.CActor? actor,
         GloomhavenVR.Hands.HandSide holdingHand)
@@ -158,8 +192,8 @@ internal sealed class StatPanelSurface
     /// <summary>
     /// TASK #4: clear the held registration for <paramref name="holdingHand"/> (only if
     /// <paramref name="actor"/> still owns that slot) and re-bind the panels. If the OTHER hand still
-    /// holds, its figure is promoted to the real panel and the clone hidden; if neither hand holds,
-    /// both panels are hidden.
+    /// holds, its figure is promoted to the real panel and the snapshot copy torn down; if neither
+    /// hand holds, both panels go away.
     /// </summary>
     internal static void ClearHeldFigure(GloomhavenVR.Hands.HandSide holdingHand,
         ScenarioRuleLibrary.CActor? actor)
@@ -185,8 +219,11 @@ internal sealed class StatPanelSurface
     }
 
     /// <summary>
-    /// Derive PRIMARY (real panel) and SECONDARY (clone panel) from the per-hand registrations and
+    /// Derive PRIMARY (real panel) and SECONDARY (snapshot copy) from the per-hand registrations and
     /// bind each panel to its figure. PRIMARY = the earliest-grabbed hand (so one hold is unchanged).
+    /// While a snapshot is PENDING the real panel briefly shows the SECONDARY figure (so the copy
+    /// captures its stats); <see cref="TickCopy"/> takes the snapshot and calls back here to re-bind
+    /// the real panel to the primary.
     /// </summary>
     private static void Reconcile(ScenarioRuleLibrary.CActor? releasing = null)
     {
@@ -217,30 +254,30 @@ internal sealed class StatPanelSurface
         bool canShow = WorldUIConfig.StatPanels.Value && WorldUIConfig.ConversionActive
                        && !CanvasConversion.IsLockedNow && Singleton<ActorStatPanel>.IsInitialized;
 
-        // --- real panel (primary) ---
-        if (canShow && _heldActor != null)
-            ForceShowOn(ActorStatPanel.Instance, _heldActor);
+        // --- secondary (second hand) → request/keep a static snapshot copy ---
+        if (!canShow || _held2Actor == null)
+        {
+            _pendingCopyActor = null; // copy teardown (if one exists) happens in TickCopy
+        }
+        else if (!ReferenceEquals(_copyActor, _held2Actor) && !ReferenceEquals(_pendingCopyActor, _held2Actor))
+        {
+            _pendingCopyActor = _held2Actor;
+            _pendingCopyAt = Time.unscaledTime + CopySnapshotDelaySeconds;
+            _pendingCopyDeadline = _pendingCopyAt + CopySnapshotTimeoutSeconds;
+        }
+
+        // --- real panel: the pending-snapshot figure while the copy brews, else the primary ---
+        ScenarioRuleLibrary.CActor? realTarget = _pendingCopyActor ?? _heldActor;
+        if (canShow && realTarget != null)
+            ForceShowOn(ActorStatPanel.Instance, realTarget);
         else if (_heldActor == null && Singleton<ActorStatPanel>.IsInitialized)
             HideHeldOn(ActorStatPanel.Instance, releasing); // no primary hold → drop our card if still ours
-
-        // --- clone panel (secondary) ---
-        if (canShow && _held2Actor != null)
-        {
-            EnsureClone();
-            if (_clone != null)
-                ForceShowOn(_clone, _held2Actor);
-        }
-        else if (_held2Actor == null && _clone != null)
-        {
-            HideHeldOn(_clone, releasing); // no secondary hold → hide the clone card
-        }
     }
 
     /// <summary>
     /// Show <paramref name="actor"/> in <paramref name="panel"/>, RETARGETING if needed. The game's
     /// <c>ActorStatPanel.Show</c> is gated by <c>CanShow()</c> (refuses while another actor is shown),
-    /// so we clear the latch first. No-op when the right actor is already shown. Works on the real
-    /// panel AND on the clone (Show is an instance method that does not touch the Singleton accessor).
+    /// so we clear the latch first. No-op when the right actor is already shown.
     /// </summary>
     private static void ForceShowOn(ActorStatPanel panel, ScenarioRuleLibrary.CActor actor)
     {
@@ -262,62 +299,35 @@ internal sealed class StatPanelSurface
             return;
         // Only hide OUR held figures — never a panel the game re-targeted to a board-hover actor.
         bool ours = ReferenceEquals(shown, _heldActor) || ReferenceEquals(shown, _held2Actor)
-                    || (onlyIf != null && ReferenceEquals(shown, onlyIf))
-                    || ReferenceEquals(panel, _clone); // the clone is ONLY ever our held figure
+                    || (onlyIf != null && ReferenceEquals(shown, onlyIf));
         if (ours)
             panel.HideForActor(shown);
     }
 
     /// <summary>
-    /// Lazily Instantiate a SECOND ActorStatPanel bound to the second held figure. The clone's
-    /// Singleton-base Awake transiently steals the game's <c>_instance</c>; we restore it to the real
-    /// panel immediately (and again defensively in <see cref="HealSingleton"/>). The clone is parented
-    /// under the same canvas as the real panel so uGUI renders it until <see cref="TickWatch"/>
-    /// converts it to a world host. Never destroyed at runtime (its OnDestroy would null the real
-    /// instance) — persists hidden and is reused.
-    /// </summary>
-    private static void EnsureClone()
-    {
-        if (_clone != null || !Singleton<ActorStatPanel>.IsInitialized)
-            return;
-        ActorStatPanel real = ActorStatPanel.Instance;
-        if (real == null)
-            return;
-
-        var go = UnityEngine.Object.Instantiate(real.gameObject);
-        go.name = "GloomhavenVR.ActorStatPanelClone";
-        _clone = go.GetComponent<ActorStatPanel>();
-
-        // The clone's Awake set the Singleton to itself — put the game's real panel back.
-        real.SetInstance(real);
-        _realPanel = real;
-
-        go.transform.SetParent(real.transform.parent, worldPositionStays: false);
-        if (_clone != null)
-            _clone.HideForActor(); // start hidden; Reconcile shows it for the secondary figure
-
-        VRLog.Info("WorldUI", "second held-figure info panel created (cloned ActorStatPanel) — both " +
-                              "hands' figures now show a panel each.");
-    }
-
-    /// <summary>
-    /// Keep the game's <c>Singleton&lt;ActorStatPanel&gt;.Instance</c> pointing at the REAL panel. The
-    /// clone's Singleton-base Awake/OnDestroy can transiently steal or null it; this re-asserts the
-    /// real instance. Cheap; only meaningful once a clone exists.
+    /// GAME-LOOP GUARD (mandatory, unconditional): the game reads
+    /// <c>Singleton&lt;ActorStatPanel&gt;.Instance</c> without null checks in hot paths
+    /// (<c>WorldspaceStarHexDisplay.HideActorStatPanel</c>/<c>ShowActorStatPanelForTile</c>, the
+    /// former INSIDE <c>Choreographer.ProcessMessage(StartTurn)</c> — a null Instance there
+    /// soft-locked the enemy turn). If Instance is ever observed null while the last known REAL
+    /// panel object still exists, re-assert it. The only value ever written is the live real panel.
     /// </summary>
     private static void HealSingleton()
     {
-        if (_clone == null)
-            return;
         ActorStatPanel? live = Singleton<ActorStatPanel>.IsInitialized ? ActorStatPanel.Instance : null;
-        if (live != null && !ReferenceEquals(live, _clone))
+        if (live != null)
         {
-            _realPanel = live; // the genuine game instance
+            _realPanel = live; // cache the genuine game instance while it is alive
             return;
         }
-        // Singleton is null or was stolen by the clone — restore the cached real panel.
+        // Singleton observed null. If the real panel object was legitimately destroyed (scene
+        // teardown) the Unity-null check leaves it alone; otherwise restore it.
         if (_realPanel != null)
+        {
             _realPanel.SetInstance(_realPanel);
+            VRLog.Warn("WorldUI", "ActorStatPanel singleton was null while the real panel still " +
+                                  "exists — restored (game-loop guard).");
+        }
     }
 
     private static void OnMiniaturePoked(MiniaturePokedEvent e)
@@ -342,9 +352,9 @@ internal sealed class StatPanelSurface
         TickWatch(_enemyTurnPanel,
             Singleton<EnemyCurrentTurnStatPanel>.IsInitialized ? Singleton<EnemyCurrentTurnStatPanel>.Instance : null,
             "EnemyCurrentTurnStatPanel");
-        // TASK #4 — the cloned second panel (only live once a second hand held a figure). Uses the
-        // SAME convert/place/billboard machinery; PlaceWatch docks it at the secondary hand.
-        TickWatch(_clonePanel, _clone != null ? _clone : null, "ActorStatPanelClone");
+
+        // The second hand's STATIC SNAPSHOT panel (never a live ActorStatPanel — class doc).
+        TickCopy();
     }
 
     private void TickWatch(Watch watch, Component? live, string name)
@@ -404,6 +414,174 @@ internal sealed class StatPanelSurface
         }
     }
 
+    // ---- second-panel snapshot pipeline -------------------------------------------------
+
+    /// <summary>
+    /// Drive the second hand's snapshot copy: tear it down when the second hold ended (or its
+    /// figure changed), take the pending snapshot once the real panel has shown the second figure
+    /// long enough for its async content to land, and keep the copy converted + docked at the
+    /// second hand. The copy is pure imagery — no ActorStatPanel, no UIWindow, no Singleton
+    /// anything (see <see cref="BuildStaticCopy"/>).
+    /// </summary>
+    private static void TickCopy()
+    {
+        bool active = WorldUIConfig.StatPanels.Value && WorldUIConfig.ConversionActive;
+
+        // Teardown: second hold gone, feature off, or the copy portrays the wrong figure.
+        if (_copyHolder != null && (!active || _held2Actor == null || !ReferenceEquals(_copyActor, _held2Actor)))
+            DestroyCopy();
+        if (!active)
+        {
+            _pendingCopyActor = null;
+            return;
+        }
+
+        // Pending snapshot: wait out the delay, then copy while the REAL panel shows the figure.
+        if (_pendingCopyActor != null)
+        {
+            if (!ReferenceEquals(_pendingCopyActor, _held2Actor))
+            {
+                _pendingCopyActor = null; // stale request (hand released / figure swapped)
+                Reconcile();
+            }
+            else if (Singleton<ActorStatPanel>.IsInitialized
+                     && ActorStatPanel.Instance != null
+                     && ReferenceEquals(ActorStatPanel.Instance.m_ActorShown, _pendingCopyActor)
+                     && Time.unscaledTime >= _pendingCopyAt)
+            {
+                BuildStaticCopy(ActorStatPanel.Instance, _pendingCopyActor);
+                _pendingCopyActor = null;
+                Reconcile(); // re-bind the real panel to the FIRST hand's figure immediately
+            }
+            else if (Time.unscaledTime >= _pendingCopyDeadline)
+            {
+                // The game's CanShow() gate refused the Show (transition/results screen…) —
+                // fall back to the single real panel on the primary figure rather than waiting.
+                _pendingCopyActor = null;
+                Reconcile();
+                VRLog.Info("WorldUI", "second held-figure snapshot timed out (game refused Show) — " +
+                                      "keeping the single real panel.");
+            }
+        }
+
+        // Convert + dock the copy at the second hand (same machinery as the real panels).
+        if (_copyPanel != null && !_copyPanel.IsAlive)
+            _copyPanel = null;
+        if (_copyHolder != null && _copyRect != null && _copyPanel == null)
+            _copyPanel = CanvasConversion.Convert(_copyRect, "ActorStatPanelCopy", pokeable: false);
+        if (_copyPanel != null)
+        {
+            if (_copyPanel.HostRaycaster != null && _copyPanel.HostRaycaster.enabled)
+                _copyPanel.HostRaycaster.enabled = false;
+            if (_held2Anchor != null
+                && TryComputeHeldPose(_held2Anchor.position, _held2SideSign, out Vector3 pos, out Quaternion rot))
+                CanvasConversion.PlaceHost(_copyPanel, pos, rot, PanelLayout.WorldScale * 0.6f);
+        }
+    }
+
+    /// <summary>
+    /// Build the DUMB VISUAL COPY of the real panel's UI hierarchy for <paramref name="actor"/>.
+    /// Singleton safety (the load-bearing part):
+    /// 1. the copy is Instantiated under an INACTIVE holder, so Unity NEVER calls Awake on any of
+    ///    its components — the copied ActorStatPanel cannot steal <c>Singleton._instance</c>;
+    /// 2. the <c>ActorStatPanel</c> (Singleton-derived; destroyed FIRST — it RequireComponent's the
+    ///    UIWindow), every other Singleton-derived component, and the <c>UIWindow</c> are
+    ///    DestroyImmediate'd while still never-activated — Unity does not invoke OnDestroy for
+    ///    components whose Awake never ran, so <c>Singleton._instance</c> is untouched here too;
+    /// 3. only then does <see cref="TickCopy"/> hand the bare imagery to CanvasConversion, whose
+    ///    re-parent into the active host finally activates it — at that point no component with any
+    ///    Singleton/window lifecycle exists anywhere in the copy.
+    /// </summary>
+    private static void BuildStaticCopy(ActorStatPanel real, ScenarioRuleLibrary.CActor actor)
+    {
+        DestroyCopy();
+
+        var holder = new GameObject("GloomhavenVR.StatPanelCopyHolder");
+        holder.SetActive(false); // MUST precede the Instantiate — keeps every Awake from running
+
+        GameObject copy = Object.Instantiate(real.gameObject, holder.transform, false);
+        copy.name = "GloomhavenVR.ActorStatPanelCopy";
+
+        int stripped = StripLogicComponents(copy);
+
+        // The window may have been copied mid fade-in — force the snapshot fully opaque and inert.
+        var group = copy.GetComponent<CanvasGroup>();
+        if (group != null)
+        {
+            group.alpha = 1f;
+            group.interactable = false;
+            group.blocksRaycasts = false;
+        }
+
+        _copyHolder = holder;
+        _copyRect = copy.transform as RectTransform;
+        _copyActor = actor;
+
+        VRLog.Info("WorldUI", $"second held-figure info panel snapshot created ({stripped} logic " +
+                              "component(s) stripped; game singleton untouched) — both hands' " +
+                              "figures now show a panel each.");
+    }
+
+    /// <summary>
+    /// DestroyImmediate every Singleton-derived component (by base-type name <c>Singleton`1</c>, so
+    /// any singleton flavor is caught) and every <see cref="UIWindow"/> in <paramref name="copy"/>.
+    /// Order matters: ActorStatPanel [RequireComponent(typeof(UIWindow))] must go before its window.
+    /// Plain viewer components (Image/TMP_Text/layout/scrollers) are kept — they are the imagery.
+    /// </summary>
+    private static int StripLogicComponents(GameObject copy)
+    {
+        int stripped = 0;
+        MonoBehaviour[] behaviours = copy.GetComponentsInChildren<MonoBehaviour>(true);
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            MonoBehaviour mb = behaviours[i];
+            if (mb == null || !IsSingletonDerived(mb.GetType()))
+                continue;
+            Object.DestroyImmediate(mb);
+            stripped++;
+        }
+        UIWindow[] windows = copy.GetComponentsInChildren<UIWindow>(true);
+        for (int i = 0; i < windows.Length; i++)
+        {
+            if (windows[i] == null)
+                continue;
+            Object.DestroyImmediate(windows[i]);
+            stripped++;
+        }
+        return stripped;
+    }
+
+    private static bool IsSingletonDerived(System.Type type)
+    {
+        for (System.Type? t = type; t != null; t = t.BaseType)
+        {
+            if (t.IsGenericType && t.Name == "Singleton`1")
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Release the copy's conversion (returns it under the inactive holder) and destroy
+    /// the whole snapshot. Destroying the copy touches NO singleton: it carries no ActorStatPanel /
+    /// UIWindow component, and its stripped components never ran Awake anyway.</summary>
+    private static void DestroyCopy()
+    {
+        if (_copyPanel != null)
+        {
+            CanvasConversion.Release(_copyPanel);
+            _copyPanel = null;
+        }
+        if (_copyHolder != null)
+        {
+            Object.Destroy(_copyHolder);
+            _copyHolder = null;
+        }
+        _copyRect = null;
+        _copyActor = null;
+    }
+
+    // -------------------------------------------------------------------------------------
+
     /// <summary>
     /// Hide → deferred release (test #16). The game's hover logic hides/re-shows the
     /// panel liberally; releasing instantly re-parented the whole uGUI subtree at
@@ -435,6 +613,31 @@ internal sealed class StatPanelSurface
         }
     }
 
+    /// <summary>Held-dock pose beside an anchor: docked on the viewer side <paramref name="sideSign"/>
+    /// of the hand, billboarded to the player. Shared by the real panel and the snapshot copy.</summary>
+    private static bool TryComputeHeldPose(Vector3 anchorPos, float sideSign, out Vector3 pos, out Quaternion rot)
+    {
+        pos = default;
+        rot = Quaternion.identity;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return false;
+        float scale = PanelLayout.WorldScale;
+        Vector3 fromHead = anchorPos - head.transform.position;
+        fromHead.y = 0f;
+        if (fromHead.sqrMagnitude < 1e-4f)
+            fromHead = Vector3.forward;
+        fromHead.Normalize();
+        Vector3 side = Vector3.Cross(Vector3.up, fromHead); // unit: screen-right of the view axis
+        pos = anchorPos + (side * (HeldSideOffset * sideSign) + Vector3.up * HeldUpOffset) * scale;
+        Vector3 facing = pos - head.transform.position;
+        facing.y = 0f;
+        if (facing.sqrMagnitude < 1e-4f)
+            facing = fromHead;
+        rot = Quaternion.LookRotation(facing.normalized, Vector3.up);
+        return true;
+    }
+
     private void PlaceWatch(Watch watch)
     {
         if (watch.Panel == null)
@@ -447,13 +650,19 @@ internal sealed class StatPanelSurface
         // hand, anchor beside that held mini (tighter offset so it clears the hand) on the side
         // opposite that hand — instead of its board cell. Billboarded to the player either way.
         bool held = TryGetHeldFor(WatchActor(watch), out Transform? heldAnchor, out float heldSign);
-        Vector3? anchor = held ? heldAnchor!.position : ResolveActorAnchor(watch);
+        if (held && heldAnchor != null)
+        {
+            if (TryComputeHeldPose(heldAnchor.position, heldSign, out Vector3 heldPos, out Quaternion heldRot))
+                CanvasConversion.PlaceHost(watch.Panel, heldPos, heldRot, scale * 0.6f);
+            return;
+        }
+
+        Vector3? anchor = ResolveActorAnchor(watch);
         if (anchor.HasValue && head != null)
         {
-            // Held: dock on the side OPPOSITE the holding hand (item 5) via the per-hand sign so the
-            // hand never occludes the panel; the board case stays on the fixed viewer-right side.
-            float sideOffset = held ? HeldSideOffset * heldSign : 0.30f;
-            float upOffset = held ? HeldUpOffset : 0.10f;
+            // Board case: fixed viewer-right side, a little higher than the held dock.
+            const float sideOffset = 0.30f;
+            const float upOffset = 0.10f;
 
             Vector3 fromHead = anchor.Value - head.transform.position;
             fromHead.y = 0f;
@@ -486,7 +695,7 @@ internal sealed class StatPanelSurface
 
     /// <summary>Per-hand held-dock lookup: if <paramref name="actor"/> is a figure currently held in
     /// either hand, return that hand's anchor + viewer-side sign. Matches both the PRIMARY (real
-    /// panel) and SECONDARY (clone panel) held figures.</summary>
+    /// panel) and SECONDARY (snapshot copy) held figures.</summary>
     private static bool TryGetHeldFor(ScenarioRuleLibrary.CActor? actor, out Transform? anchor, out float sign)
     {
         if (actor != null && _heldAnchor != null && ReferenceEquals(actor, _heldActor))
@@ -548,35 +757,10 @@ internal sealed class StatPanelSurface
         VREvents.MiniaturePoked -= OnMiniaturePoked;
         DetachWatch(_actorPanel);
         DetachWatch(_enemyTurnPanel);
-        DetachWatch(_clonePanel);
-        DestroyClone();
+        DestroyCopy();
+        _pendingCopyActor = null;
         for (int i = 0; i < _reg.Length; i++)
             _reg[i] = null;
         _heldActor = null; _heldAnchor = null; _held2Actor = null; _held2Anchor = null;
-    }
-
-    /// <summary>
-    /// Tear the cloned second panel down and RESTORE the game's real Singleton. The clone's
-    /// Singleton-base OnDestroy nulls <c>_instance</c> — so we DestroyImmediate it (OnDestroy runs
-    /// synchronously) then re-assert the real panel. Guarded so a scene teardown that already killed
-    /// the real panel doesn't resurrect a dead reference.
-    /// </summary>
-    private static void DestroyClone()
-    {
-        if (_clone == null)
-            return;
-
-        ActorStatPanel? real = _realPanel;
-        if ((real == null || ReferenceEquals(real, _clone)) && Singleton<ActorStatPanel>.IsInitialized
-            && !ReferenceEquals(ActorStatPanel.Instance, _clone))
-            real = ActorStatPanel.Instance;
-
-        GameObject go = _clone.gameObject;
-        _clone = null;
-        UnityEngine.Object.DestroyImmediate(go); // OnDestroy nulls the singleton synchronously here
-
-        if (real != null) // real still alive → put it back as the game singleton
-            real.SetInstance(real);
-        _realPanel = null;
     }
 }

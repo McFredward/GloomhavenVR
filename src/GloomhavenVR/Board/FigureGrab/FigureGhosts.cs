@@ -7,7 +7,9 @@ namespace GloomhavenVR.Board.FigureGrab;
 
 /// <summary>
 /// TASK #3 (+ multiplayer) — a translucent GHOST silhouette left at a figure's HOME board pose the
-/// whole time it is held, so anyone can see where a picked-up mini belongs.
+/// whole time it is held, so anyone can see where a picked-up mini belongs. The ghost ANIMATES
+/// (task #4: its Animator is kept, playing the idle in place with root motion off) and is VFX-free
+/// (task #3: particles/trails/distort-shader renderers are stripped, so no fog/mist at the cell).
 ///
 /// The ghost is driven off "is this figure held by ANYONE": <see cref="HeldFigures.Owns"/> (this
 /// client physically holds it) OR <see cref="NetHeldFigures.Owns"/> (a REMOTE player holds it). So a
@@ -27,7 +29,19 @@ internal static class FigureGhosts
     // Dim cool translucent tint — low alpha so it reads as a ghost, not a solid figure.
     private static readonly Color GhostTint = new Color(0.45f, 0.62f, 1.0f, 0.30f);
 
-    private static readonly Dictionary<ActorBehaviour, GameObject> _ghosts = new();
+    /// <summary>A live ghost + its authoritative home pose. The pose is re-asserted every Tick:
+    /// the ghost keeps its Animator (task #4 — it plays the idle in place) but all game scripts
+    /// that normally pin animated roots are stripped, so this is the cheap insurance that no clip
+    /// quirk ever walks the ghost off its home cell.</summary>
+    private sealed class Ghost
+    {
+        public Ghost(GameObject go, Vector3 pos, Quaternion rot) { Go = go; Pos = pos; Rot = rot; }
+        public readonly GameObject Go;
+        public readonly Vector3 Pos;
+        public readonly Quaternion Rot;
+    }
+
+    private static readonly Dictionary<ActorBehaviour, Ghost> _ghosts = new();
     private static readonly List<ActorBehaviour> _scratch = new(4);
 
     /// <summary>
@@ -55,13 +69,17 @@ internal static class FigureGhosts
             return; // bundle missing the Overlay shader — no ghost rather than a wall-piercing one
 
         Vector3 scale = animated.transform.lossyScale;
-        GameObject? ghost = FigureOverlay.BuildFrozenGhost(animated, homePos, homeRot, scale, mat);
+        // Task #2: hand the live selection ring (m_Hilight) through so the ghost's copy of it keeps
+        // the game's ORIGINAL ring materials — the ring at the home cell looks exactly vanilla
+        // (the live ring under the in-hand figure is suppressed by FigureRingSuppressor).
+        GameObject? ghost = FigureOverlay.BuildFrozenGhost(animated, homePos, homeRot, scale, mat,
+            actor.m_Hilight != null ? actor.m_Hilight.transform : null);
         if (ghost == null)
         {
             Object.Destroy(mat);
             return;
         }
-        _ghosts[actor] = ghost;
+        _ghosts[actor] = new Ghost(ghost, homePos, homeRot);
         VRLog.Info("FigureGrab", $"ghost spawned at home for {Describe(actor)} ({_ghosts.Count} active).");
     }
 
@@ -76,12 +94,18 @@ internal static class FigureGhosts
             return;
 
         _scratch.Clear();
-        foreach (KeyValuePair<ActorBehaviour, GameObject> kv in _ghosts)
+        foreach (KeyValuePair<ActorBehaviour, Ghost> kv in _ghosts)
         {
             ActorBehaviour actor = kv.Key;
             bool stillHeld = actor != null && (HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor));
-            if (!stillHeld || kv.Value == null)
+            if (!stillHeld || kv.Value.Go == null)
+            {
                 _scratch.Add(actor!);
+                continue;
+            }
+            // Task #4 — the ghost animates (Animator kept, root motion off); re-assert the home
+            // pose each frame so no clip can ever translate/rotate the ghost off its cell.
+            kv.Value.Go.transform.SetPositionAndRotation(kv.Value.Pos, kv.Value.Rot);
         }
         for (int i = 0; i < _scratch.Count; i++)
             Destroy(_scratch[i]);
@@ -90,20 +114,20 @@ internal static class FigureGhosts
     /// <summary>Tear down every ghost (module shutdown / scene teardown).</summary>
     internal static void Clear()
     {
-        foreach (GameObject go in _ghosts.Values)
+        foreach (Ghost ghost in _ghosts.Values)
         {
-            if (go != null)
-                Object.Destroy(go);
+            if (ghost.Go != null)
+                Object.Destroy(ghost.Go);
         }
         _ghosts.Clear();
     }
 
     private static void Destroy(ActorBehaviour actor)
     {
-        if (_ghosts.TryGetValue(actor, out GameObject go))
+        if (_ghosts.TryGetValue(actor, out Ghost ghost))
         {
-            if (go != null)
-                Object.Destroy(go); // the shared ghost material dies with its renderers' owner
+            if (ghost.Go != null)
+                Object.Destroy(ghost.Go); // the shared ghost material dies with its renderers' owner
             _ghosts.Remove(actor);
         }
     }
