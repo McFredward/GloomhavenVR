@@ -89,6 +89,22 @@ internal static class NetFigures
             return;
         }
 
+        // TASK #3 (multiplayer ghost): the FIRST frame this figure becomes remotely held — before it
+        // is added to NetHeldFigures / eased toward the remote hand below — it is still sitting at its
+        // authoritative board cell. Capture that HOME pose now and spawn the translucent ghost so it
+        // appears at the home spot on THIS client for the whole time the peer holds it. Guarded to a
+        // genuinely fresh hold (not already held by any peer or locally) so it is captured at home;
+        // NotifyHeld is idempotent regardless. Despawn is reconciled by FigureGhosts.Tick when the
+        // release drops the actor from NetHeldFigures (RebuildSet, ReleaseRemote, or the Tick prune).
+        if (!NetHeldFigures.Owns(actor) && !HeldFigures.Owns(actor))
+        {
+            GameObject? animated = actor.m_AnimatedGameObject != null
+                ? actor.m_AnimatedGameObject
+                : actor.m_RootGameObject;
+            if (animated != null)
+                FigureGhosts.NotifyHeld(actor, animated.transform.position, animated.transform.rotation);
+        }
+
         if (!_byPlayer.TryGetValue(playerId, out RemoteHeld rec))
         {
             rec = new RemoteHeld();

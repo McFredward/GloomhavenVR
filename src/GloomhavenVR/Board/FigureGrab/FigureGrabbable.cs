@@ -128,6 +128,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
                 return false;
             if (_actor == null || Root == null)
                 return false;
+            // MP grab-lock: a figure a REMOTE player currently holds behaves as if it does not exist
+            // for the local grab (proximity + laser both consult CanGrab) until they release it.
+            if (NetHeldFigures.Owns(_actor))
+                return false;
             CActor? actor = Character;
             return actor != null && !actor.IsDead;
         }
@@ -150,7 +154,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// or a far laser target out of proximity reach) are never suppressed, so far-grab is untouched.
     /// </summary>
     public bool AllowsHand(VRHand hand)
-        => !(hand.Side == HandSide.Left ? _suppressLeft : _suppressRight);
+        => !NetHeldFigures.Owns(_actor)
+           && !(hand.Side == HandSide.Left ? _suppressLeft : _suppressRight);
 
     /// <summary>Driver hook: mark this figure suppressed (proximity loser) for a hand, or clear it.</summary>
     internal void SetProximitySuppressed(HandSide side, bool suppressed)
@@ -179,19 +184,17 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         if (highlighted)
         {
-            if (_highlight.Active)
+            // MP lock: never highlight a figure a REMOTE player is holding (it is grab-locked here).
+            if (_highlight.Active || NetHeldFigures.Owns(_actor))
                 return;
-            // Scale the ANIMATED visual root (the game never writes its scale), not the actor root:
-            // shader-agnostic, occlusion-correct, and it can't perturb the root grab collider.
-            Transform scaleTarget = _actor.m_AnimatedGameObject != null
-                ? _actor.m_AnimatedGameObject.transform
-                : root.transform;
-            bool glow = _highlight.Apply(root, scaleTarget);
+            // Overlay the figure's OWN meshes with an animated additive glow — NO scale change,
+            // occlusion-correct, riding the live animation (see FigureHighlight / FigureOverlay).
+            GameObject animated = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
+            bool glow = _highlight.Apply(root, animated);
             VRLog.Info("FigureGrab",
-                $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}) — uniform scale pop on the "
-                + $"figure's own renderers (wall-occluded, shader-agnostic)"
-                + (glow ? " + warm emissive glow (shader supports _EmissionColor)."
-                        : " (shader has no _EmissionColor — scale pop only)."));
+                $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}) — animated additive glow "
+                + (glow ? "overlaid on the figure's own meshes (wall-occluded, no scale change)."
+                        : "UNAVAILABLE (bundle Overlay shader missing) — no highlight."));
         }
         else
         {
@@ -223,6 +226,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _origLocalPos = t.localPosition;
         _origLocalRot = t.localRotation;
         _origLocalScale = t.localScale;
+
+        // TASK #3 — leave a translucent ghost at the figure's HOME board pose while it is held.
+        // Capture the pose from the visual (animated) object BEFORE we reparent it into the hand, and
+        // build the frozen snapshot from its current (board) pose. FigureGhosts reconciles teardown
+        // off HeldFigures/NetHeldFigures, so any release path removes it. (Multiplayer: a REMOTE
+        // player's grab spawns the same ghost via NetFigures.)
+        GameObject ghostSrc = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
+        FigureGhosts.NotifyHeld(_actor, ghostSrc.transform.position, ghostSrc.transform.rotation);
 
         // Suppress the game's per-frame transform writes for THIS actor only.
         HeldFigures.Add(_actor);
@@ -392,7 +403,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         if (_holder != null)
         {
-            StatPanelSurface.ClearHeldFigure(Character);
+            StatPanelSurface.ClearHeldFigure(_holder.Side, Character);
             _holder = null;
         }
     }
