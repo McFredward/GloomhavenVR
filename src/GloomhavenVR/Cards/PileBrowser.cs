@@ -62,10 +62,20 @@ internal sealed class PileBrowser
     /// <summary>Poke-toggle proud offset toward the viewer (board-local −Z is out of the board face), meters.</summary>
     private const float BoardFloatProudZ = -0.05f;
 
+    /// <summary>
+    /// The poke-toggle fan's FIXED board-local base anchor (above the board top edge, slightly
+    /// proud toward the viewer). The live anchor is this base plus the debug-menu-tunable
+    /// <see cref="CardsConfig.BrowseFanOffset"/>, re-read every <see cref="Tick"/> while
+    /// board-anchored so the Piles 'Browse X/Y/Z' steppers move an OPEN fan immediately.
+    /// </summary>
+    private static Vector3 BoardAnchorBase =>
+        new(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+
     private readonly List<VRCard> _cards = new(16);
     private Transform? _root;
     private TextMeshPro? _title;
     private VRHand? _followHand;
+    private bool _boardAnchored; // poke-toggle fan parented under the board root (not held, not head-fallback)
 
     internal bool IsOpen { get; private set; }
 
@@ -110,6 +120,7 @@ internal sealed class PileBrowser
         // Poke-toggle: anchor under the board root so the fan inherits the board's live
         // scale + pose (tracks a resize + a board switch). No board → head-relative fallback.
         Transform? boardRoot = followHand == null ? PlayTray.Current?.Root : null;
+        _boardAnchored = boardRoot != null;
         Transform parent = followHand != null ? followHand.Rig.PalmCenter
                          : boardRoot != null ? boardRoot
                          : anchorParent;
@@ -133,6 +144,7 @@ internal sealed class PileBrowser
         IsOpen = false;
         Kind = null;
         _followHand = null;
+        _boardAnchored = false;
         _cards.Clear();
         if (_root != null)
             _root.gameObject.SetActive(false);
@@ -144,6 +156,7 @@ internal sealed class PileBrowser
         IsOpen = false;
         Kind = null;
         _followHand = null;
+        _boardAnchored = false;
         if (_root != null)
         {
             Object.DestroyImmediate(_root.gameObject);
@@ -190,11 +203,12 @@ internal sealed class PileBrowser
     // ------------------------------------------------------------------ placement --
 
     /// <summary>
-    /// Poke-toggle reading pose (primary): a fixed spot a comfortable reading height ABOVE
-    /// the control board, centered on its long axis (board-local x 0). The root is a child of
+    /// Poke-toggle reading pose (primary): a spot a comfortable reading height ABOVE the
+    /// control board, centered on its long axis — <see cref="BoardAnchorBase"/> plus the
+    /// debug-menu-tunable <see cref="CardsConfig.BrowseFanOffset"/>. The root is a child of
     /// the board root (set up in <see cref="Open"/>), so this board-LOCAL offset INHERITS the
-    /// board's live scale + pose — the fan tracks a two-hand board resize and a board switch
-    /// with no per-frame work. POSITION is set once here (board-anchored); the FACING is
+    /// board's live scale + pose — the fan tracks a two-hand board resize and a board switch.
+    /// POSITION is set here and re-read every <see cref="Tick"/> (live tuning); the FACING is
     /// re-billboarded toward the head every frame in <see cref="Tick"/> (ISSUE #7). The
     /// downward-hanging arc clears the board top edge and the initiative track (see
     /// <see cref="BoardFloatHeight"/>).
@@ -203,7 +217,7 @@ internal sealed class PileBrowser
     {
         if (_root == null)
             return;
-        _root.localPosition = new Vector3(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+        _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
         _root.localRotation = Quaternion.identity; // Tick billboards the WORLD rotation each frame
         Tick(); // face the head immediately (no first-frame flash of the un-billboarded arc)
     }
@@ -252,11 +266,14 @@ internal sealed class PileBrowser
     {
         if (!IsOpen || _root == null)
             return;
-        // Held mode only: the pivot floats above the palm along the palm normal (+Y of
-        // PalmCenter). The board-anchored fan keeps the fixed board-local position it was
-        // given (PlaceAboveBoard) and just rides its parent's pose/scale.
+        // Held mode: the pivot floats above the palm along the palm normal (+Y of PalmCenter).
+        // Board-anchored mode: re-read the base + [Cards] BrowseFanOffset every frame — a cheap
+        // Vector3 config read — so the debug menu's Piles 'Browse X/Y/Z' steppers move an OPEN
+        // fan live; the board-LOCAL anchor still rides its parent's pose/scale for free.
         if (_followHand != null)
             _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
+        else if (_boardAnchored)
+            _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;

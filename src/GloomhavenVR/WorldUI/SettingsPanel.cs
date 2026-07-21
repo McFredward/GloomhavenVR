@@ -879,6 +879,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value = Mathf.Clamp(e.Value + d * 1f, 0f, 40f);
             });
 
+        // Piles-only BROWSE-fan anchor rows (shown only when Element == Piles): live-tune where
+        // the poke-toggle pile browse fan floats above the board — [Cards] BrowseFanOffset,
+        // board-local meters ADDED to the fixed above-board base. GLOBAL (not per-board): the
+        // anchor is board-LOCAL, so it already rides each board's pose/scale — precedent: the
+        // global initiative 3D-depth row above. PileBrowser.Tick re-reads the entry every frame
+        // while a browse fan is open, so nudging a stepper moves the open fan immediately.
+        AddBrowseOffsetStepper("Browse X", 0);
+        AddBrowseOffsetStepper("Browse Y", 1);
+        AddBrowseOffsetStepper("Browse Z", 2);
+
         // Reset element (per-board categories only — resets the selected element).
         var actionRow = Row();
         RegisterDebugRow(actionRow.gameObject, PerBoard);
@@ -993,6 +1003,37 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         RegisterDebugRow(row.gameObject, () => !CategoryIsGlobal(CurrentCategory));
         Label(row, label, 16f, flexible: true);
         MiniStepper(row, () => FormatOffset(axis), d => StepOffset(axis, d));
+    }
+
+    /// <summary>
+    /// Piles-element stepper row for ONE axis of the GLOBAL [Cards] BrowseFanOffset — the pile
+    /// BROWSE fan's board-local anchor offset (added to its fixed above-board base). Writing the
+    /// entry persists (BepInEx) and live-applies WITHOUT a SettingChanged hook: PileBrowser.Tick
+    /// re-reads the entry every frame while a browse fan is open. Shown only for Panels → Piles.
+    /// </summary>
+    private void AddBrowseOffsetStepper(string label, int axis)
+    {
+        var row = Row();
+        RegisterDebugRow(row.gameObject,
+            () => !CategoryIsGlobal(CurrentCategory) && CurrentElement() == DebugElement.Piles);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () =>
+            {
+                Vector3 v = CardsConfig.BrowseFanOffset.Value;
+                float c = axis == 0 ? v.x : axis == 1 ? v.y : v.z;
+                return $"{c * 1000f:0}mm";
+            },
+            d =>
+            {
+                ConfigEntry<Vector3> e = CardsConfig.BrowseFanOffset;
+                Vector3 v = e.Value;
+                float s = d * 0.002f; // 2 mm per press, same feel as StepOffset
+                if (axis == 0) v.x += s;
+                else if (axis == 1) v.y += s;
+                else v.z += s;
+                e.Value = v; // persists; PileBrowser.Tick re-reads per frame (live)
+            });
     }
 
     /// <summary>
@@ -1372,6 +1413,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             {
                 CardsConfig.PileScale(b).Value = (float)CardsConfig.PileScale(b).DefaultValue;
                 CardsConfig.PileSpacing(b).Value = (float)CardsConfig.PileSpacing(b).DefaultValue;
+                // The browse-fan anchor offset is GLOBAL (board-local, rides every board) but is
+                // edited from this element's rows, so the Piles reset restores it too.
+                CardsConfig.BrowseFanOffset.Value = (Vector3)CardsConfig.BrowseFanOffset.DefaultValue;
                 break;
             }
             case DebugElement.Board:
