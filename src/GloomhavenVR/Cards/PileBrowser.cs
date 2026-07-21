@@ -22,13 +22,17 @@ internal enum PileKind
 /// <summary>
 /// The pile browse fan (hardware test #21): a readable arc of one pile's cards,
 /// raised by poking or pinch-grabbing a <see cref="PileViewer"/> stack. Simplified
-/// <see cref="CardFan"/>-style arc at a fixed head-relative READING pose (its POSITION is
-/// placed once at open — calmer to read than a chasing palm fan — but it BILLBOARDS to
-/// face the head every frame in <see cref="Tick"/> so the cards always face the player,
-/// ISSUE #7), cards slightly enlarged. Purely informational: the cards are adopted read-only (never grabbable,
-/// never poke-selectable — CardsDriver clears both flags), and closing simply lets
-/// the next rebuild park them again. Layout only — open/close policy and content
-/// live in <see cref="CardsDriver"/>. No allocations after open.
+/// <see cref="CardFan"/>-style arc, cards slightly enlarged. The POKE-TOGGLE fan now
+/// floats at a fixed spot ABOVE the control board (<see cref="PlaceAboveBoard"/>): its
+/// root is parented under the board root (<see cref="PlayTray.Current"/>.<see cref="PlayTray.Root"/>)
+/// so it INHERITS the board's live scale and pose — the fan tracks a two-hand board
+/// resize and a board switch. The pinch-GRAB fan stays a reading fan pinned to the
+/// grabbing hand (item 5). Either way the arc BILLBOARDS to face the head every frame in
+/// <see cref="Tick"/> so the cards always face the player (ISSUE #7) — only the ANCHOR
+/// position + scale come from the board, not the head. Purely informational: the cards
+/// are adopted read-only (never grabbable, never poke-selectable — CardsDriver clears
+/// both flags), and closing simply lets the next rebuild park them again. Layout only —
+/// open/close policy and content live in <see cref="CardsDriver"/>. No allocations after open.
 /// </summary>
 internal sealed class PileBrowser
 {
@@ -45,6 +49,18 @@ internal sealed class PileBrowser
     // palm and tilt it back toward the head — the "take the pile INTO my hand"
     // placement, so each card is at reading distance and pinch/laser-reachable.
     private const float HandPalmOffset = 0.16f;
+
+    /// <summary>
+    /// Poke-toggle float height: how far the fan's ROOT pivot sits ABOVE the board's top
+    /// edge, in board-LOCAL meters (the fan hangs DOWNWARD from this pivot, so the body
+    /// floats a comfortable read above the board face and clears the initiative track,
+    /// which tops out ≈ 0.08 m past the edge). Tunable — raise to lift the whole fan. The
+    /// pivot lives in board-local space, so it scales with the board automatically.
+    /// </summary>
+    private const float BoardFloatHeight = 0.26f;
+
+    /// <summary>Poke-toggle proud offset toward the viewer (board-local −Z is out of the board face), meters.</summary>
+    private const float BoardFloatProudZ = -0.05f;
 
     private readonly List<VRCard> _cards = new(16);
     private Transform? _root;
@@ -66,9 +82,12 @@ internal sealed class PileBrowser
     /// <summary>
     /// Open (or switch) the browser for one pile. With <paramref name="followHand"/>
     /// the arc is a HELD reading fan pinned to that hand (test #22 item 5, grabbed a
-    /// pile); without it the arc is placed once at a fixed head-relative reading pose
-    /// (poke-toggle). Either way the cards are readable, individually grabbable and
-    /// laser-hoverable — the driver owns those flags and the open/close policy.
+    /// pile); without it the arc floats at a fixed spot ABOVE the control board
+    /// (<see cref="PlaceAboveBoard"/>), inheriting the board's live scale/pose, and falls
+    /// back to a head-relative pose only if no board exists. Either way the cards are
+    /// readable, individually grabbable and laser-hoverable — the driver owns those flags
+    /// and the open/close policy. <paramref name="anchorParent"/> is the head-relative
+    /// fallback parent (the hands root) when no control board is present.
     /// </summary>
     internal void Open(PileKind kind, Transform anchorParent, VRHand? followHand = null)
     {
@@ -88,7 +107,12 @@ internal sealed class PileBrowser
             Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
         }
         _followHand = followHand;
-        Transform parent = followHand != null ? followHand.Rig.PalmCenter : anchorParent;
+        // Poke-toggle: anchor under the board root so the fan inherits the board's live
+        // scale + pose (tracks a resize + a board switch). No board → head-relative fallback.
+        Transform? boardRoot = followHand == null ? PlayTray.Current?.Root : null;
+        Transform parent = followHand != null ? followHand.Rig.PalmCenter
+                         : boardRoot != null ? boardRoot
+                         : anchorParent;
         if (_root.parent != parent)
             _root.SetParent(parent, worldPositionStays: false);
         _root.gameObject.SetActive(true);
@@ -96,8 +120,10 @@ internal sealed class PileBrowser
         IsOpen = true;
         if (followHand != null)
             Tick(); // place immediately near the holding hand
+        else if (boardRoot != null)
+            PlaceAboveBoard(); // float above the board, inherit its scale (tracks resize/switch)
         else
-            PlaceAtHead();
+            PlaceAtHead(); // no board — head-relative fallback
         Relayout(instant: false);
     }
 
@@ -164,11 +190,30 @@ internal sealed class PileBrowser
     // ------------------------------------------------------------------ placement --
 
     /// <summary>
-    /// Reading pose: in front of the head at ~tray distance, raised toward eye
-    /// height, tilted slightly back — the proven HalfSelection floating pose
-    /// (HalfSelection.PlaceAtHead) shifted up for a card WALL instead of a pair.
-    /// POSITION is placed once per open (deliberately no per-frame follow); the FACING is
-    /// re-billboarded toward the head every frame in <see cref="Tick"/> (ISSUE #7).
+    /// Poke-toggle reading pose (primary): a fixed spot a comfortable reading height ABOVE
+    /// the control board, centered on its long axis (board-local x 0). The root is a child of
+    /// the board root (set up in <see cref="Open"/>), so this board-LOCAL offset INHERITS the
+    /// board's live scale + pose — the fan tracks a two-hand board resize and a board switch
+    /// with no per-frame work. POSITION is set once here (board-anchored); the FACING is
+    /// re-billboarded toward the head every frame in <see cref="Tick"/> (ISSUE #7). The
+    /// downward-hanging arc clears the board top edge and the initiative track (see
+    /// <see cref="BoardFloatHeight"/>).
+    /// </summary>
+    private void PlaceAboveBoard()
+    {
+        if (_root == null)
+            return;
+        _root.localPosition = new Vector3(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+        _root.localRotation = Quaternion.identity; // Tick billboards the WORLD rotation each frame
+        Tick(); // face the head immediately (no first-frame flash of the un-billboarded arc)
+    }
+
+    /// <summary>
+    /// Head-relative reading pose (FALLBACK — used only when no control board exists): in front
+    /// of the head at ~tray distance, raised toward eye height, tilted slightly back — the proven
+    /// HalfSelection floating pose (HalfSelection.PlaceAtHead) shifted up for a card WALL instead
+    /// of a pair. POSITION is placed once per open (deliberately no per-frame follow); the FACING
+    /// is re-billboarded toward the head every frame in <see cref="Tick"/> (ISSUE #7).
     /// </summary>
     private void PlaceAtHead()
     {
@@ -198,16 +243,18 @@ internal sealed class PileBrowser
     /// the arc also floats above the grabbing palm and moves with the controller. In BOTH
     /// modes the arc BILLBOARDS to face the head every frame — exactly like
     /// <see cref="CardFan.Tick"/> — so the browsed cards always face the player, even the
-    /// poke-toggled wall that is placed once (<see cref="PlaceAtHead"/>) and never
-    /// repositions: its position stays put (calm to read), only its facing tracks the head,
-    /// so the cards face the player even BEFORE one is plucked into the hand. No-op while closed.
+    /// poke-toggled fan that is board-anchored (<see cref="PlaceAboveBoard"/>): its local
+    /// position stays put under the board (so it rides the board's pose + scale), only its
+    /// facing tracks the head, so the cards face the player even BEFORE one is plucked into
+    /// the hand. No-op while closed.
     /// </summary>
     internal void Tick()
     {
         if (!IsOpen || _root == null)
             return;
         // Held mode only: the pivot floats above the palm along the palm normal (+Y of
-        // PalmCenter). The poke-toggle wall keeps the fixed position PlaceAtHead gave it.
+        // PalmCenter). The board-anchored fan keeps the fixed board-local position it was
+        // given (PlaceAboveBoard) and just rides its parent's pose/scale.
         if (_followHand != null)
             _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;

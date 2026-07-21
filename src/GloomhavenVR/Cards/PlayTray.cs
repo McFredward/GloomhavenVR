@@ -90,7 +90,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _clusterMount;
     private Transform? _decisionMount;
     private Transform? _pileMount;
-    private Transform? _pileFloatMount;
     private Transform? _activeMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
@@ -177,16 +176,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal Transform? PileMount => _pileMount;
 
     /// <summary>
-    /// TASK #8: mount for the FLOATING discard + burnt pile stacks — a fixed point centered
-    /// ABOVE the board's top edge, <see cref="PileFloatHeight"/> up, instead of docked off the
-    /// right edge. A direct child of <c>_root</c>, so the stacks inherit the board's LIVE scale
-    /// (<see cref="ComputeBoardScale"/> / two-hand resize): the float height AND their visual
-    /// size track a board resize automatically, no per-frame work. Hosts mod-owned children
-    /// directly like <see cref="PileMount"/> (no live game UI). Null until built.
-    /// </summary>
-    internal Transform? PileFloatMount => _pileFloatMount;
-
-    /// <summary>
     /// Feature 6 (ACTIVE CARDS area): mount for the permanently-visible active-ability
     /// card column (<see cref="ActivePileViewer"/>), docked further off the RIGHT edge —
     /// just past the discard/burnt pile stacks (see the collision math in
@@ -208,14 +197,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>Vertical distance between the two stack centers, PileMount-local meters.</summary>
     internal const float PileStackSpacing = 0.116f;
-
-    /// <summary>
-    /// TASK #8: height (tray-local meters) the floating discard/burnt pile stacks hover ABOVE
-    /// the board's top edge. Tunable — raise to lift the piles higher. Because the float mount is
-    /// a child of the board root, this offset (and the piles' size) scale with the board's live
-    /// size automatically; only the constant needs touching to re-tune the resting height.
-    /// </summary>
-    internal const float PileFloatHeight = 0.11f;
 
     /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
     internal const float InitiativeMountWidth = BoardW;
@@ -669,15 +650,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Round-2: the pile mount position is PER-BOARD (debug-menu tunable), base + PileOffset (seeded 0).
         _pileMount.localPosition = PileMountBase + CardsConfig.PileOffset(CardsConfig.CurrentBoard).Value;
 
-        // TASK #8: the discard + burnt pile stacks FLOAT at a fixed point centered ABOVE the board's
-        // top edge (PileViewer parents those two here; the items pile stays on _pileMount off the
-        // right edge). A direct _root child, so the stacks inherit the board's live scale — the float
-        // height and their visual size track a board resize with no per-frame work. The per-board
-        // PileOffset nudges it too, so existing debug tuning still moves the (now floating) piles.
-        _pileFloatMount = new GameObject("PileFloatMount").transform;
-        _pileFloatMount.SetParent(_root, worldPositionStays: false);
-        _pileFloatMount.localPosition = PileFloatMountBase + CardsConfig.PileOffset(CardsConfig.CurrentBoard).Value;
-
         // Feature 6: the ACTIVE CARDS area docks to the RIGHT of the pile stacks — the
         // only spot on that edge still free (the pile stacks' worst-case right edge is
         // x ≈ 0.408; see the pile collision note above). ActiveMountOffsetX (0.17) pushes
@@ -900,8 +872,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _elementMount = null;
         _clusterMount = null; // child of _root, destroyed with it
         _decisionMount = null;
-        _pileMount = null; // child of _root, destroyed with it (incl. the items pile stack)
-        _pileFloatMount = null; // child of _root, destroyed with it (incl. the floating discard/burnt stacks)
+        _pileMount = null; // child of _root, destroyed with it (incl. the pile stacks)
         _activeMount = null; // child of _root, destroyed with it (incl. the active-card column)
         _placed = false;
         _wantVisible = false;
@@ -1207,8 +1178,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     {
         if (_pileMount != null)
             _pileMount.localPosition = PileMountBase + offset;
-        if (_pileFloatMount != null) // TASK #8: the floating discard/burnt mount follows the same per-board nudge
-            _pileFloatMount.localPosition = PileFloatMountBase + offset;
     }
 
     /// <summary>PART F live-apply: move the ACTIVE-cards mount to a new per-board offset (instant).</summary>
@@ -1281,14 +1250,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>Fixed base local position of the discard/burn pile mount (per-board PileOffset adds on top).</summary>
     private static Vector3 PileMountBase => new(BoardW * 0.5f + 0.012f, 0f, -0.004f);
-
-    /// <summary>
-    /// TASK #8: fixed base local position of the FLOATING discard/burnt pile mount — centered on
-    /// the board's long axis (x 0), <see cref="PileFloatHeight"/> above the top edge (y), and lifted
-    /// 2 cm proud toward the viewer (z) so the stacks hover clearly IN FRONT of the tilted board's
-    /// top rather than clipping it. Per-board PileOffset adds on top (same debug tuning as the docked mount).
-    /// </summary>
-    private static Vector3 PileFloatMountBase => new(0f, BoardH * 0.5f + PileFloatHeight, -0.02f);
 
     /// <summary>Fixed base local position of the ACTIVE-cards mount (per-board ActiveOffset adds on top).</summary>
     private static Vector3 ActiveMountBase => new(BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
@@ -2235,6 +2196,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     // Board layout constants (local meters; -Z = element/viewer side).
     private const float BoardW = 0.64f;
     private const float BoardH = 0.32f;
+
+    /// <summary>
+    /// The board's top (far) edge in board-LOCAL meters (+Y = the board's back/far edge). Board-
+    /// anchored floaters (e.g. the pile browse fan) offset UP from here so they hover above the
+    /// board face; a board-root child inherits the live board scale + pose automatically.
+    /// </summary>
+    internal const float BoardTopLocalY = BoardH * 0.5f;
     private const float SlotSpacing = 0.155f; // between slot centers
     private const float RestZoneX = -0.245f;
     private const float ButtonZoneX = 0.235f;

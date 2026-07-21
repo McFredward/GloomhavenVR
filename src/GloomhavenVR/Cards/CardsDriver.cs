@@ -1520,6 +1520,11 @@ internal sealed class CardsDriver : MonoBehaviour
     /// </summary>
     private void RebuildBoard()
     {
+        // The poke-toggle pile browse fan is parented under the board root (so it inherits the
+        // board's live scale/pose) — a board switch DestroyImmediates that root. Close the browse
+        // FIRST (it does not touch the cards' parents), so the park loop below still catches the
+        // adopted browse cards as children of trayRoot and re-parks them out before the teardown.
+        CloseBrowser("board rebuilt");
         Transform? trayRoot = _tray.Root;
         if (trayRoot != null)
         {
