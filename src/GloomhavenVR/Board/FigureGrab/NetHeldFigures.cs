@@ -37,6 +37,10 @@ internal static class NetHeldFigures
 
     internal static int Count => Held.Count;
 
+    /// <summary>Enumerate every remotely-held actor (task #2 — selection-ring suppression). The set
+    /// is only mutated by <c>Net/NetFigures</c> record updates, never during this enumeration.</summary>
+    internal static IEnumerable<ActorBehaviour> All => Held;
+
     /// <summary>
     /// Issue C (remote): freeze the animation-driven translation on every REMOTELY-held figure,
     /// identical to <see cref="HeldFigures.PinAnimatedRoots"/>. <c>Net/NetFigures.Tick</c> eases the

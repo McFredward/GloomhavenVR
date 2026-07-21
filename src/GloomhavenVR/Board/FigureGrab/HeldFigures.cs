@@ -55,6 +55,10 @@ internal static class HeldFigures
 
     internal static int Count => Held.Count;
 
+    /// <summary>Enumerate every locally-held actor (task #2 — selection-ring suppression). The set
+    /// is only mutated from grab/release paths, never during this enumeration.</summary>
+    internal static IEnumerable<ActorBehaviour> All => Held;
+
     /// <summary>
     /// Issue C: re-pin every held actor's ANIMATED object at its (hand-riding) root — freezing the
     /// animation-driven translation. The game's <c>ApplyMotion</c> normally re-zeros
