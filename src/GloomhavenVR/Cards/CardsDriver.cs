@@ -826,11 +826,11 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // Live-tunable gate feel (reveal-angle round 2): PalmGate measures pure hand ROLL
-        // around the finger axis in DEGREES (0 palm down, 90 thumb up, 180 palm fully up;
-        // pitch/yaw of the arm are irrelevant by construction). Thresholds: [Cards]
-        // RevealEnterDegrees/RevealExitDegrees, defaults 95° enter / 80° exit — a
-        // comfortable supination just past vertical, with a hysteresis dead band so the
+        // Live-tunable gate feel (roll gate v3): PalmGate measures Demeo's own roll dot —
+        // the hand's RIGHT axis tilt toward world up — asin-mapped to DEGREES (0 knuckles-up
+        // flat, 90 palm fully toward the face; pitch/yaw of the arm are irrelevant BY
+        // CONSTRUCTION). Thresholds: [Cards] RevealEnterDegrees/RevealExitDegrees, defaults
+        // 60° enter / 45° exit — a comfortable supination with a hysteresis dead band so the
         // gate cannot chatter. Live-tunable from the debug menu's Fan category.
         PalmGate gate = _gateHand.PalmGate;
         gate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
@@ -853,32 +853,33 @@ internal sealed class CardsDriver : MonoBehaviour
             _fan.Open(_gateHand);
             // Demeo plays MotherbrainAudio.OnCardHandShow with the fan animation
             // (CardHandView.cs:682) — edge-triggered here, once per reveal.
-            PlayFanSound(CardsConfig.FanRevealSound.Value, _gateHand.transform);
+            PlayCardSound(CardsConfig.FanRevealSound.Value, _gateHand.transform);
         }
         else if (!shouldOpen && _fan.IsOpen)
         {
             _fan.Close();
             // Demeo mirrors with OnCardHandHide (CardHandView.cs:691) — softer item by default.
-            PlayFanSound(CardsConfig.FanHideSound.Value, _gateHand.transform);
+            PlayCardSound(CardsConfig.FanHideSound.Value, _gateHand.transform);
         }
     }
 
-    // ------------------------------------------------------------------ fan audio --
+    // ------------------------------------------------------------------ card audio --
 
-    // One-shot warn guard per configured item name, so a typo in [Cards] FanRevealSound
-    // logs once instead of every reveal.
-    private static string? _warnedFanSound;
+    // One-shot warn guard per configured item name, so a typo in any [Cards] *Sound entry
+    // logs once instead of every play.
+    private static string? _warnedCardSound;
 
     /// <summary>
-    /// Fan reveal/hide sound via the game's own ClockStone audio system — the exact call
-    /// shape the game uses for card UI sounds (<c>AudioController.Play("PlaySound_CardUI_...",
-    /// transform, null, attachToParent: false)</c>, FullAbilityCard.cs:590), positioned at the
-    /// fan hand. Direct reference like every other game call in this module (publicized refs).
+    /// Card interaction sound (fan reveal/hide, grab, slot place, take-back) via the game's
+    /// own ClockStone audio system — the exact call shape the game uses for card UI sounds
+    /// (<c>AudioController.Play("PlaySound_CardUI_...", transform, null,
+    /// attachToParent: false)</c>, FullAbilityCard.cs:590), positioned at the given transform.
+    /// Direct reference like every other game call in this module (publicized refs).
     /// Guarded: an empty/unknown item or a not-yet-alive audio controller (main menu, scene
-    /// load) is skipped silently — audio must never break the reveal path. Edge-triggered by
-    /// the caller, never per frame.
+    /// load) is skipped silently — audio must never break the interaction path. Edge-triggered
+    /// by the callers (grab/release/reveal transitions), never per frame.
     /// </summary>
-    private static void PlayFanSound(string item, Transform at)
+    private static void PlayCardSound(string item, Transform at)
     {
         if (string.IsNullOrEmpty(item))
             return;
@@ -886,12 +887,14 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             if (!AudioController.IsValidAudioID(item))
             {
-                if (_warnedFanSound != item)
+                if (_warnedCardSound != item)
                 {
-                    _warnedFanSound = item;
-                    VRLog.Warn("Cards", $"Fan sound '{item}' is not a known audio item (yet?) — skipped. " +
-                                        "Known card items: PlaySound_EnemyCardDraw, PlaySound_CardUI_SelectCard, " +
-                                        "PlaySound_UICardTabSelect, PlaySound_CardUI_DiscardedCard, PlaySound_CardUI_BurnedCard.");
+                    _warnedCardSound = item;
+                    VRLog.Warn("Cards", $"Card sound '{item}' is not a known audio item (yet?) — skipped. " +
+                                        "Known card/UI items: PlaySound_EnemyCardDraw, PlaySound_CardUI_SelectCard, " +
+                                        "PlaySound_UICardTabSelect, PlaySound_CardUI_DiscardedCard, PlaySound_CardUI_BurnedCard, " +
+                                        "PlaySound_UIButtonSelect, PlaySound_UIUndoHex, PlaySound_ScenarioUIUndo, " +
+                                        "PlaySound_ScenarioUI_TileConfirm.");
                 }
                 return;
             }
@@ -899,10 +902,10 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         catch (System.Exception ex)
         {
-            if (_warnedFanSound != item)
+            if (_warnedCardSound != item)
             {
-                _warnedFanSound = item;
-                VRLog.Warn("Cards", $"Fan sound '{item}' failed to play: {ex.GetType().Name}: {ex.Message}");
+                _warnedCardSound = item;
+                VRLog.Warn("Cards", $"Card sound '{item}' failed to play: {ex.GetType().Name}: {ex.Message}");
             }
         }
     }
@@ -1903,6 +1906,11 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
+        // More-card-sounds: soft pick tick on every card grab (fan pluck, slot pluck, pile/
+        // active read-grab — proximity and laser alike). Edge-triggered by nature: Grabbed
+        // fires exactly once per grab session. The game plays nothing of its own here (a
+        // physical VR grab has no game call), so no stacking.
+        PlayCardSound(CardsConfig.CardGrabSound.Value, card.transform);
         // Item 8: grabbing a hand/tray/field card while a browse is open is a foreign
         // interaction. Grabbing a BROWSE card is part of the browse (read close), so
         // it is exempt — only the arc's own cards may be plucked without dismissing.
@@ -2023,6 +2031,7 @@ internal sealed class CardsDriver : MonoBehaviour
             // a quick local lerp into the slot (CardLerpSpeed) — plus a click pulse
             // so the zap is felt, not just seen (test #13).
             hand.SendHaptic(HapticPreset.ClickPulse);
+            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
             // SelectCard is the spin-wait path — queued; outcome verified against
             // the authoritative round pile afterwards.
             _tray.PlaceCard(card, slot);
@@ -2051,6 +2060,7 @@ internal sealed class CardsDriver : MonoBehaviour
             // authoritative round pile like the plain play, newcomer bounced to the fan
             // on rejection.
             hand.SendHaptic(HapticPreset.ClickPulse);
+            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
             VRCard displaced = _tray.Occupant(slot)!;
             CAbilityCard? displacedAbility = displaced.GameCard?.AbilityCard;
             _tray.RemoveCard(displaced);
@@ -2080,6 +2090,7 @@ internal sealed class CardsDriver : MonoBehaviour
             // Tray → tray: physical reorder. If the other slot is occupied this is an
             // initiative swap; a lone card just changes slots visually.
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
+            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
             int oldSlot = _tray.SlotOf(card);
             if (slot != oldSlot && _tray.Occupant(slot) != null)
             {
@@ -2098,6 +2109,10 @@ internal sealed class CardsDriver : MonoBehaviour
         else if (wasInTray)
         {
             // Tray → elsewhere: take the card back.
+            // More-card-sounds: soft undo click. The game's own distinctive sounds do not
+            // fire here — the queued UnselectCard only plays the card's generic serialized
+            // AudioButtonProfile click (AbilityCardUI.ToggleSelect), not a take-back sound.
+            PlayCardSound(CardsConfig.CardTakeBackSound.Value, card.transform);
             _tray.RemoveCard(card);
             _fan.Add(card);
             CardsHandUI handRef = gameHand;
@@ -2229,12 +2244,14 @@ internal sealed class CardsDriver : MonoBehaviour
         if (accept)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
+            PlayCardSound(CardsConfig.CardPlaceSound.Value, card.transform); // more-card-sounds: placing thunk
             PlaceOnField(card);
             if (!wasOnField)
                 TryCommitPick(card, gameHand, "drop-slot");
         }
         else if (wasOnField)
         {
+            PlayCardSound(CardsConfig.CardTakeBackSound.Value, card.transform); // more-card-sounds: undo click
             _fieldCards.Remove(card);
             RelayoutField();
             _fan.Add(card);
