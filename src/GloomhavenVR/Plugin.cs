@@ -70,8 +70,8 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<string> DisableComponents = null!;
 
     /// <summary>
-    /// [Compat] Re-enable the game's own view-dependent wall see-through fade in VR
-    /// (OFF = walls always solid, the VR default). Consulted live by WallFadeDisable.
+    /// [Compat] Whole-wall see-through fade in VR (OFF = walls always solid, the VR
+    /// default). Consulted live by Core.WallSegmentFade each frame.
     /// </summary>
     internal static ConfigEntry<bool> WallFade = null!;
 
@@ -242,14 +242,14 @@ public class Plugin : BaseUnityPlugin
             "to disable while VR is active, e.g. 'BeautifyEffect.Beautify'.");
         WallFade = Config.Bind(
             "Compat", "WallFade", false,
-            "Re-enable the game's own see-through wall fade in VR. When ON, a wall fades " +
-            "exactly while the angle of your view onto it would hide the play area behind it " +
-            "(the game's own view-dependent shader logic, evaluated against your headset eye " +
-            "position because the mod's head camera is the one rendering the scene) and " +
-            "turns solid again as soon as it no longer occludes. OFF (default) pins the fade " +
-            "off so walls always render solid — the VR behavior so far. Purely visual and " +
-            "local (a shader global): multiplayer peers are unaffected. Live-togglable from " +
-            "the VR settings panel.");
+            "See-through walls in VR. When ON, a wall that stands between your head and the " +
+            "part of the play area you are looking at fades out AS A WHOLE (soft dissolve, " +
+            "~0.35s) down to its foundation course, and fades back in once it no longer " +
+            "blocks the view. The decision is temporally smoothed (must persist ~0.4s), so " +
+            "quick head movements never make walls flicker. OFF (default) keeps every wall " +
+            "solid — the VR behavior so far. Purely visual and local (per-renderer material " +
+            "property blocks): multiplayer peers are unaffected. Live-togglable from the VR " +
+            "settings panel.");
         PrimaryHand = Config.Bind(
             "Hands", "PrimaryHand", "Right",
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +

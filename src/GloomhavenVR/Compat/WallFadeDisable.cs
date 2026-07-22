@@ -7,40 +7,36 @@ using UnityEngine;
 namespace GloomhavenVR.Compat;
 
 /// <summary>
-/// ISSUE #4 — the flat game fades/hides walls so its top-down camera can see behind them.
-/// This patch owns HALF of the mechanism: the global int GATE <c>ToggleWallFade</c>. The wall
-/// shaders only run their fade logic when it is <c>1</c> (verified in the DXBC disassembly of
-/// <c>Amp_Basic_WallFade</c> / <c>Amp_Low/Amp_Basic_WallFade_Low</c>: the low variant's
-/// fragment starts with <c>ine cb0[4].x, 0</c> on exactly this global; the game's own
-/// DebugMenu "disable wall fade" simply sets it to <c>0</c>, decompiled
-/// <c>GH.Runtime/DebugMenu.cs:1968</c>).
+/// ISSUE #4 — the flat game fades/hides walls so its top-down camera can see behind them, via a
+/// per-pixel screen-space discard in the wall shaders (<c>Amp_Basic_WallFade[_Low]</c>) gated by
+/// the GLOBAL int <c>ToggleWallFade</c> (verified in the DXBC disassembly: the low variant's
+/// fragment starts with <c>ine cb0[4].x, 0</c> on exactly this global; the game's own DebugMenu
+/// "disable wall fade" simply sets it to <c>0</c>, decompiled <c>GH.Runtime/DebugMenu.cs:1968</c>).
 ///
-/// The gate is NOT the whole story (hardware round 1 falsified that theory): behind the gate,
-/// the fade CONDITION samples the screen-space play-area occlusion map
-/// <c>_TilesOcclusionMap</c> and discards the wall fragment when it is nearer than the play
-/// area behind that pixel. That map is rendered per frame by the game's
-/// <c>TilesOcclusionGenerator</c> CommandBuffer from the camera it runs on — in VR that is
-/// the parked game camera, so the head camera's render has no valid map and the fade never
-/// triggers even with the gate open. <see cref="Core.WallFadeOcclusionFeed"/> (installed by
-/// <see cref="CompatModule"/>, same [Compat] WallFade toggle) supplies that missing input by
-/// mirroring the generator's CommandBuffer onto the head camera. With BOTH halves in place a
-/// wall fades exactly while it occludes the play area from the HMD, and un-fades when not —
-/// the game's own behavior, driven by the player's real head.
+/// IN VR the global gate must be pinned to <c>0</c> UNCONDITIONALLY — regardless of the
+/// [Compat] WallFade toggle. Two hardware rounds established why:
+/// <list type="number">
+/// <item>The fade condition samples the screen-space <c>_TilesOcclusionMap</c>, rendered per
+///   frame by <c>TilesOcclusionGenerator</c>'s CommandBuffer on the PARKED game camera — the
+///   map is only valid for that camera's viewpoint. An open global gate makes every wall
+///   sample a wrong-viewpoint map on the VR head camera (garbage per-pixel discards).</item>
+/// <item>Even with a correct head-camera map (round 2's occlusion feed), the per-pixel
+///   screen-space discard itself is unusable in VR: fast head movements make PARTS of walls
+///   pop in and out — the mechanism is designed for a slow flat camera.</item>
+/// </list>
 ///
-/// [Compat] WallFade decides which way the global is pinned (consulted LIVE on every call,
-/// so the settings-panel toggle applies instantly, no re-patching):
-/// - OFF (default): pin <c>0</c> — walls always solid, the VR behavior so far.
-/// - ON: pin <c>1</c> — the gate opens; with the occlusion feed active the game's own
-///   view-dependent fade runs, following the HMD.
+/// The [Compat] WallFade toggle instead drives <see cref="Core.WallSegmentFade"/> (installed by
+/// <see cref="CompatModule"/>): a WHOLE-WALL, temporally smoothed fade that re-opens the very
+/// same shader gate PER RENDERER via MaterialPropertyBlocks (Unity property precedence
+/// MPB &gt; material &gt; global) together with a substituted constant occlusion map — so only
+/// walls the mod decided to fade run the shader's fade path, and they run it on view-stable
+/// inputs. With the global pinned 0, every untouched wall renders bit-for-bit solid.
 ///
 /// The global is natively asserted to <c>1</c> from several places: <c>Main.Start</c>
 /// (<c>GH.Runtime/Main.cs:47</c>), <c>ActivateWallFadeInGame.Start/Update</c>, and
 /// <c>ToggleWallTransparencyGlobal.Update</c>. Rather than chase every setter, this patch
 /// postfixes <c>Main.Update()</c> — the core game singleton, present in every 3D scene and
-/// ticked every frame — and re-asserts the configured value after the game's own logic runs.
-/// That authoritatively pins the effect regardless of which component last wrote it and needs
-/// no per-scene component to exist (asserting <c>1</c> also heals scenes where our earlier
-/// <c>0</c> would otherwise stick because no game component re-raises it).
+/// ticked every frame — and re-asserts <c>0</c> after the game's own logic runs.
 ///
 /// Fully reflection-guarded (<see cref="AccessTools"/>): if the <c>Main</c> type or its
 /// <c>Update()</c> can't be found (renamed/removed by a game update), <see cref="TargetMethod"/>
@@ -84,20 +80,17 @@ internal static class WallFadeDisable
     }
 
     /// <summary>
-    /// Runs after the game's per-frame <c>Main.Update</c>. Pins the global wall-fade switch
-    /// to the [Compat] WallFade choice — <c>0</c> (default, walls always solid) or <c>1</c>
-    /// (the game's own HMD-following fade) — so any component that wrote it this frame
-    /// (Main.Start, ActivateWallFadeInGame, ToggleWallTransparencyGlobal, DebugMenu) is
-    /// overridden. Reading the config entry every call is what makes the settings-panel
-    /// toggle live: no re-patching, the very next frame renders the new state.
+    /// Runs after the game's per-frame <c>Main.Update</c>. Pins the global wall-fade gate to
+    /// <c>0</c> so any component that raised it this frame (Main.Start, ActivateWallFadeInGame,
+    /// ToggleWallTransparencyGlobal, DebugMenu) is overridden — walls render solid unless
+    /// <see cref="Core.WallSegmentFade"/> opens the gate per renderer.
     /// </summary>
     private static void Postfix()
     {
         try
         {
-            int wanted = Plugin.WallFade != null && Plugin.WallFade.Value ? 1 : 0;
-            if (Shader.GetGlobalInt(_toggleWallFade) != wanted)
-                Shader.SetGlobalInt(_toggleWallFade, wanted);
+            if (Shader.GetGlobalInt(_toggleWallFade) != 0)
+                Shader.SetGlobalInt(_toggleWallFade, 0);
         }
         catch (Exception e)
         {
