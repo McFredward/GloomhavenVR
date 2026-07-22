@@ -260,8 +260,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
 
         Transform host = _panel.HostGo.transform;
-        host.SetPositionAndRotation(_frame.position, _frame.rotation);
-        host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * factor);
+        SyncHostToFrame(host, factor, metersPerPixel, worldScale);
 
         // DIAG SPAM FIX: while the host is being carried/moved, its position changes every
         // frame, so CanvasConversion's change-gated MODAL DIAG snapshot (host pos rounded to
@@ -278,6 +277,56 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float width = rect.width * unit;
         SyncBar(halfHeight, width, worldScale);
         SyncDepthMask(unit, worldScale);
+    }
+
+    /// <summary>
+    /// Copy the frame pose/scale onto the game-owned host (shared by the Update-time
+    /// <see cref="Tick"/> and the LateUpdate re-sync in <see cref="HostLateSync"/>).
+    /// </summary>
+    private void SyncHostToFrame(Transform host, float factor, float metersPerPixel, float worldScale)
+    {
+        host.SetPositionAndRotation(_frame!.position, _frame.rotation);
+        host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * factor);
+    }
+
+    /// <summary>
+    /// DRAG-FLICKER FIX (tabs blink / submenu pane vanishes ONLY while moving the window):
+    /// re-sync the host from the frame in LateUpdate, AFTER every Update-time frame writer ran.
+    ///
+    /// Root cause: <see cref="Tick"/> (the frame→host copy) runs from
+    /// <c>ModalFallback.Tick</c> inside the WorldUI module's <c>Update</c>, while
+    /// <see cref="PanelGrabHandle"/> moves the FRAME from its OWN MonoBehaviour
+    /// <c>Update</c> — the relative script order is undefined. Whenever the handle's Update
+    /// runs after the module's, the frame (and every rigid CHILD of it: the DEPTH MASK, the
+    /// bar) renders at the NEW pose while the host — synced earlier from the STALE pose —
+    /// renders one frame behind. A fast drag moves the frame 5–30 cm per frame (hardware
+    /// log), dwarfing the mask's 2 mm behind-plane offset: dragging toward the viewer puts
+    /// the mask plane IN FRONT of the (lagging) menu content, the menu fails its own
+    /// ZTest-LEqual under every mask quad, and the content blinks out — exactly the
+    /// "tabs flicker / pane briefly vanishes while moving" report. Re-copying the pose here
+    /// in LateUpdate (after ALL Updates, before rendering) makes host, mask and bar agree
+    /// at render time every frame, regardless of script order; a static (ungrabbed) frame
+    /// makes it a change-free no-op write.
+    /// </summary>
+    internal void LateSyncHost()
+    {
+        if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _frame == null)
+            return;
+        float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        SyncHostToFrame(_panel.HostGo.transform, factor, metersPerPixel, _spawnWorldScale);
+    }
+
+    /// <summary>
+    /// Mod-owned holder component whose ONLY job is the LateUpdate host re-sync (see
+    /// <see cref="LateSyncHost"/>). Lives on the holder GameObject, so it is destroyed with
+    /// it in <see cref="GrabbableModal.Destroy"/> — no explicit lifecycle management.
+    /// </summary>
+    private sealed class HostLateSync : MonoBehaviour
+    {
+        internal GrabbableModal? Owner;
+
+        private void LateUpdate() => Owner?.LateSyncHost();
     }
 
     /// <summary>
@@ -408,6 +457,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
               .Append(g == null ? "<overflow union>" : DescribeMaskSource(g))
               .Append($" rect=({r.x:F0},{r.y:F0})..({r.z:F0},{r.w:F0}) {w:F0}x{r.w - r.y:F0}px;");
         }
+        // Task #6b: name the invisible emitters the collection EXCLUDED this pass (and the rule
+        // that caught each — 'Main Area/Viewport' should appear here, not in the quads above).
+        string excluded = CanvasConversion.LastMaskExclusions.Count > 0
+            ? $" EXCLUDED non-rendering emitter(s): {string.Join("; ", CanvasConversion.LastMaskExclusions)}."
+            : "";
         VRLog.Info("WorldUI", $"MODAL DEPTH-MASK DIAG: '{_logName}' rebuilt {count} quad(s), host " +
                               $"{host.width:F0}x{host.height:F0} px, mask alpha floor " +
                               $"{CanvasConversion.MaskMinAlpha:F2}. WIDE quads (≥{MaskDiagWideFraction * 100f:F0}% " +
@@ -415,7 +469,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                               (wide > 0
                                   ? $" —{sb}"
                                   : " — none (a remaining straight cut through another menu would NOT be a mask " +
-                                    "quad of this panel: check the grab bar / plane order instead)."));
+                                    "quad of this panel: check the grab bar / plane order instead).") +
+                              excluded);
     }
 
     /// <summary>Task #6 diag: one wide-quad source — 'parent/name' (Type, sprite, ownAlpha×inheritedAlpha).</summary>
@@ -473,6 +528,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         var holderGo = new GameObject($"GloomhavenVR.ModalGrab_{_logName}");
         _holder = holderGo.transform;
+        // DRAG-FLICKER FIX: LateUpdate re-sync of the host from the frame — see LateSyncHost.
+        holderGo.AddComponent<HostLateSync>().Owner = this;
 
         var frameGo = new GameObject("Frame");
         _frame = frameGo.transform;

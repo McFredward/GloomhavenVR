@@ -1465,12 +1465,24 @@ internal static class CanvasConversion
     /// doc). <paramref name="sources"/> (optional) receives the emitting <see cref="Graphic"/>
     /// per rect, 1:1 with <paramref name="rects"/> (null entry = the overflow union slot) — the
     /// depth-mask rebuild diagnostic uses it to NAME wide/suspect quads in the hardware log.
+    ///
+    /// Task #6b (options window hard-cuts the pause menu — CULPRIT: 'Main Area/Viewport'):
+    /// graphics that RENDER NO PIXELS must not stamp depth either. The hardware diag showed the
+    /// options window's ScrollRect VIEWPORT image ('Main Area/Viewport', Image, sprite=null,
+    /// a=1.00) emitting an 867x833 px quad covering the whole right pane — the viewport is an
+    /// invisible clipper/raycast target (its Image drives a stencil <see cref="Mask"/> with
+    /// <c>showMaskGraphic=false</c>, i.e. it draws ONLY to the stencil buffer, ColorMask 0 —
+    /// zero visible pixels), yet it passed the alpha test and its depth stamp hard-cut the pause
+    /// menu floating behind along one clean edge. <see cref="IsNonRenderingMaskEmitter"/>
+    /// excludes that whole class from EMISSION ONLY (the content fit is untouched); excluded
+    /// names + the matched rule land in <see cref="LastMaskExclusions"/> for the rebuild diag.
     /// </summary>
     internal static int CollectVisibleMaskRects(ConvertedPanel panel, List<Vector4> rects, int maxCount,
         List<Graphic?>? sources = null)
     {
         rects.Clear();
         sources?.Clear();
+        LastMaskExclusions.Clear();
         if (panel == null || panel.Target == null || panel.HostRect == null)
             return 0;
 
@@ -1482,6 +1494,20 @@ internal static class CanvasConversion
             Graphic g = GraphicScratch[i];
             if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax, MaskMinAlpha))
                 continue;
+            // Task #6b: a graphic that renders no pixels (invisible clipper / viewport /
+            // raycast catcher) must not stamp depth. Checked only AFTER the (cheap) visibility
+            // test passed, so the component lookups run for the ~dozens of emitting graphics,
+            // not the whole subtree.
+            if (IsNonRenderingMaskEmitter(g, out string rule))
+            {
+                if (LastMaskExclusions.Count < MaskExclusionLogCap)
+                {
+                    string parent = g.transform.parent != null ? g.transform.parent.name : "<root>";
+                    LastMaskExclusions.Add(
+                        $"'{parent}/{g.name}' {gMax.x - gMin.x:F0}x{gMax.y - gMin.y:F0}px [{rule}]");
+                }
+                continue;
+            }
             if (rects.Count < maxCount)
             {
                 rects.Add(new Vector4(gMin.x, gMin.y, gMax.x, gMax.y));
@@ -1501,6 +1527,86 @@ internal static class CanvasConversion
         }
         GraphicScratch.Clear();
         return rects.Count;
+    }
+
+    /// <summary>Task #6b diag: cap on excluded-emitter entries kept per collection pass (log hygiene).</summary>
+    private const int MaskExclusionLogCap = 8;
+
+    /// <summary>
+    /// Task #6b diag: graphics EXCLUDED from depth-mask emission by
+    /// <see cref="IsNonRenderingMaskEmitter"/> during the LAST
+    /// <see cref="CollectVisibleMaskRects"/> pass — "'parent/name' WxHpx [rule]" per entry,
+    /// capped at <see cref="MaskExclusionLogCap"/>. Read by the depth-mask rebuild diagnostic
+    /// (<c>GrabbableModal.LogDepthMaskRebuild</c>, same tick, same collection) so the hardware
+    /// log states WHICH rule caught each invisible emitter ('Main Area/Viewport' &amp; friends).
+    /// </summary>
+    internal static readonly List<string> LastMaskExclusions = new(MaskExclusionLogCap);
+
+    /// <summary>
+    /// Task #6b: true when <paramref name="g"/> renders NO pixels despite passing the
+    /// alpha/enabled visibility test — such a graphic must never stamp a depth-mask quad
+    /// (it visually reads as "nothing there", so cutting another floated menu behind the
+    /// plane along its rect is exactly the observed hard-cut bug). Three classes, checked
+    /// in order; <paramref name="rule"/> names the one that matched:
+    ///
+    /// (a) STENCIL-CLIPPER IMAGE: the graphic drives an enabled stencil <see cref="Mask"/>
+    ///     with <c>showMaskGraphic == false</c> — uGUI then renders it with ColorMask 0
+    ///     (stencil write only), i.e. literally zero visible pixels. This is what the
+    ///     options window's 'Main Area/Viewport' (867x833 px, sprite=null, a=1.00) and the
+    ///     ESC menu's 'Scroll View/Viewport' (388x1003) are: ScrollRect viewport clippers.
+    ///     A Mask WITH <c>showMaskGraphic == true</c> draws its graphic normally and is
+    ///     deliberately NOT excluded.
+    /// (b) SCROLLRECT VIEWPORT: the rect IS some ScrollRect's viewport (the serialized
+    ///     <c>.viewport</c>, or the content's parent when that reference is empty) — the
+    ///     clipping window itself, an invisible frame/raycast surface, never visible
+    ///     content. Belt-and-braces for viewports clipped via <see cref="RectMask2D"/>
+    ///     (including the ones task #4 adds ours to), whose Image is a raycast catcher.
+    /// (c) INVISIBLE RAYCAST CATCHER: sprite-less Image in the default (~white) colour —
+    ///     the classic full-area click-catcher pattern. Real visible backings in this UI
+    ///     all carry sprites ('Panel', 'Panel_Divider', 'Mod_Frame', …) and tinted colours,
+    ///     so a sprite-null near-white Image is a hit surface, not content.
+    ///
+    /// TMP text / RawImage / sprited Images fall through — they are real content and keep
+    /// masking exactly as before ('UI Menu Panel' sprite='Panel', the row 'Background'
+    /// Panel_Divider strips, buttons, dialogs).
+    /// </summary>
+    private static bool IsNonRenderingMaskEmitter(Graphic g, out string rule)
+    {
+        rule = string.Empty;
+        if (g is not Image img)
+            return false;
+
+        // (a) stencil clipper: Mask with the graphic hidden → stencil-only draw (ColorMask 0).
+        Mask stencil = img.GetComponent<Mask>();
+        if (stencil != null && stencil.enabled && !stencil.showMaskGraphic)
+        {
+            rule = "Mask, showMaskGraphic=false: stencil-only, draws no pixels";
+            return true;
+        }
+
+        // (b) ScrollRect viewport: the clipping window rect itself.
+        var rect = (RectTransform)img.transform;
+        ScrollRect? owner = img.GetComponentInParent<ScrollRect>();
+        if (owner != null)
+        {
+            RectTransform? viewport = owner.viewport != null
+                ? owner.viewport
+                : owner.content != null ? owner.content.parent as RectTransform : null;
+            if (ReferenceEquals(viewport, rect))
+            {
+                rule = "ScrollRect viewport: invisible clipper/raycast frame";
+                return true;
+            }
+        }
+
+        // (c) classic invisible raycast catcher: sprite-less, default-white Image.
+        if (img.sprite == null && img.overrideSprite == null
+            && img.color.r >= 0.95f && img.color.g >= 0.95f && img.color.b >= 0.95f)
+        {
+            rule = "sprite=null near-white: raycast catcher";
+            return true;
+        }
+        return false;
     }
 
     /// <summary>
