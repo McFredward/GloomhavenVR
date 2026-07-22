@@ -147,6 +147,21 @@ internal sealed class VRRigDriver : MonoBehaviour
     private string _rebuildTrigger = "initial";
     private bool _frozeGameCameraControl;
 
+    /// <summary>
+    /// One-shot teardown/rebuild request from outside the health check (currently only the
+    /// [RenderQuality] RebuildRigOnMsaaChange diagnostic test path). Consumed by the next
+    /// <see cref="Update"/>; the standard rebuild flow then re-anchors exactly as after any
+    /// other teardown, so the request is safe at any rig state.
+    /// </summary>
+    private string? _pendingRebuildRequest;
+
+    /// <summary>Request a full rig teardown+rebuild next frame, attributed to <paramref name="reason"/>.</summary>
+    internal static void RequestRebuild(string reason)
+    {
+        if (Instance != null && Instance._pendingRebuildRequest == null)
+            Instance._pendingRebuildRequest = reason;
+    }
+
     // Spawn circle (FEATURE D). The scenario rig's FLAT board yaw, frozen at BuildRig — the
     // circle azimuth is applied on top of THIS every recenter so repeated recenters are
     // idempotent (never accumulate). The last (idx,total) a recenter applied, and the poll
@@ -249,9 +264,13 @@ internal sealed class VRRigDriver : MonoBehaviour
         // Order matters: kind change > our camera/root destroyed > anchor destroyed >
         // anchor disabled > a better camera appeared with a scene load.
         string? teardownReason = null;
+        string? rebuildRequest = _pendingRebuildRequest;
+        _pendingRebuildRequest = null; // one-shot, consumed (or dropped while no rig exists)
         if (_kind != RigKind.None)
         {
-            if (desired != _kind)
+            if (rebuildRequest != null)
+                teardownReason = rebuildRequest;
+            else if (desired != _kind)
                 teardownReason = $"rig kind change {_kind} → {desired}";
             else if (_camera == null)
                 teardownReason = "owned head camera destroyed externally";
@@ -736,6 +755,9 @@ internal sealed class VRRigDriver : MonoBehaviour
                           $"head 0x{_camera!.cullingMask:X8}, renderingPath={_camera.renderingPath}/actual={_camera.actualRenderingPath}) " +
                           $"— trigger: {_rebuildTrigger}.");
         VRCameraPolicy.Sweep("scenario rig built");
+        // MSAA truth check: read the XR eye-target desc back once the build settled — proves
+        // whether the [RenderQuality] MSAA level actually reached the swapchain (class doc).
+        RenderQuality.RequestEyeTargetDiagnostics("scenario rig built");
     }
 
     /// <summary>
@@ -776,6 +798,7 @@ internal sealed class VRRigDriver : MonoBehaviour
                           $"test #10), depth {_camera.depth:F1}, stereo Both; anchor stays desktop-only) " +
                           $"— trigger: {_rebuildTrigger}.");
         VRCameraPolicy.Sweep("menu rig built");
+        RenderQuality.RequestEyeTargetDiagnostics("menu rig built");
     }
 
     /// <summary>

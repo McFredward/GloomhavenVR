@@ -39,6 +39,34 @@ namespace GloomhavenVR.Rig;
 /// (<see cref="AnisotropicFiltering.ForceEnable"/> + a global min-aniso floor via
 /// <see cref="Texture.SetGlobalAnisotropicFilteringLimits"/>) — safe: it only raises
 /// sampling quality, never touches game content.
+///
+/// "MSAA CHANGES NOTHING" DIAGNOSIS (hardware round 2 — build 8b0553034 logged the full
+/// assert/push chain yet the user saw ZERO difference cycling 2x/4x/8x): the log only ever
+/// proved WE set the level, never that the eye texture came back multisampled — the OpenXR
+/// runtime (VDXR here) binds MSAA at SWAPCHAIN creation and may cap or ignore the request.
+/// <see cref="LogEyeTargetDiagnostics"/> closes that gap: a few frames after every MSAA /
+/// resolution-scale change (and once per rig build) it prints the ENGINE-SIDE truth —
+/// <see cref="XRSettings.eyeTextureDesc"/>.msaaSamples (what the engine asks the XR display
+/// to allocate) plus the per-<see cref="XRDisplaySubsystem"/> render-pass renderTargetDesc
+/// when the display exposes it — and an explicit VERDICT line. samples==wanted ⇒ MSAA is
+/// genuinely active and the residual shimmer is SHADER/texture aliasing MSAA cannot touch
+/// (specular sparkle, sub-pixel texture detail — geometry-edge only); samples==1 ⇒ the
+/// plugin/runtime ignored QualitySettings + SetMSAALevel and the supersampling lever below
+/// is the fix. The delay (<see cref="DiagDelayFrames"/>) lets the live swapchain
+/// re-allocation land before we read the desc back.
+///
+/// SUPERSAMPLING FALLBACK ([RenderQuality] EyeResolutionScale →
+/// <see cref="XRSettings.eyeTextureResolutionScale"/>): brute-force AA that ALWAYS works —
+/// it raises the eye-texture allocation itself, so it helps geometry edges AND
+/// shader/texture shimmer, independent of what the OpenXR runtime does with MSAA. Costs
+/// GPU fill/bandwidth ∝ scale² (1.4 ≈ 2× pixel work, 2.0 = 4×). Applies live (the
+/// swapchain re-allocates, same plumbing as MSAA); settings-panel row can hook
+/// <see cref="EyeResolutionScale"/> later — config suffices for hardware A/B.
+///
+/// REBUILD TEST PATH ([RenderQuality] RebuildRigOnMsaaChange, default OFF): tears the rig
+/// down/up on MSAA changes. The OpenXR swapchain is owned by the XR SESSION, not our
+/// camera, so a rig rebuild is NOT expected to re-bind MSAA — this exists to
+/// prove/disprove exactly that on hardware without a new build.
 /// </summary>
 internal static class RenderQuality
 {
@@ -49,12 +77,27 @@ internal static class RenderQuality
     private const int ForcedMinAniso = 8;
     private const int GlobalMaxAniso = 16;
 
+    /// <summary>Config bounds of the supersampling lever (native = 1).</summary>
+    private const float MinEyeScale = 0.8f;
+    private const float MaxEyeScale = 2.0f;
+
+    /// <summary>
+    /// Frames between an MSAA/eye-scale change and the eye-target diagnostic readback —
+    /// long enough for the live swapchain re-allocation to land before we read the desc.
+    /// </summary>
+    private const int DiagDelayFrames = 30;
+
     private static ConfigFile? _file;
     internal static ConfigEntry<int>? MsaaLevel;
     internal static ConfigEntry<bool>? ForceAnisotropic;
+    internal static ConfigEntry<float>? EyeResolutionScale;
+    internal static ConfigEntry<bool>? RebuildRigOnMsaaChange;
 
     private static readonly List<XRDisplaySubsystem> Displays = new(2);
     private static int _lastPushedDisplayMsaa = -1;
+    private static float _lastLoggedEyeScale = -1f;
+    private static int _diagCountdown;
+    private static string _diagReason = "";
     private static bool _anisoForced;
     private static AnisotropicFiltering _anisoOriginal;
 
@@ -80,6 +123,19 @@ internal static class RenderQuality
             "Force anisotropic texture filtering for ALL textures (plus a global min-aniso floor). "
             + "Cuts distant shimmer on flat-on-view textures — card faces, initiative portraits, "
             + "board art. Purely a sampling-quality raise; disable to restore the game's setting.");
+        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", 1.0f, new ConfigDescription(
+            "Supersampling: XR eye-texture resolution scale (1 = native). Brute-force anti-aliasing "
+            + "that works even where the OpenXR runtime caps/ignores MSAA, and the only lever against "
+            + "SHADER/texture shimmer (specular sparkle, sub-pixel detail) that geometry-edge MSAA "
+            + "cannot touch. GPU cost grows with the SQUARE of the value: 1.4 ≈ 2x pixel work, 2.0 = 4x "
+            + "— drop frames means drop this. Below 1 reclaims perf at the cost of sharpness. "
+            + "Applies live (the eye-texture swapchain re-allocates).",
+            new AcceptableValueRange<float>(MinEyeScale, MaxEyeScale)));
+        RebuildRigOnMsaaChange = _file.Bind("RenderQuality", "RebuildRigOnMsaaChange", false,
+            "DIAGNOSTIC ONLY: tear down and rebuild the VR rig whenever the MSAA level changes. The "
+            + "OpenXR swapchain is owned by the XR session (not our camera), so a rig rebuild is NOT "
+            + "expected to re-bind MSAA — this toggle exists to prove/disprove that on hardware. "
+            + "Causes a brief view reset per MSAA change; leave off in normal play.");
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>
@@ -89,7 +145,21 @@ internal static class RenderQuality
             return;
         Bind();
         ApplyMsaa();
+        ApplyEyeScale();
         ApplyAniso();
+        if (_diagCountdown > 0 && --_diagCountdown == 0)
+            LogEyeTargetDiagnostics(_diagReason);
+    }
+
+    /// <summary>
+    /// Schedule the eye-target diagnostic readback <see cref="DiagDelayFrames"/> frames out
+    /// (rig build, MSAA push, eye-scale change) — delayed so the swapchain re-allocation the
+    /// change triggers has landed by the time we read <see cref="XRSettings.eyeTextureDesc"/>.
+    /// </summary>
+    internal static void RequestEyeTargetDiagnostics(string reason)
+    {
+        _diagReason = reason;
+        _diagCountdown = DiagDelayFrames;
     }
 
     /// <summary>Snap an arbitrary persisted value to the nearest valid sample count.</summary>
@@ -120,10 +190,111 @@ internal static class RenderQuality
                 return; // display not up yet — retry next tick
             for (int i = 0; i < Displays.Count; i++)
                 Displays[i].SetMSAALevel(Mathf.Max(wanted, 1)); // XR API: 1 = no MSAA
+            bool firstPush = _lastPushedDisplayMsaa < 0;
             _lastPushedDisplayMsaa = wanted;
             VRLog.Info("Rig", $"XR display MSAA level pushed to {Mathf.Max(wanted, 1)} on " +
                               $"{Displays.Count} display subsystem(s) — eye textures re-allocate live.");
+            // Read the ACTUAL eye-target sample count back once the re-allocation had time
+            // to land — this is the line that proves (or disproves) the MSAA took effect.
+            RequestEyeTargetDiagnostics($"MSAA push {Mathf.Max(wanted, 1)}x");
+            // Opt-in hardware experiment (see class doc): does a rig rebuild re-bind MSAA?
+            // Skipped on the boot-time first push — only user-driven CHANGES trigger it.
+            if (!firstPush && RebuildRigOnMsaaChange!.Value)
+                VRRigDriver.RequestRebuild($"[RenderQuality] RebuildRigOnMsaaChange test path (MSAA → {wanted}x)");
         }
+    }
+
+    /// <summary>
+    /// Supersampling lever: assert <c>[RenderQuality] EyeResolutionScale</c> onto
+    /// <see cref="XRSettings.eyeTextureResolutionScale"/>. Re-asserted per frame (one float
+    /// compare — the setter re-allocates the swapchain, so it must never be spammed while
+    /// equal); logs + schedules the diagnostic readback once per distinct target value.
+    /// Fully reversible: 1.0 restores the native allocation.
+    /// </summary>
+    private static void ApplyEyeScale()
+    {
+        float wanted = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
+        if (Mathf.Abs(XRSettings.eyeTextureResolutionScale - wanted) < 0.0005f)
+            return;
+        XRSettings.eyeTextureResolutionScale = wanted;
+        if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f)
+            return; // engine hasn't reflected the write yet (device settling) — logged already
+        _lastLoggedEyeScale = wanted;
+        VRLog.Info("Rig", $"Eye-texture resolution scale asserted → {wanted:F2} " +
+                          $"(supersampling AA; GPU cost ∝ scale² ≈ {wanted * wanted:F2}x pixel work; " +
+                          "eye textures re-allocate live).");
+        RequestEyeTargetDiagnostics($"eyeTextureResolutionScale → {wanted:F2}");
+    }
+
+    /// <summary>
+    /// The delayed readback that settles the "MSAA changes nothing" question with engine-side
+    /// truth (class doc, diagnosis section): eyeTextureDesc sample count + per-display
+    /// render-pass descs + head-camera render-path state, then an explicit VERDICT line.
+    /// </summary>
+    private static void LogEyeTargetDiagnostics(string reason)
+    {
+        int wanted = Sanitize(MsaaLevel!.Value);
+        RenderTextureDescriptor desc = XRSettings.eyeTextureDesc;
+
+        Camera? head = VRRigDriver.HeadCamera;
+        string headState = head == null
+            ? "no head camera"
+            : $"head cam allowMSAA={head.allowMSAA}, allowHDR={head.allowHDR}, " +
+              $"path={head.actualRenderingPath}, depthTex={head.depthTextureMode}, " +
+              $"target={(head.targetTexture != null ? head.targetTexture.name : "XR eye target (direct)")}";
+
+        VRLog.Info("Rig", $"EYE-TARGET DIAG ({reason}): QualitySettings.antiAliasing={QualitySettings.antiAliasing}, " +
+                          $"eyeTextureDesc {desc.width}x{desc.height} msaaSamples={desc.msaaSamples} " +
+                          $"fmt={desc.colorFormat} dim={desc.dimension} sRGB={desc.sRGB}; " +
+                          $"eyeTexture {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}, " +
+                          $"resolutionScale={XRSettings.eyeTextureResolutionScale:F2}, " +
+                          $"viewportScale={XRSettings.renderViewportScale:F2}, " +
+                          $"stereo={XRSettings.stereoRenderingMode}, device='{XRSettings.loadedDeviceName}', " +
+                          $"gfx={SystemInfo.graphicsDeviceType}; {headState}.");
+
+        // Display-side render passes: on the BUILT-IN pipeline the display may expose 0
+        // passes outside SRP render callbacks — logged either way so absence is evidence too.
+        SubsystemManager.GetInstances(Displays);
+        for (int i = 0; i < Displays.Count; i++)
+        {
+            try
+            {
+                int passes = Displays[i].GetRenderPassCount();
+                if (passes == 0)
+                {
+                    VRLog.Info("Rig", $"EYE-TARGET DIAG: display {i} exposes 0 render passes from " +
+                                      "script (normal on built-in pipeline — eyeTextureDesc above is " +
+                                      "the authoritative engine-side value).");
+                    continue;
+                }
+                for (int p = 0; p < passes; p++)
+                {
+                    Displays[i].GetRenderPass(p, out XRDisplaySubsystem.XRRenderPass pass);
+                    RenderTextureDescriptor rt = pass.renderTargetDesc;
+                    VRLog.Info("Rig", $"EYE-TARGET DIAG: display {i} renderPass {p}: " +
+                                      $"{rt.width}x{rt.height} msaaSamples={rt.msaaSamples} fmt={rt.colorFormat} " +
+                                      $"dim={rt.dimension}.");
+                }
+            }
+            catch (System.Exception e)
+            {
+                VRLog.Info("Rig", $"EYE-TARGET DIAG: display {i} render-pass query threw " +
+                                  $"'{e.Message}' — eyeTextureDesc above remains the evidence.");
+            }
+        }
+
+        string verdict = wanted == 0
+            ? "MSAA is OFF by config — desc.msaaSamples should read 1; nothing to verify."
+            : desc.msaaSamples >= wanted
+                ? $"VERDICT: the engine allocates the eye textures MULTISAMPLED ({desc.msaaSamples}x) — MSAA " +
+                  "is genuinely active. If aliasing still looks unchanged, the shimmer is SHADER/TEXTURE " +
+                  "aliasing (specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot fix — " +
+                  "raise [RenderQuality] EyeResolutionScale (supersampling) instead."
+                : $"VERDICT: eye-texture desc reports {desc.msaaSamples}x but {wanted}x was requested — " +
+                  "QualitySettings/SetMSAALevel is NOT binding (OpenXR runtime cap at swapchain creation, " +
+                  "e.g. VDXR). Working lever: [RenderQuality] EyeResolutionScale supersampling; " +
+                  "RebuildRigOnMsaaChange tests the rebuild hypothesis.";
+        VRLog.Info("Rig", $"EYE-TARGET DIAG: {verdict}");
     }
 
     private static void ApplyAniso()
