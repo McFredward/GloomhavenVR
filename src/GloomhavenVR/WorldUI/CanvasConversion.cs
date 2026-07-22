@@ -198,6 +198,22 @@ internal sealed class ConvertedPanel
     /// <summary>Consecutive fit checks the measured content size has held steady (see <c>SettleOneShotFit</c>).</summary>
     public int FitOneShotStableCount;
 
+    // ---- task #4 (world-space scroll clipping) --------------------------------------------
+    /// <summary>
+    /// Task #4 (scrolling extended the menu upward): <see cref="RectMask2D"/> components WE
+    /// added to mask-less ScrollRect viewports inside the converted subtree, destroyed on
+    /// Release. In 2D a full-screen submenu's scroll list is clipped by the SCREEN edge, so
+    /// the prefab can ship without a viewport mask; on a world-space host there is no screen
+    /// edge and rows scrolled past the viewport rendered above/below the window — the menu
+    /// visually "elongated" instead of clipping. Same pattern as <c>WorldTooltips</c>' frame
+    /// mask.
+    /// </summary>
+    public readonly List<RectMask2D> AddedScrollMasks = new(2);
+
+    /// <summary>Task #4: game-owned but DISABLED RectMask2D clippers we enabled while converted
+    /// (re-disabled on Release).</summary>
+    public readonly List<RectMask2D> EnabledScrollMasks = new(2);
+
     // ---- initial-flicker settle window (sub-item A) ---------------------------------------
     /// <summary>
     /// EVERY-FRAME settle deadline (unscaled time) after Convert for a floated modal host:
@@ -499,6 +515,10 @@ internal static class CanvasConversion
         panel.HostRect = hostRect;
 
         AdoptNestedCanvases(panel); // tests #19/#20: sorting-override + raycast hijack
+
+        // Task #4: a world-space host has no screen edge — every ScrollRect viewport in the
+        // subtree must carry a WORKING clipper or scrolled-out content renders past the window.
+        EnsureScrollClipping(panel);
 
         if (flatten2D)
         {
@@ -857,6 +877,89 @@ internal static class CanvasConversion
         return true;
     }
 
+    // ---- task #4: world-space scroll clipping ----------------------------------------------
+
+    // Scratch buffer (scroll-clip sweep only; reused, no per-call allocations).
+    private static readonly List<ScrollRect> ScrollScratch = new(4);
+
+    /// <summary>
+    /// Task #4 (scrolling extends the menu upward — root cause): the game's full-screen
+    /// options submenus scroll a settings list whose viewport needs NO mask in 2D — the
+    /// window fills the screen, so anything scrolled past the viewport is off-screen and the
+    /// SCREEN clips it. On a world-space host there is no screen edge: rows scrolled out of
+    /// the viewport rendered above/below the floated window, which read as the menu
+    /// "elongating vertically" on every scroll instead of clipping at a fixed frame.
+    ///
+    /// Fix: guarantee a WORKING clipper on every ScrollRect viewport inside the converted
+    /// subtree — re-enable a disabled game-owned <see cref="RectMask2D"/>, or ADD one when the
+    /// viewport has neither an enabled RectMask2D nor a functioning stencil <see cref="Mask"/>
+    /// (the WorldTooltips frame-mask pattern). Fully reversible: added masks are destroyed and
+    /// enabled ones re-disabled on <see cref="Release"/>. Runs at Convert and on the periodic
+    /// sweep (pooled/late ScrollRects); writes are add-once, so steady state is a cheap
+    /// component walk. Dropdown-list overlays ship uGUI's template viewport mask already and
+    /// are left untouched by the HasClipper check.
+    /// </summary>
+    private static void EnsureScrollClipping(ConvertedPanel panel)
+    {
+        if (panel.Target == null)
+            return;
+
+        // Prune records whose component/GameObject the game destroyed.
+        for (int i = panel.AddedScrollMasks.Count - 1; i >= 0; i--)
+        {
+            if (panel.AddedScrollMasks[i] == null)
+                panel.AddedScrollMasks.RemoveAt(i);
+        }
+        for (int i = panel.EnabledScrollMasks.Count - 1; i >= 0; i--)
+        {
+            if (panel.EnabledScrollMasks[i] == null)
+                panel.EnabledScrollMasks.RemoveAt(i);
+        }
+
+        ScrollScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: true, ScrollScratch);
+        for (int i = 0; i < ScrollScratch.Count; i++)
+        {
+            ScrollRect sr = ScrollScratch[i];
+            if (sr == null)
+                continue;
+            // The clip lives on the viewport (the content's direct parent when the optional
+            // serialized viewport reference is empty — that parent may be the ScrollRect itself).
+            RectTransform? viewport = sr.viewport != null
+                ? sr.viewport
+                : sr.content != null ? sr.content.parent as RectTransform : null;
+            if (viewport == null)
+                continue;
+
+            RectMask2D existing = viewport.GetComponent<RectMask2D>();
+            if (existing != null)
+            {
+                if (!existing.enabled)
+                {
+                    existing.enabled = true; // game-owned but off → turn it on while converted
+                    panel.EnabledScrollMasks.Add(existing);
+                    VRLog.Info("WorldUI", $"SCROLL CLIP: enabled the disabled RectMask2D on viewport " +
+                                          $"'{viewport.name}' in '{panel.HostGo.name}' — scrolled-out content " +
+                                          "now clips at the viewport (task #4; re-disabled on release).");
+                }
+                continue; // an enabled RectMask2D is a working clipper
+            }
+            Mask stencil = viewport.GetComponent<Mask>();
+            if (stencil != null && stencil.enabled && stencil.graphic != null && stencil.graphic.enabled)
+                continue; // a functioning stencil mask clips already
+
+            RectMask2D added = viewport.gameObject.AddComponent<RectMask2D>();
+            if (added == null)
+                continue; // AddComponent refused (unexpected) — leave the viewport as-is
+            panel.AddedScrollMasks.Add(added);
+            VRLog.Info("WorldUI", $"SCROLL CLIP: viewport '{viewport.name}' of ScrollRect '{sr.name}' in " +
+                                  $"'{panel.HostGo.name}' had NO clipper (screen-edge clipped in 2D) — " +
+                                  "RectMask2D added so scrolling clips at a fixed window instead of " +
+                                  "elongating it (task #4; removed on release).");
+        }
+        ScrollScratch.Clear();
+    }
+
     // ---- dedicated mod layer for floated modals (user #8: UI-Camera double-draw) ----------
 
     // Scratch buffer (mod-layer sweep only; reused, no per-call allocations).
@@ -957,6 +1060,11 @@ internal static class CanvasConversion
             if (g == null || !g.enabled || !(g is Image || g is RawImage))
                 continue;
             if (g.canvasRenderer == null || g.canvasRenderer.cull)
+                continue;
+            // Task #4 guard: an Image driving a stencil Mask is a CLIPPER, not a backing —
+            // disabling it would stop the stencil write and break the mask's whole subtree
+            // (scroll viewports use exactly this setup). Never treat it as a background.
+            if (g.GetComponent<Mask>() != null)
                 continue;
             // Sub-item A: gate on the graphic's INTRINSIC alpha (its own serialized colour),
             // NOT the inherited CanvasGroup fade. The window's backing fades in from inherited-
@@ -1129,11 +1237,116 @@ internal static class CanvasConversion
     private const int OneShotSettleChecks = 6;
 
     /// <summary>
+    /// Task #4/#5 shared per-graphic measure: the visibility test both unions use (enabled,
+    /// not culled, effective alpha ≥ 0.05, non-degenerate draw rect) plus the graphic's
+    /// host-local bounds, CLAMPED to its enclosing clipper's rect (<see cref="RectMask2D"/> /
+    /// stencil <see cref="Mask"/> — i.e. a ScrollRect viewport): a settings row scrolled out
+    /// of its viewport is CLIPPED at render time, so it must neither grow the content FIT nor
+    /// stamp depth-mask coverage. False = the graphic contributes nothing (invisible, empty,
+    /// or fully scrolled out).
+    /// </summary>
+    private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
+        out Vector2 gMin, out Vector2 gMax)
+    {
+        gMin = default;
+        gMax = default;
+        if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
+            return false;
+        // Effective alpha: own color × hierarchy (CanvasGroup) alpha.
+        if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
+            return false;
+
+        var rect = (RectTransform)g.transform;
+        // Zero draw size = nothing on screen (collapsed layout cells, empty
+        // stretch containers with a Graphic) — must not anchor the union at
+        // their corner points (test #16 measurement tightening).
+        Rect drawRect = rect.rect;
+        if (drawRect.width < 0.5f || drawRect.height < 0.5f)
+            return false;
+
+        rect.GetWorldCorners(CornerScratch);
+        Vector2 min = new(float.MaxValue, float.MaxValue);
+        Vector2 max = new(float.MinValue, float.MinValue);
+        for (int c = 0; c < 4; c++)
+        {
+            Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
+            if (local.x < min.x) min.x = local.x;
+            if (local.y < min.y) min.y = local.y;
+            if (local.x > max.x) max.x = local.x;
+            if (local.y > max.y) max.y = local.y;
+        }
+
+        // Task #4: clamp to the enclosing clipper (scroll viewport) — content the mask clips
+        // away at render time must not count as visible.
+        RectTransform? clipper = FindEnclosingClipper(panel, rect);
+        if (clipper != null)
+        {
+            clipper.GetWorldCorners(CornerScratch);
+            Vector3 ca = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
+            Vector3 cc = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
+            Vector2 clipMin = Vector2.Min(ca, cc);
+            Vector2 clipMax = Vector2.Max(ca, cc);
+            min = Vector2.Max(min, clipMin);
+            max = Vector2.Min(max, clipMax);
+            if (max.x - min.x < 0.5f || max.y - min.y < 0.5f)
+                return false; // fully scrolled out of its viewport
+        }
+
+        gMin = min;
+        gMax = max;
+        return true;
+    }
+
+    /// <summary>Per-pass memo (keyed by a graphic's immediate parent — siblings share one walk)
+    /// for <see cref="FindEnclosingClipper"/>; cleared at the start of every measure pass.</summary>
+    private static readonly Dictionary<Transform, RectTransform?> ClipperMemo = new(32);
+
+    /// <summary>
+    /// Task #4: nearest enclosing clipper of a graphic — an enabled <see cref="RectMask2D"/> or
+    /// functioning stencil <see cref="Mask"/> on any ancestor up to (and including) the converted
+    /// target. Null when nothing clips the graphic. Memoized per measure pass via
+    /// <see cref="ClipperMemo"/>: the options list has dozens of row graphics under a handful of
+    /// distinct parents, so the ancestor walk runs once per parent, not once per graphic.
+    /// </summary>
+    private static RectTransform? FindEnclosingClipper(ConvertedPanel panel, RectTransform rect)
+    {
+        Transform? parent = rect.parent;
+        if (parent == null)
+            return null;
+        if (ClipperMemo.TryGetValue(parent, out RectTransform? memo))
+            return memo;
+
+        RectTransform? found = null;
+        for (Transform? p = parent; p != null; p = p.parent)
+        {
+            var rm = p.GetComponent<RectMask2D>();
+            if (rm != null && rm.enabled)
+            {
+                found = p as RectTransform;
+                break;
+            }
+            var stencil = p.GetComponent<Mask>();
+            if (stencil != null && stencil.enabled && stencil.graphic != null && stencil.graphic.enabled)
+            {
+                found = p as RectTransform;
+                break;
+            }
+            if (ReferenceEquals(p, panel.Target) || ReferenceEquals(p, panel.HostRect))
+                break; // never walk past the conversion root into the host/scene
+        }
+        ClipperMemo[parent] = found;
+        return found;
+    }
+
+    /// <summary>
     /// Measure the visible-content size (padded, clamped to the target frame) and its center in
     /// host-local space, WITHOUT applying anything. False when nothing visible is measurable yet
     /// (still fading in) or the measured content is degenerate (mid scale-in). Shared by the
     /// per-frame fit (<see cref="FitHostToContent"/>) and the one-shot layout-settle gate
-    /// (<see cref="SettleOneShotFit"/>) so both measure content the exact same way.
+    /// (<see cref="SettleOneShotFit"/>) so both measure content the exact same way. Task #4:
+    /// graphics are viewport-clamped (<see cref="TryGetVisibleHostRect"/>), so scrolling a list
+    /// can never grow the union beyond the ScrollRect viewport — a scroll position change is
+    /// size-neutral and can never trigger a re-fit.
     /// </summary>
     private static bool TryMeasureContent(ConvertedPanel panel, RectTransform root,
         out Vector2 size, out Vector2 center)
@@ -1145,33 +1358,15 @@ internal static class CanvasConversion
         Vector2 max = new(float.MinValue, float.MinValue);
         bool any = false;
 
+        ClipperMemo.Clear();
         GraphicScratch.Clear();
         root.GetComponentsInChildren(includeInactive: false, GraphicScratch);
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
-            Graphic g = GraphicScratch[i];
-            if (!g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
+            if (!TryGetVisibleHostRect(panel, GraphicScratch[i], out Vector2 gMin, out Vector2 gMax))
                 continue;
-            // Effective alpha: own color × hierarchy (CanvasGroup) alpha.
-            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
-                continue;
-
-            var rect = (RectTransform)g.transform;
-            // Zero draw size = nothing on screen (collapsed layout cells, empty
-            // stretch containers with a Graphic) — must not anchor the union at
-            // their corner points (test #16 measurement tightening).
-            Rect drawRect = rect.rect;
-            if (drawRect.width < 0.5f || drawRect.height < 0.5f)
-                continue;
-            rect.GetWorldCorners(CornerScratch);
-            for (int c = 0; c < 4; c++)
-            {
-                Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
-                if (local.x < min.x) min.x = local.x;
-                if (local.y < min.y) min.y = local.y;
-                if (local.x > max.x) max.x = local.x;
-                if (local.y > max.y) max.y = local.y;
-            }
+            min = Vector2.Min(min, gMin);
+            max = Vector2.Max(max, gMax);
             any = true;
         }
         GraphicScratch.Clear();
@@ -1219,64 +1414,53 @@ internal static class CanvasConversion
     }
 
     /// <summary>
-    /// Task #6 (depth mask must not occlude other menus through EMPTY panel regions):
-    /// measure the raw union bounding rect — HOST-LOCAL pixels, min/max corners — of the
-    /// window's actually-VISIBLE graphics, with the exact same visibility test the
-    /// content fit uses (<see cref="TryMeasureContent"/>: enabled, not culled, effective
-    /// alpha ≥ 0.05, non-degenerate draw rect) but WITHOUT the fit's target-frame clamp
-    /// or padding: <see cref="GrabbableModal.SyncDepthMask"/> sizes the coplanar depth
-    /// mask to THIS union each tick, so the mask stamps depth only where opaque content
-    /// actually renders (the Options submenu's left rail + the opened pane) instead of
-    /// across the full host rect — the empty region stays truly transparent, other
-    /// menus behind it included. Unclamped on purpose: an open dropdown list may extend
-    /// content and the mask should back it wherever it draws. Returns false when nothing
-    /// visible is measurable (caller disables the mask). Reuses the fit scratch buffers
-    /// (single-threaded, never re-entered).
+    /// Task #5 (transparent gaps must stay transparent for OTHER MENUS too): collect ONE
+    /// host-local rect PER visible graphic — <c>Vector4(minX, minY, maxX, maxY)</c> in
+    /// host-local pixels — with the exact same visibility test the content fit uses
+    /// (<see cref="TryGetVisibleHostRect"/>: enabled, not culled, effective alpha ≥ 0.05,
+    /// non-degenerate draw rect, viewport-clamped per task #4). Replaces the old single
+    /// union rect (<c>TryMeasureVisibleUnion</c>): the union stamped menu-plane depth
+    /// across the GAPS between settings rows, which the world showed through (drawn
+    /// earlier, colour already in the buffer) but other transparent menus did NOT (drawn
+    /// later, depth-tested against the stamp). <see cref="GrabbableModal.SyncDepthMask"/>
+    /// builds a per-graphic quad mesh from these rects, so depth is stamped only where
+    /// content (approximately — its rect) actually renders and the gaps stay open for
+    /// everything behind, menus included. Unclamped to the target frame on purpose: an
+    /// open dropdown list may extend past it and the mask should back it wherever it draws.
+    /// Rects beyond <paramref name="maxCount"/> are merged into the last slot (coverage is
+    /// never lost, only gap fidelity in the overflow). Returns the rect count (0 = nothing
+    /// visible; caller disables the mask). Reuses the fit scratch buffers (single-threaded,
+    /// never re-entered).
     /// </summary>
-    internal static bool TryMeasureVisibleUnion(ConvertedPanel panel, out Vector2 min, out Vector2 max)
+    internal static int CollectVisibleMaskRects(ConvertedPanel panel, List<Vector4> rects, int maxCount)
     {
-        min = default;
-        max = default;
+        rects.Clear();
         if (panel == null || panel.Target == null || panel.HostRect == null)
-            return false;
+            return 0;
 
-        Vector2 mn = new(float.MaxValue, float.MaxValue);
-        Vector2 mx = new(float.MinValue, float.MinValue);
-        bool any = false;
-
+        ClipperMemo.Clear();
         GraphicScratch.Clear();
         panel.Target.GetComponentsInChildren(includeInactive: false, GraphicScratch);
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
-            Graphic g = GraphicScratch[i];
-            if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
+            if (!TryGetVisibleHostRect(panel, GraphicScratch[i], out Vector2 gMin, out Vector2 gMax))
                 continue;
-            // Effective alpha: own color × hierarchy (CanvasGroup) alpha — matches the
-            // fit's visibility test, so a CanvasGroup-hidden pane never grows the mask.
-            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
-                continue;
-            var rect = (RectTransform)g.transform;
-            Rect drawRect = rect.rect;
-            if (drawRect.width < 0.5f || drawRect.height < 0.5f)
-                continue;
-            rect.GetWorldCorners(CornerScratch);
-            for (int c = 0; c < 4; c++)
+            if (rects.Count < maxCount)
             {
-                Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
-                if (local.x < mn.x) mn.x = local.x;
-                if (local.y < mn.y) mn.y = local.y;
-                if (local.x > mx.x) mx.x = local.x;
-                if (local.y > mx.y) mx.y = local.y;
+                rects.Add(new Vector4(gMin.x, gMin.y, gMax.x, gMax.y));
             }
-            any = true;
+            else
+            {
+                // Cap reached: widen the last slot to the union of the overflow — coverage
+                // stays correct, only the per-rect gap fidelity degrades past the cap.
+                Vector4 last = rects[rects.Count - 1];
+                rects[rects.Count - 1] = new Vector4(
+                    Mathf.Min(last.x, gMin.x), Mathf.Min(last.y, gMin.y),
+                    Mathf.Max(last.z, gMax.x), Mathf.Max(last.w, gMax.y));
+            }
         }
         GraphicScratch.Clear();
-
-        if (!any)
-            return false;
-        min = mn;
-        max = mx;
-        return true;
+        return rects.Count;
     }
 
     /// <summary>
@@ -1557,6 +1741,21 @@ internal static class CanvasConversion
         }
         panel.HiddenBackgrounds.Clear();
 
+        // Task #4: undo the world-space scroll clipping — masks WE added are destroyed, the
+        // game-owned disabled ones we enabled go back to disabled (exact 2D restore).
+        for (int i = 0; i < panel.AddedScrollMasks.Count; i++)
+        {
+            if (panel.AddedScrollMasks[i] != null)
+                Object.Destroy(panel.AddedScrollMasks[i]);
+        }
+        panel.AddedScrollMasks.Clear();
+        for (int i = 0; i < panel.EnabledScrollMasks.Count; i++)
+        {
+            if (panel.EnabledScrollMasks[i] != null)
+                panel.EnabledScrollMasks[i].enabled = false;
+        }
+        panel.EnabledScrollMasks.Clear();
+
         // Un-flatten (test #21) BEFORE the root restore below: original local
         // rotation and z go back per recorded transform (x/y stayed game-owned
         // throughout), and the root's full-pose restore then wins as ever.
@@ -1706,6 +1905,11 @@ internal static class CanvasConversion
                 if (panel.ModLayerEnabled && (earlySettle || sweepDue || adoptedNew))
                     ApplyModLayer(panel, initial: false);
             }
+
+            // Task #4: pooled/late children can bring ScrollRects after Convert — re-sweep on
+            // the periodic schedule so their viewports get a clipper too (change-gated inside).
+            if (sweepDue)
+                EnsureScrollClipping(panel);
 
             // User #8 part 2: re-assert the background hide (menu fade-ins can enable the
             // backing image a few frames after the window shows).
