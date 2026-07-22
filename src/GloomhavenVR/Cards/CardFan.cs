@@ -152,7 +152,27 @@ internal sealed class CardFan
         for (int i = 0; i < cards.Count; i++)
             _cards.Add(cards[i]);
         if (IsOpen)
+        {
             Relayout(instant: false);
+        }
+        else if (_root != null)
+        {
+            // Task #4b (collision safety): a card handed BACK to a CLOSED fan used to
+            // keep its old parent/home forever — Relayout only runs while open — so a
+            // slotted card the game deselected (short rest's DeselectAllCards, an undo,
+            // a rejected select) kept LYING in the tray recess while e.g. the short-rest
+            // sacrifice display docked into the very same recess (the reported overlap
+            // glitch: build 8b0553034 log, 'Short rest: presenting sacrificed card ...
+            // in the left slot' with the played card still homed there). A closed fan
+            // owns its cards HIDDEN in the hand: adopt any card not already parented
+            // under the (inactive) fan root now; the next Open() re-lays them out.
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard c = _cards[i];
+                if (c != null && !c.IsHeld && c.transform.parent != _root)
+                    c.SetHome(_root, Vector3.zero, Quaternion.identity, 1f, instant: true);
+            }
+        }
     }
 
     /// <summary>Remove a card (grabbed away); remaining cards close the gap.</summary>
