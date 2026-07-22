@@ -61,14 +61,24 @@ namespace GloomhavenVR.Core;
 ///   fade would sample garbage), an untouched renderer is bit-for-bit today's solid wall.</item>
 /// </list>
 ///
-/// OCCLUSION DECISION (per segment, VR-stable): the head's gaze ray is intersected with the
-/// room-renderer bounds to find the looked-at spot on the play area; that GAZE TARGET is
-/// exponentially smoothed (tau 0.25s) so abrupt head rotation barely moves it. 7 sample points
-/// (center + hex ring, radius 2.5) around the target; a segment's raw condition is "blocks the
-/// head→sample segment for ≥2 of 7 samples" (Bounds.IntersectRay, hit before 88% of the sample
-/// distance, or head inside the wall's AABB). The raw condition must persist 0.35s to switch a
-/// segment ON and 0.55s to switch OFF (dwell hysteresis), and the fade value itself is
-/// exponentially damped (tau 0.12s ≈ 0.35s visible transition). Head jitter → no change.
+/// OCCLUSION DECISION (per segment, VR-stable — round 4, VIEW-COVERAGE metric; round-3's
+/// smoothed-gaze 2-of-7 ring re-solidified walls the moment the user looked a bit away):
+/// the play area is sampled with a per-room grid (3×3 → quincunx → center as the room count
+/// allows, ≤60 points total) at foundation-top height; each frame the samples inside the head
+/// camera's view frustum (viewport test with 0.15 margin, ≤32 kept) stand in for the CURRENTLY
+/// VISIBLE play-area region. A segment's raw metric is the FRACTION of those visible samples
+/// whose head→sample segment its AABB blocks (Bounds.IntersectRay, hit before 88% of the
+/// sample distance; head inside the AABB counts as 1.0). Fraction ≥ 0.25 switches ON ("wall
+/// occludes &gt;25% of the current view of the play area"); once faded a SCHMITT TRIGGER keeps
+/// it ON down to 0.10 — looking around only moves samples in/out of the frustum and rarely
+/// drops a still-covering wall below the low bar. Transitions additionally need dwell: 0.25s
+/// to fade IN (snappy), 2.5s continuously below 0.10 to un-fade — and that un-fade dwell
+/// stretches to 7s unless the PERSPECTIVE recently (≤3s) actually changed: real head
+/// TRANSLATION &gt;0.18m in tracking space (scale-independent), rig-root motion
+/// (world-grab/snap-turn), recenter/rig rebuild (RigPoseVersion), or a room-bounds shift seen
+/// at rescan. Net effect: rotation alone almost never un-fades a wall; moving the head or
+/// re-gripping the world re-evaluates promptly. The fade value itself stays exponentially
+/// damped (tau 0.12s ≈ 0.35s visible transition).
 ///
 /// MULTIPLAYER: purely local rendering (MaterialPropertyBlocks + locally created textures);
 /// nothing synced, peers unaffected. Gated LIVE by [Compat] WallFade — OFF clears every block
@@ -91,9 +101,10 @@ internal static class WallSegmentFade
         _driver = go.AddComponent<FadeDriver>();
         VRLog.Info(Name,
             $"installed (WallFade={(Plugin.WallFade != null && Plugin.WallFade.Value ? "on" : "off")}) — " +
-            "whole-wall fade: per-ProceduralWall occlusion decision from the head position, " +
-            "dwell hysteresis + damped fade, delivered via per-renderer MaterialPropertyBlocks " +
-            "through the wall shaders' own map/cutoff fade path.");
+            "whole-wall fade: per-ProceduralWall view-coverage decision (fraction of the " +
+            "frustum-visible play area blocked, Schmitt trigger + perspective-anchored dwell), " +
+            "delivered via per-renderer MaterialPropertyBlocks through the wall shaders' own " +
+            "map/cutoff fade path.");
     }
 
     /// <summary>Clear every property block and destroy the driver (hot-reload safe).</summary>
@@ -131,14 +142,20 @@ internal static class WallSegmentFade
 
     private sealed class FadeDriver : MonoBehaviour
     {
-        // --- smoothing constants (see class header) -----------------------------------------
-        private const float EnterDwellSeconds = 0.35f; // raw ON must persist this long
-        private const float ExitDwellSeconds = 0.55f;  // raw OFF must persist this long
+        // --- decision constants (see class header) ------------------------------------------
+        private const float OnFraction = 0.25f;        // ≥ this fraction of visible samples blocked → fade
+        private const float OffFraction = 0.10f;       // Schmitt low bar: once faded, stay while ≥ this
+        private const float EnterDwellSeconds = 0.25f; // fraction ≥ OnFraction must persist this long
+        private const float ExitDwellMovedSeconds = 2.5f; // < OffFraction dwell after a recent perspective change
+        private const float ExitDwellStationarySeconds = 7f; // < OffFraction dwell when the head only rotates
+        private const float HeadMoveReevalMeters = 0.18f; // real tracking-space translation that re-arms re-eval
+        private const float ReevalArmSeconds = 3f;     // how long a perspective change keeps re-eval armed
         private const float FadeTauSeconds = 0.12f;    // exp. fade time constant (~0.35s to 95%)
-        private const float GazeTauSeconds = 0.25f;    // gaze-target damping
-        private const float RingRadius = 2.5f;         // sample ring around the gaze target
-        private const float SampleHeight = 0.4f;       // samples float this far above the target
-        private const int BlockedNeeded = 2;           // of the 7 samples
+        private const float SampleHeight = 0.4f;       // samples float this far above the room-bounds top
+        private const float FrustumMargin = 0.15f;     // viewport-relative slack for sample visibility
+        private const int MaxTotalSamples = 60;        // precomputed play-area samples (all rooms)
+        private const int MaxVisibleSamples = 32;      // per-frame frustum-visible sample cap
+        private const int MinVisibleForDecision = 3;   // fewer visible samples → too noisy, fraction = 0
         private const float RescanIntervalSeconds = 2f;
 
         private static readonly int TilesOcclusionMapId = Shader.PropertyToID("_TilesOcclusionMap");
@@ -148,7 +165,8 @@ internal static class WallSegmentFade
         private readonly Dictionary<ProceduralWall, Segment> _segments = new();
         private readonly List<ProceduralWall> _deadWalls = new();
         private readonly List<Bounds> _roomBounds = new();
-        private readonly Vector3[] _samples = new Vector3[7];
+        private readonly List<Vector3> _allSamples = new();     // per-room grid over the play area
+        private readonly List<Vector3> _visibleSamples = new(); // frustum-visible subset, per frame
         private readonly List<Material> _matScratch = new();
         private MaterialPropertyBlock? _mpb;
 
@@ -157,8 +175,19 @@ internal static class WallSegmentFade
 
         private float _nextRescan;
         private int _builtRoomCount = -1;
-        private Vector3 _gazeTarget;
-        private bool _gazeInit;
+
+        // Perspective-change tracking (arms aggressive re-evaluation for ReevalArmSeconds).
+        private float _lastReevalTime = float.NegativeInfinity;
+        private int _lastPoseVersion = -1;
+        private Vector3 _headAnchor;      // head localPosition (tracking-space meters)
+        private bool _headAnchorInit;
+        private Vector3 _rigPos;          // rig-root snapshot (world-grab / snap-turn detection)
+        private Quaternion _rigRot;
+        private float _rigScale;
+        private bool _rigSnapInit;
+        private Vector3 _roomCenter;      // combined room-bounds center (board-move detection)
+        private bool _roomCenterInit;
+        private bool _roomBoundsMoved;
         private bool _wasActive;
         private bool _failureLogged;
         private bool _heartbeatLogged;
@@ -225,7 +254,9 @@ internal static class WallSegmentFade
 
             Transform headT = head!.transform;
             Vector3 headPos = headT.position;
-            UpdateGazeSamples(headPos, headT.forward);
+            UpdatePerspectiveState(headT, now);
+            int visibleCount = CollectVisibleSamples(head!);
+            bool reevalArmed = now - _lastReevalTime <= ReevalArmSeconds;
 
             float fadeStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FadeTauSeconds);
             foreach (Segment seg in _segments.Values)
@@ -233,18 +264,24 @@ internal static class WallSegmentFade
                 if (!seg.HasBounds)
                     continue;
 
-                // Raw verdict + dwell hysteresis: the raw state must persist before the
-                // debounced state follows it. Head jitter never survives the dwell.
-                bool raw = IsBlocking(seg.Bounds, headPos);
+                // View-coverage metric with a Schmitt trigger (0.25 on / 0.10 off) + dwell
+                // hysteresis. The un-fade dwell is long, and much longer still unless the
+                // perspective (head position / world grip) recently changed — rotation-only
+                // head motion keeps the current state sticky.
+                float fraction = BlockedFraction(seg.Bounds, headPos, visibleCount);
+                bool raw = fraction >= (seg.State ? OffFraction : OnFraction);
                 if (raw != seg.PendingRaw)
                 {
                     seg.PendingRaw = raw;
                     seg.PendingSince = now;
                 }
-                if (seg.PendingRaw != seg.State
-                    && now - seg.PendingSince >= (seg.PendingRaw ? EnterDwellSeconds : ExitDwellSeconds))
+                if (seg.PendingRaw != seg.State)
                 {
-                    seg.State = seg.PendingRaw;
+                    float dwell = seg.PendingRaw
+                        ? EnterDwellSeconds
+                        : (reevalArmed ? ExitDwellMovedSeconds : ExitDwellStationarySeconds);
+                    if (now - seg.PendingSince >= dwell)
+                        seg.State = seg.PendingRaw;
                 }
 
                 // Critically-damped-style exponential fade toward the debounced state.
@@ -262,96 +299,124 @@ internal static class WallSegmentFade
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
                     + $"{_segments.Count} wall segments against {_roomBounds.Count} room-renderer "
-                    + "bounds — whole-wall fades now follow the head with dwell hysteresis "
-                    + $"({EnterDwellSeconds:0.00}s in / {ExitDwellSeconds:0.00}s out, "
-                    + $"tau {FadeTauSeconds:0.00}s).");
+                    + $"bounds / {_allSamples.Count} play-area samples — view-coverage fade "
+                    + $"(on ≥{OnFraction:0.00}, off <{OffFraction:0.00}; dwell "
+                    + $"{EnterDwellSeconds:0.00}s in, {ExitDwellMovedSeconds:0.0}s out moved / "
+                    + $"{ExitDwellStationarySeconds:0.0}s stationary; tau {FadeTauSeconds:0.00}s).");
             }
         }
 
         // ---- occlusion decision -----------------------------------------------------------
 
         /// <summary>
-        /// Gaze target = nearest hit of the head's forward ray on any room-renderer bounds
-        /// (fallback: the point on the nearest room bounds closest to the ray), exponentially
-        /// damped, then expanded into 1+6 sample points at foundation-top height.
+        /// Track PERSPECTIVE changes that should re-arm aggressive re-evaluation (each sets
+        /// <see cref="_lastReevalTime"/> = now): recenter / rig rebuild (RigPoseVersion bumps
+        /// there), rig-root motion beyond epsilon (world-grab drag/scale, snap-turn), a
+        /// room-bounds shift flagged by <see cref="Rescan"/> (board moved/tilted), and — the
+        /// primary anchor — real head TRANSLATION: the head camera's localPosition lives in
+        /// tracking space (meters, independent of the diorama scale), so a &gt;0.18m move from
+        /// the anchor re-arms and re-anchors while micro-sway and pure rotation never do.
         /// </summary>
-        private void UpdateGazeSamples(Vector3 headPos, Vector3 headFwd)
+        private void UpdatePerspectiveState(Transform headT, float now)
         {
-            var ray = new Ray(headPos, headFwd);
-            float bestHit = float.MaxValue;
-            foreach (Bounds b in _roomBounds)
+            int pv = Rig.VRRigDriver.RigPoseVersion;
+            if (pv != _lastPoseVersion)
             {
-                if (b.IntersectRay(ray, out float d) && d >= 0f && d < bestHit)
-                    bestHit = d;
+                _lastPoseVersion = pv;
+                _lastReevalTime = now;
             }
 
-            Vector3 target;
-            if (bestHit < float.MaxValue)
+            Transform? rig = Rig.VRRigDriver.RigRoot;
+            if (rig != null)
             {
-                target = ray.GetPoint(bestHit);
-            }
-            else
-            {
-                // Not looking at the play area — aim at whichever room center best matches the
-                // gaze direction, so a wall you face still counts when the board is behind it.
-                float bestDot = float.MinValue;
-                target = _gazeInit ? _gazeTarget : _roomBounds[0].center;
-                foreach (Bounds b in _roomBounds)
+                Vector3 p = rig.position;
+                Quaternion q = rig.rotation;
+                float s = rig.lossyScale.x;
+                if (!_rigSnapInit)
                 {
-                    float dot = Vector3.Dot((b.center - headPos).normalized, headFwd);
-                    if (dot > bestDot)
-                    {
-                        bestDot = dot;
-                        target = b.center;
-                    }
+                    _rigSnapInit = true;
+                    _rigPos = p;
+                    _rigRot = q;
+                    _rigScale = s;
+                }
+                else if ((p - _rigPos).sqrMagnitude > 0.0004f * s * s // 2cm real, scale-aware
+                         || Quaternion.Angle(q, _rigRot) > 0.5f
+                         || Mathf.Abs(s - _rigScale) > 0.005f * Mathf.Max(_rigScale, 0.001f))
+                {
+                    _rigPos = p;
+                    _rigRot = q;
+                    _rigScale = s;
+                    _lastReevalTime = now;
                 }
             }
 
-            if (!_gazeInit)
+            if (_roomBoundsMoved)
             {
-                _gazeInit = true;
-                _gazeTarget = target;
-            }
-            else
-            {
-                float k = 1f - Mathf.Exp(-Time.unscaledDeltaTime / GazeTauSeconds);
-                _gazeTarget += (target - _gazeTarget) * k;
+                _roomBoundsMoved = false;
+                _lastReevalTime = now;
             }
 
-            _samples[0] = _gazeTarget + Vector3.up * SampleHeight;
-            for (int i = 0; i < 6; i++)
+            Vector3 headLocal = headT.localPosition;
+            if (!_headAnchorInit)
             {
-                float a = i * (Mathf.PI / 3f);
-                _samples[i + 1] = _samples[0]
-                    + new Vector3(Mathf.Cos(a) * RingRadius, 0f, Mathf.Sin(a) * RingRadius);
+                _headAnchorInit = true;
+                _headAnchor = headLocal;
+            }
+            else if ((headLocal - _headAnchor).sqrMagnitude
+                     > HeadMoveReevalMeters * HeadMoveReevalMeters)
+            {
+                _headAnchor = headLocal;
+                _lastReevalTime = now;
             }
         }
 
         /// <summary>
-        /// True when the segment's AABB blocks head→sample for at least
-        /// <see cref="BlockedNeeded"/> of the sample points (hit strictly between the head and
-        /// ~88% of the way to the sample, so a wall AT the sample ring never self-triggers), or
-        /// when the head is inside the AABB (wall in the face).
+        /// Cull the precomputed play-area samples against the head camera's view frustum
+        /// (viewport test with margin, capped at <see cref="MaxVisibleSamples"/>). The
+        /// surviving set represents the currently visible play-area region.
         /// </summary>
-        private bool IsBlocking(Bounds b, Vector3 headPos)
+        private int CollectVisibleSamples(Camera head)
+        {
+            _visibleSamples.Clear();
+            for (int i = 0; i < _allSamples.Count; i++)
+            {
+                Vector3 vp = head.WorldToViewportPoint(_allSamples[i]);
+                if (vp.z > 0f
+                    && vp.x > -FrustumMargin && vp.x < 1f + FrustumMargin
+                    && vp.y > -FrustumMargin && vp.y < 1f + FrustumMargin)
+                {
+                    _visibleSamples.Add(_allSamples[i]);
+                    if (_visibleSamples.Count >= MaxVisibleSamples)
+                        break;
+                }
+            }
+            return _visibleSamples.Count;
+        }
+
+        /// <summary>
+        /// Fraction of the frustum-visible play-area samples whose head→sample segment this
+        /// AABB blocks (hit strictly before ~88% of the sample distance, so a wall AT a sample
+        /// never self-triggers). Head inside the AABB = 1 (wall in the face); fewer than
+        /// <see cref="MinVisibleForDecision"/> visible samples = 0 (too noisy to decide).
+        /// </summary>
+        private float BlockedFraction(Bounds b, Vector3 headPos, int visibleCount)
         {
             if (b.Contains(headPos))
-                return true;
+                return 1f;
+            if (visibleCount < MinVisibleForDecision)
+                return 0f;
             int blocked = 0;
-            for (int i = 0; i < _samples.Length; i++)
+            for (int i = 0; i < visibleCount; i++)
             {
-                Vector3 to = _samples[i] - headPos;
+                Vector3 to = _visibleSamples[i] - headPos;
                 float dist = to.magnitude;
                 if (dist < 0.001f)
                     continue;
                 var ray = new Ray(headPos, to / dist);
                 if (b.IntersectRay(ray, out float d) && d < dist * 0.88f)
-                {
-                    if (++blocked >= BlockedNeeded)
-                        return true;
-                }
+                    blocked++;
             }
-            return false;
+            return blocked / (float)visibleCount;
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -428,6 +493,21 @@ internal static class WallSegmentFade
                     _roomBounds.Add(r.bounds);
             }
             _builtRoomCount = gen.m_RoomRenderers.Count;
+            RebuildSamples();
+
+            // Board moved/tilted or a room got revealed → the perspective onto the play area
+            // changed; flag it so UpdatePerspectiveState re-arms aggressive re-evaluation.
+            if (_roomBounds.Count > 0)
+            {
+                Vector3 combined = Vector3.zero;
+                foreach (Bounds b in _roomBounds)
+                    combined += b.center;
+                combined /= _roomBounds.Count;
+                if (_roomCenterInit && (combined - _roomCenter).sqrMagnitude > 0.0001f)
+                    _roomBoundsMoved = true;
+                _roomCenter = combined;
+                _roomCenterInit = true;
+            }
 
             // Drop segments whose wall died (their renderers died with them).
             _deadWalls.Clear();
@@ -452,6 +532,60 @@ internal static class WallSegmentFade
                     _segments.Add(wall, seg);
                 }
                 RefreshSegment(seg);
+            }
+        }
+
+        /// <summary>
+        /// Precompute the play-area occlusion samples: a per-room XZ grid at foundation-top
+        /// height, as dense as the room budget allows under <see cref="MaxTotalSamples"/>
+        /// (3×3 per room → quincunx → room center).
+        /// </summary>
+        private void RebuildSamples()
+        {
+            _allSamples.Clear();
+            int rooms = _roomBounds.Count;
+            if (rooms == 0)
+                return;
+            int perRoom = rooms * 9 <= MaxTotalSamples ? 9
+                : rooms * 5 <= MaxTotalSamples ? 5
+                : 1;
+            foreach (Bounds b in _roomBounds)
+            {
+                if (_allSamples.Count >= MaxTotalSamples)
+                    break;
+                float y = b.max.y + SampleHeight;
+                if (perRoom >= 5)
+                    _allSamples.Add(new Vector3(b.center.x, y, b.center.z));
+                if (perRoom == 9)
+                {
+                    for (int ix = 0; ix < 3; ix++)
+                    {
+                        for (int iz = 0; iz < 3; iz++)
+                        {
+                            if (ix == 1 && iz == 1)
+                                continue; // center already added
+                            _allSamples.Add(new Vector3(
+                                Mathf.Lerp(b.min.x, b.max.x, 0.17f + 0.33f * ix), y,
+                                Mathf.Lerp(b.min.z, b.max.z, 0.17f + 0.33f * iz)));
+                        }
+                    }
+                }
+                else if (perRoom == 5)
+                {
+                    for (int ix = 0; ix < 2; ix++)
+                    {
+                        for (int iz = 0; iz < 2; iz++)
+                        {
+                            _allSamples.Add(new Vector3(
+                                Mathf.Lerp(b.min.x, b.max.x, 0.25f + 0.5f * ix), y,
+                                Mathf.Lerp(b.min.z, b.max.z, 0.25f + 0.5f * iz)));
+                        }
+                    }
+                }
+                else
+                {
+                    _allSamples.Add(new Vector3(b.center.x, y, b.center.z));
+                }
             }
         }
 
@@ -583,6 +717,8 @@ internal static class WallSegmentFade
             catch { /* renderers already dying with the scene */ }
             _segments.Clear();
             _roomBounds.Clear();
+            _allSamples.Clear();
+            _visibleSamples.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }
