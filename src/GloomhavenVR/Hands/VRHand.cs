@@ -581,12 +581,110 @@ internal sealed class VRHand : MonoBehaviour
 
     private void UpdateCurlTargets()
     {
-        // Point pose keeps the index rigid regardless of trigger noise.
-        float indexCurl = Pose == HandPose.Point ? 0f : TriggerValue;
-        _curler.SetTarget(Finger.Index, indexCurl);
-        _curler.SetTarget(Finger.Middle, GripValue);
-        _curler.SetTarget(Finger.Ring, GripValue);
-        _curler.SetTarget(Finger.Pinky, GripValue);
-        _curler.SetTarget(Finger.Thumb, ThumbTouch ? 0.65f : 0.15f);
+        if (HandsConfig.TestFistActive)
+        {
+            // Debug override ([Hands] TestFist): the maximum fist the rig can produce,
+            // independent of controller input — separates input loss from rig loss.
+            for (int f = 0; f < 5; f++)
+                _curler.SetTarget((Finger)f, 1f);
+        }
+        else
+        {
+            // Raw analog → curl REMAP ([Hands] CurlInputFullAt): Quest 3 via Virtual
+            // Desktop plateaus the analog grip below 1.0 at a comfortable full squeeze,
+            // so the unremapped value never reached full curl — "mostly no fist" on
+            // every style. Only the curl targets are remapped; TriggerValue/GripValue
+            // stay raw for the 0.75/0.55 press hysteresis and pose classification.
+            float indexCurl = Pose == HandPose.Point ? 0f : RemapCurlInput(TriggerValue);
+            float gripCurl = RemapCurlInput(GripValue);
+            _curler.SetTarget(Finger.Index, indexCurl);
+            _curler.SetTarget(Finger.Middle, gripCurl);
+            _curler.SetTarget(Finger.Ring, gripCurl);
+            _curler.SetTarget(Finger.Pinky, gripCurl);
+            // Thumb: capacitive touch alone can only reach 0.65 (resting on the stick
+            // is not a fist) — but a FIST must close the thumb fully; the old constant
+            // cap left it a third open on every closed hand.
+            float thumbCurl = GripPressed && TriggerPressed ? 1f : (ThumbTouch ? 0.65f : 0.15f);
+            _curler.SetTarget(Finger.Thumb, thumbCurl);
+        }
+
+        TickFistDiagnostics();
+    }
+
+    /// <summary>Curl remap: raw analog ≥ [Hands] CurlInputFullAt counts as full curl.</summary>
+    private static float RemapCurlInput(float raw) =>
+        Mathf.Clamp01(raw / HandsConfig.CurlInputFullAtSafe());
+
+    // ---- fist diagnostics ----------------------------------------------------------------
+
+    /// <summary>Frames to wait after reaching a near-full curl target before sampling the
+    /// applied joint angles (lets the exponential smoothing converge, ~0.3 s at 72 Hz).</summary>
+    private const int FistLogSettleFrames = 24;
+
+    private float _peakGrip;
+    private float _peakTrigger;
+    private bool _fistLogLatched;
+    private int _fistLogCountdown = -1;
+
+    /// <summary>
+    /// Edge-triggered, compact fist evidence for hardware logs — proves WHERE curl
+    /// range is lost without a debugger:
+    ///  - at (near-)full grip (remapped curl ≥ 0.95, once per squeeze, sampled after
+    ///    smoothing settles): raw inputs, per-finger curls, the ACTUALLY-applied
+    ///    per-joint angles, and the external-overwrite drift detector;
+    ///  - on grip release: the PEAK raw grip/trigger of the squeeze — shows whether
+    ///    the controller ever delivers 1.0 (and what CurlInputFullAt should be).
+    /// </summary>
+    private void TickFistDiagnostics()
+    {
+        _peakGrip = Mathf.Max(_peakGrip, GripValue);
+        _peakTrigger = Mathf.Max(_peakTrigger, TriggerValue);
+
+        if (GripDown)
+        {
+            _peakGrip = GripValue;
+            _peakTrigger = TriggerValue;
+        }
+        else if (GripUp)
+        {
+            VRLog.Info("Hands", $"{Side} squeeze released: peak raw grip={_peakGrip:0.00} " +
+                                $"trigger={_peakTrigger:0.00} (remap full at {HandsConfig.CurlInputFullAtSafe():0.00} " +
+                                $"→ peak curls {RemapCurlInput(_peakGrip):0.00}/{RemapCurlInput(_peakTrigger):0.00}).");
+        }
+
+        bool nearFull = HandsConfig.TestFistActive || RemapCurlInput(GripValue) >= 0.95f;
+        if (!nearFull)
+        {
+            _fistLogCountdown = -1;
+            if (RemapCurlInput(GripValue) < 0.5f)
+                _fistLogLatched = false; // re-arm for the next squeeze
+            return;
+        }
+
+        if (_fistLogLatched)
+            return;
+        if (_fistLogCountdown < 0)
+            _fistLogCountdown = FistLogSettleFrames;
+        if (--_fistLogCountdown > 0)
+            return;
+
+        _fistLogLatched = true;
+        _fistLogCountdown = -1;
+        float drift = _curler.ConsumeExternalDrift();
+        VRLog.Info("Hands", $"FIST {Side} (style {Rig.VisualStyle}, testFist={HandsConfig.TestFistActive}): " +
+                            $"raw trig={TriggerValue:0.00} grip={GripValue:0.00} thumbTouch={ThumbTouch} pose={Pose} | " +
+                            $"curl T/I/M/R/P={GetCurl(Finger.Thumb):0.00}/{GetCurl(Finger.Index):0.00}/" +
+                            $"{GetCurl(Finger.Middle):0.00}/{GetCurl(Finger.Ring):0.00}/{GetCurl(Finger.Pinky):0.00} | " +
+                            $"applied° thumb={FormatAngles(Finger.Thumb)} index={FormatAngles(Finger.Index)} " +
+                            $"middle={FormatAngles(Finger.Middle)} ring={FormatAngles(Finger.Ring)} " +
+                            $"pinky={FormatAngles(Finger.Pinky)} | externalDrift={drift:0.0}° " +
+                            $"{(drift > 1f ? "(!! another writer moves the finger bones after us)" : "(no other writer)")}");
+    }
+
+    /// <summary>"root/mid/tip" degrees the curler actually applied to a finger.</summary>
+    private string FormatAngles(Finger finger)
+    {
+        Vector3 a = _curler.GetAppliedAngles(finger);
+        return $"{a.x:0}/{a.y:0}/{a.z:0}";
     }
 }

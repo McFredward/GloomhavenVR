@@ -20,6 +20,10 @@ internal sealed class HandsModule : IVRModule
 
     public void Init()
     {
+        // [Hands] curl/fist tunables + TestFist debug toggle (module-own cfg file).
+        // Bound before any VRHand/FingerCurler exists; all readers are null-safe anyway.
+        HandsConfig.Bind();
+
         // Menu2D per-hand policy (hardware test #6, requirement 4): only the DOMINANT
         // hand carries the laser — it is the flat-screen pointer/click hand; the
         // non-dominant hand keeps Poke (settings panel, flat-screen poke-click) and
