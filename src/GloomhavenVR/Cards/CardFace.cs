@@ -300,9 +300,16 @@ internal sealed class CardFace
         {
             Graphics.Blit(src, rt);
             RenderTexture.active = rt;
-            var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: false);
+            // mipChain + aniso (user aliasing report): without mips the card LINE ART
+            // shimmers hard under minification at distance — MSAA only fixes geometric
+            // edges, not texture sampling. Mips + trilinear + aniso kill the sparkle.
+            var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: true)
+            {
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 8,
+            };
             tex.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
-            tex.Apply(updateMipmaps: false);
+            tex.Apply(updateMipmaps: true);
             return tex;
         }
         finally
