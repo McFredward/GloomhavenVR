@@ -75,7 +75,6 @@ internal sealed class SnapTurn : MonoBehaviour
                 _armed = false;
                 Turn(rig, Mathf.Sign(x) * ComfortSettings.SnapTurnDegrees.Value);
                 hand.SendHaptic(HapticPreset.ClickPulse);
-                ComfortVignette.Pulse();
             }
             else if (!_armed && ax <= SnapRearmThreshold)
             {
@@ -89,7 +88,6 @@ internal sealed class SnapTurn : MonoBehaviour
                 return;
             float response = (ax - SmoothDeadzone) / (1f - SmoothDeadzone);
             Turn(rig, Mathf.Sign(x) * response * ComfortSettings.SmoothTurnSpeed.Value * Time.deltaTime);
-            ComfortVignette.NotifyMotion(response);
         }
     }
 
@@ -99,6 +97,10 @@ internal sealed class SnapTurn : MonoBehaviour
         Camera? head = VRRigDriver.HeadCamera;
         Vector3 pivot = head != null ? head.transform.position : rig.position;
         rig.RotateAround(pivot, Vector3.up, degrees);
+        // World tilt: the whole scene just yawed under the player, so the tilt-toward
+        // axis must co-rotate THIS frame — an eased catch-up would read as the horizon
+        // slowly rolling right after every turn (comfort: see VRRigDriver.TickWorldTilt).
+        VRRigDriver.NotifyTiltAxisSnap("stick turn");
     }
 
     private static VRHand? ResolveTurnHand() =>

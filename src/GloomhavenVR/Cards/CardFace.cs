@@ -131,7 +131,69 @@ internal sealed class CardFace
         if (!s_silhouetteTried && !CardMesh.SilhouetteApplied)
             TryCaptureSilhouette(owner);
 
+        // Aliasing round 3: log (once) what the world-space card canvas ACTUALLY samples.
+        LogFaceTextureDiag(owner);
+
         return true;
+    }
+
+    // ------------------------------------------------- rendered-texture diagnostics --
+
+    /// <summary>
+    /// Latched once an adoption had sprite textures to report (card art loads async, so
+    /// the first adoptions may see none — keep retrying until one does).
+    /// </summary>
+    private static bool s_texDiagLogged;
+
+    /// <summary>
+    /// One-shot diag for the card-shimmer investigation (aliasing round 3): the RENDERED
+    /// card face is the adopted live uGUI, so the textures that matter are the game's own
+    /// sprite atlases those Images sample — not anything the mod creates. Log their
+    /// mip/aniso/filter state so the hardware log PROVES whether texture-space AA is even
+    /// possible: mipmapCount == 1 means the atlas ships mipless, minification shimmer is
+    /// baked into the data, and the only honest fix is eye-texture supersampling
+    /// ([RenderQuality] EyeResolutionScale).
+    /// </summary>
+    private static void LogFaceTextureDiag(AbilityCardUI owner)
+    {
+        if (s_texDiagLogged)
+            return;
+        try
+        {
+            FullAbilityCard? faceCard = owner.fullAbilityCard;
+            if (faceCard == null)
+                return;
+            var seen = new HashSet<int>();
+            var sb = new System.Text.StringBuilder(256);
+            int count = 0;
+            Image[] images = faceCard.GetComponentsInChildren<Image>(includeInactive: false);
+            foreach (Image img in images)
+            {
+                Sprite? sprite = img != null ? img.sprite : null;
+                Texture2D? tex = sprite != null ? sprite.texture : null;
+                if (tex == null || !seen.Add(tex.GetInstanceID()))
+                    continue;
+                if (count > 0)
+                    sb.Append(", ");
+                sb.Append('\'').Append(tex.name).Append("' ").Append(tex.width).Append('x')
+                  .Append(tex.height).Append(" mips=").Append(tex.mipmapCount)
+                  .Append(" aniso=").Append(tex.anisoLevel).Append(' ').Append(tex.filterMode);
+                if (++count >= 8)
+                    break;
+            }
+            if (count == 0)
+                return; // art still loading async — retry on a later adoption
+            s_texDiagLogged = true;
+            VRLog.Info("Cards", "FACE TEXTURE DIAG (game atlases the adopted card canvas samples): " +
+                                $"{sb} — mips=1 ⇒ the source atlas is MIPLESS: texture-space shimmer " +
+                                "cannot be fixed camera-side (MSAA/aniso can't help); raise " +
+                                "[RenderQuality] EyeResolutionScale (e.g. 1.3) instead.");
+        }
+        catch (System.Exception ex)
+        {
+            s_texDiagLogged = true; // never spam a throwing path
+            VRLog.Warn("Cards", $"Face texture diag skipped ({ex.Message}).");
+        }
     }
 
     // ------------------------------------------------------- silhouette capture --
@@ -300,13 +362,20 @@ internal sealed class CardFace
         {
             Graphics.Blit(src, rt);
             RenderTexture.active = rt;
-            // mipChain + aniso (user aliasing report): without mips the card LINE ART
-            // shimmers hard under minification at distance — MSAA only fixes geometric
-            // edges, not texture sampling. Mips + trilinear + aniso kill the sparkle.
+            // HONESTY NOTE (aliasing round 3): this readback texture is CPU-SIDE ONLY — it
+            // feeds GetPixelBilinear for the silhouette footprint and is destroyed in the
+            // caller's finally block; it is NEVER rendered. The mip/trilinear/aniso settings
+            // here (added by 9ca829b against the card shimmer) therefore CANNOT affect what
+            // the player sees: the visible card face is the ADOPTED LIVE game uGUI, whose
+            // Images sample the game's own atlas textures directly (see LogFaceTextureDiag —
+            // if those atlases ship without mips, no setting on our side can add them and
+            // the honest lever is [RenderQuality] EyeResolutionScale supersampling).
+            // Kept mipped + max aniso anyway: harmless one-shot cost, and future-proof
+            // should a readback ever be rendered.
             var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: true)
             {
                 filterMode = FilterMode.Trilinear,
-                anisoLevel = 8,
+                anisoLevel = 16,
             };
             tex.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
             tex.Apply(updateMipmaps: true);

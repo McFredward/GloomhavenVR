@@ -128,6 +128,11 @@ internal sealed class WorldGrab : MonoBehaviour
             // Leaving the two-hand gesture persists the reached scale multiplier.
             if (_state == GrabState.TwoHand)
                 ComfortSettings.PersistScaleMultiplier(rig.localScale.x / RigTarget.BaseScale);
+            // Grab released → the player just deliberately moved/rotated the world; let
+            // the world tilt re-aim toward the (possibly new) view direction instantly —
+            // the scene motion masks it (comfort: see VRRigDriver.TickWorldTilt).
+            if (desired == GrabState.None)
+                VRRigDriver.NotifyTiltAxisSnap("world-grab release");
             _state = desired;
             Anchor(rig);
         }
@@ -247,9 +252,6 @@ internal sealed class WorldGrab : MonoBehaviour
         float k = 1f - Mathf.Exp(-PositionSmoothing * Time.deltaTime);
         rig.position += delta * k;
         RigClamp.Apply(rig);
-
-        // Motion intensity in real meters of remaining correction.
-        ComfortVignette.NotifyMotion(delta.magnitude / scale * 4f);
     }
 
     // ---- two-hand rotate + scale ------------------------------------------------------------
@@ -302,9 +304,6 @@ internal sealed class WorldGrab : MonoBehaviour
                 yaw = Mathf.LerpAngle(yaw, _yaw0 + dTheta, k);
         }
 
-        float prevYaw = rig.eulerAngles.y;
-        float prevScale = rig.localScale.x;
-
         rig.localScale = Vector3.one * s;
         Quaternion rot = Quaternion.Euler(0f, yaw, 0f);
         rig.rotation = rot;
@@ -320,10 +319,6 @@ internal sealed class WorldGrab : MonoBehaviour
             left.SendHaptic(HapticPreset.ClickPulse);
             right.SendHaptic(HapticPreset.ClickPulse);
         }
-
-        float motion = Mathf.Abs(Mathf.DeltaAngle(prevYaw, yaw)) / 15f
-                       + Mathf.Abs(s - prevScale) / (baseScale * 0.05f);
-        ComfortVignette.NotifyMotion(motion);
     }
 
     // ---- helpers ------------------------------------------------------------------------------
@@ -336,6 +331,8 @@ internal sealed class WorldGrab : MonoBehaviour
     {
         if (_state == GrabState.TwoHand && rig != null)
             ComfortSettings.PersistScaleMultiplier(rig.localScale.x / RigTarget.BaseScale);
+        if (_state != GrabState.None)
+            VRRigDriver.NotifyTiltAxisSnap("world-grab disengage");
         _state = GrabState.None;
         _leftStick = _rightStick = false;
         _dragHand = null;

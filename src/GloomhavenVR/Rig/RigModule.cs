@@ -54,7 +54,6 @@ internal sealed class RigModule : IVRModule
         _driverGo.AddComponent<WorldGrab>();
         _driverGo.AddComponent<SnapTurn>();
         _driverGo.AddComponent<Comfort>();
-        _driverGo.AddComponent<ComfortVignette>();
         _driverGo.AddComponent<ComfortGizmos>();
 
         VRLog.Info(Name, vr
