@@ -664,6 +664,8 @@ internal sealed class CardsDriver : MonoBehaviour
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
 
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
+        if (!_fakeActive)
+            PumpLongRestTurn(); // long-rest turn: drive the game's own PERFORM LONG REST flow (re-armed every tick)
         LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
         LogFanState(hand);
         LogActionSelectionState(_fakeActive ? null : hand); // second-character action deadlock diagnostic
@@ -1092,7 +1094,12 @@ internal sealed class CardsDriver : MonoBehaviour
         // cards, figures and non-lifted cards are untouched. Yields to a live game-UI
         // hit (RayUgui) like every path below so a docked game-widget click can never
         // double-fire with a grab.
-        if (dom.Grabber.Highlighted is VRCard lifted && _tray.ContainsCard(lifted)
+        // Task #2 follow-up: pick/field cards docked in a slot recess (LoseCard/recover
+        // flows) take the same lift-priority accept as the two played-slot occupants —
+        // they live in the same recesses, carry the same dock grab apron, and suffered
+        // the same trigger fall-through to board actions.
+        if (dom.Grabber.Highlighted is VRCard lifted
+            && (_tray.ContainsCard(lifted) || _fieldCards.Contains(lifted))
             && !dom.RayUgui.HasHit)
         {
             ClearBoardHover();
@@ -1890,6 +1897,13 @@ internal sealed class CardsDriver : MonoBehaviour
             // its Grabbable/PokeSelect resolve to false here (display-only) — we only
             // keep it OUT of the park sweep so PresentShortRestCard's centre home holds.
             bool inShortRest = ReferenceEquals(card, _shortRestCard);
+
+            // Task #2 follow-up: the slot-dock grab apron (under/around-grab accept,
+            // VRCard.SetDockGrabPad) is TRUE exactly for slot-docked cards — tray
+            // occupants and pick/field cards in the recesses — and FALSE everywhere
+            // else. Central re-assert every Rebuild (idempotent) so no dock/undock
+            // path can leave a stale apron on a fan/browse/parked card.
+            card.SetDockGrabPad(inTray || inField);
 
             // Item 10: poke-select is never armed on hand cards — touching a card
             // must not auto-select it; a card is committed only by placing it into a
@@ -2969,6 +2983,67 @@ internal sealed class CardsDriver : MonoBehaviour
             VRLog.Info("Cards", $"Selection LOCKED — mode still CardsSelection but phase is " +
                                 $"{PhaseManager.PhaseType} (not selection): played cards docked read-only, fan unbound, " +
                                 "nothing reclaimable until the next card-selection phase.");
+    }
+
+    // ---------------------------------------------------------- long-rest turn pump --
+
+    // Long-rest stuck fix (log build 0a2767928, line 2340 ff.): when the long-rester's
+    // turn arrived, the game parked itself on TWO hidden 2D widgets (the LongRest-
+    // ConfirmationButton toggle + the inactive "PERFORM LONG REST" ReadyButton) and the
+    // LoseCard burn step never activated — the player saw only "mode=ActionSelection,
+    // halves=0" and dead board clicks. The pump below re-evaluates the FULL game state
+    // every tick (never edge-detected: a transition arriving in any order re-arms it)
+    // and, while the rest is pending on this actor's own turn, drives the game's own
+    // two-step flow through CardsGameApi.TryAdvanceLongRestTurn — heal +2 and item
+    // refresh then run natively in GameState.PlayerLongRested when the burn commits.
+    private float _longRestPumpNextTry;   // throttle for the actual game calls (state reads stay per-tick)
+    private bool _longRestPumpQueued;     // at most one queued advance in flight
+    private bool _longRestPumpAnnounced;  // change-deduped "turn arrived" log
+
+    private void PumpLongRestTurn()
+    {
+        CardsHandUI? hand = CardsGameApi.LongRestTurnHand();
+        if (hand == null)
+        {
+            _longRestPumpAnnounced = false;
+            return;
+        }
+        if (CardsGameApi.Mode(hand) == CardHandMode.LoseCard)
+            return; // burn step live — the existing pick flow owns it from here
+        if (WorldUI.ModalFallback.BlockingWindowModalActive)
+            return; // never advance the turn under a blocking modal (story/results/…)
+        if (!_longRestPumpAnnounced)
+        {
+            _longRestPumpAnnounced = true;
+            VRLog.Info("Cards", "Long rest: this actor's turn ARRIVED with the rest still pending — driving the " +
+                                "game's own PERFORM LONG REST flow (2D confirmation toggle + ReadyButton are " +
+                                "unreachable in VR; detection re-armed every tick until the burn step opens).");
+        }
+        float now = Time.unscaledTime;
+        if (_longRestPumpQueued || now < _longRestPumpNextTry)
+            return;
+        _longRestPumpNextTry = now + 0.5f;
+        _longRestPumpQueued = true;
+        bool advanced = false;
+        string step = "";
+        CardActionQueue.Enqueue(
+            () =>
+            {
+                // Re-resolve INSIDE the queued action: it runs a frame later, behind any
+                // pending card selects, and every gate is re-checked against fresh state.
+                CardsHandUI? fresh = CardsGameApi.LongRestTurnHand();
+                if (fresh != null)
+                    advanced = CardsGameApi.TryAdvanceLongRestTurn(fresh, out step);
+            },
+            () =>
+            {
+                _longRestPumpQueued = false;
+                if (advanced)
+                {
+                    VRLog.Info("Cards", $"Long rest: auto-advanced — {step}.");
+                    _dirty = true; // burn step opening changes the fan/tray → rebuild
+                }
+            });
     }
 
     private (bool selected, bool losing, bool done)? _longRestState;

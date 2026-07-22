@@ -261,8 +261,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         if (_box != null)
         {
             _fullColliderSize = new Vector3(faceW, faceH, 0.02f);
-            _box.size = _fullColliderSize;
-            _box.center = Vector3.zero;
+            ResetColliderRegion(); // re-applies the dock grab pad when set
         }
     }
 
@@ -529,15 +528,60 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         if (_box == null)
             return;
+        _dockGrabPad = false; // fan strips own the collider shape — a fanned card is never slot-docked
         _box.size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y, _fullColliderSize.z);
         _box.center = new Vector3(offsetX, 0f, 0f);
     }
 
-    /// <summary>Restore the full-card grab collider (see <see cref="SetColliderRegion"/>).</summary>
+    // Task #2 follow-up (grab UNDER the docked card): the exact-fit collider is thin
+    // (0.02) and the tray shows docked cards at ~half scale, so a palm slightly BELOW/
+    // beside a slot-docked card fell outside the ProximityGrabber highlight — no
+    // hover-lift, and the trigger fell through to board actions. While slot-docked the
+    // grab collider grows a generous accept apron, biased DOWN (the reported miss):
+    // one full card height below, a third above/beside, and a thicker face volume.
+    // Card-local units, so the pad scales with the tray exactly like the card does.
+    // Single-winner semantics unchanged: ProximityGrabber still picks the NEAREST
+    // collider with its 2.5 cm switch margin, and the two slot cards sit far enough
+    // apart that a padded neighbor can only win when it really is closer.
+    private const float DockPadSideFrac = 0.35f;  // × card width, each side
+    private const float DockPadUpFrac = 0.35f;    // × card height, above
+    private const float DockPadDownFrac = 1.0f;   // × card height, below — the under-grab
+    private const float DockPadDepth = 0.06f;     // face-normal thickness while docked
+
+    private bool _dockGrabPad;
+
+    /// <summary>
+    /// Enable/disable the slot-dock grab apron (PlayTray sets it on dock, clears it on
+    /// undock; grabbing or fan-stripping the card clears it implicitly). Idempotent.
+    /// </summary>
+    internal void SetDockGrabPad(bool on)
+    {
+        if (_dockGrabPad == on)
+            return;
+        _dockGrabPad = on;
+        ResetColliderRegion();
+    }
+
+    /// <summary>
+    /// Restore the full-card grab collider (see <see cref="SetColliderRegion"/>) —
+    /// including the dock apron while the card is slot-docked (<see cref="SetDockGrabPad"/>).
+    /// </summary>
     internal void ResetColliderRegion()
     {
         if (_box == null)
             return;
+        if (_dockGrabPad)
+        {
+            float padX = _fullColliderSize.x * DockPadSideFrac;
+            float padUp = _fullColliderSize.y * DockPadUpFrac;
+            float padDown = _fullColliderSize.y * DockPadDownFrac;
+            _box.size = new Vector3(
+                _fullColliderSize.x + padX * 2f,
+                _fullColliderSize.y + padUp + padDown,
+                Mathf.Max(_fullColliderSize.z, DockPadDepth));
+            _box.center = new Vector3(0f, -(padDown - padUp) * 0.5f, 0f);
+            return;
+        }
         _box.size = _fullColliderSize;
         _box.center = Vector3.zero;
     }
@@ -643,6 +687,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         transform.position = worldPos;
         transform.rotation = worldRot;
         transform.localScale = worldScale;
+        _dockGrabPad = false;  // in-hand: exact-card collider again (the apron is a docked-only affordance)
         ResetColliderRegion(); // full card again (fan strips, see SetColliderRegion)
         _laserPopped = false;
         _releaseGlide = 0f; // re-grab mid-glide: the held pose takes over cleanly

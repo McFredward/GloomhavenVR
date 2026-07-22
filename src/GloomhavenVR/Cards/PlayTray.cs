@@ -1854,6 +1854,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             card.gameObject.SetActive(true);
             card.SetHome(_slots[slot]!, SlotHomeOffsetFor(slot), Quaternion.identity, SlotCardScale, instant); // ITEM 3: fill the recess; Item B: track the overlay offset
+            card.SetDockGrabPad(true); // task #2 follow-up: under/around-grab apron while slot-docked
         }
         if (announce)
             VRLog.Info("Cards", $"Board: card placed in slot {slot + 1}.");
@@ -1880,12 +1881,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (index < 2)
         {
             card.SetHome(slot, SlotHomeOffsetFor(slotIndex), Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess; Item B: track overlay
+            card.SetDockGrabPad(true); // task #2 follow-up: pick cards docked in a recess get the same apron
             return slotIndex;
         }
         // Graceful fallback for a 3rd+ pick card (no silent cap): lay it beside Slot2.
         float w = CardsConfig.CardWidth.Value;
         Vector3 off = SlotHomeOffsetFor(1) + new Vector3((index - 1) * w * 1.15f, 0f, 0f);
         card.SetHome(slot, off, Quaternion.identity, SlotCardScale); // ITEM 3: fill the recess
+        card.SetDockGrabPad(true);
         return -1;
     }
 
@@ -1895,12 +1898,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (slot >= 0)
         {
             _occupants[slot] = null;
+            card.SetDockGrabPad(false); // apron off with the dock (grab already clears it too)
             VRLog.Info("Cards", $"Board: card taken back from slot {slot + 1}.");
         }
     }
 
     internal void ClearSlots()
     {
+        _occupants[0]?.SetDockGrabPad(false);
+        _occupants[1]?.SetDockGrabPad(false);
         _occupants[0] = null;
         _occupants[1] = null;
     }
@@ -1955,6 +1961,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             VRCard? occ = _occupants[s];
             if (occ != null && occ != roundInit && occ != roundOther)
             {
+                occ.SetDockGrabPad(false); // evicted from the slot → apron off
                 _occupants[s] = null;
                 changed = true;
             }
@@ -2053,6 +2060,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>Update round readout, badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        // Task #2 follow-up: re-assert the slot-dock grab apron every tick (idempotent
+        // flag check inside SetDockGrabPad) — a card that entered occupancy while HELD
+        // (PlaceCard skips the held card, "the release path homes it") gets its apron
+        // the moment it rests in the slot, regardless of which path homed it.
+        for (int s = 0; s < 2; s++)
+        {
+            VRCard? occ = _occupants[s];
+            if (occ != null && !occ.IsHeld)
+                occ.SetDockGrabPad(true);
+        }
+
         // Live language following: the follow/gear labels are set at events only and the
         // round/confirmed strings are cached, so on an ACTUAL language change re-label the
         // frame buttons and invalidate the caches (the per-tick logic below re-localizes the

@@ -288,6 +288,111 @@ internal static class CardsGameApi
         hand.PlayerActor != null && hand.PlayerActor.CharacterClass.HasLongRested;
 
     /// <summary>
+    /// The hand of a long-rester whose OWN TURN is currently running with the rest
+    /// still unresolved — the exact state in which the vanilla game waits for TWO 2D
+    /// widgets the VR player cannot reach (long-rest stuck bug, log build 0a2767928
+    /// line 2340 ff.). Vanilla turn-start for a long-rester
+    /// (Choreographer.cs:3952-4005) does NOT open the LoseCard step directly; it
+    /// (1) shows the 2D <c>LongRestConfirmationButton</c> (a hand-fan pseudo-card
+    ///     toggle) via <c>CardsHandManager.ShowLongRestConfirmation</c> — this is the
+    ///     <c>Show(actor, ActionSelection, None, None)</c> that produced the failing
+    ///     round's "mode=ActionSelection, halves=0" state, and
+    /// (2) parks the ReadyButton INACTIVE (<c>Toggle(active:false,
+    ///     EREADYBUTTONCONTINUE, "PERFORM LONG REST")</c> → <c>SetActive(false)</c>,
+    ///     ButtonOnBlockingPanel.cs:26) with the LoseCard-opening alternative action
+    ///     queued on it (<c>QueueAlternativeAction</c>).
+    /// Only toggling (1) re-activates (2) (the confirmation callback re-runs
+    /// <c>readyButton.Toggle(confirmed, EREADYBUTTONNA…)</c>), and only clicking (2)
+    /// runs the queued action: <c>OnSelectingHealFocus(2)</c> +
+    /// <c>CardsHandManager.Show(actor, CardHandMode.LoseCard, Any, Discarded, 1)</c> +
+    /// <c>UINavigation.Enter(ScenarioStateTag.LoseCard)</c> — the game's own path to
+    /// "discarded cards selectable, pick one to lose"; the heal +2 and item refresh
+    /// then resolve natively in <c>GameState.PlayerLongRested</c> when the chosen
+    /// card commits. Both widgets sit in the hidden 2D stack, so the VR mod must
+    /// drive them (see <see cref="TryAdvanceLongRestTurn"/>).
+    /// Null unless ALL of: the current turn actor is a player with
+    /// <c>LongRest &amp;&amp; !HasLongRested</c>, the selection phase is over (guards
+    /// against a stale <c>CurrentActor</c> from the previous round), and the actor is
+    /// locally driveable. Resolves the hand straight off the acting player
+    /// (<c>CardsHandManager.GetHand</c>) so a lagging <c>CurrentHand</c> hand-off can
+    /// never hide the pending rest.
+    /// </summary>
+    internal static CardsHandUI? LongRestTurnHand()
+    {
+        if (!(CurrentTurnActor() is CPlayerActor player))
+            return null;
+        CCharacterClass cc = player.CharacterClass;
+        if (!cc.LongRest || cc.HasLongRested)
+            return null;
+        if (PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return null;
+        if (FFSNetwork.IsOnline && !player.IsUnderMyControl)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null)
+            return null;
+        CardsHandUI hand = manager.GetHand(player);
+        return hand != null ? hand : null;
+    }
+
+    /// <summary>
+    /// Advance the pending long rest ONE game-side step on the long-rester's own turn
+    /// (see <see cref="LongRestTurnHand"/> for the vanilla flow being driven). Called
+    /// re-armed every tick (throttled) by <c>CardsDriver.PumpLongRestTurn</c> — NOT
+    /// edge-detected — so a missed/reverted transition is simply retried:
+    /// - ReadyButton parked inactive → run the game's own confirmation-toggle handler
+    ///   (<c>LongRestConfirmationButton.Toggle(true)</c> → its <c>onToggled</c>
+    ///   callback re-activates the ReadyButton; no spin-wait — the long-rest branch
+    ///   has no engine move);
+    /// - ReadyButton active + interactable → <see cref="ClickReady"/> →
+    ///   <c>OnClickInternal</c> pops the queued alternative action → the game itself
+    ///   opens the LoseCard burn step (heal focus + discarded-selectable fan).
+    /// HARD GATE on the armed state: the ReadyButton must hold a queued alternative
+    /// action in <c>EREADYBUTTONCONTINUE</c> — the exact arm Choreographer's
+    /// long-rest turn-start leaves behind — so this can never fire some unrelated
+    /// queued action (doors, movement confirms live in other states/turns). The
+    /// no-discards edge case resolves through the SAME queued action
+    /// (<c>PlayerLongRested(null)</c> directly, no LoseCard step).
+    /// Returns true when a step was actually performed (logged by the caller).
+    /// </summary>
+    internal static bool TryAdvanceLongRestTurn(CardsHandUI hand, out string step)
+    {
+        step = "";
+        if (hand == null || !ReferenceEquals(hand, LongRestTurnHand()))
+            return false;
+        if (Mode(hand) == CardHandMode.LoseCard)
+            return false; // burn step already live — the pick flow owns it from here
+        ReadyButton? ready = Ready();
+        if (ready == null || ready.ActionsQueue.Count == 0
+            || ready.buttonState != ReadyButton.EButtonState.EREADYBUTTONCONTINUE)
+            return false;
+
+        if (!CanConfirm())
+        {
+            // Step 1: the 2D confirmation toggle (unreachable in VR). Toggle(true) is
+            // the game's OWN click handler for that pseudo-card (LongRestConfirmation-
+            // Button.cs: SetSelected + onToggled + the online replication branch), so
+            // the Choreographer callback re-activates the ReadyButton exactly as a 2D
+            // click would.
+            LongRestConfirmationButton confirm =
+                CardsHandManager.Instance != null ? CardsHandManager.Instance.LongRestConfirmationButton : null!;
+            if (confirm == null || !confirm.IsVisible || confirm.isSelected)
+                return false;
+            confirm.Toggle(selected: true);
+            step = "long-rest confirmation toggled (game's own LongRestConfirmationButton.Toggle handler) — ReadyButton re-arming";
+            return true;
+        }
+
+        // Step 2: the armed "PERFORM LONG REST" ReadyButton. ClickReady mirrors the 2D
+        // OnClick guard then runs OnClickInternal — the queued alternative action opens
+        // the game's own LoseCard burn step (or resolves directly when no discards).
+        if (!ClickReady())
+            return false;
+        step = "'PERFORM LONG REST' ReadyButton clicked (game's queued turn action) — LoseCard burn step opening";
+        return true;
+    }
+
+    /// <summary>
     /// Is this CAbilityCard currently one of the round (played) cards?
     /// Verified: <c>public List&lt;CAbilityCard&gt; RoundAbilityCards</c> (get-only,
     /// CCharacterClass — PATCH-TARGETS §3.2).
