@@ -171,12 +171,6 @@ internal static class ComfortSettings
     /// <summary>Hold B+Y on both hands this long to recenter (0 disables the chord).</summary>
     public static ComfortSetting<float> RecenterHoldSeconds { get; private set; } = null!;
 
-    /// <summary>Radial comfort vignette during world grab / turns (default off — stationary tabletop game).</summary>
-    public static ComfortSetting<bool> VignetteEnabled { get; private set; } = null!;
-
-    /// <summary>Peak vignette opacity 0..1.</summary>
-    public static ComfortSetting<float> VignetteStrength { get; private set; } = null!;
-
     /// <summary>Last pinch-scale multiplier (persisted automatically after each two-grip gesture).</summary>
     public static ComfortSetting<float> SavedScaleMultiplier { get; private set; } = null!;
 
@@ -295,12 +289,6 @@ internal static class ComfortSettings
             "Hold the upper face button (B + Y) on BOTH controllers this many seconds to " +
             "recenter at the table. 0 disables the chord.",
             new AcceptableValueRange<float>(0f, 5f));
-        VignetteEnabled = Bind("VignetteEnabled", false,
-            "Fade in a radial vignette while the table is being dragged/rotated/scaled or " +
-            "during stick turns. Default off — the diorama is stationary and rarely needs it.");
-        VignetteStrength = Bind("VignetteStrength", 0.85f,
-            "Peak vignette opacity (0..1).",
-            new AcceptableValueRange<float>(0.2f, 1f));
         SavedScaleMultiplier = Bind("SavedScaleMultiplier", 1f,
             "Last pinch-scale multiplier relative to the base WorldScale. Written automatically " +
             "after each two-grip scale gesture and re-applied when the rig is rebuilt.");
@@ -339,8 +327,6 @@ internal static class ComfortSettings
         SeatedMode.Detach();
         TableHeightOffset.Detach();
         RecenterHoldSeconds.Detach();
-        VignetteEnabled.Detach();
-        VignetteStrength.Detach();
         SavedScaleMultiplier.Detach();
         DebugGizmos.Detach();
 

@@ -649,19 +649,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             delta => Plugin.WorldTiltDegrees.Value =
                 Mathf.Clamp(Plugin.WorldTiltDegrees.Value + delta * 5f, 0f, 60f));
 
-        var vignetteRow = Row();
-        Label(vignetteRow, Loc.Mod("vignette"), 16f, flexible: true);
-        ToggleButton(vignetteRow,
-            () => ComfortSettings.IsBound && ComfortSettings.VignetteEnabled.Value,
-            v => { if (ComfortSettings.IsBound) ComfortSettings.VignetteEnabled.Value = v; });
-        MiniStepper(vignetteRow,
-            () => ComfortSettings.IsBound ? $"{ComfortSettings.VignetteStrength.Value:0.00}" : "-",
-            delta =>
-            {
-                if (!ComfortSettings.IsBound) return;
-                ComfortSettings.VignetteStrength.Value =
-                    Mathf.Clamp(ComfortSettings.VignetteStrength.Value + delta * 0.1f, 0.2f, 1f);
-            });
+        // Vignette row removed (user: no effect, not wanted) — ComfortVignette component
+        // deleted with it; the ComfortSettings bindings are gone too.
 
         Toggle(Loc.Mod("free_movement"),
             () => ComfortSettings.IsBound && ComfortSettings.FreeMovement.Value,

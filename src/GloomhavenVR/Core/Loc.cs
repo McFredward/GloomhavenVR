@@ -171,7 +171,6 @@ internal static class Loc
         ["turning"] = Pair("Turning", "Drehen"),
         ["seated_mode"] = Pair("Seated mode", "Sitzmodus"),
         ["table_height"] = Pair("Table height", "Tischhöhe"),
-        ["vignette"] = Pair("Vignette", "Vignette"),
         ["free_movement"] = Pair("Free movement", "Freie Bewegung"),
         ["world_grab"] = Pair("World grab", "Welt greifen"),
         ["recenter_now"] = Pair("Recenter now", "Neu zentrieren"),
