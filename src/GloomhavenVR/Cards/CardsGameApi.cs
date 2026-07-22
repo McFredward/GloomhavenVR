@@ -384,6 +384,43 @@ internal static class CardsGameApi
             + hand.PlayerActor.CharacterClass.RoundAbilityCards.Count;
 
     /// <summary>
+    /// Task #4 (slot overlays must match EXACTLY what can be placed): how many MORE
+    /// ability cards the current CardsSelection round genuinely wants placed — the
+    /// number of slot overlays that may glow. Derived from the same authoritative
+    /// state the game's own gates read:
+    /// <list type="bullet">
+    /// <item>Normal selection: <c>min(2 - RoundAbilityCards.Count,
+    /// HandAbilityCards.Count)</c> — the round needs two cards
+    /// (<c>IsCardSelectionReady</c>, CPlayerActorExtensions.cs:5) and only hand cards
+    /// can still be placed; 0 when <see cref="MustRestInsteadOfPlay"/> (the last-card
+    /// gate refuses every placement, so NO slot may advertise one — the hardware
+    /// repro: ONE hand card left, placement blocked, yet both overlays glowed).</item>
+    /// <item>Extra-turn picks (<c>SelectingCardsForExtraTurnOfType != None</c>): the
+    /// game counts <c>selectedCardsUI</c> against <c>maxCardsSelected</c>
+    /// (CardsHandUI.cs:1935), so the remainder of exactly that pair.</item>
+    /// </list>
+    /// Never negative. The driver additionally caps at the physically EMPTY slots.
+    /// </summary>
+    internal static int SelectionCardsStillWanted(CardsHandUI hand)
+    {
+        CPlayerActor? actor = hand.PlayerActor;
+        if (actor == null)
+            return 0;
+        if (actor.SelectingCardsForExtraTurnOfType != CAbilityExtraTurn.EExtraTurnType.None)
+        {
+            int remaining = PickCardsWanted() - hand.selectedCardsUI.Count;
+            return remaining > 0 ? remaining : 0;
+        }
+        if (MustRestInsteadOfPlay(hand))
+            return 0;
+        CCharacterClass cc = actor.CharacterClass;
+        int required = 2 - cc.RoundAbilityCards.Count;
+        int placeable = cc.HandAbilityCards.Count;
+        int want = required < placeable ? required : placeable;
+        return want > 0 ? want : 0;
+    }
+
+    /// <summary>
     /// Current scenario round (0 while no scenario state exists). Verified:
     /// <c>public ScenarioState m_CurrentState</c> (Choreographer.cs:421) with
     /// <c>public int RoundNumber { get; set; }</c> (ScenarioState.cs:68) — the exact

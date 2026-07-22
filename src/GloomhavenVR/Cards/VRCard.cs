@@ -201,7 +201,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         canvasGo.transform.SetParent(transform, worldPositionStays: false);
         _canvas = canvasGo.AddComponent<Canvas>();
         _canvas.renderMode = RenderMode.WorldSpace;
-        canvasGo.AddComponent<GraphicRaycaster>();
+        // Task #5: mod-pointer-only raycaster — the game's InControl input module
+        // raycasts every canvas each frame at the PARKED mouse pixel through the
+        // MOVING head camera, which made the card's half-hover FX wander with head
+        // motion. CardFaceRaycaster answers only the laser/poke pointers.
+        canvasGo.AddComponent<CardFaceRaycaster>();
         _canvasRect = (RectTransform)canvasGo.transform;
         SetCanvasSize(new Vector2(270f, 400f), w, h);
         // Face plane sits a hair in front of the backing. Convention everywhere in

@@ -2780,8 +2780,23 @@ internal sealed class CardsDriver : MonoBehaviour
                 && !CardsGameApi.IsShortRestSelected(hand)
                 && !CardsGameApi.IsSelectionReady(hand))
             {
-                if (_tray.Occupant(0) == null) mask |= 1;
-                if (_tray.Occupant(1) == null) mask |= 2;
+                // TASK #4: overlays glow ONLY for positions where a card CAN actually be
+                // placed. Previously every empty slot glowed unconditionally, so with ONE
+                // unplayable hand card left (the last-card gate: MustRestInsteadOfPlay
+                // refuses all placement — commit 1034ab6 suppressed the SNAP glow but not
+                // this steady hint) BOTH overlays still pulsed. The wanted count now comes
+                // from the same game state the placement gate reads —
+                // min(2 - roundCards, handCards), 0 when the player must rest, the
+                // maxCardsSelected remainder for extra-turn picks — and only that many
+                // still-empty slots light up (1 required → 1 overlay, 0 placeable → 0).
+                int want = CardsGameApi.SelectionCardsStillWanted(hand);
+                if (want > 0 && _tray.Occupant(0) == null)
+                {
+                    mask |= 1;
+                    want--;
+                }
+                if (want > 0 && _tray.Occupant(1) == null)
+                    mask |= 2;
             }
         }
         else if (IsPickMode(mode))
