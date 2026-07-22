@@ -547,17 +547,33 @@ def skin(mesh, arm, joints, wrist, palm):
     # FAR from every finger chain (mid-palm, thumb-index webbing rim) a substantial
     # residual finger weight, so a fist pulled a batwing membrane between the thumb and
     # index (Arcane) and a radial "fan" sheet across the palm (Plate) — render-verified
-    # on the 9-pose matrix. Finger influence is now DISTANCE-CAPPED with a smoothstep
-    # taper, and the cap is REGION-AWARE (a flat cap render-verified WRONG: it also ate
-    # the thick armored knuckles, so fingers only folded at their outer half):
-    #   - verts BEHIND the MCP (chain projection t < 0.05 — palm surface, webbing rim)
-    #     fade fast: full finger weight within 12 mm of the chain, none beyond 18 mm;
-    #   - verts ALONG the digit (t >= 0.05 — the finger's own shell incl. knuckle
-    #     armor, measured up to ~11 mm off-axis) keep weights to 14 mm, none past 22 mm.
-    # The faded share moves to the wrist bone so the palm stays rigid with the hand
-    # instead of chasing the fingers; the KD smoothing pass below blends the taper ring.
+    # on the 9-pose matrix. Finger influence is therefore DISTANCE-CAPPED with a
+    # smoothstep taper toward the wrist bone, and the cap is REGION-AWARE.
+    #
+    # FIST FIX (2026-07, round 2): the first region-aware tuning (digit zone t>=0.05,
+    # flat 14/22 mm digit caps) OVERSHOT — on hardware "almost only the fingertips
+    # move". Render matrix + per-vert stats confirmed the weights (not the runtime
+    # clamp) were the culprit: the armored shells sit 13-21 mm off the bone axis, so
+    # most of the digit surface fell into the 14-22 mm taper band (Plate thumb 74-83 %
+    # tapered), and the MCP knuckle bulge — which projects BEHIND t=0.05 — was treated
+    # as palm and faded at 12-18 mm (Plate index/middle knuckles 100 % tapered, Arcane
+    # middle 50 % FULLY frozen to the wrist). Root joints therefore barely moved the
+    # mesh: the "flat-cap froze knuckles" lesson repeated at a milder level. Reworked:
+    #   - the digit region starts at t >= -0.10 (10 % of chain length BEHIND the MCP),
+    #     so the knuckle armor around the finger root belongs to its finger;
+    #   - digit caps SCALE WITH MEASURED LOCAL MESH THICKNESS: per finger, soft =
+    #     max(14 mm, r95 + 2 mm) where r95 is the 95th-percentile off-axis distance of
+    #     that finger's own digit shell (nearest-chain verts, 0.05 <= t <= 1.1,
+    #     d < 35 mm), cap = soft + 8 mm. The whole shell — knuckle plates included —
+    #     now carries near-full weight to its finger chain;
+    #   - the PALM/webbing cap (12-18 mm, t < -0.10) is UNCHANGED: that is what killed
+    #     the batwing membrane and the palm fan sheet — do not regress it.
+    # The faded share still moves to the wrist bone so the palm stays rigid with the
+    # hand; the KD smoothing pass below blends the taper ring.
     PALM_SOFT, PALM_CAP = 0.012, 0.018
-    DIGIT_SOFT, DIGIT_CAP = 0.014, 0.022
+    DIGIT_SOFT = 0.014                            # floor; raised per finger by r95+2 mm
+    DIGIT_CAP_PAD = 0.008                         # cap = soft + this
+    DIGIT_T0 = -0.10                              # digit region starts behind the MCP
 
     def finger_fade(d, soft, cap):
         if d <= soft:
@@ -573,15 +589,42 @@ def skin(mesh, arm, joints, wrist, palm):
         b = finger_segs[f][2][2]                  # tip end
         chain_ends[f] = (a, b, (b - a), max((b - a).length_squared, 1e-9))
 
-    def on_digit(co, f):
+    def chain_t(co, f):
         a, b, ab, L2 = chain_ends[f]
-        return (co - a).dot(ab) / L2 >= 0.05
+        return (co - a).dot(ab) / L2
 
     # Verts BELOW the wrist crease (long cuffs on the alternative hands; the original
     # glove has no geometry below z=0) are rigid armor/cloth around the forearm — bind
     # them 100% to the wrist bone, or distant finger chains pick up partial weights and
     # SHRED the cuff into stretched sheets when a fist is made (render-verified).
     CUFF_Z = -0.002
+
+    # Pre-pass (ALT hands): nearest finger + off-axis distance per vert, then the
+    # per-finger digit thickness r95 that drives the adaptive digit caps.
+    nearest = [None] * nV                         # (best_f, best_d) per vert
+    digit_soft = {f: DIGIT_SOFT for f in FINGERS}
+    digit_cap = {f: DIGIT_SOFT + DIGIT_CAP_PAD for f in FINGERS}
+    if ALT_HAND:
+        shell_d = {f: [] for f in FINGERS}
+        for v in verts:
+            co = v.co
+            if co.z < CUFF_Z:
+                continue
+            best_f, best_d = None, 1e9
+            for f in FINGERS:
+                dmin = min(_seg_dist(co, a, b) for _, a, b in finger_segs[f])
+                if dmin < best_d:
+                    best_d, best_f = dmin, f
+            nearest[v.index] = (best_f, best_d)
+            if best_d < 0.035 and 0.05 <= chain_t(co, best_f) <= 1.1:
+                shell_d[best_f].append(best_d)
+        for f in FINGERS:
+            ds = sorted(shell_d[f])
+            r95 = ds[min(len(ds) - 1, int(0.95 * len(ds)))] if ds else DIGIT_SOFT
+            digit_soft[f] = max(DIGIT_SOFT, r95 + 0.002)
+            digit_cap[f] = digit_soft[f] + DIGIT_CAP_PAD
+        log("digit caps (soft/cap mm): " + ", ".join(
+            f"{f} {digit_soft[f]*1000:.1f}/{digit_cap[f]*1000:.1f}" for f in FINGERS))
 
     # ---- pass 1: raw proximity weights (dict per vertex) --------------------------------
     vert_w = [dict() for _ in range(nV)]
@@ -592,23 +635,38 @@ def skin(mesh, arm, joints, wrist, palm):
             continue
         dW = _seg_dist(co, *wrist_seg)
         # nearest finger by its closest segment
-        best_f, best_d = None, 1e9
-        for f in FINGERS:
-            dmin = min(_seg_dist(co, a, b) for _, a, b in finger_segs[f])
-            if dmin < best_d:
-                best_d, best_f = dmin, f
         if ALT_HAND:
-            soft, cap = (DIGIT_SOFT, DIGIT_CAP) if on_digit(co, best_f) else (PALM_SOFT, PALM_CAP)
+            best_f, best_d = nearest[v.index]
+            on_digit = chain_t(co, best_f) >= DIGIT_T0
+            soft, cap = (digit_soft[best_f], digit_cap[best_f]) if on_digit \
+                else (PALM_SOFT, PALM_CAP)
             fade = finger_fade(best_d, soft, cap)
         else:
+            best_f, best_d = None, 1e9
+            for f in FINGERS:
+                dmin = min(_seg_dist(co, a, b) for _, a, b in finger_segs[f])
+                if dmin < best_d:
+                    best_d, best_f = dmin, f
             fade = 1.0     # original glove: keep the shipped weighting byte-for-byte
         if fade <= 0.0:
             vert_w[v.index] = {"Anchor_Wrist": 1.0}   # palm/webbing rim: rigid with the hand
             continue
-        cands = [("Anchor_Wrist", dW)]
+        # BONE-TRANSFER STIFFENING (ALT hands, fist fix round 3): the styled shells sit
+        # 13-21 mm off the bone axis (vs ~8 mm for the glove), which flattens the 1/d^P
+        # ratios — the long wrist segment and the neighbouring joints keep sizeable
+        # shares on the digit surface, so the mesh only followed ~60 % of the commanded
+        # joint rotation and even a full-range fist read as half closed. Two targeted
+        # changes for verts ON the digit (never the palm, so the membrane fix stands):
+        #   - past t >= 0.2 the wrist bone is dropped from the blend entirely (its
+        #     ~0.1 residual share moves to the finger's own joints);
+        #   - the falloff sharpens to P=2.5, restoring the segment-dominance the thin
+        #     glove shell gets naturally at P=2.
+        t_chain = chain_t(co, best_f) if ALT_HAND else 0.0
+        cands = [] if (ALT_HAND and t_chain >= 0.2) else [("Anchor_Wrist", dW)]
         for nm, a, b in finger_segs[best_f]:
             cands.append((nm, _seg_dist(co, a, b)))
-        raws = [(nm, 1.0 / (d ** P + EPS)) for nm, d in cands]
+        Pv = 2.5 if (ALT_HAND and t_chain >= DIGIT_T0) else P
+        raws = [(nm, 1.0 / (d ** Pv + EPS)) for nm, d in cands]
         tot = sum(w for _, w in raws)
         w = {nm: wv / tot for nm, wv in raws}
         if fade < 1.0:
@@ -626,9 +684,32 @@ def skin(mesh, arm, joints, wrist, palm):
         kd.insert(v.co, v.index)
     kd.balance()
 
+    # ALT hands smooth LESS (fist fix round 3): 3 iterations at alpha 0.5 diffuse the
+    # weights over ~12 mm — a third of a phalanx — which flattens the root/mid/tip
+    # contrast on the thick styled shells and was a main reason the mesh only followed
+    # ~60 % of the commanded joint rotation ("fists barely close"). Two lighter passes
+    # still fuse the disconnected armor shells into one digit (render-verified: no
+    # shell tearing in the 9-pose matrix) while keeping the knuckle crease articulate.
+    # The original glove keeps the shipped 3x0.5 smoothing byte-for-byte.
     RADIUS = 0.007     # 7 mm: within a finger, below the ~20 mm inter-finger spacing
-    ALPHA = 0.5        # blend toward the neighbourhood average
-    ITERS = 3
+    ALPHA = 0.35 if ALT_HAND else 0.5    # blend toward the neighbourhood average
+    ITERS = 2 if ALT_HAND else 3
+
+    # NO CROSS-FINGER SMOOTHING on the styled digits (fist fix round 3): the armored
+    # finger shells are so thick they nearly touch, so the 7 mm KD radius bridges the
+    # inter-finger gap and bleeds each digit's weights onto its neighbours. The thin
+    # glove never had this (its fingers sit ~12 mm of air apart), which is why the
+    # glove articulates crisply (a lone curled index folds fully away) while the
+    # styled hands moved mushily. Digit verts (t >= 0.05 on their own chain) therefore
+    # only average with SAME-finger digit verts and palm/webbing verts, never with a
+    # different finger's shell. Palm-region smoothing is untouched (taper blending).
+    digit_of = [None] * nV
+    if ALT_HAND:
+        for v in verts:
+            info = nearest[v.index]
+            if info is not None and chain_t(v.co, info[0]) >= 0.05:
+                digit_of[v.index] = info[0]
+
     for _ in range(ITERS):
         smoothed = [None] * nV
         for v in verts:
@@ -638,9 +719,13 @@ def skin(mesh, arm, joints, wrist, palm):
             acc = dict(vert_w[v.index])          # start from self
             near = kd.find_range(v.co, RADIUS)
             cnt = 0
+            own_digit = digit_of[v.index]
             for (_co, ni, _d) in near:
                 if ni == v.index:
                     continue
+                if ALT_HAND and digit_of[ni] is not None and own_digit is not None \
+                        and digit_of[ni] != own_digit:
+                    continue                     # never blend across the finger gap
                 for nm, w in vert_w[ni].items():
                     acc[nm] = acc.get(nm, 0.0) + w
                 cnt += 1
