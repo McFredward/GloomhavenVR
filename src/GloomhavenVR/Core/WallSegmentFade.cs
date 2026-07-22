@@ -1,9 +1,63 @@
 using System;
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Core;
+
+/// <summary>
+/// Live-tunable wall-see-through decision thresholds (canonical <see cref="ModuleConfig.Create"/>
+/// pattern — <c>dev.gloomhavenvr.wallfade.cfg</c>). The fade DECISION constants that needed
+/// hardware iteration every round (on/off view-coverage fractions and the two un-fade dwells)
+/// are config entries now: the <see cref="WallSegmentFade"/> driver re-reads them through the
+/// clamped accessors on EVERY evaluation tick, and the in-VR settings panel exposes them as
+/// debug-menu steppers next to the Wall see-through toggle — so threshold tuning happens live
+/// in the headset and persists (BepInEx saves on every entry write). The remaining constants
+/// (EMA taus, sample-band geometry…) stay code-owned; they were stable across rounds.
+/// </summary>
+internal static class WallFadeTuning
+{
+    private static ConfigFile? _file;
+
+    /// <summary>Smoothed view-coverage fraction at/above which a wall fades OUT (Schmitt high bar).</summary>
+    internal static ConfigEntry<float>? OnFraction;
+    /// <summary>Schmitt low bar: once faded, the wall stays faded while the fraction is at/above this.</summary>
+    internal static ConfigEntry<float>? OffFraction;
+    /// <summary>Seconds continuously below the low bar before un-fading after a recent perspective change.</summary>
+    internal static ConfigEntry<float>? ExitDwellMoved;
+    /// <summary>Un-fade dwell when the head only rotated (no recent translation/world-grab/recenter).</summary>
+    internal static ConfigEntry<float>? ExitDwellStationary;
+
+    internal static void Bind()
+    {
+        if (_file != null)
+            return;
+        ConfigFile config = _file = ModuleConfig.Create("wallfade");
+        OnFraction = config.Bind("WallFade", "OnFraction", 0.25f,
+            "Fade a wall when it blocks at least this (EMA-smoothed) fraction of the frustum-visible " +
+            "play-area samples of some room (Schmitt trigger high bar). Live; clamped 0.05-0.95.");
+        OffFraction = config.Bind("WallFade", "OffFraction", 0.10f,
+            "Once faded, keep the wall faded while the smoothed fraction stays at or above this " +
+            "(Schmitt trigger low bar). Live; clamped 0.01-0.95 and never above OnFraction.");
+        ExitDwellMoved = config.Bind("WallFade", "ExitDwellMovedSeconds", 2.5f,
+            "Seconds the fraction must stay below OffFraction before the wall un-fades when the " +
+            "PERSPECTIVE recently changed (real head translation / world-grab / recenter). Live.");
+        ExitDwellStationary = config.Bind("WallFade", "ExitDwellStationarySeconds", 7f,
+            "Un-fade dwell while the head has only ROTATED recently — rotation alone should almost " +
+            "never bring a wall back. Live; never below ExitDwellMovedSeconds.");
+    }
+
+    // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
+    internal static float On => Clamped(OnFraction, 0.25f, 0.05f, 0.95f);
+    internal static float Off => Mathf.Min(Clamped(OffFraction, 0.10f, 0.01f, 0.95f), On);
+    internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
+    internal static float DwellStationary =>
+        Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
+
+    private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
+        entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
+}
 
 /// <summary>
 /// ISSUE #4 round 3 (wall see-through, VR redesign) — WHOLE-WALL fade with temporal hysteresis.
@@ -111,6 +165,7 @@ internal static class WallSegmentFade
     {
         if (_driver != null || !VRSession.IsRunning)
             return;
+        WallFadeTuning.Bind(); // decision thresholds are live config (debug-menu steppers)
         var go = new GameObject(DriverName);
         UnityEngine.Object.DontDestroyOnLoad(go);
         _driver = go.AddComponent<FadeDriver>();
@@ -175,11 +230,9 @@ internal static class WallSegmentFade
         // real cm; board geometry keeps original game units (hex tile ≈ 1.72 wu). Sample
         // HEIGHTS are therefore never fixed offsets — they derive from each room's local
         // wall-AABB band (see ComputeRoomBands/RebuildSamples).
-        private const float OnFraction = 0.25f;        // ≥ this smoothed fraction blocked → fade
-        private const float OffFraction = 0.10f;       // Schmitt low bar: once faded, stay while ≥ this
+        // On/off fractions + the two exit dwells are LIVE CONFIG now (WallFadeTuning — the
+        // settings panel's debug steppers drive them in-headset); read fresh every evaluation.
         private const float EnterDwellSeconds = 0.10f; // short — the fraction EMA already smooths entry
-        private const float ExitDwellMovedSeconds = 2.5f; // < OffFraction dwell after a recent perspective change
-        private const float ExitDwellStationarySeconds = 7f; // < OffFraction dwell when the head only rotates
         private const float HeadMoveReevalMeters = 0.18f; // REAL tracking-space meters (scale-independent)
         private const float ReevalArmSeconds = 3f;     // how long a perspective change keeps re-eval armed
         private const float FadeTauSeconds = 0.12f;    // exp. fade time constant (~0.35s to 95%)
@@ -314,6 +367,12 @@ internal static class WallSegmentFade
 
             float fadeStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FadeTauSeconds);
             float fracStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FractionTauSeconds);
+            // Live thresholds (WallFadeTuning, clamped): tuning a stepper in the settings
+            // panel re-shapes the Schmitt trigger / dwells on the very next evaluation.
+            float onFraction = WallFadeTuning.On;
+            float offFraction = WallFadeTuning.Off;
+            float exitDwellMoved = WallFadeTuning.DwellMoved;
+            float exitDwellStationary = WallFadeTuning.DwellStationary;
             foreach (Segment seg in _segments.Values)
             {
                 if (!seg.HasBounds)
@@ -336,7 +395,7 @@ internal static class WallSegmentFade
                 {
                     seg.Smooth += (fraction - seg.Smooth) * fracStep;
                 }
-                bool raw = seg.Smooth >= (seg.State ? OffFraction : OnFraction);
+                bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
                 if (raw != seg.PendingRaw)
                 {
                     seg.PendingRaw = raw;
@@ -346,7 +405,7 @@ internal static class WallSegmentFade
                 {
                     float dwell = seg.PendingRaw
                         ? EnterDwellSeconds
-                        : (reevalArmed ? ExitDwellMovedSeconds : ExitDwellStationarySeconds);
+                        : (reevalArmed ? exitDwellMoved : exitDwellStationary);
                     if (now - seg.PendingSince >= dwell)
                         seg.State = seg.PendingRaw;
                 }
@@ -374,10 +433,11 @@ internal static class WallSegmentFade
                     + $"{_segments.Count} wall segments against {_roomBounds.Count} room-renderer "
                     + $"bounds / {_allSamples.Count} play-area samples (2 layers in-band, "
                     + $"y {_sampleYMin:F2}..{_sampleYMax:F2}) — per-room view-coverage fade "
-                    + $"(EMA tau {FractionTauSeconds:0.00}s; on ≥{OnFraction:0.00}, off "
-                    + $"<{OffFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
-                    + $"{ExitDwellMovedSeconds:0.0}s out moved / "
-                    + $"{ExitDwellStationarySeconds:0.0}s stationary; tau {FadeTauSeconds:0.00}s).");
+                    + $"(EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
+                    + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
+                    + $"{exitDwellMoved:0.0}s out moved / "
+                    + $"{exitDwellStationary:0.0}s stationary — live config [WallFade]; "
+                    + $"tau {FadeTauSeconds:0.00}s).");
             }
         }
 

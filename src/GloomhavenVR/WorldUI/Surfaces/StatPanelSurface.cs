@@ -64,6 +64,21 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class StatPanelSurface
 {
+    /// <summary>
+    /// Host-canvas sortingOrder for the converted stat panels (button-text-through-panel fix).
+    /// The mod's 3D board-button labels/keycap faces are small transparent renderers with tiny
+    /// sortingOrders (face 1 / label 3 — needed so a button's text beats its own sprite face),
+    /// and Unity sorts transparents sortingLayer → SORTINGORDER first (only then renderQueue /
+    /// distance — see GrabbableModal). A default order-0 host therefore LOST the draw order to
+    /// every button label, and since neither side writes depth the Undo/Ready/Skip and keycap
+    /// text drew straight through the enemy-info panel docked at the holding hand. Order 10
+    /// lifts the panel above all board-widget labels (≤3) while staying far below the floated
+    /// modal tier (ModalFallback, 1000) and the ray visuals; the panel's UI graphics still
+    /// ZTest LEqual, so real (depth-writing) geometry keeps occluding it — perspective holds
+    /// (the at-hand panel is effectively the nearest transparent widget whenever they overlap).
+    /// </summary>
+    private const int StatPanelSortingOrder = 10;
+
     /// <summary>Hide→release hysteresis (unscaled seconds) — absorbs show/hide flicker.</summary>
     private const float ReleaseDelaySeconds = 0.3f;
 
@@ -390,7 +405,7 @@ internal sealed class StatPanelSurface
                 // Informational panel (no buttons, verified) — NOT pokeable: never in
                 // UguiPokeSurfaces, so neither ray nor poke nor IsPointerOverUI see it.
                 watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
-                    pokeable: false);
+                    pokeable: false, sortingOrder: StatPanelSortingOrder);
                 if (watch.Panel != null)
                 {
                     CountConversion(watch, name);
@@ -468,7 +483,8 @@ internal sealed class StatPanelSurface
         if (_copyPanel != null && !_copyPanel.IsAlive)
             _copyPanel = null;
         if (_copyHolder != null && _copyRect != null && _copyPanel == null)
-            _copyPanel = CanvasConversion.Convert(_copyRect, "ActorStatPanelCopy", pokeable: false);
+            _copyPanel = CanvasConversion.Convert(_copyRect, "ActorStatPanelCopy", pokeable: false,
+                sortingOrder: StatPanelSortingOrder);
         if (_copyPanel != null)
         {
             if (_copyPanel.HostRaycaster != null && _copyPanel.HostRaycaster.enabled)
