@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -137,6 +138,26 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private static readonly List<Vector4> MaskRectScratch = new(DepthMaskMaxQuads);
     private static readonly List<Vector3> MaskVertScratch = new(DepthMaskMaxQuads * 4);
     private static readonly List<int> MaskTriScratch = new(DepthMaskMaxQuads * 6);
+
+    /// <summary>Task #6 diag: the emitting Graphic per collected rect (1:1 with
+    /// <see cref="MaskRectScratch"/>; null = overflow union slot) — lets the rebuild
+    /// diagnostic NAME the wide quads in the hardware log.</summary>
+    private static readonly List<Graphic?> MaskSourceScratch = new(DepthMaskMaxQuads);
+
+    /// <summary>Task #6 diag: min seconds between rebuild-diagnostic lines per panel (scrolling
+    /// rebuilds the mesh per notch — the log must not scroll with it).</summary>
+    private const float MaskDiagMinIntervalSeconds = 2f;
+
+    /// <summary>Task #6 diag: a quad is "WIDE" (a hard-cut suspect worth naming) when it spans at
+    /// least this fraction of the host rect width — settings rows sit well under it, a faint
+    /// full-width container / banner strip well over it.</summary>
+    private const float MaskDiagWideFraction = 0.45f;
+
+    /// <summary>Task #6 diag: cap on named wide quads per line (log hygiene).</summary>
+    private const int MaskDiagMaxListed = 12;
+
+    /// <summary>Task #6 diag: next allowed rebuild-diagnostic stamp (unscaled time).</summary>
+    private float _maskDiagNextAllowed;
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
 
@@ -283,7 +304,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     {
         if (_depthMask == null || _depthMaskMesh == null)
             return;
-        int count = CanvasConversion.CollectVisibleMaskRects(_panel, MaskRectScratch, DepthMaskMaxQuads);
+        int count = CanvasConversion.CollectVisibleMaskRects(_panel, MaskRectScratch, DepthMaskMaxQuads,
+            MaskSourceScratch);
         if (count == 0)
         {
             // Nothing visible (window still fading in / everything hidden) — no depth stamp at all.
@@ -307,6 +329,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         {
             _depthMaskHash = hash;
             RebuildDepthMaskMesh(count);
+            LogDepthMaskRebuild(count); // task #6: name the wide quads (hard-cut suspects)
         }
 
         if (!_depthMask.gameObject.activeSelf)
@@ -347,6 +370,61 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _depthMaskMesh!.Clear();
         _depthMaskMesh.SetVertices(MaskVertScratch);
         _depthMaskMesh.SetTriangles(MaskTriScratch, 0);
+    }
+
+    /// <summary>
+    /// Task #6 diagnostic (pause window hard-cut behind the options menu): after every mask
+    /// mesh REBUILD, log the quad count and NAME every WIDE quad — a quad spanning ≥45 % of
+    /// the host width is exactly the class of depth writer that visually reads as "nothing
+    /// there" yet hard-cuts another floated menu behind the plane along one straight edge
+    /// (faint full-width layout container, gradient title-banner strip, frame element). Each
+    /// entry carries the graphic's parent/name, type, sprite, own alpha × inherited alpha and
+    /// its host-local rect, so the next hardware log names the culprit directly. Throttled to
+    /// one line per <see cref="MaskDiagMinIntervalSeconds"/> per panel (a scroll rebuilds the
+    /// mesh every notch); the very first rebuild after Build always logs (throttle starts at 0).
+    /// </summary>
+    private void LogDepthMaskRebuild(int count)
+    {
+        float now = Time.unscaledTime;
+        if (now < _maskDiagNextAllowed)
+            return;
+        _maskDiagNextAllowed = now + MaskDiagMinIntervalSeconds;
+
+        Rect host = _panel.HostRect != null ? _panel.HostRect.rect : default;
+        float wideMin = host.width * MaskDiagWideFraction;
+        var sb = new System.Text.StringBuilder(128);
+        int wide = 0;
+        for (int i = 0; i < count; i++)
+        {
+            Vector4 r = MaskRectScratch[i];
+            float w = r.z - r.x;
+            if (w < wideMin)
+                continue;
+            wide++;
+            if (wide > MaskDiagMaxListed)
+                continue; // counted but not listed (log hygiene)
+            Graphic? g = i < MaskSourceScratch.Count ? MaskSourceScratch[i] : null;
+            sb.Append(" [").Append(i).Append("] ")
+              .Append(g == null ? "<overflow union>" : DescribeMaskSource(g))
+              .Append($" rect=({r.x:F0},{r.y:F0})..({r.z:F0},{r.w:F0}) {w:F0}x{r.w - r.y:F0}px;");
+        }
+        VRLog.Info("WorldUI", $"MODAL DEPTH-MASK DIAG: '{_logName}' rebuilt {count} quad(s), host " +
+                              $"{host.width:F0}x{host.height:F0} px, mask alpha floor " +
+                              $"{CanvasConversion.MaskMinAlpha:F2}. WIDE quads (≥{MaskDiagWideFraction * 100f:F0}% " +
+                              $"host width, hard-cut suspects): {wide}" +
+                              (wide > 0
+                                  ? $" —{sb}"
+                                  : " — none (a remaining straight cut through another menu would NOT be a mask " +
+                                    "quad of this panel: check the grab bar / plane order instead)."));
+    }
+
+    /// <summary>Task #6 diag: one wide-quad source — 'parent/name' (Type, sprite, ownAlpha×inheritedAlpha).</summary>
+    private static string DescribeMaskSource(Graphic g)
+    {
+        string sprite = g is Image img && img.sprite != null ? $", sprite='{img.sprite.name}'" : "";
+        string parent = g.transform.parent != null ? g.transform.parent.name : "<root>";
+        float inherited = g.canvasRenderer != null ? g.canvasRenderer.GetInheritedAlpha() : 1f;
+        return $"'{parent}/{g.name}' ({g.GetType().Name}{sprite}, a={g.color.a:F2}x{inherited:F2})";
     }
 
     /// <summary>
@@ -514,10 +592,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             VRLog.Info("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' created — depth-writing PER-GRAPHIC quad mesh " +
                                   $"(≤{DepthMaskMaxQuads} quads, task #5) on mod layer {Core.VRLayers.ModLayer}, " +
                                   $"renderQueue {DepthMaskQueue}, ZWrite 1 / ZTest LEqual / Cull Off / Blend Zero One, " +
-                                  $"coplanar +{DepthMaskBehindMeters * 1000f:F1} mm behind the menu plane. Transparent " +
-                                  "HUD/menus behind fail ZTest only under actual content rects; the gaps between rows " +
-                                  "stay depth-open, the menu still draws (LEqual at its plane) and closer hands/board " +
-                                  "still occlude both the mask and the menu.");
+                                  $"coplanar +{DepthMaskBehindMeters * 1000f:F1} mm behind the menu plane, mask alpha " +
+                                  $"floor {CanvasConversion.MaskMinAlpha:F2} (task #6: faint full-width containers no " +
+                                  "longer stamp depth). Transparent HUD/menus behind fail ZTest only under actual " +
+                                  "content rects; the gaps between rows stay depth-open, the menu still draws (LEqual " +
+                                  "at its plane) and closer hands/board still occlude both the mask and the menu.");
         else
             VRLog.Warn("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' — the Overlay shader (gloomhavenvr.bundle) is " +
                                   "unavailable, so the mask material cannot write depth; HUD may still bleed through the " +
