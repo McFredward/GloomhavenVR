@@ -62,9 +62,7 @@ internal sealed class ComfortGizmos : MonoBehaviour
         if (VRModeStateMachine.CurrentMode == VRMode.BoardTargeting)
             _sb.Append("  (SUPPRESSED: BoardTargeting owns the stick)");
 
-        _sb.Append("\nclamp ").Append(RigClamp.LastClampActive ? "ACTIVE (head lifted)" : "ok")
-           .Append("  |  vignette ")
-           .Append(ComfortSettings.VignetteEnabled.Value ? "on" : "off");
+        _sb.Append("\nclamp ").Append(RigClamp.LastClampActive ? "ACTIVE (head lifted)" : "ok");
         if (comfort != null && comfort.ChordProgress > 0f)
             _sb.Append("  |  recenter chord ").Append((comfort.ChordProgress * 100f).ToString("F0")).Append('%');
         _sb.Append("\nseated ").Append(ComfortSettings.SeatedMode.Value ? "YES" : "no")

@@ -3,6 +3,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -447,6 +448,62 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         {
             _depthPickHost = Panel.HostCanvas;
             DepthPortraitPicks.Register(_depthPickHost, this);
+        }
+
+        LogTrackTextureDiag();
+    }
+
+    // ---- rendered-texture diagnostics (aliasing round 3) --------------------------------
+
+    /// <summary>Latched once a conversion had portrait textures to report (avatars are
+    /// pooled in over the first frames — retry on later conversions until one does).</summary>
+    private static bool s_texDiagLogged;
+
+    /// <summary>
+    /// One-line diag for the initiative-track shimmer investigation (user report: MSAA
+    /// helps the board but NOT the initiative track). The portraits/frames are GAME
+    /// sprites on an adopted world-space canvas — their edge shimmer is TEXTURE-space,
+    /// which MSAA (geometry edges only) cannot touch. Log the biggest source textures'
+    /// mip/aniso/filter state once per session so the hardware log PROVES whether mips
+    /// exist: mipmapCount == 1 ⇒ the atlas ships MIPLESS, minification shimmer is baked
+    /// into the data, and the honest lever is eye-texture supersampling
+    /// ([RenderQuality] EyeResolutionScale, e.g. 1.3).
+    /// </summary>
+    private void LogTrackTextureDiag()
+    {
+        if (s_texDiagLogged || InitiativeTrack.Instance == null)
+            return;
+        try
+        {
+            var seen = new HashSet<int>();
+            var sb = new System.Text.StringBuilder(256);
+            int count = 0;
+            Image[] images = InitiativeTrack.Instance.GetComponentsInChildren<Image>(includeInactive: false);
+            foreach (Image img in images)
+            {
+                Sprite? sprite = img != null ? img.sprite : null;
+                Texture2D? tex = sprite != null ? sprite.texture : null;
+                if (tex == null || !seen.Add(tex.GetInstanceID()))
+                    continue;
+                if (count > 0)
+                    sb.Append(", ");
+                sb.Append('\'').Append(tex.name).Append("' ").Append(tex.width).Append('x')
+                  .Append(tex.height).Append(" mips=").Append(tex.mipmapCount)
+                  .Append(" aniso=").Append(tex.anisoLevel).Append(' ').Append(tex.filterMode);
+                if (++count >= 8)
+                    break;
+            }
+            if (count == 0)
+                return; // portraits not pooled in yet — retry next conversion
+            s_texDiagLogged = true;
+            VRLog.Info("WorldUI", "INITIATIVE TEXTURE DIAG (game sprites the adopted track samples): " +
+                                  $"{sb} — mips=1 ⇒ MIPLESS source data: MSAA/aniso cannot stop the " +
+                                  "shimmer; raise [RenderQuality] EyeResolutionScale (e.g. 1.3) instead.");
+        }
+        catch (System.Exception ex)
+        {
+            s_texDiagLogged = true; // never spam a throwing path
+            VRLog.Warn("WorldUI", $"Initiative texture diag skipped ({ex.Message}).");
         }
     }
 

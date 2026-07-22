@@ -189,9 +189,57 @@ internal sealed class VRRigDriver : MonoBehaviour
     // the board center — the player's viewpoint orbits up and over the board; no game-world
     // object ever moves. Maintained by TickWorldTilt (LateUpdate — after every Update-phase
     // rig writer, before rendering); _tiltActive gates the exact-no-op fast path at 0°, and
-    // _lastTiltTarget dedupes the comfort vignette pulse to actual angle changes.
+    // _lastTiltTarget dedupes the tilt-change diagnostic to actual angle changes.
     private bool _tiltActive;
     private float _lastTiltTarget;
+
+    // VIEW-AIMED TILT AXIS, gated + eased (hardware round 3 — the tilt was STILL nauseating).
+    // Round 2 aimed the tilt at the head→FocusPoint line, but the pivot can sit far off to
+    // the side of what the player actually LOOKS at (log 0a2767928 line 3370: axis↔head-right
+    // 41.8° while the user faced elsewhere) — a tilt whose axis is 41.8° off the view reads
+    // as tilt·sin(41.8°) of pure ROLL in the player's vision, and roll is the single most
+    // nauseating rotation VR can show. Requirement: the world must always settle tilted
+    // toward the CAMERA/VIEW direction. COMFORT DESIGN: a per-frame view-locked axis would
+    // be even worse — every casual head turn would continuously ROLL the whole world in
+    // sync with the head (the horizon visibly pivoting as you glance around). So the axis is
+    // GATED and EASED instead:
+    //   - _axisYawTarget re-targets to the flattened view yaw ONLY when the view has moved
+    //     beyond AxisRetargetDeadbandDegrees away from it (glances inside the deadband
+    //     change nothing — the horizon stays rock solid), and
+    //   - _axisYawCurrent eases toward the target exponentially (AxisEaseSharpness ≈ settles
+    //     in ~1 s), so a deliberate re-orientation re-aims the tilt as a slow, sub-threshold
+    //     drift instead of a live roll, and
+    //   - discrete world-motion events (snap/smooth turn, world-grab release, recenter, rig
+    //     build) SNAP the axis to the live view via NotifyTiltAxisSnap — the scene already
+    //     moved wholesale that frame, which masks the re-aim; easing after a snap turn would
+    //     itself read as a slow roll right after every turn.
+    // Net effect: the tilt always ends up facing where you look, and the axis never moves
+    // fast enough (or at all, inside the deadband) to register as motion.
+    private float _axisYawCurrent;   // yaw (deg) of the direction the world tilts toward
+    private float _axisYawTarget;    // deadband-gated goal for _axisYawCurrent
+    private bool _axisYawInitialized;
+    private bool _axisSnapRequested;
+
+    /// <summary>View-yaw deadband before the tilt axis re-targets (deg). Inside it the
+    /// horizon is perfectly static no matter how the head turns.</summary>
+    private const float AxisRetargetDeadbandDegrees = 25f;
+
+    /// <summary>Axis ease rate (1/s, exponential). 3/s ⇒ ~95 % of a re-target is absorbed
+    /// in ~1 s — slow enough to stay under the roll-perception threshold.</summary>
+    private const float AxisEaseSharpness = 3f;
+
+    /// <summary>
+    /// Snap the world-tilt axis to the live view direction next LateUpdate (no easing).
+    /// Call ONLY when the whole scene moved wholesale this frame (stick turn, world-grab
+    /// release, recenter) — the scene motion masks the re-aim, whereas the eased path
+    /// would roll the horizon for the next second (comfort note on the axis fields).
+    /// </summary>
+    internal static void NotifyTiltAxisSnap(string reason)
+    {
+        _ = reason; // kept for call-site self-documentation; no per-event log (spammy on smooth turn)
+        if (Instance != null)
+            Instance._axisSnapRequested = true;
+    }
 
     /// <summary>Cadence of the tilt-axis diagnostic line while the tilt is active (seconds).</summary>
     private const float TiltLogIntervalSeconds = 5f;
@@ -380,26 +428,21 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// of every game object are untouched, so nothing changes for multiplayer peers except
     /// our own (honestly moved) avatar pose.
     ///
-    /// TILT AXIS (hardware round 2 fix — the world STILL tipped partly to the RIGHT): the
-    /// axis is the horizontal perpendicular <c>up × d</c> of the flattened head→pivot
-    /// direction <c>d</c> — the player's right when facing the board — so tilting about it
-    /// reads as pure pitch (board tips toward you) with zero roll. Round 1 derived <c>d</c>
-    /// from the CURRENT (already tilted) head position. That feedback is what leaned the
-    /// world sideways: tilting orbits the virtual head up toward the pivot's vertical, so
-    /// the flattened baseline collapses from the full seat length (EyeBack ≈ 0.55–0.7 m ×
-    /// scale) to |head−pivot|·sin(atan(EyeBack/EyeHeight) − tilt) — near zero as tilt
-    /// approaches ~45° (standing seat 0.7/0.7) and NEGATIVE (axis flips, 2-frame flip-flop)
-    /// beyond it. On a near-degenerate baseline every real-world lateral head offset of a
-    /// few cm swings the axis by tens of degrees, and any axis yaw error δ shows up as
-    /// tilt·sin(δ) of ROLL in the player's view — the observed rightward lean. Fix: derive
-    /// <c>d</c> in the UNTILTED reference frame. The live rig pose is R = T ∘ Y (tilt about
-    /// a horizontal axis composed onto yaw), so T = R·Y⁻¹; un-rotating the head about the
-    /// pivot by T⁻¹ recovers the head position the yaw-only writers produced before any
-    /// tilt — its flattened baseline keeps the full seat length at EVERY tilt angle. The
-    /// mapping is idempotent (the axis no longer depends on the tilt it produces), the
-    /// tilt plane truly contains the player, and walking around the board still re-aims
-    /// the tilt because the untilted head follows the real head. Degenerate case (head
-    /// directly above the pivot): fall back to the rig-yaw right axis.
+    /// TILT AXIS (hardware round 3 — VIEW-aimed, gated + eased; see the axis-field comfort
+    /// note). Round 2 aimed the tilt at the flattened head→pivot line, which is only right
+    /// while the player happens to FACE the pivot: the log (build 0a2767928, line 3370)
+    /// caught axis↔head-right at 41.8° while the user looked elsewhere, and an axis yaw
+    /// error δ shows up as tilt·sin(δ) of pure ROLL in the player's vision — still
+    /// nauseating. Requirement: the world must tilt toward the CAMERA/VIEW direction,
+    /// never any other angle, even while moving. The axis is therefore the horizontal
+    /// RIGHT of the flattened view forward — but NOT re-derived live every frame (that
+    /// would roll the world continuously as the head turns, worse than the bug): the view
+    /// yaw is sampled each frame in the UNTILTED reference frame (strip T of R = T ∘ Y off
+    /// the head rotation first, so the axis never depends on the tilt it produces —
+    /// idempotent, same rule as round 2), then deadband-gated and eased into
+    /// <c>_axisYawCurrent</c>, with instant snaps on discrete world-motion events. The
+    /// diag line logs axis↔head-right, which now settles ≈0° whenever the player's view
+    /// is settled.
     ///
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
     /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
@@ -427,46 +470,70 @@ internal sealed class VRRigDriver : MonoBehaviour
         Quaternion yawOnly = YawOnly(current);
         Vector3 pivot = controller.FocusPoint;
 
-        // Player-relative tilt axis, derived in the UNTILTED reference frame (round-2 fix,
-        // see header): strip the tilt component of the live pose (R = T ∘ Y ⇒ T = R·Y⁻¹)
-        // from the head position by un-rotating it about the pivot, flatten THAT head→pivot
-        // line, then take the horizontal perpendicular. The baseline keeps its full seat
-        // length at every tilt angle, so the axis is insensitive to lateral head noise and
-        // independent of the tilt it produces (idempotent — no feedback drift).
+        // Live view yaw, sampled in the UNTILTED reference frame: the head's world rotation
+        // contains the tilt T we applied last frame (head is a rig child); strip it
+        // (R = T ∘ Y ⇒ T = R·Y⁻¹) before flattening so the axis never feeds back into
+        // itself. Degenerate view (looking straight up/down — flattened forward ~zero) or a
+        // missing camera keeps the previous axis: NO re-aim beats a garbage re-aim.
         Vector3 headWorld = Vector3.zero;
-        Vector3 headUntilted = Vector3.zero;
-        Vector3 headToPivot = Vector3.zero;
+        float viewYaw = _axisYawCurrent;
+        bool viewValid = false;
         if (_camera != null)
         {
             headWorld = _camera.transform.position;
             Quaternion currentTilt = current * Quaternion.Inverse(yawOnly);
-            headUntilted = pivot + Quaternion.Inverse(currentTilt) * (headWorld - pivot);
-            headToPivot = pivot - headUntilted;
-            headToPivot.y = 0f;
+            Vector3 viewForward = Quaternion.Inverse(currentTilt) * _camera.transform.forward;
+            viewForward.y = 0f;
+            if (viewForward.sqrMagnitude > 1e-6f)
+            {
+                viewYaw = Mathf.Atan2(viewForward.x, viewForward.z) * Mathf.Rad2Deg;
+                viewValid = true;
+            }
         }
-        Vector3 axis = headToPivot.sqrMagnitude > 1e-6f
-            ? Vector3.Cross(Vector3.up, headToPivot.normalized)
-            : yawOnly * Vector3.right; // head above pivot / camera gone — rig-yaw fallback
+
+        // COMFORT GATE (rationale on the axis fields): first frame / snap events adopt the
+        // view yaw instantly (scene motion masks it, or no tilt was visible yet); otherwise
+        // the target only moves once the view leaves the deadband — casual glances leave
+        // the horizon untouched — and the current axis eases toward the target so slowly
+        // (~1 s) that a deliberate re-orientation never reads as the world rolling.
+        if (!_axisYawInitialized || _axisSnapRequested)
+        {
+            if (viewValid || !_axisYawInitialized)
+            {
+                _axisYawTarget = viewYaw;
+                _axisYawCurrent = viewYaw;
+                _axisYawInitialized = true;
+            }
+            _axisSnapRequested = false;
+        }
+        else if (viewValid
+                 && Mathf.Abs(Mathf.DeltaAngle(_axisYawTarget, viewYaw)) > AxisRetargetDeadbandDegrees)
+        {
+            _axisYawTarget = viewYaw;
+        }
+        _axisYawCurrent = Mathf.LerpAngle(_axisYawCurrent, _axisYawTarget,
+            1f - Mathf.Exp(-AxisEaseSharpness * Time.unscaledDeltaTime));
+
+        // Tilt axis = horizontal right of the (gated/eased) tilt-toward direction: tilting
+        // about the view-right reads as pure pitch (board tips toward you), zero roll.
+        Vector3 axis = Quaternion.Euler(0f, _axisYawCurrent, 0f) * Vector3.right;
 
         Quaternion desired = target > 0f
             ? Quaternion.AngleAxis(target, axis) * yawOnly
             : yawOnly;
 
-        // Comfort: a vignette pulse on actual ANGLE CHANGES (stepper presses / config edits)
-        // masks the instant horizon reorientation; per-frame healing never pulses.
         if (!Mathf.Approximately(target, _lastTiltTarget))
         {
             _lastTiltTarget = target;
             _nextTiltLogTime = 0f; // edge-trigger the diagnostic line below
-            ComfortVignette.Pulse();
         }
 
-        // Diagnostic (hardware log proof for the sideways-lean fix): on every tilt change
-        // and every few seconds while active, log pivot/head/axis and the angle between the
-        // axis and the player's flattened head-right. ≈0° (or ≈180° after a snap turn past
-        // the board) ⇒ the axis is perpendicular to the view line and the tilt is pure
-        // pitch in the player's view; a persistent large mid value ⇒ the pivot
-        // (CameraController.FocusPoint) is off to the side of what the player faces.
+        // Diagnostic (hardware log proof for the view-aimed axis): on every tilt change and
+        // every few seconds while active, log pivot/head, the axis state (current/target/
+        // live-view yaw) and the angle between the axis and the player's flattened
+        // head-right. With the view-derived axis this settles ≈0° whenever the player's
+        // gaze is settled (up to the deadband while easing); round 2's head→pivot axis
+        // logged 41.8° here while the user looked away from the pivot.
         if (target > 0f && _camera != null && Time.unscaledTime >= _nextTiltLogTime)
         {
             _nextTiltLogTime = Time.unscaledTime + TiltLogIntervalSeconds;
@@ -476,9 +543,11 @@ internal sealed class VRRigDriver : MonoBehaviour
                 ? Vector3.Angle(axis, headRight.normalized)
                 : -1f;
             VRLog.Info("Rig", $"WorldTilt {target:0}°: pivot {pivot}, head {headWorld}, " +
-                              $"untilted head {headUntilted} (flat baseline {headToPivot.magnitude:F2}u), " +
-                              $"axis {axis} — axis↔head-right {axisVsHeadRight:F1}° " +
-                              "(≈0/180 ⇒ pure toward-player pitch, no sideways lean).");
+                              $"axisYaw cur {_axisYawCurrent:F1}°/tgt {_axisYawTarget:F1}° (view {viewYaw:F1}°, " +
+                              $"deadband {AxisRetargetDeadbandDegrees:0}°), axis {axis} — " +
+                              $"axis↔head-right {axisVsHeadRight:F1}° " +
+                              "(≈0 ⇒ tilt aimed at the view, pure toward-player pitch; " +
+                              $"≤{AxisRetargetDeadbandDegrees:0}° by design while settling).");
         }
 
         float error = Quaternion.Angle(current, desired);
@@ -861,6 +930,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         // seat viewed through the tilt, with no untilted frame ever rendered.
         if (_tiltActive)
             _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
+        // The recenter teleports the head to the seat — a wholesale view change; the tilt
+        // axis must adopt the new view instantly (easing would roll the fresh horizon).
+        _axisSnapRequested = true;
 
         float scale = _rigRoot.transform.localScale.x;
 
@@ -951,6 +1023,8 @@ internal sealed class VRRigDriver : MonoBehaviour
         bool wasMenu = _kind == RigKind.Menu;
         _kind = RigKind.None;
         _tiltActive = false; // the tilted transform dies with the rig; a new rig re-tilts fresh
+        _axisYawInitialized = false; // next rig adopts the then-current view yaw from scratch
+        _axisSnapRequested = false;
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
