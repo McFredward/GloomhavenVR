@@ -1237,23 +1237,50 @@ internal static class CanvasConversion
     private const int OneShotSettleChecks = 6;
 
     /// <summary>
+    /// Effective-alpha floor for the content FIT measure: anything fainter than this is
+    /// treated as invisible and neither sizes nor centers the panel (historic 0.05 value —
+    /// unchanged, so fit geometry is identical to the shipped builds).
+    /// </summary>
+    private const float FitMinAlpha = 0.05f;
+
+    /// <summary>
+    /// Task #6 (pause window hard-cut behind the options menu): effective-alpha floor for
+    /// DEPTH-MASK quad emission — deliberately HIGHER than <see cref="FitMinAlpha"/>. The
+    /// hardware screenshot showed the parent pause window cut along one clean straight edge
+    /// behind the options menu although the options window has NO visible content in that
+    /// region: a barely-visible full-width element (a faint layout-container Image / the
+    /// gradient title-banner strip, effective alpha just over 0.05) passed the shared 0.05
+    /// test and emitted a WIDE depth quad, whose stamp made every later-drawn transparent —
+    /// including the pause window's own canvas, which lies BEHIND the options plane below
+    /// their intersection line — fail ZTest across the whole "empty" region (the WORLD still
+    /// showed there because it draws before the mask, colour already in the buffer — exactly
+    /// the observed sky-through-the-cut). A ≤15 %-opaque graphic reads as "nothing there",
+    /// so it must not stamp depth either; genuinely visible content (rows, buttons, dialogs)
+    /// is far above this floor and masks exactly as before, keeping the original purpose
+    /// (HUD/initiative must not bleed through actual content) intact.
+    /// </summary>
+    internal const float MaskMinAlpha = 0.15f;
+
+    /// <summary>
     /// Task #4/#5 shared per-graphic measure: the visibility test both unions use (enabled,
-    /// not culled, effective alpha ≥ 0.05, non-degenerate draw rect) plus the graphic's
-    /// host-local bounds, CLAMPED to its enclosing clipper's rect (<see cref="RectMask2D"/> /
-    /// stencil <see cref="Mask"/> — i.e. a ScrollRect viewport): a settings row scrolled out
-    /// of its viewport is CLIPPED at render time, so it must neither grow the content FIT nor
-    /// stamp depth-mask coverage. False = the graphic contributes nothing (invisible, empty,
-    /// or fully scrolled out).
+    /// not culled, effective alpha ≥ <paramref name="minAlpha"/>, non-degenerate draw rect)
+    /// plus the graphic's host-local bounds, CLAMPED to its enclosing clipper's rect
+    /// (<see cref="RectMask2D"/> / stencil <see cref="Mask"/> — i.e. a ScrollRect viewport):
+    /// a settings row scrolled out of its viewport is CLIPPED at render time, so it must
+    /// neither grow the content FIT nor stamp depth-mask coverage. False = the graphic
+    /// contributes nothing (invisible, empty, or fully scrolled out). The alpha floor is
+    /// caller-specific (task #6): <see cref="FitMinAlpha"/> for the content fit,
+    /// <see cref="MaskMinAlpha"/> for depth-mask emission.
     /// </summary>
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
-        out Vector2 gMin, out Vector2 gMax)
+        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha)
     {
         gMin = default;
         gMax = default;
         if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
             return false;
         // Effective alpha: own color × hierarchy (CanvasGroup) alpha.
-        if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
+        if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < minAlpha)
             return false;
 
         var rect = (RectTransform)g.transform;
@@ -1431,10 +1458,19 @@ internal static class CanvasConversion
     /// never lost, only gap fidelity in the overflow). Returns the rect count (0 = nothing
     /// visible; caller disables the mask). Reuses the fit scratch buffers (single-threaded,
     /// never re-entered).
+    ///
+    /// Task #6 (pause window hard-cut): emission uses the STRICTER <see cref="MaskMinAlpha"/>
+    /// floor (0.15) instead of the fit's 0.05 — a barely-visible full-width container must not
+    /// stamp a depth quad that hard-cuts other floated menus behind the plane (see the const's
+    /// doc). <paramref name="sources"/> (optional) receives the emitting <see cref="Graphic"/>
+    /// per rect, 1:1 with <paramref name="rects"/> (null entry = the overflow union slot) — the
+    /// depth-mask rebuild diagnostic uses it to NAME wide/suspect quads in the hardware log.
     /// </summary>
-    internal static int CollectVisibleMaskRects(ConvertedPanel panel, List<Vector4> rects, int maxCount)
+    internal static int CollectVisibleMaskRects(ConvertedPanel panel, List<Vector4> rects, int maxCount,
+        List<Graphic?>? sources = null)
     {
         rects.Clear();
+        sources?.Clear();
         if (panel == null || panel.Target == null || panel.HostRect == null)
             return 0;
 
@@ -1443,11 +1479,13 @@ internal static class CanvasConversion
         panel.Target.GetComponentsInChildren(includeInactive: false, GraphicScratch);
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
-            if (!TryGetVisibleHostRect(panel, GraphicScratch[i], out Vector2 gMin, out Vector2 gMax))
+            Graphic g = GraphicScratch[i];
+            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax, MaskMinAlpha))
                 continue;
             if (rects.Count < maxCount)
             {
                 rects.Add(new Vector4(gMin.x, gMin.y, gMax.x, gMax.y));
+                sources?.Add(g);
             }
             else
             {
@@ -1457,6 +1495,8 @@ internal static class CanvasConversion
                 rects[rects.Count - 1] = new Vector4(
                     Mathf.Min(last.x, gMin.x), Mathf.Min(last.y, gMin.y),
                     Mathf.Max(last.z, gMax.x), Mathf.Max(last.w, gMax.y));
+                if (sources != null)
+                    sources[sources.Count - 1] = null; // slot is now an anonymous overflow union
             }
         }
         GraphicScratch.Clear();
