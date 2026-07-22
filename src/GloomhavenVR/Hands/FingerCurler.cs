@@ -11,15 +11,24 @@ namespace GloomhavenVR.Hands;
 ///
 /// Curl targets are set once per frame from controller input by <see cref="VRHand"/>:
 ///   trigger value → index; grip value → middle/ring/pinky;
-///   thumb capacitive touch (primaryTouch/secondaryTouch/primary2DAxisTouch) → thumb.
+///   thumb capacitive touch (primaryTouch/secondaryTouch/primary2DAxisTouch) → thumb
+///   (forced fully closed while the hand makes a fist, see VRHand.UpdateCurlTargets).
 /// Actual joint rotations are smoothed (exponential lerp) to avoid jitter from the
 /// binary touch signals and controller value noise.
+///
+/// FIST DIAGNOSTICS (on-device "mostly no fist" investigation): the full-curl joint
+/// angles are read live from <see cref="HandsConfig"/> (defaults 65/80/50; thumb
+/// 25/45/60 scaled proportionally), the actually-applied per-joint angles are recorded
+/// for <see cref="GetAppliedAngles"/>, and <see cref="Tick"/> measures whether any
+/// driven joint was rotated AWAY from what we applied last frame (an Animator or other
+/// writer running after our Update would show up here) — read via
+/// <see cref="ConsumeExternalDrift"/>.
 /// </summary>
 internal sealed class FingerCurler
 {
-    /// <summary>Full-curl joint angles (degrees, local X) per joint index (root/mid/tip).</summary>
-    private static readonly Vector3 FingerMaxAngles = new(65f, 80f, 50f);
-    private static readonly Vector3 ThumbMaxAngles = new(25f, 45f, 60f);
+    /// <summary>Default full-curl joint angles (degrees, local X) per joint index (root/mid/tip).</summary>
+    internal static readonly Vector3 DefaultFingerMaxAngles = new(65f, 80f, 50f);
+    internal static readonly Vector3 DefaultThumbMaxAngles = new(25f, 45f, 60f);
 
     /// <summary>
     /// Per-STYLE curl-range clamp, indexed by (int)<see cref="HandStyle"/> (Glove/
@@ -46,6 +55,12 @@ internal sealed class FingerCurler
     private readonly float[] _current = new float[5];
     private readonly float[] _target = new float[5];
 
+    // Diagnostics: what THIS curler actually wrote last Tick, per finger/joint.
+    private readonly Vector3[] _appliedAngles = new Vector3[5];
+    private readonly Quaternion[][] _lastWritten = new Quaternion[5][];
+    private bool _hasWritten;
+    private float _maxExternalDriftDeg;
+
     internal FingerCurler(HandRig rig)
     {
         _rig = rig;
@@ -59,6 +74,7 @@ internal sealed class FingerCurler
                 joints.Mid.localRotation,
                 joints.Tip.localRotation
             };
+            _lastWritten[f] = new Quaternion[3];
             // Slight rest curl so an idle hand does not look like a plank.
             _current[f] = _target[f] = 0.1f;
         }
@@ -70,22 +86,61 @@ internal sealed class FingerCurler
     /// <summary>Set the target curl of a finger (clamped 0..1).</summary>
     public void SetTarget(Finger finger, float curl) => _target[(int)finger] = Mathf.Clamp01(curl);
 
+    /// <summary>The per-joint angles (degrees: root/mid/tip) actually written on the last <see cref="Tick"/>.</summary>
+    public Vector3 GetAppliedAngles(Finger finger) => _appliedAngles[(int)finger];
+
+    /// <summary>
+    /// Largest angle (degrees) any driven joint had been rotated away from the value
+    /// this curler wrote, measured at the start of each <see cref="Tick"/> since the
+    /// last call. Nonzero ⇒ something ELSE (Animator pass, other script) overwrites
+    /// the finger bones after our Update — the smoking gun for "curl applied but the
+    /// rendered hand does not close". Resets on read.
+    /// </summary>
+    public float ConsumeExternalDrift()
+    {
+        float drift = _maxExternalDriftDeg;
+        _maxExternalDriftDeg = 0f;
+        return drift;
+    }
+
     /// <summary>Advance smoothing and write joint rotations. Called once per frame by VRHand.</summary>
     public void Tick(float deltaTime)
     {
+        // Live-tunable max angles ([Hands] CurlProximal/CurlMiddle/CurlTip). The thumb
+        // keeps its authored 25/45/60 proportions by scaling with the finger ratios.
+        Vector3 fingerMax = HandsConfig.FingerMaxAnglesSafe(DefaultFingerMaxAngles) * _curlScale;
+        Vector3 thumbMax = new(
+            DefaultThumbMaxAngles.x * (fingerMax.x / DefaultFingerMaxAngles.x),
+            DefaultThumbMaxAngles.y * (fingerMax.y / DefaultFingerMaxAngles.y),
+            DefaultThumbMaxAngles.z * (fingerMax.z / DefaultFingerMaxAngles.z));
+
         float k = 1f - Mathf.Exp(-LerpSpeed * deltaTime);
         for (int f = 0; f < 5; f++)
         {
             _current[f] = Mathf.Lerp(_current[f], _target[f], k);
 
             FingerJoints joints = _rig.GetFinger((Finger)f);
-            Vector3 max = (f == (int)Finger.Thumb ? ThumbMaxAngles : FingerMaxAngles) * _curlScale;
+            Vector3 max = f == (int)Finger.Thumb ? thumbMax : fingerMax;
             Quaternion[] baseRot = _baseRotations[f];
+            Quaternion[] written = _lastWritten[f];
             float curl = _current[f];
 
-            joints.Root.localRotation = baseRot[0] * Quaternion.Euler(max.x * curl, 0f, 0f);
-            joints.Mid.localRotation = baseRot[1] * Quaternion.Euler(max.y * curl, 0f, 0f);
-            joints.Tip.localRotation = baseRot[2] * Quaternion.Euler(max.z * curl, 0f, 0f);
+            // External-overwrite detector: if the bone no longer holds what WE wrote
+            // last frame, another writer ran after us (Animator update, other script).
+            if (_hasWritten)
+            {
+                float drift = Quaternion.Angle(joints.Root.localRotation, written[0]);
+                drift = Mathf.Max(drift, Quaternion.Angle(joints.Mid.localRotation, written[1]));
+                drift = Mathf.Max(drift, Quaternion.Angle(joints.Tip.localRotation, written[2]));
+                if (drift > _maxExternalDriftDeg)
+                    _maxExternalDriftDeg = drift;
+            }
+
+            _appliedAngles[f] = max * curl;
+            written[0] = joints.Root.localRotation = baseRot[0] * Quaternion.Euler(max.x * curl, 0f, 0f);
+            written[1] = joints.Mid.localRotation = baseRot[1] * Quaternion.Euler(max.y * curl, 0f, 0f);
+            written[2] = joints.Tip.localRotation = baseRot[2] * Quaternion.Euler(max.z * curl, 0f, 0f);
         }
+        _hasWritten = true;
     }
 }
