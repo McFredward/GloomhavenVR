@@ -731,6 +731,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => CombatLogSurface.UserVisible,
             v => CombatLogSurface.SetUserVisible(v, "settings"));
 
+        // MSAA on the VR eye textures ([RenderQuality] MsaaLevel — Rig.RenderQuality):
+        // the game's own AA lived in the PostProcessLayer the mod kill-switches, so this
+        // is the ONLY anti-aliasing in VR. Cycles Off → 2x → 4x → 8x. Applies IMMEDIATELY:
+        // the rig's per-frame RenderQuality tick re-asserts QualitySettings.antiAliasing
+        // and pushes the level to the XR display subsystem, which re-allocates the eye
+        // textures live — no rig rebuild, no restart.
+        var msaaRow = Row();
+        Label(msaaRow, "MSAA", 16f, flexible: true);
+        CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
+        var msaaNote = Row(18f);
+        Label(msaaNote, "anti-aliasing — applies immediately", 12f, flexible: true);
+
         Section(Loc.Mod("mixed_reality"));
 
         // MR chroma-key mode (item 7): disables all skyboxes and clears the sky/background to

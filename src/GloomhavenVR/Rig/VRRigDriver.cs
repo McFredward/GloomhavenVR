@@ -200,6 +200,7 @@ internal sealed class VRRigDriver : MonoBehaviour
             ("Rig.HeadCullingMask", TickHeadCullingMask),
             ("Rig.HeadClearColor", TickHeadClearColor),
             ("Rig.ClipPlanes", TickClipPlanes),
+            ("Rig.RenderQuality", RenderQuality.Tick),
             ("Rig.CameraPolicy", () => TickCameraPolicy(_tickSceneLoaded)),
             ("Rig.MixedReality", MixedReality.Tick),
         };
@@ -617,7 +618,12 @@ internal sealed class VRRigDriver : MonoBehaviour
         _camera.nearClipPlane = Mathf.Clamp(BaseNearMeters * rigScale, MinNearClip, MaxNearClip);
         _camera.farClipPlane = _baseFarClip;
         _camera.allowHDR = anchor.allowHDR;
-        _camera.allowMSAA = anchor.allowMSAA;
+        // ALWAYS allow MSAA on the head camera (aliasing fix #5b/#6): the game's cameras may
+        // ship allowMSAA=false and copying that would silently veto the [RenderQuality]
+        // MsaaLevel eye-texture MSAA. allowMSAA is only a permission — actual sampling is
+        // QualitySettings.antiAliasing (RenderQuality.Tick) and only on the forward path;
+        // on deferred it is ignored, so forcing it on is always safe.
+        _camera.allowMSAA = true;
         _camera.useOcclusionCulling = anchor.useOcclusionCulling;
         if (!modLayerOnly && anchor.clearFlags == CameraClearFlags.Skybox)
         {
