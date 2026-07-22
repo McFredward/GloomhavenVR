@@ -103,7 +103,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     /// <summary>
     /// Debug-menu top-level TAB. The user browses the debug menu by category first (a compact
-    /// CYCLE button), and the Element cycle then walks only the 2–5 elements of that category
+    /// CYCLE button), and the Element chooser (an expandable accordion of option rows) then
+    /// offers only the 2–5 elements of that category
     /// instead of all 14 at once. <see cref="Board"/> is a single-element per-board tab; Fan and
     /// Hands are GLOBAL tabs (no per-board Oak/Steel/Bronze selector, no element cycle) — their
     /// settings apply to every board.
@@ -138,6 +139,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private int _debugCategory;
     /// <summary>Remembered element index PER category (nice-to-have persistence within a session).</summary>
     private readonly int[] _categoryElement = new int[DebugCategoryCount];
+    /// <summary>Element ACCORDION state: true while the per-element option rows are expanded.</summary>
+    private bool _elementListOpen;
     private readonly List<GameObject> _debugRows = new(24);          // every debug row (teardown + gate)
     private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -703,6 +706,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => Plugin.WallFade.Value,
             v => Plugin.WallFade.Value = v);
 
+        // Wall-fade decision thresholds (live [WallFade] config — WallSegmentFade re-reads
+        // them every evaluation tick, no restart). Debug-gated steppers (same master gate as
+        // the board-tuning rows below) so the Modules section stays compact in normal play,
+        // but they LIVE here, right under the Wall see-through toggle they tune.
+        WallFadeTuning.Bind();
+        AddWallFadeRow("Fade on", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
+            v => $"{v * 100f:0}%");
+        AddWallFadeRow("Fade off", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
+            v => $"{v * 100f:0}%");
+        AddWallFadeRow("Unfade (moved)", WallFadeTuning.ExitDwellMoved, 0.5f, 0.1f, 60f,
+            v => $"{v:0.0}s");
+        AddWallFadeRow("Unfade (still)", WallFadeTuning.ExitDwellStationary, 0.5f, 0.1f, 120f,
+            v => $"{v:0.0}s");
+
         Toggle(Loc.Mod("disable_post"),
             () => Plugin.DisablePostProcessing.Value,
             v => Plugin.DisablePostProcessing.Value = v);
@@ -824,7 +841,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(catRow, Loc.Mod("category"), 16f, flexible: true);
         CycleButton(catRow, 130f,
             () => DebugCategoryLabel(CurrentCategory),
-            () => _debugCategory = (_debugCategory + 1) % DebugCategoryCount);
+            () =>
+            {
+                _debugCategory = (_debugCategory + 1) % DebugCategoryCount;
+                _elementListOpen = false; // switching tabs collapses the element accordion
+            });
 
         // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all boards).
         var boardRow = Row();
@@ -834,20 +855,58 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
 
-        // Element cycle — walks the CURRENT category's elements; hidden for global categories and
-        // for single-element categories (Board) where it would be a no-op button.
+        // Element chooser — ACCORDION (replaced the old cycle button, which needed up to
+        // N-1 clicks to reach an element once the categories grew): the header row shows
+        // the selected element; pressing it expands one option row PER element of the
+        // CURRENT category right below (the panel's ContentSizeFitter grows around them,
+        // exactly like every conditional debug row); pressing an option selects it and
+        // collapses the list. Hidden for global categories and for single-element
+        // categories (Board) where a chooser would be a no-op. Rows are plain uGUI
+        // buttons built by the shared helpers, so poke AND laser keep working unchanged.
         var elemRow = Row();
         RegisterDebugRow(elemRow.gameObject,
             () => !CategoryIsGlobal(CurrentCategory) && CurrentCategoryElements.Length > 1);
         Label(elemRow, Loc.Mod("element"), 16f, flexible: true);
         CycleButton(elemRow, 130f,
-            () => DebugElementLabel(CurrentElement()),
-            () =>
+            () => DebugElementLabel(CurrentElement()) + (_elementListOpen ? " -" : " +"),
+            () => _elementListOpen = !_elementListOpen);
+
+        // One option row per possible element slot (built once for the LARGEST category;
+        // each row's visibility predicate + label refresher re-scope it to the current
+        // category, so category switches never rebuild anything).
+        int maxElements = 0;
+        foreach (DebugElement[] els in CategoryElements)
+        {
+            if (els.Length > maxElements)
+                maxElements = els.Length;
+        }
+        for (int i = 0; i < maxElements; i++)
+        {
+            int idx = i; // capture per row
+            var optRow = Row(28f);
+            RegisterDebugRow(optRow.gameObject,
+                () => _elementListOpen && !CategoryIsGlobal(CurrentCategory)
+                      && CurrentCategoryElements.Length > 1
+                      && idx < CurrentCategoryElements.Length);
+            Label(optRow, "", 13f); // fixed 28px gutter — reads as an indented sub-row
+            (Button _, TextMeshProUGUI optText) = Button(optRow, "", 0f, () =>
             {
-                int len = CurrentCategoryElements.Length;
-                if (len > 0)
-                    _categoryElement[_debugCategory] = (_categoryElement[_debugCategory] + 1) % len;
+                DebugElement[] els = CurrentCategoryElements;
+                if (idx < els.Length)
+                    _categoryElement[_debugCategory] = idx;
+                _elementListOpen = false; // select + collapse
+                RefreshAll();
+            }, flexible: true);
+            _refreshers.Add(() =>
+            {
+                DebugElement[] els = CurrentCategoryElements;
+                if (idx >= els.Length)
+                    return; // row is hidden by its predicate anyway
+                bool selected =
+                    Mathf.Clamp(_categoryElement[_debugCategory], 0, els.Length - 1) == idx;
+                optText.text = (selected ? "> " : "") + DebugElementLabel(els[idx]);
             });
+        }
 
         // Per-element steppers (visible for the current per-board category + element). ---------
         bool PerBoard() => !CategoryIsGlobal(CurrentCategory);
@@ -1096,6 +1155,26 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 else v.z += s;
                 e.Value = v; // persists; PileBrowser.Tick re-reads per frame (live)
             });
+    }
+
+    /// <summary>
+    /// Wall-fade threshold stepper row (lives in the Modules section next to the Wall
+    /// see-through toggle, but is debug-gated like the board-tuning rows: visible only
+    /// while [Cards] DebugMenu is on). Bound directly to a live [WallFade] entry —
+    /// writing persists (BepInEx) and applies on WallSegmentFade's next evaluation tick
+    /// (the driver re-reads the clamped WallFadeTuning accessors every frame).
+    /// </summary>
+    private void AddWallFadeRow(string label, ConfigEntry<float>? entry, float step, float min,
+        float max, Func<float, string> format)
+    {
+        if (entry == null)
+            return; // WallFadeTuning.Bind() failed (config dir unwritable) — skip the row
+        var row = Row();
+        RegisterDebugRow(row.gameObject, () => true);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => format(entry.Value),
+            d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
     }
 
     /// <summary>
