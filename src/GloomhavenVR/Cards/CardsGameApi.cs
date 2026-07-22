@@ -349,6 +349,41 @@ internal static class CardsGameApi
         hand.PlayerActor != null && hand.PlayerActor.IsCardSelectionReady();
 
     /// <summary>
+    /// Task #4b GATE: true when, in the plain <c>SelectAbilityCardsOrLongRest</c> phase,
+    /// the player can NO LONGER assemble the required TWO round cards and must rest
+    /// instead — so a fan→slot placement must be refused. Exact rule mirrored from the
+    /// game: readiness requires <c>RoundAbilityCards.Count &gt;= 2 || LongRest</c>
+    /// (<c>IsCardSelectionReady</c>, CPlayerActorExtensions.cs:5); with
+    /// <c>HandAbilityCards.Count + RoundAbilityCards.Count &lt; 2</c> that is
+    /// unreachable — the SAME hand+round&lt;2 formula the rule engine uses for the
+    /// exhaustion check (CCharacterClass.cs:1766). The 2D UI never physically blocks
+    /// clicking the last hand card (<c>AbilityCardUI.CanSelectInScenario</c> only caps
+    /// at 2 selected, AbilityCardUI.cs:1227) — it merely leaves READY disabled — but in
+    /// VR a slotted card LOOKS committed, and a subsequent short rest docks its
+    /// sacrifice display into the same recess (the reported overlap glitch), so the
+    /// placement itself is gated. Extra-turn card picks
+    /// (<c>SelectingCardsForExtraTurnOfType != None</c>) run their own
+    /// <c>maxCardsSelected</c> count through the same mode and are exempt, as is any
+    /// non-selection phase.
+    /// </summary>
+    internal static bool MustRestInsteadOfPlay(CardsHandUI hand)
+    {
+        CPlayerActor? actor = hand.PlayerActor;
+        if (actor == null || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return false;
+        if (actor.SelectingCardsForExtraTurnOfType != CAbilityExtraTurn.EExtraTurnType.None)
+            return false; // extra-turn picks have their own wanted count — never gate them
+        return actor.CharacterClass.HandAbilityCards.Count
+             + actor.CharacterClass.RoundAbilityCards.Count < 2;
+    }
+
+    /// <summary>Playable-pool size for the refuse log line (hand + already-selected round cards).</summary>
+    internal static int PlayableCardCount(CardsHandUI hand) =>
+        hand.PlayerActor == null ? 0
+            : hand.PlayerActor.CharacterClass.HandAbilityCards.Count
+            + hand.PlayerActor.CharacterClass.RoundAbilityCards.Count;
+
+    /// <summary>
     /// Current scenario round (0 while no scenario state exists). Verified:
     /// <c>public ScenarioState m_CurrentState</c> (Choreographer.cs:421) with
     /// <c>public int RoundNumber { get; set; }</c> (ScenarioState.cs:68) — the exact

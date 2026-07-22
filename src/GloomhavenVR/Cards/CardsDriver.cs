@@ -1076,6 +1076,36 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
+        // Task #2 (tray-card grab radius) — LIFT-PRIORITY accept. The proximity highlight
+        // (ProximityGrabber, 0.13 m palm reach off the card collider) is exactly what
+        // hover-LIFTS a slotted card, so the accept volume for the trigger-grab is the
+        // hover-lift radius itself — the lift IS the affordance promise. Without this,
+        // the grab often failed even though the card was visibly lifted: the trigger is
+        // shared with the laser click, and the beam near-missing onto a board element
+        // (CONFIRM/UNDO/rest/pile — grab attempts point INTO the board by nature) or
+        // onto the OTHER slotted card swallowed the pull as an element press / wrong-
+        // card pluck (ProximityGrabber defers on Ray.HasFreshUiHit). While the free
+        // hand's highlight IS a tray-docked card: suppress the board hover/click for
+        // the frame, clamp the beam onto the lifted card (telegraphs the winner), and
+        // grab exactly that card on TriggerDown. Single-winner by construction —
+        // Highlighted is unique per hand and only a SLOTTED card takes this path; fan
+        // cards, figures and non-lifted cards are untouched. Yields to a live game-UI
+        // hit (RayUgui) like every path below so a docked game-widget click can never
+        // double-fire with a grab.
+        if (dom.Grabber.Highlighted is VRCard lifted && _tray.ContainsCard(lifted)
+            && !dom.RayUgui.HasHit)
+        {
+            ClearBoardHover();
+            dom.Ray.UiHitOverride = lifted.transform.position;
+            if (dom.TriggerDown && lifted.CanGrab)
+            {
+                VRLog.Info("Cards", "Board: hover-LIFTED slot card trigger-grabbed " +
+                                    "(lift-priority accept — beam near-miss suppressed).");
+                dom.Grabber.ForceGrab(lifted, releaseOnTriggerUp: true);
+            }
+            return;
+        }
+
         PickPose pick = dom.Ray.Current;
         var ray = new Ray(pick.Origin, pick.Direction);
         float maxDist = 3f * dom.WorldScale;
@@ -1394,6 +1424,12 @@ internal sealed class CardsDriver : MonoBehaviour
             if (held != null && holder != null)
             {
                 slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
+                // Task #4b GATE ("what glows is what drops"): a fan card that the release
+                // path would REFUSE (fewer than 2 playable cards — the player must rest,
+                // see OnCardReleased) must not telegraph a snap either.
+                if (slot >= 0 && !_tray.ContainsCard(held)
+                    && pickHand != null && CardsGameApi.MustRestInsteadOfPlay(pickHand))
+                    slot = -1;
                 // Mirror the release-time targeting (item 27.1 + item 2):
                 // - a HELD TRAY card NOW glows its own origin slot too — hovering the slot
                 //   it came from telegraphs the RESTORE (releasing there re-seats it), so
@@ -2062,6 +2098,24 @@ internal sealed class CardsDriver : MonoBehaviour
         if (highlightSlot >= 0)
             slot = highlightSlot;
 
+        // Task #4b GATE: card selection needs TWO cards (or a declared rest). When the
+        // hand+round pool has fewer than 2 playable cards the requirement is
+        // unsatisfiable (exact game rule mirrored in CardsGameApi.MustRestInsteadOfPlay:
+        // IsCardSelectionReady needs RoundAbilityCards >= 2 || LongRest,
+        // CPlayerActorExtensions.cs:5; hand+round < 2 is the rule engine's own
+        // exhaustion formula, CCharacterClass.cs:1766) — the player must rest instead.
+        // Refuse the fan→slot drop with the existing return-home glide. Tray-origin
+        // drops (reorder / take-back) stay allowed: they never grow the round pile.
+        if (slot >= 0 && !wasInTray && CardsGameApi.MustRestInsteadOfPlay(gameHand))
+        {
+            VRLog.Info("Cards", $"Drop REFUSED ({hand.Side}): only " +
+                                $"{CardsGameApi.PlayableCardCount(gameHand)} playable card(s) left — " +
+                                "selection needs TWO cards; rest instead (short/long). " +
+                                $"'{ability.Name}' returns to the fan.");
+            _fan.Add(card); // refuse/return-home path — the card glides back
+            return;
+        }
+
         // THE one log line per real drop (test #14; #15 adds the accepting rule;
         // item 27.1 adds the fan→occupied swap outcome). A fan card landing on an
         // occupied slot swaps: the newcomer takes the slot, the occupant → hand.
@@ -2611,6 +2665,24 @@ internal sealed class CardsDriver : MonoBehaviour
 
         card.Grabbable = false;      // display-only — the docked choice commits, not a drop
         card.PokeSelectEnabled = false;
+
+        // Task #4b (collision safety): the sacrifice docks into the LEFT recess — if the
+        // mod still shows a played card in EITHER slot it is stale by definition here
+        // (PerformShortRest ran DeselectAllCards game-side, CardsHandUI.cs:771-area), so
+        // re-home it to the fan BEFORE docking; the two must never overlap in a recess.
+        // Normally SyncFromGameState already evicted the occupancy and the closed-fan
+        // adopt in CardFan.SetCards re-parks the physical card; this covers any ordering
+        // where the sync lags the present by a frame.
+        for (int s = 0; s < 2; s++)
+        {
+            VRCard? stale = _tray.Occupant(s);
+            if (stale == null || ReferenceEquals(stale, card))
+                continue;
+            _tray.RemoveCard(stale);
+            _fan.Add(stale);
+            VRLog.Info("Cards", $"Short rest: stale occupant re-homed from slot {s + 1} to the fan " +
+                                "before docking the sacrifice (collision safety).");
+        }
 
         card.gameObject.SetActive(true);
         _tray.PlacePickCard(card, 0); // LEFT slot recess (test #28) — display-only sacrifice
