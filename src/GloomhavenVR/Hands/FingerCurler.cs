@@ -23,16 +23,19 @@ internal sealed class FingerCurler
 
     /// <summary>
     /// Per-STYLE curl-range clamp, indexed by (int)<see cref="HandStyle"/> (Glove/
-    /// Plate/Arcane). The AI-generated styled meshes are not authored dead-straight —
-    /// the Plate gauntlet's fingers are visibly PRE-CURLED and the Arcane digits are
-    /// long and thin — so the glove's full 65/80/50-degree range over-closes them:
-    /// fingertips folded into the palm / collapsed into "donut" blobs at full fist
-    /// (9-pose Blender render matrix, unity/hand-prep/rig_hand.py RIG_HAND_POSES=1).
-    /// 0.72/0.85 were picked from those renders: the fist closes naturally without the
-    /// tips digging in. Style-intrinsic constants, not user preferences — and the
-    /// matching preview renders use the same values via RIG_HAND_CURL_SCALE.
+    /// Plate/Arcane). History: the first styled builds over-closed ("donut" tips)
+    /// because the skin weights dragged palm membranes, so 0.72/0.85 clamps were
+    /// added — but combined with the round-2 weight caps that froze the MCP
+    /// knuckles, the result was "almost only the fingertips move". With the round-3
+    /// rig (adaptive digit caps in unity/hand-prep/rig_hand.py: knuckle zone
+    /// t&gt;=-0.10 owned by its finger, caps scaled to measured shell thickness) the
+    /// posed-mesh closure metric puts Plate/Arcane fingertips 65-76 mm from the palm
+    /// anchor at FULL range — the same closure band as the accepted glove
+    /// (59-72 mm) — with no tip-through-palm in the 9-pose render matrix. So all
+    /// styles now run the full 65/80/50-degree range. Kept as a tuning point for
+    /// future styles whose authored rest pose over- or under-closes.
     /// </summary>
-    private static readonly float[] StyleCurlScale = { 1f, 0.72f, 0.85f };
+    private static readonly float[] StyleCurlScale = { 1f, 1f, 1f };
 
     /// <summary>Smoothing rate (1/s). ~60 ms to close most of the gap.</summary>
     private const float LerpSpeed = 18f;
