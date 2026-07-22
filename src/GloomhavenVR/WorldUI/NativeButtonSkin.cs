@@ -150,7 +150,12 @@ internal static class NativeButtonSkin
             face.color = color;
     }
 
-    /// <summary>Give a world TMP label the game's HUD font (no-op until one is sampled).</summary>
+    /// <summary>Give a world TMP label the game's HUD font (no-op until one is sampled) —
+    /// and force the label DEPTH-HONEST (see <see cref="MakeLabelDepthHonest"/>): the game
+    /// font's shared material is authored for the 2D screen HUD and renders ON TOP
+    /// (renderQueue 4003 + ZTest Always), which in VR bled button text through nearer
+    /// geometry and through the held-figure info panel (perspective must hold — only the
+    /// skybox is exempt).</summary>
     internal static void ApplyFont(TMP_Text label)
     {
         EnsureSampled();
@@ -158,6 +163,32 @@ internal static class NativeButtonSkin
             label.font = _font;
         else if (_font == null)
             WorldUIAssets.TryAssignGameFont(label); // ReadyButton-label path (same asset)
+        MakeLabelDepthHonest(label);
+    }
+
+    /// <summary>
+    /// Depth-honest render state for a world-space mod label, via a PER-LABEL font-material
+    /// INSTANCE (TMP's <c>fontMaterial</c> — the game's shared font asset is never mutated):
+    /// renderQueue Transparent (3000, down from the HUD asset's on-top 4003, and ≤ the
+    /// converted panels' UI queue) + ZTest LEqual on every ZTest spelling the TMP/UI shader
+    /// family uses (<c>_ZTestMode</c> on the distance-field shader, <c>unity_GUIZTestMode</c>
+    /// on the UI variants — the per-material value beats Unity's global; ActorBars precedent,
+    /// hardware-verified). The label then depth-tests like everything else: occluded by walls,
+    /// hands, held cards and any depth-writing geometry in FRONT of it, while staying readable
+    /// on its button because it sits proud of the cap face (the ButtonCluster/PlayTray
+    /// DEPTH-CORRECT design). Idempotent — safe to re-apply after any font (re)assignment.
+    /// </summary>
+    internal static void MakeLabelDepthHonest(TMP_Text label)
+    {
+        if (label == null || label.font == null)
+            return; // no font yet → no material to fix; re-applied when the font lands
+        Material mat = label.fontMaterial; // per-label instance (never the shared asset)
+        if (mat == null)
+            return;
+        mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent; // 3000
+        if (mat.HasProperty("_ZTestMode"))
+            mat.SetInt("_ZTestMode", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+        mat.SetInt("unity_GUIZTestMode", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
     }
 
     /// <summary>

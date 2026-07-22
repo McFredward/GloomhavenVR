@@ -174,7 +174,9 @@ internal sealed class ButtonCluster
         VRLayers.Apply(_root);
         VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — DEPTH-CORRECT: lit opaque " +
                               $"BoardLit caps at natural ZTest LEqual, seated {ClusterProudOffset * 1000f:0} mm " +
-                              "proud of the board face (occluded by walls in front, no more ZTest-Always shine-through).");
+                              "proud of the board face (occluded by walls in front, no more ZTest-Always " +
+                              "shine-through); labels depth-honest too (per-label font-material instance, " +
+                              "queue 3000 + ZTest LEqual — no more text through the held-figure info panel).");
     }
 
     /// <summary>
@@ -450,7 +452,11 @@ internal sealed class ButtonCluster
             _label.color = NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : Color.white;
             NativeButtonSkin.ApplyFont(_label);
             // Draw the label above the native sprite face (test #26): both transparent,
-            // ZWrite off — sorting order decides, and the face uses sortingOrder 1.
+            // ZWrite off — sorting order decides, and the face uses sortingOrder 1. Both
+            // stay TINY (≤3) so the held-figure info panel host canvas (StatPanelSurface,
+            // sortingOrder 10) composites over them; ApplyFont above additionally forced
+            // the label's font-material instance depth-honest (queue 3000 + ZTest LEqual,
+            // not the HUD asset's on-top 4003/Always), so real geometry occludes the text.
             var labelRenderer = labelGo.GetComponent<MeshRenderer>();
             if (labelRenderer != null)
                 labelRenderer.sortingOrder = 3;
@@ -623,7 +629,9 @@ internal sealed class ButtonCluster
                     _mirroredText = text;
                     _label.text = text ?? string.Empty;
                     if (_label.font == null)
-                        WorldUIAssets.TryAssignGameFont(_label);
+                        // Late font pickup goes through the skin so the depth-honest
+                        // material fix (queue 3000 + ZTest LEqual) rides the new font too.
+                        NativeButtonSkin.ApplyFont(_label);
                 }
             }
         }
