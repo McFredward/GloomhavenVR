@@ -70,6 +70,20 @@ internal sealed class VRHand : MonoBehaviour
     private static readonly InputFeatureUsage<Vector3> PointerPositionUsage = new("PointerPosition");
     private static readonly InputFeatureUsage<Quaternion> PointerRotationUsage = new("PointerRotation");
 
+    /// <summary>
+    /// TRIGGER DROPOUT fallbacks (hardware evidence, LogOutput "FIST Right ... raw
+    /// trig=0.00 grip=1.00" + "peak raw grip=1.00 trigger=0.00"): Quest 3 via Virtual
+    /// Desktop's VDXR runtime can deliver a permanently-zero ANALOG trigger
+    /// (CommonUsages.trigger) while the digital states still fire. When the analog
+    /// reads 0 we probe, in order: the alternate "TriggerValue" float some runtimes
+    /// tag instead of "Trigger", the digital CommonUsages.triggerButton, and the
+    /// OpenXR "Select" usage (the runtime's authored click) — first non-zero wins
+    /// (booleans map to 1.0). Logged once per device acquisition so hardware logs
+    /// show WHICH source actually feeds the index finger.
+    /// </summary>
+    private static readonly InputFeatureUsage<float> TriggerValueAltUsage = new("TriggerValue");
+    private static readonly InputFeatureUsage<bool> SelectUsage = new("Select");
+
     private InputDevice _device;
     private FingerCurler _curler = null!;
     private Transform _handRoot = null!;
@@ -451,6 +465,8 @@ internal sealed class VRHand : MonoBehaviour
                 : $"{Side} controller lost the aim pose — laser falls back to the grip-pose hand frame.");
 
         _device.TryGetFeatureValue(CommonUsages.trigger, out float trigger);
+        if (trigger <= 0.001f)
+            trigger = ReadTriggerFallbacks();
         _device.TryGetFeatureValue(CommonUsages.grip, out float grip);
         ApplyAnalog(trigger, grip);
 
@@ -477,6 +493,40 @@ internal sealed class VRHand : MonoBehaviour
         ThumbstickClick = stickClick;
         ThumbstickClickDown = stickClick && !prevStickClick;
         ThumbstickClickUp = !stickClick && prevStickClick;
+    }
+
+    // Which trigger fallback source is currently feeding TriggerValue (log dedup).
+    private enum TriggerSource { Analog, AltValue, Button, Select }
+    private TriggerSource _triggerSource = TriggerSource.Analog;
+
+    /// <summary>See <see cref="TriggerValueAltUsage"/>: probe alternate trigger sources when the
+    /// analog CommonUsages.trigger reads 0 (VDXR delivers 0.00 through a full squeeze).</summary>
+    private float ReadTriggerFallbacks()
+    {
+        TriggerSource source = TriggerSource.Analog;
+        float value = 0f;
+        if (_device.TryGetFeatureValue(TriggerValueAltUsage, out float alt) && alt > 0.001f)
+        {
+            value = alt;
+            source = TriggerSource.AltValue;
+        }
+        else if (_device.TryGetFeatureValue(CommonUsages.triggerButton, out bool button) && button)
+        {
+            value = 1f;
+            source = TriggerSource.Button;
+        }
+        else if (_device.TryGetFeatureValue(SelectUsage, out bool select) && select)
+        {
+            value = 1f;
+            source = TriggerSource.Select;
+        }
+        if (source != TriggerSource.Analog && source != _triggerSource)
+        {
+            _triggerSource = source;
+            VRLog.Info("Hands", $"{Side} analog trigger reads 0 while '{source}' is active — " +
+                                $"index finger now driven from the {source} fallback (VDXR trigger dropout).");
+        }
+        return value;
     }
 
     private void ReadSimulated()
@@ -595,8 +645,19 @@ internal sealed class VRHand : MonoBehaviour
             // so the unremapped value never reached full curl — "mostly no fist" on
             // every style. Only the curl targets are remapped; TriggerValue/GripValue
             // stay raw for the 0.75/0.55 press hysteresis and pose classification.
-            float indexCurl = Pose == HandPose.Point ? 0f : RemapCurlInput(TriggerValue);
             float gripCurl = RemapCurlInput(GripValue);
+            // GRIP-FIST OVERRIDE (hardware evidence, LogOutput 2026-07 "FIST Right ...
+            // raw trig=0.00 grip=1.00 pose=Point ... index=0/0/0"): on VDXR the analog
+            // trigger can stay 0.00 through a full-controller squeeze even with the
+            // fallbacks above, so the Point gate held the index straight and the thumb
+            // capped at 0.65 — a fist was IMPOSSIBLE. A (near-)full grip IS a fist:
+            // close the index and thumb from the grip too and bypass the Point gate.
+            // Deliberate pointing still works — it reads as a partial grip (or full
+            // grip with a live trigger at rest on runtimes whose trigger works).
+            bool gripFist = gripCurl >= 0.9f;
+            float indexCurl = Pose == HandPose.Point && !gripFist ? 0f : RemapCurlInput(TriggerValue);
+            if (gripFist)
+                indexCurl = Mathf.Max(indexCurl, gripCurl);
             _curler.SetTarget(Finger.Index, indexCurl);
             _curler.SetTarget(Finger.Middle, gripCurl);
             _curler.SetTarget(Finger.Ring, gripCurl);
@@ -604,7 +665,9 @@ internal sealed class VRHand : MonoBehaviour
             // Thumb: capacitive touch alone can only reach 0.65 (resting on the stick
             // is not a fist) — but a FIST must close the thumb fully; the old constant
             // cap left it a third open on every closed hand.
-            float thumbCurl = GripPressed && TriggerPressed ? 1f : (ThumbTouch ? 0.65f : 0.15f);
+            float thumbCurl = (GripPressed && TriggerPressed) || gripFist
+                ? 1f
+                : (ThumbTouch ? 0.65f : 0.15f);
             _curler.SetTarget(Finger.Thumb, thumbCurl);
         }
 

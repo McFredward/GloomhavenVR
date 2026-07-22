@@ -63,8 +63,9 @@ from mathutils.kdtree import KDTree
 #   RIG_HAND_POSES   "1" -> render the FULL runtime pose matrix instead of rest+fist:
 #                    open / half / fist / thumbtuck / point / per-finger curls, driven
 #                    with the EXACT FingerCurler convention (per-joint max angles
-#                    65/80/50 deg for fingers, 25/45/60 for the thumb, local +X)
+#                    75/95/65 deg for fingers, 25/45/60 for the thumb, local +X)
 #                    so the renders show what the mod will actually display.
+#   RIG_HAND_POSE_ONLY  comma-separated subset of the pose matrix (e.g. "fist,point")
 SRC = os.environ.get("RIG_HAND_SRC",
                      "/home/claw/gloomhaven_vr/ressources/hands/Hand_prepped.glb")
 NAME = os.environ.get("RIG_HAND_NAME", "VRHand")
@@ -86,9 +87,15 @@ FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
 
 # Runtime curl convention (src/GloomhavenVR/Hands/FingerCurler.cs): per-joint FULL-curl
 # angles in degrees around local +X, scaled by the 0..1 curl value.
-#   fingers: root 65, mid 80, tip 50      thumb: root 25, mid 45, tip 60
-CURL_MAX_FINGER = (65.0, 80.0, 50.0)
+#   fingers: root 75, mid 95, tip 65      thumb: root 25, mid 45, tip 60
+# (2026-07 fist fix: raised from 65/80/50 — even at curl 1.0 the old angles read as a
+# visibly open fist on hardware; keep in sync with FingerCurler.DefaultFingerMaxAngles.)
+CURL_MAX_FINGER = (75.0, 95.0, 65.0)
 CURL_MAX_THUMB = (25.0, 45.0, 60.0)
+
+# RIG_HAND_POSE_ONLY: comma-separated subset of POSES to render (with RIG_HAND_POSES=1),
+# e.g. "fist" or "fist,point" — keeps targeted verification runs fast. Empty = all.
+POSE_ONLY = [p for p in os.environ.get("RIG_HAND_POSE_ONLY", "").split(",") if p]
 
 # Pose matrix rendered by RIG_HAND_POSES=1 — curl value per finger, mirroring what
 # VRHand.UpdateCurlTargets actually produces on hardware:
@@ -1002,6 +1009,8 @@ def main():
                 # Full runtime pose matrix (RIG_HAND_POSES=1): every pose the mod's
                 # FingerCurler can produce, with the real per-joint max angles.
                 for pose_name, curls in POSES.items():
+                    if POSE_ONLY and pose_name not in POSE_ONLY:
+                        continue
                     apply_pose(arm, curls)
                     render_views(side, pose_name)
                 clear_pose(arm)

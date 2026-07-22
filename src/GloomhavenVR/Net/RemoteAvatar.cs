@@ -297,6 +297,11 @@ internal sealed class RemoteAvatar
         _rightRig = HandVisuals.Build(_rightHolder, HandSide.Right, style);
         _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
 
+        // HandVisuals.Build wrote the per-style visual scale onto the HOLDERS
+        // (ApplyStyleScale) — force the sender-scale block in SetTarget to re-apply,
+        // or a mid-session style swap leaves the remote hands at the wrong size.
+        _appliedScale = -1f;
+
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);
     }

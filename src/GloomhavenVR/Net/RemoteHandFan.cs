@@ -395,7 +395,9 @@ internal sealed class RemoteHandFan
     /// reads as a solid card from either side. Built once and shared by every ghost card.</summary>
     private static Mesh SharedCardMesh => _sharedCardMesh != null ? _sharedCardMesh : (_sharedCardMesh = BuildBackSlab(CardWidth, CardHeight));
 
-    private static Mesh BuildBackSlab(float w, float h)
+    /// <summary>Also consumed by <see cref="WorldUI.AvatarMirror"/> (mirrored local card fan):
+    /// a thin both-faces-back card slab mesh. Caller owns the returned mesh.</summary>
+    internal static Mesh BuildBackSlab(float w, float h)
     {
         float hw = w * 0.5f, hh = h * 0.5f, t = CardMesh.Thickness * 0.5f;
 

@@ -17,7 +17,7 @@ namespace GloomhavenVR.Hands;
 /// binary touch signals and controller value noise.
 ///
 /// FIST DIAGNOSTICS (on-device "mostly no fist" investigation): the full-curl joint
-/// angles are read live from <see cref="HandsConfig"/> (defaults 65/80/50; thumb
+/// angles are read live from <see cref="HandsConfig"/> (defaults 75/95/65; thumb
 /// 25/45/60 scaled proportionally), the actually-applied per-joint angles are recorded
 /// for <see cref="GetAppliedAngles"/>, and <see cref="Tick"/> measures whether any
 /// driven joint was rotated AWAY from what we applied last frame (an Animator or other
@@ -26,8 +26,14 @@ namespace GloomhavenVR.Hands;
 /// </summary>
 internal sealed class FingerCurler
 {
-    /// <summary>Default full-curl joint angles (degrees, local X) per joint index (root/mid/tip).</summary>
-    internal static readonly Vector3 DefaultFingerMaxAngles = new(65f, 80f, 50f);
+    /// <summary>
+    /// Default full-curl joint angles (degrees, local X) per joint index (root/mid/tip).
+    /// Raised 65/80/50 → 75/95/65 (2026-07 hardware evidence: even at curl 1.0 the
+    /// 65/80/50 fist read visibly open on the bulky styled hands — a real fist flexes
+    /// roughly 90/100/70 at MCP/PIP/DIP). Render-verified per style via the
+    /// unity/hand-prep/rig_hand.py fist matrix at the new angles.
+    /// </summary>
+    internal static readonly Vector3 DefaultFingerMaxAngles = new(75f, 95f, 65f);
     internal static readonly Vector3 DefaultThumbMaxAngles = new(25f, 45f, 60f);
 
     /// <summary>
@@ -41,7 +47,7 @@ internal sealed class FingerCurler
     /// posed-mesh closure metric puts Plate/Arcane fingertips 65-76 mm from the palm
     /// anchor at FULL range — the same closure band as the accepted glove
     /// (59-72 mm) — with no tip-through-palm in the 9-pose render matrix. So all
-    /// styles now run the full 65/80/50-degree range. Kept as a tuning point for
+    /// styles now run the full default-angle range. Kept as a tuning point for
     /// future styles whose authored rest pose over- or under-closes.
     /// </summary>
     private static readonly float[] StyleCurlScale = { 1f, 1f, 1f };

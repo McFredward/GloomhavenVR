@@ -19,7 +19,7 @@ namespace GloomhavenVR.Hands;
 ///     is a FULL curl.
 ///  2. APPLICATION — the per-joint max angles may read visually insufficient on the
 ///     styled rigs. <see cref="CurlProximal"/>/<see cref="CurlMiddle"/>/<see cref="CurlTip"/>
-///     expose the 65/80/50-degree defaults for live tuning (the thumb's 25/45/60 scale
+///     expose the 75/95/65-degree defaults for live tuning (the thumb's 25/45/60 scale
 ///     proportionally with them).
 /// <see cref="TestFist"/> separates the two: it forces curl = 1.0 on every finger of
 /// both hands regardless of input, so the in-headset look answers "is the RIG capable
@@ -33,19 +33,29 @@ internal static class HandsConfig
     /// <summary>Debug: force a full fist (curl 1.0, all fingers, both hands) regardless of input.</summary>
     public static ConfigEntry<bool> TestFist = null!;
 
-    /// <summary>Full-curl angle (degrees) of the proximal/root finger joint. Default 65.</summary>
+    /// <summary>Full-curl angle (degrees) of the proximal/root finger joint. Default 75.</summary>
     public static ConfigEntry<float> CurlProximal = null!;
 
-    /// <summary>Full-curl angle (degrees) of the middle finger joint. Default 80.</summary>
+    /// <summary>Full-curl angle (degrees) of the middle finger joint. Default 95.</summary>
     public static ConfigEntry<float> CurlMiddle = null!;
 
-    /// <summary>Full-curl angle (degrees) of the tip/distal finger joint. Default 50.</summary>
+    /// <summary>Full-curl angle (degrees) of the tip/distal finger joint. Default 65.</summary>
     public static ConfigEntry<float> CurlTip = null!;
 
     /// <summary>Raw grip/trigger value that already counts as a FULL curl (input remap).</summary>
     public static ConfigEntry<float> CurlInputFullAt = null!;
 
     private const float DefaultCurlInputFullAt = 0.85f;
+
+    // Current full-curl defaults (2026-07 fist fix: 65/80/50 read visibly open even at
+    // curl 1.0 on hardware — see FingerCurler.DefaultFingerMaxAngles). The OLD trio is
+    // kept for the one-time saved-config migration in Bind.
+    private const float DefaultCurlProximal = 75f;
+    private const float DefaultCurlMiddle = 95f;
+    private const float DefaultCurlTip = 65f;
+    private const float OldCurlProximal = 65f;
+    private const float OldCurlMiddle = 80f;
+    private const float OldCurlTip = 50f;
 
     private static ConfigFile? _file;
 
@@ -112,20 +122,37 @@ internal static class HandsConfig
             "hand, the loss is in the INPUT (grip value never reaching full range); if even " +
             "this fist stays open, the loss is in the rig/angles (raise CurlProximal/CurlMiddle/CurlTip).");
         CurlProximal = config.Bind(
-            "Hands", "CurlProximal", 65f,
+            "Hands", "CurlProximal", DefaultCurlProximal,
             "Full-curl rotation (degrees, local X) of each finger's PROXIMAL (root/knuckle) " +
             "joint at curl 1.0. The thumb's proximal angle scales proportionally " +
-            "(default thumb 25 at finger 65). Live-tunable.");
+            "(default thumb 25 at finger 75). Live-tunable.");
         CurlMiddle = config.Bind(
-            "Hands", "CurlMiddle", 80f,
+            "Hands", "CurlMiddle", DefaultCurlMiddle,
             "Full-curl rotation (degrees, local X) of each finger's MIDDLE joint at curl 1.0. " +
-            "The thumb's middle angle scales proportionally (default thumb 45 at finger 80). " +
+            "The thumb's middle angle scales proportionally (default thumb 45 at finger 95). " +
             "Live-tunable.");
         CurlTip = config.Bind(
-            "Hands", "CurlTip", 50f,
+            "Hands", "CurlTip", DefaultCurlTip,
             "Full-curl rotation (degrees, local X) of each finger's TIP (distal) joint at " +
             "curl 1.0. The thumb's tip angle scales proportionally (default thumb 60 at " +
-            "finger 50). Live-tunable.");
+            "finger 65). Live-tunable.");
+
+        // ONE-TIME MIGRATION: a cfg written by an older build has the OLD 65/80/50
+        // defaults SAVED, and BepInEx returns saved values over new defaults — the
+        // angle raise would silently never land for existing installs. If all three
+        // still sit exactly on the old defaults (i.e. the user never hand-tuned them),
+        // lift them to the new defaults; any hand-tuned value is left alone.
+        if (Mathf.Approximately(CurlProximal.Value, OldCurlProximal)
+            && Mathf.Approximately(CurlMiddle.Value, OldCurlMiddle)
+            && Mathf.Approximately(CurlTip.Value, OldCurlTip))
+        {
+            CurlProximal.Value = DefaultCurlProximal;
+            CurlMiddle.Value = DefaultCurlMiddle;
+            CurlTip.Value = DefaultCurlTip;
+            VRLog.Info("Hands", "[Hands] Curl angles migrated from the old 65/80/50 defaults to " +
+                                $"{DefaultCurlProximal:0}/{DefaultCurlMiddle:0}/{DefaultCurlTip:0} " +
+                                "(2026-07 fist fix — a hand-tuned config would have been left alone).");
+        }
         CurlInputFullAt = config.Bind(
             "Hands", "CurlInputFullAt", DefaultCurlInputFullAt,
             "Raw analog grip/trigger value (0.3-1.0) that already counts as a FULL curl: " +
