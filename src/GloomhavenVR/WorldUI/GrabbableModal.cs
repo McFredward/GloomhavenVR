@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -68,7 +69,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// WORLD-space canvas that writes NO depth on purpose (ZWrite OFF, so hands/board still occlude
     /// the menu — a hard requirement), so transparent HUD (the initiative track, button-cluster
     /// labels) sitting BEHIND the menu is never depth-occluded and bleeds through. The mask is a
-    /// color-invisible depth-WRITING quad coplanar with the menu; it must render AFTER all opaque
+    /// color-invisible depth-WRITING per-graphic quad mesh coplanar with the menu (task #5); it must render AFTER all opaque
     /// geometry (so nearer hands/board depth is already in the buffer and their LEqual wins) and
     /// BEFORE the menu's own transparent UI (~queue 3000, so the menu draws on top and its LEqual
     /// passes at the stamped plane, while HUD-behind fails). Geometry-Last+... i.e. one below the
@@ -89,11 +90,20 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private const float DepthMaskBehindMeters = 0.002f;
 
     /// <summary>
-    /// Task #6: padding (host px) around the visible-content union the depth mask covers — matches
-    /// the content fit's 12 px pad, so on a fully-populated fitted window the mask still spans
-    /// essentially the whole host rect (behavior unchanged there).
+    /// Task #5: padding (host px) around EACH per-graphic quad of the depth-mask mesh — just
+    /// enough to bridge antialiased edges without re-closing the gaps between settings rows
+    /// (the old single-union mask used 12 px around the whole union; per-graphic quads must
+    /// stay tight or adjacent-row pads merge and the gap is masked again).
     /// </summary>
-    private const float DepthMaskPaddingPx = 12f;
+    private const float DepthMaskQuadPaddingPx = 3f;
+
+    /// <summary>
+    /// Task #5: cap on per-graphic depth-mask quads. The biggest options submenu measures
+    /// ~100 visible graphics; past the cap the remaining graphics merge into the LAST quad's
+    /// union (coverage kept, gap fidelity degrades) — see
+    /// <see cref="CanvasConversion.CollectVisibleMaskRects"/>.
+    /// </summary>
+    private const int DepthMaskMaxQuads = 256;
 
     private ConvertedPanel _panel = null!;
     private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
@@ -118,8 +128,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
     private Transform? _bar;
-    private Transform? _depthMask;              // problem #4: coplanar depth-writing quad (menu family only)
+    private Transform? _depthMask;              // problem #4: coplanar depth-writing mesh (menu family only)
+    private Mesh? _depthMaskMesh;               // task #5: one quad per visible graphic (rebuilt on change)
+    private int _depthMaskHash;                 // task #5: quantized hash of the emitted rects (rebuild gate)
     private bool _wantDepthMask;               // set by Build for the pause/options/confirmation family
+
+    // Task #5 scratch (mask mesh rebuild only; static — ticks run sequentially on the main thread).
+    private static readonly List<Vector4> MaskRectScratch = new(DepthMaskMaxQuads);
+    private static readonly List<Vector3> MaskVertScratch = new(DepthMaskMaxQuads * 4);
+    private static readonly List<int> MaskTriScratch = new(DepthMaskMaxQuads * 6);
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
 
@@ -243,45 +260,93 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Problem #4 + task #6: size + place the depth mask each tick so it stays coplanar with the
-    /// (grabbable, resizable, content-fittable) menu — but covering ONLY the union bounding rect of
-    /// the window's actually-VISIBLE graphics (<see cref="CanvasConversion.TryMeasureVisibleUnion"/>),
-    /// NOT the full host rect. The Options submenu hosts a full-width rect whose right side is EMPTY
-    /// until an item is opened; a full-rect mask stamped menu-plane depth across that emptiness and
-    /// depth-occluded OTHER MENUS behind it (task #6). With the content union, the mask hugs the left
-    /// rail (plus the opened pane / an open dropdown list — the union grows automatically), and the
-    /// empty region stays truly transparent: world AND other menus show through. Disjoint content
-    /// clusters are covered by their single union rect (a bridge of masked emptiness between them is
-    /// accepted — it only matters when clusters are far apart, which the menu family never is).
-    /// No visible content → mask disabled entirely.
+    /// Problem #4 + task #5: keep the depth mask coplanar with the (grabbable, resizable,
+    /// content-fittable) menu — as a PER-GRAPHIC quad mesh, one quad per visible graphic's
+    /// host-local rect (<see cref="CanvasConversion.CollectVisibleMaskRects"/>), NOT one union
+    /// rect. The old union stamped menu-plane depth across the GAPS between settings rows: the
+    /// WORLD still showed through them (drawn before the mask, colour already in the buffer)
+    /// but OTHER TRANSPARENT MENUS behind did not (drawn after, depth-tested against the stamp).
+    /// With per-graphic quads, depth is stamped only where content approximately renders and
+    /// every gap — between rows, beside the rail, around the dialog — stays open for menus
+    /// behind too. Rect-level approximation: a graphic's transparent padding INSIDE its own
+    /// rect still masks (per-pixel would need alpha-aware shaders — out of scope).
     ///
-    /// Units: the union comes in HOST-LOCAL px; frame-local metres = px × unit (the frame origin is
-    /// the host centre — pivot 0.5,0.5 — and the frame's own localScale carries the user grab factor
-    /// on top, exactly like the bar), pushed a hair to +Z (behind the content, toward far). The
-    /// per-tick Graphic walk is the accepted cost (~100 graphics on the biggest menu, only for the
-    /// masked pause/options family).
+    /// Mesh economy: the (cheap, depth-only, hugely overdraw-tolerant) quads live in HOST-LOCAL
+    /// px in the mesh; the transform's localScale carries px→frame-metres (<paramref name="unit"/>)
+    /// and the frame's own localScale the user grab factor, so per tick only the transform is
+    /// written. The mesh itself rebuilds ONLY when the quantized rect set changes (hash gate) —
+    /// scrolling/toggling rebuilds, a static menu costs just the per-tick Graphic walk (~100
+    /// graphics on the biggest menu, only for the masked pause/options family). No visible
+    /// content → mask disabled entirely.
     /// </summary>
     private void SyncDepthMask(float unit, float worldScale)
     {
-        if (_depthMask == null)
+        if (_depthMask == null || _depthMaskMesh == null)
             return;
-        if (!CanvasConversion.TryMeasureVisibleUnion(_panel, out Vector2 min, out Vector2 max))
+        int count = CanvasConversion.CollectVisibleMaskRects(_panel, MaskRectScratch, DepthMaskMaxQuads);
+        if (count == 0)
         {
             // Nothing visible (window still fading in / everything hidden) — no depth stamp at all.
             if (_depthMask.gameObject.activeSelf)
                 _depthMask.gameObject.SetActive(false);
             return;
         }
-        min -= Vector2.one * DepthMaskPaddingPx;
-        max += Vector2.one * DepthMaskPaddingPx;
-        Vector2 center = (min + max) * 0.5f;
-        float w = Mathf.Max((max.x - min.x) * unit, 1e-4f);
-        float h = Mathf.Max((max.y - min.y) * unit, 1e-4f);
+
+        // Rebuild gate: hash the rect set quantized to whole host pixels — sub-pixel jitter
+        // never rebuilds, any real scroll/expand/collapse does.
+        int hash = 17;
+        for (int i = 0; i < count; i++)
+        {
+            Vector4 r = MaskRectScratch[i];
+            hash = hash * 31 + Mathf.RoundToInt(r.x);
+            hash = hash * 31 + Mathf.RoundToInt(r.y);
+            hash = hash * 31 + Mathf.RoundToInt(r.z);
+            hash = hash * 31 + Mathf.RoundToInt(r.w);
+        }
+        if (hash != _depthMaskHash)
+        {
+            _depthMaskHash = hash;
+            RebuildDepthMaskMesh(count);
+        }
+
         if (!_depthMask.gameObject.activeSelf)
             _depthMask.gameObject.SetActive(true);
-        _depthMask.localScale = new Vector3(w, h, 1f);
-        _depthMask.localPosition = new Vector3(center.x * unit, center.y * unit,
-            DepthMaskBehindMeters * worldScale);
+        _depthMask.localScale = new Vector3(unit, unit, 1f);
+        _depthMask.localPosition = new Vector3(0f, 0f, DepthMaskBehindMeters * worldScale);
+    }
+
+    /// <summary>
+    /// Task #5: emit one (padded) quad per collected rect into the depth-mask mesh. Vertices are
+    /// HOST-LOCAL px around the host centre (pivot 0.5,0.5 — the frame origin), z = 0 (the
+    /// transform carries the coplanar offset). Winding is irrelevant: the mask material renders
+    /// two-sided (<c>_Cull=0</c>). ≤256 quads / ≤1024 verts — a trivially small dynamic mesh.
+    /// </summary>
+    private void RebuildDepthMaskMesh(int count)
+    {
+        MaskVertScratch.Clear();
+        MaskTriScratch.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            Vector4 r = MaskRectScratch[i];
+            float x0 = r.x - DepthMaskQuadPaddingPx;
+            float y0 = r.y - DepthMaskQuadPaddingPx;
+            float x1 = r.z + DepthMaskQuadPaddingPx;
+            float y1 = r.w + DepthMaskQuadPaddingPx;
+            int b = MaskVertScratch.Count;
+            MaskVertScratch.Add(new Vector3(x0, y0, 0f));
+            MaskVertScratch.Add(new Vector3(x1, y0, 0f));
+            MaskVertScratch.Add(new Vector3(x1, y1, 0f));
+            MaskVertScratch.Add(new Vector3(x0, y1, 0f));
+            MaskTriScratch.Add(b);
+            MaskTriScratch.Add(b + 1);
+            MaskTriScratch.Add(b + 2);
+            MaskTriScratch.Add(b);
+            MaskTriScratch.Add(b + 2);
+            MaskTriScratch.Add(b + 3);
+        }
+        _depthMaskMesh!.Clear();
+        _depthMaskMesh.SetVertices(MaskVertScratch);
+        _depthMaskMesh.SetTriangles(MaskTriScratch, 0);
     }
 
     /// <summary>
@@ -384,9 +449,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Problem #4: build the color-invisible depth-writing quad that stamps the floated menu's depth
+    /// Problem #4: build the color-invisible depth-writing MESH that stamps the floated menu's depth
     /// into the buffer, exactly the <see cref="Core.SkyBackdrop"/> depth-reset material state but
-    /// LEqual (not Always) and localized to the menu plane.
+    /// LEqual (not Always) and localized to the menu plane. Task #5: the geometry is a dynamic
+    /// per-graphic quad mesh (one quad per visible graphic, rebuilt on change by
+    /// <see cref="SyncDepthMask"/>) instead of a single union quad, so the gaps BETWEEN content
+    /// stay depth-open for other transparent menus behind.
     ///
     /// MATERIAL: the bundled <c>GloomhavenVR/Overlay</c> shader (the only one exposing the render
     /// state as properties) forced to <c>_ZWrite=1</c> (WRITE depth), <c>_ZTest=4</c> (LEqual — closer
@@ -409,15 +477,20 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         if (_frame == null)
             return;
 
-        var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        quad.name = "DepthMask";
-        Object.Destroy(quad.GetComponent<Collider>()); // depth-only; never a poke/laser target
-        quad.transform.SetParent(_frame, worldPositionStays: false);
-        quad.transform.localRotation = Quaternion.identity;
-        quad.transform.localPosition = new Vector3(0f, 0f, DepthMaskBehindMeters); // real z set per-tick
-        quad.transform.localScale = new Vector3(1e-4f, 1e-4f, 1f);                 // real size set per-tick
+        // Task #5: a mod-owned dynamic mesh (per-graphic quads), not a primitive — no collider,
+        // never a poke/laser target. Vertices are host-local px; localScale carries px→metres.
+        var maskGo = new GameObject("DepthMask");
+        maskGo.transform.SetParent(_frame, worldPositionStays: false);
+        maskGo.transform.localRotation = Quaternion.identity;
+        maskGo.transform.localPosition = new Vector3(0f, 0f, DepthMaskBehindMeters); // real z set per-tick
+        maskGo.transform.localScale = new Vector3(1e-4f, 1e-4f, 1f);                 // real scale set per-tick
+        _depthMaskMesh = new Mesh { name = "GloomhavenVR.ModalDepthMask" };
+        _depthMaskMesh.MarkDynamic(); // rebuilt whenever the visible rect set changes (scroll/toggle)
+        _depthMaskHash = int.MinValue; // sentinel: the first Sync always builds the mesh
+        var filter = maskGo.AddComponent<MeshFilter>();
+        filter.sharedMesh = _depthMaskMesh;
 
-        var mr = quad.GetComponent<MeshRenderer>();
+        var mr = maskGo.AddComponent<MeshRenderer>();
         // Colour is irrelevant (Zero/One blend discards src) — clear keeps intent obvious.
         Material mat = WorldUIAssets.CreateFlatMaterial(Color.clear, overlay: true);
         bool depthCapable = mat.HasProperty("_ZWrite") && mat.HasProperty("_ZTest");
@@ -435,15 +508,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // Deliberately DO NOT set mr.sortingOrder — default 0 keeps the mask below the host canvas's
         // sortingOrder 1000, so on the sortingOrder axis too it composites BEFORE the menu content.
 
-        _depthMask = quad.transform;
+        _depthMask = maskGo.transform;
 
         if (depthCapable)
-            VRLog.Info("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' created — depth-writing quad on mod layer " +
-                                  $"{Core.VRLayers.ModLayer}, renderQueue {DepthMaskQueue}, ZWrite 1 / ZTest LEqual / " +
-                                  $"Cull Off / Blend Zero One, coplanar +{DepthMaskBehindMeters * 1000f:F1} mm behind " +
-                                  "the menu plane. Transparent HUD behind the menu now fails ZTest against the stamped " +
-                                  "menu depth (occluded); the menu still draws (LEqual at its plane) and closer hands/" +
-                                  "board still occlude both the mask and the menu.");
+            VRLog.Info("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' created — depth-writing PER-GRAPHIC quad mesh " +
+                                  $"(≤{DepthMaskMaxQuads} quads, task #5) on mod layer {Core.VRLayers.ModLayer}, " +
+                                  $"renderQueue {DepthMaskQueue}, ZWrite 1 / ZTest LEqual / Cull Off / Blend Zero One, " +
+                                  $"coplanar +{DepthMaskBehindMeters * 1000f:F1} mm behind the menu plane. Transparent " +
+                                  "HUD/menus behind fail ZTest only under actual content rects; the gaps between rows " +
+                                  "stay depth-open, the menu still draws (LEqual at its plane) and closer hands/board " +
+                                  "still occlude both the mask and the menu.");
         else
             VRLog.Warn("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' — the Overlay shader (gloomhavenvr.bundle) is " +
                                   "unavailable, so the mask material cannot write depth; HUD may still bleed through the " +
@@ -478,12 +552,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // hardware run can pair each create with its destroy (menu name).
         if (_depthMask != null)
             VRLog.Info("WorldUI", $"MODAL DEPTH-MASK: '{_logName}' destroyed with the menu.");
+        if (_depthMaskMesh != null)
+            Object.Destroy(_depthMaskMesh); // task #5: the dynamic mesh is an asset — free it explicitly
         if (_holder != null)
             Object.Destroy(_holder.gameObject);
         _holder = null;
         _frame = null;
         _bar = null;
         _depthMask = null;
+        _depthMaskMesh = null;
         _grabZone = null;
         _handle = null;
     }
