@@ -33,18 +33,43 @@ namespace GloomhavenVR.Cards;
 /// TRIMMED rect-packed sprites — the shimmer-persists follow-up: the first cut
 /// skipped them, leaving every trimmed atlas sprite sampling the mipless original —
 /// are handled by a PER-SPRITE bake: the sprite's stored atlas region
-/// (<c>textureRect</c>) is blitted into its own small mipmapped texture at the trim
+/// (<c>textureRect</c>) is copied into its own small mipmapped texture at the trim
 /// offset (<c>textureRectOffset</c>; margins restored as real transparent texels), so
 /// the replacement is an untrimmed FullRect sprite that renders IDENTICALLY under
 /// uGUI (Image draws rect + outer UV + trim padding; baking the margins in reproduces
-/// that exactly with zero padding). HARD SAFETY RULE (card-corruption bug, v3
+/// that exactly with zero padding).
+///
+/// v4 REGION-PIXEL SOURCE (card-corruption bug, second post-mortem): v3 obtained the
+/// region via <c>ReadPixels(new Rect(srcX, srcY, w, h), …)</c> — a SUB-RECT readback
+/// from a blitted RenderTexture. On D3D11 (the player) the RT is stored with a
+/// top-left origin; Unity's flip compensation makes a FULL-rect ReadPixels come out
+/// upright (which is why the whole-atlas <see cref="Bake"/> is proven correct on
+/// device — a full rect is invariant under y → H−y−h), but a PARTIAL rect's Y origin
+/// lands at the flipped position, so the copy pulled rows from around
+/// atlasH − srcY − h: a completely different part of the atlas — the white/garbled
+/// neighbor content in card_bug_screenshot.png. Classic UNITY_UV_STARTS_AT_TOP trap,
+/// invisible to GL-minded reasoning. v4 removes the second GPU path entirely: region
+/// pixels are CPU ROW-SLICES (<c>Array.Copy</c>) of the SAME full-atlas readback the
+/// proven-correct whole-atlas bake produces (one readback per atlas, cached). If the
+/// atlas readback is upright on a platform — and the on-device card art proves it is —
+/// CPU slices of it are upright by construction on every platform; there is no second
+/// orientation left to get wrong.
+///
+/// v4 CACHING (the hardware log showed the same 4096² atlas whole-baked twice at
+/// ~85 MB VRAM each — two Texture2D instances wrap the same atlas — and 'Red(Clone)'
+/// region-baked 4× from the identical textureRect): whole-atlas bakes are additionally
+/// deduplicated by content identity (name|size|format — the sactx atlas names carry a
+/// content hash), atlas CPU readbacks are cached per atlas under a byte budget, and
+/// per-sprite region textures are cached by (atlas identity, region geometry) so
+/// duplicate sprites share one texture and one budget slot.
+///
+/// HARD SAFETY RULE (card-corruption bug, v3
 /// post-mortem): a sprite is only swapped when its reconstruction is provably exact —
 /// everything else keeps the original mipless sprite WITH a log line naming the
 /// reason. Unswappable classes: ROTATED atlas placement (a rect sprite cannot express
 /// it), TIGHT atlas packing (the polygon meshes of different sprites interleave, so
 /// any rectangular region copy drags neighboring sprites' pixels into the FullRect
-/// replacement — this is exactly what corrupted the icons in
-/// card_bug_screenshot.png; v3's mesh-UV-bounds fallback did that and is deleted),
+/// replacement; v3's mesh-UV-bounds fallback did that and is deleted),
 /// and any trim region whose integer geometry does not fit its logical rect exactly
 /// (no silent clamping — a cropped icon is corruption too). The game freely
 /// reassigns sprites on state changes
@@ -83,8 +108,33 @@ internal static class CardFaceMipBake
     /// <summary>Anisotropic level for the baked copies (oblique fan/dock viewing angles).</summary>
     private const int BakedAnisoLevel = 8;
 
+    /// <summary>
+    /// Byte budget for cached CPU atlas readbacks (the per-sprite slicer's pixel source;
+    /// a 4096² atlas is 64 MB of RAM). Over budget the readback still happens — it is
+    /// just not retained, so correctness never depends on the cache.
+    /// </summary>
+    private const long MaxAtlasPixelCacheBytes = 256L * 1024 * 1024;
+
     /// <summary>src texture instance id → baked mipmapped copy (null = failed/skipped, never retried).</summary>
     private static readonly Dictionary<int, Texture2D?> s_bakedByTexture = new(8);
+
+    /// <summary>
+    /// Content identity (name|size|format) → baked whole-atlas copy. Dedupes DISTINCT
+    /// Texture2D instances that wrap the same atlas — the hardware log showed the same
+    /// 4096² 'sactx-…-811e9640' whole-baked twice at ~85 MB VRAM each. The sactx names
+    /// embed a content hash and the strip textures are uniquely named assets, so
+    /// name|size|format identifies content in this game.
+    /// </summary>
+    private static readonly Dictionary<string, Texture2D?> s_bakedByIdentity = new(8);
+
+    /// <summary>Content identity → full-atlas CPU readback (mip 0; null = readback failed, never retried).</summary>
+    private static readonly Dictionary<string, Color32[]?> s_atlasPixelsByIdentity = new(4);
+
+    /// <summary>(atlas identity | region geometry) → per-sprite region texture (null = failed, never retried).</summary>
+    private static readonly Dictionary<string, Texture2D?> s_regionTextureByKey = new(32);
+
+    /// <summary>Bytes currently held by <see cref="s_atlasPixelsByIdentity"/>.</summary>
+    private static long s_atlasPixelCacheBytes;
 
     /// <summary>src sprite instance id → replacement sprite on the baked copy (null = not swappable).</summary>
     private static readonly Dictionary<int, Sprite?> s_replacementBySource = new(64);
@@ -317,12 +367,18 @@ internal static class CardFaceMipBake
     }
 
     /// <summary>
-    /// Per-sprite bake for TRIMMED rect-packed sprites: blit the sprite's stored atlas
+    /// Per-sprite bake for TRIMMED rect-packed sprites: copy the sprite's stored atlas
     /// region (<c>textureRect</c>) into its OWN small mipmapped texture at the trim
     /// offset (<c>textureRectOffset</c>) — the trimmed-away margins become real
     /// transparent texels, so the replacement is an untrimmed FullRect sprite that uGUI
     /// renders identically (Image inset-by-padding + trimmed UVs ≡ full-rect quad +
-    /// margins baked in). ONLY exact reconstructions bake: a sprite whose region can't
+    /// margins baked in). v4: the region pixels are a CPU ROW-SLICE of the cached
+    /// FULL-atlas readback (the exact operation the proven-correct whole-atlas bake
+    /// performs) — v3's sub-rect <c>ReadPixels</c> read from a D3D11-flipped Y origin
+    /// and copied NEIGHBORING atlas content into the icons (card_bug_screenshot.png).
+    /// Region textures are cached by (atlas identity, region geometry), so duplicate
+    /// sprites ('Red(Clone)' ×4 in the log) share one texture and one budget slot.
+    /// ONLY exact reconstructions bake: a sprite whose region can't
     /// be derived (tight-packed → textureRect throws) or whose integer geometry does
     /// not fit its logical rect precisely is SKIPPED — never clamped, cropped or
     /// guessed (v3 corrupted card icons by guessing). Null + one log line on any skip.
@@ -373,58 +429,158 @@ internal static class CardFaceMipBake
                                   $"in {atlas.width}x{atlas.height}, offset +{dstX},+{dstY} in rect {fullW}x{fullH})");
             return null;
         }
-        if (s_spriteBakeCount >= MaxSpriteBakes)
-        {
-            LogSpriteSkip(source, $"per-sprite bake budget exhausted ({MaxSpriteBakes})");
-            return null;
-        }
-
         try
         {
-            RenderTexture rt = RenderTexture.GetTemporary(
-                atlas.width, atlas.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-            RenderTexture prev = RenderTexture.active;
-            Texture2D tex;
-            try
+            // Region-texture cache: identical geometry on the same atlas content shares
+            // one texture (the log showed 'Red(Clone)' baked 4× from one textureRect).
+            string regionKey = $"{IdentityOf(atlas)}|{srcX},{srcY},{w}x{h}|{fullW}x{fullH}|+{dstX},+{dstY}";
+            if (s_regionTextureByKey.TryGetValue(regionKey, out Texture2D? regionTex))
             {
-                Graphics.Blit(atlas, rt); // same orientation contract as the proven full-atlas Bake
-                RenderTexture.active = rt;
-                tex = new Texture2D(fullW, fullH, TextureFormat.RGBA32, mipChain: true, linear: false)
+                if (regionTex == null)
+                {
+                    LogSpriteSkip(source, "identical region bake failed earlier (cached verdict)");
+                    return null;
+                }
+                VRLog.Info("Cards", $"MIP BAKE sprite reuse: '{source.name}' shares the cached region " +
+                                    $"texture {fullW}x{fullH} ← ({srcX},{srcY}) on '{atlas.name}'.");
+            }
+            else
+            {
+                if (s_spriteBakeCount >= MaxSpriteBakes)
+                {
+                    LogSpriteSkip(source, $"per-sprite bake budget exhausted ({MaxSpriteBakes})");
+                    return null;
+                }
+                // Pixel SOURCE (v4): the cached CPU readback of the WHOLE atlas — obtained by
+                // the same full-rect Blit+ReadPixels the proven-correct whole-atlas bake uses.
+                // No sub-rect GPU readback exists anymore (v3's sub-rect ReadPixels read from
+                // a D3D11-flipped Y origin = neighboring atlas content in the icons).
+                Color32[]? atlasPixels = AtlasPixelsFor(atlas);
+                if (atlasPixels == null || atlasPixels.Length != atlas.width * atlas.height)
+                {
+                    LogSpriteSkip(source, atlasPixels == null
+                        ? "whole-atlas CPU readback failed"
+                        : $"whole-atlas readback size mismatch ({atlasPixels.Length} px for {atlas.width}x{atlas.height})");
+                    s_regionTextureByKey[regionKey] = null;
+                    return null;
+                }
+                var slice = new Color32[fullW * fullH]; // default Color32 = transparent trim margins
+                for (int row = 0; row < h; row++)
+                {
+                    System.Array.Copy(atlasPixels, (srcY + row) * atlas.width + srcX,
+                        slice, (dstY + row) * fullW + dstX, w);
+                }
+                regionTex = new Texture2D(fullW, fullH, TextureFormat.RGBA32, mipChain: true, linear: false)
                 {
                     name = source.name + " (VR-mip-trim)",
                     filterMode = FilterMode.Trilinear,
                     anisoLevel = BakedAnisoLevel,
                     wrapMode = TextureWrapMode.Clamp,
                 };
-                tex.SetPixels32(new Color32[fullW * fullH]); // transparent trim margins
-                tex.ReadPixels(new Rect(srcX, srcY, w, h), dstX, dstY);
-                tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+                regionTex.SetPixels32(slice);
+                regionTex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+                s_spriteBakeCount++;
+                s_regionTextureByKey[regionKey] = regionTex;
+                // Full reconstruction parameters on the record, so a hardware log alone can
+                // verify the copy is exact (rect vs textureRect, offset, pivot, packing).
+                VRLog.Info("Cards", $"MIP BAKE sprite ({s_spriteBakeCount}/{MaxSpriteBakes}): '{source.name}' " +
+                                    $"rect {fullW}x{fullH} ← textureRect {w}x{h} at ({srcX},{srcY}) on '{atlas.name}' " +
+                                    $"{atlas.width}x{atlas.height}, trim offset +{dstX},+{dstY}, " +
+                                    $"pivot ({source.pivot.x:F1},{source.pivot.y:F1})px, ppu {source.pixelsPerUnit:F1}, " +
+                                    $"border ({source.border.x:F0},{source.border.y:F0},{source.border.z:F0},{source.border.w:F0}), " +
+                                    $"{PackingLabel(source)} → own mipmapped texture ({regionTex.mipmapCount} mips), " +
+                                    "margins restored — pixels: CPU row-slice of cached whole-atlas readback " +
+                                    "(v4, no sub-rect GPU readback).");
             }
-            finally
-            {
-                RenderTexture.active = prev;
-                RenderTexture.ReleaseTemporary(rt);
-            }
-            Vector4 border = source.border;
-            Sprite made = Sprite.Create(tex, new Rect(0f, 0f, fullW, fullH), NormalizedPivot(source),
-                source.pixelsPerUnit, 0, SpriteMeshType.FullRect, border);
+
+            Sprite made = Sprite.Create(regionTex, new Rect(0f, 0f, fullW, fullH), NormalizedPivot(source),
+                source.pixelsPerUnit, 0, SpriteMeshType.FullRect, source.border);
             made.name = source.name + " (VR-mip)";
-            s_spriteBakeCount++;
-            // Full reconstruction parameters on the record, so a hardware log alone can
-            // verify the copy is exact (rect vs textureRect, offset, pivot, packing).
-            VRLog.Info("Cards", $"MIP BAKE sprite ({s_spriteBakeCount}/{MaxSpriteBakes}): '{source.name}' " +
-                                $"rect {fullW}x{fullH} ← textureRect {w}x{h} at ({srcX},{srcY}) on '{atlas.name}' " +
-                                $"{atlas.width}x{atlas.height}, trim offset +{dstX},+{dstY}, " +
-                                $"pivot ({source.pivot.x:F1},{source.pivot.y:F1})px, ppu {source.pixelsPerUnit:F1}, " +
-                                $"border ({border.x:F0},{border.y:F0},{border.z:F0},{border.w:F0}), " +
-                                $"{PackingLabel(source)} → own mipmapped texture ({tex.mipmapCount} mips), " +
-                                "margins restored.");
             return made;
         }
         catch (System.Exception ex)
         {
             LogSpriteSkip(source, $"per-sprite bake failed ({ex.GetType().Name}: {ex.Message})");
             return null;
+        }
+    }
+
+    /// <summary>Content identity of a texture: dedupes distinct instances wrapping the same atlas.</summary>
+    private static string IdentityOf(Texture2D tex) => $"{tex.name}|{tex.width}x{tex.height}|{tex.format}";
+
+    /// <summary>
+    /// Full-atlas CPU readback (mip 0, bottom-left row order — Unity texture layout),
+    /// cached by content identity under <see cref="MaxAtlasPixelCacheBytes"/>. This is
+    /// THE pixel source for every per-sprite region slice: obtained via the identical
+    /// full-rect Blit+ReadPixels the whole-atlas <see cref="Bake"/> performs, which the
+    /// on-device card art proves upright — so CPU slices of it are upright by
+    /// construction on every platform. Null (cached) = readback failed, no retries.
+    /// Over budget the pixels are returned UNCACHED — slower next time, never wrong.
+    /// </summary>
+    private static Color32[]? AtlasPixelsFor(Texture2D atlas)
+    {
+        string identity = IdentityOf(atlas);
+        if (s_atlasPixelsByIdentity.TryGetValue(identity, out Color32[]? known))
+            return known;
+
+        Color32[]? pixels = null;
+        try
+        {
+            pixels = ReadbackAtlasPixels(atlas);
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"MIP BAKE atlas readback of '{atlas.name}' {atlas.width}x{atlas.height} " +
+                                $"failed ({ex.GetType().Name}: {ex.Message}) — its trimmed sprites stay mipless.");
+        }
+
+        long bytes = (long)atlas.width * atlas.height * 4L;
+        if (pixels == null)
+        {
+            s_atlasPixelsByIdentity[identity] = null; // cache the failure — no retry storms
+        }
+        else if (s_atlasPixelCacheBytes + bytes <= MaxAtlasPixelCacheBytes)
+        {
+            s_atlasPixelsByIdentity[identity] = pixels;
+            s_atlasPixelCacheBytes += bytes;
+            VRLog.Info("Cards", $"MIP BAKE atlas readback cached: '{atlas.name}' {atlas.width}x{atlas.height} " +
+                                $"(~{bytes / (1024f * 1024f):F0} MB CPU, cache total " +
+                                $"~{s_atlasPixelCacheBytes / (1024f * 1024f):F0} MB) — slice source for per-sprite bakes.");
+        }
+        else
+        {
+            VRLog.Info("Cards", $"MIP BAKE atlas readback of '{atlas.name}' used transiently — CPU pixel cache " +
+                                $"budget reached (~{s_atlasPixelCacheBytes / (1024f * 1024f):F0} MB).");
+        }
+        return pixels;
+    }
+
+    /// <summary>
+    /// The one readback primitive: full-rect Blit + full-rect ReadPixels — byte-for-byte
+    /// the operation the proven-correct whole-atlas <see cref="Bake"/> performs. A full
+    /// rect is invariant under the D3D11 top-left flip (y → H−y−h maps 0→0), which is
+    /// exactly why this path renders correctly on device while v3's sub-rect read did not.
+    /// </summary>
+    private static Color32[] ReadbackAtlasPixels(Texture2D src)
+    {
+        RenderTexture rt = RenderTexture.GetTemporary(
+            src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        RenderTexture prev = RenderTexture.active;
+        Texture2D? tmp = null;
+        try
+        {
+            Graphics.Blit(src, rt);
+            RenderTexture.active = rt;
+            tmp = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: false, linear: false);
+            tmp.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
+            return tmp.GetPixels32();
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+            if (tmp != null)
+                Object.Destroy(tmp);
         }
     }
 
@@ -445,6 +601,22 @@ internal static class CardFaceMipBake
         int id = tex.GetInstanceID();
         if (s_bakedByTexture.TryGetValue(id, out Texture2D? known))
             return known;
+
+        // Content-identity dedupe: a SECOND Texture2D instance wrapping the same atlas
+        // (the log's double ~85 MB bake of 'sactx-…-811e9640') reuses the first bake.
+        string identity = IdentityOf(tex);
+        if (tex.mipmapCount <= 1 && s_bakedByIdentity.TryGetValue(identity, out Texture2D? alias))
+        {
+            if (alias != null)
+            {
+                float aliasMb = tex.width * (long)tex.height * 4L * 4f / 3f / (1024f * 1024f);
+                VRLog.Info("Cards", $"MIP BAKE alias reuse: another instance of '{tex.name}' " +
+                                    $"{tex.width}x{tex.height} shares the existing baked copy " +
+                                    $"(~{aliasMb:F0} MB VRAM saved).");
+            }
+            s_bakedByTexture[id] = alias;
+            return alias;
+        }
 
         Texture2D? baked = null;
         bool withinBudget = s_bakeCount < MaxBakedTextures
@@ -482,6 +654,8 @@ internal static class CardFaceMipBake
             }
         }
         s_bakedByTexture[id] = baked;
+        if (tex.mipmapCount <= 1)
+            s_bakedByIdentity[identity] = baked; // null verdicts dedupe too — no retry storms per alias
         return baked;
     }
 
@@ -510,6 +684,23 @@ internal static class CardFaceMipBake
                 wrapMode = src.wrapMode,
             };
             tex.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
+            // Retain mip 0 as the per-sprite slice source while the CPU copy is still
+            // resident — saves the per-sprite path a second full readback of this atlas.
+            try
+            {
+                string identity = IdentityOf(src);
+                long bytes = (long)src.width * src.height * 4L;
+                if (!s_atlasPixelsByIdentity.ContainsKey(identity)
+                    && s_atlasPixelCacheBytes + bytes <= MaxAtlasPixelCacheBytes)
+                {
+                    s_atlasPixelsByIdentity[identity] = tex.GetPixels32();
+                    s_atlasPixelCacheBytes += bytes;
+                }
+            }
+            catch (System.Exception)
+            {
+                // Cache miss only — AtlasPixelsFor can still read this atlas back itself.
+            }
             tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
             return tex;
         }
