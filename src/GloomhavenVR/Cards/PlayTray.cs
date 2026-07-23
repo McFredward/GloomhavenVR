@@ -243,18 +243,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal const float TrayPixelsPerMeter = 2400f;
 
     /// <summary>
-    /// Test #19 (deliberate confirm): poke dwell for the right-column buttons
-    /// (CONFIRM/UNDO/SET). Hardware test #19 showed the hand accidentally poking
-    /// CONFIRM while handling cards near the slots (CONFIRM sits right of them) —
-    /// the round started without any conscious confirm. A fingertip contact now only
-    /// STARTS a hold; the tip must stay on the cap this long before the press fires
-    /// (with a visible fill ramp on the cap). Laser+trigger stays immediate —
-    /// pointing at a button and pulling the trigger is already a deliberate act.
-    /// Slot drops and card interactions are deliberately NOT dwelled.
-    /// </summary>
-    private const float PokeDwellSeconds = 0.35f;
-
-    /// <summary>
     /// Test #19 accident window: ANY CONFIRM activation (poke and laser alike) is
     /// suppressed this long after a card was dropped into / plucked from a slot —
     /// the exact gesture that brushed CONFIRM in the log. CardsDriver arms it via
@@ -771,7 +759,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Baseline for the TickStatus language-change guard: the follow/gear labels self-heal
         // there on an actual language change (round/confirm/undo re-read every tick already).
         _labelLang = Core.Loc.CurrentLanguage;
-        _gear.DwellSeconds = PokeDwellSeconds; // right column = same accident class (test #19)
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
     }
@@ -2401,7 +2388,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             () => ConfirmRequested?.Invoke(),
             round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
-        _confirm.DwellSeconds = PokeDwellSeconds; // deliberate poke (test #19)
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
@@ -2411,7 +2397,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             () => UndoRequested?.Invoke(),
             round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
-        _undo.DwellSeconds = PokeDwellSeconds; // same accident class as CONFIRM (test #19)
         RegisterLaserTarget(_undo.Collider!, _undo);
 
         SetConfirmUndoOffset(off, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
@@ -3359,8 +3344,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// press fires (cap sinks + brightens while charging; retracting cancels).
         /// 0 (default) keeps the fire-on-contact behavior. Laser presses are never
         /// dwelled — <see cref="Press"/> with source "laser" stays immediate.
+        /// No button sets this anymore — every physical press fires on contact
+        /// (user directive round 7); the accident protection that remains is
+        /// <see cref="ActivationGuard"/>. Machinery kept for a possible config.
         /// </summary>
-        internal float DwellSeconds;
+        internal float DwellSeconds = 0f;
 
         /// <summary>
         /// Optional activation suppressor: returns the seconds REMAINING of a
