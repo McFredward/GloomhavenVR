@@ -376,13 +376,59 @@ internal sealed class WristHud
 
     // ---- data --------------------------------------------------------------------------
 
+    // ---- stale-value diagnostics (user bug: "wrist info doesn't update on gold/XP") ------
+    private CPlayerActor? _lastValueActor;
+    private int _lastHp, _lastMaxHp, _lastXp, _lastGold, _lastLevel;
+    private float _lastValueLog;
+
     private void RefreshText()
     {
         if (_text == null)
             return;
 
-        CPlayerActor? actor = ResolveActor();
+        // STALE-VALUE FIX: the flow-facing resolution (choreographer message actor / hand
+        // actor / initiative-track actor) can hand back a SNAPSHOT clone (CActor.Clone is
+        // MemberwiseClone; messages and UI caches carry actor objects). A clone's
+        // m_Gold/m_XP are frozen at capture time, so the 4 Hz poll re-read the same numbers
+        // forever. The RULES mutate the live instances in ScenarioManager.Scenario
+        // .PlayerActors (LootTile → AddGold, GainXP — CActor.cs:1813/2011), so the resolved
+        // IDENTITY is re-mapped onto the live scenario actor by ActorGuid before any stat
+        // is read. liveRemap=True in the log line below is the hardware proof that a stale
+        // instance was actually being displayed.
+        CPlayerActor? resolved = ResolveActor();
+        CPlayerActor? actor = ToLiveActor(resolved);
+        bool liveRemap = !ReferenceEquals(resolved, actor);
         RefreshIdentity(actor);
+
+        if (actor != null)
+        {
+            int hp = actor.Health, maxHp = actor.MaxHealth, xp = actor.XP,
+                gold = actor.Gold, level = actor.Level;
+            bool actorChanged = !ReferenceEquals(actor, _lastValueActor);
+            if (actorChanged || hp != _lastHp || maxHp != _lastMaxHp || xp != _lastXp
+                || gold != _lastGold || level != _lastLevel)
+            {
+                // Throttled hardware-proof line: displayed values changed (old → new).
+                float now = Time.unscaledTime;
+                if (now - _lastValueLog >= 0.5f)
+                {
+                    _lastValueLog = now;
+                    string oldVals = actorChanged
+                        ? "(new actor)"
+                        : $"HP {_lastHp}/{_lastMaxHp}, XP {_lastXp}, Gold {_lastGold}, L{_lastLevel}";
+                    VRLog.Info("WorldUI", $"WristHud values: '{actor.CharacterName}' {oldVals} → " +
+                                          $"HP {hp}/{maxHp}, XP {xp}, Gold {gold}, L{level} " +
+                                          $"(liveRemap={liveRemap}).");
+                }
+                _lastValueActor = actor;
+                _lastHp = hp; _lastMaxHp = maxHp; _lastXp = xp;
+                _lastGold = gold; _lastLevel = level;
+            }
+        }
+        else
+        {
+            _lastValueActor = null;
+        }
 
         _sb.Length = 0;
         if (actor == null)
@@ -471,10 +517,13 @@ internal sealed class WristHud
         }
 
         Choreographer choreographer = Choreographer.s_Choreographer;
+        // SameActor (guid), not ReferenceEquals: the displayed actor is live-remapped
+        // (ToLiveActor) and may be a different INSTANCE than the choreographer's message
+        // actor while still being the same character.
         string context =
             actor == null ? string.Empty :
             VRModeStateMachine.CurrentMode == VRMode.CardSelection ? Core.Loc.Mod("selecting_cards") :
-            choreographer != null && ReferenceEquals(actor, choreographer.CurrentPlayerActor) ? Core.Loc.Mod("current_turn") :
+            choreographer != null && SameActor(actor, choreographer.CurrentPlayerActor) ? Core.Loc.Mod("current_turn") :
             Core.Loc.Mod("selected");
         _sb.Length = 0;
         if (actor == null)
@@ -550,6 +599,43 @@ internal sealed class WristHud
                 return selectedPlayer;
         }
         return null;
+    }
+
+    /// <summary>Same character? Guid compare with reference fallback — instance-safe across
+    /// the message/hand snapshot clones the game passes around.</summary>
+    private static bool SameActor(CPlayerActor? a, CPlayerActor? b)
+    {
+        if (a == null || b == null)
+            return false;
+        if (ReferenceEquals(a, b))
+            return true;
+        string ga = a.ActorGuid, gb = b.ActorGuid;
+        return !string.IsNullOrEmpty(ga) && string.Equals(ga, gb, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Stale-value fix: re-map a resolved actor onto the LIVE rules instance in
+    /// <c>ScenarioManager.Scenario.PlayerActors</c> (matched by ActorGuid) — the object
+    /// <c>LootTile → AddGold</c> and <c>GainXP</c> actually mutate (CActor.cs:1813/2011).
+    /// Falls back to the resolved object when the scenario/list is unavailable or the guid
+    /// is not found (e.g. exhausted actor moved to ExhaustedPlayers), so the HUD never goes
+    /// blank because of the remap.
+    /// </summary>
+    private static CPlayerActor? ToLiveActor(CPlayerActor? actor)
+    {
+        if (actor == null)
+            return null;
+        CScenario scenario = ScenarioManager.Scenario;
+        var players = scenario?.PlayerActors;
+        if (players == null)
+            return actor;
+        for (int i = 0; i < players.Count; i++)
+        {
+            CPlayerActor player = players[i];
+            if (player != null && SameActor(player, actor))
+                return player;
+        }
+        return actor;
     }
 
     /// <summary>
