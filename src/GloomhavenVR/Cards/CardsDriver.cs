@@ -866,14 +866,19 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             _fan.Open(_gateHand);
             // Demeo plays MotherbrainAudio.OnCardHandShow with the fan animation
-            // (CardHandView.cs:682) — edge-triggered here, once per reveal.
-            PlayCardSound(CardsConfig.FanRevealSound.Value, _gateHand.transform);
+            // (CardHandView.cs:682) — edge-triggered here, once per reveal. This is the ONLY
+            // place the fan becomes visible (_fan.Open has exactly one caller — verified),
+            // so hooking the sound here covers every open path: initial reveal, re-open,
+            // and the RevealAlways auto-open at phase start.
+            PlayFanEdgeSound(open: true);
         }
         else if (!shouldOpen && _fan.IsOpen)
         {
             _fan.Close();
             // Demeo mirrors with OnCardHandHide (CardHandView.cs:691) — softer item by default.
-            PlayCardSound(CardsConfig.FanHideSound.Value, _gateHand.transform);
+            // (The two other _fan.Close() sites are teardown paths — hands down / gate hand
+            // lost — where a sound would be wrong; this is the only player-facing close.)
+            PlayFanEdgeSound(open: false);
         }
 
         // Task #9 (empty-fan feedback): the palm rolled open but there is nothing to
@@ -887,7 +892,7 @@ internal sealed class CardsDriver : MonoBehaviour
             && CardsGameApi.Mode(_boundHand) == CardHandMode.CardsSelection)
         {
             _emptyFanHint.Show(_gateHand);
-            PlayCardSound(CardsConfig.FanHideSound.Value, _gateHand.transform); // the soft hide tick
+            PlayFanEdgeSound(open: false); // the soft hide tick, same listener-anchored path
             VRLog.Info("Cards", "Empty fan: palm gate opened with ZERO hand cards — ghost " +
                                 "\"no hand cards\" placard shown at the fan spot (fades ~1.5 s).");
         }
@@ -895,6 +900,80 @@ internal sealed class CardsDriver : MonoBehaviour
     }
 
     // ------------------------------------------------------------------ card audio --
+
+    // Fan-edge fallback items when the CONFIGURED item is empty/unknown at call time —
+    // names the GAME itself plays (verified in decompiled sources: PlaySound_CardUI_SelectCard
+    // FullAbilityCard.cs:590, PlaySound_UICardTabSelect
+    // UIPartyCharacterEnhancementAbilityCardsDisplay.cs:190, PlaySound_UIButtonSelect ubiquitous).
+    private static readonly string[] FanOpenSoundFallbacks =
+        { "PlaySound_CardUI_SelectCard", "PlaySound_UIButtonSelect" };
+    private static readonly string[] FanCloseSoundFallbacks =
+        { "PlaySound_UICardTabSelect", "PlaySound_UIButtonSelect" };
+
+    /// <summary>Throttle for the FAN SOUND proof lines (gate chatter can flip edges fast).</summary>
+    private float _lastFanSoundLog = -10f;
+
+    /// <summary>
+    /// Fan reveal/hide sound — the ROOT-CAUSE fix for "sound on close but never on open"
+    /// (hardware log build 07621c087: zero sound lines, close audible, open silent).
+    /// The old path played BOTH edges through the POSITIONAL overload
+    /// <c>AudioController.Play(item, gateHand.transform, null, attachToParent: false)</c>.
+    /// The mod never touches the AudioListener, so it rides the GAME's 2D camera — not the
+    /// VR head/hands. A 2D item (the close default 'PlaySound_UICardTabSelect', a UI tab
+    /// sound) ignores position and stayed audible; a 3D-configured in-world item (the open
+    /// default 'PlaySound_EnemyCardDraw', the initiative-track enemy-reveal effect) played
+    /// at the gate-hand transform attenuates against the far-away listener to nothing —
+    /// silently, because <c>AudioController.Play</c> "succeeds". Fix: play the fan edges
+    /// LISTENER-ANCHORED via <c>AudioController.Play(item)</c> (listener pos + forward) —
+    /// the exact call shape the game uses for BOTH default items
+    /// (<c>AudioControllerUtils.PlaySound</c>, InitiativeTrack.cs:387,
+    /// UIPartyCharacterEnhancementAbilityCardsDisplay.cs:190), immune to any listener/rig
+    /// placement. Both edges log a throttled proof line
+    /// (<c>FAN SOUND open/close: item '…' valid=… played=…</c>): valid =
+    /// <c>IsValidAudioID</c> at call time, played = <c>Play</c> returned an AudioObject
+    /// (null ⇒ audio disabled / MinTimeBetweenPlayCalls throttle). An empty/unknown
+    /// configured item falls back to the first verified-valid game item and says so.
+    /// </summary>
+    private void PlayFanEdgeSound(bool open)
+    {
+        string edge = open ? "open" : "close";
+        string configured = (open ? CardsConfig.FanRevealSound.Value : CardsConfig.FanHideSound.Value) ?? string.Empty;
+        string item = configured;
+        bool valid = false;
+        bool played = false;
+        string note = string.Empty;
+        try
+        {
+            valid = item.Length > 0 && AudioController.IsValidAudioID(item);
+            if (!valid)
+            {
+                string[] fallbacks = open ? FanOpenSoundFallbacks : FanCloseSoundFallbacks;
+                for (int i = 0; i < fallbacks.Length; i++)
+                {
+                    if (AudioController.IsValidAudioID(fallbacks[i]))
+                    {
+                        item = fallbacks[i];
+                        valid = true;
+                        note = $" — configured '{configured}' empty/unknown, fell back to verified game item";
+                        break;
+                    }
+                }
+            }
+            if (valid)
+                played = AudioController.Play(item) != null;
+        }
+        catch (System.Exception ex)
+        {
+            note = $" — threw {ex.GetType().Name}: {ex.Message}";
+        }
+
+        float now = Time.unscaledTime;
+        if (now - _lastFanSoundLog >= 0.25f)
+        {
+            _lastFanSoundLog = now;
+            VRLog.Info("Cards", $"FAN SOUND {edge}: item '{item}' valid={valid} played={played}{note}.");
+        }
+    }
 
     // One-shot warn guard per configured item name, so a typo in any [Cards] *Sound entry
     // logs once instead of every play.
