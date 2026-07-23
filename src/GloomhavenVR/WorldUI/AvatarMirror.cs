@@ -269,9 +269,9 @@ internal sealed class AvatarMirror
         rightVisual.SetParent(_rightHolder, worldPositionStays: false);
 
         _leftRig = HandVisuals.Build(leftVisual, HandSide.Left);
-        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig) : null;
+        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig, HandSide.Left) : null;
         _rightRig = HandVisuals.Build(rightVisual, HandSide.Right);
-        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
+        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig, HandSide.Right) : null;
 
         // Build applied the style scale for the built style; remember it so the live
         // check in Tick only re-applies on an actual config edit.

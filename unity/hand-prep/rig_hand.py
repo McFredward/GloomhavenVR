@@ -165,7 +165,14 @@ DIAG = os.environ.get("RIG_HAND_DIAG", "0") != "0"
 # The bones then follow the real digits, so align_roll(-Y) automatically yields a curl
 # axis perpendicular to each finger's true plane (splay fix) and the proximal phalanx
 # starts at the true knuckle (fingertip-only-curl fix). RIG_HAND_REFIT=0 for A/B.
-REFIT = os.environ.get("RIG_HAND_REFIT", "1") != "0"
+#
+# 2026-07 HARDWARE VERDICT: the refit GLOVE was REJECTED (the user preferred the original
+# glove entirely; only the fist's pinky out-splay was disliked — now compensated at
+# runtime by FingerCurler's glove-pinky counter-abduction, previewable via the
+# "fist_pinkyfix" pose below). The refit therefore defaults OFF for the hardcoded-joint
+# glove build and stays ON for the JSON-driven styled hands, whose mid-finger MCPs it
+# demonstrably fixes. RIG_HAND_REFIT=1/0 still overrides either way.
+REFIT = os.environ.get("RIG_HAND_REFIT", "1" if JOINTS_JSON else "0") != "0"
 MCP_DROP = float(os.environ.get("RIG_HAND_MCP_DROP", "0.030"))  # valley -> MCP z drop (m)
 VALLEY_SLAB = 0.008     # z-slab thickness for the valley scan (m)
 VALLEY_GAP = 0.006      # required empty x-gap between adjacent digit columns (m)
@@ -229,6 +236,11 @@ POSES = {
     # when fingers spread/adduct and that every chain has a consistent abduction axis.
     "splay_p":   {"_splay": 15.0},
     "splay_m":   {"_splay": -15.0},
+    # Preview of the RUNTIME glove-pinky counter-abduction (FingerCurler, 2026-07):
+    # full fist + curl-coupled local-Z adduction on the pinky ROOT only. The runtime
+    # default is DefaultGlovePinkyCounterAbductionDeg = 14; sign flips for the R hand.
+    "fist_pinkyfix": {"Thumb": 1.0, "Index": 1.0, "Middle": 1.0, "Ring": 1.0,
+                      "Pinky": 1.0, "_pinky_rz": 14.0},
 }
 
 
@@ -236,12 +248,21 @@ def apply_pose(arm, curls):
     """Pose the armature exactly like the runtime FingerCurler (local-X, per-joint max).
 
     Optional "_splay" key: degrees of abduction applied to every Root bone about its
-    local Z (the axis orthogonal to both the bone and its curl axis)."""
+    local Z (the axis orthogonal to both the bone and its curl axis).
+    Optional "_pinky_rz" key: degrees of counter-abduction on the PINKY Root only
+    (the runtime glove-pinky splay fix; sign auto-flips for the right hand)."""
     splay = curls.get("_splay", 0.0)
+    pinky_rz = curls.get("_pinky_rz", 0.0)
+    if pinky_rz and arm.name.endswith("_R"):
+        pinky_rz = -pinky_rz                  # mirrored hand, mirrored adduction
     bpy.context.view_layer.objects.active = arm
     bpy.ops.object.mode_set(mode='POSE')
     for pb in arm.pose.bones:
-        pb.rotation_mode = 'XYZ'
+        # ZXY = Unity's euler application order (Z first, then X): rx-only poses are
+        # unaffected, and the _splay/_pinky_rz poses abduct about the REST local Z
+        # (palm normal) before flexion — exactly what FingerCurler's
+        # baseRot * Euler(rx, 0, rz) produces.
+        pb.rotation_mode = 'ZXY'
         pb.rotation_euler = (0.0, 0.0, 0.0)
     for f in FINGERS:
         maxes = CURL_MAX_THUMB if f == "Thumb" else CURL_MAX_FINGER
@@ -249,6 +270,8 @@ def apply_pose(arm, curls):
         for i, seg in enumerate(("Root", "Mid", "Tip")):
             rx = math.radians(maxes[i] * c * CURL_SCALE)
             rz = math.radians(splay) if seg == "Root" else 0.0
+            if f == "Pinky" and seg == "Root":
+                rz += math.radians(pinky_rz * c)
             arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = (rx, 0.0, rz)
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.context.view_layer.update()
@@ -924,6 +947,12 @@ def _digit_geometry(mesh, joints, tipends):
     verts = mesh.data.vertices
     info = [None] * len(verts)                 # (finger, s, d) per vert
     shell = {f: [[], [], []] for f in FINGERS}
+    # GLOVE (no JOINTS_JSON): reproduce the PRE-REFIT single per-finger cap exactly —
+    # the 2026-07 hardware round rejected every glove change beyond the fist splay
+    # (which is now compensated at runtime), so the glove weights must stay identical
+    # to the accepted b5055f9-era build. The per-SEGMENT radii below were introduced
+    # for (and only help) the thick armored styles.
+    legacy = not ALT_HAND
     for v in verts:
         co = v.co
         best = None
@@ -934,12 +963,24 @@ def _digit_geometry(mesh, joints, tipends):
         info[v.index] = best
         f, s, d = best
         total = sum(lens[f])
+        if legacy:
+            if d < 0.035 and 0.05 * total <= s <= 1.1 * total:
+                shell[f][0].append(d)
+            continue
         # segment bin for the radius sample; the prox bin starts at 0.35*L0 so palm/
         # webbing mass just below the knuckle cannot inflate the proximal radius.
         if d < 0.04 and 0.35 * lens[f][0] <= s <= 1.1 * total:
             b = 0 if s < lens[f][0] else (1 if s < lens[f][0] + lens[f][1] else 2)
             shell[f][b].append(d)
     soft, cap = {}, {}
+    if legacy:
+        for f in FINGERS:
+            ds = sorted(shell[f][0])
+            r95 = ds[min(len(ds) - 1, int(0.95 * len(ds)))] if ds else DIGIT_SOFT
+            r = max(DIGIT_SOFT, r95 + 0.002)
+            soft[f] = [r] * 3                  # constant along s == the old scalar cap
+            cap[f] = [r + DIGIT_CAP_PAD] * 3
+        return pts, lens, info, soft, cap
     for f in FINGERS:
         ss, prev = [], DIGIT_SOFT
         for b in range(3):

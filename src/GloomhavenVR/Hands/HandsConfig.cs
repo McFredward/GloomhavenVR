@@ -108,11 +108,37 @@ internal static class HandsConfig
         }
     }
 
+    /// <summary>Glove-pinky counter-abduction at full curl (degrees, safe fallback).</summary>
+    public static float GlovePinkyCounterAbductionSafe(float fallback)
+    {
+        try
+        {
+            return GlovePinkyCounterAbduction == null
+                ? fallback
+                : Mathf.Clamp(GlovePinkyCounterAbduction.Value, -30f, 30f);
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    public static ConfigEntry<float> GlovePinkyCounterAbduction = null!;
+
     public static void Bind()
     {
         if (_file != null)
             return;
         ConfigFile config = _file = ModuleConfig.Create("hands");
+
+        GlovePinkyCounterAbduction = config.Bind(
+            "Hands", "GlovePinkyCounterAbduction", FingerCurler.DefaultGlovePinkyCounterAbductionDeg,
+            "GLOVE style only: degrees of counter-abduction (rotation about the pinky root's " +
+            "local Z = palm normal) applied at full curl, scaled by the curl value. The glove " +
+            "pinky MESH tube leans ~18° outward while its bone chain is straight, so a pure " +
+            "local-X fist leaves the curled pinky visibly splayed outward; this pulls it back " +
+            "toward the ring finger as it curls (sign auto-flips for the right hand). 0 disables. " +
+            "Live-tunable.");
 
         TestFist = config.Bind(
             "Hands", "TestFist", false,

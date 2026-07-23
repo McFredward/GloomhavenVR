@@ -377,9 +377,9 @@ internal sealed class RemoteAvatar
         rightVisual.SetParent(_rightHolder, worldPositionStays: false);
 
         _leftRig = HandVisuals.Build(leftVisual, HandSide.Left, style);
-        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig) : null;
+        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig, HandSide.Left) : null;
         _rightRig = HandVisuals.Build(rightVisual, HandSide.Right, style);
-        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
+        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig, HandSide.Right) : null;
 
         // Build applied the style scale for the built style (receiver-local config value
         // for the SENDER'S style); remember it so the live check in Tick only re-applies

@@ -314,7 +314,7 @@ internal sealed class VRHand : MonoBehaviour
         SyncVisualOffset();
 
         Rig = HandVisuals.Build(_handRoot, side);
-        _curler = new FingerCurler(Rig);
+        _curler = new FingerCurler(Rig, side);
 
         Poke = new PokeInteractor(this);
         Ray = new RayInteractor(this);
