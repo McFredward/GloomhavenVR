@@ -667,6 +667,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     // ------------------------------------------------------------------ grab handle --
 
     private WorldUI.PanelGrabHandle? _handle;
+    private BoxCollider? _handleZone;
+
+    /// <summary>
+    /// The tray handle bar's grab-zone collider (null before <see cref="BuildHandle"/> /
+    /// after teardown). VRCard's dock-apron arbitration reads it: a slot-docked card's
+    /// apron-extended collider yields to the bar whenever the palm is inside this zone
+    /// (see <c>VRCard.PalmClearlyAtTrayBar</c>), so the bar stays grabbable under the board.
+    /// </summary>
+    internal Collider? HandleZone => _handleZone;
+
     private BoardButton? _followToggle;
     private BoardButton? _gear;
     private Transform? _gearAnchor;   // items 4/6: gear anchor, moved by the per-board VRSettingsOffset
@@ -706,6 +716,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         var box = handleGo.AddComponent<BoxCollider>();
         box.size = new Vector3(BoardW * 0.62f, 0.05f, 0.05f);
         box.isTrigger = true;
+        _handleZone = box; // VRCard dock-apron arbitration reads this (bar beats apron)
 
         _handle = handleGo.AddComponent<WorldUI.PanelGrabHandle>();
         _handle.Init(this, bar.GetComponent<MeshRenderer>(), "Cards", "Tray");

@@ -102,9 +102,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Debug-menu top-level TAB. The user browses the debug menu by category first (a compact
-    /// CYCLE button), and the Element chooser (an expandable accordion of option rows) then
-    /// offers only the 2–5 elements of that category
+    /// Debug-menu top-level TAB. The user browses the debug menu by category first (an
+    /// expandable accordion of option rows — same idiom as the Element chooser), and the
+    /// Element chooser then offers only the 2–5 elements of that category
     /// instead of all 14 at once. <see cref="Board"/> is a single-element per-board tab; Fan and
     /// Hands are GLOBAL tabs (no per-board Oak/Steel/Bronze selector, no element cycle) — their
     /// settings apply to every board.
@@ -141,6 +141,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private readonly int[] _categoryElement = new int[DebugCategoryCount];
     /// <summary>Element ACCORDION state: true while the per-element option rows are expanded.</summary>
     private bool _elementListOpen;
+    /// <summary>Category ACCORDION state: true while the per-category option rows are expanded.</summary>
+    private bool _categoryListOpen;
+    /// <summary>Wall-fade tuning EXPANDER state (collapsed by default; same accordion idiom).</summary>
+    private bool _wallFadeOpen;
     private readonly List<GameObject> _debugRows = new(24);          // every debug row (teardown + gate)
     private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -628,9 +632,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     Mathf.Clamp(ComfortSettings.SnapTurnDegrees.Value + delta * 15f, 15f, 90f);
             });
 
-        Toggle(Loc.Mod("seated_mode"),
-            () => ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value,
-            v => { if (ComfortSettings.IsBound) ComfortSettings.SeatedMode.Value = v; });
+        // Seated mode ("Sitzmodus") row removed (user: irrelevant — the world is freely
+        // draggable, so a recenter height preset adds nothing). Recenter always uses the
+        // standing preset + TableHeightOffset now (ComfortSettings.EffectiveEyeHeightMeters).
 
         Stepper(Loc.Mod("table_height"),
             () => ComfortSettings.IsBound ? $"{ComfortSettings.TableHeightOffset.Value:+0.00;-0.00;0.00}m" : "-",
@@ -698,8 +702,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Wall-fade decision thresholds (live [WallFade] config — WallSegmentFade re-reads
         // them every evaluation tick, no restart). Debug-gated steppers (same master gate as
         // the board-tuning rows below) so the Modules section stays compact in normal play,
-        // but they LIVE here, right under the Wall see-through toggle they tune.
+        // but they LIVE here, right under the Wall see-through toggle they tune. Wrapped in
+        // a collapsed-by-default EXPANDER row (accordion idiom, like the debug Element
+        // chooser): the four steppers only show while "Wall fade tuning" is expanded.
         WallFadeTuning.Bind();
+        var wallFadeHeader = Row();
+        RegisterDebugRow(wallFadeHeader.gameObject, () => true);
+        Label(wallFadeHeader, "Wall fade tuning", 16f, flexible: true);
+        CycleButton(wallFadeHeader, 40f,
+            () => _wallFadeOpen ? "-" : "+",
+            () => _wallFadeOpen = !_wallFadeOpen);
         AddWallFadeRow("Fade on", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
             v => $"{v * 100f:0}%");
         AddWallFadeRow("Fade off", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
@@ -746,8 +758,17 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var msaaRow = Row();
         Label(msaaRow, "MSAA", 16f, flexible: true);
         CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
+
+        // Supersampling ([RenderQuality] EyeResolutionScale — Rig.RenderQuality): the
+        // eye-texture resolution scale, 0.8–2.0 in 0.1 steps. NOTE: MSAA is proven DEAD
+        // under VDXR (the runtime caps the swapchain at 1x — EYE-TARGET DIAG verdict), so
+        // this brute-force lever is the working anti-aliasing control there. Applies live
+        // (the swapchain re-allocates) and persists (BepInEx saves on set).
+        var ssRow = Row();
+        Label(ssRow, "Supersampling", 16f, flexible: true);
+        MiniStepper(ssRow, RenderQuality.EyeScaleLabel, RenderQuality.StepEyeScale);
         var msaaNote = Row(18f);
-        Label(msaaNote, "anti-aliasing — applies immediately", 12f, flexible: true);
+        Label(msaaNote, "MSAA has no effect under VDXR — use supersampling", 12f, flexible: true);
 
         Section(Loc.Mod("mixed_reality"));
 
@@ -822,19 +843,39 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     VRLog.Info("Cards", "Debug board-tuning menu enabled — live per-board element tuning is now visible.");
             });
 
-        // CATEGORY tab (compact CYCLE button — a 7-way tab row would overflow the 380px panel once
-        // localized to German, so we cycle like the Control-board selector). The Element cycle below
-        // then walks only the CURRENT category's 2–5 elements, never all 14 at once.
+        // CATEGORY chooser — ACCORDION (exactly the Element chooser pattern below; the old
+        // compact CYCLE button needed up to N-1 clicks to reach a tab once the categories
+        // grew to 9): the header row shows the selected category; pressing it expands one
+        // option row PER category right below (the panel's ContentSizeFitter grows around
+        // them); pressing an option selects that tab and collapses the list. Selecting a
+        // tab also collapses the Element accordion, exactly like the old cycle did. The
+        // Element chooser then walks only the CURRENT category's 2–5 elements.
         var catRow = Row();
         RegisterDebugRow(catRow.gameObject, () => true);
         Label(catRow, Loc.Mod("category"), 16f, flexible: true);
         CycleButton(catRow, 130f,
-            () => DebugCategoryLabel(CurrentCategory),
-            () =>
+            () => DebugCategoryLabel(CurrentCategory) + (_categoryListOpen ? " -" : " +"),
+            () => _categoryListOpen = !_categoryListOpen);
+
+        // One option row per category (fixed 9 — built once; label refreshers mark the
+        // selected tab, the shared visibility pass shows them only while expanded).
+        for (int c = 0; c < DebugCategoryCount; c++)
+        {
+            int idx = c; // capture per row
+            var catOptRow = Row(28f);
+            RegisterDebugRow(catOptRow.gameObject, () => _categoryListOpen);
+            Label(catOptRow, "", 13f); // fixed 28px gutter — reads as an indented sub-row
+            (Button _, TextMeshProUGUI catText) = Button(catOptRow, "", 0f, () =>
             {
-                _debugCategory = (_debugCategory + 1) % DebugCategoryCount;
-                _elementListOpen = false; // switching tabs collapses the element accordion
-            });
+                _debugCategory = idx;
+                _categoryListOpen = false; // select + collapse
+                _elementListOpen = false;  // switching tabs collapses the element accordion
+                RefreshAll();
+            }, flexible: true);
+            _refreshers.Add(() =>
+                catText.text = (_debugCategory == idx ? "> " : "")
+                               + DebugCategoryLabel((DebugCategory)idx));
+        }
 
         // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all boards).
         var boardRow = Row();
@@ -1159,7 +1200,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         if (entry == null)
             return; // WallFadeTuning.Bind() failed (config dir unwritable) — skip the row
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => true);
+        RegisterDebugRow(row.gameObject, () => _wallFadeOpen); // collapsed-by-default expander
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => format(entry.Value),

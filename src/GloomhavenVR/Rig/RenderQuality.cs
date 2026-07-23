@@ -338,4 +338,28 @@ internal static class RenderQuality
         // No further plumbing needed: Tick's compare re-asserts QualitySettings and pushes
         // the new level to the XR display next frame; BepInEx persists on set.
     }
+
+    // ---- settings-panel accessors (WorldUI SettingsPanel "Supersampling" stepper row) ---------
+
+    /// <summary>Stepper readout for the supersampling row ("0.8x".."2.0x").</summary>
+    internal static string EyeScaleLabel()
+    {
+        Bind();
+        return $"{Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale):0.0}x";
+    }
+
+    /// <summary>
+    /// Step <c>[RenderQuality] EyeResolutionScale</c> by ±0.1, clamped to 0.8–2.0 (rounded to
+    /// one decimal so repeated presses never drift off the 0.1 grid). NOTE (hardware-proven):
+    /// under VDXR the MSAA row does NOTHING — the OpenXR runtime caps the swapchain at 1x
+    /// (see the EYE-TARGET DIAG verdict) — so this supersampling lever is the working
+    /// anti-aliasing control there. Applies live (Tick re-asserts the scale and the
+    /// eye-texture swapchain re-allocates); BepInEx persists on set.
+    /// </summary>
+    internal static void StepEyeScale(int delta)
+    {
+        Bind();
+        float next = EyeResolutionScale!.Value + delta * 0.1f;
+        EyeResolutionScale.Value = Mathf.Clamp(Mathf.Round(next * 10f) / 10f, MinEyeScale, MaxEyeScale);
+    }
 }

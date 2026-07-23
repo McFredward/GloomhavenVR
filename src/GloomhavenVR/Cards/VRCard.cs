@@ -24,8 +24,41 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     internal static VRHand? InteractionBlockedHand;
 
-    /// <summary>Per-hand grab/hover gate (see <see cref="InteractionBlockedHand"/>).</summary>
-    public bool AllowsHand(VRHand hand) => !ReferenceEquals(hand, InteractionBlockedHand);
+    /// <summary>
+    /// Per-hand grab/hover gate (see <see cref="InteractionBlockedHand"/>). While the
+    /// slot-dock apron is active, a docked card also YIELDS to the tray's grab bar:
+    /// the apron-extended collider may overlap the bar's grab zone, and ProximityGrabber
+    /// is single-winner by distance — without this gate the card could steal the
+    /// highlight from a palm clearly placed at the bar (accidental card grabs, bar
+    /// unreachable). The card only wins there when the palm is inside its CORE box.
+    /// </summary>
+    public bool AllowsHand(VRHand hand) =>
+        !ReferenceEquals(hand, InteractionBlockedHand)
+        && !(_dockGrabPad && PalmClearlyAtTrayBar(hand));
+
+    /// <summary>
+    /// True when <paramref name="hand"/>'s palm is INSIDE the tray handle's grab zone
+    /// (clearly at the bar) while NOT inside this card's core box (the original,
+    /// un-padded collider volume plus the dock face thickness) — i.e. only the apron
+    /// extension overlaps the palm. In that case the bar candidate must win.
+    /// </summary>
+    private bool PalmClearlyAtTrayBar(VRHand hand)
+    {
+        Collider? bar = PlayTray.Current?.HandleZone;
+        if (bar == null || !bar.enabled || !bar.gameObject.activeInHierarchy)
+            return false;
+        Vector3 palm = hand.Rig.PalmCenter.position;
+
+        // Palm inside the card's CORE box → the card legitimately wins even at the bar.
+        Vector3 local = transform.InverseTransformPoint(palm);
+        Vector3 half = _fullColliderSize * 0.5f;
+        if (Mathf.Abs(local.x) <= half.x && Mathf.Abs(local.y) <= half.y
+            && Mathf.Abs(local.z) <= Mathf.Max(half.z, DockPadDepth * 0.5f))
+            return false;
+
+        // "Clearly at the bar" = palm inside the bar's own grab zone volume.
+        return (bar.ClosestPoint(palm) - palm).sqrMagnitude < 1e-10f;
+    }
 
     private CardFace _face = new();
     private readonly BurnCardFx _burnFx = new();
@@ -537,16 +570,21 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     // (0.02) and the tray shows docked cards at ~half scale, so a palm slightly BELOW/
     // beside a slot-docked card fell outside the ProximityGrabber highlight — no
     // hover-lift, and the trigger fell through to board actions. While slot-docked the
-    // grab collider grows a generous accept apron, biased DOWN (the reported miss):
-    // one full card height below, a third above/beside, and a thicker face volume.
+    // grab collider grows a modest accept apron, biased DOWN (the reported miss).
     // Card-local units, so the pad scales with the tray exactly like the card does.
     // Single-winner semantics unchanged: ProximityGrabber still picks the NEAREST
     // collider with its 2.5 cm switch margin, and the two slot cards sit far enough
     // apart that a padded neighbor can only win when it really is closer.
-    private const float DockPadSideFrac = 0.35f;  // × card width, each side
-    private const float DockPadUpFrac = 0.35f;    // × card height, above
-    private const float DockPadDownFrac = 1.0f;   // × card height, below — the under-grab
-    private const float DockPadDepth = 0.06f;     // face-normal thickness while docked
+    // HARDWARE ROUND 2 (apron too big): the first cut (below +1.0×H, sides/above
+    // +0.35×H, depth 0.06) swallowed the tray's GRAB BAR under the board and caused
+    // accidental card grabs. Shrunk back toward the original — enough to keep the
+    // "slightly under the card" accept, no longer reaching the bar — and, belt and
+    // braces, AllowsHand yields to the bar whenever the palm is INSIDE the bar's grab
+    // zone but outside the card's core box (see PalmClearlyAtTrayBar).
+    private const float DockPadSideFrac = 0.10f;  // × card width, each side
+    private const float DockPadUpFrac = 0.15f;    // × card height, above
+    private const float DockPadDownFrac = 0.35f;  // × card height, below — the under-grab
+    private const float DockPadDepth = 0.04f;     // face-normal thickness while docked
 
     private bool _dockGrabPad;
 

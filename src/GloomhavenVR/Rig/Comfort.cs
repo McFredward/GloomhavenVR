@@ -14,14 +14,15 @@ namespace GloomhavenVR.Rig;
 ///   <c>[Comfort] RecenterHoldSeconds</c> → recenter. Requiring the two-hand chord keeps
 ///   single B/Y presses free for future features and makes accidental fires unlikely.
 /// - Recenter re-aligns the rig so the HMD sits at the configured spot at the table
-///   edge: <c>[Comfort] SeatedMode</c> preset (standing 0.70 m above / 0.70 m back,
-///   seated 0.50 m / 0.55 m) plus <c>[Comfort] TableHeightOffset</c>. Changing either
-///   setting re-runs recenter live (the P3c panel gets immediate feedback for free).
+///   edge: the standing preset (0.70 m above / 0.70 m back) plus
+///   <c>[Comfort] TableHeightOffset</c>. Changing the offset re-runs recenter live (the
+///   P3c panel gets immediate feedback for free). The old seated-mode preset is GONE
+///   (user: irrelevant — the world is freely draggable).
 /// - Dev harness: F11 recenters (desktop, [Dev] Enabled only).
 ///
 /// Persistence: pinch-scale multiplier persists via <c>[Comfort] SavedScaleMultiplier</c>
 /// (WorldGrab writes it, the rig build re-applies it); height persists as the
-/// TableHeightOffset/SeatedMode config themselves. Drag position is intentionally NOT
+/// TableHeightOffset config itself. Drag position is intentionally NOT
 /// persisted — it is scenario-world dependent; recenter is the deterministic way back.
 /// </summary>
 internal sealed class Comfort : MonoBehaviour
@@ -79,7 +80,6 @@ internal sealed class Comfort : MonoBehaviour
     {
         if (!ComfortSettings.IsBound)
             return;
-        ComfortSettings.SeatedMode.Changed += OnSeatedChanged;
         ComfortSettings.TableHeightOffset.Changed += OnHeightOffsetChanged;
     }
 
@@ -87,7 +87,6 @@ internal sealed class Comfort : MonoBehaviour
     {
         if (!ComfortSettings.IsBound)
             return;
-        ComfortSettings.SeatedMode.Changed -= OnSeatedChanged;
         ComfortSettings.TableHeightOffset.Changed -= OnHeightOffsetChanged;
     }
 
@@ -144,8 +143,6 @@ internal sealed class Comfort : MonoBehaviour
         left!.SendHaptic(HapticPreset.GrabPulse);
         right!.SendHaptic(HapticPreset.GrabPulse);
     }
-
-    private void OnSeatedChanged(bool _) => RequestRecenter();
 
     private void OnHeightOffsetChanged(float _) => RequestRecenter();
 }
