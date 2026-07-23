@@ -9,6 +9,13 @@
 # rig_hand.py loads via RIG_HAND_JOINTS — the original glove's hardcoded constants remain
 # the default, so the existing VRHand build stays byte-compatible.
 #
+# NOTE (2026-07): the finger/thumb JOINT CHAINS in the JSON are only SEEDS now —
+# rig_hand.py's refit_chains() re-derives MCP placement, digit direction and the fingertip
+# from the actual mesh before building the armature (this file's webbing detection proved
+# unreliable on armored knuckles: finger side-bulge verts pollute the inter-column gap
+# max, which parked the styled MCPs at the 0.62*tip_z clamp — mid-finger — so only the
+# fingertips curled). wrist/palm/grab/cap_uv/wrist_mode are used as-is.
+#
 # CLEANUP RECIPES applied (established in this repo):
 #   - PRE-DECIMATE GLOBAL WELD (the mask lesson): the AI mesh is thousands of disconnected
 #     shells whose seams coincide EXACTLY only before decimation moves verts — weld first,

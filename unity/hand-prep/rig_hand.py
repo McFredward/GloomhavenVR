@@ -140,6 +140,37 @@ IPJ_BLEND = 0.15   # inter-phalangeal blend halfwidth, fraction of shorter neigh
 # EXIT without exporting FBX. The metric the earlier "closure" checks were blind to.
 DIAG = os.environ.get("RIG_HAND_DIAG", "0") != "0"
 
+# ---- CHAIN REFIT (2026-07 hardware round: "Arcane/Plate still only curl at the tips",
+# "glove pinky splays outward in a fist") --------------------------------------------------
+# Both bugs turned out to be JOINT-CHAIN placement, not weighting:
+#   - prepare_hand.py's webbing detection is polluted on the armored Hunyuan meshes (finger
+#     side-bulge verts fall into the inter-column gap window), so the styled MCPs landed at
+#     the 0.62*tip_z clamp — MID-FINGER (Plate index MCP z=0.109 vs true valley z=0.080/
+#     ring-pinky 0.054, measured). Everything below the MCP projects to s < -h0 and is
+#     wrist-rigid: heatmap-verified "gray proximal half", i.e. only the fingertips curled.
+#   - the glove pinky MESH tube points ~18 deg outward in XZ (PCA of the tube verts:
+#     (+0.30, +0.25, +0.92)) while its hardcoded chain is dead straight (0,0,1). The curl
+#     axis derived from the CHAIN (world +X) is then not perpendicular to the finger's real
+#     plane, so a full curl drives the tip straight down parallel to the middle finger while
+#     the shaft points outward — the reported unnatural outward splay. (Glove index is
+#     likewise ~16 deg off, toward the thumb.)
+# Fix: refit every finger chain FROM THE MESH before building the armature:
+#   1. per finger, PCA-fit the digit tube axis (verts nearest the seed chain, distal 2/3,
+#      off-axis < 3 cm; thumb 4 cm) -> centroid + direction; fingertip = 98th-pct projection;
+#   2. finger MCPs: scan the inter-finger VALLEYS on the fitted axes (lowest 8 mm z-slab
+#      whose column window still has a >=6 mm empty x-gap) and drop the MCP a fixed
+#      MCP_DROP below the valley (calibrated so the glove's proven MCPs reproduce);
+#   3. thumb MCP: walk DOWN the fitted thumb axis until the slab's r90 off-axis radius
+#      blows past the mid-thumb reference (the tube merging into the palm mass).
+# The bones then follow the real digits, so align_roll(-Y) automatically yields a curl
+# axis perpendicular to each finger's true plane (splay fix) and the proximal phalanx
+# starts at the true knuckle (fingertip-only-curl fix). RIG_HAND_REFIT=0 for A/B.
+REFIT = os.environ.get("RIG_HAND_REFIT", "1") != "0"
+MCP_DROP = float(os.environ.get("RIG_HAND_MCP_DROP", "0.030"))  # valley -> MCP z drop (m)
+VALLEY_SLAB = 0.008     # z-slab thickness for the valley scan (m)
+VALLEY_GAP = 0.006      # required empty x-gap between adjacent digit columns (m)
+MCP_MIN_Z = 0.018       # never place a finger MCP below this (m above the wrist crease)
+
 # ---- DIP relocation (found by the same diagnostics, all styles) ------------------------
 # The 3rd landmark of every finger is the FINGERTIP ("Tip(fingertip/DIP)" in the
 # JOINTS_L comment; prepare_hand.py detects the same for the styled hands — all chains
@@ -192,11 +223,21 @@ POSES = {
     "curl_middle": {"Thumb": 0.1, "Index": 0.1, "Middle": 1.0, "Ring": 0.1, "Pinky": 0.1},
     "curl_ring":   {"Thumb": 0.1, "Index": 0.1, "Middle": 0.1, "Ring": 1.0, "Pinky": 0.1},
     "curl_pinky":  {"Thumb": 0.1, "Index": 0.1, "Middle": 0.1, "Ring": 0.1, "Pinky": 1.0},
+    # splay/abduction QA (future hand-tracking: rigs must tolerate ARBITRARY poses):
+    # +/-15 deg on every PROXIMAL bone about its local Z — the axis perpendicular to the
+    # curl axis and the bone, i.e. pure abduction. Verifies the skinning doesn't tear
+    # when fingers spread/adduct and that every chain has a consistent abduction axis.
+    "splay_p":   {"_splay": 15.0},
+    "splay_m":   {"_splay": -15.0},
 }
 
 
 def apply_pose(arm, curls):
-    """Pose the armature exactly like the runtime FingerCurler (local-X, per-joint max)."""
+    """Pose the armature exactly like the runtime FingerCurler (local-X, per-joint max).
+
+    Optional "_splay" key: degrees of abduction applied to every Root bone about its
+    local Z (the axis orthogonal to both the bone and its curl axis)."""
+    splay = curls.get("_splay", 0.0)
     bpy.context.view_layer.objects.active = arm
     bpy.ops.object.mode_set(mode='POSE')
     for pb in arm.pose.bones:
@@ -206,8 +247,9 @@ def apply_pose(arm, curls):
         maxes = CURL_MAX_THUMB if f == "Thumb" else CURL_MAX_FINGER
         c = curls.get(f, 0.0)
         for i, seg in enumerate(("Root", "Mid", "Tip")):
-            arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = \
-                (math.radians(maxes[i] * c * CURL_SCALE), 0.0, 0.0)
+            rx = math.radians(maxes[i] * c * CURL_SCALE)
+            rz = math.radians(splay) if seg == "Root" else 0.0
+            arm.pose.bones[f"Anchor_{f}_{seg}"].rotation_euler = (rx, 0.0, rz)
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.context.view_layer.update()
 
@@ -621,6 +663,224 @@ def _smoothstep01(x):
     return x * x * (3.0 - 2.0 * x)
 
 
+# ---- chain refit (see the CHAIN REFIT block near the top) ------------------------------
+def _pca_dir(vs, C):
+    """Principal axis of a point cloud via power iteration on the covariance matrix."""
+    M = [[0.0] * 3 for _ in range(3)]
+    for c in vs:
+        d = c - C
+        for i in range(3):
+            for j in range(3):
+                M[i][j] += d[i] * d[j]
+    v = Vector((0.05, 0.05, 1.0))
+    for _ in range(60):
+        v = Vector((sum(M[0][k] * v[k] for k in range(3)),
+                    sum(M[1][k] * v[k] for k in range(3)),
+                    sum(M[2][k] * v[k] for k in range(3))))
+        if v.length < 1e-12:
+            return Vector((0.0, 0.0, 1.0))
+        v.normalize()
+    return v
+
+
+def refit_chains(mesh, joints, indextip):
+    """Refit every [MCP, PIP, fingertip] chain to the ACTUAL mesh digits (pre-DIP).
+
+    Returns (joints_new, indextip_new). The seed chains (hardcoded glove constants or
+    prepare_hand.py's JSON) only bootstrap the per-vert nearest-digit assignment; the
+    exported bones come from the mesh itself."""
+    V = [v.co.copy() for v in mesh.data.vertices]
+    pts = {f: [joints[f][0], joints[f][1], joints[f][2]] for f in FINGERS}
+    tot = {f: (pts[f][1] - pts[f][0]).length + (pts[f][2] - pts[f][1]).length
+           for f in FINGERS}
+    near = []
+    for co in V:
+        best = None
+        for f in FINGERS:
+            s, d = _chain_param(co, pts[f])
+            if best is None or d < best[2]:
+                best = (f, s, d)
+        near.append(best)
+
+    # 1) per-finger tube fit: centroid + principal axis of the distal 2/3 of the digit.
+    # Two passes: the seed-chain neighbourhood bootstraps a first PCA axis, then the
+    # sample is re-selected around THAT axis and refit once (the welded styled meshes
+    # carry hole-fill caps/plates that can dominate a small first sample).
+    fits = {}
+    for f in FINGERS:
+        dcap = 0.05 if f == "Thumb" else 0.035
+        sel = [V[i] for i, (g, s, d) in enumerate(near)
+               if g == f and 0.30 * tot[f] <= s <= 1.02 * tot[f] and d < dcap]
+        olddir = (pts[f][2] - pts[f][0]).normalized()
+        if len(sel) < 40:
+            log(f"refit {f}: only {len(sel)} tube verts — keeping seed chain")
+            C = (pts[f][0] + pts[f][2]) * 0.5
+            fits[f] = (C, olddir, pts[f][2].copy())
+            continue
+        C = sum(sel, Vector()) / len(sel)
+        u = _pca_dir(sel, C)
+        if u.dot(olddir) < 0:
+            u = -u
+        for _ in range(2):                     # refinement: re-select around the fit
+            rad = [((v - C) - u * (v - C).dot(u)).length for v in sel]
+            rad.sort()
+            r95 = rad[min(len(rad) - 1, int(0.95 * (len(rad) - 1)))]
+            sel2 = [v for v in sel if ((v - C) - u * (v - C).dot(u)).length < r95 + 0.004]
+            if len(sel2) < 40:
+                break
+            C = sum(sel2, Vector()) / len(sel2)
+            u2 = _pca_dir(sel2, C)
+            if u2.dot(u) < 0:
+                u2 = -u2
+            u = u2
+        ang = math.degrees(math.acos(max(-1.0, min(1.0, u.dot(olddir)))))
+        if ang > 30.0:
+            log(f"refit {f}: fitted axis {ang:.1f} deg off the seed — degenerate sample, "
+                f"keeping seed direction")
+            u = olddir
+        projs = sorted((v - C).dot(u) for v in sel)
+        s_tip = projs[min(len(projs) - 1, int(0.98 * (len(projs) - 1)))]
+        F = C + u * s_tip
+        if (F - pts[f][2]).length > 0.03:
+            log(f"refit {f}: fitted tip {1000*(F - pts[f][2]).length:.0f} mm from seed tip "
+                f"— keeping seed tip")
+            F = pts[f][2].copy()
+        fits[f] = (C, u, F)
+        log(f"refit {f}: n={len(sel)} dir=({u.x:+.3f},{u.y:+.3f},{u.z:+.3f}) "
+            f"({ang:.1f} deg off seed) tip=({F.x:+.4f},{F.y:+.4f},{F.z:+.4f})")
+
+    # 2) inter-finger valleys on the fitted axes -> finger MCP heights
+    def x_at_z(f, z):
+        C, u, _ = fits[f]
+        if abs(u.z) < 0.2:
+            return C.x
+        return (C + u * ((z - C.z) / u.z)).x
+
+    order = ["Index", "Middle", "Ring", "Pinky"]
+    valley = {}
+    for fa, fb in zip(order, order[1:]):
+        z0 = min(fits[fa][0].z, fits[fb][0].z)
+        z, vz = z0, None
+        while z > 0.015:
+            xa, xb = x_at_z(fa, z), x_at_z(fb, z)
+            lo, hi = min(xa, xb), max(xa, xb)
+            if hi - lo < 0.004:
+                break                        # fitted axes converged — stop the scan
+            xs = sorted(c.x for c in V
+                        if abs(c.z - z) < VALLEY_SLAB * 0.5 and lo <= c.x <= hi)
+            gap, prev = 0.0, lo
+            for x in xs + [hi]:
+                gap = max(gap, x - prev)
+                prev = x
+            if gap < VALLEY_GAP:
+                break                        # columns merged: below the webbing valley
+            vz = z
+            z -= 0.002
+        if vz is None:
+            vz = z0
+            log(f"refit valley {fa}-{fb}: NO separating gap found — falling back to {vz:.4f}")
+        valley[(fa, fb)] = vz
+    log("refit valleys (z m): " + ", ".join(
+        f"{a}-{b} {v:.4f}" for (a, b), v in valley.items()))
+
+    new = {}
+    for f in order:
+        C, u, F = fits[f]
+        # MEAN of the adjacent valleys (min() dragged ring/middle down to the low pinky
+        # attachment on the styled hands), with the knuckle drop SCALED by valley height
+        # (calibrated =1 on the glove's 0.132 m valleys; the armored hands' much lower
+        # valleys sit on proportionally shorter palms).
+        adj = [v for pair, v in valley.items() if f in pair]
+        vz = sum(adj) / len(adj)
+        drop = MCP_DROP * max(0.6, min(1.0, vz / 0.132))
+        mcp_z = max(MCP_MIN_Z, vz - drop)
+        mcp_z = min(mcp_z, 0.60 * F.z)       # sanity: keep a real palm below the knuckle
+        if abs(u.z) < 0.5:
+            mcp = pts[f][0].copy()           # near-horizontal fit: keep the seed MCP
+        else:
+            mcp = C + u * ((mcp_z - C.z) / u.z)
+        # Y-RECENTRE the MCP inside the hand: the long extrapolation down the fitted
+        # axis amplifies its small y-slope error (arcane MCPs landed 20-30 mm palm-side
+        # of the mesh, inflating the proximal tube radius). The knuckle joint belongs at
+        # the mid-plane of the hand's local column: mean y of the mesh slab around it.
+        ys = [c.y for c in V
+              if abs(c.z - mcp_z) < 0.005 and abs(c.x - mcp.x) < 0.014]
+        if len(ys) >= 8:
+            yc = sum(ys) / len(ys)
+            if abs(yc - mcp.y) > 0.004:
+                mcp = Vector((mcp.x, yc, mcp.z))
+        new[f] = [mcp, (mcp + F) * 0.5, F]
+        log(f"refit {f}: MCP ({pts[f][0].x:+.4f},{pts[f][0].y:+.4f},{pts[f][0].z:+.4f})"
+            f" -> ({mcp.x:+.4f},{mcp.y:+.4f},{mcp.z:+.4f})  (valley {vz:.4f}, drop {drop:.4f})")
+
+    # 3) thumb: EXTEND the root proximally along the SEED axis until the tube merges
+    # into the palm mass. prepare_hand.py places the thumb Root 30 % out along the free
+    # thumb, so the proximal 30 % of the styled thumbs was rigid ("gray half thumb" in
+    # the heatmaps). Extension-only (never moves the proven glove thumb distally, never
+    # re-aims its tuck geometry): the seed direction and tip stay, the Root slides down
+    # the axis to the detected attachment. Merge test per 2.5 mm slab: off-axis r90
+    # blow-up OR the slab vert count jumping past 3x the mid-thumb reference (the
+    # radius alone misses the merge on fat armored thumbs whose reference r90 is
+    # already palm-sized).
+    f = "Thumb"
+    seed_root, seed_tip = pts[f][0], pts[f][2]
+    u = (seed_tip - seed_root).normalized()
+    C0 = seed_root
+    F = fits[f][2]
+    if (F - seed_tip).length > 0.02:
+        F = seed_tip.copy()
+    projd = []
+    for i, v in enumerate(V):
+        if near[i][0] != f:
+            continue
+        rel = v - C0
+        p = rel.dot(u)
+        r = (rel - u * p).length
+        if r < 0.05:
+            projd.append((p, r))
+    s_tip = (F - C0).dot(u)
+
+    def slab(s):
+        return sorted(r for (p, r) in projd if abs(p - s) < 0.003)
+
+    refs = [slab(0.30 * s_tip + 0.06 * s_tip * k) for k in range(6)]
+    refs = [ds for ds in refs if len(ds) >= 6]
+    if not refs:
+        log("refit Thumb: no reference slabs — keeping seed chain")
+        new[f] = [seed_root.copy(), pts[f][1].copy(), F]
+    else:
+        r90s = sorted(ds[min(len(ds) - 1, int(0.9 * (len(ds) - 1)))] for ds in refs)
+        ns = sorted(len(ds) for ds in refs)
+        ref_r, ref_n = r90s[len(r90s) // 2], ns[len(ns) // 2]
+        lim_r = max(1.7 * ref_r, ref_r + 0.012)
+        lim_n = 3.0 * ref_n
+        s, base_s, bad = 0.0, 0.0, 0
+        while True:
+            s_next = s - 0.0025
+            pt = C0 + u * s_next
+            if pt.z < 0.012 or s_next <= -0.9 * s_tip:
+                break                        # hit the wrist band / scan floor
+            ds = slab(s_next)
+            r = None if len(ds) < 6 else ds[min(len(ds) - 1, int(0.9 * (len(ds) - 1)))]
+            if r is None or r > lim_r or len(ds) > lim_n:
+                bad += 1
+                if bad >= 2:
+                    break                    # tube merged into the palm mass
+            else:
+                bad = 0
+                base_s = s_next              # last slab that still looked like a tube
+            s = s_next
+        mcp = C0 + u * base_s                # base_s <= 0: extension only
+        new[f] = [mcp, (mcp + F) * 0.5, F]
+        log(f"refit Thumb: ref r90 {1000*ref_r:.1f} mm n {ref_n}, extended root "
+            f"{-1000*base_s:.1f} mm proximally (tip s {1000*s_tip:.1f}), MCP "
+            f"({seed_root.x:+.4f},{seed_root.y:+.4f},{seed_root.z:+.4f}) -> "
+            f"({mcp.x:+.4f},{mcp.y:+.4f},{mcp.z:+.4f})")
+
+    Ci, ui, Fi = fits["Index"]
+    return new, Fi + ui * 0.002
+
+
 def _seg_weights(s, lens, h0, h1, h2, bone_names):
     """Explicit per-segment bone weights for a digit-tube vert at arc length s.
 
@@ -647,10 +907,15 @@ def _seg_weights(s, lens, h0, h1, h2, bone_names):
 
 
 def _digit_geometry(mesh, joints, tipends):
-    """Per-vert nearest finger chain + (s, d) params, and the adaptive per-finger caps.
+    """Per-vert nearest finger chain + (s, d) params, and adaptive PER-SEGMENT caps.
 
-    Same r95-based cap formula the round-3 ALT fix used, now computed for EVERY style
-    (the glove included) so skinning and diagnostics share one digit definition."""
+    2026-07 thick-mesh fix: a single r95 per FINGER under-measured the armored styles
+    (knuckle shells are ~2x thicker than the fingertips), so proximal armor fell outside
+    the one cap and went wrist-rigid. The tube radius is now measured per SEGMENT (prox/
+    mid/tip s-bins, each from its own off-axis d distribution: soft = r95 + 2 mm, cap =
+    soft + 8 mm) and soft/cap interpolate piecewise-linearly along s (_radius_at), so
+    tube membership follows the mesh's real local thickness.
+    soft[f]/cap[f] are 3-element lists [prox, mid, tip]."""
     pts, lens = {}, {}
     for f in FINGERS:
         p = joints[f]
@@ -658,7 +923,7 @@ def _digit_geometry(mesh, joints, tipends):
         lens[f] = [(pts[f][i + 1] - pts[f][i]).length for i in range(3)]
     verts = mesh.data.vertices
     info = [None] * len(verts)                 # (finger, s, d) per vert
-    shell = {f: [] for f in FINGERS}
+    shell = {f: [[], [], []] for f in FINGERS}
     for v in verts:
         co = v.co
         best = None
@@ -669,15 +934,44 @@ def _digit_geometry(mesh, joints, tipends):
         info[v.index] = best
         f, s, d = best
         total = sum(lens[f])
-        if d < 0.035 and 0.05 * total <= s <= 1.1 * total:
-            shell[f].append(d)
+        # segment bin for the radius sample; the prox bin starts at 0.35*L0 so palm/
+        # webbing mass just below the knuckle cannot inflate the proximal radius.
+        if d < 0.04 and 0.35 * lens[f][0] <= s <= 1.1 * total:
+            b = 0 if s < lens[f][0] else (1 if s < lens[f][0] + lens[f][1] else 2)
+            shell[f][b].append(d)
     soft, cap = {}, {}
     for f in FINGERS:
-        ds = sorted(shell[f])
-        r95 = ds[min(len(ds) - 1, int(0.95 * len(ds)))] if ds else DIGIT_SOFT
-        soft[f] = max(DIGIT_SOFT, r95 + 0.002)
-        cap[f] = soft[f] + DIGIT_CAP_PAD
+        ss, prev = [], DIGIT_SOFT
+        for b in range(3):
+            ds = sorted(shell[f][b])
+            if ds:
+                r95 = ds[min(len(ds) - 1, int(0.95 * len(ds)))]
+                prev = max(DIGIT_SOFT, r95 + 0.002)
+            ss.append(prev)                    # empty bin: inherit the previous segment
+        if f != "Thumb":
+            # deep-splayed MCPs (arcane pinky) let palm mass into the prox/mid radius
+            # sample and blew soft to 28-36 mm — clamp both to the TIP segment's radius
+            # (always a clean tube) x1.5 so a finger can never annex the palm.
+            lim = max(0.020, 1.5 * ss[2])
+            ss[0] = min(ss[0], lim)
+            ss[1] = min(ss[1], lim)
+        soft[f] = ss
+        cap[f] = [x + DIGIT_CAP_PAD for x in ss]
     return pts, lens, info, soft, cap
+
+
+def _radius_at(lens_f, arr, s):
+    """Piecewise-linear soft/cap radius along the chain (arr = [prox, mid, tip] values,
+    anchored at the segment midpoints; constant beyond the first/last midpoint)."""
+    L0, L1, L2 = lens_f
+    m0, m1, m2 = 0.5 * L0, L0 + 0.5 * L1, L0 + L1 + 0.5 * L2
+    if s <= m0:
+        return arr[0]
+    if s <= m1:
+        return arr[0] + (arr[1] - arr[0]) * (s - m0) / (m1 - m0)
+    if s <= m2:
+        return arr[1] + (arr[2] - arr[1]) * (s - m1) / (m2 - m1)
+    return arr[2]
 
 
 def _geo_fade(d, soft, cap):
@@ -692,8 +986,9 @@ def _geo_fade(d, soft, cap):
 def _geo_weights(mesh, joints, tipends):
     """GEO_SKIN pass: explicit geometric weights for every vert (see GEO_SKIN doc)."""
     pts, lens, info, soft, cap = _digit_geometry(mesh, joints, tipends)
-    log("geo-skin digit caps (soft/cap mm): " + ", ".join(
-        f"{f} {soft[f]*1000:.1f}/{cap[f]*1000:.1f}" for f in FINGERS))
+    log("geo-skin digit caps (soft/cap mm, prox|mid|tip): " + ", ".join(
+        f"{f} " + "|".join(f"{soft[f][b]*1000:.0f}/{cap[f][b]*1000:.0f}" for b in range(3))
+        for f in FINGERS))
     verts = mesh.data.vertices
     vert_w = [None] * len(verts)
     CUFF_Z = -0.002
@@ -704,7 +999,9 @@ def _geo_weights(mesh, joints, tipends):
             continue
         f, s, d = info[v.index]
         h0 = MCP_BLEND * lens[f][0]
-        if s < -h0 or d >= cap[f]:             # palm / back / webbing: rigid hand block
+        soft_s = _radius_at(lens[f], soft[f], s)
+        cap_s = _radius_at(lens[f], cap[f], s)
+        if s < -h0 or d >= cap_s:              # palm / back / webbing: rigid hand block
             vert_w[v.index] = {"Anchor_Wrist": 1.0}
             continue
         seg_w = _seg_weights(
@@ -712,7 +1009,7 @@ def _geo_weights(mesh, joints, tipends):
             IPJ_BLEND * min(lens[f][0], lens[f][1]),
             IPJ_BLEND * min(lens[f][1], lens[f][2]),
             [f"Anchor_{f}_{seg}" for seg in ("Root", "Mid", "Tip")])
-        fade = _geo_fade(d, soft[f], cap[f])
+        fade = _geo_fade(d, soft_s, cap_s)
         w = {}
         for nm, wv in seg_w.items():
             nm = "Anchor_Wrist" if nm == "WRIST" else nm
@@ -1105,9 +1402,23 @@ def weight_stats(mesh, joints, tipends, tag):
             "tip":  (L0 + L1 + 0.20 * L2, 1e9, f"Anchor_{f}_Tip"),
         }
         report[f] = {}
+        # COVERAGE: what fraction of the finger's whole digit mesh (nearest this chain,
+        # from the MCP up, any off-axis distance < 5 cm) actually FOLLOWS the chain
+        # (>= 0.5 summed weight on its 3 bones)? THE number the thick-mesh bug hid:
+        # zone rows below only audit verts already inside the cap.
+        total = L0 + L1 + L2
+        own = [i for i, inf in enumerate(info)
+               if inf[0] == f and 0.0 <= inf[1] <= 1.05 * total and inf[2] < 0.05]
+        chain_bones = {f"Anchor_{f}_{sg}" for sg in ("Root", "Mid", "Tip")}
+        ass = sum(1 for i in own
+                  if sum(w for nm, w in wmap[i].items() if nm in chain_bones) >= 0.5)
+        covp = 100.0 * ass / len(own) if own else 0.0
+        log(f"    {f:7s} COVERAGE {ass}/{len(own)} = {covp:.1f}% of digit verts follow the chain")
+        report[f]["coverage_pct"] = round(covp, 1)
         for zname, (s0, s1, expect) in zones.items():
             sel = [i for i, inf in enumerate(info)
-                   if inf[0] == f and s0 <= inf[1] < s1 and inf[2] < cap[f]]
+                   if inf[0] == f and s0 <= inf[1] < s1
+                   and inf[2] < _radius_at(lens[f], cap[f], inf[1])]
             if not sel:
                 log(f"    {f:7s} {zname:5s} {0:5d}      (no verts)")
                 report[f][zname] = {"n": 0}
@@ -1147,7 +1458,8 @@ def follow_test(mesh, arm, joints, tipends, tag):
         row = {}
         for seg, s0, s1 in zones:
             sel = [i for i, inf in enumerate(info)
-                   if inf[0] == f and s0 <= inf[1] < s1 and inf[2] < cap[f]]
+                   if inf[0] == f and s0 <= inf[1] < s1
+                   and inf[2] < _radius_at(lens[f], cap[f], inf[1])]
             if not sel:
                 row[seg] = None
                 continue
@@ -1290,6 +1602,34 @@ def export_fbx(path, meshes, arm):
 
 
 # ---------------------------------------------------------------------------------------
+def axis_check(arm, side):
+    """Verify each finger bone's local +X (the runtime curl axis) is perpendicular to
+    its finger's plane (spanned by the bone direction and the palm normal): curling then
+    stays in-plane and adds NO abduction (the 2026-07 pinky-splay bug). The thumb uses
+    the deliberate 45-deg tuck axis, so it is reported but not asserted."""
+    ok = True
+    log(f"--- CURL-AXIS CHECK ({side}) : angle(local +X, finger-plane normal d x -Y) ---")
+    for f in FINGERS:
+        angs = []
+        for seg in ("Root", "Mid", "Tip"):
+            pb = arm.pose.bones[f"Anchor_{f}_{seg}"]
+            d = (pb.tail - pb.head).normalized()
+            n = d.cross(NEG_Y)
+            if n.length < 1e-6:
+                angs.append(float("nan"))
+                continue
+            n.normalize()
+            ang = math.degrees(math.acos(max(-1.0, min(1.0, abs(pb.x_axis.dot(n))))))
+            angs.append(ang)
+            if f != "Thumb" and ang > 2.0:
+                ok = False
+        tagd = " (tuck axis, informational)" if f == "Thumb" else ""
+        log("    {:7s} {}{}".format(
+            f, " ".join(f"{a:5.2f}" for a in angs), tagd))
+    log(f"    CURL-AXIS: {'OK (all fingers <= 2 deg)' if ok else 'FAIL — curl adds abduction'}")
+    return ok
+
+
 def build_hand(side):
     """side: 'L' or 'R'. Returns (mesh, arm, joints, tipends, pose_results, core)."""
     mesh = import_mesh()
@@ -1301,11 +1641,16 @@ def build_hand(side):
         joints = {f: [mirror_x(v) for v in joints[f]] for f in FINGERS}
         wrist, palm, grab, itip = (mirror_x(v) for v in (wrist, palm, grab, itip))
 
-    joints, tipends = derive_dip(joints)   # fingertip landmark -> anatomical DIP chains
     mesh.name = f"{NAME}_{side}_mesh"
     if WT_ENABLE:
         make_watertight(mesh)   # close AI see-through holes BEFORE skinning (proximity re-skins)
+    if REFIT:
+        # fit the chains to the ACTUAL mesh digits (fixes mid-finger MCPs on the styled
+        # hands + the glove pinky's off-axis chain); runs on the welded mesh, pre-DIP.
+        joints, itip = refit_chains(mesh, joints, itip)
+    joints, tipends = derive_dip(joints)   # fingertip landmark -> anatomical DIP chains
     arm = build_armature(joints, wrist, palm, grab, itip, f"{NAME}_{side}", tipends)
+    axis_check(arm, side)
     skin(mesh, arm, joints, wrist, palm, tipends)
     sample_weights(mesh, joints)
     results = pose_test(mesh, arm, joints, tipends, side)
