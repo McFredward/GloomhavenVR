@@ -318,26 +318,29 @@ internal static class CardsConfig
             "or a real HMD). 0 = off.");
         RevealMode = _file.Bind("Cards", "RevealMode", "tilt",
             "How the palm fan reveals. 'tilt' = Demeo-style wrist SUPINATION on the non-dominant " +
-            "hand: turning the palm up / toward you, measured on the ROLL axis alone (pitching or " +
-            "pointing the arm has no effect — hardware test #10). 'always' = the fan is out " +
-            "whenever a card phase has cards, no gesture at all.");
+            "hand: turning the palm up / toward you, measured on the ROLL axis alone at ANY arm " +
+            "pitch — even fingers straight up, a wrist twist reveals (roll gate v4, hardware " +
+            "test #10 + round 4). 'always' = the fan is out whenever a card phase has cards, " +
+            "no gesture at all.");
         RevealEnterDegrees = _file.Bind("Cards", "RevealEnterDegrees", 60f,
             new ConfigDescription(
                 "RevealMode=tilt: hand ROLL in DEGREES above which the fan OPENS. Roll gate " +
-                "v3 uses DEMEO'S OWN measure — the tilt of the hand's RIGHT axis toward world " +
-                "up (supination), asin-mapped to degrees — which pitching or pointing the arm " +
-                "cannot affect BY CONSTRUCTION (pitch rotates about that very axis). Scale: " +
-                "0 = knuckles-up flat hand, 90 = palm fully rolled toward the face (negative " +
-                "= rolled the other way, which never opens the fan). Default 60 = a " +
-                "comfortable supination well past vertical (Demeo's own threshold is ~37°). " +
-                "NOTE: the scale CHANGED from the old v2 measure (whose default was 95 on a " +
-                "0-180 scale) — old out-of-range values are auto-reset once. Live-tunable " +
-                "from the in-VR debug menu (Fan category).",
+                "v4 measures TRUE wrist roll via a parallel-transported reference: the " +
+                "signed twist of the back-of-hand around the finger axis, drift-anchored to " +
+                "world up whenever the fingers are off vertical. Pitching or pointing the " +
+                "arm — including straight UP — cannot move the measure; only rolling the " +
+                "wrist does. Measured on the VISIBLE hand (after the debug-menu hand seat " +
+                "offsets/per-style trims). Scale: 0 = knuckles-up flat hand, 90 = palm " +
+                "fully rolled toward the face (negative = rolled the other way, which never " +
+                "opens the fan). Default 60 = a comfortable supination well past vertical " +
+                "(Demeo's own threshold is ~37°). NOTE: the scale CHANGED from the old v2 " +
+                "measure (whose default was 95 on a 0-180 scale) — old out-of-range values " +
+                "are auto-reset once. Live-tunable from the in-VR debug menu (Fan category).",
                 new AcceptableValueRange<float>(15f, 85f)));
         RevealExitDegrees = _file.Bind("Cards", "RevealExitDegrees", 45f,
             new ConfigDescription(
                 "RevealMode=tilt: hand roll in DEGREES below which the fan CLOSES (same " +
-                "Demeo-measure scale as RevealEnterDegrees: 0 = flat, 90 = palm fully toward " +
+                "roll scale as RevealEnterDegrees: 0 = flat, 90 = palm fully toward " +
                 "the face). The 15° default dead band under the 60° enter keeps the gate from " +
                 "chattering at the boundary; the gate always clamps this below " +
                 "RevealEnterDegrees. Live-tunable from the in-VR debug menu (Fan category).",
