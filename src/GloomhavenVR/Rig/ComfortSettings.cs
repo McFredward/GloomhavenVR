@@ -279,11 +279,37 @@ internal static class ComfortSettings
             "Hold the upper face button (B + Y) on BOTH controllers this many seconds to " +
             "recenter at the table. 0 disables the chord.",
             new AcceptableValueRange<float>(0f, 5f));
-        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 1f,
-            "Last pinch-scale multiplier relative to the base WorldScale. Written automatically " +
-            "after each two-grip scale gesture and re-applied when the rig is rebuilt.");
+        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 2.5f,
+            "Last pinch-scale multiplier relative to the base WorldScale (the 'table scale' " +
+            "shown in the in-VR settings panel). Written automatically after each two-grip " +
+            "scale gesture and re-applied when the rig is rebuilt. Default 2.5 — the auto base " +
+            "scale reads as a huge diorama; 2.5x shrinks it to a comfortable table size at " +
+            "first spawn (user request: default table scale ~2.5).");
         DebugGizmos = Bind("DebugGizmos", false,
             "Show the comfort debug overlay (world-grab state, scale multiplier, clamp status).");
+
+        // ONE-TIME defaults migration (user request: default table scale 2.5): BepInEx keeps
+        // the values saved in an existing config file, so changing the declared default above
+        // only affects FRESH installs. For existing files, adopt the new default ONLY when the
+        // user never touched the old one (saved value == old default 1.0 — the multiplier is
+        // written after every pinch gesture, so an exact 1.0 means it was never adjusted, or
+        // was deliberately stepped back to the old default, which the marker below respects
+        // from now on). The marker makes this migration run at most once per config file.
+        ConfigEntry<bool> tableScaleMigrated = _file.Bind(SectionName, "TableScaleDefault25Applied",
+            false,
+            "Internal one-time migration marker: the 2.5x default table scale has been " +
+            "offered to this config file. Do not edit.");
+        if (!tableScaleMigrated.Value)
+        {
+            if (Mathf.Approximately(SavedScaleMultiplier.Value, 1f))
+            {
+                SavedScaleMultiplier.Value = 2.5f;
+                Core.VRLog.Info("Comfort", "One-time migration: SavedScaleMultiplier was at the old " +
+                                           "default 1.0 (never adjusted) — adopted the new default 2.5 " +
+                                           "(table scale ~2.5 at first spawn).");
+            }
+            tableScaleMigrated.Value = true;
+        }
 
         _file.SettingChanged += OnFileSettingChanged;
         WorldScaleBase.Changed += OnWorldScaleBaseChanged;
