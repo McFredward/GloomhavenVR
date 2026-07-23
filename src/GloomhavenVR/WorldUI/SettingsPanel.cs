@@ -357,6 +357,25 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         }
         else if (WorldUIConfig.SettingsFollow.Value || !_placedFromConfig)
         {
+            // REGRESSION FIX (menu rescaled with zoom / chased the head): this branch used to
+            // re-derive the pose EVERY tick — position from the LIVE diorama scale, then
+            // ClampIntoView against the CURRENT head. Two visible failures on hardware:
+            // (a) a world-grab ZOOM changes WorldScale continuously, so `offset * worldScale`
+            //     slid the panel nearer/farther every frame — reads as "the menu rescales with
+            //     the zoom" (its world size is fixed, but the distance to the head is not);
+            // (b) the HEAL RATCHET — ClampIntoView parks the pose exactly ON the ±35° cone
+            //     edge and PersistLayout writes that back as the new offset, so the very next
+            //     head motion is "out of view" again: the panel visibly dragged along with the
+            //     head, and BepInEx saved the cfg file every frame (hardware log: hundreds of
+            //     consecutive "healed back into the forward field of view" lines).
+            // The panel is a WORLD-anchored object: derive the pose at EVENTS only — the first
+            // placement after an open, and a rig rebuild/recenter (RigPoseVersion bump, the
+            // seat FOLLOW re-derive) — and leave the world pose untouched in between. The grab
+            // handle stays the only other pose writer (grab-move only).
+            int poseVersion = VRRigDriver.RigPoseVersion;
+            if (_placedFromConfig && poseVersion == _facedPoseVersion)
+                return; // world-anchored between events: no per-tick zoom/head coupling
+
             if (!PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion yaw))
                 return;
             Vector3 offset = new(
@@ -373,12 +392,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 Mathf.Clamp(WorldUIConfig.SettingsScale.Value, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
 
             // Orientation at events only (never per tick — the combat log's test #20 rule).
-            int poseVersion = VRRigDriver.RigPoseVersion;
-            if (!_placedFromConfig || poseVersion != _facedPoseVersion || healed)
-            {
-                _frame.rotation = facing;
-                _facedPoseVersion = poseVersion;
-            }
+            // This whole block IS an event now, so the facing is (re)applied here.
+            _frame.rotation = facing;
+            _facedPoseVersion = poseVersion;
             if (healed)
             {
                 PersistLayout();
