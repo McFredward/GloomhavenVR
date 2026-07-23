@@ -1,4 +1,5 @@
 using GloomhavenVR.Board.FigureGrab;
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 
 namespace GloomhavenVR.Board;
@@ -27,11 +28,18 @@ namespace GloomhavenVR.Board;
 /// <c>ActorStatPanel.DoShow</c> (via <c>CanShow()</c>, ActorStatPanel.cs:389), and
 /// <c>DoShow = false</c> also hides any panel already up — so lowering that flag is
 /// a clean, no-flicker suppressor (the panel's <c>Show()</c> early-outs before it
-/// ever appears). We gate the suppression to the passive case: while an ability/attack
-/// target selection is active (<c>CurrentDisplayState == TargetSelection</c>) the
-/// target's stats ARE wanted, so we leave the flag up. We only ever lower a flag we
-/// then raise back (targeting starts, board closes, or level editor), so we never
-/// clobber another owner's intent (e.g. FullCardHandViewer's own DoShow toggling).
+/// ever appears). USER #10: the suppression now holds in EVERY phase — including
+/// ability/attack target selection and the decision prompts ("Angriff überspringen"
+/// etc.), where the old <c>TargetSelection</c> exemption let the panel pop the moment
+/// the laser swept a figure. The ONLY thing allowed to show figure info is the mod's
+/// figure-GRAB flow (StatPanelSurface.ShowHeldFigure, see the held exemption below).
+/// Suppressing <c>DoShow</c> touches nothing but the info panel: target
+/// highlighting/outlines run through <c>ShowTooltipForTile</c>/WorldspaceUITools and
+/// the click dispatch through <c>Controller</c>, neither of which reads the flag — so
+/// picking/confirming an attack target keeps working exactly as before. We only ever
+/// lower a flag we then raise back (figure grabbed, board closes, or level editor),
+/// so we never clobber another owner's intent (e.g. FullCardHandViewer's own DoShow
+/// toggling).
 /// </summary>
 internal static class TargetingUx
 {
@@ -39,6 +47,9 @@ internal static class TargetingUx
 
     /// <summary>True while we are the ones holding <c>ActorStatPanel.DoShow</c> down.</summary>
     private static bool _statPanelSuppressed;
+
+    /// <summary>One-shot diagnostic: log what the all-phase laser-info suppression covers.</summary>
+    private static bool _suppressionLogged;
 
     public static void Reset()
     {
@@ -80,9 +91,10 @@ internal static class TargetingUx
     }
 
     /// <summary>
-    /// Suppresses the game's passive point-at-a-figure <c>ActorStatPanel</c> while the
-    /// board is hover-active and we're NOT in an ability/attack target selection.
-    /// See the class remarks for the full rationale.
+    /// Suppresses the game's point-at-a-figure <c>ActorStatPanel</c> in EVERY phase while
+    /// the board is hover-active (user #10: no laser-hover info panel during target
+    /// selection or decision prompts either — grab a figure to see its info). See the
+    /// class remarks for the full rationale.
     /// </summary>
     private static void SuppressHoverActorInfo()
     {
@@ -90,12 +102,6 @@ internal static class TargetingUx
             return;
 
         WorldspaceStarHexDisplay? display = WorldspaceStarHexDisplay.Instance;
-
-        // During a real ability/attack target selection the target's stats ARE
-        // wanted (same hover call, WSHD.cs:3360) — so don't suppress there.
-        bool targeting = display != null
-            && display.CurrentDisplayState
-               == WorldspaceStarHexDisplay.WorldSpaceStarDisplayState.TargetSelection;
 
         // Level editor drives ActorStatPanel.Show directly from door/spawner props
         // (not the hover path); leave its DoShow flag alone.
@@ -110,11 +116,23 @@ internal static class TargetingUx
         // to the restore branch below and raises DoShow back up so Show() succeeds.
         bool figureHeld = HeldFigures.Count > 0;
 
-        bool suppress = display != null && !targeting && !levelEditor && !figureHeld;
+        // USER #10: no TargetSelection exemption anymore — the laser must never pop the
+        // info panel in ANY phase; only the figure-grab flow (figureHeld) shows it.
+        bool suppress = display != null && !levelEditor && !figureHeld;
 
         ActorStatPanel panel = Singleton<ActorStatPanel>.Instance;
         if (suppress)
         {
+            if (!_suppressionLogged)
+            {
+                _suppressionLogged = true;
+                VRLog.Info("Board", "LASER INFO SUPPRESSION: ActorStatPanel.DoShow held down in ALL " +
+                                    "phases (incl. ability/attack target selection and decision prompts) — " +
+                                    "the passive WSHD hover path (DisplayCursorHoverStar → " +
+                                    "ShowActorStatPanelForTile → ActorStatPanel.Show) can never open the " +
+                                    "figure info panel; only the figure-GRAB flow raises it. Target " +
+                                    "highlighting/click dispatch are untouched.");
+            }
             // Re-lower only when something raised it (robust to other DoShow owners).
             if (panel.DoShow)
                 panel.DoShow = false;

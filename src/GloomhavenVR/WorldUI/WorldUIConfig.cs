@@ -49,6 +49,14 @@ internal static class WorldUIConfig
     /// <summary>Initiative track 3D depth effect: max total front-to-back z spread (px), live-tunable.</summary>
     internal static ConfigEntry<float> InitiativeDepthMaxSpreadPx = null!;
 
+    /// <summary>
+    /// User #11b: target vertical gap (uGUI px) between a docked decision row's prompt text
+    /// ("Erleide entweder Schaden…") and its widgets ("Schaden erhalten" …). Live-applied by
+    /// <see cref="Surfaces.DecisionDockSurface"/> while a row is docked; a later settings-panel
+    /// phase adds a stepper for it. Range 0–60.
+    /// </summary>
+    internal static ConfigEntry<float> DecisionRowGapPx = null!;
+
     /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
     internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
@@ -245,6 +253,15 @@ internal static class WorldUIConfig
             "depth is compressed proportionally to land at this cap (never amplified). Higher = " +
             "stronger recession; 0 = flat. Live-tunable in the debug menu (Panels -> Initiative). " +
             "Range 0..40.");
+        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", 12f, new ConfigDescription(
+            "Target vertical gap in uGUI pixels between a docked decision prompt's text block " +
+            "(e.g. 'Erleide entweder Schaden …') and its button/toggle row (e.g. 'Schaden " +
+            "erhalten') on the control board. The authored 2D dialog spacing is COMPRESSED down " +
+            "to this value (rows authored tighter than the target are left alone — the row is " +
+            "never spread apart). Applied to every docked decision row (take-damage/burn choice, " +
+            "burn-confirm dialog, short-rest Yes/No, …) and live-reapplied to an open dock when " +
+            "changed.",
+            new AcceptableValueRange<float>(0f, 60f)));
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
