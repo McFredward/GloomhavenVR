@@ -5,10 +5,12 @@ using UnityEngine;
 namespace GloomhavenVR.Hands;
 
 /// <summary>
-/// [Hands] curl/fist tunables in the module's OWN config file
+/// [Hands] curl/fist tunables AND (since the per-style rework) the PER-STYLE seat
+/// controls, in the module's OWN config file
 /// (<c>BepInEx/config/dev.gloomhavenvr.hands.cfg</c>, canonical
-/// <see cref="ModuleConfig.Create"/> pattern — the legacy seat/style entries stay in
-/// the main plugin cfg, this file owns the FIST investigation knobs).
+/// <see cref="ModuleConfig.Create"/> pattern — the legacy shared seat/trim entries stay
+/// bound-but-unread in the main plugin cfg; their values were folded into the per-style
+/// seed, see the per-style section below).
 ///
 /// Why these exist (on-device "mostly no fist" investigation): the runtime fist chain
 /// is  raw XR grip/trigger float → curl target → exponential smoothing → per-joint
@@ -125,6 +127,96 @@ internal static class HandsConfig
 
     public static ConfigEntry<float> GlovePinkyCounterAbduction = null!;
 
+    // ---- per-STYLE seat controls (2026-07 per-style rework) --------------------------------
+    // The user's request: EVERY hand-tuning value in the debug menu is per selected hand
+    // style, not just the scale. These four arrays (indexed by (int)HandStyle: Glove/
+    // Plate/Arcane) are the ABSOLUTE per-style replacements for the old shared [Hands]
+    // seat controls in the main plugin cfg (GripPitchOffsetDegrees / HandLateralOffset /
+    // HandVerticalOffset / HandForwardOffset) + the additive per-style trims
+    // (HandStyle*Trim). On FIRST bind each style is SEEDED with the old effective value
+    // (global + that style's trim), so a tuned seat carries over to all three styles
+    // instead of resetting; afterwards the saved per-style value always wins. The old
+    // global/trim entries stay bound in Plugin (harmless orphans — nothing reads them
+    // once these exist). VRHand.SyncVisualOffset re-reads the ACTIVE style's entries
+    // every frame, so edits AND style switches live-apply without a rebuild.
+
+    /// <summary>Per-style pitch (degrees) between the OpenXR grip pose and the visual hand (negative = fingers down).</summary>
+    public static ConfigEntry<float>[]? StyleSeatPitch;
+
+    /// <summary>Per-style lateral offset (meters, device-space X; positive = thumb side).</summary>
+    public static ConfigEntry<float>[]? StyleSeatLateral;
+
+    /// <summary>Per-style vertical offset (meters, device-space Y; positive = up).</summary>
+    public static ConfigEntry<float>[]? StyleSeatVertical;
+
+    /// <summary>Per-style forward offset (meters, device-space Z; positive = toward the fingertips).</summary>
+    public static ConfigEntry<float>[]? StyleSeatForward;
+
+    // Shipped defaults of the old global seat controls (Plugin.cs) — the seed fallback
+    // when a Plugin entry is unbound (never in practice: Plugin.Awake binds before
+    // HandsModule.Init calls Bind()).
+    private const float DefaultSeatPitch = -30f;
+    private const float DefaultSeatLateral = 0f;
+    private const float DefaultSeatVertical = 0f;
+    private const float DefaultSeatForward = -0.06f;
+
+    /// <summary>Active-style seat pitch (degrees; legacy global+trim before Bind).</summary>
+    public static float SeatPitchSafe(int style) =>
+        StyleValue(StyleSeatPitch, style, LegacySeat(Plugin.GripPitchOffsetDegrees,
+            Plugin.HandStylePitchTrim, style, DefaultSeatPitch));
+
+    /// <summary>Active-style lateral (X) seat offset (meters; legacy global+trim before Bind).</summary>
+    public static float SeatLateralSafe(int style) =>
+        StyleValue(StyleSeatLateral, style, LegacySeat(Plugin.HandLateralOffset,
+            Plugin.HandStyleLateralTrim, style, DefaultSeatLateral));
+
+    /// <summary>Active-style vertical (Y) seat offset (meters; legacy global+trim before Bind).</summary>
+    public static float SeatVerticalSafe(int style) =>
+        StyleValue(StyleSeatVertical, style, LegacySeat(Plugin.HandVerticalOffset,
+            Plugin.HandStyleVerticalTrim, style, DefaultSeatVertical));
+
+    /// <summary>Active-style forward (Z) seat offset (meters; legacy global+trim before Bind).</summary>
+    public static float SeatForwardSafe(int style) =>
+        StyleValue(StyleSeatForward, style, LegacySeat(Plugin.HandForwardOffset,
+            Plugin.HandStyleForwardTrim, style, DefaultSeatForward));
+
+    /// <summary>The style's element of a per-style array, or <paramref name="fallback"/> (null/throw-safe).</summary>
+    private static float StyleValue(ConfigEntry<float>[]? entries, int style, float fallback)
+    {
+        try
+        {
+            return entries != null ? entries[(int)HandStyles.Clamp(style)].Value : fallback;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    /// <summary>
+    /// The OLD effective seat value for a style: the shared global control + that style's
+    /// additive trim (both live in the main plugin cfg). Used as the one-time SEED of the
+    /// per-style entries and as the pre-Bind fallback, so behavior is identical before and
+    /// after the per-style rework for an untouched config.
+    /// </summary>
+    private static float LegacySeat(ConfigEntry<float>? global, ConfigEntry<float>[]? trims,
+        int style, float shippedDefault)
+    {
+        float v = shippedDefault;
+        try
+        {
+            if (global != null)
+                v = global.Value;
+            if (trims != null)
+                v += trims[(int)HandStyles.Clamp(style)].Value;
+        }
+        catch
+        {
+            return shippedDefault;
+        }
+        return v;
+    }
+
     public static void Bind()
     {
         if (_file != null)
@@ -186,6 +278,58 @@ internal static class HandsConfig
             "plateau the analog grip below 1.0 at a comfortable full squeeze — lower this if " +
             "the '[Hands] squeeze released: peak grip=...' log line shows your peak never " +
             "reaches 1.0. Set 1.0 for the raw, unremapped input.");
+
+        // PER-STYLE seat controls (per-style rework): one absolute pitch/X/Y/Z quartet per
+        // hand style. The BIND DEFAULT of each entry is the OLD effective value for that
+        // style (shared global + per-style trim, read from the already-bound main plugin
+        // cfg) — a first run therefore SEEDS every style with the user's tuned seat, while
+        // any later run keeps the saved per-style value (BepInEx returns saved over
+        // default). No marker entry needed: the seed is only ever consulted while the key
+        // is absent from this cfg file.
+        string[] styleNames = { "Glove", "Plate", "Arcane" }; // index == (int)HandStyle
+        StyleSeatPitch = new ConfigEntry<float>[HandStyles.Count];
+        StyleSeatLateral = new ConfigEntry<float>[HandStyles.Count];
+        StyleSeatVertical = new ConfigEntry<float>[HandStyles.Count];
+        StyleSeatForward = new ConfigEntry<float>[HandStyles.Count];
+        for (int i = 0; i < HandStyles.Count; i++)
+        {
+            string s = styleNames[i];
+            StyleSeatPitch[i] = config.Bind(
+                "Hands", $"{s}GripPitchDegrees",
+                LegacySeat(Plugin.GripPitchOffsetDegrees, Plugin.HandStylePitchTrim, i, DefaultSeatPitch),
+                $"Pitch (degrees) between the tracked OpenXR grip pose and the visual hand while " +
+                $"the {s} style is worn — NEGATIVE tilts the fingertips DOWN. PER-STYLE absolute " +
+                "value (supersedes the old shared GripPitchOffsetDegrees + trim in the main cfg; " +
+                "seeded from them on first run). Live-tunable — the hands re-seat next frame.");
+            StyleSeatLateral[i] = config.Bind(
+                "Hands", $"{s}LateralOffset",
+                LegacySeat(Plugin.HandLateralOffset, Plugin.HandStyleLateralTrim, i, DefaultSeatLateral),
+                $"Lateral offset (meters, device-space X; POSITIVE = toward the thumb side) of the " +
+                $"visual hand from the grip pose while the {s} style is worn. PER-STYLE absolute " +
+                "value (supersedes the old shared HandLateralOffset + trim; seeded on first run). " +
+                "Live-tunable.");
+            StyleSeatVertical[i] = config.Bind(
+                "Hands", $"{s}VerticalOffset",
+                LegacySeat(Plugin.HandVerticalOffset, Plugin.HandStyleVerticalTrim, i, DefaultSeatVertical),
+                $"Vertical offset (meters, device-space Y; POSITIVE = up) of the visual hand from " +
+                $"the grip pose while the {s} style is worn. PER-STYLE absolute value (supersedes " +
+                "the old shared HandVerticalOffset + trim; seeded on first run). Live-tunable.");
+            StyleSeatForward[i] = config.Bind(
+                "Hands", $"{s}ForwardOffset",
+                LegacySeat(Plugin.HandForwardOffset, Plugin.HandStyleForwardTrim, i, DefaultSeatForward),
+                $"Forward/depth offset (meters, device-space Z; POSITIVE = toward the fingertips) " +
+                $"of the visual hand from the grip pose while the {s} style is worn. PER-STYLE " +
+                "absolute value (supersedes the old shared HandForwardOffset + trim; seeded on " +
+                "first run). Live-tunable.");
+        }
+        VRLog.Info("Hands", "[Hands] Per-style seat controls bound: " +
+            string.Join("; ", System.Array.ConvertAll(styleNames, n =>
+            {
+                int i = System.Array.IndexOf(styleNames, n);
+                return $"{n} pitch {StyleSeatPitch[i].Value:0.#}° X/Y/Z " +
+                       $"{StyleSeatLateral[i].Value * 1000f:0}/{StyleSeatVertical[i].Value * 1000f:0}/" +
+                       $"{StyleSeatForward[i].Value * 1000f:0} mm";
+            })) + " (first run seeds from the old global seat + trims).");
 
         // The toggle is the user's A/B lever during hardware tests — make every flip
         // land in the log so the session record shows WHICH fist was being judged.
