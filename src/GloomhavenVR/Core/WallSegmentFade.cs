@@ -35,11 +35,12 @@ internal static class WallFadeTuning
             return;
         ConfigFile config = _file = ModuleConfig.Create("wallfade");
         OnFraction = config.Bind("WallFade", "OnFraction", 0.25f,
-            "Fade a wall when it blocks at least this (EMA-smoothed) fraction of the frustum-visible " +
-            "play-area samples of some room (Schmitt trigger high bar). Live; clamped 0.05-0.95.");
+            "Fade a wall when it hides at least this (EMA-smoothed) fraction of the frustum-visible " +
+            "FLOOR (hex-tile plane) samples of some room — 0.25 = wall hides 25% of the floor you " +
+            "are looking at (Schmitt trigger high bar). Live; clamped 0.05-0.95.");
         OffFraction = config.Bind("WallFade", "OffFraction", 0.10f,
-            "Once faded, keep the wall faded while the smoothed fraction stays at or above this " +
-            "(Schmitt trigger low bar). Live; clamped 0.01-0.95 and never above OnFraction.");
+            "Once faded, keep the wall faded while the smoothed floor-coverage fraction stays at or " +
+            "above this (Schmitt trigger low bar). Live; clamped 0.01-0.95 and never above OnFraction.");
         ExitDwellMoved = config.Bind("WallFade", "ExitDwellMovedSeconds", 2.5f,
             "Seconds the fraction must stay below OffFraction before the wall un-fades when the " +
             "PERSPECTIVE recently changed (real head translation / world-grab / recenter). Live.");
@@ -84,60 +85,83 @@ internal static class WallFadeTuning
 /// FADE MECHANISM (chosen: (a) the game's own map mechanism, forced per renderer — DXBC
 /// disassembly of both wall fragment shaders, scratch <c>walldisasm[-low]</c>):
 /// <list type="bullet">
-/// <item>LOW variant: gate <c>ine cb0[4].x,0</c> (<c>ToggleWallFade</c>, int) AND object-space
-///   Y &gt;= 0.4 (hard FOUNDATION BAND — the base course never fades); then
-///   <c>factor = (occ.a &gt;= fragDepth) ? 1 : (1-occ.r)</c>, <c>discard if factor - _Cutoff &lt; 0</c>
-///   (<c>_Cutoff</c> = the material's "Mask Clip Value", <c>cb0[4].y</c>).</item>
-/// <item>HIGH variant: same map term, modulated by a world-pos 3D noise dither (x42) and
-///   <c>visKeep = sat(3.33*((dist*0.02 + screenRadial)^8 + (1-worldY)/3))</c> — a SMOOTH
-///   world-Y&lt;~1 foundation band + screen-edge vignette; final
-///   <c>discard if (1 + ToggleWallFade*(a*b-1)) - _Cutoff &lt; 0</c> (<c>_Cutoff</c> = cb0[6].z).</item>
+/// <item>LOW variant (<c>Amp_Low/Amp_Basic_WallFade_Low</c>, misc_shaders — what the Quest
+///   rig's hardware log reported): gate <c>ine cb0[4].x,0</c> (<c>ToggleWallFade</c>, int)
+///   AND object-space Y &gt;= 0.4 (hard pre-clip FOUNDATION BAND — the base course never
+///   fades); then <c>m = (occ.a &gt;= fragDepth) ? 1 : (1-occ.r)</c>,
+///   <c>discard if m - _Cutoff &lt; 0</c> (<c>_Cutoff</c> = "Mask Clip Value", cb0[4].y).</item>
+/// <item>HIGH variant (<c>Amp_Basic_WallFade</c>, misc_high_shaders), blob216 lines 165-229:
+///   same map term <c>m</c>, <c>M = m·_ToggleWallfade</c> (material float, cb0[6].x);
+///   <c>S = smoothstep(sat(3.33·((0.02·dist + screenRadial)^8 + (1-worldY)/3)))</c> — the
+///   world-Y foundation ramp and the screen-edge vignette are SUMMED INSIDE one scalar;
+///   <c>n</c> = time-drifting world-space simplex noise; <c>A = max(M,S) + 42n·(1-max(M,S))</c>;
+///   <c>B = (M&gt;0) ? 1 : S</c>; <c>discard if 1 + ToggleWallFade·(A·B-1) - _Cutoff &lt; 0</c>
+///   (<c>_Cutoff</c> = cb0[6].z).</item>
 /// </list>
 /// Unity property precedence is MPB &gt; material &gt; global, so a per-renderer
 /// MaterialPropertyBlock can open the gate (<c>ToggleWallFade=1</c>), substitute the map
-/// (<c>_TilesOcclusionMap</c> = a small CONSTANT texture with r=coverage, a=0 — alpha 0 fails
-/// the reversed-Z depth test everywhere, i.e. "this wall occludes the play area at every
-/// pixel"), and sweep <c>_Cutoff</c> to animate. Concretely:
+/// (<c>_TilesOcclusionMap</c> = a small CONSTANT texture) and set <c>_Cutoff</c> /
+/// <c>_ToggleWallfade</c>. Concretely:
 /// <list type="bullet">
 /// <item>TRANSITION (0&lt;fade&lt;1): map = low-frequency VALUE-NOISE texture (r in [0.06,1],
-///   a=0), <c>_Cutoff = lerp(-0.05, 1, fade)</c>. Low variant discards where
-///   <c>noise &gt; 1-_Cutoff</c> → progressive dissolve; high variant additionally dithers with
-///   its own noise. View-independent inputs → no per-pixel popping from head motion (the
-///   noise is sampled in screen space, so the pattern slides during the ~0.35s dissolve —
-///   cosmetic only).</item>
-/// <item>HELD FADED (fade=1): map = constant r=1,a=0 texture, <c>_Cutoff=0.5</c> —
-///   deterministic full discard of everything the shader allows: the shader's OWN foundation
-///   band survives ("bis auf die Grundmauern": object-Y&lt;0.4 hard on low, world-Y ramp
-///   ~1.0→0.1 + peripheral vignette on high), matching the flat game's fully-faded look.</item>
+///   a=0 — fails the reversed-Z depth compare, so <c>m = 1-noise</c>),
+///   <c>_Cutoff = lerp(-0.05, 1, fade)</c> → progressive dissolve; the high variant
+///   additionally dithers/vignettes with its own view terms. The noise is sampled at SCREEN
+///   UV by the shader itself, so the pattern slides under head motion — confined to the
+///   ~0.35s dissolve, cosmetic (under conventional-Z it would degrade to an end-of-sweep
+///   pop; the rig is D3D11 reversed-Z).</item>
+/// <item>HELD FADED (fade=1) — R2, IDENTICAL MPB on BOTH variants, provably ZERO view
+///   dependence: map = constant r=1 <b>a=1</b> texture, <c>_Cutoff=1.1</c>,
+///   <c>_ToggleWallfade=1</c>. occ.a=1 forces the per-pixel depth compare TRUE under ANY
+///   depth convention (fragDepth ≤ 1 always), killing R2 suspect (b): <c>m = 1</c> is a
+///   CONSTANT, no map/depth term varies with the view. LOW: <c>clip = 1 - 1.1 &lt; 0</c> →
+///   constant discard wherever objY ≥ 0.4; the hard object-Y band below stays
+///   constant-solid ("bis auf die Grundmauern"). HIGH: <c>M=1</c> → <c>B=1</c> and
+///   <c>A = max(1,S) + 42n·(1-max(1,S)) = 1</c> — the screen-radial vignette S (R2 suspect
+///   (a)) and the animated noise n are each MULTIPLIED BY ZERO; <c>clip = 1 + T·(1·1-1)
+///   - 1.1 = -0.1</c> constant → TOTAL discard of every fragment. IMPOSSIBILITY NOTE
+///   (why HIGH cannot keep its foundation band statically): the band term (1-worldY)/3
+///   and the vignette (0.02·dist+screenRadial)^8 are summed inside S BEFORE the single
+///   cutoff compare — S saturates to 1 both for worldY ≤ 0.1 (band) and for peripheral
+///   pixels ((0.02d+radial)^8 ≥ 0.3), producing the IDENTICAL clip value 1-_Cutoff, so no
+///   _Cutoff/ToggleWallFade/map choice separates them; every vignette coefficient (0.02,
+///   the screen-center offset, ×3.33) is an immediate literal in the DXBC, not a material
+///   property, so nothing neutralizes it either. Hence: LOW held = static fade with
+///   foundation band (the expected path on this rig); HIGH held = static TOTAL discard,
+///   band sacrificed — the only view-independent option that exists. Every fade logs the
+///   wall's shader name + variant so a hardware log pins down which math applied.</item>
 /// <item>SOLID (fade=0): the MPB is REMOVED — with <see cref="Compat.WallFadeDisable"/> now
 ///   pinning the GLOBAL <c>ToggleWallFade</c> to 0 unconditionally (the game-camera
 ///   TilesOcclusionGenerator still publishes a head-viewpoint-invalid map; globally-open
 ///   fade would sample garbage), an untouched renderer is bit-for-bit today's solid wall.</item>
 /// </list>
 ///
-/// OCCLUSION DECISION (per segment, VR-stable — round 5, SCALE-CORRECT view coverage;
-/// round 4 barely ever fired on hardware — kill-factor autopsy in the comment block above
-/// <c>BlockedFraction</c>): the play area is sampled with a per-room XZ grid at TWO heights
-/// placed INSIDE the room's local WALL BAND — 25% / 55% of the vertical range of the wall
-/// AABBs actually adjacent to that room (base preferring the room-bounds top when it lies
-/// inside the band), never a fixed world-unit offset. World-unit sanity: the rig is scaled
-/// UP by WorldScale ≈ 11–20 (1 wu ≈ 5–9 real cm, hex tile ≈ 1.72 wu), the board geometry
-/// keeps original game units, and room-renderer bounds are prefab-authored (may include
-/// tall scenery) — so any fixed offset off <c>bounds.max.y</c> can strand samples above
-/// every wall top (zero blocking, ever). Each frame the samples inside the head camera's
-/// view frustum (viewport test, 0.20 margin, ≤48 kept) stand in for the CURRENTLY VISIBLE
-/// play-area region. A segment's raw metric is the largest PER-ROOM fraction of visible
-/// samples whose head→sample segment its AABB blocks (per-room normalization: a wall
-/// covering the room being looked INTO is not diluted by samples of other visible rooms;
-/// denominator floored at 3 so a single stray sample cannot read 1.0). "Blocks" = AABB
+/// OCCLUSION DECISION (per segment, VR-stable — round 6, FLOOR coverage; R1: the fraction
+/// now literally means "share of the FLOOR (hex tiles) currently in view that this wall
+/// hides" — round 5's two mid-wall-band sample layers also counted MID-AIR points a wall
+/// hid without hiding any actual floor, so the on/off thresholds never matched what the
+/// player perceived as covered play area): the floor is sampled with a per-room XZ grid
+/// (4×4 while the room budget allows, then 3×3/2×2/center) ON the room tile bounds' TOP
+/// surface — floor height + 0.05 wu epsilon; the room renderers ARE the hex-tile meshes
+/// the game rasterizes into its occlusion map, so their AABB top is the tile plane.
+/// World-unit sanity: the rig is scaled UP by WorldScale ≈ 11–20 (1 wu ≈ 5–9 real cm, hex
+/// tile ≈ 1.72 wu) while board geometry keeps original game units — the floor plane needs
+/// no height guessing (the round-4 "+0.4 wu off an untrusted bounds top" bug class is
+/// gone; the !ABOVE-WALL diag marker stays as a tripwire). Each frame the samples inside
+/// the head camera's view frustum (viewport test, 0.20 margin, ≤48 kept) stand in for the
+/// CURRENTLY VISIBLE floor region. A segment's raw metric is the largest PER-ROOM fraction
+/// of visible floor points whose head→point segment its AABB blocks (per-room
+/// normalization: a wall covering the room being looked INTO is not diluted by samples of
+/// other visible rooms; denominator floored at 3 so a single stray sample cannot read
+/// 1.0). "Blocks" = AABB
 /// entry strictly closer than the sample by a wall-thickness epsilon (0.5 × min horizontal
 /// AABB extent, clamped 0.10–0.90 wu) OR the sample lying inside the wall AABB — the
 /// round-4 "hit before 88% of distance" rule silently discarded exactly the near-edge
 /// samples a leaned-in head actually loses sight of. Head inside the AABB counts as 1.0;
 /// ≥1 visible sample suffices to decide (round 4 demanded 3 — leaning in close shrinks the
 /// visible set to 1–2 precisely when the fade must fire). The raw fraction is EMA-smoothed
-/// (tau 0.15s) to kill threshold jitter, then smoothed ≥ 0.25 switches ON ("wall covers
-/// &gt;25% of the current view into some room"); once faded a SCHMITT TRIGGER keeps it ON
+/// (tau 0.15s) to kill threshold jitter, then smoothed ≥ 0.25 switches ON ("wall hides
+/// &gt;25% of the floor currently in view of some room"); once faded a SCHMITT TRIGGER keeps it ON
 /// down to 0.10 — looking around only moves samples in/out of the frustum and rarely
 /// drops a still-covering wall below the low bar. Transitions additionally need dwell: 0.10s
 /// to fade IN (snappy; the EMA already adds ~0.2s), 2.5s continuously below 0.10 to un-fade
@@ -171,8 +195,8 @@ internal static class WallSegmentFade
         _driver = go.AddComponent<FadeDriver>();
         VRLog.Info(Name,
             $"installed (WallFade={(Plugin.WallFade != null && Plugin.WallFade.Value ? "on" : "off")}) — " +
-            "whole-wall fade: per-ProceduralWall view-coverage decision (per-room fraction of " +
-            "the frustum-visible play area blocked, in-wall-band sample layers, EMA + Schmitt " +
+            "whole-wall fade: per-ProceduralWall FLOOR-coverage decision (per-room fraction of " +
+            "the frustum-visible hex-tile-plane samples hidden, EMA + Schmitt " +
             "trigger + perspective-anchored dwell), " +
             "delivered via per-renderer MaterialPropertyBlocks through the wall shaders' own " +
             "map/cutoff fade path.");
@@ -212,6 +236,11 @@ internal static class WallSegmentFade
 
         /// <summary>Blocked-test distance epsilon (world units, ~half the wall thickness).</summary>
         public float BlockEps = 0.3f;
+        /// <summary>R2 diag: which fade-shader variant(s) this segment's renderers carry.</summary>
+        public bool VariantHigh;
+        public bool VariantLow;
+        /// <summary>Distinct fade-shader name(s) seen on the renderers ("+"-joined).</summary>
+        public string ShaderNames = "?";
         /// <summary>EMA-smoothed view-coverage fraction the Schmitt trigger reads.</summary>
         public float Smooth;
         public bool SmoothInit;
@@ -228,8 +257,8 @@ internal static class WallSegmentFade
         // unless it says "real/tracking meters". The rig root is scaled UP by WorldScale
         // (hardware log: 20.3; range ~11–20), i.e. 1 real meter = 11–20 wu and 1 wu = 5–9
         // real cm; board geometry keeps original game units (hex tile ≈ 1.72 wu). Sample
-        // HEIGHTS are therefore never fixed offsets — they derive from each room's local
-        // wall-AABB band (see ComputeRoomBands/RebuildSamples).
+        // height needs no inference since round 6: the samples sit ON the room tile
+        // bounds' top surface — the tile plane itself (see RebuildSamples).
         // On/off fractions + the two exit dwells are LIVE CONFIG now (WallFadeTuning — the
         // settings panel's debug steppers drive them in-headset); read fresh every evaluation.
         private const float EnterDwellSeconds = 0.10f; // short — the fraction EMA already smooths entry
@@ -237,16 +266,11 @@ internal static class WallSegmentFade
         private const float ReevalArmSeconds = 3f;     // how long a perspective change keeps re-eval armed
         private const float FadeTauSeconds = 0.12f;    // exp. fade time constant (~0.35s to 95%)
         private const float FractionTauSeconds = 0.15f; // EMA over the raw fraction (jitter killer)
-        private const float SampleLowBandFrac = 0.25f; // low sample layer: 25% up the room's wall band
-        private const float SampleMidBandFrac = 0.55f; // mid sample layer: 55% up the room's wall band
-        private const float FallbackBandHeight = 2.5f; // wu — band height while a room has no known wall
-        private const float MinBandHeight = 0.8f;      // wu — degenerate band guard
-        private const float MaxBandHeight = 5f;        // wu — tall rock-formation outlier guard
-        private const float RoomWallAdjacency = 1.8f;  // wu (~1 tile) room-bounds XZ expansion for band search
+        private const float FloorSampleEpsilon = 0.05f; // wu above the room tile bounds' top (R1 floor plane)
         private const float BlockEpsMinWorld = 0.10f;  // wu — blocked-test epsilon clamp (lo)
         private const float BlockEpsMaxWorld = 0.90f;  // wu — blocked-test epsilon clamp (hi)
         private const float FrustumMargin = 0.20f;     // viewport slack (also covers per-eye vs mono skew)
-        private const int MaxTotalSamples = 60;        // precomputed play-area samples (all rooms)
+        private const int MaxTotalSamples = 96;        // precomputed floor samples (all rooms)
         private const int MaxVisibleSamples = 48;      // per-frame frustum-visible sample cap
         private const int MinVisibleForDecision = 1;   // leaning in close legitimately leaves 1–2 visible
         private const int RoomDenomFloor = 3;          // per-room fraction denominator floor (noise guard)
@@ -255,16 +279,13 @@ internal static class WallSegmentFade
 
         private static readonly int TilesOcclusionMapId = Shader.PropertyToID("_TilesOcclusionMap");
         private static readonly int ToggleWallFadeId = Shader.PropertyToID("ToggleWallFade");
+        private static readonly int ToggleWallfadeMatId = Shader.PropertyToID("_ToggleWallfade");
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
 
         private readonly Dictionary<ProceduralWall, Segment> _segments = new();
         private readonly List<ProceduralWall> _deadWalls = new();
         private readonly List<Bounds> _roomBounds = new();
-        private readonly List<float> _roomBandMin = new();      // per-room adjacent-wall AABB y-min
-        private readonly List<float> _roomBandMax = new();      // per-room adjacent-wall AABB y-max
-        private readonly List<float> _roomSampleY1 = new();     // per-room low sample layer height
-        private readonly List<float> _roomSampleY2 = new();     // per-room mid sample layer height
-        private readonly List<Vector3> _allSamples = new();     // per-room grid over the play area
+        private readonly List<Vector3> _allSamples = new();     // per-room floor-plane grid (R1)
         private readonly List<int> _sampleRoom = new();         // room index per sample (parallel)
         private readonly List<Vector3> _visibleSamples = new(); // frustum-visible subset, per frame
         private readonly List<int> _visibleRoom = new();        // room index per visible sample
@@ -378,7 +399,7 @@ internal static class WallSegmentFade
                 if (!seg.HasBounds)
                     continue;
 
-                // View-coverage metric (EMA-smoothed) with a Schmitt trigger (0.25 on /
+                // Floor-coverage metric (EMA-smoothed) with a Schmitt trigger (0.25 on /
                 // 0.10 off) + dwell hysteresis. The un-fade dwell is long, and much longer
                 // still unless the perspective (head position / world grip) recently
                 // changed — rotation-only head motion keeps the current state sticky.
@@ -407,7 +428,10 @@ internal static class WallSegmentFade
                         ? EnterDwellSeconds
                         : (reevalArmed ? exitDwellMoved : exitDwellStationary);
                     if (now - seg.PendingSince >= dwell)
+                    {
                         seg.State = seg.PendingRaw;
+                        LogStateFlip(seg); // R2 deliverable: name the wall's shader variant
+                    }
                 }
 
                 // Critically-damped-style exponential fade toward the debounced state.
@@ -428,11 +452,19 @@ internal static class WallSegmentFade
             if (!_heartbeatLogged)
             {
                 _heartbeatLogged = true;
+                int highSegs = 0, lowSegs = 0;
+                foreach (Segment s in _segments.Values)
+                {
+                    if (s.VariantHigh) highSegs++;
+                    if (s.VariantLow) lowSegs++;
+                }
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
-                    + $"{_segments.Count} wall segments against {_roomBounds.Count} room-renderer "
-                    + $"bounds / {_allSamples.Count} play-area samples (2 layers in-band, "
-                    + $"y {_sampleYMin:F2}..{_sampleYMax:F2}) — per-room view-coverage fade "
+                    + $"{_segments.Count} wall segments (shader variants: {lowSegs} LOW / "
+                    + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
+                    + $"bounds / {_allSamples.Count} floor samples (tile plane +"
+                    + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}) — "
+                    + $"per-room FLOOR-coverage fade "
                     + $"(EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
                     + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
                     + $"{exitDwellMoved:0.0}s out moved / "
@@ -538,8 +570,9 @@ internal static class WallSegmentFade
         }
 
         /// <summary>
-        /// Largest per-room fraction of the frustum-visible play-area samples whose
-        /// head→sample segment this wall's AABB blocks.
+        /// Largest per-room fraction of the frustum-visible FLOOR samples whose
+        /// head→sample segment this wall's AABB blocks (R1: "the wall hides X% of the
+        /// floor currently in view of some room").
         ///
         /// ROUND-4 KILL-FACTOR AUTOPSY (why the previous metric almost never fired on
         /// hardware) with a worked example at world scale 20 (1 real m = 20 wu, 1 wu = 5
@@ -631,6 +664,31 @@ internal static class WallSegmentFade
         /// when every sample sits above that wall's AABB top (the round-4 scale bug this
         /// line exists to catch). Next hardware log pinpoints any remaining miss from this.
         /// </summary>
+        /// <summary>
+        /// R2 deliverable: every debounced fade state flip logs the wall's fade-shader
+        /// name(s) + variant and which held-state math therefore applies (rare event —
+        /// unthrottled on purpose so hardware logs pin each fade to its variant).
+        /// </summary>
+        private static void LogStateFlip(Segment seg)
+        {
+            string wall = seg.Wall != null ? seg.Wall.name : "<dead>";
+            string variant = seg.VariantHigh ? (seg.VariantLow ? "HIGH+LOW" : "HIGH") : "LOW";
+            if (seg.State)
+            {
+                VRLog.Info(Name,
+                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] — held state: " +
+                    (seg.VariantHigh
+                        ? "static TOTAL discard (HIGH fuses foundation band + screen vignette " +
+                          "into one pre-cutoff scalar; band not separable — see header math)"
+                        : "static discard above object-Y 0.4 (hard foundation band; constant " +
+                          "map term, zero view-dependent inputs)"));
+            }
+            else
+            {
+                VRLog.Info(Name, $"fade OFF '{wall}' [{variant}] — MPB removed, solid.");
+            }
+        }
+
         private void LogDiagnostic(Vector3 headPos, int visibleCount)
         {
             if (_segments.Count == 0)
@@ -673,7 +731,8 @@ internal static class WallSegmentFade
                    .Append(seg.State ? " ON " : " off ").Append(seg.Fade.ToString("F2"))
                    .Append(" wy[").Append(b.min.y.ToString("F2")).Append("..")
                    .Append(b.max.y.ToString("F2")).Append(']')
-                   .Append(" e").Append(seg.BlockEps.ToString("F2"));
+                   .Append(" e").Append(seg.BlockEps.ToString("F2"))
+                   .Append(seg.VariantHigh ? (seg.VariantLow ? " vH+L" : " vHIGH") : " vLOW");
             if (_sampleYMin > b.max.y)
                 _diagSb.Append(" !ABOVE-WALL");
         }
@@ -706,16 +765,25 @@ internal static class WallSegmentFade
             _mpb ??= new MaterialPropertyBlock();
             _mpb.Clear();
             _mpb.SetInteger(ToggleWallFadeId, 1);
+            // HIGH-variant map scale M = m·_ToggleWallfade (cb0[6].x) — pin to 1 so the held
+            // math below holds regardless of the material's authored value; the LOW shader
+            // has no such property (MPB entry simply unused there).
+            _mpb.SetFloat(ToggleWallfadeMatId, 1f);
             if (seg.Fade >= 1f)
             {
-                // Held fully faded: deterministic discard of everything above the shader's own
-                // foundation band — the flat game's fully-faded wall appearance.
+                // Held fully faded (R2): constant r=1,a=1 map + _Cutoff=1.1. a=1 forces the
+                // per-pixel depth compare TRUE under any Z convention → map term m = 1
+                // CONSTANT; LOW clips everything above its hard object-Y 0.4 foundation
+                // band, HIGH gets A=B=1 (vignette and noise multiplied by zero) → constant
+                // total discard. Zero view-dependent inputs on either variant — full math
+                // in the class header.
                 _mpb.SetTexture(TilesOcclusionMapId, _fullTex!);
-                _mpb.SetFloat(CutoffId, 0.5f);
+                _mpb.SetFloat(CutoffId, 1.1f);
             }
             else
             {
-                // Dissolve: sweep the clip threshold across the noise texture's value range.
+                // Dissolve: sweep the clip threshold across the noise texture's value range
+                // (screen-space pattern — cosmetic, confined to the ~0.35s transition).
                 _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
                 _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, seg.Fade));
             }
@@ -777,8 +845,7 @@ internal static class WallSegmentFade
             foreach (ProceduralWall dead in _deadWalls)
                 _segments.Remove(dead);
 
-            // Adopt new walls / refresh renderer lists and bounds — BEFORE the sample
-            // rebuild: the per-room sample heights derive from these wall AABBs.
+            // Adopt new walls / refresh renderer lists, shader-variant info and bounds.
             List<ProceduralWall> cache = ProceduralWall.m_WallCache;
             for (int i = 0; i < cache.Count; i++)
             {
@@ -793,7 +860,6 @@ internal static class WallSegmentFade
                 RefreshSegment(seg);
             }
 
-            ComputeRoomBands();
             RebuildSamples();
             if (_visPerRoom.Length < _roomBounds.Count)
             {
@@ -803,52 +869,12 @@ internal static class WallSegmentFade
         }
 
         /// <summary>
-        /// Per room: the vertical band [min.y, max.y] of the wall AABBs adjacent to it
-        /// (room bounds expanded by ~1 tile in XZ, generously in Y), and the two derived
-        /// sample-layer heights. The layer base prefers the room-bounds top when it lies
-        /// inside the band (the natural floor level); walls with underground skirts or
-        /// scenery-inflated room bounds are clamped so both layers always stay strictly
-        /// INSIDE the wall band — a sample above every wall top can never be blocked and
-        /// was the round-4 scale bug ("+0.4 wu off an untrusted bounds top").
-        /// </summary>
-        private void ComputeRoomBands()
-        {
-            _roomBandMin.Clear();
-            _roomBandMax.Clear();
-            _roomSampleY1.Clear();
-            _roomSampleY2.Clear();
-            for (int r = 0; r < _roomBounds.Count; r++)
-            {
-                Bounds room = _roomBounds[r];
-                Bounds probe = room;
-                probe.Expand(new Vector3(RoomWallAdjacency * 2f, 8f, RoomWallAdjacency * 2f));
-                float bandMin = float.PositiveInfinity, bandMax = float.NegativeInfinity;
-                foreach (Segment seg in _segments.Values)
-                {
-                    if (!seg.HasBounds || !seg.Bounds.Intersects(probe))
-                        continue;
-                    if (seg.Bounds.min.y < bandMin) bandMin = seg.Bounds.min.y;
-                    if (seg.Bounds.max.y > bandMax) bandMax = seg.Bounds.max.y;
-                }
-                if (float.IsInfinity(bandMin) || bandMax - bandMin < 0.01f)
-                {
-                    bandMin = room.max.y;
-                    bandMax = room.max.y + FallbackBandHeight;
-                }
-                float baseY = Mathf.Clamp(room.max.y, bandMin, bandMax - MinBandHeight);
-                float h = Mathf.Clamp(bandMax - baseY, MinBandHeight, MaxBandHeight);
-                _roomBandMin.Add(bandMin);
-                _roomBandMax.Add(bandMax);
-                _roomSampleY1.Add(baseY + SampleLowBandFrac * h);
-                _roomSampleY2.Add(baseY + SampleMidBandFrac * h);
-            }
-        }
-
-        /// <summary>
-        /// Precompute the play-area occlusion samples: a per-room XZ grid at the TWO
-        /// in-band layer heights from <see cref="ComputeRoomBands"/>, as dense as the room
-        /// budget allows under <see cref="MaxTotalSamples"/> (3×3 → quincunx → center per
-        /// room, ×2 layers). Each sample remembers its room for per-room normalization.
+        /// Precompute the FLOOR occlusion samples (R1): a per-room XZ grid placed ON the
+        /// room tile bounds' TOP surface (floor height + <see cref="FloorSampleEpsilon"/>),
+        /// as dense as the room budget allows under <see cref="MaxTotalSamples"/>
+        /// (4×4 → 3×3 → 2×2 → center per room). The room renderers are the hex-tile meshes
+        /// themselves, so bounds.max.y IS the tile plane — no band/height inference. Each
+        /// sample remembers its room for per-room normalization.
         /// </summary>
         private void RebuildSamples()
         {
@@ -862,69 +888,52 @@ internal static class WallSegmentFade
                 _sampleYMin = _sampleYMax = 0f;
                 return;
             }
-            int perRoomXZ = rooms * 18 <= MaxTotalSamples ? 9
-                : rooms * 10 <= MaxTotalSamples ? 5
+            int grid = rooms * 16 <= MaxTotalSamples ? 4
+                : rooms * 9 <= MaxTotalSamples ? 3
+                : rooms * 4 <= MaxTotalSamples ? 2
                 : 1;
             for (int r = 0; r < rooms; r++)
             {
                 if (_allSamples.Count >= MaxTotalSamples)
                     break;
                 Bounds b = _roomBounds[r];
-                float y1 = _roomSampleY1[r];
-                float y2 = _roomSampleY2[r];
-                if (y1 < _sampleYMin) _sampleYMin = y1;
-                if (y2 > _sampleYMax) _sampleYMax = y2;
-                if (perRoomXZ == 9)
+                float y = b.max.y + FloorSampleEpsilon;
+                if (y < _sampleYMin) _sampleYMin = y;
+                if (y > _sampleYMax) _sampleYMax = y;
+                for (int ix = 0; ix < grid; ix++)
                 {
-                    for (int ix = 0; ix < 3; ix++)
+                    float x = Mathf.Lerp(b.min.x, b.max.x, (ix + 0.5f) / grid);
+                    for (int iz = 0; iz < grid; iz++)
                     {
-                        for (int iz = 0; iz < 3; iz++)
-                        {
-                            AddSample(b, 0.17f + 0.33f * ix, 0.17f + 0.33f * iz, y1, y2, r);
-                        }
+                        float z = Mathf.Lerp(b.min.z, b.max.z, (iz + 0.5f) / grid);
+                        _allSamples.Add(new Vector3(x, y, z));
+                        _sampleRoom.Add(r);
                     }
-                }
-                else if (perRoomXZ == 5)
-                {
-                    AddSample(b, 0.5f, 0.5f, y1, y2, r);
-                    for (int ix = 0; ix < 2; ix++)
-                    {
-                        for (int iz = 0; iz < 2; iz++)
-                        {
-                            AddSample(b, 0.25f + 0.5f * ix, 0.25f + 0.5f * iz, y1, y2, r);
-                        }
-                    }
-                }
-                else
-                {
-                    AddSample(b, 0.5f, 0.5f, y1, y2, r);
                 }
             }
             if (float.IsInfinity(_sampleYMin))
                 _sampleYMin = _sampleYMax = 0f;
         }
 
-        private void AddSample(Bounds b, float tx, float tz, float y1, float y2, int room)
-        {
-            float x = Mathf.Lerp(b.min.x, b.max.x, tx);
-            float z = Mathf.Lerp(b.min.z, b.max.z, tz);
-            _allSamples.Add(new Vector3(x, y1, z));
-            _sampleRoom.Add(room);
-            _allSamples.Add(new Vector3(x, y2, z));
-            _sampleRoom.Add(room);
-        }
-
-        /// <summary>Re-collect a segment's fade-capable renderers and combined AABB.</summary>
+        /// <summary>
+        /// Re-collect a segment's fade-capable renderers, combined AABB and shader-variant
+        /// info (R2 diag: LOW = name contains "Low", e.g. Amp_Low/Amp_Basic_WallFade_Low
+        /// from misc_shaders; anything else WallFade-capable is the HIGH misc_high_shaders
+        /// variant).
+        /// </summary>
         private void RefreshSegment(Segment seg)
         {
             seg.Renderers.Clear();
             seg.HasBounds = false;
+            seg.VariantHigh = false;
+            seg.VariantLow = false;
+            seg.ShaderNames = "?";
             if (seg.Wall == null)
                 return;
             MeshRenderer[] all = seg.Wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !HasWallFadeMaterial(r))
+                if (r == null || !CollectWallFadeInfo(r, seg))
                     continue;
                 seg.Renderers.Add(r);
                 if (!seg.HasBounds)
@@ -949,17 +958,34 @@ internal static class WallSegmentFade
             }
         }
 
-        /// <summary>Does any shared material use one of the wall-fade shaders?</summary>
-        private bool HasWallFadeMaterial(MeshRenderer r)
+        /// <summary>
+        /// Does any shared material use one of the wall-fade shaders? Also records the
+        /// shader name(s) and LOW/HIGH variant flags on the segment (rescan-time only —
+        /// the string concat below runs once per distinct shader name per rescan).
+        /// </summary>
+        private bool CollectWallFadeInfo(MeshRenderer r, Segment seg)
         {
+            bool any = false;
             _matScratch.Clear();
             r.GetSharedMaterials(_matScratch);
             foreach (Material m in _matScratch)
             {
-                if (m != null && m.shader != null && m.shader.name.Contains("WallFade"))
-                    return true;
+                if (m == null || m.shader == null)
+                    continue;
+                string shaderName = m.shader.name;
+                if (!shaderName.Contains("WallFade"))
+                    continue;
+                any = true;
+                if (shaderName.Contains("Low"))
+                    seg.VariantLow = true;
+                else
+                    seg.VariantHigh = true;
+                if (seg.ShaderNames == "?")
+                    seg.ShaderNames = shaderName;
+                else if (!seg.ShaderNames.Contains(shaderName))
+                    seg.ShaderNames += "+" + shaderName;
             }
-            return false;
+            return any;
         }
 
         // ---- textures / teardown ------------------------------------------------------------
@@ -968,8 +994,11 @@ internal static class WallSegmentFade
         /// Create the two delivery textures. Noise: 64x64 value noise (Mathf.PerlinNoise),
         /// rank-flattened to a uniform histogram over [0.06,1] so the _Cutoff sweep dissolves at
         /// a constant area-rate; low frequency keeps the left/right-eye patterns correlated
-        /// (screen-space sampling differs per eye only by disparity). Alpha stays 0 in both
-        /// textures = "play area behind every pixel" under the shader's reversed-Z compare.
+        /// (screen-space sampling differs per eye only by disparity); alpha 0 = "play area
+        /// behind every pixel" under the shader's reversed-Z compare, m = 1-noise. Full
+        /// (held) texture: r=1 AND a=1 — alpha 1 forces the depth compare TRUE under any Z
+        /// convention, making the map term m = 1 a CONSTANT (R2: the held-state discard
+        /// carries zero per-pixel view dependence; see class header).
         /// </summary>
         private bool EnsureTextures()
         {
@@ -1013,7 +1042,7 @@ internal static class WallSegmentFade
             };
             var full = new Color32[4];
             for (int i = 0; i < 4; i++)
-                full[i] = new Color32(255, 0, 0, 0);
+                full[i] = new Color32(255, 0, 0, 255); // r=1 (unused once a=1), a=1 → m ≡ 1
             _fullTex.SetPixels32(full);
             _fullTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
             return true;
@@ -1052,10 +1081,6 @@ internal static class WallSegmentFade
             catch { /* renderers already dying with the scene */ }
             _segments.Clear();
             _roomBounds.Clear();
-            _roomBandMin.Clear();
-            _roomBandMax.Clear();
-            _roomSampleY1.Clear();
-            _roomSampleY2.Clear();
             _allSamples.Clear();
             _sampleRoom.Clear();
             _visibleSamples.Clear();
