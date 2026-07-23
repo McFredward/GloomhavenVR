@@ -641,6 +641,7 @@ internal sealed class CardsDriver : MonoBehaviour
             UpdateActiveLaser();
         }
         UpdateFanHoverSplit();
+        UpdateOverlayGate(); // B/C: game-state gate (results window / narrator dialog / scenario end) before both overlay paths
         UpdateSlotHighlight();
         UpdateFanInsertion(); // after the slot highlight so its precedence check reads a fresh slot
         if (_modalInputBlocked)
@@ -1468,6 +1469,20 @@ internal sealed class CardsDriver : MonoBehaviour
     /// </summary>
     private void UpdateSlotHighlight()
     {
+        // B/C: game-state overlay gate (results window / narrator dialog / scenario end —
+        // see UpdateOverlayGate): no placement can commit, so no slot telegraph may glow
+        // either — clear both the pick-mode and the snap highlight state and bail. The
+        // read-only viewer-card suppression below stays untouched (it handles a
+        // different case: browse/active cards that never slot).
+        if (_overlayGateBlocked)
+        {
+            _tray.SetHighlightedSlot(-1);
+            _fieldHighlightCard = null;
+            _fieldHighlightSlot = -1;
+            _snapHighlightSlot = -1;
+            _snapHighlightCard = null;
+            return;
+        }
         // Pick modes (test #28): the candidate homes into the WANTED slot recess —
         // same telegraph contract as the play slots (glow-at-release is the primary
         // accept rule, haptic tick on edge), but the transient gold glow tracks the
@@ -2899,6 +2914,50 @@ internal sealed class CardsDriver : MonoBehaviour
             _dirty = true;
     }
 
+    // ---------------------------------------------------------------- overlay gate --
+
+    // B/C: cached result of CardsGameApi.IsCardCommitBlocked, computed ONCE per tick
+    // (UpdateOverlayGate, before both overlay paths) so UpdateSlotHighlight and
+    // UpdateWantedSlots read the same frame-consistent verdict.
+    private bool _overlayGateBlocked;
+
+    // Throttle for the gate-flip diagnostic: at most one line per second even if the
+    // signals chatter (e.g. the story queue closing one message and opening the next).
+    private float _overlayGateNextLogAt;
+
+    /// <summary>
+    /// User reports B/C: while the victory/defeat ("Sieg"/"Niederlage") results window
+    /// is up, the scenario-start narrator is telling the story, or the rule engine has
+    /// ended the scenario, NO yellow slot overlay may be shown — cards cannot be placed.
+    /// Reads the game's own blocker state via
+    /// <see cref="CardsGameApi.IsCardCommitBlocked"/> (UIResultsManager.IsShown /
+    /// StoryController.IsVisible+DisplayDelayInEffect /
+    /// ActionProcessor.CurrentPhase==ScenarioEnded — never the mod's WorldUI), caches
+    /// the verdict for this tick and logs ONE throttled diagnostic line per flip with
+    /// the blocking reason so hardware logs can verify the gate.
+    /// </summary>
+    private void UpdateOverlayGate()
+    {
+        bool blocked = CardsGameApi.InScenario && CardsGameApi.IsCardCommitBlocked(out string reason);
+        if (blocked == _overlayGateBlocked)
+            return;
+        _overlayGateBlocked = blocked;
+        if (Time.unscaledTime < _overlayGateNextLogAt)
+            return; // flip applied either way — only the log line is throttled
+        _overlayGateNextLogAt = Time.unscaledTime + 1f;
+        if (blocked)
+        {
+            CardsGameApi.IsCardCommitBlocked(out reason); // reason only assigned on a blocked result
+            VRLog.Info("Cards", $"Overlay gate CLOSED — {reason}: wanted-slot overlays and snap glow suppressed " +
+                                "(no card can be placed right now).");
+        }
+        else
+        {
+            VRLog.Info("Cards", "Overlay gate OPEN — results window / narrator dialog / scenario-end blockers " +
+                                "cleared: slot overlays follow the normal placement rules again.");
+        }
+    }
+
     // ------------------------------------------------------------- wanted-slot hint --
 
     /// <summary>
@@ -2912,6 +2971,14 @@ internal sealed class CardsDriver : MonoBehaviour
     private void UpdateWantedSlots(CardsHandUI? hand)
     {
         if (!CardsConfig.WantedSlotHint.Value || !_tray.IsVisible || hand == null)
+        {
+            _tray.SetWantedSlots(0);
+            return;
+        }
+        // B/C: game-state overlay gate (results window / narrator dialog / scenario end —
+        // see UpdateOverlayGate). Placing is impossible, so NO wanted-slot overlay may
+        // pulse — neither the CardsSelection pair nor the pick-mode positions below.
+        if (_overlayGateBlocked)
         {
             _tray.SetWantedSlots(0);
             return;
