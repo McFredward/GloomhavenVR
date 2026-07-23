@@ -974,8 +974,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         RigPoseVersion++; // P6: world-anchored panels re-derive their seat yaw on recenter
 
         VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position} " +
-                          $"(seated {(ComfortSettings.IsBound && ComfortSettings.SeatedMode.Value ? "yes" : "no")}" +
-                          $", circle seat {idx + 1}/{total}).");
+                          $"(circle seat {idx + 1}/{total}).");
     }
 
     /// <summary>

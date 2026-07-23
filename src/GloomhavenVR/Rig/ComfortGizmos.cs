@@ -65,9 +65,6 @@ internal sealed class ComfortGizmos : MonoBehaviour
         _sb.Append("\nclamp ").Append(RigClamp.LastClampActive ? "ACTIVE (head lifted)" : "ok");
         if (comfort != null && comfort.ChordProgress > 0f)
             _sb.Append("  |  recenter chord ").Append((comfort.ChordProgress * 100f).ToString("F0")).Append('%');
-        _sb.Append("\nseated ").Append(ComfortSettings.SeatedMode.Value ? "YES" : "no")
-           .Append("  heightOffset ").Append(ComfortSettings.TableHeightOffset.Value.ToString("F2"))
-           .Append(" m  |  savedScaleMult ").Append(ComfortSettings.SavedScaleMultiplier.Value.ToString("F2"));
 
         GUI.Label(new Rect(10f, Screen.height - 130f, 1100f, 120f), _sb.ToString());
     }

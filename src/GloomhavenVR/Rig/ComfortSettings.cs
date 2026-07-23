@@ -161,14 +161,6 @@ internal static class ComfortSettings
     /// <summary>Which hand's stick turns (Dominant follows <c>[Hands] PrimaryHand</c>).</summary>
     public static ComfortSetting<TurnHandChoice> TurnHand { get; private set; } = null!;
 
-    /// <summary>
-    /// DEPRECATED, no effect: the seated-mode preset was removed (user: irrelevant — the
-    /// world is freely draggable; recenter always uses the standing preset now). The
-    /// entry is only still BOUND because ComfortGizmos.cs and VRRigDriver.cs (owned by
-    /// other seams) still read it for diagnostics — delete it together with those reads.
-    /// </summary>
-    public static ComfortSetting<bool> SeatedMode { get; private set; } = null!;
-
     /// <summary>Extra eye height above the table on recenter, real meters (+ = table lower).</summary>
     public static ComfortSetting<float> TableHeightOffset { get; private set; } = null!;
 
@@ -279,10 +271,6 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(30f, 270f));
         TurnHand = Bind("TurnHand", TurnHandChoice.Dominant,
             "Which thumbstick turns. Dominant follows [Hands] PrimaryHand.");
-        SeatedMode = Bind("SeatedMode", false,
-            "DEPRECATED, no effect: the seated-mode preset was removed (the world is freely " +
-            "draggable; recenter always uses the standing preset). Kept bound only while " +
-            "diagnostic readers (ComfortGizmos, VRRigDriver) still reference it.");
         TableHeightOffset = Bind("TableHeightOffset", 0f,
             "Extra eye height above the table on recenter, in real meters (positive = table " +
             "sits lower). Changing this re-runs recenter immediately.",
@@ -326,7 +314,6 @@ internal static class ComfortSettings
         SnapTurnDegrees.Detach();
         SmoothTurnSpeed.Detach();
         TurnHand.Detach();
-        SeatedMode.Detach();
         TableHeightOffset.Detach();
         RecenterHoldSeconds.Detach();
         SavedScaleMultiplier.Detach();

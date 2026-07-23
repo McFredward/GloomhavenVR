@@ -169,7 +169,6 @@ internal static class Loc
         ["comfort"] = Pair("Comfort", "Komfort"),
         ["table_scale"] = Pair("Table scale", "Tischgröße"),
         ["turning"] = Pair("Turning", "Drehen"),
-        ["seated_mode"] = Pair("Seated mode", "Sitzmodus"),
         ["table_height"] = Pair("Table height", "Tischhöhe"),
         ["free_movement"] = Pair("Free movement", "Freie Bewegung"),
         ["world_grab"] = Pair("World grab", "Welt greifen"),
