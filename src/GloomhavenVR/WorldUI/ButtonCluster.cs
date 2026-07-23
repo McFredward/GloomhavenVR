@@ -64,10 +64,13 @@ namespace GloomhavenVR.WorldUI;
 /// wishlist) are probed first and used when present. The cluster is hidden in
 /// <see cref="VRMode.Menu2D"/>.
 ///
-/// DOCKED ON THE CONTROL BOARD (test #19): while a <see cref="PlayTray"/> exists the
-/// cluster pose-follows <see cref="PlayTray.ButtonClusterMount"/> under the card
-/// slots (never re-parented — a tray/rig teardown must not cascade into the
-/// cluster; the same mount-seam contract as the initiative/objectives panels).
+/// DOCKED ON THE CONTROL BOARD (test #19, relaid user #8): while a <see cref="PlayTray"/>
+/// exists the cluster docks in the RIGHT-side column beside the Confirm/Undo pads and
+/// the gear — a fixed anchor in the tray-root frame with a count-driven auto-fit stack
+/// (see the COLUMN constants + <see cref="RelayoutColumn"/>); the mount still supplies
+/// rotation/scale and the cluster is never re-parented (a tray/rig teardown must not
+/// cascade into the cluster; the same mount-seam contract as the initiative/objectives
+/// panels).
 /// Labels flip flat onto the caps there (the table-edge label sign would lie
 /// across the slot captions), the buttons register as tray laser targets (poke AND
 /// laser on every board element — the board contract), and the cluster hides with
@@ -76,6 +79,30 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class ButtonCluster
 {
     private const float CapPressDepth = 0.008f; // 8 mm cap travel (real meters)
+
+    // ---- RIGHT-SIDE COLUMN (user #8) ---------------------------------------------------
+    // The cluster no longer sits bottom-CENTER under the card slots: every turn-flow
+    // button — including the transient round ones ("Bewegung überspringen" etc.) — now
+    // stacks in a column on the RIGHT side of the board, directly beside the
+    // Confirm/Undo ("Rückgängig machen") pads and the gear. Constants are tray-ROOT-local
+    // meters, taken from PlayTray's collision map: the free bottom-right zone LEFT of the
+    // Undo/gear column (pad left edge ≈ 0.185, gear left edge ≈ 0.19) and BELOW the card
+    // slots (captions bottom edge ≈ -0.068), inside the board (bottom edge -0.16):
+    // x 0.11..0.186, y -0.073..-0.157. The column ANCHOR is fixed — transient buttons
+    // appear/disappear in place and only the per-button size/slots reflow, never the
+    // cluster's world position.
+    private const float ColumnCenterX = 0.148f;
+    private const float ColumnCenterY = -0.115f;
+    private const float ColumnRootZ = -0.006f;   // same board-face seat as the pads/mounts
+    private const float ColumnRootHeight = 0.084f; // root-local vertical budget
+    private const float ColumnRootWidth = 0.076f;  // root-local lateral budget
+
+    // Auto-scale (user #8: "always choose the size so ALL buttons fit"): per-button slot
+    // math in CLUSTER-local units (the docked mount scale converts to root units).
+    private const float ColumnGap = 0.012f;      // inter-slot gap, cluster-local
+    private const float MinCapRadius = 0.024f;   // readability floor — below this, go 2 columns
+    private const float MaxCapRadius = 0.045f;   // never larger than the lateral budget allows
+    private const float BaseFootprint = 2.4f;    // base plate side = BaseFootprint × cap radius
 
     // DEPTH-CORRECT proud seat (replaces the old ZTest-Always shine-through). When docked
     // the cluster is lifted this far toward the player along the board-face normal so its
@@ -93,6 +120,13 @@ internal sealed class ButtonCluster
     private PhysicalButton? _undo;
     private PhysicalButton? _skip;
     private bool _visible;
+
+    // Right-column layout state (user #8).
+    private bool _dockedNow;
+    private float _rootToLocal = 1f / 0.7f; // root-local → cluster-local unit factor (mount carries the 0.7 dock scale)
+    private int _lastLayoutCount = -1;
+    private float _lastLayoutRadius;
+    private readonly System.Collections.Generic.List<PhysicalButton> _layoutScratch = new(3);
 
     public void Init()
     {
@@ -134,9 +168,105 @@ internal sealed class ButtonCluster
         _undo!.MirrorUndo(null, locked);
         _skip!.MirrorSkip(choreographer!.m_SkipButton, locked);
 
+        // User #8: pack whatever is visible into the fixed right-side column, auto-sized
+        // from the live count (transient buttons reflow slots only, never the anchor).
+        RelayoutColumn();
+
         _ready.Animate();
         _undo.Animate();
         _skip.Animate();
+    }
+
+    /// <summary>
+    /// Right-column auto-layout (user #8): stack every VISIBLE button top-to-bottom in
+    /// the column beside the Undo/gear pads, cap size computed from the count so the
+    /// full set always fits the column budget — shrink when transient buttons appear,
+    /// grow back when they vanish. Readability floor first (<see cref="MinCapRadius"/>),
+    /// then a second column when the floor would overflow the stack. In the no-tray
+    /// floating fallback the classic horizontal row (authored sizes) is restored.
+    /// Logged once per change (count → chosen size).
+    /// </summary>
+    private void RelayoutColumn()
+    {
+        if (_ready == null || _undo == null || _skip == null)
+            return;
+
+        if (!_dockedNow)
+        {
+            // Floating table-edge fallback: the authored Undo | Ready | Skip row.
+            _undo.SetSlot(new Vector3(-0.11f, 0f, 0f), _undo.BaseRadius);
+            _ready.SetSlot(Vector3.zero, _ready.BaseRadius);
+            _skip.SetSlot(new Vector3(0.11f, 0f, 0f), _skip.BaseRadius);
+            _lastLayoutCount = -1;
+            return;
+        }
+
+        _layoutScratch.Clear();
+        if (_ready.VisibleNow) _layoutScratch.Add(_ready);
+        if (_undo.VisibleNow) _layoutScratch.Add(_undo);
+        if (_skip.VisibleNow) _layoutScratch.Add(_skip);
+        int n = _layoutScratch.Count;
+        if (n == 0)
+        {
+            _lastLayoutCount = 0;
+            return;
+        }
+
+        float columnH = ColumnRootHeight * _rootToLocal;
+        float columnW = ColumnRootWidth * _rootToLocal;
+
+        // Slot math: base plate side = BaseFootprint × radius. Single column first; if
+        // that pushes the cap under the readability floor, split into two columns.
+        int cols = 1;
+        int rows = n;
+        float radius = SlotRadius(columnH, columnW, rows, cols);
+        if (radius < MinCapRadius && n > 1)
+        {
+            int rows2 = (n + 1) / 2;
+            float r2 = SlotRadius(columnH, columnW, rows2, 2);
+            if (r2 > radius)
+            {
+                cols = 2;
+                rows = rows2;
+                radius = r2;
+            }
+        }
+        radius = Mathf.Clamp(radius, 0.02f, MaxCapRadius);
+
+        float pitch = BaseFootprint * radius + ColumnGap;
+        float extentZ = rows * BaseFootprint * radius + (rows - 1) * ColumnGap;
+        float extentX = cols * BaseFootprint * radius + (cols - 1) * ColumnGap;
+        for (int i = 0; i < n; i++)
+        {
+            int row = i / cols;
+            int col = i % cols;
+            bool loneLastRow = cols == 2 && row == rows - 1 && (n % 2) == 1;
+            // Cluster-local frame while docked: +Z = down the board (toward the player),
+            // +X lateral. Row 0 sits at the TOP of the column.
+            float z = -extentZ * 0.5f + BaseFootprint * radius * 0.5f + row * pitch;
+            float x = loneLastRow || cols == 1
+                ? 0f
+                : -extentX * 0.5f + BaseFootprint * radius * 0.5f + col * pitch;
+            _layoutScratch[i].SetSlot(new Vector3(x, 0f, z), radius);
+        }
+
+        if (n != _lastLayoutCount || Mathf.Abs(radius - _lastLayoutRadius) > 0.0005f)
+        {
+            _lastLayoutCount = n;
+            _lastLayoutRadius = radius;
+            VRLog.Info("WorldUI", $"ButtonCluster relayout: {n} visible button(s) → cap radius " +
+                                  $"{radius * 1000f:F0} mm in {cols} column(s) (right-side column beside " +
+                                  "Undo/gear; anchor fixed, transient buttons reflow in place).");
+        }
+    }
+
+    /// <summary>Largest cap radius whose <paramref name="rows"/>×<paramref name="cols"/> grid of
+    /// <see cref="BaseFootprint"/>-sized plates fits the column budget.</summary>
+    private static float SlotRadius(float columnH, float columnW, int rows, int cols)
+    {
+        float slotH = (columnH - (rows - 1) * ColumnGap) / rows;
+        float slotW = (columnW - (cols - 1) * ColumnGap) / cols;
+        return Mathf.Min(slotH, slotW) / BaseFootprint;
     }
 
     public void Shutdown()
@@ -146,6 +276,9 @@ internal sealed class ButtonCluster
         _skip?.Destroy();
         _ready = _undo = _skip = null;
         _laserTray = null; // a rebuilt cluster must re-register its laser targets
+        _dockedNow = false;
+        _lastLayoutCount = -1;
+        _lastLayoutRadius = 0f;
         if (_root != null)
         {
             Object.Destroy(_root);
@@ -176,9 +309,10 @@ internal sealed class ButtonCluster
         VRLayers.Apply(_root);
         VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — DEPTH-CORRECT: lit opaque " +
                               $"BoardLit caps at natural ZTest LEqual, seated {ClusterProudOffset * 1000f:0} mm " +
-                              "proud of the board face (occluded by walls in front, no more ZTest-Always " +
-                              "shine-through); labels depth-honest too (per-label font-material instance, " +
-                              "queue 3000 + ZTest LEqual — no more text through the held-figure info panel).");
+                              "proud of the board face; labels depth-honest (per-label font-material instance, " +
+                              "queue 3000 + ZTest LEqual). ANTIQUE caps (user #5): wood-grain keycap + engraved " +
+                              "parchment label, the VR-settings-gear style (game-default sprite face removed). " +
+                              "Docked layout (user #8): RIGHT-side auto-fit column beside the Undo/gear pads.");
     }
 
     /// <summary>
@@ -212,14 +346,29 @@ internal sealed class ButtonCluster
             // base plate stand clear of the raised board rim at the player's oblique angle.
             // The caps now depth-TEST LEqual (no ZTest Always), so without this lift they
             // would z-fight with / be buried by the rim (the failure that recurred 3×).
+            //
+            // USER #8 (right-side column): the cluster ANCHOR is no longer the mount's
+            // bottom-center position but the fixed right-column point beside the
+            // Undo/gear pads, computed in the tray-ROOT frame (constants above). The
+            // mount still supplies rotation + scale (mount.rotation is root × the -90°
+            // board-face pitch, so the yawed frame is identical), and the root→cluster
+            // unit factor for the column's size budget is recorded for RelayoutColumn.
             float mountScale = mount.lossyScale.x;
             Vector3 proud = mount.up * (ClusterProudOffset * mountScale);
-            t.SetPositionAndRotation(mount.position + proud,
+            Transform? trayRoot = PlayTray.Current?.Root;
+            Vector3 anchor = trayRoot != null
+                ? trayRoot.TransformPoint(new Vector3(ColumnCenterX, ColumnCenterY, ColumnRootZ))
+                : mount.position; // degenerate fallback: old mount seat
+            if (trayRoot != null && mountScale > 1e-5f)
+                _rootToLocal = trayRoot.lossyScale.x / mountScale;
+            _dockedNow = true;
+            t.SetPositionAndRotation(anchor + proud,
                 mount.rotation * Quaternion.Euler(0f, 180f, 0f));
             t.localScale = Vector3.one * mountScale;
             return true;
         }
 
+        _dockedNow = false;
         SetDockedLabels(false);
         if (PanelLayout.TryGetPose(PanelSlot.ButtonCluster, out Vector3 pos, out Quaternion rot))
         {
@@ -331,7 +480,6 @@ internal sealed class ButtonCluster
         private BoxCollider _collider = null!;
         private Renderer _capRenderer = null!;
         private Renderer _baseRenderer = null!;
-        private SpriteRenderer? _capFace; // native-skin face (test #25 item 3); null on prefab/unsampled
         private TextMeshPro _label = null!;
         private System.Action _onClick = null!;
         private Color _accent;
@@ -348,10 +496,34 @@ internal sealed class ButtonCluster
         private Vector3 _labelHomePos;
         private Quaternion _labelHomeRot;
 
+        /// <summary>Authored cap radius (cluster-local meters) — <see cref="SetSlot"/> scales relative to it.</summary>
+        internal float BaseRadius { get; private set; }
+
+        /// <summary>Mirrored visibility of this button right now (drives the column layout, user #8).</summary>
+        internal bool VisibleNow => _rootGo != null && _rootGo.activeSelf;
+
+        /// <summary>
+        /// Column-slot assignment (user #8): move the button to <paramref name="localPos"/>
+        /// and uniformly scale it so its cap radius reads <paramref name="radius"/> —
+        /// mesh, collider and label all ride the transform, so poke/laser targets and
+        /// text stay consistent at every auto-fit size.
+        /// </summary>
+        public void SetSlot(Vector3 localPos, float radius)
+        {
+            if (_rootGo == null)
+                return;
+            Transform t = _rootGo.transform;
+            if (t.localPosition != localPos)
+                t.localPosition = localPos;
+            float s = BaseRadius > 1e-5f ? radius / BaseRadius : 1f;
+            if (!Mathf.Approximately(t.localScale.x, s))
+                t.localScale = Vector3.one * s;
+        }
+
         public static PhysicalButton Create(Transform parent, string name, Vector3 localPos,
             float radius, Color accent, System.Action onClick)
         {
-            var button = new PhysicalButton { _onClick = onClick, _accent = accent };
+            var button = new PhysicalButton { _onClick = onClick, _accent = accent, BaseRadius = radius };
 
             GameObject? prefab = WorldUIAssets.TryLoadPrefab($"Assets/Bundle/Table/Button_{name}.prefab")
                                  ?? WorldUIAssets.TryLoadPrefab("Assets/Bundle/Table/ReadyButton.prefab");
@@ -416,21 +588,14 @@ internal sealed class ButtonCluster
             _capRenderer = cap.GetComponent<Renderer>();
             _capRenderer.sharedMaterial = CreateLitMaterial(_accent); // lit opaque, depth-correct (see base)
 
-            // Native look (test #25 item 3): lay the game's own 9-sliced button sprite
-            // flat on the cap's top face (the viewer side in both the docked and the
-            // table-edge frames) so the mod cluster reads as native. Euler(90,0,0)
-            // aims the sprite's normal (-Z) up +Y; it sits just proud of the cap top
-            // (cap half-height 0.0045). When no native sprite is sampled yet the cap
-            // keeps its flat accent material. The cylinder body stays as the button's
-            // depth under the flat face.
-            _capFace = NativeButtonSkin.CreateFace(_cap, new Vector2(radius * 2f, radius * 2f),
-                localZ: 0f, sortingOrder: 1);
-            if (_capFace != null)
-            {
-                Transform ft = _capFace.transform;
-                ft.localPosition = new Vector3(0f, 0.006f, 0f);
-                ft.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            }
+            // ANTIQUE cap (user #5): NO game-default sprite face any more. The cluster
+            // buttons previously wore the game's sampled 9-slice button sprite flat on
+            // the cap — the one set of visible board buttons still showing "the game's
+            // default look" while the gear/Confirm/Undo keycaps got the T4 antique
+            // restyle. The cap now reads exactly like those: wood-grain lit keycap
+            // (NewKeycapMaterial) in the worn accent colour + parchment ENGRAVED label
+            // (StyleEngravedLabel below) — same colour family and style as the
+            // VR-settings gear button.
 
             // Poke collider slightly proud of the cap (primitive box — poke contract).
             _collider = _rootGo.AddComponent<BoxCollider>();
@@ -599,38 +764,19 @@ internal sealed class ButtonCluster
                 _collider.enabled = interactable;
             }
 
-            if (_capFace != null)
+            // ANTIQUE cap colours (user #5 — the VR-settings-gear style): worn accent
+            // wood-grain when usable; disabled sinks toward DARK WOOD (an unlit carved
+            // plaque) instead of multiplying toward black — the grain texture stays
+            // readable, the state contrast (parchment-warm available vs dark-wood
+            // disabled) stays clear. The game-default sprite face is gone (see Build).
+            Color baseColor = accentOverride ?? _accent;
+            Color applied = interactable
+                ? baseColor
+                : Color.Lerp(baseColor, new Color(0.17f, 0.13f, 0.09f), 0.75f);
+            if (applied != _appliedColor)
             {
-                // Native face (test #25 item 3): a uniform native button — Idle when
-                // usable, Disabled when not. Native buttons don't colour-code their
-                // action (the localized label already names it), so the old warm/green
-                // accent is dropped here. The cylinder body is neutralised so only the
-                // flat sprite reads (its side would otherwise show the accent colour).
-                NativeButtonSkin.Apply(_capFace,
-                    interactable ? NativeButtonSkin.FaceState.Idle : NativeButtonSkin.FaceState.Disabled);
-                // T4: the neutralised cylinder body under the native face is dark WOOD
-                // (grain-textured via NewKeycapMaterial), matching the tray plaques.
-                var body = new Color(0.14f, 0.11f, 0.07f, 1f);
-                if (body != _appliedColor)
-                {
-                    _appliedColor = body;
-                    _capRenderer.sharedMaterial.color = body;
-                }
-            }
-            else
-            {
-                // T4: disabled sinks toward DARK WOOD (an unlit carved plaque) instead of
-                // multiplying toward black — the grain texture stays readable, the state
-                // contrast (parchment-warm available vs dark-wood disabled) stays clear.
-                Color baseColor = accentOverride ?? _accent;
-                Color applied = interactable
-                    ? baseColor
-                    : Color.Lerp(baseColor, new Color(0.17f, 0.13f, 0.09f), 0.75f);
-                if (applied != _appliedColor)
-                {
-                    _appliedColor = applied;
-                    _capRenderer.sharedMaterial.color = applied;
-                }
+                _appliedColor = applied;
+                _capRenderer.sharedMaterial.color = applied;
             }
             if (_label != null)
             {

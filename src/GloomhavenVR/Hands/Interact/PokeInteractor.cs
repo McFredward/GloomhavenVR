@@ -12,9 +12,10 @@ namespace GloomhavenVR.Hands.Interact;
 ///
 /// 2. Registered uGUI canvases (<see cref="UguiPokeSurfaces"/>): when the fingertip
 ///    crosses a world-space canvas plane, real pointer events are synthesized via
-///    ExecuteEvents (<see cref="UguiPointer"/>) — hover from the front side, press on
-///    plane contact, release on retraction. Game modality is respected because hits
-///    come from the canvas's own (enabled) GraphicRaycaster only.
+///    ExecuteEvents (<see cref="UguiPointer"/>) — hover from the front side, and the
+///    FULL click (down+up) fires INSTANTLY on plane contact (user #3/#7b: no dwell);
+///    retracting past ReleaseDepth re-arms the next press. Game modality is respected
+///    because hits come from the canvas's own (enabled) GraphicRaycaster only.
 ///
 /// Plain class ticked by <see cref="VRHand"/> every frame after pose update.
 /// No per-frame allocations: for-loops over registries, reused event data.
@@ -28,6 +29,15 @@ internal sealed class PokeInteractor
     private const float HoverRange = 0.035f;
     private const float ReleaseRange = 0.02f;
 
+    /// <summary>
+    /// INSTANT-CLICK anti-double-fire (user #3/#7b): minimum time between two uGUI poke
+    /// clicks of the same hand. The press is edge-triggered (armed only after the
+    /// fingertip retracted past ReleaseDepth), so this only swallows re-entry jitter
+    /// right at the release boundary — it is far below anything a deliberate second
+    /// press can hit, so it never reads as a dwell.
+    /// </summary>
+    private const float ClickCooldownSeconds = 0.25f;
+
     private readonly VRHand _hand;
     private readonly UguiPointer _pointer;
 
@@ -37,11 +47,22 @@ internal sealed class PokeInteractor
 
     private Canvas? _activeCanvas;
     private bool _canvasPressed;
+    private float _lastCanvasClick = -1f;
+
+    /// <summary>One-shot init log for the instant-poke mode (two hands share one line).</summary>
+    private static bool s_instantModeLogged;
 
     internal PokeInteractor(VRHand hand)
     {
         _hand = hand;
         _pointer = new UguiPointer(hand.Side);
+        if (!s_instantModeLogged)
+        {
+            s_instantModeLogged = true;
+            Core.VRLog.Info("Interact", "PokeInteractor: INSTANT poke clicks — a uGUI poke fires the full " +
+                                        "down+up+click on plane contact (retract-to-release dwell removed; " +
+                                        $"re-arm on retract + {ClickCooldownSeconds:F2}s cooldown against double-fire).");
+        }
     }
 
     /// <summary>Currently hovered pokeable, if any.</summary>
@@ -246,17 +267,33 @@ internal sealed class PokeInteractor
         if (hit && previousHover == null && _pointer.Hovered != null)
             _hand.SendHaptic(HapticPreset.HoverTick);
 
-        // Press when the fingertip reaches the plane, release when it retracts.
+        // INSTANT press (user #3/#7b): when the fingertip reaches the plane, fire the FULL
+        // click immediately — pointerDown + pointerUp/click back-to-back, the exact instant
+        // behavior of the IPokeable board buttons (OnPoke on contact) and of the game's own
+        // programmatic BaseButtons.clickButton. The old scheme held pointerDown and only
+        // released (→ click) once the fingertip retracted past ReleaseDepth IN FRONT of the
+        // plane; a natural poke sinks THROUGH the plane instead, so the click landed late or
+        // — past PressThrough — never (canvas dropped → Cancel ate the press). That was the
+        // "must hold the button for a long time" complaint on every converted native button
+        // (settings panel, decision prompts). Anti-double-fire stays: _canvasPressed is
+        // edge-latched until the fingertip retracts past ReleaseDepth (hysteresis re-arm)
+        // and a short cooldown swallows jitter across that boundary. No dwell remains.
+        // (Poke never drove uGUI drags — Drag() is laser-only — so nothing is lost by
+        // releasing immediately; the laser path in RayUguiDriver is unchanged.)
         if (!_canvasPressed && hit && bestSigned >= -FingertipRadius * scale)
         {
             _canvasPressed = true;
-            _pointer.Press(screenPos);
-            _hand.SendHaptic(HapticPreset.ClickPulse);
+            if (Time.unscaledTime - _lastCanvasClick >= ClickCooldownSeconds)
+            {
+                _lastCanvasClick = Time.unscaledTime;
+                _pointer.Press(screenPos);
+                _pointer.Release(screenPos); // instant full click — no retract-to-release dwell
+                _hand.SendHaptic(HapticPreset.ClickPulse);
+            }
         }
         else if (_canvasPressed && bestSigned < -tuning.ReleaseDepth * scale)
         {
-            _canvasPressed = false;
-            _pointer.Release(screenPos);
+            _canvasPressed = false; // re-armed: the next plane contact clicks again
         }
     }
 }
