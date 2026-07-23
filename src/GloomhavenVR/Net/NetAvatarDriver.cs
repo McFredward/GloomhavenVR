@@ -291,6 +291,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             state.HeldFigurePose.Position = p;
             state.HeldFigurePose.Rotation = r;
         }
+        if (state.HasHeldCard)
+        {
+            _anchor.ToWorld(state.HeldCardPose.Position, state.HeldCardPose.Rotation, out Vector3 p, out Quaternion r);
+            state.HeldCardPose.Position = p;
+            state.HeldCardPose.Rotation = r;
+        }
     }
 
     private void ExtrasToWorld(ref PresenceState p)

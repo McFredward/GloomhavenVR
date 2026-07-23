@@ -43,8 +43,15 @@ internal sealed class RemoteAvatar
     private AvatarState _target;
     private bool _hasTarget;
     private float _appliedScale = -1f;
+    private float _appliedStyleScale = -1f; // per-style visual scale currently on the hand visual roots
     private int _appliedMaskId = -1; // which HeadMaskLibrary mask the head currently shows
     private int _appliedHandStyle = -1; // which HandStyle the hand holders currently wear
+
+    // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card slab eased
+    // toward the sender's held-card pose — a card in a peer's HAND, distinct from their fan.
+    // Backs only, mirroring the fan's anti-cheat stance (no card identity is ever on the wire).
+    private Transform? _heldCardHolder;
+    private Mesh? _heldCardMesh;
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -183,6 +190,8 @@ internal sealed class RemoteAvatar
             BuildHands(state.HandStyle);
 
         // Apply sender scale to the part holders when it changes (cosmetic sizing only).
+        // The per-STYLE visual scale lives on the "HandVisual" child roots (BuildHands),
+        // so this write can no longer stomp it.
         float scale = state.WorldScale > 0f ? state.WorldScale : 1f;
         if (!Mathf.Approximately(scale, _appliedScale))
         {
@@ -190,6 +199,8 @@ internal sealed class RemoteAvatar
             _headHolder.localScale = Vector3.one * scale;
             _leftHolder.localScale = Vector3.one * scale;
             _rightHolder.localScale = Vector3.one * scale;
+            if (_heldCardHolder != null)
+                _heldCardHolder.localScale = Vector3.one * scale;
         }
     }
 
@@ -219,12 +230,28 @@ internal sealed class RemoteAvatar
 
         float dt = Mathf.Max(deltaTime, 0f);
 
+        // Live re-apply of the receiver-local per-style visual scale (config stepper edit
+        // while a remote avatar is up) — same live check the local hands/mirror run.
+        if (_leftRig != null)
+        {
+            float styleScale = HandVisuals.StyleScale(_leftRig.VisualStyle);
+            if (!Mathf.Approximately(styleScale, _appliedStyleScale))
+            {
+                _appliedStyleScale = styleScale;
+                if (_leftRig.Root != null)
+                    HandVisuals.ApplyStyleScale(_leftRig.Root, _leftRig, styleScale);
+                if (_rightRig != null && _rightRig.Root != null)
+                    HandVisuals.ApplyStyleScale(_rightRig.Root, _rightRig, styleScale);
+            }
+        }
+
         if (_hasTarget)
         {
             float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
             UpdatePart(_headHolder, _target.HeadValid, in _target.Head, k);
             UpdateHand(_leftHolder, _leftCurler, in _target.Left, _target.HasFingers, k, dt);
             UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt);
+            UpdateHeldCard(k);
         }
 
         // Cosmetic add-ons (own their own guards; stubs today).
@@ -267,10 +294,54 @@ internal sealed class RemoteAvatar
         curler.Tick(dt);
     }
 
+    /// <summary>
+    /// One both-faces-back card slab at the sender's held-card pose (additive
+    /// <see cref="NetProtocol.FlagHeldCard"/> field — a single card physically held in a peer's
+    /// hand, e.g. plucked from their fan or a pile viewer). Built lazily on first use, eased
+    /// exactly like the other parts, hidden while the sender holds nothing. Shows a BACK only:
+    /// no card identity rides the wire (same anti-cheat stance as <see cref="RemoteHandFan"/>).
+    /// </summary>
+    private void UpdateHeldCard(float k)
+    {
+        if (_heldCardHolder == null)
+        {
+            if (!_target.HasHeldCard)
+                return; // never held anything yet — build nothing
+            BuildHeldCardSlab();
+            if (_heldCardHolder == null)
+                return;
+        }
+        UpdatePart(_heldCardHolder, _target.HasHeldCard, in _target.HeldCardPose, k);
+    }
+
+    private void BuildHeldCardSlab()
+    {
+        _heldCardHolder = new GameObject("HeldCard").transform;
+        _heldCardHolder.SetParent(_root.transform, worldPositionStays: false);
+        _heldCardHolder.localScale = Vector3.one * AppliedScale;
+        _heldCardHolder.gameObject.SetActive(false);
+
+        // Own mesh (freed in Destroy); SHARED back material (CardMesh caches it — never ours
+        // to destroy). Sized to the same defaults the remote fan slabs use.
+        _heldCardMesh = RemoteHandFan.BuildBackSlab(
+            RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
+        var mf = _heldCardHolder.gameObject.AddComponent<MeshFilter>();
+        mf.sharedMesh = _heldCardMesh;
+        var mr = _heldCardHolder.gameObject.AddComponent<MeshRenderer>();
+        mr.sharedMaterial = Cards.CardMesh.CreateBackMaterial();
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+        VRLayers.Apply(_heldCardHolder.gameObject);
+    }
+
     public void Destroy()
     {
         _handFan.Destroy();
         _controlBoard.Destroy();
+        if (_heldCardMesh != null)
+            Object.Destroy(_heldCardMesh); // asset — not freed with the GameObject tree
+        _heldCardMesh = null;
+        _heldCardHolder = null;
         if (_root != null)
             Object.Destroy(_root);
         VRLog.Info("Net", $"Remote avatar destroyed for player {PlayerId}.");
@@ -281,7 +352,15 @@ internal sealed class RemoteAvatar
     /// <summary>(Re)build both hand visuals for the given wire hand-style: clears the hand
     /// holders' children, rebuilds the rigs + curlers with the sender's chosen prefab pair
     /// (Glove fallback inside <see cref="HandVisuals"/>), and re-applies the mod layer.
-    /// Cheap and only on change — mirrors <see cref="BuildHeadMask"/>.</summary>
+    /// Cheap and only on change — mirrors <see cref="BuildHeadMask"/>.
+    ///
+    /// Each hand is built under a "HandVisual" CHILD of the holder so the per-style visual
+    /// scale ([Hands] GloveScale/PlateScale/ArcaneScale ≈0.62 for the styled pairs, applied
+    /// by <see cref="HandVisuals.ApplyStyleScale"/> onto the transform passed to Build) lands
+    /// on that child. The HOLDER carries only the sender scale from <see cref="SetTarget"/> —
+    /// previously the sender-scale write stomped the style scale on the holder and a remote
+    /// Plate/Arcane hand rendered ~1.6× too big. Attach-ons that size off the holder
+    /// (<see cref="RemoteHandFan"/>) are deliberately unaffected by the style scale.</summary>
     private void BuildHands(int handStyle)
     {
         var style = Hands.HandStyles.Clamp(handStyle);
@@ -292,15 +371,21 @@ internal sealed class RemoteAvatar
         for (int i = _rightHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_rightHolder.GetChild(i).gameObject);
 
-        _leftRig = HandVisuals.Build(_leftHolder, HandSide.Left, style);
+        Transform leftVisual = new GameObject("HandVisual").transform;
+        leftVisual.SetParent(_leftHolder, worldPositionStays: false);
+        Transform rightVisual = new GameObject("HandVisual").transform;
+        rightVisual.SetParent(_rightHolder, worldPositionStays: false);
+
+        _leftRig = HandVisuals.Build(leftVisual, HandSide.Left, style);
         _leftCurler = _leftRig != null ? new FingerCurler(_leftRig) : null;
-        _rightRig = HandVisuals.Build(_rightHolder, HandSide.Right, style);
+        _rightRig = HandVisuals.Build(rightVisual, HandSide.Right, style);
         _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
 
-        // HandVisuals.Build wrote the per-style visual scale onto the HOLDERS
-        // (ApplyStyleScale) — force the sender-scale block in SetTarget to re-apply,
-        // or a mid-session style swap leaves the remote hands at the wrong size.
-        _appliedScale = -1f;
+        // Build applied the style scale for the built style (receiver-local config value
+        // for the SENDER'S style); remember it so the live check in Tick only re-applies
+        // on an actual config edit.
+        _appliedStyleScale = HandVisuals.StyleScale(
+            _leftRig != null ? _leftRig.VisualStyle : style);
 
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);

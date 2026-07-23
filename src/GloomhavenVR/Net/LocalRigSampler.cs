@@ -58,6 +58,18 @@ internal static class LocalRigSampler
             state.HeldFigurePose.Rotation = ar;
         }
 
+        // Held card (cosmetic, additive FlagHeldCard field): a single VRCard grip-held in
+        // either hand (plucked from the fan or a pile viewer). Pose only — the card's
+        // identity NEVER rides the wire (peers render a back slab; anti-cheat stance of
+        // the remote fan). The open fan itself is covered by the extras packet's count.
+        state.HasHeldCard = TrySampleHeldCard(out Vector3 cp, out Quaternion cr);
+        if (state.HasHeldCard)
+        {
+            anchor.ToAnchor(cp, cr, out Vector3 acp, out Quaternion acr);
+            state.HeldCardPose.Position = acp;
+            state.HeldCardPose.Rotation = acr;
+        }
+
         // Nothing to say if we have neither a head nor a tracked hand.
         return state.HeadValid || state.Left.Tracked || state.Right.Tracked;
     }
@@ -74,6 +86,26 @@ internal static class LocalRigSampler
     /// config (net module never inited) falls back to mask 0 rather than throwing.</summary>
     public static int LocalMaskId() =>
         NetModule.MaskId != null ? Mathf.Clamp(NetModule.MaskId.Value, 0, HeadMaskLibrary.MaskCount - 1) : 0;
+
+    /// <summary>The world pose of the single card the local player grip-holds, if any (left
+    /// hand wins when both hold one — matches the mirror's slab order). False when no hand
+    /// holds a <see cref="Cards.VRCard"/>.</summary>
+    private static bool TrySampleHeldCard(out Vector3 pos, out Quaternion rot)
+    {
+        return TryHeldCard(VRHands.Left, out pos, out rot) || TryHeldCard(VRHands.Right, out pos, out rot);
+    }
+
+    private static bool TryHeldCard(VRHand? hand, out Vector3 pos, out Quaternion rot)
+    {
+        pos = default;
+        rot = Quaternion.identity;
+        if (hand == null || hand.Grabber == null || hand.Grabber.Held is not Cards.VRCard card || card == null)
+            return false;
+        Transform t = card.transform;
+        pos = t.position;
+        rot = t.rotation;
+        return true;
+    }
 
     private static void SampleHand(IBoardAnchor anchor, VRHand? hand, bool includeFingers, ref HandStateSample sample)
     {

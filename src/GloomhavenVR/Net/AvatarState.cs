@@ -81,4 +81,16 @@ internal struct AvatarState
     /// on the correct non-dominant side. Defaults true (right-dominant) when unknown.
     /// </summary>
     public bool DominantRight;
+
+    /// <summary>
+    /// True when the sender grip-holds a single card in a hand this frame (wire flag
+    /// <see cref="NetProtocol.FlagHeldCard"/> — ADDITIVE trailing field after the hand-style
+    /// byte; older peers ignore it). When set, <see cref="HeldCardPose"/> carries the card's
+    /// world pose; receivers render one card-BACK slab there. No card identity is transmitted.
+    /// </summary>
+    public bool HasHeldCard;
+
+    /// <summary>World-frame pose of the held card (meaningful only when
+    /// <see cref="HasHeldCard"/>).</summary>
+    public RigPose HeldCardPose;
 }
