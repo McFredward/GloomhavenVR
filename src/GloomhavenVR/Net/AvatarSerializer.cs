@@ -30,6 +30,10 @@ namespace GloomhavenVR.Net;
 ///     field, still wire v3: readers that predate it ignore the unknown flag bit and the
 ///     trailing byte (they only validate the length their known flags demand), so old
 ///     peers keep parsing the packet and just show default Glove hands.
+///   if FlagHeldCard: pose(20) — grip-held single card, ADDITIVE trailing field placed
+///     AFTER the hand-style byte so pre-held-card readers still find the style byte at
+///     the offset they expect and simply ignore the trailing pose (same compat contract
+///     as FlagHandStyle; no card identity is transmitted, receivers render a back slab).
 /// Rotation quantization: each quaternion component q∈[-1,1] → round(q·32767) as int16;
 /// reconstructed and re-normalized on read (≈ 0.006 rad worst case — imperceptible for a
 /// floating hand).
@@ -37,8 +41,9 @@ namespace GloomhavenVR.Net;
 internal static unsafe class AvatarSerializer
 {
     /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
-    /// held-figure block (4+20) + hand-style byte = 107, rounded up to 112 for headroom.</summary>
-    public const int MaxSize = 112;
+    /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
+    /// 132 for headroom.</summary>
+    public const int MaxSize = 132;
 
     private const float QuatScale = 32767f;
 
@@ -63,6 +68,7 @@ internal static unsafe class AvatarSerializer
         if (state.HasHeldFigure) flags |= NetProtocol.FlagHeldFigure;
         if (state.DominantRight) flags |= NetProtocol.FlagDominantRight;
         flags |= NetProtocol.FlagHandStyle; // trailing style byte always written (additive v3)
+        if (state.HasHeldCard) flags |= NetProtocol.FlagHeldCard;
         buffer[i++] = flags;
 
         // Head mask id (0..2). Clamp defensively so a stray value never confuses the receiver.
@@ -93,6 +99,11 @@ internal static unsafe class AvatarSerializer
         // Trailing hand-style byte (FlagHandStyle). Clamped so a stray value never
         // confuses the receiver — mirrors the maskId clamp above.
         buffer[i++] = (byte)Mathf.Clamp(state.HandStyle, 0, Hands.HandStyles.Count - 1);
+
+        // Trailing held-card pose (FlagHeldCard) — MUST stay after the style byte so
+        // pre-held-card readers keep finding the style byte at the expected offset.
+        if (state.HasHeldCard)
+            WritePose(buffer, ref i, in state.HeldCardPose);
         return i;
     }
 
@@ -153,11 +164,12 @@ internal static unsafe class AvatarSerializer
         bool fingers = (flags & NetProtocol.FlagHasFingers) != 0;
         bool held = (flags & NetProtocol.FlagHeldFigure) != 0;
         bool style = (flags & NetProtocol.FlagHandStyle) != 0;
+        bool heldCard = (flags & NetProtocol.FlagHeldCard) != 0;
         state.HasFingers = fingers;
         state.DominantRight = (flags & NetProtocol.FlagDominantRight) != 0;
 
         int need = (head ? 20 : 0) + (left ? 20 + (fingers ? 5 : 0) : 0) + (right ? 20 + (fingers ? 5 : 0) : 0)
-                   + (held ? 24 : 0) + (style ? 1 : 0);
+                   + (held ? 24 : 0) + (style ? 1 : 0) + (heldCard ? 20 : 0);
         if (length < i + need)
             return false;
 
@@ -187,6 +199,11 @@ internal static unsafe class AvatarSerializer
         if (style)
             state.HandStyle = (byte)Mathf.Clamp(buffer[i++], 0, Hands.HandStyles.Count - 1);
         // else: sender predates the hand-style field -> default 0 (Glove).
+        if (heldCard)
+        {
+            state.HasHeldCard = true;
+            ReadPose(buffer, ref i, out state.HeldCardPose);
+        }
         return true;
     }
 

@@ -98,6 +98,14 @@ internal static class NetProtocol
     /// clamp it to the shipped style range.</summary>
     public const byte FlagHandStyle = 1 << 6;
 
+    /// <summary>Rig packet: a 20-byte HELD-CARD world pose trails the packet AFTER the
+    /// hand-style byte (a single card physically grip-held in a hand — plucked from the fan or
+    /// a pile viewer — rendered by peers as one card-BACK slab; no card identity ever rides the
+    /// wire). ADDITIVE v3 extension exactly like <see cref="FlagHandStyle"/>: placed after every
+    /// field older readers know so they still find the style byte where they expect it, ignore
+    /// the unknown flag bit and the trailing bytes, and simply don't show the held card.</summary>
+    public const byte FlagHeldCard = 1 << 7;
+
     // ---- extras (type 1) flag bits --------------------------------------------------------
 
     /// <summary>Extras packet: a control-board pose (pos+rot+scale) is present.</summary>

@@ -27,8 +27,9 @@ namespace GloomhavenVR.WorldUI;
 /// Sources are the SAME ones <see cref="LocalRigSampler"/> samples (the owned head camera +
 /// <see cref="VRHands"/>), so the mirror matches what is broadcast. The hands use the CURRENT
 /// [Hands] HandStyle and rebuild live when it changes; held interactables that also ride the MP
-/// wire show up too — the held figure (<see cref="HeldFigures.Current"/>, visual-only clone) and
-/// the open card fan (back-slabs at the reflected card poses — a mirror shows card backs).
+/// wire show up too — the held figure (<see cref="HeldFigures.Current"/>, visual-only clone), the
+/// open card fan and any single grip-held card (back-slabs at the reflected card poses — a
+/// mirror shows card backs).
 /// Rendered on the mod layer
 /// (<see cref="VRLayers"/>) so the owned head camera draws it, unlit (the void has no lights).
 /// Poses are written directly every frame (a mirror is 1:1, never eased) so the first enabled
@@ -53,16 +54,27 @@ internal sealed class AvatarMirror
     private int _appliedMaskId = -1;
     private int _appliedHandStyle = -1; // [Hands] HandStyle the mirror hands were built with
     private float _appliedScale = -1f;
+    private float _appliedStyleScale = -1f; // per-style visual scale currently on the hand visual roots
     private Vector3 _lastNormal = Vector3.forward; // reused when head-forward is near-vertical
 
     // ---- held-interactable mirroring (visual-only, local) --------------------------------
     // Held FIGURE: a script/collider-stripped visual clone of the figure riding the hand
     // (FigureOverlay.BuildFrozenGhost recipe, but keeping the ORIGINAL materials), posed at
     // the reflection of the live figure every frame. Held CARDS: the local CardFan's card
-    // poses reflected onto both-faces-BACK slabs — which is exactly what a real mirror
-    // shows of cards whose faces point at the player.
+    // poses — plus any single card grip-held in a hand — reflected onto both-faces-BACK
+    // slabs, which is exactly what a real mirror shows of cards whose faces point at the
+    // player.
+    // _figureClone is a CONTAINER above the cloned animator object (FigureOverlay's "the
+    // container should NOT be a child of the figure's Animator object" rule): the game's
+    // clips animate ABSOLUTE root position curves on the animator GameObject itself, so a
+    // pose written straight onto the clone root in Update was stomped by the clone's own
+    // Animator every frame (the held mini's mirrored copy rendered at the clip's baked
+    // pose — the "wrong spot"). The container absorbs the reflected pose; a LatePin
+    // re-zeroes the clone's local position AFTER the Animator each frame, mirroring what
+    // HeldFigures.PinAnimatedRoots does to the real held mini.
     private ActorBehaviour? _figureSource;
-    private GameObject? _figureClone;
+    private GameObject? _figureClone;   // container (reflected pose); animator clone is its child
+    private Transform? _cloneAnimated;  // the clip-driven clone root inside the container
 
     private const int MaxMirrorCards = 12; // matches RemoteHandFan's clamp
     private readonly List<GameObject> _cardSlabs = new(MaxMirrorCards);
@@ -102,7 +114,26 @@ internal sealed class AvatarMirror
         if ((int)HandVisuals.LocalStyle() != _appliedHandStyle)
             BuildHands();
 
+        // Live re-apply of the per-style visual scale ([Hands] GloveScale/PlateScale/
+        // ArcaneScale, ≈0.62 for the styled pairs) so a stepper edit resizes the mirror
+        // hands like the real ones (VRHand.SyncVisualOffset does the same live check).
+        // The scale lives on the "HandVisual" child roots (see BuildHands), NEVER on the
+        // holders — the holder write below used to stomp it, which is exactly why the
+        // mirrored hands rendered ~1.6× bigger than the local styled hands.
+        float styleScale = HandVisuals.StyleScale(
+            _leftRig != null ? _leftRig.VisualStyle : HandVisuals.LocalStyle());
+        if (!Mathf.Approximately(styleScale, _appliedStyleScale))
+        {
+            _appliedStyleScale = styleScale;
+            if (_leftRig != null && _leftRig.Root != null)
+                HandVisuals.ApplyStyleScale(_leftRig.Root, _leftRig, styleScale);
+            if (_rightRig != null && _rightRig.Root != null)
+                HandVisuals.ApplyStyleScale(_rightRig.Root, _rightRig, styleScale);
+        }
+
         // Match the on-table size of the local rig (diorama zoom), like RemoteAvatar.
+        // Seat offsets/trims need no handling here: the mirror reflects the local
+        // hand's Rig.Root world pose, which already includes them.
         Transform? rigRoot = VRRigDriver.RigRoot;
         float scale = rigRoot != null ? rigRoot.lossyScale.x : 1f;
         if (!(scale > 0f))
@@ -215,8 +246,12 @@ internal sealed class AvatarMirror
 
     /// <summary>(Re)build both mirror hands with the CURRENT local [Hands] HandStyle —
     /// called at build time and again whenever the style changes while the mirror is
-    /// open (mirrors <see cref="RemoteAvatar"/>.BuildHands). The scale re-applies via
-    /// the holder scale check in <see cref="Tick"/> (holders keep their localScale).</summary>
+    /// open (mirrors <see cref="RemoteAvatar"/>.BuildHands). Each hand is built under a
+    /// "HandVisual" CHILD of the holder so the per-style visual scale
+    /// (<see cref="HandVisuals.ApplyStyleScale"/> writes it onto the transform passed to
+    /// Build) lands on that child — the HOLDER keeps carrying only the rig/diorama scale
+    /// from <see cref="Tick"/>, and the two writes can never stomp each other. This is
+    /// what keeps a styled mirror hand the same ~0.62× visual size as the real one.</summary>
     private void BuildHands()
     {
         if (_leftHolder == null || _rightHolder == null)
@@ -228,15 +263,20 @@ internal sealed class AvatarMirror
         for (int i = _rightHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_rightHolder.GetChild(i).gameObject);
 
-        _leftRig = HandVisuals.Build(_leftHolder, HandSide.Left);
+        Transform leftVisual = new GameObject("HandVisual").transform;
+        leftVisual.SetParent(_leftHolder, worldPositionStays: false);
+        Transform rightVisual = new GameObject("HandVisual").transform;
+        rightVisual.SetParent(_rightHolder, worldPositionStays: false);
+
+        _leftRig = HandVisuals.Build(leftVisual, HandSide.Left);
         _leftCurler = _leftRig != null ? new FingerCurler(_leftRig) : null;
-        _rightRig = HandVisuals.Build(_rightHolder, HandSide.Right);
+        _rightRig = HandVisuals.Build(rightVisual, HandSide.Right);
         _rightCurler = _rightRig != null ? new FingerCurler(_rightRig) : null;
 
-        // HandVisuals.Build wrote the per-style visual scale onto the HOLDERS
-        // (ApplyStyleScale) — force the rig-scale match in Tick to re-apply, or a
-        // mid-session rebuild leaves the mirror hands at the wrong size.
-        _appliedScale = -1f;
+        // Build applied the style scale for the built style; remember it so the live
+        // check in Tick only re-applies on an actual config edit.
+        _appliedStyleScale = HandVisuals.StyleScale(
+            _leftRig != null ? _leftRig.VisualStyle : HandVisuals.LocalStyle());
 
         if (_root != null)
             VRLayers.Apply(_root);
@@ -276,11 +316,20 @@ internal sealed class AvatarMirror
             return;
         }
 
+        // Reflect the RENDERED pose of the held mini, not the raw animated transform:
+        // the grab drives the ROOT (ActorBehaviour_HeldTransform_Patch suppresses the
+        // game's writers; FigureGrabbable poses the root under the hand anchor), and
+        // HeldFigures.PinAnimatedRoots re-zeroes the animated child's localPosition every
+        // LateUpdate AFTER the Animator — so what the player actually sees each frame is
+        // the animated object AT ITS PARENT'S position with the animated object's own
+        // rotation. st.position itself can be a mid-frame clip value (the clips write
+        // ABSOLUTE root position curves between our Update sample and the pin).
         Transform st = source.transform;
-        Reflect(st.position, st.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
+        Vector3 renderedPos = st.parent != null ? st.parent.position : st.position;
+        Reflect(renderedPos, st.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
         Transform ct = _figureClone!.transform;
         ct.SetPositionAndRotation(p, r);
-        ct.localScale = st.lossyScale; // clone parent (_root) is unit scale ⇒ local == world
+        ct.localScale = st.lossyScale; // container parent (_root) is unit scale ⇒ local == world
     }
 
     /// <summary>
@@ -289,12 +338,27 @@ internal sealed class AvatarMirror
     /// ParticleSystem/MonoBehaviour gone; Animator kept, root motion + events off; VFX-shader/
     /// trail/particle renderers destroyed) but with the figure's ORIGINAL materials, because a
     /// mirror shows the real thing, not a ghost.
+    ///
+    /// Returns a CONTAINER holding the clone. The clone root IS the Animator's GameObject, and
+    /// the game's clips animate absolute root position curves on it — a pose written straight
+    /// onto the clone in Update gets overwritten by its own Animator the same frame (this was
+    /// the mirrored-figure-at-the-wrong-spot bug). The container takes the reflected pose;
+    /// <see cref="LatePin"/> re-zeroes the clone's localPosition after the Animator each frame,
+    /// exactly like <see cref="HeldFigures.PinAnimatedRoots"/> does for the real held mini.
     /// </summary>
     private GameObject? BuildFigureClone(GameObject animatedRoot)
     {
+        var container = new GameObject("MirrorHeldFigure");
+        container.transform.SetParent(_root!.transform, worldPositionStays: false);
+
         GameObject clone = Object.Instantiate(animatedRoot);
-        clone.name = "MirrorHeldFigure";
-        clone.transform.SetParent(_root!.transform, worldPositionStays: false);
+        clone.name = "Animated";
+        clone.transform.SetParent(container.transform, worldPositionStays: false);
+        // Seat the clone at the container origin (the container carries the reflected world
+        // pose + the source's lossyScale, so the clone must contribute identity locals).
+        clone.transform.localPosition = Vector3.zero;
+        clone.transform.localRotation = Quaternion.identity;
+        clone.transform.localScale = Vector3.one;
 
         foreach (Animator a in clone.GetComponentsInChildren<Animator>(true))
         {
@@ -342,12 +406,35 @@ internal sealed class AvatarMirror
         }
         if (kept == 0)
         {
-            Object.Destroy(clone);
+            Object.Destroy(container);
             return null;
         }
 
-        VRLayers.Apply(clone);
-        return clone;
+        // Mirror of HeldFigures.PinAnimatedRoots for the clone: re-zero the clip-driven
+        // clone root at its container every LateUpdate (after the Animator has run).
+        _cloneAnimated = clone.transform;
+        container.AddComponent<LatePin>().Target = _cloneAnimated;
+
+        VRLayers.Apply(container);
+        return container;
+    }
+
+    /// <summary>
+    /// Re-pins <see cref="Target"/> at its parent's origin every LateUpdate — after the
+    /// Animator, which writes ABSOLUTE root position curves onto the cloned animated object
+    /// each frame. The exact counterpart of <see cref="HeldFigures.PinAnimatedRoots"/> (which
+    /// runs from FigureGrabDriver.LateUpdate for the REAL held mini). Without it the mirrored
+    /// figure rides the clip's baked root pose instead of the reflected hand pose.
+    /// </summary>
+    private sealed class LatePin : MonoBehaviour
+    {
+        public Transform? Target;
+
+        private void LateUpdate()
+        {
+            if (Target != null)
+                Target.localPosition = Vector3.zero;
+        }
     }
 
     /// <summary>Same VFX-family test as FigureOverlay: distort/particle/fog shaders must be
@@ -373,54 +460,90 @@ internal sealed class AvatarMirror
         if (_figureClone != null)
             Object.Destroy(_figureClone);
         _figureClone = null;
+        _cloneAnimated = null;
         _figureSource = null;
     }
 
     // ---- card fan mirroring -----------------------------------------------------------------
 
     /// <summary>
-    /// Mirror the local card fan: one both-faces-BACK slab (<see cref="RemoteHandFan.BuildBackSlab"/>)
-    /// per fanned card, posed at the reflection of the live card every frame. Backs are exactly what
-    /// a real mirror shows of cards whose faces point at the player — and they cost nothing (no card
-    /// art cloning). Slabs are pooled; inactive when the fan is closed.
+    /// Mirror the local cards: one both-faces-BACK slab (<see cref="RemoteHandFan.BuildBackSlab"/>)
+    /// per fanned card — plus one for a single card GRIP-HELD in either hand (grabbed out of the
+    /// fan or a pile viewer), which previously never showed in the glass — posed at the reflection
+    /// of the live card every frame. Backs are exactly what a real mirror shows of cards whose
+    /// faces point at the player — and they cost nothing (no card art cloning). Slabs are pooled;
+    /// inactive when neither the fan nor a held card is present.
     /// </summary>
     private void UpdateCardFan(Vector3 planePoint, Vector3 normal)
     {
         CardFan? fan = CardFan.Current;
-        int count = 0;
-        IReadOnlyList<VRCard>? cards = null;
+        int used = 0;
+
         if (fan != null && fan.IsOpen)
         {
-            cards = fan.Cards;
-            count = Mathf.Min(cards.Count, MaxMirrorCards);
-        }
-
-        for (int i = 0; i < count; i++)
-        {
-            VRCard card = cards![i];
-            if (card == null)
+            IReadOnlyList<VRCard> cards = fan.Cards;
+            int count = Mathf.Min(cards.Count, MaxMirrorCards);
+            for (int i = 0; i < count; i++)
             {
-                if (i < _cardSlabs.Count && _cardSlabs[i].activeSelf)
-                    _cardSlabs[i].SetActive(false);
-                continue;
+                VRCard card = cards[i];
+                if (card == null)
+                    continue;
+                if (!PlaceSlab(used, card.transform, planePoint, normal))
+                    return; // card assets unavailable (no CardMesh material) — skip quietly
+                used++;
             }
-            GameObject slab = GetOrCreateSlab(i);
-            if (slab == null)
-                return; // card assets unavailable (no CardMesh material) — skip quietly
-            Transform ct = card.transform;
-            Reflect(ct.position, ct.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
-            Transform slabT = slab.transform;
-            slabT.SetPositionAndRotation(p, r);
-            slabT.localScale = ct.lossyScale; // slab parent (_root) is unit scale
-            if (!slab.activeSelf)
-                slab.SetActive(true);
         }
 
-        for (int i = count; i < _cardSlabs.Count; i++)
+        // A card held IN THE HAND shows up in the glass too (the fan loop above only covers
+        // it while the fan is open AND still lists it).
+        used = MirrorHeldCard(VRHands.Left, fan, used, planePoint, normal);
+        used = MirrorHeldCard(VRHands.Right, fan, used, planePoint, normal);
+
+        for (int i = used; i < _cardSlabs.Count; i++)
         {
             if (_cardSlabs[i] != null && _cardSlabs[i].activeSelf)
                 _cardSlabs[i].SetActive(false);
         }
+    }
+
+    /// <summary>
+    /// Mirror the single <see cref="VRCard"/> this hand grip-holds (if any) as one more back
+    /// slab. Skips cards the open-fan loop already mirrored this frame (a fan card stays in
+    /// <c>fan.Cards</c> while held). Returns the updated used-slab count.
+    /// </summary>
+    private int MirrorHeldCard(VRHand? hand, CardFan? fan, int used, Vector3 planePoint, Vector3 normal)
+    {
+        if (hand == null || hand.Grabber == null || hand.Grabber.Held is not VRCard card || card == null)
+            return used;
+
+        if (fan != null && fan.IsOpen)
+        {
+            IReadOnlyList<VRCard> cards = fan.Cards;
+            int count = Mathf.Min(cards.Count, MaxMirrorCards);
+            for (int i = 0; i < count; i++)
+            {
+                if (ReferenceEquals(cards[i], card))
+                    return used; // already mirrored by the fan loop
+            }
+        }
+
+        return PlaceSlab(used, card.transform, planePoint, normal) ? used + 1 : used;
+    }
+
+    /// <summary>Pose pooled slab <paramref name="index"/> at the reflection of a live card
+    /// transform. False when the slab assets are unavailable.</summary>
+    private bool PlaceSlab(int index, Transform ct, Vector3 planePoint, Vector3 normal)
+    {
+        GameObject slab = GetOrCreateSlab(index);
+        if (slab == null)
+            return false;
+        Reflect(ct.position, ct.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
+        Transform slabT = slab.transform;
+        slabT.SetPositionAndRotation(p, r);
+        slabT.localScale = ct.lossyScale; // slab parent (_root) is unit scale
+        if (!slab.activeSelf)
+            slab.SetActive(true);
+        return true;
     }
 
     private GameObject GetOrCreateSlab(int index)
@@ -473,15 +596,17 @@ internal sealed class AvatarMirror
     private void Teardown()
     {
         // The figure clone + card slabs are children of _root (destroyed with it); the slab
-        // mesh/material are OURS (Unity never destroys those with a GameObject) — free them.
+        // MESH is ours (Unity never destroys assets with a GameObject) — free it. The back
+        // MATERIAL is NOT ours: CardMesh.CreateBackMaterial returns the cached material
+        // shared by every live card (and RemoteHandFan), so destroying it here would turn
+        // all card backs pink after the mirror closes — just drop the reference.
         _figureClone = null;
+        _cloneAnimated = null;
         _figureSource = null;
         _cardSlabs.Clear();
         if (_cardSlabMesh != null)
             Object.Destroy(_cardSlabMesh);
         _cardSlabMesh = null;
-        if (_cardBackMat != null)
-            Object.Destroy(_cardBackMat);
         _cardBackMat = null;
 
         if (_root != null)
@@ -497,6 +622,7 @@ internal sealed class AvatarMirror
         _appliedMaskId = -1;
         _appliedHandStyle = -1;
         _appliedScale = -1f;
+        _appliedStyleScale = -1f;
         VRLog.Info("WorldUI", "Avatar mirror disabled.");
     }
 

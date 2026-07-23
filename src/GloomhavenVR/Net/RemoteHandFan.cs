@@ -41,8 +41,16 @@ namespace GloomhavenVR.Net;
 internal sealed class RemoteHandFan
 {
     // ---- fan geometry (real meters / degrees, seeded to CardsConfig Fan* defaults) -----------
-    private const float CardWidth = 0.0635f;                       // CardsConfig.CardWidth default
-    private const float CardHeight = CardWidth * (88f / 63.5f);    // CardsConfig.CardHeight ratio
+
+    /// <summary>Card slab width default (CardsConfig.CardWidth default) — shared with
+    /// <see cref="RemoteAvatar"/>'s held-card slab so all remote card slabs match.</summary>
+    internal const float DefaultCardWidth = 0.0635f;
+
+    /// <summary>Card slab height default (CardsConfig.CardHeight ratio over the width).</summary>
+    internal const float DefaultCardHeight = DefaultCardWidth * (88f / 63.5f);
+
+    private const float CardWidth = DefaultCardWidth;
+    private const float CardHeight = DefaultCardHeight;
     private const float PalmOffset = 0.09f;                        // CardsConfig.FanPalmOffset
     private const float Radius = 0.1792f;                          // CardsConfig.FanEffectiveRadius
     private const float ArcSweepDegrees = 91f;                     // CardsConfig.FanArcSweepDegrees
