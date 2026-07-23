@@ -189,74 +189,85 @@ internal sealed class VRRigDriver : MonoBehaviour
     // the board center — the player's viewpoint orbits up and over the board; no game-world
     // object ever moves. Maintained by TickWorldTilt (LateUpdate — after every Update-phase
     // rig writer, before rendering); _tiltActive gates the exact-no-op fast path at 0°, and
-    // _lastTiltTarget dedupes the tilt-change diagnostic to actual angle changes.
+    // _lastTiltTarget is the magnitude edge detector (-1 = fresh-rig sentinel: the first
+    // tick after a rig build adopts the configured tilt instantly instead of tweening).
     private bool _tiltActive;
-    private float _lastTiltTarget;
+    private float _lastTiltTarget = -1f;
 
-    // VIEW-AIMED TILT AXIS, gated + eased (hardware round 3 — the tilt was STILL nauseating).
-    // Round 2 aimed the tilt at the head→FocusPoint line, but the pivot can sit far off to
-    // the side of what the player actually LOOKS at (log 0a2767928 line 3370: axis↔head-right
-    // 41.8° while the user faced elsewhere) — a tilt whose axis is 41.8° off the view reads
-    // as tilt·sin(41.8°) of pure ROLL in the player's vision, and roll is the single most
-    // nauseating rotation VR can show. Requirement: the world must always settle tilted
-    // toward the CAMERA/VIEW direction. COMFORT DESIGN: a per-frame view-locked axis would
-    // be even worse — every casual head turn would continuously ROLL the whole world in
-    // sync with the head (the horizon visibly pivoting as you glance around). So the axis is
-    // GATED and EASED instead:
-    //   - _axisYawTarget re-targets to the flattened view yaw ONLY when the view has moved
-    //     beyond AxisRetargetDeadbandDegrees away from it (glances inside the deadband
-    //     change nothing — the horizon stays rock solid), and
-    //   - _axisYawCurrent eases toward the target exponentially (AxisEaseSharpness ≈ settles
-    //     in ~1 s), so a deliberate re-orientation re-aims the tilt as a slow, sub-threshold
-    //     drift instead of a live roll, and
-    //   - discrete world-motion events (snap/smooth turn, world-grab release, recenter, rig
-    //     build) SNAP the axis to the live view via NotifyTiltAxisSnap — the scene already
-    //     moved wholesale that frame, which masks the re-aim; easing after a snap turn would
-    //     itself read as a slow roll right after every turn, and
-    //   - while a WORLD GRAB is ACTIVE (hardware round 4) the deadband is bypassed and the
-    //     target tracks the live view continuously with a faster ease
-    //     (GrabAxisEaseSharpness) — the player is deliberately hauling the whole scene, so
-    //     the re-aim is masked and waiting for the release snap left the tilt mis-aimed
-    //     for the entire drag.
-    // Net effect: the tilt always ends up facing where you look, and the axis never moves
-    // fast enough (or at all, inside the deadband) to register as motion.
-    private float _axisYawCurrent;   // yaw (deg) of the direction the world tilts toward
-    private float _axisYawTarget;    // deadband-gated goal for _axisYawCurrent
-    private bool _axisYawInitialized;
-    private bool _axisSnapRequested;
+    // DEMEO-MODEL TILT AXIS (hardware round 5 — replicated from Demeo's decompiled
+    // shipping code, decompiled-demeo/Assembly-CSharp/Boardgame/AvatarController.cs
+    // StartTilt + Boardgame.CameraControls/*). Rounds 2-4 all aimed the tilt axis at
+    // some function of the HEAD (head→pivot line, then view yaw with deadband + ease);
+    // the round-4 hardware log proved any head-derived axis nauseating: axisYaw chased
+    // the view (72.9°→16.8°→90.5°→…) and every re-aim rotated the whole world about the
+    // focus pivot on pure head movement. Demeo NEVER does that. In Demeo:
+    //   - the tilt is a rotation about a FIXED LOCAL X AXIS of a dedicated child
+    //     transform in the avatar-root hierarchy (AvatarController.StartTilt:
+    //     tiltHolder.localRotation = Euler(tilt, 0, 0)). No code ever aims that axis —
+    //     not at the head, not at the view, not at anything;
+    //   - when the player yaws/moves the world (two-hand grab rotate, recenter), the
+    //     tilt axis co-rotates automatically BY PARENTING (tiltHolder is a child of the
+    //     avatar root), continuously during the drag — no event plumbing at all;
+    //   - head pose is read NOWHERE in the world-pose path
+    //     (CameraMoveAndScaleControl.Tick gates every continuous pose change on grip
+    //     buttons; TiltMovement.CheckThumbTilt is a discrete stick flick).
+    // Our per-frame reconstruction reproduces that hierarchy exactly by deriving the
+    // axis from the RIG's OWN yaw: axis = yawOnly(rig.rotation) * Vector3.right, so
+    //   desired = AngleAxis(tilt, axis) ∘ yawOnly  ==  yawOnly ∘ AngleAxis(tilt, +X)
+    // — algebraically identical to Demeo's yaw-parent/tilt-child chain. Consequences:
+    //   - head movement CANNOT move the world: the axis is a pure function of the rig
+    //     pose, so under head-only motion desired == current and the transform write is
+    //     skipped (bit-frozen world);
+    //   - snap/smooth turn and world-grab rotate the rig yaw → the axis co-rotates the
+    //     SAME frame, continuously while dragging (the round-4 request), for free;
+    //   - the tilt always tips the board toward the rig's forward — the seat direction
+    //     the player last chose via recenter/turn/grab, exactly like Demeo, where you
+    //     re-aim the world with your HANDS, never with your head.
+    //
+    // TILT MAGNITUDE (Demeo AvatarController.Tilt): Demeo changes tilt ONLY on a
+    // discrete thumbstick flick, in 15° steps (tiltValue 0..12), animated by a 0.2 s
+    // LINEAR LeanTween. Ours changes only on the [Rig] WorldTiltDegrees ±5° settings
+    // click (its sole writer) and animates between values with the same 0.2 s linear
+    // ramp (TiltTweenSeconds). Zoom/scale never touch the magnitude — in Demeo scale
+    // only CLAMPS harder while tilted (minScaleTilted), it never drives tilt.
 
-    /// <summary>View-yaw deadband before the tilt axis re-targets (deg). Inside it the
-    /// horizon is perfectly static no matter how the head turns.</summary>
-    private const float AxisRetargetDeadbandDegrees = 25f;
+    /// <summary>Demeo's tilt-step animation time (AvatarController.tiltTime = 0.2 s, linear).</summary>
+    private const float TiltTweenSeconds = 0.2f;
 
-    /// <summary>Axis ease rate (1/s, exponential). 3/s ⇒ ~95 % of a re-target is absorbed
-    /// in ~1 s — slow enough to stay under the roll-perception threshold.</summary>
-    private const float AxisEaseSharpness = 3f;
+    private float _tiltApplied;        // degrees actually applied this frame (tween output)
+    private float _tiltTweenFrom;      // tween start value (deg)
+    private float _tiltTweenStartTime; // Time.unscaledTime at tween start
 
-    /// <summary>Axis ease rate while a WORLD GRAB is active (1/s, exponential). While the
-    /// player drags/spins the world the deadband is bypassed and the axis TRACKS the live
-    /// view continuously (hardware round 4 — waiting for release made the tilt visibly
-    /// mis-aimed mid-drag, then snap on release); the deliberate whole-scene motion masks
-    /// the re-aim, so a fast ease is comfortable — but still an ease, not a hard lock, so
-    /// the horizon never jitters 1:1 with head noise.</summary>
-    private const float GrabAxisEaseSharpness = 4f;
+    /// <summary>Pending locomotion-event reason for LOG ATTRIBUTION, null when none. Set by
+    /// <see cref="NotifyTiltAxisSnap"/>; consumed by the next TickWorldTilt that actually
+    /// writes the rig pose. Last-wins when several events land in one frame.</summary>
+    private string? _axisSnapReason;
 
     /// <summary>
-    /// Snap the world-tilt axis to the live view direction next LateUpdate (no easing).
-    /// Call ONLY when the whole scene moved wholesale this frame (stick turn, world-grab
-    /// release, recenter) — the scene motion masks the re-aim, whereas the eased path
-    /// would roll the horizon for the next second (comfort note on the axis fields).
+    /// Locomotion-event notification. Since round 5 (Demeo model) the tilt axis is derived
+    /// from the rig's own yaw and co-rotates with stick turns / world-grab automatically —
+    /// there is nothing to snap anymore. The call sites (SnapTurn, WorldGrab) are kept so
+    /// the pose write their event causes is ATTRIBUTED in the WorldTilt change log: the
+    /// hardware log must show a locomotion trigger on every world motion the tilt system
+    /// makes.
     /// </summary>
     internal static void NotifyTiltAxisSnap(string reason)
     {
-        _ = reason; // kept for call-site self-documentation; no per-event log (spammy on smooth turn)
         if (Instance != null)
-            Instance._axisSnapRequested = true;
+            Instance._axisSnapReason = reason;
     }
 
     /// <summary>Cadence of the tilt-axis diagnostic line while the tilt is active (seconds).</summary>
     private const float TiltLogIntervalSeconds = 5f;
     private float _nextTiltLogTime;
+
+    // Change-attribution diagnostics (round 5): every axis/magnitude change logs its
+    // TRIGGER so the hardware log can prove no change ever fires without a locomotion
+    // event. Per-frame triggers (smooth turn, active grab) re-log at most once per
+    // ChangeLogThrottleSeconds; a NEW trigger always logs immediately.
+    private const float ChangeLogThrottleSeconds = 1f;
+    private string _lastChangeTrigger = "none";
+    private float _nextChangeLogTime;
 
     // Head camera clear color: [Rig] VoidColor (default pure black since test #6 —
     // the diagnostic-grey era is over; the config description documents that a dark
@@ -433,7 +444,7 @@ internal sealed class VRRigDriver : MonoBehaviour
 
     /// <summary>
     /// Assert the world tilt on the scenario rig (LOCAL-ONLY, rig-side — Demeo model):
-    /// reconstruct the desired pose as <c>tilt(target°, about the PLAYER-RELATIVE horizontal
+    /// reconstruct the desired pose as <c>tilt(target°, about the RIG-YAW-RELATIVE horizontal
     /// axis) ∘ yawOnly(current)</c> and rotate the rig into it around the BOARD CENTER
     /// (<c>CameraController.FocusPoint</c> — the same orbit focus the rig was built at).
     /// Because the rotation happens about the pivot, the player's virtual head orbits up and
@@ -441,21 +452,14 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// of every game object are untouched, so nothing changes for multiplayer peers except
     /// our own (honestly moved) avatar pose.
     ///
-    /// TILT AXIS (hardware round 3 — VIEW-aimed, gated + eased; see the axis-field comfort
-    /// note). Round 2 aimed the tilt at the flattened head→pivot line, which is only right
-    /// while the player happens to FACE the pivot: the log (build 0a2767928, line 3370)
-    /// caught axis↔head-right at 41.8° while the user looked elsewhere, and an axis yaw
-    /// error δ shows up as tilt·sin(δ) of pure ROLL in the player's vision — still
-    /// nauseating. Requirement: the world must tilt toward the CAMERA/VIEW direction,
-    /// never any other angle, even while moving. The axis is therefore the horizontal
-    /// RIGHT of the flattened view forward — but NOT re-derived live every frame (that
-    /// would roll the world continuously as the head turns, worse than the bug): the view
-    /// yaw is sampled each frame in the UNTILTED reference frame (strip T of R = T ∘ Y off
-    /// the head rotation first, so the axis never depends on the tilt it produces —
-    /// idempotent, same rule as round 2), then deadband-gated and eased into
-    /// <c>_axisYawCurrent</c>, with instant snaps on discrete world-motion events. The
-    /// diag line logs axis↔head-right, which now settles ≈0° whenever the player's view
-    /// is settled.
+    /// TILT AXIS (hardware round 5 — the DEMEO MODEL; provenance + algebra on the
+    /// axis-field comment block). The axis is the RIG's OWN yaw-frame right,
+    /// <c>yawOnly(rig) * Vector3.right</c>, making the reconstruction identical to
+    /// Demeo's yaw-parent/tilt-child transform chain (AvatarController.StartTilt tilts a
+    /// fixed local X). The head is read NOWHERE in this method: under head-only motion
+    /// desired == current and no transform write happens, while stick turns, recenter
+    /// and world-grab change the rig yaw and the axis co-rotates the same frame —
+    /// continuously during a drag — exactly like Demeo's parenting does.
     ///
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
     /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
@@ -472,7 +476,15 @@ internal sealed class VRRigDriver : MonoBehaviour
 
         float target = TargetTiltDegrees;
         if (target <= 0f && !_tiltActive)
-            return; // fast path: feature off and nothing to undo — zero writes, 0° bit-identical
+        {
+            // Fast path: feature off and nothing to undo — zero transform writes, 0°
+            // bit-identical to the pre-feature rig. Keep the magnitude edge armed so a
+            // later enable tweens up from 0° attributed as the user's config-change.
+            _lastTiltTarget = 0f;
+            _tiltApplied = 0f;
+            _tiltTweenFrom = 0f;
+            return;
+        }
 
         CameraController controller = CameraController.s_CameraController;
         if (controller == null)
@@ -483,105 +495,84 @@ internal sealed class VRRigDriver : MonoBehaviour
         Quaternion yawOnly = YawOnly(current);
         Vector3 pivot = controller.FocusPoint;
 
-        // Live view yaw, sampled in the UNTILTED reference frame: the head's world rotation
-        // contains the tilt T we applied last frame (head is a rig child); strip it
-        // (R = T ∘ Y ⇒ T = R·Y⁻¹) before flattening so the axis never feeds back into
-        // itself. Degenerate view (looking straight up/down — flattened forward ~zero) or a
-        // missing camera keeps the previous axis: NO re-aim beats a garbage re-aim.
-        Vector3 headWorld = Vector3.zero;
-        float viewYaw = _axisYawCurrent;
-        bool viewValid = false;
-        if (_camera != null)
-        {
-            headWorld = _camera.transform.position;
-            Quaternion currentTilt = current * Quaternion.Inverse(yawOnly);
-            Vector3 viewForward = Quaternion.Inverse(currentTilt) * _camera.transform.forward;
-            viewForward.y = 0f;
-            if (viewForward.sqrMagnitude > 1e-6f)
-            {
-                viewYaw = Mathf.Atan2(viewForward.x, viewForward.z) * Mathf.Rad2Deg;
-                viewValid = true;
-            }
-        }
+        // Demeo-model axis (provenance on the axis-field block): the rig's OWN yaw-frame
+        // right — a pure function of the rig pose; no head/view term exists in this math.
+        //   desired = AngleAxis(tilt, axis) ∘ yawOnly  ==  yawOnly ∘ AngleAxis(tilt, +X)
+        // i.e. exactly Demeo's yaw-parent/tilt-child chain (tiltHolder local Euler X).
+        // A pure world-up rig yaw (snap/smooth turn, grab rotate) maps Y∘T_local onto
+        // (R_up·Y)∘T_local — which IS the reconstruction for the new yaw — so the axis
+        // co-rotates exactly, continuously during a drag, with no correction write.
+        Vector3 axis = yawOnly * Vector3.right;
 
-        // COMFORT GATE (rationale on the axis fields): first frame / snap events adopt the
-        // view yaw instantly (scene motion masks it, or no tilt was visible yet); otherwise
-        // the target only moves once the view leaves the deadband — casual glances leave
-        // the horizon untouched — and the current axis eases toward the target so slowly
-        // (~1 s) that a deliberate re-orientation never reads as the world rolling.
-        // WORLD-GRAB EXCEPTION (hardware round 4): while the player is actively dragging
-        // the world, the deadband is bypassed and the target tracks the live view every
-        // frame with a faster ease (GrabAxisEaseSharpness) — the tilt re-aims continuously
-        // DURING the drag (the deliberate scene motion masks it) instead of only snapping
-        // on release (WorldGrab still requests that snap, which cleans up any residue).
-        bool grabActive = WorldGrab.Instance != null && WorldGrab.Instance.IsGrabbing;
-        if (!_axisYawInitialized || _axisSnapRequested)
-        {
-            if (viewValid || !_axisYawInitialized)
-            {
-                _axisYawTarget = viewYaw;
-                _axisYawCurrent = viewYaw;
-                _axisYawInitialized = true;
-            }
-            _axisSnapRequested = false;
-        }
-        else if (viewValid
-                 && (grabActive
-                     || Mathf.Abs(Mathf.DeltaAngle(_axisYawTarget, viewYaw)) > AxisRetargetDeadbandDegrees))
-        {
-            _axisYawTarget = viewYaw;
-        }
-        float easeSharpness = grabActive ? GrabAxisEaseSharpness : AxisEaseSharpness;
-        _axisYawCurrent = Mathf.LerpAngle(_axisYawCurrent, _axisYawTarget,
-            1f - Mathf.Exp(-easeSharpness * Time.unscaledDeltaTime));
-
-        // Tilt axis = horizontal right of the (gated/eased) tilt-toward direction: tilting
-        // about the view-right reads as pure pitch (board tips toward you), zero roll.
-        Vector3 axis = Quaternion.Euler(0f, _axisYawCurrent, 0f) * Vector3.right;
-
-        Quaternion desired = target > 0f
-            ? Quaternion.AngleAxis(target, axis) * yawOnly
-            : yawOnly;
-
+        // TILT MAGNITUDE (Demeo AvatarController.Tilt/StartTilt): changes only on the
+        // discrete [Rig] WorldTiltDegrees ±5° settings click (its sole writer — the
+        // Demeo analog of the thumb-flick 15° step; zoom/scale never touch it) and
+        // animates with Demeo's 0.2 s LINEAR ramp. A fresh rig (teardown sentinel -1)
+        // adopts the configured tilt instantly — the whole world just (re)appeared,
+        // there is no motion the tween would mask.
+        string? changeTrigger = null;
         if (!Mathf.Approximately(target, _lastTiltTarget))
         {
+            bool freshRig = _lastTiltTarget < 0f;
+            _tiltTweenFrom = freshRig ? target : _tiltApplied;
+            _tiltTweenStartTime = Time.unscaledTime;
             _lastTiltTarget = target;
-            _nextTiltLogTime = 0f; // edge-trigger the diagnostic line below
+            changeTrigger = freshRig ? "rig-build" : "config-change";
+            _nextTiltLogTime = 0f; // edge-trigger the periodic diagnostic line below
         }
+        float tweenT = Mathf.Clamp01((Time.unscaledTime - _tiltTweenStartTime) / TiltTweenSeconds);
+        _tiltApplied = Mathf.Lerp(_tiltTweenFrom, target, tweenT);
 
-        // Diagnostic (hardware log proof for the view-aimed axis): on every tilt change and
-        // every few seconds while active, log pivot/head, the axis state (current/target/
-        // live-view yaw) and the angle between the axis and the player's flattened
-        // head-right. With the view-derived axis this settles ≈0° whenever the player's
-        // gaze is settled (up to the deadband while easing); round 2's head→pivot axis
-        // logged 41.8° here while the user looked away from the pivot.
-        if (target > 0f && _camera != null && Time.unscaledTime >= _nextTiltLogTime)
+        Quaternion desired = _tiltApplied > 0f
+            ? Quaternion.AngleAxis(_tiltApplied, axis) * yawOnly
+            : yawOnly;
+
+        // Periodic diagnostic while active (hardware-log contract): the axis is derived
+        // from the RIG yaw only, so across consecutive lines rigYaw/axis must read
+        // IDENTICAL unless a 'WorldTilt change [trigger]' line sits between them — and
+        // every such trigger must be a locomotion/config event, never head movement.
+        if (target > 0f && Time.unscaledTime >= _nextTiltLogTime)
         {
             _nextTiltLogTime = Time.unscaledTime + TiltLogIntervalSeconds;
-            Vector3 headRight = _camera.transform.right;
-            headRight.y = 0f;
-            float axisVsHeadRight = headRight.sqrMagnitude > 1e-6f
-                ? Vector3.Angle(axis, headRight.normalized)
-                : -1f;
-            VRLog.Info("Rig", $"WorldTilt {target:0}°: pivot {pivot}, head {headWorld}, " +
-                              $"axisYaw cur {_axisYawCurrent:F1}°/tgt {_axisYawTarget:F1}° (view {viewYaw:F1}°, " +
-                              $"deadband {AxisRetargetDeadbandDegrees:0}°), axis {axis} — " +
-                              $"axis↔head-right {axisVsHeadRight:F1}° " +
-                              "(≈0 ⇒ tilt aimed at the view, pure toward-player pitch; " +
-                              $"≤{AxisRetargetDeadbandDegrees:0}° by design while settling).");
+            Vector3 headPos = _camera != null ? _camera.transform.position : Vector3.zero;
+            VRLog.Info("Rig", $"WorldTilt {_tiltApplied:F1}°/{target:0}°: pivot {pivot}, head {headPos}, " +
+                              $"rigYaw {yawOnly.eulerAngles.y:F1}°, axis {axis} = rig-right (Demeo model: " +
+                              $"axis is a function of the rig pose only; last change [{_lastChangeTrigger}]).");
         }
 
         float error = Quaternion.Angle(current, desired);
         if (error > 0.01f)
         {
+            // CHANGE-ATTRIBUTED write (hardware-log contract): every world motion the
+            // tilt system causes is logged with its trigger — a locomotion event
+            // (NotifyTiltAxisSnap reason, e.g. recenter's yaw-flatten healed here), an
+            // active world grab (its per-frame two-hand yaw-flatten healed here), or
+            // the user's tilt config click. 'rig-pose-heal' would mean an unattributed
+            // external writer flattened the rig — investigate if it ever appears.
+            // Snap/smooth turns need NO write at all (exact axis co-rotation, comment
+            // above), so turning logs nothing here.
+            bool grabActive = WorldGrab.Instance != null && WorldGrab.Instance.IsGrabbing;
+            string trigger = _axisSnapReason
+                             ?? changeTrigger
+                             ?? (grabActive ? "world-grab" : "rig-pose-heal");
+            bool repeatTrigger = trigger == _lastChangeTrigger;
+            _lastChangeTrigger = trigger;
+            if (!repeatTrigger || Time.unscaledTime >= _nextChangeLogTime)
+            {
+                _nextChangeLogTime = Time.unscaledTime + ChangeLogThrottleSeconds;
+                VRLog.Info("Rig", $"WorldTilt change [{trigger}]: tilt {_tiltApplied:F1}°/{target:0}°, " +
+                                  $"rigYaw {yawOnly.eulerAngles.y:F1}°, healed {error:F2}°.");
+            }
+
             // Rotate the rig into the desired pose AROUND the board center so the pose
             // change reads as the viewpoint orbiting the board, not the world snapping.
             Quaternion delta = desired * Quaternion.Inverse(current);
             rig.position = pivot + delta * (rig.position - pivot);
             rig.rotation = desired;
         }
+        _axisSnapReason = null; // attribution is per-frame; a no-write frame consumes it too
 
-        _tiltActive = target > 0f;
+        _tiltActive = _tiltApplied > 0f;
     }
 
     private void OnDestroy()
@@ -951,9 +942,10 @@ internal sealed class VRRigDriver : MonoBehaviour
         // seat viewed through the tilt, with no untilted frame ever rendered.
         if (_tiltActive)
             _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
-        // The recenter teleports the head to the seat — a wholesale view change; the tilt
-        // axis must adopt the new view instantly (easing would roll the fresh horizon).
-        _axisSnapRequested = true;
+        // Attribute this frame's tilt re-apply (the LateUpdate heal after the flatten
+        // above) to the recenter in the WorldTilt change log. The Demeo-model axis needs
+        // no snapping — it is derived from the rig yaw, which the recenter just set.
+        _axisSnapReason = "recenter";
 
         float scale = _rigRoot.transform.localScale.x;
 
@@ -1043,8 +1035,11 @@ internal sealed class VRRigDriver : MonoBehaviour
         bool wasMenu = _kind == RigKind.Menu;
         _kind = RigKind.None;
         _tiltActive = false; // the tilted transform dies with the rig; a new rig re-tilts fresh
-        _axisYawInitialized = false; // next rig adopts the then-current view yaw from scratch
-        _axisSnapRequested = false;
+        _axisSnapReason = null;
+        _lastChangeTrigger = "none";
+        _lastTiltTarget = -1f; // fresh-rig sentinel: next rig adopts the configured tilt instantly
+        _tiltApplied = 0f;
+        _tiltTweenFrom = 0f;
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
