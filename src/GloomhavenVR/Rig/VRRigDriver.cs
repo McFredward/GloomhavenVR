@@ -212,7 +212,12 @@ internal sealed class VRRigDriver : MonoBehaviour
     //   - discrete world-motion events (snap/smooth turn, world-grab release, recenter, rig
     //     build) SNAP the axis to the live view via NotifyTiltAxisSnap — the scene already
     //     moved wholesale that frame, which masks the re-aim; easing after a snap turn would
-    //     itself read as a slow roll right after every turn.
+    //     itself read as a slow roll right after every turn, and
+    //   - while a WORLD GRAB is ACTIVE (hardware round 4) the deadband is bypassed and the
+    //     target tracks the live view continuously with a faster ease
+    //     (GrabAxisEaseSharpness) — the player is deliberately hauling the whole scene, so
+    //     the re-aim is masked and waiting for the release snap left the tilt mis-aimed
+    //     for the entire drag.
     // Net effect: the tilt always ends up facing where you look, and the axis never moves
     // fast enough (or at all, inside the deadband) to register as motion.
     private float _axisYawCurrent;   // yaw (deg) of the direction the world tilts toward
@@ -227,6 +232,14 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// <summary>Axis ease rate (1/s, exponential). 3/s ⇒ ~95 % of a re-target is absorbed
     /// in ~1 s — slow enough to stay under the roll-perception threshold.</summary>
     private const float AxisEaseSharpness = 3f;
+
+    /// <summary>Axis ease rate while a WORLD GRAB is active (1/s, exponential). While the
+    /// player drags/spins the world the deadband is bypassed and the axis TRACKS the live
+    /// view continuously (hardware round 4 — waiting for release made the tilt visibly
+    /// mis-aimed mid-drag, then snap on release); the deliberate whole-scene motion masks
+    /// the re-aim, so a fast ease is comfortable — but still an ease, not a hard lock, so
+    /// the horizon never jitters 1:1 with head noise.</summary>
+    private const float GrabAxisEaseSharpness = 4f;
 
     /// <summary>
     /// Snap the world-tilt axis to the live view direction next LateUpdate (no easing).
@@ -496,6 +509,12 @@ internal sealed class VRRigDriver : MonoBehaviour
         // the target only moves once the view leaves the deadband — casual glances leave
         // the horizon untouched — and the current axis eases toward the target so slowly
         // (~1 s) that a deliberate re-orientation never reads as the world rolling.
+        // WORLD-GRAB EXCEPTION (hardware round 4): while the player is actively dragging
+        // the world, the deadband is bypassed and the target tracks the live view every
+        // frame with a faster ease (GrabAxisEaseSharpness) — the tilt re-aims continuously
+        // DURING the drag (the deliberate scene motion masks it) instead of only snapping
+        // on release (WorldGrab still requests that snap, which cleans up any residue).
+        bool grabActive = WorldGrab.Instance != null && WorldGrab.Instance.IsGrabbing;
         if (!_axisYawInitialized || _axisSnapRequested)
         {
             if (viewValid || !_axisYawInitialized)
@@ -507,12 +526,14 @@ internal sealed class VRRigDriver : MonoBehaviour
             _axisSnapRequested = false;
         }
         else if (viewValid
-                 && Mathf.Abs(Mathf.DeltaAngle(_axisYawTarget, viewYaw)) > AxisRetargetDeadbandDegrees)
+                 && (grabActive
+                     || Mathf.Abs(Mathf.DeltaAngle(_axisYawTarget, viewYaw)) > AxisRetargetDeadbandDegrees))
         {
             _axisYawTarget = viewYaw;
         }
+        float easeSharpness = grabActive ? GrabAxisEaseSharpness : AxisEaseSharpness;
         _axisYawCurrent = Mathf.LerpAngle(_axisYawCurrent, _axisYawTarget,
-            1f - Mathf.Exp(-AxisEaseSharpness * Time.unscaledDeltaTime));
+            1f - Mathf.Exp(-easeSharpness * Time.unscaledDeltaTime));
 
         // Tilt axis = horizontal right of the (gated/eased) tilt-toward direction: tilting
         // about the view-right reads as pure pitch (board tips toward you), zero roll.
