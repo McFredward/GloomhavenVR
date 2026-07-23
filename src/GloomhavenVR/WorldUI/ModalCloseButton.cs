@@ -25,9 +25,10 @@ namespace GloomhavenVR.WorldUI;
 /// wiring; the exact 2D restore is untouched.
 ///
 /// The "X" glyph is drawn as two crossed <see cref="Image"/> bars (font-free) so it always
-/// renders regardless of which TMP font resolved. EXCLUSION: only attached to grabbable modals
-/// (<see cref="ModalFallback.IsGrabbableModal"/>) — never the Sieg/Niederlage results panels,
-/// the same exclusion as the grab affordance.
+/// renders regardless of which TMP font resolved. EXCLUSION: never attached to the
+/// Sieg/Niederlage results windows — they float as grabbable modals like everything else now,
+/// but the only way out of the end-of-scenario window must remain its native continue/retry
+/// buttons (an X would strand the scenario-end flow).
 ///
 /// Item 2 (style): the plate is now SUBTLE and on-theme with the VR settings panel the user likes —
 /// a small, muted DARK plate (the settings panel's dark canvas bg, <c>Color(0.07,0.07,0.10)</c>)

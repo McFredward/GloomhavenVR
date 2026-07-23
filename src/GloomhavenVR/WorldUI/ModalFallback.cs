@@ -633,8 +633,9 @@ internal static class ModalFallback
         /// <summary>
         /// Grabbable/scalable world affordance for this floated modal (sub-item B): the
         /// menu can be repositioned + two-hand-resized like the control board via the shared
-        /// <see cref="PanelGrabHandle"/>. Null for the end-of-scenario Sieg/Niederlage
-        /// results panels — those stay spawn-in-view, not grabbable (<see cref="IsGrabbableModal"/>).
+        /// <see cref="PanelGrabHandle"/>. Since the Sieg/Niederlage rework (user request A)
+        /// EVERY floated modal gets one — the end-of-scenario results windows included; those
+        /// just carry no X close button (<see cref="IsResultsPanel"/>).
         /// </summary>
         public GrabbableModal? Grab;
 
@@ -1057,7 +1058,7 @@ internal static class ModalFallback
 
         // 5. Sub-item B: the game-owned host follows its mod-owned grab frame every tick
         //    (static while ungripped; moved/scaled by the shared PanelGrabHandle while a hand
-        //    grips the bar). No-op for the non-grabbable Sieg/Niederlage panels (Grab == null).
+        //    grips the bar). Every floated modal is grabbable now, Sieg/Niederlage included.
         for (int i = 0; i < Converted.Count; i++)
             Converted[i].Grab?.Tick();
 
@@ -1134,6 +1135,8 @@ internal static class ModalFallback
 
     /// <summary>
     /// LOST-MENU RECALL: for each floated STICKY full-screen-menu panel (ESC/Options family)
+    /// — and, since the Sieg/Niederlage rework, each end-of-scenario results window
+    /// (<see cref="IsResultsPanel"/>: grabbable, no X, blocking → must never be lost) —
     /// whose game window is OPEN, track how long its host has been continuously outside the
     /// head camera's view frustum (center test with a generous margin) OR farther than
     /// <see cref="RecallDistanceMeters"/> (real scale) from the head. After
@@ -1161,10 +1164,16 @@ internal static class ModalFallback
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
-            // Only sticky full-screen menus (ESC/Options family) with their game window OPEN
-            // participate — those are the ones that gate input while open. Closed/sticky-hidden
-            // floats, non-sticky modals and panels on their way out are left alone.
-            if (!wp.Sticky || !wp.FullScreenMenu || wp.UserClosing || wp.Window == null
+            // Sticky full-screen menus (ESC/Options family) with their game window OPEN
+            // participate — those gate input while open. So do the now-grabbable
+            // Sieg/Niederlage results windows (user request A): they BLOCK the scenario-end
+            // flow, carry no X, and can only be advanced through their native buttons, so a
+            // results window the user carried away and lost would be an invisible hard lock —
+            // the recall guarantees it always comes back into view. Closed/sticky-hidden
+            // floats, other non-sticky modals and panels on their way out are left alone.
+            bool recallable = wp.Window != null
+                              && ((wp.Sticky && wp.FullScreenMenu) || IsResultsPanel(wp.Window.ID));
+            if (!recallable || wp.UserClosing || wp.Window == null
                 || !wp.Window.IsOpen || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
             {
                 wp.OutOfViewSince = 0f;
@@ -1936,36 +1945,40 @@ internal static class ModalFallback
             // runs centrally in CanvasConversion.Tick (test #14 item 1).
             panel.FitContentRoot = contentRoot;
 
-            // Sub-item B: make the floated menu (pause/Options/Multiplayer and every other
-            // secondary window) a grabbable + two-hand-scalable world element via the shared
-            // PanelGrabHandle — EXCEPT the end-of-scenario Sieg/Niederlage results panels,
-            // which stay spawn-in-view exactly as before. Build reads the host's just-placed
-            // HMD pose so the panel does not jump.
-            GrabbableModal? grab = null;
-            if (IsGrabbableModal(window.ID))
-            {
-                grab = new GrabbableModal();
-                // Problem #4 (HUD bleed-through): the pause/options/confirmation menu family gets a
-                // coplanar DEPTH MASK behind its content so the game's transparent HUD (initiative
-                // track, button-cluster labels) that sits BEHIND the floated menu is depth-occluded by
-                // it — the menu writes no depth of its own (ZWrite OFF, deliberate, so hands/board still
-                // occlude it), so without the mask that HUD bled through. Gated to EXACTLY the floated
-                // full-screen menu (ESC/Options family, fullScreenMenu) + the pause/options confirmation
-                // dialogs (isConfirmDialog); normal small modals/tooltips/story and content windows
-                // (Compendium, friend list) get no mask.
-                bool wantDepthMask = fullScreenMenu || isConfirmDialog;
-                grab.Build(panel, extraScale, name, depthMask: wantDepthMask);
-                // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
-                // clickable) closes THIS window through the game's own Escape/Hide path. The
-                // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium), and
-                // issue #1 adds the pause/options CONFIRMATION dialogs — a confirmation is a genuine
-                // Yes/No decision, so its X routes through UIWindow.Escape (== cancel/No), exactly
-                // like the submenus close. Still EXCLUDED: click-through windows like the Story/
-                // dialog (user: "the dialog must be clicked through, it may not have an X" — that is
-                // the story/subtitle box, not a confirmation) and the Sieg/Niederlage results panels.
-                if (NonBlockingMenus.Contains(window.ID) || isConfirmDialog)
-                    ModalCloseButton.Attach(panel, window);
-            }
+            // Sub-item B + Sieg/Niederlage rework (user request A): EVERY floated modal —
+            // now INCLUDING the end-of-scenario Sieg/Niederlage results windows
+            // (UIResultsManager / UINewAdventureResultsManager, IDs ResultsPanel /
+            // AdventureCompletionPanel) — becomes a grabbable + two-hand-scalable world
+            // element via the shared PanelGrabHandle, so the results window behaves exactly
+            // like the other sub-menu/modal windows. Build reads the host's just-placed HMD
+            // pose so the panel does not jump.
+            bool isResultsPanel = IsResultsPanel(window.ID);
+            var grab = new GrabbableModal();
+            // Problem #4 (HUD bleed-through): the pause/options/confirmation menu family gets a
+            // coplanar DEPTH MASK behind its content so the game's transparent HUD (initiative
+            // track, button-cluster labels) that sits BEHIND the floated menu is depth-occluded by
+            // it — the menu writes no depth of its own (ZWrite OFF, deliberate, so hands/board still
+            // occlude it), so without the mask that HUD bled through. Gated to EXACTLY the floated
+            // full-screen menu (ESC/Options family, fullScreenMenu) + the pause/options confirmation
+            // dialogs (isConfirmDialog) + the Sieg/Niederlage results windows (their full-window
+            // backing is stripped like the menu family's — WantsTransparentBackground — so the same
+            // HUD bleed applies); normal small modals/tooltips/story and content windows
+            // (Compendium, friend list) get no mask.
+            bool wantDepthMask = fullScreenMenu || isConfirmDialog || isResultsPanel;
+            grab.Build(panel, extraScale, name, depthMask: wantDepthMask);
+            // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
+            // clickable) closes THIS window through the game's own Escape/Hide path. The
+            // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium), and
+            // issue #1 adds the pause/options CONFIRMATION dialogs — a confirmation is a genuine
+            // Yes/No decision, so its X routes through UIWindow.Escape (== cancel/No), exactly
+            // like the submenus close. Still EXCLUDED: click-through windows like the Story/
+            // dialog (user: "the dialog must be clicked through, it may not have an X" — that is
+            // the story/subtitle box, not a confirmation) and — HARD exclusion, user request A —
+            // the Sieg/Niederlage results windows: the ONLY way out of the end-of-scenario
+            // window must remain its native continue/retry/exit buttons (an X would Hide() the
+            // window and strand the scenario-end flow with no way to re-open it).
+            if ((NonBlockingMenus.Contains(window.ID) || isConfirmDialog) && !isResultsPanel)
+                ModalCloseButton.Attach(panel, window);
 
             Converted.Add(new WindowPanel
             {
@@ -2015,7 +2028,8 @@ internal static class ModalFallback
                 continue;
             // Sub-item B: for a grabbable modal re-seat the GRAB FRAME (the host follows it
             // every tick) — placing the host directly would be snapped straight back by the
-            // next follow tick. Non-grabbable results panels re-place the host as before.
+            // next follow tick. (Every floated modal is grabbable now; the PlaceAtHmd branch
+            // remains as a safety net should Grab ever be null.)
             if (wp.Grab != null)
             {
                 if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _))
@@ -2031,13 +2045,17 @@ internal static class ModalFallback
     }
 
     /// <summary>
-    /// True for every floated modal EXCEPT the end-of-scenario Sieg/Niederlage results
-    /// panels: those must stay spawn-in-view, not grabbable (sub-item B exclusion). Every
-    /// other floated window — the pause/ESC menu, Options, Multiplayer and any secondary
-    /// window it opens — becomes a grabbable + two-hand-scalable world element.
+    /// The end-of-scenario Sieg/Niederlage results windows: the scenario results panel
+    /// (UIResultsManager, header GUI_RESULTS_WIN / GUI_RESULTS_LOSE — "Sieg"/"Niederlage")
+    /// and the adventure-completion variant (UINewAdventureResultsManager). User request A:
+    /// they float as GRABBABLE modals exactly like every other window (grab bar, two-hand
+    /// resize, depth mask), but carry NO X close button — the only way out must remain their
+    /// native continue/retry/exit buttons — and they participate in the lost-menu recall
+    /// (<see cref="TickMenuRecall"/>) so a carried-away results window can never be lost
+    /// off-view while it blocks the scenario-end flow.
     /// </summary>
-    private static bool IsGrabbableModal(UIWindowID id) =>
-        id != UIWindowID.ResultsPanel && id != UIWindowID.AdventureCompletionPanel;
+    private static bool IsResultsPanel(UIWindowID id) =>
+        id == UIWindowID.ResultsPanel || id == UIWindowID.AdventureCompletionPanel;
 
     /// <summary>
     /// Item 3b: player-reachable menus that must NOT assert ModalUI, so the user keeps FULL
@@ -2074,6 +2092,124 @@ internal static class ModalFallback
     private const float SecondaryForegroundMeters = 0.14f;
 
     /// <summary>
+    /// BOARD-SAFE SPAWN CLAMP (user request B): steepest allowed DOWNWARD placement angle
+    /// (degrees below eye level) for the head→panel direction. Dialogs open while the player
+    /// looks down at the board, so the raw-gaze placement routinely landed the window inside /
+    /// below the board plane; past this angle the direction is clamped back up and the window
+    /// pulled slightly toward the head. Matches the spirit of
+    /// <see cref="PanelPlacement.MinPitchDeg"/> (−30°), a little tighter because modals are
+    /// larger than the settings panel.
+    /// </summary>
+    private const float MaxSpawnPitchDeg = 25f;
+
+    /// <summary>Request B: distance factor applied when the steep-gaze pitch clamp engages —
+    /// the window is PULLED TOWARD THE HEAD so it stays near where the player is looking
+    /// instead of sailing off along the flattened direction.</summary>
+    private const float SteepGazePullFactor = 0.85f;
+
+    /// <summary>
+    /// Request B: minimum height of a freshly spawned modal's CENTER above the board/table
+    /// plane, real meters × diorama scale. The board reference is the camera orbit focus
+    /// (<c>CameraController.FocusPoint</c>) — the exact table-plane anchor
+    /// <see cref="PanelLayout"/> measures all slot heights from (0.02–0.55 m above it).
+    /// 0.35 m keeps the bottom edge of even a tall results window clear of the board
+    /// standees/walls so the window is never buried in the geometry.
+    /// </summary>
+    private const float MinBoardClearanceMeters = 0.35f;
+
+    /// <summary>Request B: the board floor never raises a window above eye level + this margin
+    /// (degenerate case: table plane above the head, e.g. seated under a standing-height
+    /// diorama) — at eye level the window is readable, which is the actual goal.</summary>
+    private const float MaxAboveEyeMeters = 0.05f;
+
+    /// <summary>Request B: max upward tilt (top toward the player, degrees) applied when the
+    /// clamp raised/pulled the window while the player looks steeply down — so the raised
+    /// panel still faces the eyes. Small enough to keep the upright reading look.</summary>
+    private const float MaxSpawnTiltDeg = 15f;
+
+    /// <summary>
+    /// Request B: the board/table plane height, world units — the camera orbit focus the whole
+    /// panel layout is anchored on (<see cref="PanelLayout.TryGetAnchor"/> uses the same
+    /// <c>CameraController.FocusPoint</c> as "table center"; slot heights are measured from it).
+    /// False outside a scenario (no board → no floor to clamp against).
+    /// </summary>
+    private static bool TryGetBoardPlaneY(out float y)
+    {
+        CameraController controller = CameraController.s_CameraController;
+        if (controller != null && VRModeStateMachine.ScenarioBoardExists)
+        {
+            y = controller.FocusPoint.y;
+            return true;
+        }
+        y = 0f;
+        return false;
+    }
+
+    /// <summary>
+    /// Request B: clamp a candidate modal spawn position so the window NEVER lands below /
+    /// inside the board plane and never down a steep gaze. Two independent clamps, both
+    /// event-gated (this runs only from <see cref="ComputeHmdPose"/>, i.e. at spawn, presence-
+    /// regain refloat and lost-menu recall — NEVER per frame, the placement-healing regression
+    /// rule):
+    /// 1. STEEP-GAZE pitch clamp — if the head→panel direction points more than
+    ///    <see cref="MaxSpawnPitchDeg"/> below eye level (the player is reading the board),
+    ///    the direction is clamped to that pitch and the distance shortened by
+    ///    <see cref="SteepGazePullFactor"/> (pulled toward the head).
+    /// 2. BOARD-PLANE floor — the position's Y is raised to table plane +
+    ///    <see cref="MinBoardClearanceMeters"/> × scale (capped at eye level +
+    ///    <see cref="MaxAboveEyeMeters"/> so the readability goal always wins).
+    /// Returns the human-readable clamp reason, or null when the pose passed through unchanged.
+    /// </summary>
+    private static string? ClampSpawnPose(Transform head, ref Vector3 pos, float scale)
+    {
+        string? reason = null;
+        Vector3 headPos = head.position;
+
+        // 1. Steep-gaze pitch clamp (placement direction, not the panel's own rotation).
+        Vector3 to = pos - headPos;
+        float dist = to.magnitude;
+        if (dist > 1e-4f)
+        {
+            float pitchDeg = Mathf.Asin(Mathf.Clamp(to.y / dist, -1f, 1f)) * Mathf.Rad2Deg;
+            if (pitchDeg < -MaxSpawnPitchDeg)
+            {
+                Vector3 flatDir = to;
+                flatDir.y = 0f;
+                if (flatDir.sqrMagnitude < 1e-6f)
+                {
+                    flatDir = head.forward;
+                    flatDir.y = 0f;
+                    if (flatDir.sqrMagnitude < 1e-6f)
+                        flatDir = Vector3.forward;
+                }
+                flatDir.Normalize();
+                float rad = MaxSpawnPitchDeg * Mathf.Deg2Rad;
+                Vector3 dir = flatDir * Mathf.Cos(rad) - Vector3.up * Mathf.Sin(rad);
+                pos = headPos + dir * (dist * SteepGazePullFactor);
+                reason = $"gaze {-pitchDeg:F0}° below eye level (limit {MaxSpawnPitchDeg:F0}°) — " +
+                         $"pitch-clamped and pulled toward the head (x{SteepGazePullFactor:F2})";
+            }
+        }
+
+        // 2. Board-plane floor: the window must never sit below/inside the table surface.
+        if (TryGetBoardPlaneY(out float boardY))
+        {
+            float floorY = boardY + MinBoardClearanceMeters * scale;
+            float eyeCap = headPos.y + MaxAboveEyeMeters * scale;
+            float minY = Mathf.Min(floorY, eyeCap); // readability wins in the degenerate case
+            if (pos.y < minY)
+            {
+                string floor = $"raised y {pos.y:F2} → {minY:F2} (board plane {boardY:F2} + " +
+                               $"{MinBoardClearanceMeters:F2} m × scale {scale:F2}" +
+                               (minY < floorY ? ", capped at eye level" : "") + ")";
+                reason = reason == null ? floor : $"{reason}; {floor}";
+                pos.y = minY;
+            }
+        }
+        return reason;
+    }
+
+    /// <summary>
     /// HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.
     /// <paramref name="staggerIndex"/> nudges the window right+down so stacked secondary windows
     /// overlap rather than coincide (item 2).
@@ -2083,6 +2219,14 @@ internal static class ModalFallback
     /// floated window backward ("spawned with a pitch angle"). Flattening the forward to the
     /// horizontal plane makes every window stand vertically upright like the settings panel /
     /// combat log, while still being placed along the gaze so it lands in the foreground.
+    ///
+    /// BOARD-SAFE SPAWN CLAMP (request B): the raw gaze-following position is then clamped by
+    /// <see cref="ClampSpawnPose"/> — never below/inside the board plane, never down a steep
+    /// gaze — and when the clamp engaged, a small upward tilt (top toward the player, capped at
+    /// <see cref="MaxSpawnTiltDeg"/>) keeps the raised panel facing the eyes. Event-gated ONLY:
+    /// this method runs at spawn, presence-regain refloat and lost-menu recall — never per
+    /// frame — so grabbed placements persist (the placement-healing regression rule). One
+    /// diagnostic line per call states the clamp decision for hardware-log verification.
     /// </summary>
     private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale,
         int staggerIndex = 0)
@@ -2109,6 +2253,12 @@ internal static class ModalFallback
             // in the foreground of its parent (nearer → also draws in front among equal-order hosts).
             pos -= fwd * (SecondaryForegroundMeters * scale * staggerIndex);
         }
+
+        // Request B: never below/inside the board plane, never down a steep gaze (see
+        // ClampSpawnPose — spawn/refloat/recall only, never per frame).
+        Vector3 rawPos = pos;
+        string? clampReason = ClampSpawnPose(h, ref pos, scale);
+
         // Facing is YAW-ONLY (upright) and points the readable face AT THE HEAD — same
         // convention as PanelPlacement.Facing: flatten the vector FROM the head TO the placed
         // position (NOT the raw gaze forward). For a centred primary window the two coincide,
@@ -2127,6 +2277,35 @@ internal static class ModalFallback
                 flat = Vector3.forward;
         }
         rot = Quaternion.LookRotation(flat.normalized, Vector3.up);
+
+        // Request B: when the clamp raised/pulled the window while the player looks steeply
+        // down, tilt its top slightly toward the player (positive local-X pitch tips the front
+        // face UP toward a head above the panel — PanelLayout's slot-tilt convention) so the
+        // raised panel still faces the eyes. Spawn-only, capped, never applied unclamped so the
+        // default upright look is untouched.
+        float tiltDeg = 0f;
+        if (clampReason != null)
+        {
+            Vector3 toHead = h.position - pos;
+            float flatDist = Mathf.Sqrt(toHead.x * toHead.x + toHead.z * toHead.z);
+            float elevDeg = Mathf.Atan2(toHead.y, Mathf.Max(flatDist, 1e-3f)) * Mathf.Rad2Deg;
+            tiltDeg = Mathf.Clamp(elevDeg, 0f, MaxSpawnTiltDeg);
+            if (tiltDeg > 0.5f)
+                rot *= Quaternion.Euler(tiltDeg, 0f, 0f);
+            else
+                tiltDeg = 0f;
+        }
+
+        // Request B diagnostic: ONE line per spawn/refloat/recall (this method is never called
+        // per frame) stating the clamp decision — original pose → clamped pose, reason.
+        VRLog.Info("WorldUI", "MODAL SPAWN CLAMP: pose " +
+                              $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
+                              $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +
+                              (clampReason == null
+                                  ? " — unchanged (above the board plane, gaze within limits)."
+                                  : $" — {clampReason}; upward tilt {tiltDeg:F0}°.") +
+                              $" boardPlaneY={(TryGetBoardPlaneY(out float by) ? by.ToString("F2") : "n/a")}, " +
+                              $"scale={scale:F2}, stagger={staggerIndex}.");
         return true;
     }
 
