@@ -110,26 +110,42 @@ internal static class WallFadeTuning
 ///   UV by the shader itself, so the pattern slides under head motion — confined to the
 ///   ~0.35s dissolve, cosmetic (under conventional-Z it would degrade to an end-of-sweep
 ///   pop; the rig is D3D11 reversed-Z).</item>
-/// <item>HELD FADED (fade=1) — R2, IDENTICAL MPB on BOTH variants, provably ZERO view
-///   dependence: map = constant r=1 <b>a=1</b> texture, <c>_Cutoff=1.1</c>,
-///   <c>_ToggleWallfade=1</c>. occ.a=1 forces the per-pixel depth compare TRUE under ANY
-///   depth convention (fragDepth ≤ 1 always), killing R2 suspect (b): <c>m = 1</c> is a
-///   CONSTANT, no map/depth term varies with the view. LOW: <c>clip = 1 - 1.1 &lt; 0</c> →
-///   constant discard wherever objY ≥ 0.4; the hard object-Y band below stays
-///   constant-solid ("bis auf die Grundmauern"). HIGH: <c>M=1</c> → <c>B=1</c> and
-///   <c>A = max(1,S) + 42n·(1-max(1,S)) = 1</c> — the screen-radial vignette S (R2 suspect
-///   (a)) and the animated noise n are each MULTIPLIED BY ZERO; <c>clip = 1 + T·(1·1-1)
-///   - 1.1 = -0.1</c> constant → TOTAL discard of every fragment. IMPOSSIBILITY NOTE
-///   (why HIGH cannot keep its foundation band statically): the band term (1-worldY)/3
-///   and the vignette (0.02·dist+screenRadial)^8 are summed inside S BEFORE the single
-///   cutoff compare — S saturates to 1 both for worldY ≤ 0.1 (band) and for peripheral
-///   pixels ((0.02d+radial)^8 ≥ 0.3), producing the IDENTICAL clip value 1-_Cutoff, so no
-///   _Cutoff/ToggleWallFade/map choice separates them; every vignette coefficient (0.02,
-///   the screen-center offset, ×3.33) is an immediate literal in the DXBC, not a material
-///   property, so nothing neutralizes it either. Hence: LOW held = static fade with
-///   foundation band (the expected path on this rig); HIGH held = static TOTAL discard,
-///   band sacrificed — the only view-independent option that exists. Every fade logs the
-///   wall's shader name + variant so a hardware log pins down which math applied.</item>
+/// <item>HELD FADED (fade=1) — R3 (foundation-band fix; the R2 held state below deleted
+///   the base course, the user's bug): drive EXACTLY the value the flat game's own
+///   occlusion map delivers over a revealed room. The game never touches <c>_Cutoff</c>
+///   at all — it only sets the global <c>ToggleWallFade=1</c> (ActivateWallFadeInGame
+///   .Start, Main.Awake) and rasterizes the revealed-room footprints into the
+///   screen-space RT <c>_TilesOcclusionMap</c> (TilesOcclusionGenerator
+///   .UpdateCommandBuffers: rooms drawn on a (0,0,0,1)-cleared target, blurred, bound
+///   globally); over a room interior the blurred map reads occ.r≈1, so the wall shader
+///   computes <c>m = 1-occ.r ≈ 0</c> and its OWN foundation terms do the rest. Held MPB
+///   on BOTH variants: map = constant r=1 <b>a=0</b> texture → <c>m = 0</c>
+///   view-independently (a=0 fails the depth compare for every visible fragment under
+///   either Z convention — reversed-Z and conventional fragDepth are both &gt; 0 except
+///   the degenerate exact far/near-plane pixel), <c>_Cutoff</c> = the material's
+///   AUTHORED "Mask Clip Value" (clamped 0.05–0.95; with m = 0 any 0&lt;c&lt;1 yields
+///   the same held geometry — the authored value only shapes the HIGH dither density,
+///   matching the flat game exactly), <c>_ToggleWallfade=1</c>. LOW (blob264 lines
+///   46-49, 69-71): <c>clip = 0 - c &lt; 0</c> → constant discard wherever objY ≥ 0.4;
+///   the base course below the shader's hard object-Y gate stays solid. HIGH (blob216
+///   lines 216-229): <c>M = 0</c> → <c>B = S</c>, <c>A = S + 42n(1-S)</c>, so at the
+///   foundation the world-Y ramp (1-worldY)/3 saturates S to 1 → <c>A·B = 1</c>,
+///   <c>clip = 1-c &gt; 0</c> — solid base band, noise MULTIPLIED BY ZERO, worldY-only
+///   (view-independent); up the wall S → 0 → <c>clip = -c &lt; 0</c> — constant
+///   discard; between (worldY ≈ 0.4..1) the game's own noise-dithered band edge.
+///   RESIDUAL VIEW COUPLING (HIGH only, game-native, accepted because the spec is
+///   "exactly the flat game's faded wall"): S also sums the screen-radial vignette
+///   (0.02·dist+screenRadial)^8, so peripheral pixels — and whole walls beyond
+///   ~45 wu from the head, where min(0.02·dist,1)+radial ≥ 1 — keep the upper wall
+///   partially visible exactly as the flat game does near screen edges / zoomed out.
+///   The per-wall fade DECISION stays CPU-side and view-independent. IMPOSSIBILITY
+///   NOTE (why the vignette cannot be stripped while keeping the band): band term and
+///   vignette are summed inside S BEFORE the single cutoff compare, and every vignette
+///   coefficient is an immediate DXBC literal — the only strictly view-independent
+///   HIGH deliveries are m=1 constants (clip = 1-c everywhere: whole wall visible, or
+///   with c&gt;1 the R2 TOTAL discard that erased the foundation). Every fade logs the
+///   wall's shader variant + applied cutoff so a hardware log pins down which math
+///   applied.</item>
 /// <item>SOLID (fade=0): the MPB is REMOVED — with <see cref="Compat.WallFadeDisable"/> now
 ///   pinning the GLOBAL <c>ToggleWallFade</c> to 0 unconditionally (the game-camera
 ///   TilesOcclusionGenerator still publishes a head-viewpoint-invalid map; globally-open
@@ -255,6 +271,12 @@ internal static class WallSegmentFade
         public bool VariantLow;
         /// <summary>Distinct fade-shader name(s) seen on the renderers ("+"-joined).</summary>
         public string ShaderNames = "?";
+        /// <summary>Authored "Mask Clip Value" (<c>_Cutoff</c>) of the wall's fade material,
+        /// clamped to (0,1) — the held state drives exactly this value like the flat game
+        /// (which never writes _Cutoff at all). 0.5 fallback when unreadable.</summary>
+        public float HeldCutoff = 0.5f;
+        /// <summary>Whether <see cref="HeldCutoff"/> came from the material (diag).</summary>
+        public bool CutoffAuthored;
         /// <summary>EMA-smoothed view-coverage fraction the Schmitt trigger reads.</summary>
         public float Smooth;
         public bool SmoothInit;
@@ -315,8 +337,8 @@ internal static class WallSegmentFade
         private float _nextDiagTime;
         private MaterialPropertyBlock? _mpb;
 
-        private Texture2D? _noiseTex; // transition dissolve pattern (r in [0.06,1], a=0)
-        private Texture2D? _fullTex;  // held-faded constant (r=1, a=0)
+        private Texture2D? _noiseTex;    // transition dissolve pattern (r in [0.06,1], a=0)
+        private Texture2D? _occludedTex; // held-faded constant (r=1, a=0 → map term m = 0)
 
         private float _nextRescan;
         private int _builtRoomCount = -1;
@@ -683,13 +705,17 @@ internal static class WallSegmentFade
             string variant = seg.VariantHigh ? (seg.VariantLow ? "HIGH+LOW" : "HIGH") : "LOW";
             if (seg.State)
             {
+                string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
+                    (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] — held state: " +
+                    cutoff + " → " +
                     (seg.VariantHigh
-                        ? "static TOTAL discard (HIGH fuses foundation band + screen vignette " +
-                          "into one pre-cutoff scalar; band not separable — see header math)"
-                        : "static discard above object-Y 0.4 (hard foundation band; constant " +
-                          "map term, zero view-dependent inputs)"));
+                        ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
+                          "discarded (clip=-c); game-native screen vignette/0.02·dist terms " +
+                          "remain inside S — flat-game faded look"
+                        : "discard above object-Y 0.4 only — base course below the hard " +
+                          "shader gate stays solid (flat-game faded look, view-independent)"));
             }
             else
             {
@@ -790,14 +816,18 @@ internal static class WallSegmentFade
             _mpb.SetFloat(ToggleWallfadeMatId, 1f);
             if (seg.Fade >= 1f)
             {
-                // Held fully faded (R2): constant r=1,a=1 map + _Cutoff=1.1. a=1 forces the
-                // per-pixel depth compare TRUE under any Z convention → map term m = 1
-                // CONSTANT; LOW clips everything above its hard object-Y 0.4 foundation
-                // band, HIGH gets A=B=1 (vignette and noise multiplied by zero) → constant
-                // total discard. Zero view-dependent inputs on either variant — full math
-                // in the class header.
-                _mpb.SetTexture(TilesOcclusionMapId, _fullTex!);
-                _mpb.SetFloat(CutoffId, 1.1f);
+                // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
+                // term m = 1-r = 0 view-independently (a=0 fails the depth compare for
+                // every visible fragment under either Z convention), _Cutoff = the
+                // material's own authored Mask Clip Value — exactly the state the flat
+                // game's occlusion map produces over a revealed room. LOW: clip = -c < 0
+                // discards everything ABOVE the shader's hard objY-0.4 gate, base course
+                // solid. HIGH: M=0 → the shader's own world-Y ramp keeps the foundation
+                // gradient solid (S=1 → A·B=1, noise ×0) and discards the upper wall
+                // (S=0 → clip = -c). Full math + residual game-native vignette terms in
+                // the class header.
+                _mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
+                _mpb.SetFloat(CutoffId, seg.HeldCutoff);
             }
             else
             {
@@ -1032,6 +1062,8 @@ internal static class WallSegmentFade
             seg.VariantHigh = false;
             seg.VariantLow = false;
             seg.ShaderNames = "?";
+            seg.HeldCutoff = 0.5f;
+            seg.CutoffAuthored = false;
             if (seg.Wall == null)
                 return;
             MeshRenderer[] all = seg.Wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
@@ -1080,6 +1112,17 @@ internal static class WallSegmentFade
                 if (!shaderName.Contains("WallFade"))
                     continue;
                 any = true;
+                // Held-state cutoff = the material's authored "Mask Clip Value" — the flat
+                // game never writes _Cutoff, so this IS the value its fade runs with.
+                // Clamped away from 0/1: with the held map's m = 0 any 0<c<1 produces the
+                // identical geometry (c only shapes the HIGH variant's dither density),
+                // while c = 0 would disable the LOW discard and c ≥ 1 would kill the HIGH
+                // foundation band (clip = 1-c).
+                if (!seg.CutoffAuthored && m.HasProperty(CutoffId))
+                {
+                    seg.HeldCutoff = Mathf.Clamp(m.GetFloat(CutoffId), 0.05f, 0.95f);
+                    seg.CutoffAuthored = true;
+                }
                 if (shaderName.Contains("Low"))
                     seg.VariantLow = true;
                 else
@@ -1099,14 +1142,15 @@ internal static class WallSegmentFade
         /// rank-flattened to a uniform histogram over [0.06,1] so the _Cutoff sweep dissolves at
         /// a constant area-rate; low frequency keeps the left/right-eye patterns correlated
         /// (screen-space sampling differs per eye only by disparity); alpha 0 = "play area
-        /// behind every pixel" under the shader's reversed-Z compare, m = 1-noise. Full
-        /// (held) texture: r=1 AND a=1 — alpha 1 forces the depth compare TRUE under any Z
-        /// convention, making the map term m = 1 a CONSTANT (R2: the held-state discard
-        /// carries zero per-pixel view dependence; see class header).
+        /// behind every pixel" under the shader's reversed-Z compare, m = 1-noise. Occluded
+        /// (held) texture: r=1 AND a=0 — the depth compare fails for every visible fragment
+        /// under either Z convention, so the map term m = 1-r = 0 is a CONSTANT: exactly the
+        /// value the flat game's occlusion map yields over a revealed room, which lets each
+        /// shader variant's own foundation-band terms survive (see class header).
         /// </summary>
         private bool EnsureTextures()
         {
-            if (_noiseTex != null && _fullTex != null)
+            if (_noiseTex != null && _occludedTex != null)
                 return true;
 
             const int size = 64;
@@ -1137,18 +1181,18 @@ internal static class WallSegmentFade
             _noiseTex.SetPixels32(pixels);
             _noiseTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
 
-            _fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: false, linear: true)
+            _occludedTex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: false, linear: true)
             {
-                name = "GloomhavenVR.WallFadeFull",
+                name = "GloomhavenVR.WallFadeOccluded",
                 wrapMode = TextureWrapMode.Repeat,
                 filterMode = FilterMode.Point,
                 hideFlags = HideFlags.HideAndDontSave,
             };
-            var full = new Color32[4];
+            var occluded = new Color32[4];
             for (int i = 0; i < 4; i++)
-                full[i] = new Color32(255, 0, 0, 255); // r=1 (unused once a=1), a=1 → m ≡ 1
-            _fullTex.SetPixels32(full);
-            _fullTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                occluded[i] = new Color32(255, 0, 0, 0); // r=1, a=0 → m ≡ 1-r = 0 ("room behind")
+            _occludedTex.SetPixels32(occluded);
+            _occludedTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
             return true;
         }
 
@@ -1196,10 +1240,10 @@ internal static class WallSegmentFade
                 try { Destroy(_noiseTex); } catch { /* already gone */ }
                 _noiseTex = null;
             }
-            if (_fullTex != null)
+            if (_occludedTex != null)
             {
-                try { Destroy(_fullTex); } catch { /* already gone */ }
-                _fullTex = null;
+                try { Destroy(_occludedTex); } catch { /* already gone */ }
+                _occludedTex = null;
             }
         }
     }
