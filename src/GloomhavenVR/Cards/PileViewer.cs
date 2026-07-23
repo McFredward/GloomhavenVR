@@ -259,12 +259,15 @@ internal sealed class PileViewer
 
     /// <summary>
     /// One physical pile stack: a few offset card slabs + count + caption. Pokeable
-    /// (finger + board laser, both land in <see cref="OnPoke"/>) AND grabbable
-    /// (pinch, like cards — <c>snapToHand</c> off: the pile stays on the board, the
-    /// grip only holds the browse open). VRCard's dual-registration pattern:
-    /// GrabbableBehaviour base + manual pokeable registration.
+    /// (finger via <see cref="OnPoke"/>, board laser via <see cref="LaserToggle"/> —
+    /// CardsDriver routes laser clicks there so the finger's edge gate never eats a
+    /// deliberate second laser click) AND grabbable (pinch, like cards —
+    /// <c>snapToHand</c> off: the pile stays on the board, the grip only holds the
+    /// browse open). VRCard's dual-registration pattern: GrabbableBehaviour base +
+    /// manual pokeable registration. Internal (not private) so CardsDriver's laser
+    /// dispatch can type-test it.
     /// </summary>
-    private sealed class PileStack : GrabbableBehaviour, IPokeable
+    internal sealed class PileStack : GrabbableBehaviour, IPokeable
     {
         private PileViewer _owner = null!;
         private PileKind _kind;
@@ -412,20 +415,58 @@ internal sealed class PileViewer
             VRInteractables.UnregisterPokeable(this);
         }
 
+        // Poke edge-gating (hardware: pile poke double-trigger): a physical poke used to
+        // toggle the browse OPEN on finger entry and then toggle it AGAIN while the finger
+        // retracted back out through the collider — the PokeInteractor re-arms on hover
+        // flicker (the opening browse fan spawns colliders near the fingertip, stealing and
+        // returning the nearest-pokeable hover), so a single physical poke could fire
+        // OnPoke twice. Two guards make the toggle edge-robust:
+        // 1. ENTRY-ONLY: after a toggle the stack stays disarmed until the fingertip has
+        //    LEFT the collider region (OnPokeExit re-arms — the interactor raises it once
+        //    the tip is beyond hover range, i.e. genuinely out of the stack).
+        // 2. COOLDOWN: no second toggle within 0.4 s, killing the hover-flicker re-arm
+        //    path (exit+enter within the same physical poke) outright.
+        // The board LASER routes through LaserToggle below (cooldown only): a deliberate
+        // second trigger click while still pointing at the stack must keep working.
+        private const float PokeToggleCooldownSeconds = 0.4f;
+        private bool _pokeArmed = true;
+        private float _nextToggleTime;
+
         public void OnPokeEnter(VRHand hand)
         {
             if (_hasCards)
                 hand.SendHaptic(HapticPreset.HoverTick);
         }
 
-        public void OnPokeExit(VRHand hand) { }
+        public void OnPokeExit(VRHand hand) => _pokeArmed = true; // left the stack — re-arm
 
         public void OnPoke(VRHand hand)
         {
             if (!_hasCards)
                 return;
+            if (!_pokeArmed || Time.unscaledTime < _nextToggleTime)
+                return; // retract/flicker edge — one toggle per physical poke
+            _pokeArmed = false;
+            _nextToggleTime = Time.unscaledTime + PokeToggleCooldownSeconds;
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Board: {name} poked ({hand.Side}) — toggle browse.");
+            _owner.DispatchPoke(_kind, hand);
+        }
+
+        /// <summary>
+        /// Board-laser click path (CardsDriver): same toggle, but WITHOUT the finger's
+        /// leave-the-collider re-arm requirement — a laser click is already a clean
+        /// TriggerDown edge, and the beam legitimately stays on the stack between two
+        /// deliberate clicks. The shared cooldown still debounces trigger bounce and
+        /// cross-path double-fires (poke + laser inside the same 0.4 s).
+        /// </summary>
+        internal void LaserToggle(VRHand hand)
+        {
+            if (!_hasCards || Time.unscaledTime < _nextToggleTime)
+                return;
+            _nextToggleTime = Time.unscaledTime + PokeToggleCooldownSeconds;
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("Cards", $"Board: {name} laser-clicked ({hand.Side}) — toggle browse.");
             _owner.DispatchPoke(_kind, hand);
         }
     }

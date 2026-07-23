@@ -1191,6 +1191,13 @@ internal sealed class CardsDriver : MonoBehaviour
                 ForeignInteraction("board button");
                 button.Press(dom, "laser");
             }
+            else if (best is PileViewer.PileStack pile)
+            {
+                // Pile stacks: dedicated laser path — OnPoke now carries the finger's
+                // entry-only re-arm gate (double-trigger fix), which must never block a
+                // deliberate second laser click while the beam rests on the stack.
+                pile.LaserToggle(dom);
+            }
             else
             {
                 VRLog.Info("Cards", $"Board: laser click → {(best as MonoBehaviour)?.name ?? best!.ToString()}.");
