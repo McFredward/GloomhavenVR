@@ -30,15 +30,23 @@ namespace GloomhavenVR.Cards;
 /// sprite gets an EQUIVALENT replacement created on the baked copy with the SAME
 /// rect / pivot / pixels-per-unit / 9-slice border, assigned via the public
 /// <c>Image.sprite</c> setter. Geometry, layout and atlas UVs are exactly reproduced.
-/// TRIMMED and TIGHT-packed (unrotated) sprites — the shimmer-persists follow-up: the
-/// first cut skipped them, leaving every trimmed atlas sprite sampling the mipless
-/// original — are handled by a PER-SPRITE bake: the sprite's stored atlas region is
-/// blitted into its own small mipmapped texture at the trim offset (margins restored
-/// as real transparent texels), so the replacement is an untrimmed FullRect sprite
-/// that renders IDENTICALLY under uGUI (Image draws rect + outer UV + trim padding;
-/// baking the margins in reproduces that exactly with zero padding). Only ROTATED
-/// atlas placement remains unswappable (a rect sprite cannot express it) — skipped
-/// WITH a log line so the evidence lands in the hardware log. The game freely
+/// TRIMMED rect-packed sprites — the shimmer-persists follow-up: the first cut
+/// skipped them, leaving every trimmed atlas sprite sampling the mipless original —
+/// are handled by a PER-SPRITE bake: the sprite's stored atlas region
+/// (<c>textureRect</c>) is blitted into its own small mipmapped texture at the trim
+/// offset (<c>textureRectOffset</c>; margins restored as real transparent texels), so
+/// the replacement is an untrimmed FullRect sprite that renders IDENTICALLY under
+/// uGUI (Image draws rect + outer UV + trim padding; baking the margins in reproduces
+/// that exactly with zero padding). HARD SAFETY RULE (card-corruption bug, v3
+/// post-mortem): a sprite is only swapped when its reconstruction is provably exact —
+/// everything else keeps the original mipless sprite WITH a log line naming the
+/// reason. Unswappable classes: ROTATED atlas placement (a rect sprite cannot express
+/// it), TIGHT atlas packing (the polygon meshes of different sprites interleave, so
+/// any rectangular region copy drags neighboring sprites' pixels into the FullRect
+/// replacement — this is exactly what corrupted the icons in
+/// card_bug_screenshot.png; v3's mesh-UV-bounds fallback did that and is deleted),
+/// and any trim region whose integer geometry does not fit its logical rect exactly
+/// (no silent clamping — a cropped icon is corruption too). The game freely
 /// reassigns sprites on state changes
 /// and card art loads ASYNC, so CardFace re-runs <see cref="Rescan"/> on adoption and
 /// on a slow (1 s) cadence while adopted; <see cref="RestoreSprites"/> puts the
@@ -180,10 +188,11 @@ internal static class CardFaceMipBake
     /// <summary>
     /// The mip-baked replacement for <paramref name="source"/>, minted+cached on first
     /// sight; null when its texture needs nothing (already mipped) or the sprite truly
-    /// cannot be reproduced (ROTATED atlas placement, budget) — skips are LOGGED once
-    /// per sprite so the hardware log shows exactly which face elements stay mipless.
-    /// Untrimmed rect sprites ride the shared atlas copy; trimmed/tight sprites get a
-    /// per-sprite region bake with the trim margins restored as real texels.
+    /// cannot be reproduced (ROTATED atlas placement, TIGHT atlas packing, inexact trim
+    /// geometry, budget) — skips are LOGGED once per sprite so the hardware log shows
+    /// exactly which face elements stay mipless. Untrimmed rect sprites ride the shared
+    /// atlas copy; trimmed rect-packed sprites get a per-sprite region bake with the
+    /// trim margins restored as real texels.
     /// </summary>
     private static Sprite? ReplacementFor(Sprite source)
     {
@@ -198,6 +207,15 @@ internal static class CardFaceMipBake
             if (IsRotatedPacked(source))
             {
                 LogSpriteSkip(source, "ROTATED atlas placement — not expressible as a rect sprite");
+            }
+            else if (IsTightPacked(source))
+            {
+                // TIGHT packing interleaves different sprites' polygon meshes: any
+                // rectangular copy of this sprite's atlas area includes NEIGHBORING
+                // sprites' pixels, which a FullRect replacement then renders (the
+                // v3 card-corruption bug). Not reproducible as a rect sprite — skip.
+                LogSpriteSkip(source, "TIGHT atlas packing — neighboring sprites share its rectangular " +
+                                      "atlas area, a rect copy would render their fragments");
             }
             else if (TryExactRect(source, out Rect texRect))
             {
@@ -243,6 +261,40 @@ internal static class CardFaceMipBake
     }
 
     /// <summary>
+    /// Tight (polygon-mesh) atlas packing? (Guarded — packingMode is atlas-only API.)
+    /// Belt: the mode query; braces: even when this misses (packed lies for some
+    /// atlas flavors), a tight sprite's <c>textureRect</c> throws, and both
+    /// <see cref="TryExactRect"/> and <see cref="TrimmedReplacementFor"/> treat that
+    /// as a skip — a tight sprite can never reach a bake.
+    /// </summary>
+    private static bool IsTightPacked(Sprite source)
+    {
+        try
+        {
+            return source.packed && source.packingMode == SpritePackingMode.Tight;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Packing description for the reconstruction-parameter log line.</summary>
+    private static string PackingLabel(Sprite source)
+    {
+        try
+        {
+            if (!source.packed)
+                return "unpacked";
+            return source.packingMode == SpritePackingMode.Tight ? "packed-tight" : "packed-rect";
+        }
+        catch (System.Exception)
+        {
+            return "packing-unknown";
+        }
+    }
+
+    /// <summary>
     /// True when the sprite's atlas placement is a plain unrotated, UNTRIMMED rect —
     /// exactly reproducible on the shared atlas copy. textureRect throws for
     /// tight-packed sprites — treat that as "not exact".
@@ -265,37 +317,65 @@ internal static class CardFaceMipBake
     }
 
     /// <summary>
-    /// Per-sprite bake for trimmed / tight-packed (unrotated) sprites: blit the sprite's
-    /// stored atlas region into its OWN small mipmapped texture at the trim offset —
-    /// the trimmed-away margins become real transparent texels, so the replacement is an
-    /// untrimmed FullRect sprite that uGUI renders identically (Image inset-by-padding +
-    /// trimmed UVs ≡ full-rect quad + margins baked in). Null + one log line on any skip.
+    /// Per-sprite bake for TRIMMED rect-packed sprites: blit the sprite's stored atlas
+    /// region (<c>textureRect</c>) into its OWN small mipmapped texture at the trim
+    /// offset (<c>textureRectOffset</c>) — the trimmed-away margins become real
+    /// transparent texels, so the replacement is an untrimmed FullRect sprite that uGUI
+    /// renders identically (Image inset-by-padding + trimmed UVs ≡ full-rect quad +
+    /// margins baked in). ONLY exact reconstructions bake: a sprite whose region can't
+    /// be derived (tight-packed → textureRect throws) or whose integer geometry does
+    /// not fit its logical rect precisely is SKIPPED — never clamped, cropped or
+    /// guessed (v3 corrupted card icons by guessing). Null + one log line on any skip.
     /// </summary>
     private static Sprite? TrimmedReplacementFor(Sprite source, Texture2D atlas)
     {
-        if (!TryResolveRegion(source, atlas, out RectInt src, out Vector2Int dst))
+        Rect tr;
+        Vector2 off;
+        try
         {
-            LogSpriteSkip(source, "atlas region not derivable (no textureRect and no usable UV/vertex bounds)");
+            tr = source.textureRect;
+            off = source.textureRectOffset;
+        }
+        catch (System.Exception)
+        {
+            // textureRect throws for tight-packed atlas sprites that slipped past the
+            // packingMode query — same corruption class, same verdict: keep the original.
+            LogSpriteSkip(source, "textureRect unavailable (tight-packed mesh geometry) — atlas region " +
+                                  "cannot be extracted as a rect without dragging in neighboring sprites");
             return null;
         }
-        int fullW = Mathf.Max(1, Mathf.RoundToInt(source.rect.width));
-        int fullH = Mathf.Max(1, Mathf.RoundToInt(source.rect.height));
+
+        int fullW = Mathf.RoundToInt(source.rect.width);
+        int fullH = Mathf.RoundToInt(source.rect.height);
+        int srcX = Mathf.RoundToInt(tr.x);
+        int srcY = Mathf.RoundToInt(tr.y);
+        int w = Mathf.RoundToInt(tr.width);
+        int h = Mathf.RoundToInt(tr.height);
+        int dstX = Mathf.RoundToInt(off.x);
+        int dstY = Mathf.RoundToInt(off.y);
+        if (fullW < 1 || fullH < 1 || w < 1 || h < 1)
+        {
+            LogSpriteSkip(source, $"degenerate geometry (rect {fullW}x{fullH}, textureRect {w}x{h})");
+            return null;
+        }
         if (fullW > MaxSpriteDim || fullH > MaxSpriteDim)
         {
             LogSpriteSkip(source, $"logical rect {fullW}x{fullH} exceeds the {MaxSpriteDim} per-sprite cap");
             return null;
         }
+        // Exact-fit contract: the trimmed region must sit fully inside BOTH the atlas
+        // and the logical rect. Anything else would need clamping = cropped/misplaced
+        // content on the card — skip instead (hard rule: corrupt never, mipless ok).
+        if (srcX < 0 || srcY < 0 || srcX + w > atlas.width || srcY + h > atlas.height
+            || dstX < 0 || dstY < 0 || dstX + w > fullW || dstY + h > fullH)
+        {
+            LogSpriteSkip(source, $"trim region does not fit exactly (atlas region {w}x{h} at {srcX},{srcY} " +
+                                  $"in {atlas.width}x{atlas.height}, offset +{dstX},+{dstY} in rect {fullW}x{fullH})");
+            return null;
+        }
         if (s_spriteBakeCount >= MaxSpriteBakes)
         {
             LogSpriteSkip(source, $"per-sprite bake budget exhausted ({MaxSpriteBakes})");
-            return null;
-        }
-        // Clamp the copy to what both the atlas and the destination actually hold.
-        int w = Mathf.Min(src.width, Mathf.Min(atlas.width - src.x, fullW - dst.x));
-        int h = Mathf.Min(src.height, Mathf.Min(atlas.height - src.y, fullH - dst.y));
-        if (w < 1 || h < 1 || src.x < 0 || src.y < 0 || dst.x < 0 || dst.y < 0)
-        {
-            LogSpriteSkip(source, $"degenerate region (src {src.x},{src.y} {src.width}x{src.height} → dst {dst.x},{dst.y} in {fullW}x{fullH})");
             return null;
         }
 
@@ -317,7 +397,7 @@ internal static class CardFaceMipBake
                     wrapMode = TextureWrapMode.Clamp,
                 };
                 tex.SetPixels32(new Color32[fullW * fullH]); // transparent trim margins
-                tex.ReadPixels(new Rect(src.x, src.y, w, h), dst.x, dst.y);
+                tex.ReadPixels(new Rect(srcX, srcY, w, h), dstX, dstY);
                 tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
             }
             finally
@@ -325,81 +405,26 @@ internal static class CardFaceMipBake
                 RenderTexture.active = prev;
                 RenderTexture.ReleaseTemporary(rt);
             }
+            Vector4 border = source.border;
             Sprite made = Sprite.Create(tex, new Rect(0f, 0f, fullW, fullH), NormalizedPivot(source),
-                source.pixelsPerUnit, 0, SpriteMeshType.FullRect, source.border);
+                source.pixelsPerUnit, 0, SpriteMeshType.FullRect, border);
             made.name = source.name + " (VR-mip)";
             s_spriteBakeCount++;
+            // Full reconstruction parameters on the record, so a hardware log alone can
+            // verify the copy is exact (rect vs textureRect, offset, pivot, packing).
             VRLog.Info("Cards", $"MIP BAKE sprite ({s_spriteBakeCount}/{MaxSpriteBakes}): '{source.name}' " +
-                                $"{fullW}x{fullH} (trimmed/tight on '{atlas.name}', region {w}x{h} at +{dst.x},+{dst.y}) " +
-                                "→ own mipmapped texture, margins restored.");
+                                $"rect {fullW}x{fullH} ← textureRect {w}x{h} at ({srcX},{srcY}) on '{atlas.name}' " +
+                                $"{atlas.width}x{atlas.height}, trim offset +{dstX},+{dstY}, " +
+                                $"pivot ({source.pivot.x:F1},{source.pivot.y:F1})px, ppu {source.pixelsPerUnit:F1}, " +
+                                $"border ({border.x:F0},{border.y:F0},{border.z:F0},{border.w:F0}), " +
+                                $"{PackingLabel(source)} → own mipmapped texture ({tex.mipmapCount} mips), " +
+                                "margins restored.");
             return made;
         }
         catch (System.Exception ex)
         {
             LogSpriteSkip(source, $"per-sprite bake failed ({ex.GetType().Name}: {ex.Message})");
             return null;
-        }
-    }
-
-    /// <summary>
-    /// Where the sprite's stored (trimmed) pixels live in the atlas and where that region
-    /// sits inside the sprite's FULL logical rect. Rect-packed trimmed sprites answer via
-    /// textureRect/textureRectOffset; tight-packed sprites (where those throw) recover the
-    /// region from the mesh UV bounds (atlas space) and the placement from the mesh vertex
-    /// bounds (rect space: pixel = vertex · PPU + pivot).
-    /// </summary>
-    private static bool TryResolveRegion(Sprite source, Texture2D atlas, out RectInt src, out Vector2Int dst)
-    {
-        try
-        {
-            Rect tr = source.textureRect;
-            Vector2 off = source.textureRectOffset;
-            src = new RectInt(Mathf.RoundToInt(tr.x), Mathf.RoundToInt(tr.y),
-                Mathf.Max(1, Mathf.RoundToInt(tr.width)), Mathf.Max(1, Mathf.RoundToInt(tr.height)));
-            dst = new Vector2Int(Mathf.Max(0, Mathf.RoundToInt(off.x)), Mathf.Max(0, Mathf.RoundToInt(off.y)));
-            return true;
-        }
-        catch (System.Exception)
-        {
-            // fall through to the mesh-derived path
-        }
-        try
-        {
-            Vector2[] uv = source.uv;
-            Vector2[] verts = source.vertices;
-            if (uv.Length == 0 || verts.Length == 0)
-            {
-                src = default;
-                dst = default;
-                return false;
-            }
-            float uMin = 1f, uMax = 0f, vMin = 1f, vMax = 0f;
-            for (int i = 0; i < uv.Length; i++)
-            {
-                uMin = Mathf.Min(uMin, uv[i].x); uMax = Mathf.Max(uMax, uv[i].x);
-                vMin = Mathf.Min(vMin, uv[i].y); vMax = Mathf.Max(vMax, uv[i].y);
-            }
-            float xMin = float.MaxValue, yMin = float.MaxValue;
-            for (int i = 0; i < verts.Length; i++)
-            {
-                xMin = Mathf.Min(xMin, verts[i].x);
-                yMin = Mathf.Min(yMin, verts[i].y);
-            }
-            float ppu = source.pixelsPerUnit;
-            src = new RectInt(
-                Mathf.RoundToInt(uMin * atlas.width), Mathf.RoundToInt(vMin * atlas.height),
-                Mathf.Max(1, Mathf.RoundToInt((uMax - uMin) * atlas.width)),
-                Mathf.Max(1, Mathf.RoundToInt((vMax - vMin) * atlas.height)));
-            dst = new Vector2Int(
-                Mathf.Max(0, Mathf.RoundToInt(xMin * ppu + source.pivot.x)),
-                Mathf.Max(0, Mathf.RoundToInt(yMin * ppu + source.pivot.y)));
-            return true;
-        }
-        catch (System.Exception)
-        {
-            src = default;
-            dst = default;
-            return false;
         }
     }
 
