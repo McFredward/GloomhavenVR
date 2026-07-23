@@ -78,30 +78,43 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class ButtonCluster
 {
-    private const float CapPressDepth = 0.008f; // 8 mm cap travel (real meters)
+    private const float CapPressDepth = 0.008f; // authored 8 mm cap travel (ButtonTuning.TravelOr overrides)
 
-    // ---- RIGHT-SIDE COLUMN (user #8) ---------------------------------------------------
+    // ---- RIGHT-SIDE COLUMN (user #8, repositioned for relaid user #8/point 8) ------------
     // The cluster no longer sits bottom-CENTER under the card slots: every turn-flow
     // button — including the transient round ones ("Bewegung überspringen" etc.) — now
     // stacks in a column on the RIGHT side of the board, directly beside the
     // Confirm/Undo ("Rückgängig machen") pads and the gear. Constants are tray-ROOT-local
     // meters, taken from PlayTray's collision map: the free bottom-right zone LEFT of the
     // Undo/gear column (pad left edge ≈ 0.185, gear left edge ≈ 0.19) and BELOW the card
-    // slots (captions bottom edge ≈ -0.068), inside the board (bottom edge -0.16):
-    // x 0.11..0.186, y -0.073..-0.157. The column ANCHOR is fixed — transient buttons
-    // appear/disappear in place and only the per-button size/slots reflow, never the
-    // cluster's world position.
+    // slots (captions bottom edge ≈ -0.068), inside the board (bottom edge -0.16).
+    // The column ANCHOR is fixed — transient buttons appear/disappear in place and only
+    // the per-button size/slots reflow, never the cluster's world position.
+    //
+    // DEFAULT MOVED DOWN-BOARD (point 8, "zu nah an den Karten"): the old anchor
+    // (y -0.115, height budget 0.084) put the column's TOP edge at y ≈ -0.073 — only
+    // ~8 mm root-local below the slot captions/card bottom edge (≈ -0.065..-0.068), so a
+    // hand reaching for a slotted card brushed the top transient button. New default:
+    // center y -0.124 with a 0.070 budget → top edge ≈ -0.089 (~24 mm clearance to the
+    // card bottom, 3× the old gap), bottom edge ≈ -0.159 still inside the board edge
+    // (-0.16), x span 0.110..0.186 still clear of the pad column (left edge ≈ 0.185).
+    // The default cap ceiling shrank 45 → 42 mm (ButtonTuning.TransientCapSize) so a
+    // single cap's footprint fits the tighter budget. On top of the spatial gap, the
+    // depth-fire press (point 6) means a brush can no longer fire at all. The
+    // ButtonTuning TransientOffsetX/Y binds shift the whole group from this anchor.
     private const float ColumnCenterX = 0.148f;
-    private const float ColumnCenterY = -0.115f;
+    private const float ColumnCenterY = -0.124f;
     private const float ColumnRootZ = -0.006f;   // same board-face seat as the pads/mounts
-    private const float ColumnRootHeight = 0.084f; // root-local vertical budget
+    private const float ColumnRootHeight = 0.070f; // root-local vertical budget
     private const float ColumnRootWidth = 0.076f;  // root-local lateral budget
 
     // Auto-scale (user #8: "always choose the size so ALL buttons fit"): per-button slot
-    // math in CLUSTER-local units (the docked mount scale converts to root units).
+    // math in CLUSTER-local units (the docked mount scale converts to root units). The
+    // size CEILING is config now (ButtonTuning.TransientCapRadius, default 42 mm): the
+    // auto-fit only shrinks BELOW it when several buttons share the column; a single
+    // button uses exactly the configured size.
     private const float ColumnGap = 0.012f;      // inter-slot gap, cluster-local
     private const float MinCapRadius = 0.024f;   // readability floor — below this, go 2 columns
-    private const float MaxCapRadius = 0.045f;   // never larger than the lateral budget allows
     private const float BaseFootprint = 2.4f;    // base plate side = BaseFootprint × cap radius
 
     // DEPTH-CORRECT proud seat (replaces the old ZTest-Always shine-through). When docked
@@ -124,6 +137,7 @@ internal sealed class ButtonCluster
     // Right-column layout state (user #8).
     private bool _dockedNow;
     private float _rootToLocal = 1f / 0.7f; // root-local → cluster-local unit factor (mount carries the 0.7 dock scale)
+    private int _tuningVersion;             // ButtonTuning pull-based live-apply (rebuild on change)
     private int _lastLayoutCount = -1;
     private float _lastLayoutRadius;
     private readonly System.Collections.Generic.List<PhysicalButton> _layoutScratch = new(3);
@@ -146,6 +160,14 @@ internal sealed class ButtonCluster
             SetVisible(false);
             return;
         }
+
+        // ButtonTuning live-apply (user #8/#9): any geometry entry change (shape, cap
+        // size, square W/H/D) rebuilds the cluster's buttons from scratch — cheap (three
+        // buttons) and covers every knob with one path. Offsets/travel are read live
+        // per frame anyway and need no rebuild.
+        ButtonTuning.Bind();
+        if (_root != null && _tuningVersion != ButtonTuning.Version)
+            Shutdown();
 
         if (_root == null)
             Build();
@@ -217,6 +239,11 @@ internal sealed class ButtonCluster
 
         // Slot math: base plate side = BaseFootprint × radius. Single column first; if
         // that pushes the cap under the readability floor, split into two columns.
+        // The cap-size CEILING is the ButtonTuning.TransientCapSize bind (user #8): a
+        // single transient button honors the configured size EXACTLY (the user owns the
+        // trade-off if a big cap spills the zone); multiple buttons still auto-shrink so
+        // they never overlap each other or the neighboring pads.
+        float capCfg = ButtonTuning.TransientCapRadius;
         int cols = 1;
         int rows = n;
         float radius = SlotRadius(columnH, columnW, rows, cols);
@@ -231,7 +258,7 @@ internal sealed class ButtonCluster
                 radius = r2;
             }
         }
-        radius = Mathf.Clamp(radius, 0.02f, MaxCapRadius);
+        radius = n == 1 ? capCfg : Mathf.Clamp(radius, 0.015f, capCfg);
 
         float pitch = BaseFootprint * radius + ColumnGap;
         float extentZ = rows * BaseFootprint * radius + (rows - 1) * ColumnGap;
@@ -307,6 +334,8 @@ internal sealed class ButtonCluster
 
         // Mod layer (render-only — pokes go through the VRInteractables registry).
         VRLayers.Apply(_root);
+        _tuningVersion = ButtonTuning.Version; // fresh build reflects current config
+        VRLog.Info("WorldUI", $"ButtonCluster geometry config applied — {ButtonTuning.Describe()}.");
         VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — DEPTH-CORRECT: lit opaque " +
                               $"BoardLit caps at natural ZTest LEqual, seated {ClusterProudOffset * 1000f:0} mm " +
                               "proud of the board face; labels depth-honest (per-label font-material instance, " +
@@ -356,8 +385,13 @@ internal sealed class ButtonCluster
             float mountScale = mount.lossyScale.x;
             Vector3 proud = mount.up * (ClusterProudOffset * mountScale);
             Transform? trayRoot = PlayTray.Current?.Root;
+            // User #8: the configurable group offset (ButtonTuning, tray-root-plane meters)
+            // shifts the whole transient column from its default anchor — read live so the
+            // settings-panel steppers move it in real time later.
+            Vector2 cfgOff = ButtonTuning.TransientOffset;
             Vector3 anchor = trayRoot != null
-                ? trayRoot.TransformPoint(new Vector3(ColumnCenterX, ColumnCenterY, ColumnRootZ))
+                ? trayRoot.TransformPoint(new Vector3(
+                    ColumnCenterX + cfgOff.x, ColumnCenterY + cfgOff.y, ColumnRootZ))
                 : mount.position; // degenerate fallback: old mount seat
             if (trayRoot != null && mountScale > 1e-5f)
                 _rootToLocal = trayRoot.lossyScale.x / mountScale;
@@ -490,6 +524,27 @@ internal sealed class ButtonCluster
         private string? _mirroredText;
         private Color _appliedColor;
 
+        // Depth-fire press (user #6): the hand hovering in poke range; the cap follows its
+        // fingertip penetration and the press fires only at ~90% of the full travel
+        // (ButtonTuning.PressFireFraction), re-arming after it rose back past ~50%.
+        // Laser+trigger presses stay immediate (OnPoke with a far-away fingertip).
+        private VRHand? _hoverHand;
+        private bool _depthArmed = true;
+
+        // Dust-dissolve hide / quick scale-in show (user #7). Logical hide is instant
+        // (collider off, excluded from the column layout); only the visuals shrink out.
+        private bool _logicalVisible = true;
+        private bool _everShown;     // suppress the dust burst for the initial state settling
+        private float _dissolveLeft; // shrink-out countdown, seconds
+        private float _appearLeft;   // scale-in countdown, seconds
+        private Vector3 _slotScale = Vector3.one; // authoritative scale from SetSlot
+
+        /// <summary>Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>.</summary>
+        private const float FingertipRadius = 0.008f;
+
+        /// <summary>Live cap travel, cluster-local meters (authored 8 mm; ButtonTuning override).</summary>
+        private static float TravelLocal => ButtonTuning.TravelOr(CapPressDepth);
+
         // Docked label pose (test #19): home pose captured at build, restored on undock.
         private bool _docked;
         private bool _labelAnchored; // prefab LabelAnchor path keeps authoring authority
@@ -499,14 +554,19 @@ internal sealed class ButtonCluster
         /// <summary>Authored cap radius (cluster-local meters) — <see cref="SetSlot"/> scales relative to it.</summary>
         internal float BaseRadius { get; private set; }
 
-        /// <summary>Mirrored visibility of this button right now (drives the column layout, user #8).</summary>
-        internal bool VisibleNow => _rootGo != null && _rootGo.activeSelf;
+        /// <summary>
+        /// LOGICAL visibility of this button right now (drives the column layout, user #8).
+        /// A button mid-dust-dissolve is already logically hidden — the layout reflows
+        /// immediately while its visuals finish shrinking out.
+        /// </summary>
+        internal bool VisibleNow => _rootGo != null && _logicalVisible;
 
         /// <summary>
         /// Column-slot assignment (user #8): move the button to <paramref name="localPos"/>
         /// and uniformly scale it so its cap radius reads <paramref name="radius"/> —
         /// mesh, collider and label all ride the transform, so poke/laser targets and
-        /// text stay consistent at every auto-fit size.
+        /// text stay consistent at every auto-fit size. While a dissolve/appear anim runs,
+        /// the scale is recorded but the animation keeps transform authority.
         /// </summary>
         public void SetSlot(Vector3 localPos, float radius)
         {
@@ -516,8 +576,9 @@ internal sealed class ButtonCluster
             if (t.localPosition != localPos)
                 t.localPosition = localPos;
             float s = BaseRadius > 1e-5f ? radius / BaseRadius : 1f;
-            if (!Mathf.Approximately(t.localScale.x, s))
-                t.localScale = Vector3.one * s;
+            _slotScale = Vector3.one * s;
+            if (_dissolveLeft <= 0f && _appearLeft <= 0f && !Mathf.Approximately(t.localScale.x, s))
+                t.localScale = _slotScale;
         }
 
         public static PhysicalButton Create(Transform parent, string name, Vector3 localPos,
@@ -561,12 +622,26 @@ internal sealed class ButtonCluster
             _rootGo.transform.SetParent(parent, worldPositionStays: false);
             _rootGo.transform.localPosition = localPos;
 
+            // Cap shape is CONFIG now (user #8): Round = the classic flattened-cylinder puck;
+            // Square = a boxy keycap whose width/height/depth come from the ButtonTuning
+            // square-cap group (user #9) — independent side lengths make rectangular caps.
+            // Cluster-local axes while docked: +X lateral (width), +Z down the board
+            // (height), +Y out of the board (cap travel axis).
+            bool roundShape = ButtonTuning.TransientRound;
+            float capW = roundShape ? radius * 2f : ButtonTuning.WidthOr(radius * 2f);
+            float capH = roundShape ? radius * 2f : ButtonTuning.HeightOr(radius * 2f);
+            float capD = roundShape ? 0.009f : ButtonTuning.DepthOr(0.012f);
+            if (!roundShape)
+                BaseRadius = Mathf.Max(capW, capH) * 0.5f; // column layout tracks the real footprint
+
             // Base plate (flat box).
             GameObject basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
             basePlate.name = "Base";
             Object.Destroy(basePlate.GetComponent<Collider>());
             basePlate.transform.SetParent(_rootGo.transform, worldPositionStays: false);
-            basePlate.transform.localScale = new Vector3(radius * 2.4f, 0.012f, radius * 2.4f);
+            basePlate.transform.localScale = roundShape
+                ? new Vector3(radius * 2.4f, 0.012f, radius * 2.4f)
+                : new Vector3(capW * 1.2f, 0.012f, capH * 1.2f);
             basePlate.transform.localPosition = new Vector3(0f, 0.006f, 0f);
             _baseRenderer = basePlate.GetComponent<Renderer>();
             // DEPTH-CORRECT: lit opaque BoardLit (the PlayTray solid-keycap path) — writes depth
@@ -576,13 +651,22 @@ internal sealed class ButtonCluster
             // wood-grain _MainTex from NewKeycapMaterial gives it the carved surface).
             _baseRenderer.sharedMaterial = CreateLitMaterial(new Color(0.15f, 0.12f, 0.08f));
 
-            // Travelling cap (squashed cylinder).
-            GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            // Travelling cap (squashed cylinder, or boxy keycap when Shape=Square).
+            GameObject cap = GameObject.CreatePrimitive(
+                roundShape ? PrimitiveType.Cylinder : PrimitiveType.Cube);
             cap.name = "Cap";
             Object.Destroy(cap.GetComponent<Collider>());
             cap.transform.SetParent(_rootGo.transform, worldPositionStays: false);
-            cap.transform.localScale = new Vector3(radius * 2f, 0.009f, radius * 2f); // cylinder height = 2*y
-            cap.transform.localPosition = new Vector3(0f, 0.024f, 0f);
+            if (roundShape)
+            {
+                cap.transform.localScale = new Vector3(capW, capD, capH); // cylinder height = 2*y
+                cap.transform.localPosition = new Vector3(0f, 0.024f, 0f);
+            }
+            else
+            {
+                cap.transform.localScale = new Vector3(capW, capD, capH); // cube: depth is full Y size
+                cap.transform.localPosition = new Vector3(0f, 0.015f + capD * 0.5f, 0f); // cap bottom at the puck's 0.015 seat
+            }
             _cap = cap.transform;
             _capRestY = _cap.localPosition.y;
             _capRenderer = cap.GetComponent<Renderer>();
@@ -599,8 +683,16 @@ internal sealed class ButtonCluster
 
             // Poke collider slightly proud of the cap (primitive box — poke contract).
             _collider = _rootGo.AddComponent<BoxCollider>();
-            _collider.center = new Vector3(0f, 0.026f, 0f);
-            _collider.size = new Vector3(radius * 2f, 0.03f, radius * 2f);
+            if (roundShape)
+            {
+                _collider.center = new Vector3(0f, 0.026f, 0f);
+                _collider.size = new Vector3(radius * 2f, 0.03f, radius * 2f);
+            }
+            else
+            {
+                _collider.center = new Vector3(0f, _capRestY, 0f);
+                _collider.size = new Vector3(capW, capD + 0.024f, capH);
+            }
 
             CreateLabel(null, radius);
         }
@@ -751,9 +843,41 @@ internal sealed class ButtonCluster
         {
             if (_rootGo == null)
                 return;
-            if (_rootGo.activeSelf != visible)
-                _rootGo.SetActive(visible);
-            if (!visible)
+            if (visible != _logicalVisible)
+            {
+                _logicalVisible = visible;
+                if (visible)
+                {
+                    // Cancel a running dissolve, restore the layout scale, quick scale-in.
+                    _dissolveLeft = 0f;
+                    _rootGo.transform.localScale = _slotScale;
+                    if (!_rootGo.activeSelf)
+                        _rootGo.SetActive(true);
+                    _appearLeft = _everShown ? ButtonTuning.AppearSeconds : 0f;
+                    _collider.enabled = _interactable; // re-sync after the hide forced it off
+                }
+                else
+                {
+                    // LOGICAL hide is immediate (user #7): input off now, layout reflows now
+                    // (VisibleNow is false already) — only the visuals shrink out while the
+                    // pooled dust burst sweeps the cap away in its face color.
+                    _hoverHand = null;
+                    _depthArmed = true;
+                    _collider.enabled = false;
+                    if (_everShown && _rootGo.activeInHierarchy)
+                    {
+                        _dissolveLeft = ButtonTuning.DissolveSeconds;
+                        ButtonDissolveFx.Play(_cap.position, _rootGo.transform.up,
+                            BaseRadius * 2f * Mathf.Abs(_rootGo.transform.lossyScale.x),
+                            _appliedColor);
+                    }
+                    else
+                    {
+                        _rootGo.SetActive(false); // initial settling / hidden cluster — silent pop
+                    }
+                }
+            }
+            if (!_logicalVisible)
                 return;
 
             if (_interactable != interactable)
@@ -798,30 +922,134 @@ internal sealed class ButtonCluster
             }
         }
 
-        /// <summary>Cap travel animation (code-driven, no Animator).</summary>
+        /// <summary>
+        /// Cap animation (code-driven, no Animator), one call per cluster tick:
+        /// dust-dissolve shrink-out / appear scale-in (user #7), finger-follow cap
+        /// travel and the DEPTH-FIRE press (user #6) — the press fires exactly when
+        /// the fingertip has pushed the cap to ~90% of its full travel, re-arms after
+        /// it rose back past ~50%. Releasing early = no fire, the cap springs back.
+        /// </summary>
         public void Animate()
         {
-            if (_pressT <= 0f)
+            if (_rootGo == null)
                 return;
-            _pressT = Mathf.Max(0f, _pressT - Time.deltaTime * 6f);
-            float y = _pressT > 0f
-                ? _capRestY - CapPressDepth * Mathf.Sin(_pressT * Mathf.PI)
-                : _capRestY;
+
+            // Dissolve shrink-out: logically hidden already — finish visuals, deactivate.
+            if (_dissolveLeft > 0f)
+            {
+                _dissolveLeft -= Time.deltaTime;
+                float k = Mathf.Max(0f, _dissolveLeft / ButtonTuning.DissolveSeconds);
+                _rootGo.transform.localScale = _slotScale * k;
+                if (_dissolveLeft <= 0f)
+                {
+                    _rootGo.transform.localScale = _slotScale; // restore for the next show
+                    _rootGo.SetActive(false);
+                }
+                return;
+            }
+            if (!_rootGo.activeSelf)
+                return;
+            _everShown = true;
+
+            // Appear scale-in (quick, purely visual — input is live from frame one).
+            if (_appearLeft > 0f)
+            {
+                _appearLeft -= Time.deltaTime;
+                float k = 1f - Mathf.Max(0f, _appearLeft / ButtonTuning.AppearSeconds);
+                _rootGo.transform.localScale = _slotScale * Mathf.SmoothStep(0.55f, 1f, k);
+                if (_appearLeft <= 0f)
+                    _rootGo.transform.localScale = _slotScale;
+            }
+
+            if (_pressT > 0f)
+                _pressT = Mathf.Max(0f, _pressT - Time.deltaTime * 6f);
+
+            // Finger-follow + depth-fire (user #6): the cap visually tracks the fingertip
+            // penetration; the click commits only at the bottom of the travel.
+            float follow = _hoverHand != null && _interactable ? FollowDepth01(_hoverHand) : 0f;
+            if (_hoverHand != null && _interactable)
+            {
+                if (follow >= ButtonTuning.PressFireFraction)
+                {
+                    if (_depthArmed)
+                    {
+                        _depthArmed = false;
+                        _pressT = 1f;
+                        _hoverHand.SendHaptic(HapticPreset.ClickPulse);
+                        VRLog.Info("WorldUI", $"{_rootGo.name} pressed (source=poke-depth, {_hoverHand.Side}).");
+                        _onClick();
+                    }
+                }
+                else if (follow <= ButtonTuning.PressRearmFraction)
+                {
+                    _depthArmed = true;
+                }
+            }
+            else
+            {
+                _depthArmed = true;
+            }
+
+            float depth01 = Mathf.Max(follow, _pressT > 0f ? Mathf.Sin(_pressT * Mathf.PI) : 0f);
+            float y = _capRestY - TravelLocal * depth01;
+            if (Mathf.Approximately(_cap.localPosition.y, y))
+                return;
             Vector3 p = _cap.localPosition;
             p.y = y;
             _cap.localPosition = p;
         }
 
+        /// <summary>
+        /// Fingertip penetration normalised to 0..1 of the cap travel (the BoardButton
+        /// math): penetration = FingertipRadius·handScale − distance(tip → collider),
+        /// converted through the button's world scale on the travel axis (+Y).
+        /// Pure per-frame function — framerate independent, no accumulation.
+        /// </summary>
+        private float FollowDepth01(VRHand hand)
+        {
+            if (_collider == null || !_collider.enabled || !hand.HasPose)
+                return 0f;
+            Vector3 tip = hand.Rig.IndexTip.position;
+            float dist = Vector3.Distance(tip, _collider.ClosestPoint(tip));
+            float penetration = FingertipRadius * hand.WorldScale - dist;
+            if (penetration <= 0f)
+                return 0f;
+            float travelWorld = TravelLocal * Mathf.Abs(_rootGo.transform.lossyScale.y);
+            return travelWorld > 1e-6f ? Mathf.Clamp01(penetration / travelWorld) : 0f;
+        }
+
+        /// <summary>Is this OnPoke a physical fingertip contact (vs. a laser TriggerDown routed here)?</summary>
+        private bool IsFingerContact(VRHand hand)
+        {
+            if (_collider == null || !hand.HasPose)
+                return false;
+            Vector3 tip = hand.Rig.IndexTip.position;
+            return Vector3.Distance(tip, _collider.ClosestPoint(tip)) <= 0.02f * hand.WorldScale;
+        }
+
         // ---- IPokeable -------------------------------------------------------------------
 
-        public void OnPokeEnter(VRHand hand) { }
+        public void OnPokeEnter(VRHand hand) => _hoverHand = hand; // arm the finger-follow/depth-fire
 
-        public void OnPokeExit(VRHand hand) { }
+        public void OnPokeExit(VRHand hand)
+        {
+            if (ReferenceEquals(hand, _hoverHand))
+                _hoverHand = null; // cap springs back via Animate; depth-fire re-arms
+        }
 
         public void OnPoke(VRHand hand)
         {
             if (!_interactable)
                 return;
+            // DEPTH-FIRE (user #6): a fingertip CONTACT no longer fires — Animate tracks
+            // the penetration and commits at ~90% of the cap travel. Only the laser path
+            // (CardsDriver routes TriggerDown here with the fingertip nowhere near the
+            // collider) keeps the immediate press.
+            if (IsFingerContact(hand))
+            {
+                _hoverHand = hand;
+                return;
+            }
             _pressT = 1f;
             _onClick();
         }

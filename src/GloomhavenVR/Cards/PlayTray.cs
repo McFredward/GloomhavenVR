@@ -735,30 +735,50 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Items 4/6: nudge the follow/pin toggle by the per-board offset (base PinBase set by NewAnchor).
         pinAnchor.localPosition += CardsConfig.PinOffset(CardsConfig.CurrentBoard).Value;
         _followAnchor = pinAnchor;
-        // Item 5 (user): pin/gear were built NON-boxy (flat quad, no walls) while Confirm/Undo
-        // pass boxy:true — that is why "Fixiert"/"Einstellungen" showed no walls but "Fortfahren"
-        // did. Build them as the same beveled keycaps (thickness ≈ SquareCapThickness).
-        _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
-            Core.Loc.Mod("follow"), ToggleFollow,
-            thickness: 0.03f, boxy: true);
-        _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
-        RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
         Transform gearAnchor = NewAnchor("SettingsGear",
             new Vector3(ButtonZoneX, -0.125f, -0.006f));
         // Items 4/6: nudge the VR-settings gear by the per-board offset (base GearBase set by NewAnchor).
         gearAnchor.localPosition += CardsConfig.VRSettingsOffset(CardsConfig.CurrentBoard).Value;
         _gearAnchor = gearAnchor;
-        _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
-            new Color(0.37f, 0.36f, 0.38f), // T4: aged pewter (near-neutral, hint of cool)
-            Core.Loc.Mod("set"),
-            () => WorldUI.SettingsPanel.RequestToggle(),
-            thickness: 0.03f, boxy: true); // Item 5: beveled keycap walls like Confirm/Undo
+
+        CreateDashboardButtons();
 
         // Baseline for the TickStatus language-change guard: the follow/gear labels self-heal
         // there on an actual language change (round/confirm/undo re-read every tick already).
         _labelLang = Core.Loc.CurrentLanguage;
+    }
+
+    /// <summary>
+    /// Build the follow/pin toggle and settings gear keycaps on their (already placed)
+    /// anchors. Split out of <see cref="BuildDashboardControls"/> so a ButtonTuning
+    /// geometry change can rebuild just the buttons in place (anchors untouched).
+    /// </summary>
+    private void CreateDashboardButtons()
+    {
+        if (_followAnchor == null || _gearAnchor == null)
+            return;
+        // Item 5 (user): pin/gear were built NON-boxy (flat quad, no walls) while Confirm/Undo
+        // pass boxy:true — that is why "Fixiert"/"Einstellungen" showed no walls but "Fortfahren"
+        // did. Build them as the same beveled keycaps (thickness ≈ SquareCapThickness).
+        // User #9 (ButtonTuning): the square-cap width/height/depth overrides apply to these
+        // keycaps too — 0 keeps the authored 0.068/0.062 × 0.030 × 0.030 geometry.
+        WorldUI.ButtonTuning.Bind();
+        float capDepth = WorldUI.ButtonTuning.DepthOr(0.03f);
+        _followToggle = BoardButton.Create(_followAnchor,
+            new Vector2(WorldUI.ButtonTuning.WidthOr(0.068f), WorldUI.ButtonTuning.HeightOr(0.030f)),
+            new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
+            Core.Loc.Mod("follow"), ToggleFollow,
+            thickness: capDepth, boxy: true);
+        _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
+        RegisterLaserTarget(_followToggle.Collider!, _followToggle);
+
+        _gear = BoardButton.Create(_gearAnchor,
+            new Vector2(WorldUI.ButtonTuning.WidthOr(0.062f), WorldUI.ButtonTuning.HeightOr(0.030f)),
+            new Color(0.37f, 0.36f, 0.38f), // T4: aged pewter (near-neutral, hint of cool)
+            Core.Loc.Mod("set"),
+            () => WorldUI.SettingsPanel.RequestToggle(),
+            thickness: capDepth, boxy: true); // Item 5: beveled keycap walls like Confirm/Undo
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
     }
@@ -1332,6 +1352,45 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         LaserTargets.RemoveAll(static t => t.Collider == null); // drop the just-destroyed (and any other dead) targets
         BuildButtons(confirmAnchor, undoAnchor);
+    }
+
+    /// <summary>
+    /// ButtonTuning live-apply, checked once per <see cref="TickStatus"/> tick: a geometry
+    /// entry changed (width/height/depth/shape — anything the pull-based
+    /// <see cref="WorldUI.ButtonTuning.Version"/> counter covers) → rebuild the affected
+    /// keycaps in place on their existing anchors. Travel is read live per frame and needs
+    /// no rebuild, but rides the same event harmlessly.
+    /// </summary>
+    private int _tuningVersion;
+
+    private void ApplyButtonTuningIfChanged()
+    {
+        if (_root == null || _tuningVersion == WorldUI.ButtonTuning.Version)
+            return;
+        _tuningVersion = WorldUI.ButtonTuning.Version;
+        RebuildAttachedControls();
+        RebuildDashboardButtons();
+        VRLog.Info("Cards", "Board: ButtonTuning changed → Confirm/Undo/gear/follow keycaps " +
+                            $"rebuilt live — {WorldUI.ButtonTuning.Describe()}.");
+    }
+
+    /// <summary>Rebuild the gear + follow-toggle keycaps on their existing anchors (ButtonTuning live-apply).</summary>
+    private void RebuildDashboardButtons()
+    {
+        if (_root == null)
+            return;
+        if (_followToggle != null)
+        {
+            Object.DestroyImmediate(_followToggle.gameObject);
+            _followToggle = null;
+        }
+        if (_gear != null)
+        {
+            Object.DestroyImmediate(_gear.gameObject);
+            _gear = null;
+        }
+        LaserTargets.RemoveAll(static t => t.Collider == null);
+        CreateDashboardButtons();
     }
 
     /// <summary>Remove laser targets whose collider was destroyed (e.g. a rest-button rebuild).</summary>
@@ -2060,6 +2119,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>Update round readout, badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
     {
+        // ButtonTuning live-apply (user #9): geometry entries rebuild the keycaps in place.
+        ApplyButtonTuningIfChanged();
+
         // Task #2 follow-up: re-assert the slot-dock grab apron every tick (idempotent
         // flag check inside SetDockGrabPad) — a card that entered occupancy while HELD
         // (PlaceCard skips the held card, "the release path homes it") gets its apron
@@ -2375,10 +2437,18 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
         float baseSide = CardsConfig.ConfirmUndoSize(active).Value;
         float side = GenericClusterButtonSize(baseSide, GenericButtonCount);
-        var rectSize = new Vector2(side, side);
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
+
+        // User #9 (ButtonTuning): square caps take independent WIDTH/HEIGHT (rectangular
+        // keycaps) and DEPTH overrides; 0 = the per-board authored size above. Round caps
+        // keep the authored diameter (the square-cap geometry group does not apply).
+        WorldUI.ButtonTuning.Bind();
+        var rectSize = round
+            ? new Vector2(side, side)
+            : new Vector2(WorldUI.ButtonTuning.WidthOr(side), WorldUI.ButtonTuning.HeightOr(side));
+        float capDepth = WorldUI.ButtonTuning.DepthOr(SquareCapThickness);
 
         // Initial labels are overwritten by the live game-widget label each TickStatus
         // (ConfirmLabel()/UndoLabel()); route the fallback literals through the game keys.
@@ -2386,7 +2456,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.35f, 0.46f, 0.28f), // T4: muted sage green — antique, still clearly "go"
             Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
-            round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
+            round: round, diameter: side, thickness: capDepth, boxy: !round);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
@@ -2395,14 +2465,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.44f, 0.31f, 0.20f), // T4: worn leather brown (kept — already antique)
             Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
-            round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
+            round: round, diameter: side, thickness: capDepth, boxy: !round);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
         SetConfirmUndoOffset(off, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
-                            $"{side:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
+                            $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
+        VRLog.Info("Cards", $"Board: button geometry config applied — {WorldUI.ButtonTuning.Describe()}.");
+        _tuningVersion = WorldUI.ButtonTuning.Version; // fresh build reflects current config
     }
 
     private Transform NewAnchor(string name, Vector3 localPos)
@@ -3083,9 +3155,32 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// </summary>
         private const float DwellHoldRange = 0.02f;
 
-        /// <summary>Cap rest position / full 4 mm press travel on the local Z (viewer side is -Z).</summary>
+        /// <summary>Cap rest position / authored full 4 mm press travel on the local Z (viewer side is -Z).</summary>
         private const float CapRestZ = -0.004f;
         private const float CapTravel = 0.004f;
+
+        /// <summary>
+        /// Live press travel (user #9: configurable cap sink depth — also the distance the
+        /// fingertip must push for the depth-fire press). Authored 4 mm unless the
+        /// <see cref="WorldUI.ButtonTuning"/> Travel entry overrides it.
+        /// </summary>
+        private static float Travel => WorldUI.ButtonTuning.TravelOr(CapTravel);
+
+        // Depth-fire press (user #6): fingertip contact no longer fires — the finger-follow
+        // machinery fires exactly when the cap reaches PressFireFraction (~90%) of its full
+        // travel, and re-arms only after the cap rose back past PressRearmFraction (~50%).
+        // Releasing before the bottom = no fire, the cap springs back. Laser presses
+        // (CardsDriver → Press(hand, "laser")) never pass through this and stay immediate.
+        private bool _depthArmed = true;
+
+        // Dust-dissolve hide / quick scale-in show (user #7). The logical hide is INSTANT
+        // (collider off, poke state dropped); only the visuals shrink out for
+        // ButtonTuning.DissolveSeconds while the pooled dust burst plays.
+        private bool _logicalVisible = true;
+        private bool _ticked;      // false until the first Update — a hide before then is silent (initial state settling)
+        private float _hideLeft;   // dissolve shrink countdown, seconds
+        private float _showLeft;   // appear scale-in countdown, seconds
+        private Vector3 _shownScale = Vector3.one;
 
         /// <summary>
         /// Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>
@@ -3381,15 +3476,51 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// </summary>
         internal void SetVisible(bool visible)
         {
-            if (gameObject.activeSelf != visible)
-                gameObject.SetActive(visible);
-            if (!visible)
+            if (_logicalVisible == visible)
+                return;
+            _logicalVisible = visible;
+            if (visible)
             {
-                _hoverHand = null; // no poke events fire while hidden — drop stale follow
-                if (_dwellHand != null)
-                    CancelDwell();
+                // Cancel a running dissolve, restore the true scale, re-enable input.
+                _hideLeft = 0f;
+                transform.localScale = _shownScale;
+                if (Collider != null)
+                    Collider.enabled = true;
+                if (!gameObject.activeSelf)
+                    gameObject.SetActive(true);
+                _showLeft = _ticked ? WorldUI.ButtonTuning.AppearSeconds : 0f; // quick scale-in (user #7)
+                return;
             }
+            // LOGICAL hide is immediate (user #7 contract): input off now, visuals may linger.
+            _hoverHand = null; // no poke events fire while hidden — drop stale follow
+            _depthArmed = true;
+            if (_dwellHand != null)
+                CancelDwell();
+            if (Collider != null)
+                Collider.enabled = false;
+            if (!_ticked || !gameObject.activeInHierarchy)
+            {
+                // Initial state settling (built then hidden the same frame) or already
+                // invisible with the tray — pop away silently, no dust.
+                gameObject.SetActive(false);
+                return;
+            }
+            // Dust dissolve (user #7): cap shrinks out over DissolveSeconds while the pooled
+            // burst sweeps face-colored powder sideways; Update deactivates at the end.
+            _shownScale = transform.localScale;
+            _showLeft = 0f;
+            _hideLeft = WorldUI.ButtonTuning.DissolveSeconds;
+            Vector3 center = _cap != null ? _cap.position : transform.position;
+            float footprint = Collider is BoxCollider bc ? Mathf.Max(bc.size.x, bc.size.y) : 0.05f;
+            WorldUI.ButtonDissolveFx.Play(center, -transform.forward,
+                footprint * Mathf.Abs(transform.lossyScale.x), CurrentCapColor());
         }
+
+        /// <summary>The cap's face color right now (native face, tinted material, or the palette fallback).</summary>
+        private Color CurrentCapColor() =>
+            _capFace != null ? _capFace.color
+            : _capMaterial != null ? _capMaterial.color
+            : StateColor();
 
         /// <summary>Resting cap color for the current state (procedural fallback; dwell ramps AWAY from this).</summary>
         private Color StateColor() =>
@@ -3441,6 +3572,32 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
         private void Update()
         {
+            // Dust-dissolve shrink-out (user #7): the button is logically gone already
+            // (collider off) — finish the visual shrink, then deactivate for real.
+            if (_hideLeft > 0f)
+            {
+                _hideLeft -= Time.deltaTime;
+                float k = Mathf.Max(0f, _hideLeft / WorldUI.ButtonTuning.DissolveSeconds);
+                transform.localScale = _shownScale * k;
+                if (_hideLeft <= 0f)
+                {
+                    transform.localScale = _shownScale; // restore for the next show
+                    gameObject.SetActive(false);
+                }
+                return;
+            }
+            _ticked = true;
+
+            // Quick scale-in on appear (user #7) — runs alongside the normal press logic.
+            if (_showLeft > 0f)
+            {
+                _showLeft -= Time.deltaTime;
+                float k = 1f - Mathf.Max(0f, _showLeft / WorldUI.ButtonTuning.AppearSeconds);
+                transform.localScale = _shownScale * Mathf.SmoothStep(0.55f, 1f, k);
+                if (_showLeft <= 0f)
+                    transform.localScale = _shownScale;
+            }
+
             if (_dwellHand != null)
             {
                 TickDwell();
@@ -3459,6 +3616,32 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // finger is present it falls back to the _press spring. The two combine as a
             // max so a quick laser/click still shows its dip even mid-hover.
             float follow = _hoverHand != null && _enabledState ? FollowDepth01(_hoverHand) : 0f;
+
+            // DEPTH-FIRE (user #6): the press fires exactly when the cap reaches ~90% of
+            // its full travel under the finger — not on contact. Re-arms only after the
+            // finger retracted enough for the cap to rise back past ~50%, so resting at
+            // the bottom cannot machine-gun and a shallow brush never fires at all.
+            // Press() still runs the full gate chain (enabled/ActivationGuard/logs).
+            if (_hoverHand != null && _enabledState)
+            {
+                if (follow >= WorldUI.ButtonTuning.PressFireFraction)
+                {
+                    if (_depthArmed)
+                    {
+                        _depthArmed = false;
+                        Press(_hoverHand, "poke-depth");
+                    }
+                }
+                else if (follow <= WorldUI.ButtonTuning.PressRearmFraction)
+                {
+                    _depthArmed = true;
+                }
+            }
+            else
+            {
+                _depthArmed = true;
+            }
+
             float depth01 = Mathf.Max(follow, _press);
 
             // Nothing to drive and already seated → leave it (avoids per-frame churn).
@@ -3466,7 +3649,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 return;
 
             Vector3 pos = _cap.localPosition;
-            pos.z = CapRestZ + CapTravel * depth01;
+            pos.z = CapRestZ + Travel * depth01;
             _cap.localPosition = pos;
         }
 
@@ -3488,15 +3671,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             float penetration = FingertipRadius * hand.WorldScale - dist;
             if (penetration <= 0f)
                 return 0f;
-            float capTravelWorld = CapTravel * Mathf.Abs(transform.lossyScale.z);
+            float capTravelWorld = Travel * Mathf.Abs(transform.lossyScale.z);
             return capTravelWorld > 1e-6f ? Mathf.Clamp01(penetration / capTravelWorld) : 0f;
         }
 
         /// <summary>
         /// Poke path (P2 PokeInteractor — geometric fingertip test against this
-        /// collider). Dwell buttons (test #19) start a charge here instead of
-        /// firing; the disabled case still routes to <see cref="Press"/> so every
-        /// rejected attempt keeps its gate log (test #14).
+        /// collider). DEPTH-FIRE (user #6): fingertip CONTACT no longer presses —
+        /// the finger-follow machinery in <see cref="Update"/> fires when the cap
+        /// reaches ~90% of its travel, so a brush against the button does nothing
+        /// and the press feels like actually pushing the key in. The disabled case
+        /// still routes to <see cref="Press"/> so every rejected attempt keeps its
+        /// gate log (test #14); dwell buttons (none currently) keep their charge.
+        /// Laser presses arrive via <see cref="Press"/> directly and stay immediate.
         /// </summary>
         public override void OnPoke(VRHand hand)
         {
@@ -3505,7 +3692,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 BeginDwell(hand);
                 return;
             }
-            Press(hand, "poke");
+            if (!_enabledState)
+            {
+                Press(hand, "poke"); // keeps the REJECTED + reason log
+                return;
+            }
+            _hoverHand = hand; // safety: ensure the depth-fire tracker is armed on this hand
         }
 
         public override void OnPokeExit(VRHand hand)
@@ -3555,7 +3747,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (_cap != null)
             {
                 Vector3 pos = _cap.localPosition;
-                pos.z = CapRestZ + CapTravel * progress;
+                pos.z = CapRestZ + Travel * progress;
                 _cap.localPosition = pos;
             }
             if (_capFace != null)
