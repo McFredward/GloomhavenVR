@@ -136,42 +136,53 @@ internal static class WallFadeTuning
 ///   fade would sample garbage), an untouched renderer is bit-for-bit today's solid wall.</item>
 /// </list>
 ///
-/// OCCLUSION DECISION (per segment, VR-stable — round 6, FLOOR coverage; R1: the fraction
-/// now literally means "share of the FLOOR (hex tiles) currently in view that this wall
-/// hides" — round 5's two mid-wall-band sample layers also counted MID-AIR points a wall
-/// hid without hiding any actual floor, so the on/off thresholds never matched what the
-/// player perceived as covered play area): the floor is sampled with a per-room XZ grid
-/// (4×4 while the room budget allows, then 3×3/2×2/center) ON the room tile bounds' TOP
-/// surface — floor height + 0.05 wu epsilon; the room renderers ARE the hex-tile meshes
-/// the game rasterizes into its occlusion map, so their AABB top is the tile plane.
-/// World-unit sanity: the rig is scaled UP by WorldScale ≈ 11–20 (1 wu ≈ 5–9 real cm, hex
-/// tile ≈ 1.72 wu) while board geometry keeps original game units — the floor plane needs
-/// no height guessing (the round-4 "+0.4 wu off an untrusted bounds top" bug class is
-/// gone; the !ABOVE-WALL diag marker stays as a tripwire). Each frame the samples inside
-/// the head camera's view frustum (viewport test, 0.20 margin, ≤48 kept) stand in for the
-/// CURRENTLY VISIBLE floor region. A segment's raw metric is the largest PER-ROOM fraction
-/// of visible floor points whose head→point segment its AABB blocks (per-room
-/// normalization: a wall covering the room being looked INTO is not diluted by samples of
-/// other visible rooms; denominator floored at 3 so a single stray sample cannot read
-/// 1.0). "Blocks" = AABB
-/// entry strictly closer than the sample by a wall-thickness epsilon (0.5 × min horizontal
-/// AABB extent, clamped 0.10–0.90 wu) OR the sample lying inside the wall AABB — the
-/// round-4 "hit before 88% of distance" rule silently discarded exactly the near-edge
-/// samples a leaned-in head actually loses sight of. Head inside the AABB counts as 1.0;
-/// ≥1 visible sample suffices to decide (round 4 demanded 3 — leaning in close shrinks the
-/// visible set to 1–2 precisely when the fade must fire). The raw fraction is EMA-smoothed
-/// (tau 0.15s) to kill threshold jitter, then smoothed ≥ 0.25 switches ON ("wall hides
-/// &gt;25% of the floor currently in view of some room"); once faded a SCHMITT TRIGGER keeps it ON
-/// down to 0.10 — looking around only moves samples in/out of the frustum and rarely
-/// drops a still-covering wall below the low bar. Transitions additionally need dwell: 0.10s
-/// to fade IN (snappy; the EMA already adds ~0.2s), 2.5s continuously below 0.10 to un-fade
-/// — and that un-fade dwell
-/// stretches to 7s unless the PERSPECTIVE recently (≤3s) actually changed: real head
-/// TRANSLATION &gt;0.18m in tracking space (scale-independent), rig-root motion
-/// (world-grab/snap-turn), recenter/rig rebuild (RigPoseVersion), or a room-bounds shift seen
-/// at rescan. Net effect: rotation alone almost never un-fades a wall; moving the head or
-/// re-gripping the world re-evaluates promptly. The fade value itself stays exponentially
-/// damped (tau 0.12s ≈ 0.35s visible transition).
+/// OCCLUSION DECISION (per segment, VR-stable — round 7, PER-WALL ROOM COVERAGE; user
+/// spec: a wall's fraction literally means "share of ITS OWN room's floor (hex tiles)
+/// hidden from the current viewpoint" — 0.25 = a quarter of that room's floor is behind
+/// the wall).
+///
+/// ROUND-6 HARDWARE KILL FACTOR (log: EVERY diag line carried the !ABOVE-WALL tripwire):
+/// the floor plane was taken from the room renderers' bounds.max.y — but m_RoomRenderers
+/// are the game's top-down occlusion-map PROXY meshes; only their XZ footprint matches
+/// the tiles, their AABB tops sat ~9 wu above the actual tile plane (log: sampY 9.05 vs
+/// wall AABB tops ≤ 3.67, actual floor ≈ 0). Every head→sample ray therefore ran
+/// entirely ABOVE every wall box — blocked counts were permanently 0/48 (the one logged
+/// frame where the head dipped to y = −0.79 instantly read raw 0.69, proving the ray
+/// math fine and the FRAME wrong). Round 7 anchors the floor plane per room on the
+/// game's own tile data: each <c>TilesOcclusionVolume</c> maps its <c>Renderers</c> to
+/// its <c>CentralTile</c> (a <c>TileBehaviour</c> whose transform sits ON the tile
+/// plane — the game spawns its worldspace tile UI at exactly that position), so sample
+/// height = CentralTile.position.y + 0.05 wu; rooms without a volume match fall back to
+/// the median anchored height (then, with zero anchors, to the old bounds top — and the
+/// !ABOVE-WALL tripwire stays to catch that in hardware logs).
+///
+/// METRIC: at rescan every wall is associated with ONE room (smallest XZ gap between the
+/// wall AABB and the room AABB — walls border their room, gap ≈ 0; ties by nearer
+/// center). Per frame:
+///   fraction = (points of the wall's room floor grid that are IN VIEW-DIRECTION and
+///               whose head→point segment the wall AABB clearly interrupts)
+///              / (ALL floor-grid points of that room).
+/// Frustum culling (viewport test, 0.20 margin) applies to the NUMERATOR ONLY — a floor
+/// point outside the view cannot be "hidden by the wall" in the user's sense — while the
+/// denominator stays the room's WHOLE grid so the number reads literally as "this wall
+/// hides X% of the room's floor" and the VR-menu stepper values keep their plain meaning.
+/// "Clearly interrupts" = AABB entry distance &lt; dist − max(0.5·thickness clamped
+/// 0.10–0.90 wu, 0.05·dist), OR the sample lies inside the AABB (the round-4
+/// 88%-of-distance rule discarded exactly the near-edge first-row samples that carry the
+/// whole signal; a pure thickness epsilon was still too strict for long grazing rays —
+/// the 5%-of-distance term keeps the margin proportionate). Head inside the wall AABB
+/// counts as 1.0 (wall in the face).
+///
+/// TRIGGER (fully stepper-driven, WallFadeTuning live config): the raw fraction is
+/// EMA-smoothed (tau 0.15s), then compared against the VR-menu steppers — ON at
+/// ≥ OnFraction (default 0.25), and once faded a SCHMITT TRIGGER holds down to
+/// OffFraction (default 0.10). HEAD-MOTION DECOUPLING: fade-IN needs only a short 0.2s
+/// dwell (prompt); fade-OUT is deliberately DELAYED — ExitDwellMoved (2.5s) continuously
+/// below the low bar when the PERSPECTIVE recently (≤3s) actually changed (real head
+/// TRANSLATION &gt;0.18m tracking-space, rig-root motion from world-grab/snap-turn,
+/// recenter/rig rebuild, room-bounds shift), stretching to ExitDwellStationary (7s) when
+/// the head only rotated. No other head-motion-coupled term exists in the decision. The
+/// fade value itself stays exponentially damped (tau 0.12s ≈ 0.35s visible transition).
 ///
 /// MULTIPLAYER: purely local rendering (MaterialPropertyBlocks + locally created textures);
 /// nothing synced, peers unaffected. Gated LIVE by [Compat] WallFade — OFF clears every block
@@ -195,9 +206,9 @@ internal static class WallSegmentFade
         _driver = go.AddComponent<FadeDriver>();
         VRLog.Info(Name,
             $"installed (WallFade={(Plugin.WallFade != null && Plugin.WallFade.Value ? "on" : "off")}) — " +
-            "whole-wall fade: per-ProceduralWall FLOOR-coverage decision (per-room fraction of " +
-            "the frustum-visible hex-tile-plane samples hidden, EMA + Schmitt " +
-            "trigger + perspective-anchored dwell), " +
+            "whole-wall fade: per-ProceduralWall ROOM-coverage decision (fraction of the " +
+            "wall's own room's tile-anchored floor grid hidden from the head, frustum-culled " +
+            "numerator, EMA + stepper-driven Schmitt trigger + perspective-anchored dwell), " +
             "delivered via per-renderer MaterialPropertyBlocks through the wall shaders' own " +
             "map/cutoff fade path.");
     }
@@ -236,6 +247,9 @@ internal static class WallSegmentFade
 
         /// <summary>Blocked-test distance epsilon (world units, ~half the wall thickness).</summary>
         public float BlockEps = 0.3f;
+        /// <summary>Index into the room tables of the ONE room this wall belongs to (XZ-nearest
+        /// room AABB, recomputed at rescan); -1 while unassociated.</summary>
+        public int RoomIndex = -1;
         /// <summary>R2 diag: which fade-shader variant(s) this segment's renderers carry.</summary>
         public bool VariantHigh;
         public bool VariantLow;
@@ -247,7 +261,10 @@ internal static class WallSegmentFade
         // Last-tick raw numbers, kept for the throttled diagnostic.
         public float LastRaw;
         public int LastBlocked;
-        public int LastVisible;
+        /// <summary>In-view sample count of THIS wall's room last tick (numerator candidates).</summary>
+        public int LastRoomVisible;
+        /// <summary>Total floor-grid points of this wall's room (the fraction denominator).</summary>
+        public int LastRoomTotal;
     }
 
     private sealed class FadeDriver : MonoBehaviour
@@ -261,19 +278,17 @@ internal static class WallSegmentFade
         // bounds' top surface — the tile plane itself (see RebuildSamples).
         // On/off fractions + the two exit dwells are LIVE CONFIG now (WallFadeTuning — the
         // settings panel's debug steppers drive them in-headset); read fresh every evaluation.
-        private const float EnterDwellSeconds = 0.10f; // short — the fraction EMA already smooths entry
+        private const float EnterDwellSeconds = 0.20f; // short fade-IN prompt dwell (~0.2s per spec)
         private const float HeadMoveReevalMeters = 0.18f; // REAL tracking-space meters (scale-independent)
         private const float ReevalArmSeconds = 3f;     // how long a perspective change keeps re-eval armed
         private const float FadeTauSeconds = 0.12f;    // exp. fade time constant (~0.35s to 95%)
         private const float FractionTauSeconds = 0.15f; // EMA over the raw fraction (jitter killer)
-        private const float FloorSampleEpsilon = 0.05f; // wu above the room tile bounds' top (R1 floor plane)
-        private const float BlockEpsMinWorld = 0.10f;  // wu — blocked-test epsilon clamp (lo)
-        private const float BlockEpsMaxWorld = 0.90f;  // wu — blocked-test epsilon clamp (hi)
+        private const float FloorSampleEpsilon = 0.05f; // wu above the tile-anchored floor plane
+        private const float BlockEpsMinWorld = 0.10f;  // wu — thickness-epsilon clamp (lo)
+        private const float BlockEpsMaxWorld = 0.90f;  // wu — thickness-epsilon clamp (hi)
+        private const float BlockEpsDistFraction = 0.05f; // blocked eps = max(thicknessEps, 5% of dist)
         private const float FrustumMargin = 0.20f;     // viewport slack (also covers per-eye vs mono skew)
         private const int MaxTotalSamples = 96;        // precomputed floor samples (all rooms)
-        private const int MaxVisibleSamples = 48;      // per-frame frustum-visible sample cap
-        private const int MinVisibleForDecision = 1;   // leaning in close legitimately leaves 1–2 visible
-        private const int RoomDenomFloor = 3;          // per-room fraction denominator floor (noise guard)
         private const float RescanIntervalSeconds = 2f;
         private const float DiagIntervalSeconds = 2f;  // throttled hardware diagnostic cadence
 
@@ -285,15 +300,18 @@ internal static class WallSegmentFade
         private readonly Dictionary<ProceduralWall, Segment> _segments = new();
         private readonly List<ProceduralWall> _deadWalls = new();
         private readonly List<Bounds> _roomBounds = new();
-        private readonly List<Vector3> _allSamples = new();     // per-room floor-plane grid (R1)
-        private readonly List<int> _sampleRoom = new();         // room index per sample (parallel)
-        private readonly List<Vector3> _visibleSamples = new(); // frustum-visible subset, per frame
-        private readonly List<int> _visibleRoom = new();        // room index per visible sample
-        private int[] _visPerRoom = Array.Empty<int>();         // per-frame visible count per room
-        private int[] _blkPerRoom = Array.Empty<int>();         // per-segment blocked count per room
+        private readonly List<float> _roomFloorY = new();       // tile-anchored floor plane per room
+        private readonly List<bool> _roomFloorAnchored = new(); // true = from a CentralTile anchor
+        private readonly List<int> _roomSampleStart = new();    // first sample index per room
+        private readonly List<int> _roomSampleCount = new();    // grid size per room (denominator)
+        private readonly List<Vector3> _allSamples = new();     // per-room floor-plane grid
+        private readonly bool[] _sampleVisible = new bool[MaxTotalSamples]; // per-frame frustum flags
+        private readonly Dictionary<MeshRenderer, float> _floorYByRenderer = new(); // volume anchors
+        private readonly List<float> _floorYScratch = new();    // median fallback scratch
         private readonly List<Material> _matScratch = new();
         private readonly System.Text.StringBuilder _diagSb = new();
         private float _sampleYMin, _sampleYMax;                 // overall sample-height range (diag)
+        private int _roomsAnchored;                             // rooms with a tile-anchored plane (diag)
         private float _nextDiagTime;
         private MaterialPropertyBlock? _mpb;
 
@@ -383,7 +401,7 @@ internal static class WallSegmentFade
             Transform headT = head!.transform;
             Vector3 headPos = headT.position;
             UpdatePerspectiveState(headT, now);
-            int visibleCount = CollectVisibleSamples(head!);
+            int visibleCount = UpdateSampleVisibility(head!);
             bool reevalArmed = now - _lastReevalTime <= ReevalArmSeconds;
 
             float fadeStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FadeTauSeconds);
@@ -399,14 +417,12 @@ internal static class WallSegmentFade
                 if (!seg.HasBounds)
                     continue;
 
-                // Floor-coverage metric (EMA-smoothed) with a Schmitt trigger (0.25 on /
-                // 0.10 off) + dwell hysteresis. The un-fade dwell is long, and much longer
+                // Room-coverage metric (EMA-smoothed) with the stepper-driven Schmitt
+                // trigger + dwell hysteresis. The un-fade dwell is long, and much longer
                 // still unless the perspective (head position / world grip) recently
                 // changed — rotation-only head motion keeps the current state sticky.
-                float fraction = BlockedFraction(seg, headPos, visibleCount, out int blockedTotal);
+                float fraction = BlockedFraction(seg, headPos);
                 seg.LastRaw = fraction;
-                seg.LastBlocked = blockedTotal;
-                seg.LastVisible = visibleCount;
                 if (!seg.SmoothInit)
                 {
                     seg.SmoothInit = true;
@@ -462,9 +478,10 @@ internal static class WallSegmentFade
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
                     + $"{_segments.Count} wall segments (shader variants: {lowSegs} LOW / "
                     + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
-                    + $"bounds / {_allSamples.Count} floor samples (tile plane +"
+                    + $"bounds / {_allSamples.Count} floor samples ({_roomsAnchored}/"
+                    + $"{_roomBounds.Count} rooms tile-anchored, plane +"
                     + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}) — "
-                    + $"per-room FLOOR-coverage fade "
+                    + $"per-wall ROOM-coverage fade "
                     + $"(EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
                     + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
                     + $"{exitDwellMoved:0.0}s out moved / "
@@ -538,122 +555,113 @@ internal static class WallSegmentFade
         }
 
         /// <summary>
-        /// Cull the precomputed play-area samples against the head camera's view frustum
-        /// (viewport test with margin, capped at <see cref="MaxVisibleSamples"/>). The
-        /// surviving set represents the currently visible play-area region.
+        /// Refresh the per-sample frustum flags (viewport test with margin) for ALL
+        /// precomputed floor samples. Returns the overall visible count (diagnostic only —
+        /// the metric reads the flags per room).
         /// </summary>
-        private int CollectVisibleSamples(Camera head)
+        private int UpdateSampleVisibility(Camera head)
         {
-            _visibleSamples.Clear();
-            _visibleRoom.Clear();
-            Array.Clear(_visPerRoom, 0, _visPerRoom.Length);
-            for (int i = 0; i < _allSamples.Count; i++)
+            int visible = 0;
+            int n = Mathf.Min(_allSamples.Count, _sampleVisible.Length);
+            for (int i = 0; i < n; i++)
             {
                 // Mono view/projection of the head camera; per-eye stereo frustums differ
                 // only by half the IPD and a slightly wider horizontal FOV — FrustumMargin
                 // (0.20 viewport-relative) generously covers that skew.
                 Vector3 vp = head.WorldToViewportPoint(_allSamples[i]);
-                if (vp.z > 0f
+                bool vis = vp.z > 0f
                     && vp.x > -FrustumMargin && vp.x < 1f + FrustumMargin
-                    && vp.y > -FrustumMargin && vp.y < 1f + FrustumMargin)
-                {
-                    _visibleSamples.Add(_allSamples[i]);
-                    int room = _sampleRoom[i];
-                    _visibleRoom.Add(room);
-                    if (room >= 0 && room < _visPerRoom.Length)
-                        _visPerRoom[room]++;
-                    if (_visibleSamples.Count >= MaxVisibleSamples)
-                        break;
-                }
+                    && vp.y > -FrustumMargin && vp.y < 1f + FrustumMargin;
+                _sampleVisible[i] = vis;
+                if (vis)
+                    visible++;
             }
-            return _visibleSamples.Count;
+            return visible;
         }
 
         /// <summary>
-        /// Largest per-room fraction of the frustum-visible FLOOR samples whose
-        /// head→sample segment this wall's AABB blocks (R1: "the wall hides X% of the
-        /// floor currently in view of some room").
+        /// Fraction of the wall's OWN room's floor grid that the wall hides from the head:
+        /// numerator = room grid points that are in view-direction (frustum flag) AND whose
+        /// head→point segment the wall AABB clearly interrupts; denominator = the room's
+        /// WHOLE grid (see class header for why the denominator is not frustum-culled).
         ///
-        /// ROUND-4 KILL-FACTOR AUTOPSY (why the previous metric almost never fired on
-        /// hardware) with a worked example at world scale 20 (1 real m = 20 wu, 1 wu = 5
-        /// real cm, hex tile 1.72 wu; plausible wall band: y from −0.3 (skirt) to +2.4
-        /// (top), room floor top y = 0, room 5 hexes ≈ 8.6 wu deep):
-        /// <list type="bullet">
-        /// <item>HEAD HIGH ABOVE: standing over the diorama the head sits ~0.6 real m =
-        ///   12 wu above the floor. A ray to a sample at height s clears a wall of top w at
-        ///   horizontal distance x0 unless x0/x ≥ (h−s at scale)… concretely: blocked only
-        ///   when sampleDist ≤ wallDist · (h−s)/(h−w). h=12, w=2.4, s=0.4 → shadow reaches
-        ///   just 21% past the wall. Only the FIRST grid row behind a wall can ever be
-        ///   blocked from a god view — which is geometrically CORRECT (you do see most of
-        ///   the room) but means those first-row samples are the entire signal.</item>
-        /// <item>THE 88% RULE ATE THE SIGNAL: that first row sits ~1.5–1.9 wu behind the
-        ///   wall face at a 10–20 wu sample distance, so the AABB entry lands at 90–99% of
-        ///   the distance — and round 4 required &lt;88%. The only samples that COULD be
-        ///   blocked were exactly the ones discarded → fraction ≈ 0 nearly always. Fix: a
-        ///   wall-thickness epsilon in wu (entry &lt; dist − eps, eps = 0.5·thickness
-        ///   clamped 0.10–0.90), plus "sample inside the wall AABB" counts.</item>
-        /// <item>DILUTION: leaning to 8 real cm above the wall top (head y=4.0, 1.5 wu
-        ///   outside the wall face) the shadow covers the first row of the near room at the
-        ///   low layer (y=0.375: blocked out to 1.5·(4−0.375)/(4−2.4) ≈ 3.4 wu from the
-        ///   head ≈ 1.9 wu past the wall). That is 3 of the room's ~18 visible samples —
-        ///   but round 4 divided by ALL visible samples of ALL rooms (e.g. 24) → 0.13 &lt;
-        ///   0.25 → never ON. Fix: normalize per room (denominator floored at
-        ///   <see cref="RoomDenomFloor"/>) and take the max: 3/max(18,3)… with the epsilon
-        ///   fix typically 5–6 blocked of 18 → 0.31 ≥ 0.25 → ON.</item>
-        /// <item>MIN-VISIBLE: leaning in close often leaves 1–2 samples in the frustum;
-        ///   round 4 forced fraction = 0 below 3 visible — OFF exactly when the wall filled
-        ///   the view. Now ≥1 decides (EMA + Schmitt absorb the noise).</item>
-        /// </list>
-        /// Head inside the AABB = 1 (wall in the face).
+        /// SELF-TEST (worked example, world scale 20 — 1 real m = 20 wu, 1 wu = 5 real cm;
+        /// numbers chosen to match the round-6 hardware log: floor tile plane y = 0, wall
+        /// tops ≈ 3.5, head standing 0.6 real m above the board):
+        ///   Room: 5-hex ≈ 8.6 wu square footprint, x ∈ [0.3, 8.9], 4×4 grid → 16 points
+        ///     (denominator), sample columns at x ≈ {1.38, 3.53, 5.68, 7.83}, y = 0.05.
+        ///   Wall: run along the room's near edge, AABB x ∈ [−0.5, 0.3] (thickness 0.8 →
+        ///     BlockEps = 0.4), y ∈ [−0.3, 3.5], z spanning the room. Player looks into
+        ///     the room → all 16 points pass the frustum test.
+        ///   (a) LEANING IN, head (−1.0, 4.5, roomMidZ) — 22.5 real cm above the floor,
+        ///     5 cm outside the wall face. A ray to column x_s drops 4.45 wu; it reaches
+        ///     the wall-top plane y = 3.5 at parameter t = 1.0/4.45 = 0.2247, i.e. at
+        ///     x = −1 + 0.2247·(x_s+1): col 1 → x = −0.47, col 2 → x = 0.02 (both inside
+        ///     the slab [−0.5, 0.3] → blocked), col 3 → x = 0.50, col 4 → x = 0.98 (past
+        ///     the slab while still above the top → miss). Epsilon check col 2: dist =
+        ///     √(4.53² + 4.45²) = 6.35, entry ≈ 0.2247·6.35 = 1.43 &lt; 6.35 −
+        ///     max(0.4, 0.05·6.35 = 0.32) = 5.95 ✓. → 8/16 = 0.50 ≥ 0.25 → ON: the EMA
+        ///     (tau 0.15s) crosses 0.25 after 0.15·ln(0.50/(0.50−0.25)) ≈ 0.10s, plus the
+        ///     0.2s enter dwell → fades ~0.3s after the lean settles.
+        ///   (b) STANDING TALL, head (−6, 12, roomMidZ) — 0.6 real m up, 0.3 m back: only
+        ///     col 1 is shadowed (slab crossing y: 3.10→1.80 inside; col 2 stays ≥ 4.10
+        ///     above the top) → 4/16 = 0.25, exactly the default bar — the marginal case.
+        ///   Between (a) and (b) the shadow reach grows continuously as the head lowers,
+        ///   so a pose hiding ~30% of the room (5/16 = 0.3125, e.g. col 1 + the first
+        ///   oblique col-2 point) sits comfortably above the default 0.25: EMA crosses at
+        ///   0.15·ln(0.3125/0.0625) ≈ 0.24s → ON ~0.45s after the pose settles. A wall
+        ///   hiding ~30% of its room's floor therefore reliably triggers at default 0.25.
         /// </summary>
-        private float BlockedFraction(Segment seg, Vector3 headPos, int visibleCount, out int blockedTotal)
+        private float BlockedFraction(Segment seg, Vector3 headPos)
         {
-            blockedTotal = 0;
+            seg.LastBlocked = 0;
+            seg.LastRoomVisible = 0;
+            seg.LastRoomTotal = 0;
+            int room = seg.RoomIndex;
+            if (room < 0 || room >= _roomSampleCount.Count)
+                return 0f;
+            int total = _roomSampleCount[room];
+            seg.LastRoomTotal = total;
+            if (total <= 0)
+                return 0f;
+
             Bounds b = seg.Bounds;
             if (b.Contains(headPos))
             {
-                blockedTotal = visibleCount;
+                // Wall in the face — treat as full coverage of its room.
+                seg.LastBlocked = total;
+                seg.LastRoomVisible = total;
                 return 1f;
             }
-            if (visibleCount < MinVisibleForDecision)
-                return 0f;
 
-            Array.Clear(_blkPerRoom, 0, _blkPerRoom.Length);
-            float eps = seg.BlockEps;
-            for (int i = 0; i < visibleCount; i++)
+            int start = _roomSampleStart[room];
+            int end = Mathf.Min(start + total, Mathf.Min(_allSamples.Count, _sampleVisible.Length));
+            float thicknessEps = seg.BlockEps;
+            int blocked = 0, roomVisible = 0;
+            for (int i = start; i < end; i++)
             {
-                Vector3 sample = _visibleSamples[i];
+                if (!_sampleVisible[i])
+                    continue; // out of view-direction — cannot be "hidden by the wall"
+                roomVisible++;
+                Vector3 sample = _allSamples[i];
                 Vector3 to = sample - headPos;
                 float dist = to.magnitude;
                 if (dist < 0.001f)
                     continue;
+                // Generous "clearly before the point": wall entry must precede the sample
+                // by max(half wall thickness, 5% of the ray length) — thickness alone is
+                // too strict for long grazing rays, a pure percentage was the round-4 bug.
+                float eps = Mathf.Max(thicknessEps, BlockEpsDistFraction * dist);
                 var ray = new Ray(headPos, to / dist);
                 if (b.IntersectRay(ray, out float d)
                     && (d < dist - eps || b.Contains(sample)))
                 {
-                    blockedTotal++;
-                    int room = _visibleRoom[i];
-                    if (room >= 0 && room < _blkPerRoom.Length)
-                        _blkPerRoom[room]++;
+                    blocked++;
                 }
             }
-            if (blockedTotal == 0)
-                return 0f;
-
-            // Per-room normalization: the wall that covers the room being looked INTO must
-            // not be diluted by visible samples of other rooms. Denominator floor keeps a
-            // single stray visible sample from reading as full coverage.
-            float best = 0f;
-            int rooms = Mathf.Min(_roomBounds.Count, _visPerRoom.Length);
-            for (int r = 0; r < rooms; r++)
-            {
-                if (_visPerRoom[r] <= 0 || _blkPerRoom[r] <= 0)
-                    continue;
-                float f = _blkPerRoom[r] / (float)Mathf.Max(_visPerRoom[r], RoomDenomFloor);
-                if (f > best)
-                    best = f;
-            }
-            return best;
+            seg.LastBlocked = blocked;
+            seg.LastRoomVisible = roomVisible;
+            return blocked / (float)total;
         }
 
         /// <summary>
@@ -725,16 +733,27 @@ internal static class WallSegmentFade
                 name = name.Substring(0, 24);
             Bounds b = seg.Bounds;
             _diagSb.Append(" | '").Append(name)
-                   .Append("' raw").Append(seg.LastRaw.ToString("F2"))
+                   .Append("' r").Append(seg.RoomIndex)
+                   .Append(" raw").Append(seg.LastRaw.ToString("F2"))
                    .Append(" ema").Append(seg.Smooth.ToString("F2"))
-                   .Append(" blk").Append(seg.LastBlocked).Append('/').Append(seg.LastVisible)
+                   .Append(" blk").Append(seg.LastBlocked).Append('/').Append(seg.LastRoomTotal)
+                   .Append(" v").Append(seg.LastRoomVisible)
                    .Append(seg.State ? " ON " : " off ").Append(seg.Fade.ToString("F2"))
                    .Append(" wy[").Append(b.min.y.ToString("F2")).Append("..")
                    .Append(b.max.y.ToString("F2")).Append(']')
                    .Append(" e").Append(seg.BlockEps.ToString("F2"))
                    .Append(seg.VariantHigh ? (seg.VariantLow ? " vH+L" : " vHIGH") : " vLOW");
-            if (_sampleYMin > b.max.y)
+            // Tripwire: this wall's own room's sample plane sits above the wall AABB top —
+            // the exact frame-mismatch class the round-6 hardware log caught (sampY 9.05 vs
+            // wall tops ≤3.67: bounds-derived plane, occlusion-proxy meshes).
+            int room = seg.RoomIndex;
+            float planeY = room >= 0 && room < _roomFloorY.Count
+                ? _roomFloorY[room] + FloorSampleEpsilon
+                : _sampleYMin;
+            if (planeY > b.max.y)
                 _diagSb.Append(" !ABOVE-WALL");
+            if (room >= 0 && room < _roomFloorAnchored.Count && !_roomFloorAnchored[room])
+                _diagSb.Append(" !UNANCHORED");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -813,13 +832,61 @@ internal static class WallSegmentFade
         /// </summary>
         private void Rescan(TilesOcclusionGenerator gen)
         {
+            // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
+            // renderers AND its CentralTile, whose transform sits ON the tile plane. The
+            // renderer bounds are only trusted for the XZ footprint — their Y is the
+            // occlusion-proxy artifact the round-6 hardware log caught (tops ~9 wu above
+            // the actual floor, see class header).
+            _floorYByRenderer.Clear();
+            TilesOcclusionVolume[] volumes = UnityEngine.Object.FindObjectsOfType<TilesOcclusionVolume>();
+            foreach (TilesOcclusionVolume v in volumes)
+            {
+                if (v == null || v.CentralTile == null || v.Renderers == null)
+                    continue;
+                float tileY = v.CentralTile.transform.position.y;
+                foreach (MeshRenderer vr in v.Renderers)
+                {
+                    if (vr != null)
+                        _floorYByRenderer[vr] = tileY;
+                }
+            }
+
             _roomBounds.Clear();
+            _roomFloorY.Clear();
+            _roomFloorAnchored.Clear();
             foreach (MeshRenderer r in gen.m_RoomRenderers)
             {
-                if (r != null)
-                    _roomBounds.Add(r.bounds);
+                if (r == null)
+                    continue;
+                _roomBounds.Add(r.bounds);
+                bool anchored = _floorYByRenderer.TryGetValue(r, out float floorY);
+                _roomFloorY.Add(anchored ? floorY : float.NaN);
+                _roomFloorAnchored.Add(anchored);
             }
             _builtRoomCount = gen.m_RoomRenderers.Count;
+
+            // Fallback for rooms without a volume match: median anchored height (rooms of
+            // one scenario share the board plane), else the old bounds top — with the
+            // !ABOVE-WALL/!UNANCHORED diag tripwires flagging that degraded mode.
+            _floorYScratch.Clear();
+            for (int i = 0; i < _roomFloorY.Count; i++)
+            {
+                if (_roomFloorAnchored[i])
+                    _floorYScratch.Add(_roomFloorY[i]);
+            }
+            _roomsAnchored = _floorYScratch.Count;
+            float fallbackY = float.NaN;
+            if (_floorYScratch.Count > 0)
+            {
+                _floorYScratch.Sort();
+                fallbackY = _floorYScratch[_floorYScratch.Count / 2];
+            }
+            for (int i = 0; i < _roomFloorY.Count; i++)
+            {
+                if (_roomFloorAnchored[i])
+                    continue;
+                _roomFloorY[i] = float.IsNaN(fallbackY) ? _roomBounds[i].max.y : fallbackY;
+            }
 
             // Board moved/tilted or a room got revealed → the perspective onto the play area
             // changed; flag it so UpdatePerspectiveState re-arms aggressive re-evaluation.
@@ -861,25 +928,58 @@ internal static class WallSegmentFade
             }
 
             RebuildSamples();
-            if (_visPerRoom.Length < _roomBounds.Count)
+            AssociateRooms();
+        }
+
+        /// <summary>
+        /// Bind every wall segment to the ONE room whose AABB it borders: smallest XZ gap
+        /// between wall AABB and room AABB (a wall bordering its room touches it → gap 0;
+        /// Y is ignored — room-bounds Y is the untrusted proxy axis). Near-ties (a door
+        /// wall between two rooms) go to the room whose center is nearer to the wall.
+        /// </summary>
+        private void AssociateRooms()
+        {
+            foreach (Segment seg in _segments.Values)
             {
-                _visPerRoom = new int[_roomBounds.Count + 4];
-                _blkPerRoom = new int[_roomBounds.Count + 4];
+                seg.RoomIndex = -1;
+                if (!seg.HasBounds)
+                    continue;
+                Bounds w = seg.Bounds;
+                float bestGap = float.PositiveInfinity;
+                float bestCenter = float.PositiveInfinity;
+                for (int r = 0; r < _roomBounds.Count; r++)
+                {
+                    Bounds room = _roomBounds[r];
+                    float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
+                    float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
+                    float gap = gx * gx + gz * gz;
+                    float cx = room.center.x - w.center.x;
+                    float cz = room.center.z - w.center.z;
+                    float center = cx * cx + cz * cz;
+                    if (gap < bestGap - 0.0001f
+                        || (gap <= bestGap + 0.0001f && center < bestCenter))
+                    {
+                        bestGap = gap;
+                        bestCenter = center;
+                        seg.RoomIndex = r;
+                    }
+                }
             }
         }
 
         /// <summary>
-        /// Precompute the FLOOR occlusion samples (R1): a per-room XZ grid placed ON the
-        /// room tile bounds' TOP surface (floor height + <see cref="FloorSampleEpsilon"/>),
-        /// as dense as the room budget allows under <see cref="MaxTotalSamples"/>
-        /// (4×4 → 3×3 → 2×2 → center per room). The room renderers are the hex-tile meshes
-        /// themselves, so bounds.max.y IS the tile plane — no band/height inference. Each
-        /// sample remembers its room for per-room normalization.
+        /// Precompute the FLOOR occlusion samples: a per-room XZ grid (footprint from the
+        /// room renderer bounds — XZ is the trusted axis) placed ON the tile-anchored
+        /// floor plane (<see cref="_roomFloorY"/> + <see cref="FloorSampleEpsilon"/>), as
+        /// dense as the room budget allows under <see cref="MaxTotalSamples"/>
+        /// (4×4 → 3×3 → 2×2 → center per room). Samples are room-contiguous; each room's
+        /// [start,count) range doubles as the coverage-fraction denominator.
         /// </summary>
         private void RebuildSamples()
         {
             _allSamples.Clear();
-            _sampleRoom.Clear();
+            _roomSampleStart.Clear();
+            _roomSampleCount.Clear();
             _sampleYMin = float.PositiveInfinity;
             _sampleYMax = float.NegativeInfinity;
             int rooms = _roomBounds.Count;
@@ -894,10 +994,14 @@ internal static class WallSegmentFade
                 : 1;
             for (int r = 0; r < rooms; r++)
             {
-                if (_allSamples.Count >= MaxTotalSamples)
-                    break;
+                _roomSampleStart.Add(_allSamples.Count);
+                if (_allSamples.Count + grid * grid > MaxTotalSamples)
+                {
+                    _roomSampleCount.Add(0); // over budget — room gets no grid this rescan
+                    continue;
+                }
                 Bounds b = _roomBounds[r];
-                float y = b.max.y + FloorSampleEpsilon;
+                float y = _roomFloorY[r] + FloorSampleEpsilon;
                 if (y < _sampleYMin) _sampleYMin = y;
                 if (y > _sampleYMax) _sampleYMax = y;
                 for (int ix = 0; ix < grid; ix++)
@@ -907,9 +1011,9 @@ internal static class WallSegmentFade
                     {
                         float z = Mathf.Lerp(b.min.z, b.max.z, (iz + 0.5f) / grid);
                         _allSamples.Add(new Vector3(x, y, z));
-                        _sampleRoom.Add(r);
                     }
                 }
+                _roomSampleCount.Add(grid * grid);
             }
             if (float.IsInfinity(_sampleYMin))
                 _sampleYMin = _sampleYMax = 0f;
@@ -1081,10 +1185,12 @@ internal static class WallSegmentFade
             catch { /* renderers already dying with the scene */ }
             _segments.Clear();
             _roomBounds.Clear();
+            _roomFloorY.Clear();
+            _roomFloorAnchored.Clear();
+            _roomSampleStart.Clear();
+            _roomSampleCount.Clear();
             _allSamples.Clear();
-            _sampleRoom.Clear();
-            _visibleSamples.Clear();
-            _visibleRoom.Clear();
+            _floorYByRenderer.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }
