@@ -224,6 +224,36 @@ internal sealed class VRRigDriver : MonoBehaviour
     //     the player last chose via recenter/turn/grab, exactly like Demeo, where you
     //     re-aim the world with your HANDS, never with your head.
     //
+    // ROUND 6 — VIEW-AIMED TILT WITHOUT PERCEPTIBLE MOTION (hardware round 6 feedback:
+    // the tilt must ALWAYS tip toward the current view direction, yet the world must
+    // FEEL bolted down — no gliding, no snapping, no visible catch-up, ever).
+    // Demeo re-read: Demeo has no continuous head-follow either (no head/CenterEye read
+    // exists anywhere in Boardgame.CameraControls/*), but its recenters ABSORB the
+    // player's physical yaw into the avatar root behind a fade —
+    // CameraMoveAndScaleControl.RecenterDefault (:417) calls InputTracking.Recenter()
+    // (tracking origin re-zeroed to the CURRENT head yaw; auto-fired by the headset's
+    // system recenter via trackingOriginUpdated, :126), and on VisionOS — whose runtime
+    // does not re-zero yaw — AvatarController.ResetAvatarPositionRotationScaleTilt
+    // (:684-694) does it explicitly: root.localRotation *= Inverse(headYaw). So in
+    // Demeo the tilt "always faces you" because every (masked) recenter silently
+    // re-anchors the root yaw to the head yaw. We replicate that and close the
+    // remaining gap (physical turning between events) with two channels, both writing
+    // ONLY the head-local aim yaw _tiltAimYawDeg that the axis is composed with:
+    //   1. MASKED EVENTS (the Demeo-faithful part): recenter, stick turn, world grab
+    //      (continuously while held, and on release) instantly set aim = head yaw —
+    //      the world is already jumping/dragging, so the re-aim is invisible;
+    //   2. MASKED ROTATION (redirected-rotation technique, subthreshold gain): while
+    //      the head yaws faster than [Rig] MaskedReaimHeadRate (default 30°/s), the
+    //      aim rotates toward the view at MaskedReaimGain (default 15%) of the head's
+    //      own angular speed — far below the ~20% rotation-gain detection threshold,
+    //      and the induced world motion is further scaled by sin(tilt) (< 8% of head
+    //      speed at 30° tilt). Corrections run ONLY during the rotation — the instant
+    //      the head slows below threshold the writes stop THAT frame (no catch-up
+    //      glide); leftover error waits, bit-frozen, for the next fast rotation or
+    //      masked event. Errors below MaskedReaimDeadband (default 5°) are ignored
+    //      outright, so ordinary looking-around triggers nothing and the world stays
+    //      bit-identical under head-only motion exactly as in round 5.
+    //
     // TILT MAGNITUDE (Demeo AvatarController.Tilt): Demeo changes tilt ONLY on a
     // discrete thumbstick flick, in 15° steps (tiltValue 0..12), animated by a 0.2 s
     // LINEAR LeanTween. Ours changes only on the [Rig] WorldTiltDegrees ±5° settings
@@ -238,18 +268,49 @@ internal sealed class VRRigDriver : MonoBehaviour
     private float _tiltTweenFrom;      // tween start value (deg)
     private float _tiltTweenStartTime; // Time.unscaledTime at tween start
 
+    // View-aimed tilt state (round 6, provenance above): the HEAD-LOCAL yaw (degrees,
+    // rig/tracking space — pure device pose, unaffected by any rig write) the tilt tips
+    // toward. 0 = rig forward (the round-5 behavior). Written ONLY under a masked event
+    // or a masked-rotation step; under head-only motion it is constant, so the desired
+    // pose is constant and the world stays bit-frozen.
+    private float _tiltAimYawDeg;
+    private float _prevHeadYawDeg;     // last frame's head-local yaw (deg) for the rate estimate
+    private bool _prevHeadYawValid;    // false after rig build / fast-path frames → no stale-rate spike
+
+    /// <summary>A masked-correction burst ends after this long without a step (one summary log line).</summary>
+    private const float BurstEndGraceSeconds = 0.3f;
+    private bool _burstActive;
+    private float _burstDegrees;       // total aim degrees consumed this burst
+    private float _burstStartTime;
+    private float _burstLastStepTime;
+    private float _burstPeakHeadRate;  // deg/s
+
+    /// <summary>[Rig] MaskedReaimHeadRate with unbound-safe default and sane floor.</summary>
+    private static float MaskedReaimHeadRateDps =>
+        Plugin.MaskedReaimHeadRate != null ? Mathf.Max(5f, Plugin.MaskedReaimHeadRate.Value) : 30f;
+
+    /// <summary>[Rig] MaskedReaimGain with unbound-safe default, clamped to the plausible-masking range.</summary>
+    private static float MaskedReaimGainFrac =>
+        Plugin.MaskedReaimGain != null ? Mathf.Clamp(Plugin.MaskedReaimGain.Value, 0f, 0.5f) : 0.15f;
+
+    /// <summary>[Rig] MaskedReaimDeadband with unbound-safe default.</summary>
+    private static float MaskedReaimDeadbandDeg =>
+        Plugin.MaskedReaimDeadband != null ? Mathf.Clamp(Plugin.MaskedReaimDeadband.Value, 0f, 45f) : 5f;
+
     /// <summary>Pending locomotion-event reason for LOG ATTRIBUTION, null when none. Set by
     /// <see cref="NotifyTiltAxisSnap"/>; consumed by the next TickWorldTilt that actually
     /// writes the rig pose. Last-wins when several events land in one frame.</summary>
     private string? _axisSnapReason;
 
     /// <summary>
-    /// Locomotion-event notification. Since round 5 (Demeo model) the tilt axis is derived
-    /// from the rig's own yaw and co-rotates with stick turns / world-grab automatically —
-    /// there is nothing to snap anymore. The call sites (SnapTurn, WorldGrab) are kept so
-    /// the pose write their event causes is ATTRIBUTED in the WorldTilt change log: the
-    /// hardware log must show a locomotion trigger on every world motion the tilt system
-    /// makes.
+    /// Locomotion-event notification. The rig-yaw part of the axis co-rotates with stick
+    /// turns / world-grab automatically (round-5 Demeo parenting model — nothing to snap),
+    /// but since round 6 these events additionally serve as MASKED RE-AIM opportunities:
+    /// the next TickWorldTilt instantly re-aims the tilt at the current view yaw (aim =
+    /// head-local yaw), which is invisible because the event is already jumping/dragging
+    /// the world — the exact Demeo recenter mechanism (InputTracking.Recenter absorbs the
+    /// head yaw behind a fade; provenance on the axis comment block). The reason string
+    /// also ATTRIBUTES the resulting pose write in the WorldTilt change log.
     /// </summary>
     internal static void NotifyTiltAxisSnap(string reason)
     {
@@ -452,14 +513,17 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// of every game object are untouched, so nothing changes for multiplayer peers except
     /// our own (honestly moved) avatar pose.
     ///
-    /// TILT AXIS (hardware round 5 — the DEMEO MODEL; provenance + algebra on the
-    /// axis-field comment block). The axis is the RIG's OWN yaw-frame right,
-    /// <c>yawOnly(rig) * Vector3.right</c>, making the reconstruction identical to
-    /// Demeo's yaw-parent/tilt-child transform chain (AvatarController.StartTilt tilts a
-    /// fixed local X). The head is read NOWHERE in this method: under head-only motion
-    /// desired == current and no transform write happens, while stick turns, recenter
-    /// and world-grab change the rig yaw and the axis co-rotates the same frame —
-    /// continuously during a drag — exactly like Demeo's parenting does.
+    /// TILT AXIS (rounds 5+6 — the DEMEO MODEL plus view aim; provenance + algebra on
+    /// the axis-field comment block). The axis is the rig's yaw-frame right composed
+    /// with the head-local aim yaw, <c>(yawOnly(rig) ∘ R_up(aim)) * Vector3.right</c> —
+    /// the rig-yaw factor is Demeo's yaw-parent/tilt-child chain (co-rotates exactly
+    /// with stick turns/world-grab, zero writes), and the aim factor keeps the tilt
+    /// tipping toward the VIEW direction. The aim is updated ONLY under perceptual
+    /// masking: instantly at masked events (recenter/stick turn/world grab — Demeo's
+    /// InputTracking.Recenter analog) and gradually at a subthreshold gain while the
+    /// head itself rotates fast (redirected rotation). Under head-only motion below
+    /// the masking threshold every input to the desired pose is constant, so
+    /// desired == current and no transform write happens — the world is bit-frozen.
     ///
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
     /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
@@ -483,6 +547,7 @@ internal sealed class VRRigDriver : MonoBehaviour
             _lastTiltTarget = 0f;
             _tiltApplied = 0f;
             _tiltTweenFrom = 0f;
+            _prevHeadYawValid = false; // no head-rate tracking while off → no stale spike on enable
             return;
         }
 
@@ -495,15 +560,6 @@ internal sealed class VRRigDriver : MonoBehaviour
         Quaternion yawOnly = YawOnly(current);
         Vector3 pivot = controller.FocusPoint;
 
-        // Demeo-model axis (provenance on the axis-field block): the rig's OWN yaw-frame
-        // right — a pure function of the rig pose; no head/view term exists in this math.
-        //   desired = AngleAxis(tilt, axis) ∘ yawOnly  ==  yawOnly ∘ AngleAxis(tilt, +X)
-        // i.e. exactly Demeo's yaw-parent/tilt-child chain (tiltHolder local Euler X).
-        // A pure world-up rig yaw (snap/smooth turn, grab rotate) maps Y∘T_local onto
-        // (R_up·Y)∘T_local — which IS the reconstruction for the new yaw — so the axis
-        // co-rotates exactly, continuously during a drag, with no correction write.
-        Vector3 axis = yawOnly * Vector3.right;
-
         // TILT MAGNITUDE (Demeo AvatarController.Tilt/StartTilt): changes only on the
         // discrete [Rig] WorldTiltDegrees ±5° settings click (its sole writer — the
         // Demeo analog of the thumb-flick 15° step; zoom/scale never touch it) and
@@ -511,6 +567,7 @@ internal sealed class VRRigDriver : MonoBehaviour
         // adopts the configured tilt instantly — the whole world just (re)appeared,
         // there is no motion the tween would mask.
         string? changeTrigger = null;
+        bool seedAimFromHead = false;
         if (!Mathf.Approximately(target, _lastTiltTarget))
         {
             bool freshRig = _lastTiltTarget < 0f;
@@ -518,26 +575,107 @@ internal sealed class VRRigDriver : MonoBehaviour
             _tiltTweenStartTime = Time.unscaledTime;
             _lastTiltTarget = target;
             changeTrigger = freshRig ? "rig-build" : "config-change";
+            // Fresh rig, or a tween up from FLAT: the axis direction is currently
+            // invisible (0° applied), so adopting the player's view yaw as the aim is
+            // free — the tilt grows toward wherever they are actually looking.
+            seedAimFromHead = freshRig || _tiltTweenFrom <= 0f;
             _nextTiltLogTime = 0f; // edge-trigger the periodic diagnostic line below
         }
         float tweenT = Mathf.Clamp01((Time.unscaledTime - _tiltTweenStartTime) / TiltTweenSeconds);
         _tiltApplied = Mathf.Lerp(_tiltTweenFrom, target, tweenT);
 
+        // VIEW-AIM MAINTENANCE (round 6; mechanism + provenance on the axis comment
+        // block). The head-local yaw is the PURE DEVICE pose (TrackedPoseDriver writes
+        // rig-local), so every quantity here is invariant under rig writes — snap/stick
+        // turns and world-grab can never fake a head rotation, and under head-only
+        // motion nothing below writes any state that feeds the desired pose unless a
+        // masking condition holds.
+        bool grabActive = WorldGrab.Instance != null && WorldGrab.Instance.IsGrabbing;
+        bool maskedStep = false;
+        float aimError = 0f;
+        if (_camera != null)
+        {
+            float headYawDeg = YawOnly(_camera.transform.localRotation).eulerAngles.y;
+            float dt = Time.unscaledDeltaTime;
+            float headRate = _prevHeadYawValid && dt > 1e-5f
+                ? Mathf.DeltaAngle(_prevHeadYawDeg, headYawDeg) / dt
+                : 0f;
+            _prevHeadYawDeg = headYawDeg;
+            _prevHeadYawValid = true;
+
+            aimError = Mathf.DeltaAngle(_tiltAimYawDeg, headYawDeg);
+            if (_axisSnapReason != null || grabActive || seedAimFromHead)
+            {
+                // MASKED EVENT: the world is already jumping (recenter, stick turn,
+                // grab release) or being dragged (active grab — continuous re-aim) or
+                // the tilt is still flat — consume the whole error at once, invisibly.
+                // This is exactly Demeo's recenter mechanism (InputTracking.Recenter
+                // absorbs the head yaw into the root behind a fade).
+                _tiltAimYawDeg = headYawDeg;
+                aimError = 0f;
+            }
+            else if (Mathf.Abs(headRate) >= MaskedReaimHeadRateDps
+                     && Mathf.Abs(aimError) > MaskedReaimDeadbandDeg)
+            {
+                // MASKED ROTATION (redirected-rotation, subthreshold gain): correct
+                // toward the view ONLY while the head itself rotates fast enough to
+                // mask it. The gate re-evaluates every frame from the CURRENT head
+                // rate, so the instant the head slows the writes stop — residual
+                // error waits, bit-frozen, for the next fast rotation or event.
+                float step = Mathf.Sign(aimError)
+                             * Mathf.Min(Mathf.Abs(aimError),
+                                         MaskedReaimGainFrac * Mathf.Abs(headRate) * dt);
+                _tiltAimYawDeg = Mathf.DeltaAngle(0f, _tiltAimYawDeg + step);
+                aimError -= step;
+                maskedStep = true;
+                if (!_burstActive)
+                {
+                    _burstActive = true;
+                    _burstStartTime = Time.unscaledTime;
+                    _burstDegrees = 0f;
+                    _burstPeakHeadRate = 0f;
+                }
+                _burstDegrees += Mathf.Abs(step);
+                _burstPeakHeadRate = Mathf.Max(_burstPeakHeadRate, Mathf.Abs(headRate));
+                _burstLastStepTime = Time.unscaledTime;
+            }
+        }
+        // ONE summary line per masked-correction burst, at its END — never per-frame.
+        if (_burstActive && !maskedStep && Time.unscaledTime - _burstLastStepTime > BurstEndGraceSeconds)
+        {
+            _burstActive = false;
+            VRLog.Info("Rig", $"WorldTilt masked re-aim burst: consumed {_burstDegrees:F1}° over " +
+                              $"{Mathf.Max(0f, _burstLastStepTime - _burstStartTime):F2}s " +
+                              $"(peak head rate {_burstPeakHeadRate:F0}°/s, residual view error {aimError:F1}°).");
+        }
+
+        // Tilt axis (round-5 Demeo parenting model + round-6 view aim): the rig's own
+        // yaw frame composed with the head-local aim yaw —
+        //   desired = AngleAxis(tilt, axis) ∘ yawOnly,  axis = (yawOnly ∘ R_up(aim)) · right
+        // The rig-yaw factor makes a pure world-up rig yaw (snap/stick turn, grab
+        // rotate) co-rotate the axis exactly — R∘(T∘Y) is bit-reconstructed for the
+        // new yaw R·Y, zero correction write — while the aim factor tips the tilt
+        // toward the view direction the masked channels last captured. Both factors
+        // are constant under head-only motion → desired == current → no writes.
+        Quaternion aimYaw = yawOnly * Quaternion.AngleAxis(_tiltAimYawDeg, Vector3.up);
+        Vector3 axis = aimYaw * Vector3.right;
+
         Quaternion desired = _tiltApplied > 0f
             ? Quaternion.AngleAxis(_tiltApplied, axis) * yawOnly
             : yawOnly;
 
-        // Periodic diagnostic while active (hardware-log contract): the axis is derived
-        // from the RIG yaw only, so across consecutive lines rigYaw/axis must read
-        // IDENTICAL unless a 'WorldTilt change [trigger]' line sits between them — and
-        // every such trigger must be a locomotion/config event, never head movement.
+        // Periodic diagnostic while active (hardware-log contract): rigYaw/aim/axis must
+        // read IDENTICAL across consecutive lines unless a 'WorldTilt change [trigger]'
+        // or a 'masked re-aim burst' line sits between them — every change is either a
+        // locomotion/config event or a masked-rotation burst, never bare head movement.
+        // viewErr is the head-vs-aim yaw error currently waiting (frozen) for masking.
         if (target > 0f && Time.unscaledTime >= _nextTiltLogTime)
         {
             _nextTiltLogTime = Time.unscaledTime + TiltLogIntervalSeconds;
             Vector3 headPos = _camera != null ? _camera.transform.position : Vector3.zero;
             VRLog.Info("Rig", $"WorldTilt {_tiltApplied:F1}°/{target:0}°: pivot {pivot}, head {headPos}, " +
-                              $"rigYaw {yawOnly.eulerAngles.y:F1}°, axis {axis} = rig-right (Demeo model: " +
-                              $"axis is a function of the rig pose only; last change [{_lastChangeTrigger}]).");
+                              $"rigYaw {yawOnly.eulerAngles.y:F1}°, aim {_tiltAimYawDeg:F1}° (head-local), " +
+                              $"viewErr {aimError:F1}°, axis {axis} (last change [{_lastChangeTrigger}]).");
         }
 
         float error = Quaternion.Angle(current, desired);
@@ -545,19 +683,21 @@ internal sealed class VRRigDriver : MonoBehaviour
         {
             // CHANGE-ATTRIBUTED write (hardware-log contract): every world motion the
             // tilt system causes is logged with its trigger — a locomotion event
-            // (NotifyTiltAxisSnap reason, e.g. recenter's yaw-flatten healed here), an
-            // active world grab (its per-frame two-hand yaw-flatten healed here), or
-            // the user's tilt config click. 'rig-pose-heal' would mean an unattributed
-            // external writer flattened the rig — investigate if it ever appears.
-            // Snap/smooth turns need NO write at all (exact axis co-rotation, comment
-            // above), so turning logs nothing here.
-            bool grabActive = WorldGrab.Instance != null && WorldGrab.Instance.IsGrabbing;
+            // (NotifyTiltAxisSnap reason, e.g. recenter's yaw-flatten + instant re-aim
+            // healed here), an active world grab (its per-frame two-hand yaw-flatten +
+            // continuous re-aim healed here), a masked-rotation step, or the user's
+            // tilt config click. 'rig-pose-heal' would mean an unattributed external
+            // writer flattened the rig — investigate if it ever appears. 'masked-reaim'
+            // frames stay QUIET here — their one-line-per-burst summary above is the
+            // log (never per-frame).
             string trigger = _axisSnapReason
                              ?? changeTrigger
-                             ?? (grabActive ? "world-grab" : "rig-pose-heal");
+                             ?? (grabActive ? "world-grab"
+                                 : maskedStep ? "masked-reaim"
+                                 : "rig-pose-heal");
             bool repeatTrigger = trigger == _lastChangeTrigger;
             _lastChangeTrigger = trigger;
-            if (!repeatTrigger || Time.unscaledTime >= _nextChangeLogTime)
+            if (trigger != "masked-reaim" && (!repeatTrigger || Time.unscaledTime >= _nextChangeLogTime))
             {
                 _nextChangeLogTime = Time.unscaledTime + ChangeLogThrottleSeconds;
                 VRLog.Info("Rig", $"WorldTilt change [{trigger}]: tilt {_tiltApplied:F1}°/{target:0}°, " +
@@ -943,8 +1083,10 @@ internal sealed class VRRigDriver : MonoBehaviour
         if (_tiltActive)
             _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
         // Attribute this frame's tilt re-apply (the LateUpdate heal after the flatten
-        // above) to the recenter in the WorldTilt change log. The Demeo-model axis needs
-        // no snapping — it is derived from the rig yaw, which the recenter just set.
+        // above) to the recenter in the WorldTilt change log — and let it act as a
+        // MASKED RE-AIM event: TickWorldTilt instantly re-aims the tilt at the current
+        // view yaw, exactly what Demeo's recenter does by absorbing the head yaw into
+        // the avatar root (InputTracking.Recenter / AvatarController.cs:684-694).
         _axisSnapReason = "recenter";
 
         float scale = _rigRoot.transform.localScale.x;
@@ -1040,6 +1182,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         _lastTiltTarget = -1f; // fresh-rig sentinel: next rig adopts the configured tilt instantly
         _tiltApplied = 0f;
         _tiltTweenFrom = 0f;
+        _tiltAimYawDeg = 0f;   // fresh rig re-seeds the aim from the head (seedAimFromHead)
+        _prevHeadYawValid = false;
+        _burstActive = false;
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
