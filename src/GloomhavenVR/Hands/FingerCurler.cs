@@ -38,6 +38,22 @@ internal sealed class FingerCurler
     internal static readonly Vector3 DefaultThumbMaxAngles = new(25f, 45f, 60f);
 
     /// <summary>
+    /// GLOVE-PINKY splay fix (2026-07 hardware round): the glove pinky MESH tube leans
+    /// ~18° outward in XZ (PCA (+0.30,+0.25,+0.92)) while its bone chain is straight
+    /// (0,0,1), so a full local-X curl leaves the curled pinky mesh visibly splayed
+    /// outward from the fist. A Blender bone-ROLL fix cannot correct this — roll only
+    /// spins the flexion axis within the plane perpendicular to the bone, and the
+    /// desired mesh-plane axis's perpendicular component IS the existing +X — so the
+    /// least-invasive fix is runtime: a small counter-abduction about the root joint's
+    /// local Z (the palm normal at rest; Unity's ZXY euler order applies Z BEFORE the
+    /// X flexion) coupled to the curl value. Positive local-Z adducts the LEFT pinky
+    /// toward the ring finger (local +X→+Y under +Z; the bone tilts toward world -X);
+    /// the RIGHT hand mirrors, so the sign flips per side. Glove style only — the
+    /// styled hands' refit chains follow their mesh tubes and need no compensation.
+    /// </summary>
+    internal const float DefaultGlovePinkyCounterAbductionDeg = 14f;
+
+    /// <summary>
     /// Per-STYLE curl-range clamp, indexed by (int)<see cref="HandStyle"/> (Glove/
     /// Plate/Arcane). History: the first styled builds over-closed ("donut" tips)
     /// because the skin weights dragged palm membranes, so 0.72/0.85 clamps were
@@ -68,10 +84,17 @@ internal sealed class FingerCurler
     private bool _hasWritten;
     private float _maxExternalDriftDeg;
 
-    internal FingerCurler(HandRig rig)
+    /// <summary>±1 on the glove (sign per hand side), 0 for styled hands — see
+    /// <see cref="DefaultGlovePinkyCounterAbductionDeg"/>.</summary>
+    private readonly float _pinkySplaySign;
+
+    internal FingerCurler(HandRig rig, HandSide side)
     {
         _rig = rig;
         _curlScale = StyleCurlScale[(int)HandStyles.Clamp((int)rig.VisualStyle)];
+        _pinkySplaySign = rig.VisualStyle == HandStyle.Glove
+            ? (side == HandSide.Left ? 1f : -1f)
+            : 0f;
         for (int f = 0; f < 5; f++)
         {
             FingerJoints joints = rig.GetFinger((Finger)f);
@@ -144,7 +167,12 @@ internal sealed class FingerCurler
             }
 
             _appliedAngles[f] = max * curl;
-            written[0] = joints.Root.localRotation = baseRot[0] * Quaternion.Euler(max.x * curl, 0f, 0f);
+            // Glove-pinky counter-abduction: curl-coupled local-Z on the ROOT joint only.
+            float rootRz = f == (int)Finger.Pinky && _pinkySplaySign != 0f
+                ? _pinkySplaySign * HandsConfig.GlovePinkyCounterAbductionSafe(
+                    DefaultGlovePinkyCounterAbductionDeg) * curl
+                : 0f;
+            written[0] = joints.Root.localRotation = baseRot[0] * Quaternion.Euler(max.x * curl, 0f, rootRz);
             written[1] = joints.Mid.localRotation = baseRot[1] * Quaternion.Euler(max.y * curl, 0f, 0f);
             written[2] = joints.Tip.localRotation = baseRot[2] * Quaternion.Euler(max.z * curl, 0f, 0f);
         }
