@@ -10,7 +10,8 @@ namespace GloomhavenVR.Hands;
 /// toward the palm). LCVR FingerCurler pattern, no Animator involved.
 ///
 /// Curl targets are set once per frame from controller input by <see cref="VRHand"/>:
-///   trigger value → index; grip value → middle/ring/pinky;
+///   trigger + trigger CAPACITIVE touch → index (trigger untouched = pointing, even at
+///   full grip; see VRHand.UpdateCurlTargets); grip value → middle/ring/pinky;
 ///   thumb capacitive touch (primaryTouch/secondaryTouch/primary2DAxisTouch) → thumb
 ///   (forced fully closed while the hand makes a fist, see VRHand.UpdateCurlTargets).
 /// Actual joint rotations are smoothed (exponential lerp) to avoid jitter from the

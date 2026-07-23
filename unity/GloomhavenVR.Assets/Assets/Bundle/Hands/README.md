@@ -60,7 +60,15 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
    `VRHand<Style>_albedo.png` here.
 2. `rig_hand.py` with `RIG_HAND_SRC/RIG_HAND_NAME/RIG_HAND_JOINTS/RIG_HAND_EMBED=0`
    -> `VRHand<Style>_L/R_rig.fbx` here (same 19-bone contract rig as the glove; the
-   default no-env invocation still builds the original glove unchanged).
+   default no-env invocation builds the original glove).
+   2026-07 fist fix (ALL styles, glove included): finger-tube verts are skinned
+   GEOMETRICALLY (arc-length assignment to their own Root/Mid/Tip segment with ±15 %
+   smoothstep joint blends; palm/back stays wrist-rigid) instead of the old
+   inverse-distance blend that left the palm dragging along ("only fingertips move"),
+   and the detected fingertip landmark is converted to an anatomical DIP joint so the
+   Tip bone actually owns the distal phalanx (it used to start AT the fingertip —
+   the runtime's 65° tip rotation moved ~2 mm of mesh). Verified via
+   RIG_HAND_DIAG=1 weight stats + rigid-follow test + the rendered pose matrix.
 3. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
    `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
 

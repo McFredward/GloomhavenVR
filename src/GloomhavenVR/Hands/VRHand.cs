@@ -84,6 +84,27 @@ internal sealed class VRHand : MonoBehaviour
     private static readonly InputFeatureUsage<float> TriggerValueAltUsage = new("TriggerValue");
     private static readonly InputFeatureUsage<bool> SelectUsage = new("Select");
 
+    /// <summary>
+    /// INDEX CAPACITIVE TOUCH (pointing fix): the grip-fist override closes ALL fingers
+    /// at (near-)full grip, which killed index pointing on runtimes whose analog trigger
+    /// is dead (VDXR: raw trig=0.00 through a full squeeze) — gripping the controller
+    /// always curled the index. The physically honest signal for "is the index ON the
+    /// trigger" is the trigger's capacitive touch pad. Sources probed per frame:
+    ///  - "TriggerTouch": the usage the OpenXR Oculus Touch interaction profile tags on
+    ///    '/input/trigger/touch' (verified in RuntimeDeps Unity.XR.OpenXR 1.10.0,
+    ///    OculusTouchControllerProfile.RegisterActionMapsWithRuntime, ActionConfig
+    ///    "triggerTouched" usages = { "TriggerTouch" }; Quest Pro profile tags the same);
+    ///  - "IndexTouch": the legacy Oculus XR plugin name for the same pad.
+    /// Support is LATCHED the first time either usage is delivered
+    /// (TryGetFeatureValue returns true) and the winning source is logged once —
+    /// hardware logs show "index touch source: …". A live analog trigger (&gt;5 %) also
+    /// counts as touched (you cannot pull an untouched trigger), which doubles as the
+    /// documented fallback when NO touch usage exists: the index then follows the
+    /// trigger fallback chain ONLY and the grip never closes it (pointing preserved).
+    /// </summary>
+    private static readonly InputFeatureUsage<bool> TriggerTouchUsage = new("TriggerTouch");
+    private static readonly InputFeatureUsage<bool> IndexTouchUsage = new("IndexTouch");
+
     private InputDevice _device;
     private FingerCurler _curler = null!;
     private Transform _handRoot = null!;
@@ -161,6 +182,19 @@ internal sealed class VRHand : MonoBehaviour
 
     /// <summary>Capacitive thumb rest detection (any of primary/secondary/stick touch).</summary>
     public bool ThumbTouch { get; private set; }
+
+    /// <summary>
+    /// Capacitive INDEX finger detection: trigger touch pad (see <see cref="TriggerTouchUsage"/>)
+    /// or a live analog trigger. False ⇒ the index is off the trigger ⇒ pointing.
+    /// </summary>
+    public bool IndexTouch { get; private set; }
+
+    /// <summary>True once this device delivered a capacitive trigger-touch usage.</summary>
+    public bool IndexTouchSupported => _indexTouchSupported;
+
+    private bool _indexTouchSupported;
+    private bool _indexTouchSourceLogged;
+    private bool _indexTouchSupportLogged;
 
     /// <summary>Thumbstick axis (Phase-3a uses left/right for AoE rotation).</summary>
     public Vector2 Thumbstick { get; private set; }
@@ -484,6 +518,39 @@ internal sealed class VRHand : MonoBehaviour
         _device.TryGetFeatureValue(CommonUsages.primary2DAxisTouch, out bool stickTouch);
         ThumbTouch = primaryTouch || secondaryTouch || stickTouch;
 
+        // Index capacitive touch (see TriggerTouchUsage doc). A live analog trigger
+        // always implies touch; the capacitive pad is what distinguishes "finger off
+        // the trigger" (pointing) from "finger resting on a dead-analog trigger".
+        bool indexTouch = TriggerValue > 0.05f;
+        string touchSource = "analog trigger only (no capacitive usage delivered)";
+        if (_device.TryGetFeatureValue(TriggerTouchUsage, out bool trigTouch))
+        {
+            indexTouch |= trigTouch;
+            _indexTouchSupported = true;
+            touchSource = "TriggerTouch (OpenXR '/input/trigger/touch')";
+        }
+        else if (_device.TryGetFeatureValue(IndexTouchUsage, out bool idxTouch))
+        {
+            indexTouch |= idxTouch;
+            _indexTouchSupported = true;
+            touchSource = "IndexTouch (legacy Oculus usage)";
+        }
+        IndexTouch = indexTouch;
+        // Log the source once; if a capacitive usage only starts arriving later
+        // (runtimes can withhold it until the controller wakes), log the upgrade once.
+        if (_indexTouchSupported && !_indexTouchSupportLogged)
+        {
+            _indexTouchSupportLogged = _indexTouchSourceLogged = true;
+            VRLog.Info("Hands", $"{Side} index touch source: {touchSource} — trigger untouched keeps " +
+                                "the index straight (pointing) even at full grip; touched ⇒ index joins the fist.");
+        }
+        else if (!_indexTouchSourceLogged)
+        {
+            _indexTouchSourceLogged = true;
+            VRLog.Info("Hands", $"{Side} index touch source: {touchSource} — index follows the trigger " +
+                                "fallback chain only; grip never closes the index (pointing preserved).");
+        }
+
         _device.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 stick);
         Thumbstick = stick;
 
@@ -535,6 +602,7 @@ internal sealed class VRHand : MonoBehaviour
         HasPointerPose = false; // sim rays use the hand frame
         ApplyAnalog(_simTrigger, _simGrip);
         ThumbTouch = _simGrip > 0.5f;
+        IndexTouch = _simTrigger > 0.05f;   // sim: finger on trigger ⇔ any pull
         Thumbstick = Vector2.zero;
         PrimaryDown = SecondaryDown = false;
         ThumbstickClick = false;
@@ -564,6 +632,7 @@ internal sealed class VRHand : MonoBehaviour
         TriggerDown = TriggerUp = GripDown = GripUp = false;
         PrimaryButton = SecondaryButton = PrimaryDown = SecondaryDown = false;
         ThumbTouch = false;
+        IndexTouch = false;
         Thumbstick = Vector2.zero;
         ThumbstickClick = false;
         ThumbstickClickDown = ThumbstickClickUp = false;
@@ -613,13 +682,18 @@ internal sealed class VRHand : MonoBehaviour
 
     /// <summary>
     /// Poses (LCVR pattern, ARCHITECTURE §4): point = grip held + trigger released;
-    /// open palm = nothing held; fist = both held.
+    /// open palm = nothing held; fist = both held. When the runtime delivers the
+    /// trigger's capacitive touch (see <see cref="TriggerTouchUsage"/>), "trigger
+    /// released" means "index OFF the trigger" — the analog value alone cannot tell
+    /// pointing from a fist on a dead-analog runtime (VDXR trig=0.00 at full squeeze).
     /// </summary>
     private void UpdatePoseClassification()
     {
         bool gripHeld = GripValue > 0.5f;
-        bool triggerHeld = TriggerValue > 0.5f;
-        if (gripHeld && TriggerValue < 0.2f)
+        bool pointing = _indexTouchSupported ? !IndexTouch : TriggerValue < 0.2f;
+        bool triggerHeld = TriggerValue > 0.5f
+                           || (_indexTouchSupported && IndexTouch && GripValue > 0.9f);
+        if (gripHeld && pointing)
             Pose = HandPose.Point;
         else if (gripHeld && triggerHeld)
             Pose = HandPose.Fist;
@@ -646,28 +720,46 @@ internal sealed class VRHand : MonoBehaviour
             // every style. Only the curl targets are remapped; TriggerValue/GripValue
             // stay raw for the 0.75/0.55 press hysteresis and pose classification.
             float gripCurl = RemapCurlInput(GripValue);
-            // GRIP-FIST OVERRIDE (hardware evidence, LogOutput 2026-07 "FIST Right ...
-            // raw trig=0.00 grip=1.00 pose=Point ... index=0/0/0"): on VDXR the analog
-            // trigger can stay 0.00 through a full-controller squeeze even with the
-            // fallbacks above, so the Point gate held the index straight and the thumb
-            // capped at 0.65 — a fist was IMPOSSIBLE. A (near-)full grip IS a fist:
-            // close the index and thumb from the grip too and bypass the Point gate.
-            // Deliberate pointing still works — it reads as a partial grip (or full
-            // grip with a live trigger at rest on runtimes whose trigger works).
+            float triggerCurl = RemapCurlInput(TriggerValue);
+            // INDEX MAPPING (pointing fix, supersedes the round-2 grip-fist override):
+            // the old override closed ALL fingers at gripCurl>=0.9, which made index
+            // pointing IMPOSSIBLE on the dead-analog-trigger runtime (VDXR): gripping
+            // the controller always curled the index. The index is now gated by the
+            // trigger CAPACITIVE touch (TriggerTouch/IndexTouch usage, see ReadDevice):
+            //   - touch source available:  trigger NOT touched ⇒ index straight
+            //     (pointing) even at full grip; touched ⇒ the index joins the fist
+            //     (max of the analog trigger and, at near-full grip, the grip curl —
+            //     so a full squeeze with the finger resting on a dead trigger still
+            //     closes completely). A light 0.45 rest curl while merely touching
+            //     keeps the finger visually ON the trigger.
+            //   - no touch source on this runtime: the index follows the TRIGGER
+            //     fallback chain only (analog → TriggerValue alt → triggerButton →
+            //     Select; see ReadTriggerFallbacks) and the grip NEVER closes it —
+            //     pointing beats fist-completeness when the runtime cannot tell.
+            // The startup "index touch source:" log line shows which mode is live.
             bool gripFist = gripCurl >= 0.9f;
-            float indexCurl = Pose == HandPose.Point && !gripFist ? 0f : RemapCurlInput(TriggerValue);
-            if (gripFist)
-                indexCurl = Mathf.Max(indexCurl, gripCurl);
+            float indexCurl;
+            if (_indexTouchSupported)
+            {
+                indexCurl = !IndexTouch
+                    ? 0f
+                    : Mathf.Max(triggerCurl, gripFist ? gripCurl : 0.45f);
+            }
+            else
+            {
+                indexCurl = Pose == HandPose.Point ? 0f : triggerCurl;
+            }
             _curler.SetTarget(Finger.Index, indexCurl);
             _curler.SetTarget(Finger.Middle, gripCurl);
             _curler.SetTarget(Finger.Ring, gripCurl);
             _curler.SetTarget(Finger.Pinky, gripCurl);
             // Thumb: capacitive touch alone can only reach 0.65 (resting on the stick
-            // is not a fist) — but a FIST must close the thumb fully; the old constant
-            // cap left it a third open on every closed hand.
-            float thumbCurl = (GripPressed && TriggerPressed) || gripFist
-                ? 1f
-                : (ThumbTouch ? 0.65f : 0.15f);
+            // is not a fist) — but a FIST must close the thumb fully. Fist intent =
+            // both pressed, or a near-full grip whose index is also closing (touch or
+            // trigger); while POINTING at full grip the thumb stays at the touch cap.
+            bool fistIntent = (GripPressed && TriggerPressed)
+                              || (gripFist && (_indexTouchSupported ? IndexTouch : triggerCurl > 0.5f));
+            float thumbCurl = fistIntent ? 1f : (ThumbTouch ? 0.65f : 0.15f);
             _curler.SetTarget(Finger.Thumb, thumbCurl);
         }
 
@@ -735,7 +827,8 @@ internal sealed class VRHand : MonoBehaviour
         _fistLogCountdown = -1;
         float drift = _curler.ConsumeExternalDrift();
         VRLog.Info("Hands", $"FIST {Side} (style {Rig.VisualStyle}, testFist={HandsConfig.TestFistActive}): " +
-                            $"raw trig={TriggerValue:0.00} grip={GripValue:0.00} thumbTouch={ThumbTouch} pose={Pose} | " +
+                            $"raw trig={TriggerValue:0.00} grip={GripValue:0.00} thumbTouch={ThumbTouch} " +
+                            $"indexTouch={IndexTouch}({(_indexTouchSupported ? "capacitive" : "no-cap-source")}) pose={Pose} | " +
                             $"curl T/I/M/R/P={GetCurl(Finger.Thumb):0.00}/{GetCurl(Finger.Index):0.00}/" +
                             $"{GetCurl(Finger.Middle):0.00}/{GetCurl(Finger.Ring):0.00}/{GetCurl(Finger.Pinky):0.00} | " +
                             $"applied° thumb={FormatAngles(Finger.Thumb)} index={FormatAngles(Finger.Index)} " +
