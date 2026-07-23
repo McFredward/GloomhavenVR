@@ -526,6 +526,77 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// Overlay gate (user reports B/C): is COMMITTING cards into the round IMPOSSIBLE
+    /// right now because a game-level blocker is up — so NO yellow slot overlay
+    /// ("wanted slot" pulse or snap/telegraph glow) may be shown? The overlays must
+    /// only ever appear while a card can actually be placed. Signals, all read from
+    /// the GAME's own state (never the mod's WorldUI):
+    /// <list type="bullet">
+    /// <item>Victory/defeat ("Sieg"/"Niederlage") results window —
+    /// <c>Singleton&lt;UIResultsManager&gt;.Instance.IsShown</c>, which is true from the
+    /// moment the Choreographer QUEUES the 1.5 s-delayed Show (<c>IsShown =&gt;
+    /// myWindow.IsOpen || m_QueuedShow</c>, UIResultsManager.cs:46-56; shown via
+    /// <c>Show(1.5f, EndGame, EResult.Win/Lose)</c>, Choreographer.cs:12837/:12909) —
+    /// the overlays go dark before the window even fades in. The Guildmaster results
+    /// screen is covered by the SAME check: <c>UINewAdventureResultsManager :
+    /// UIResultsManager</c> registers into the same singleton (<c>Implementation =&gt;
+    /// (UINewAdventureResultsManager)Singleton&lt;UIResultsManager&gt;.Instance</c>,
+    /// UINewAdventureResultsManager.cs:20/65).</item>
+    /// <item>Rule-engine scenario end — <c>ActionProcessor.CurrentPhase ==
+    /// ActionPhaseType.ScenarioEnded</c> (FFSNet/ActionProcessor.cs:54,
+    /// FFSNet/ActionPhaseType.cs) — the engine's own terminal phase, belt-and-braces
+    /// for any frame gap around the window (e.g. after it closes into rewards).</item>
+    /// <item>Narrator/story dialog (scenario-intro storytelling etc.) —
+    /// <c>Singleton&lt;StoryController&gt;.Instance.IsVisible</c> (<c>=&gt;
+    /// window.IsVisible</c>, StoryController.cs:85) plus the static
+    /// <c>StoryController.DisplayDelayInEffect</c> that bridges a CLevelMessage's
+    /// pre-display delay (the show coroutine holds the flag through its
+    /// WaitForSecondsRealtime before the window opens, StoryController.cs:163-174) so
+    /// the overlays cannot flash during a delayed intro message either.</item>
+    /// </list>
+    /// This is the exact blocker trio (minus the ESC menu) the game itself gates its
+    /// scenario base buttons with (BaseButtons.cs:86: <c>UIResultsManager.IsShown ||
+    /// StoryController.IsVisible || ESCMenu.IsOpen</c>). The ESC/pause menu is
+    /// deliberately NOT included: the mod's explicit requirement keeps cards fully
+    /// interactive while the reachable pause/options family is open (see the modal
+    /// input-block note in CardsDriver.TickInteractionsAndStatus), so placement — and
+    /// therefore its telegraph — stays live there. Multiplayer: every signal is a
+    /// LOCAL-client read (results window / story dialog are per-client UI;
+    /// <c>ActionProcessor.CurrentPhase</c> is the locally processed shared rule
+    /// state), so the gate follows the local player's view, matching the
+    /// IsUnderMyControl-style local gating used elsewhere. Read-only and cheap
+    /// (singleton field reads); <paramref name="reason"/> is a constant string, only
+    /// meaningful when true (callers log edge-triggered, throttled).
+    /// </summary>
+    internal static bool IsCardCommitBlocked(out string reason)
+    {
+        UIResultsManager results = Singleton<UIResultsManager>.Instance;
+        if (results != null && results.IsShown)
+        {
+            reason = "scenario results window (Sieg/Niederlage) open or queued (UIResultsManager.IsShown)";
+            return true;
+        }
+        if (FFSNet.ActionProcessor.CurrentPhase == FFSNet.ActionPhaseType.ScenarioEnded)
+        {
+            reason = "rule engine in terminal phase (ActionProcessor.CurrentPhase == ScenarioEnded)";
+            return true;
+        }
+        StoryController story = Singleton<StoryController>.Instance;
+        if (story != null && story.IsVisible)
+        {
+            reason = "narrator/story dialog visible (StoryController.IsVisible)";
+            return true;
+        }
+        if (StoryController.DisplayDelayInEffect)
+        {
+            reason = "narrator/story message pending its display delay (StoryController.DisplayDelayInEffect)";
+            return true;
+        }
+        reason = "";
+        return false;
+    }
+
+    /// <summary>
     /// Current scenario round (0 while no scenario state exists). Verified:
     /// <c>public ScenarioState m_CurrentState</c> (Choreographer.cs:421) with
     /// <c>public int RoundNumber { get; set; }</c> (ScenarioState.cs:68) — the exact
