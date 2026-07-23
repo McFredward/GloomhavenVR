@@ -1478,6 +1478,11 @@ internal sealed class CardsDriver : MonoBehaviour
         if (pickMode)
         {
             VRCard? pickHeld = HeldCard(out VRHand? pickHolder);
+            if (pickHeld != null && IsReadOnlyViewerCard(pickHeld))
+            {
+                pickHeld = null; // T2: browse/active viewer cards never slot — no telegraph
+                pickHolder = null;
+            }
             int want = PickTargetSlot();
             bool onField = pickHeld != null && _fieldCards.Contains(pickHeld);
             bool near = pickHeld != null && pickHolder != null && !onField && want >= 0
@@ -1508,6 +1513,15 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_tray.IsVisible)
         {
             held = HeldCard(out holder);
+            // T2: a card plucked out of the pile BROWSE arc (or the active column) is a READ —
+            // its release ALWAYS returns it to the viewer (see OnCardReleased's browse/active
+            // early-outs), so glowing a tray slot for it telegraphs a drop that cannot happen.
+            // No telegraph, no highlight-accept, no haptic for read-only viewer cards.
+            if (held != null && IsReadOnlyViewerCard(held))
+            {
+                held = null;
+                holder = null;
+            }
             if (held != null && holder != null)
             {
                 slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
@@ -1539,6 +1553,13 @@ internal sealed class CardsDriver : MonoBehaviour
                 holder.SendHaptic(HapticPreset.HoverTick); // debounced: only on slot change
         }
     }
+
+    /// <summary>
+    /// T2: cards adopted by a read-only pile viewer — the discard/burnt BROWSE arc or the
+    /// active-cards column. Their releases always return them to the viewer, never into the
+    /// select/slot seams, so no drop telegraph may ever glow for them.
+    /// </summary>
+    private bool IsReadOnlyViewerCard(VRCard card) => _browser.Contains(card) || _active.Contains(card);
 
     private static VRCard? HeldCard(out VRHand? holder)
     {
@@ -1633,10 +1654,13 @@ internal sealed class CardsDriver : MonoBehaviour
     }
 
     /// <summary>
-    /// Stage D: while a fan-originating card is held over the OPEN fan and NOT over a board slot,
-    /// resolve the nearest inter-card gap and telegraph it (open the gap + gold overlay + a
-    /// debounced haptic on edge), caching it for the release commit. Board-slot telegraph wins so
-    /// slot-play and fan-reorder never both glow. Clears whenever nothing eligible is held.
+    /// Stage D: while a fan-originating OR tray-originating card is held over the OPEN fan and NOT
+    /// over a board slot, resolve the nearest inter-card gap and telegraph it (open the gap + gold
+    /// overlay + a debounced haptic on edge), caching it for the release commit. Board-slot
+    /// telegraph wins so slot-play and fan-reorder never both glow. Clears whenever nothing
+    /// eligible is held. Tray-origin (T1): a card lifted OFF a play slot inserts at the gap too —
+    /// the release runs the normal take-back (UnselectCard) and then splices the card's id into
+    /// the persisted order at the gap (see the tray take-back branch of OnCardReleased).
     /// </summary>
     private void UpdateFanInsertion()
     {
@@ -1650,8 +1674,11 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
         VRCard? held = HeldCard(out VRHand? holder);
-        // Board slot telegraph (UpdateSlotHighlight ran first) wins outright.
-        if (held == null || holder == null || !_fanOriginCards.Contains(held) || _snapHighlightSlot >= 0)
+        // Eligible: plucked out of the fan (reorder) OR lifted off a tray slot (T1 — take-back
+        // straight into a chosen fan position). Board slot telegraph (UpdateSlotHighlight ran
+        // first) wins outright.
+        bool eligible = held != null && (_fanOriginCards.Contains(held) || _tray.ContainsCard(held));
+        if (held == null || holder == null || !eligible || _snapHighlightSlot >= 0)
         {
             ClearFanInsertion();
             return;
@@ -2319,12 +2346,54 @@ internal sealed class CardsDriver : MonoBehaviour
             // Task #5: no mod sound — the queued UnselectCard plays the card's serialized
             // profile click via AbilityCardUI.ToggleSelect (deselect path, AbilityCardUI.cs:1184);
             // the soft undo click on top doubled it.
+            // T1 (tray → fan position): if the fan's insertion gap was glowing for THIS card at
+            // release, the take-back lands at that gap instead of the game-sorted position —
+            // same "what glows is what drops" contract as the fan-origin reorder. The gap and its
+            // neighbour ids are captured NOW (the fan may change while the unselect is queued);
+            // the _fanOrder splice runs in the unselect COMPLETION so the rebuild it triggers
+            // sees the card back in the game hand — splicing earlier would race ReorderFanBuffer's
+            // prune (the id is not in the hand until the unselect lands) and lose the position.
+            int gap = ReferenceEquals(_insertHighlightCard, card) ? _insertGap : -1;
+            int insertBeforeId = int.MinValue; // id of the card right of the gap (insert before it)
+            int insertAfterId = int.MinValue;  // id of the last fan card (gap past the end)
+            if (gap >= 0)
+            {
+                IReadOnlyList<VRCard> fanNow = _fan.Cards;
+                if (gap < fanNow.Count)
+                    insertBeforeId = FanId(fanNow[gap]);
+                else if (fanNow.Count > 0)
+                    insertAfterId = FanId(fanNow[fanNow.Count - 1]);
+                ClearFanInsertion();
+                hand.SendHaptic(HapticPreset.ClickPulse);
+                VRLog.Info("Cards", $"Fan reorder ({hand.Side}): TRAY card take-back committed to fan " +
+                                    $"gap {gap} (unselect queued; session-only VR order).");
+            }
             _tray.RemoveCard(card);
             _fan.Add(card);
+            int cardId = FanId(card);
             CardsHandUI handRef = gameHand;
             CardActionQueue.Enqueue(
                 () => CardsGameApi.UnselectCard(handRef, ability),
-                () => _dirty = true);
+                () =>
+                {
+                    if (gap >= 0 && cardId != int.MinValue)
+                    {
+                        _fanOrder.Remove(cardId);
+                        int at = _fanOrder.Count;
+                        if (insertBeforeId != int.MinValue)
+                        {
+                            int idx = _fanOrder.IndexOf(insertBeforeId);
+                            at = idx >= 0 ? idx : _fanOrder.Count;
+                        }
+                        else if (insertAfterId != int.MinValue)
+                        {
+                            int idx = _fanOrder.IndexOf(insertAfterId);
+                            at = idx >= 0 ? idx + 1 : _fanOrder.Count;
+                        }
+                        _fanOrder.Insert(at, cardId);
+                    }
+                    _dirty = true;
+                });
         }
         else if (fanOrigin && ReferenceEquals(_insertHighlightCard, card) && _insertGap >= 0)
         {
