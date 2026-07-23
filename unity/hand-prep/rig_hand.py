@@ -7,8 +7,10 @@
 # script, run with Blender 4.2. It turns ressources/hands/Hand_prepped.glb (root at wrist,
 # +Z along fingers, +Y = back of hand, palm at -Y, ~0.19 m, ~18k tris) into a 16-bone
 # armature (Anchor_Wrist + 5 fingers x 3 joints) plus three anchor empties (Anchor_Palm,
-# Anchor_IndexTip, Anchor_Grab), skins it with automatic weights, verifies the flexion
-# invariant numerically, then mirrors to a right hand and exports both FBX files.
+# Anchor_IndexTip, Anchor_Grab), skins it with EXPLICIT GEOMETRIC digit weights (see the
+# GEO_SKIN block below; the detected fingertip landmarks are first converted to
+# anatomical DIP joints — see DIP_ENABLE), verifies the flexion invariant numerically,
+# then mirrors to a right hand and exports both FBX files.
 #
 # RUN (headless):
 #   /home/claw/blender-4.2/blender --background --python rig_hand.py
@@ -48,9 +50,12 @@ from mathutils import Vector, Matrix
 from mathutils.kdtree import KDTree
 
 # ---- GENERALIZATION (alternative hand styles) -----------------------------------------
-# The DEFAULT invocation (no env) reproduces the original glove build byte-for-byte:
-# same source, same hardcoded joints, same output names. Alternative hands (prepared by
-# prepare_hand.py) are rigged by pointing these env vars at their artifacts:
+# The DEFAULT invocation (no env) builds the original glove: same source, same hardcoded
+# joints, same output names. (The former "byte-for-byte legacy weights" invariant was
+# RETIRED 2026-07 by the fist fix — the glove now gets the same geometric skinning + DIP
+# joints as the styled hands; RIG_HAND_GEO_SKIN=0 / RIG_HAND_DIP=0 reproduce the old
+# build for A/B only.) Alternative hands (prepared by prepare_hand.py) are rigged by
+# pointing these env vars at their artifacts:
 #   RIG_HAND_SRC     input prepped GLB     (default: the original Hand_prepped.glb)
 #   RIG_HAND_NAME    asset base name       (default "VRHand" -> VRHand_L_rig.fbx / _R_;
 #                    e.g. "VRHandPlate" -> VRHandPlate_L_rig.fbx / VRHandPlate_R_rig.fbx)
@@ -96,6 +101,78 @@ CURL_MAX_THUMB = (25.0, 45.0, 60.0)
 # RIG_HAND_POSE_ONLY: comma-separated subset of POSES to render (with RIG_HAND_POSES=1),
 # e.g. "fist" or "fist,point" — keeps targeted verification runs fast. Empty = all.
 POSE_ONLY = [p for p in os.environ.get("RIG_HAND_POSE_ONLY", "").split(",") if p]
+
+# ---- FIST BUG, FINAL ROUND (2026-07): explicit geometric digit skinning ----------------
+# Hardware evidence (LogOutput 2026-07-23): "FIST Right (style Glove …) curl 1.00 on all
+# fingers, applied° 75/95/65, externalDrift 0.0" — the bones get the FULL commanded
+# rotation, yet on-device the mesh barely bends ("only fingertips move"). Input was never
+# the problem; the SKIN WEIGHTS are. Every previous weight fix (rounds 1-3 above) was
+# gated ALT_HAND-only, so the GLOVE — the style the log proves the player uses — still
+# shipped the round-0 proximity blend: 1/d^2 over {wrist-segment, root, mid, tip} plus
+# 3 passes of 0.5-alpha KD smoothing. Measured on that build (RIG_HAND_DIAG=1): the
+# PROXIMAL tube of each finger only follows ~55-70 % of a rigid Root rotation and the
+# palm-side knuckle verts sit closer to the long wrist segment than to their own Root
+# bone, so a commanded 75° MCP flexion renders as a shallow lean — a fist that never
+# closes even though every joint angle is proven applied.
+#
+# Fix (RIG_HAND_GEO_SKIN, default ON — applies to ALL styles including the glove):
+# digit-tube verts are no longer weighted by inverse-distance mixing at all. Each vert
+# inside its nearest finger's tube (off-axis distance < the adaptive per-finger cap) is
+# assigned by ARC LENGTH s along the 3-bone polyline (projection):
+#   - pure zones get 100 % of their segment's bone (Root / Mid / Tip);
+#   - joint boundaries get a smooth 2-bone smoothstep blend across ±15 % of the
+#     shorter adjacent segment length (MCP boundary: wider ±25 % of the proximal
+#     length, blending Wrist<->Root so the knuckle bulge creases at the joint);
+#   - the off-axis smoothstep fade (soft..cap) still moves weight to the wrist so the
+#     tube boundary has no seam. Palm/back/webbing verts (outside every tube) are 100 %
+#     wrist-bound — the batwing-membrane and palm-fan fixes stay by construction.
+# Weights are a C1-continuous function of POSITION only, so the 310 disconnected shells
+# can never tear apart and no KD smoothing is needed (it is what diluted Root/Mid
+# ownership in the first place). RIG_HAND_GEO_SKIN=0 reproduces the legacy weighting
+# (kept for A/B diagnostics only — do NOT ship it).
+GEO_SKIN = os.environ.get("RIG_HAND_GEO_SKIN", "1") != "0"
+MCP_BLEND = 0.25   # wrist<->root blend halfwidth, fraction of proximal segment length
+IPJ_BLEND = 0.15   # inter-phalangeal blend halfwidth, fraction of shorter neighbour seg
+
+# RIG_HAND_DIAG=1: diagnostics-only run — build the LEFT hand, print per-finger/zone
+# weight stats + the rigid-follow test (does the MESH actually track each bone's
+# rotation?), render weight heatmaps into RENDER_DIR, write <NAME>_weights.json, and
+# EXIT without exporting FBX. The metric the earlier "closure" checks were blind to.
+DIAG = os.environ.get("RIG_HAND_DIAG", "0") != "0"
+
+# ---- DIP relocation (found by the same diagnostics, all styles) ------------------------
+# The 3rd landmark of every finger is the FINGERTIP ("Tip(fingertip/DIP)" in the
+# JOINTS_L comment; prepare_hand.py detects the same for the styled hands — all chains
+# are perfectly evenly spaced MCP/PIP/fingertip). So the exported Anchor_*_Tip bone
+# STARTED at the fingertip and owned ~2 mm of mesh (weight stats: tip zone n=0 on every
+# finger of every style): the runtime's 65° tip-joint rotation was cosmetically dead and
+# each finger really articulated on TWO hinges — one big reason the "fist" never wrapped.
+# Fix: move the Tip joint back to an anatomical DIP/IP (fingers: 60 % of PIP->fingertip,
+# i.e. middle:distal phalanx ≈ 1.5:1; thumb IP: 55 %) and give the Tip bone the real
+# distal phalanx, ending just past the fingertip. Anchor_IndexTip is positioned from the
+# separate INDEXTIP landmark and is unaffected. RIG_HAND_DIP=0 restores the old chains.
+DIP_ENABLE = os.environ.get("RIG_HAND_DIP", "1") != "0"
+DIP_FRAC_FINGER = 0.60
+DIP_FRAC_THUMB = 0.55
+TIP_TAIL_PAD = 0.004     # tip-bone tail beyond the fingertip (m)
+
+
+def derive_dip(joints):
+    """Rewrite each finger chain [MCP, PIP, fingertip] -> [MCP, PIP, DIP] and return
+    (joints, tipends) where tipends[f] is the tip-bone TAIL (just past the fingertip)."""
+    out, tipends = {}, {}
+    for f in FINGERS:
+        p0, p1, tip = joints[f]
+        dirt = (tip - p1).normalized()
+        if DIP_ENABLE:
+            frac = DIP_FRAC_THUMB if f == "Thumb" else DIP_FRAC_FINGER
+            dip = p1 + (tip - p1) * frac
+            tipends[f] = tip + dirt * TIP_TAIL_PAD
+        else:
+            dip = tip.copy()
+            tipends[f] = tip + dirt * TIP_TAIL_LEN
+        out[f] = [p0.copy(), p1.copy(), dip]
+    return out, tipends
 
 # Pose matrix rendered by RIG_HAND_POSES=1 — curl value per finger, mirroring what
 # VRHand.UpdateCurlTargets actually produces on hardware:
@@ -407,7 +484,7 @@ def make_watertight(o):
 
 
 # ---------------------------------------------------------------------------------------
-def build_armature(joints, wrist, palm, grab, indextip, name):
+def build_armature(joints, wrist, palm, grab, indextip, name, tipends):
     arm_data = bpy.data.armatures.new(name)
     arm = bpy.data.objects.new(name, arm_data)
     bpy.context.scene.collection.objects.link(arm)
@@ -421,10 +498,9 @@ def build_armature(joints, wrist, palm, grab, indextip, name):
 
     finger_bones = []
     for finger in FINGERS:
-        p = joints[finger]                          # [Root, Mid, Tip]
-        dir_tip = (p[2] - p[1]).normalized()
+        p = joints[finger]                          # [Root(MCP), Mid(PIP), Tip(DIP)]
         heads = [p[0], p[1], p[2]]
-        tails = [p[1], p[2], p[2] + dir_tip * TIP_TAIL_LEN]
+        tails = [p[1], p[2], tipends[finger]]       # tip bone spans the distal phalanx
         parent = root
         connect = False                             # Root is detached from wrist
         for i, seg in enumerate(("Root", "Mid", "Tip")):
@@ -505,7 +581,165 @@ def _seg_dist(p, a, b):
     return (p - (a + ab * t)).length
 
 
-def skin(mesh, arm, joints, wrist, palm):
+# ---- geometric digit skinning + diagnostics helpers ------------------------------------
+# Shared region constants (were local to skin(); the diagnostics need them too).
+PALM_SOFT, PALM_CAP = 0.012, 0.018
+DIGIT_SOFT = 0.014                            # floor; raised per finger by r95+2 mm
+DIGIT_CAP_PAD = 0.008                         # cap = soft + this
+DIGIT_T0 = -0.10                              # digit region starts behind the MCP
+
+
+def _chain_param(co, pts):
+    """Project a point onto the finger polyline [MCP, PIP, DIP, tip-end].
+
+    Returns (s, d): the ARC LENGTH along the chain of the closest point (s < 0 before
+    the MCP via the unclamped extension of the first segment, s > total beyond the tip
+    likewise) and the distance to the polyline."""
+    best_d, best_s = None, 0.0
+    acc = 0.0
+    n = len(pts) - 1
+    for i in range(n):
+        a, b = pts[i], pts[i + 1]
+        ab = b - a
+        L = ab.length
+        t = (co - a).dot(ab) / (L * L)
+        tc = max(0.0, min(1.0, t))
+        d = (co - (a + ab * tc)).length
+        s = acc + tc * L
+        if i == 0 and t < 0.0:
+            s = t * L                          # signed distance behind the MCP
+        if i == n - 1 and t > 1.0:
+            s = acc + t * L                    # beyond the fingertip end
+        if best_d is None or d < best_d:
+            best_d, best_s = d, s
+        acc += L
+    return best_s, best_d
+
+
+def _smoothstep01(x):
+    x = max(0.0, min(1.0, x))
+    return x * x * (3.0 - 2.0 * x)
+
+
+def _seg_weights(s, lens, h0, h1, h2, bone_names):
+    """Explicit per-segment bone weights for a digit-tube vert at arc length s.
+
+    Pure zones own 100 % of their segment bone; each joint boundary is a smoothstep
+    2-bone cross-fade (halfwidths h0 at the MCP vs the wrist, h1 at Root|Mid, h2 at
+    Mid|Tip). Returns {bone: w} summing to 1; "WRIST" is the caller's wrist bone."""
+    s1 = lens[0]
+    s2 = lens[0] + lens[1]
+    if s < -h0:
+        return {"WRIST": 1.0}
+    wr = _smoothstep01((s + h0) / (2.0 * h0)) if s < h0 else 1.0       # wrist -> root
+    rm = _smoothstep01((s - (s1 - h1)) / (2.0 * h1)) if s1 - h1 <= s <= s1 + h1 \
+        else (1.0 if s > s1 else 0.0)                                   # root -> mid
+    mt = _smoothstep01((s - (s2 - h2)) / (2.0 * h2)) if s2 - h2 <= s <= s2 + h2 \
+        else (1.0 if s > s2 else 0.0)                                   # mid -> tip
+    w = {
+        bone_names[0]: wr * (1.0 - rm),
+        bone_names[1]: rm * (1.0 - mt),
+        bone_names[2]: mt,
+    }
+    if wr < 1.0:
+        w["WRIST"] = 1.0 - wr
+    return {nm: wv for nm, wv in w.items() if wv > 0.0}
+
+
+def _digit_geometry(mesh, joints, tipends):
+    """Per-vert nearest finger chain + (s, d) params, and the adaptive per-finger caps.
+
+    Same r95-based cap formula the round-3 ALT fix used, now computed for EVERY style
+    (the glove included) so skinning and diagnostics share one digit definition."""
+    pts, lens = {}, {}
+    for f in FINGERS:
+        p = joints[f]
+        pts[f] = [p[0], p[1], p[2], tipends[f]]
+        lens[f] = [(pts[f][i + 1] - pts[f][i]).length for i in range(3)]
+    verts = mesh.data.vertices
+    info = [None] * len(verts)                 # (finger, s, d) per vert
+    shell = {f: [] for f in FINGERS}
+    for v in verts:
+        co = v.co
+        best = None
+        for f in FINGERS:
+            s, d = _chain_param(co, pts[f])
+            if best is None or d < best[2]:
+                best = (f, s, d)
+        info[v.index] = best
+        f, s, d = best
+        total = sum(lens[f])
+        if d < 0.035 and 0.05 * total <= s <= 1.1 * total:
+            shell[f].append(d)
+    soft, cap = {}, {}
+    for f in FINGERS:
+        ds = sorted(shell[f])
+        r95 = ds[min(len(ds) - 1, int(0.95 * len(ds)))] if ds else DIGIT_SOFT
+        soft[f] = max(DIGIT_SOFT, r95 + 0.002)
+        cap[f] = soft[f] + DIGIT_CAP_PAD
+    return pts, lens, info, soft, cap
+
+
+def _geo_fade(d, soft, cap):
+    if d <= soft:
+        return 1.0
+    if d >= cap:
+        return 0.0
+    t = (d - soft) / (cap - soft)
+    return 1.0 - t * t * (3.0 - 2.0 * t)
+
+
+def _geo_weights(mesh, joints, tipends):
+    """GEO_SKIN pass: explicit geometric weights for every vert (see GEO_SKIN doc)."""
+    pts, lens, info, soft, cap = _digit_geometry(mesh, joints, tipends)
+    log("geo-skin digit caps (soft/cap mm): " + ", ".join(
+        f"{f} {soft[f]*1000:.1f}/{cap[f]*1000:.1f}" for f in FINGERS))
+    verts = mesh.data.vertices
+    vert_w = [None] * len(verts)
+    CUFF_Z = -0.002
+    for v in verts:
+        co = v.co
+        if co.z < CUFF_Z:                      # forearm cuff: rigid with the wrist
+            vert_w[v.index] = {"Anchor_Wrist": 1.0}
+            continue
+        f, s, d = info[v.index]
+        h0 = MCP_BLEND * lens[f][0]
+        if s < -h0 or d >= cap[f]:             # palm / back / webbing: rigid hand block
+            vert_w[v.index] = {"Anchor_Wrist": 1.0}
+            continue
+        seg_w = _seg_weights(
+            s, lens[f], h0,
+            IPJ_BLEND * min(lens[f][0], lens[f][1]),
+            IPJ_BLEND * min(lens[f][1], lens[f][2]),
+            [f"Anchor_{f}_{seg}" for seg in ("Root", "Mid", "Tip")])
+        fade = _geo_fade(d, soft[f], cap[f])
+        w = {}
+        for nm, wv in seg_w.items():
+            nm = "Anchor_Wrist" if nm == "WRIST" else nm
+            w[nm] = w.get(nm, 0.0) + wv * fade
+        if fade < 1.0:
+            w["Anchor_Wrist"] = w.get("Anchor_Wrist", 0.0) + (1.0 - fade)
+        vert_w[v.index] = w
+    return vert_w
+
+
+def _write_weights(mesh, arm, groups, vert_w):
+    """Clamp to <=4 influences, renormalise, write groups, parent + modifier."""
+    for v in mesh.data.vertices:
+        items = sorted(vert_w[v.index].items(), key=lambda kv: -kv[1])[:4]
+        tot = sum(w for _, w in items) or 1.0
+        for nm, w in items:
+            wn = w / tot
+            if wn > 1e-4:
+                groups[nm].add([v.index], wn, 'REPLACE')
+    mesh.parent = arm
+    mesh.matrix_parent_inverse = arm.matrix_world.inverted()
+    if not any(m.type == 'ARMATURE' for m in mesh.modifiers):
+        m = mesh.modifiers.new("Armature", 'ARMATURE')
+        m.object = arm
+
+
+def skin(mesh, arm, joints, wrist, palm, tipends):
     """Deterministic proximity skinning with a KDTree smoothing pass.
 
     The AI mesh is fragmented (~310 disconnected shells, heavily non-manifold), so
@@ -532,11 +766,10 @@ def skin(mesh, arm, joints, wrist, palm):
     finger_segs = {}
     for f in FINGERS:
         p = joints[f]
-        dir_tip = (p[2] - p[1]).normalized()
         finger_segs[f] = [
             (f"Anchor_{f}_Root", p[0], p[1]),
             (f"Anchor_{f}_Mid",  p[1], p[2]),
-            (f"Anchor_{f}_Tip",  p[2], p[2] + dir_tip * TIP_TAIL_LEN),
+            (f"Anchor_{f}_Tip",  p[2], tipends[f]),
         ]
 
     # ensure a vertex group per deform bone + wrist
@@ -544,6 +777,13 @@ def skin(mesh, arm, joints, wrist, palm):
     groups = {}
     for n in names:
         groups[n] = mesh.vertex_groups.get(n) or mesh.vertex_groups.new(name=n)
+
+    # FIST FIX FINAL (2026-07, all styles): explicit geometric digit skinning — see the
+    # GEO_SKIN block comment near the top. The legacy inverse-distance path below is
+    # retained ONLY for RIG_HAND_GEO_SKIN=0 A/B diagnostics.
+    if GEO_SKIN:
+        _write_weights(mesh, arm, groups, _geo_weights(mesh, joints, tipends))
+        return
 
     P = 2.0            # gentler than the old cubic -> wider, smoother influence bands
     EPS = 1e-9
@@ -577,10 +817,7 @@ def skin(mesh, arm, joints, wrist, palm):
     #     the batwing membrane and the palm fan sheet — do not regress it.
     # The faded share still moves to the wrist bone so the palm stays rigid with the
     # hand; the KD smoothing pass below blends the taper ring.
-    PALM_SOFT, PALM_CAP = 0.012, 0.018
-    DIGIT_SOFT = 0.014                            # floor; raised per finger by r95+2 mm
-    DIGIT_CAP_PAD = 0.008                         # cap = soft + this
-    DIGIT_T0 = -0.10                              # digit region starts behind the MCP
+    # (PALM_SOFT/PALM_CAP/DIGIT_SOFT/DIGIT_CAP_PAD/DIGIT_T0 are module-level now.)
 
     def finger_fade(d, soft, cap):
         if d <= soft:
@@ -747,21 +984,8 @@ def skin(mesh, arm, joints, wrist, palm):
             smoothed[v.index] = blend
         vert_w = smoothed
 
-    # ---- write: clamp to <=4 influences, renormalise ------------------------------------
-    for v in verts:
-        items = sorted(vert_w[v.index].items(), key=lambda kv: -kv[1])[:4]
-        tot = sum(w for _, w in items) or 1.0
-        for nm, w in items:
-            wn = w / tot
-            if wn > 1e-4:
-                groups[nm].add([v.index], wn, 'REPLACE')
-
-    # armature modifier + parent (no auto weights)
-    mesh.parent = arm
-    mesh.matrix_parent_inverse = arm.matrix_world.inverted()
-    if not any(m.type == 'ARMATURE' for m in mesh.modifiers):
-        m = mesh.modifiers.new("Armature", 'ARMATURE')
-        m.object = arm
+    # ---- write: clamp to <=4 influences, renormalise, parent ----------------------------
+    _write_weights(mesh, arm, groups, vert_w)
 
 
 # ---------------------------------------------------------------------------------------
@@ -780,12 +1004,12 @@ def evaluated_positions(mesh, indices):
     return {i: (mesh.matrix_world @ me.vertices[i].co).copy() for i in indices}
 
 
-def pose_test(mesh, arm, joints, side_label):
+def pose_test(mesh, arm, joints, tipends, side_label):
     """Rotate each finger's 3 joints +40 deg about local X; assert fingertip moves -Y."""
     results = {}
     bpy.context.view_layer.objects.active = arm
     for finger in FINGERS:
-        tip_pos = joints[finger][2]
+        tip_pos = tipends[finger]
         idx = tip_vert_indices(mesh, tip_pos)
         if not idx:
             results[finger] = ("NO_VERTS", 0.0, 0.0)
@@ -812,8 +1036,11 @@ def pose_test(mesh, arm, joints, side_label):
         bpy.context.view_layer.update()
 
         # PASS if the tip moved clearly toward -Y and did not mostly slide sideways.
+        # THUMB: the P2 tuck fix rolls its flexion axis 45° so the tip deliberately
+        # sweeps ACROSS the palm (large dX) while dropping (-Y) — the column check
+        # would flag the intended motion, so the thumb only asserts the -Y drop.
         curl_ok = dy < -0.003
-        column_ok = abs(dy) > dx * 0.8
+        column_ok = finger == "Thumb" or abs(dy) > dx * 0.8
         results[finger] = ("PASS" if (curl_ok and column_ok) else "FAIL", dy, dx)
     return results
 
@@ -850,7 +1077,150 @@ def sample_weights(mesh, joints):
 
 
 # ---------------------------------------------------------------------------------------
-def build_core(src_mesh, arm, joints, wrist, palm, side):
+# WEIGHT DIAGNOSTICS (RIG_HAND_DIAG=1) — the checks the old "closure metrics" were blind
+# to. The pose_test/closure numbers tracked TIP verts (which ride the bone-tracked tip
+# in any skinning), so a hand whose proximal/middle tubes are palm-bound still "passed".
+# These three measure the SKINNING itself.
+
+def _vert_weight_maps(mesh):
+    idx2name = {g.index: g.name for g in mesh.vertex_groups}
+    return [{idx2name[g.group]: g.weight for g in v.groups} for v in mesh.data.vertices]
+
+
+def weight_stats(mesh, joints, tipends, tag):
+    """Per-finger, per-zone weight audit: in each PURE segment zone (outside the joint
+    blend bands) the expected bone should own ~100 % of the weight. Prints a table and
+    returns a JSON-serialisable dict."""
+    pts, lens, info, soft, cap = _digit_geometry(mesh, joints, tipends)
+    wmap = _vert_weight_maps(mesh)
+    report = {}
+    log(f"--- WEIGHT STATS ({tag}) ---")
+    log(f"    {'finger':7s} {'zone':5s} {'n':>5s} {'wExpect':>8s} {'wWrist':>7s} "
+        f"{'wOther':>7s} {'dom%':>6s}   (dom% = verts whose top bone IS the segment bone)")
+    for f in FINGERS:
+        L0, L1, L2 = lens[f]
+        zones = {
+            "prox": (0.20 * L0, 0.80 * L0, f"Anchor_{f}_Root"),
+            "mid":  (L0 + 0.20 * L1, L0 + 0.80 * L1, f"Anchor_{f}_Mid"),
+            "tip":  (L0 + L1 + 0.20 * L2, 1e9, f"Anchor_{f}_Tip"),
+        }
+        report[f] = {}
+        for zname, (s0, s1, expect) in zones.items():
+            sel = [i for i, inf in enumerate(info)
+                   if inf[0] == f and s0 <= inf[1] < s1 and inf[2] < cap[f]]
+            if not sel:
+                log(f"    {f:7s} {zname:5s} {0:5d}      (no verts)")
+                report[f][zname] = {"n": 0}
+                continue
+            m_exp = sum(wmap[i].get(expect, 0.0) for i in sel) / len(sel)
+            m_wr = sum(wmap[i].get("Anchor_Wrist", 0.0) for i in sel) / len(sel)
+            m_oth = 1.0 - m_exp - m_wr
+            dom = sum(1 for i in sel
+                      if wmap[i] and max(wmap[i].items(), key=lambda kv: kv[1])[0] == expect)
+            domp = 100.0 * dom / len(sel)
+            log(f"    {f:7s} {zname:5s} {len(sel):5d} {m_exp:8.3f} {m_wr:7.3f} "
+                f"{max(0.0, m_oth):7.3f} {domp:5.1f}%")
+            report[f][zname] = {"n": len(sel), "w_expected": round(m_exp, 4),
+                                "w_wrist": round(m_wr, 4),
+                                "w_other": round(max(0.0, m_oth), 4),
+                                "dominant_pct": round(domp, 1)}
+    return report
+
+
+def follow_test(mesh, arm, joints, tipends, tag):
+    """THE fist metric: rotate ONE joint +40° and measure how far the verts of ITS OWN
+    tube segment actually travel vs the rigid-rotation prediction (projection of the
+    actual displacement onto the predicted one). 1.0 = mesh follows the bone fully;
+    ~0 = segment is skinned to the palm/wrist (the 'only fingertips move' bug)."""
+    pts, lens, info, soft, cap = _digit_geometry(mesh, joints, tipends)
+    bpy.context.view_layer.objects.active = arm
+    results = {}
+    log(f"--- FOLLOW TEST ({tag}) : +40° on ONE joint; ratio of actual/rigid motion of its segment tube ---")
+    log(f"    {'finger':7s} {'Root':>6s} {'Mid':>6s} {'Tip':>6s}   (>=0.70 acceptable, >=0.85 good)")
+    for f in FINGERS:
+        L0, L1, L2 = lens[f]
+        zones = [
+            ("Root", 0.25 * L0, 0.75 * L0),
+            ("Mid", L0 + 0.25 * L1, L0 + 0.75 * L1),
+            ("Tip", L0 + L1 + 0.20 * L2, L0 + L1 + 1.2 * L2),
+        ]
+        row = {}
+        for seg, s0, s1 in zones:
+            sel = [i for i, inf in enumerate(info)
+                   if inf[0] == f and s0 <= inf[1] < s1 and inf[2] < cap[f]]
+            if not sel:
+                row[seg] = None
+                continue
+            rest = evaluated_positions(mesh, sel)
+            bone = f"Anchor_{f}_{seg}"
+            pb = arm.pose.bones[bone]
+            axis = pb.x_axis.copy()            # rest-pose world flexion axis
+            head = pb.head.copy()
+            rot = Matrix.Rotation(math.radians(40.0), 4, axis)
+            bpy.ops.object.mode_set(mode='POSE')
+            for pbb in arm.pose.bones:
+                pbb.rotation_mode = 'XYZ'
+                pbb.rotation_euler = (0.0, 0.0, 0.0)
+            pb.rotation_euler = (math.radians(40.0), 0.0, 0.0)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.context.view_layer.update()
+            posed = evaluated_positions(mesh, sel)
+            num = den = 0.0
+            for i in sel:
+                pred = (rot @ (rest[i] - head)) + head - rest[i]
+                act = posed[i] - rest[i]
+                num += act.dot(pred)
+                den += pred.length_squared
+            row[seg] = num / den if den > 1e-12 else None
+            bpy.ops.object.mode_set(mode='POSE')
+            pb.rotation_euler = (0.0, 0.0, 0.0)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.context.view_layer.update()
+        results[f] = row
+        log("    {:7s} {} {} {}".format(
+            f, *(f"{row[s]:6.2f}" if row[s] is not None else "   n/a"
+                 for s in ("Root", "Mid", "Tip"))))
+    return {f: {s: (round(v, 3) if v is not None else None) for s, v in r.items()}
+            for f, r in results.items()}
+
+
+def render_weight_viz(mesh, side, tag):
+    """Heatmap render: vertex colors = segment ownership (Root=red, Mid=green, Tip=blue,
+    Wrist/palm=dark gray), emission shading. DIAG-only: replaces the mesh materials."""
+    me = mesh.data
+    attr = me.color_attributes.get("WeightViz") \
+        or me.color_attributes.new("WeightViz", 'FLOAT_COLOR', 'POINT')
+    class_color = {"Root": Vector((0.95, 0.08, 0.08)), "Mid": Vector((0.05, 0.85, 0.10)),
+                   "Tip": Vector((0.15, 0.35, 1.00)), "Wrist": Vector((0.16, 0.16, 0.16))}
+    idx2name = {g.index: g.name for g in mesh.vertex_groups}
+    for v in me.vertices:
+        c = Vector((0.0, 0.0, 0.0))
+        tot = 0.0
+        for g in v.groups:
+            nm = idx2name[g.group]
+            cls = "Wrist" if nm == "Anchor_Wrist" else nm.rsplit("_", 1)[-1]
+            c += class_color.get(cls, Vector((1, 0, 1))) * g.weight
+            tot += g.weight
+        if tot > 1e-6:
+            c /= tot
+        attr.data[v.index].color = (c.x, c.y, c.z, 1.0)
+    mat = bpy.data.materials.get("WeightVizMat") or bpy.data.materials.new("WeightVizMat")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    n_attr = nt.nodes.new("ShaderNodeAttribute")
+    n_attr.attribute_name = "WeightViz"
+    n_emit = nt.nodes.new("ShaderNodeEmission")
+    n_out = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(n_attr.outputs["Color"], n_emit.inputs["Color"])
+    nt.links.new(n_emit.outputs["Emission"], n_out.inputs["Surface"])
+    me.materials.clear()
+    me.materials.append(mat)
+    render_views(side, tag)
+
+
+# ---------------------------------------------------------------------------------------
+def build_core(src_mesh, arm, joints, wrist, palm, tipends, side):
     """Watertight inset backing core skinned to the same armature (see CORE_* notes)."""
     me = src_mesh.data.copy()
     core = bpy.data.objects.new(f"{NAME}_{side}_core", me)
@@ -877,7 +1247,7 @@ def build_core(src_mesh, arm, joints, wrist, palm, side):
     log(f"core {side}: voxel-remeshed watertight, {len(me.vertices)} verts, inset {CORE_INSET*1000:.1f} mm")
 
     # Skin the core to the same armature (same deterministic proximity skinning).
-    skin(core, arm, joints, wrist, palm)
+    skin(core, arm, joints, wrist, palm, tipends)
     return core
 
 
@@ -921,7 +1291,7 @@ def export_fbx(path, meshes, arm):
 
 # ---------------------------------------------------------------------------------------
 def build_hand(side):
-    """side: 'L' or 'R'. Returns (mesh, arm, joints, pose_results)."""
+    """side: 'L' or 'R'. Returns (mesh, arm, joints, tipends, pose_results, core)."""
     mesh = import_mesh()
     joints = {f: [v.copy() for v in JOINTS_L[f]] for f in FINGERS}
     wrist, palm, grab, itip = WRIST_L.copy(), PALM_L.copy(), GRAB_L.copy(), INDEXTIP_L.copy()
@@ -931,15 +1301,16 @@ def build_hand(side):
         joints = {f: [mirror_x(v) for v in joints[f]] for f in FINGERS}
         wrist, palm, grab, itip = (mirror_x(v) for v in (wrist, palm, grab, itip))
 
+    joints, tipends = derive_dip(joints)   # fingertip landmark -> anatomical DIP chains
     mesh.name = f"{NAME}_{side}_mesh"
     if WT_ENABLE:
         make_watertight(mesh)   # close AI see-through holes BEFORE skinning (proximity re-skins)
-    arm = build_armature(joints, wrist, palm, grab, itip, f"{NAME}_{side}")
-    skin(mesh, arm, joints, wrist, palm)
+    arm = build_armature(joints, wrist, palm, grab, itip, f"{NAME}_{side}", tipends)
+    skin(mesh, arm, joints, wrist, palm, tipends)
     sample_weights(mesh, joints)
-    results = pose_test(mesh, arm, joints, side)
-    core = build_core(mesh, arm, joints, wrist, palm, side) if CORE_ENABLE else None
-    return mesh, arm, joints, results, core
+    results = pose_test(mesh, arm, joints, tipends, side)
+    core = build_core(mesh, arm, joints, wrist, palm, tipends, side) if CORE_ENABLE else None
+    return mesh, arm, joints, tipends, results, core
 
 
 def render_views(side, tag):
@@ -975,7 +1346,10 @@ def render_views(side, tag):
 
     mirror = -1.0 if side == "R" else 1.0
     for shot, off in {"back": Vector((0, d, 0.08)), "palm": Vector((0, -d, 0.08)),
-                      "threeq": Vector((mirror * -d * 0.7, d * 0.7, d * 0.4))}.items():
+                      "threeq": Vector((mirror * -d * 0.7, d * 0.7, d * 0.4)),
+                      # true profile (pinky side): the only POV where MCP/PIP flexion
+                      # angles read unambiguously — fist verification depends on it
+                      "side": Vector((mirror * d, 0.0, 0.06))}.items():
         pos = ctr + off
         cam.location = pos
         look_at(cam, pos, ctr)
@@ -990,11 +1364,28 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     summary = {}
 
-    for side, fname in (("L", f"{NAME}_L_rig.fbx"), ("R", f"{NAME}_R_rig.fbx")):
+    sides = (("L", f"{NAME}_L_rig.fbx"),) if DIAG \
+        else (("L", f"{NAME}_L_rig.fbx"), ("R", f"{NAME}_R_rig.fbx"))
+    for side, fname in sides:
         log(f"==================== BUILD {side} ====================")
-        mesh, arm, joints, results, core = build_hand(side)
+        mesh, arm, joints, tipends, results, core = build_hand(side)
         allpass = print_table(results, side)
         summary[side] = (results, allpass)
+
+        if DIAG:
+            # Diagnostics-only: weight audit + rigid-follow test + heatmap renders,
+            # NO export (the mesh materials get replaced by the viz shading).
+            mode = "geo" if GEO_SKIN else "legacy"
+            stats = weight_stats(mesh, joints, tipends, f"{NAME} {side} {mode}")
+            follow = follow_test(mesh, arm, joints, tipends, f"{NAME} {side} {mode}")
+            if RENDER_DIR:
+                os.makedirs(RENDER_DIR, exist_ok=True)
+                render_weight_viz(mesh, side, f"weights_{mode}")
+                with open(os.path.join(RENDER_DIR,
+                                       f"{NAME}_{side}_weights_{mode}.json"), "w") as fh:
+                    json.dump({"stats": stats, "follow": follow}, fh, indent=1)
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            continue
         # ensure rest pose before export
         bpy.context.view_layer.objects.active = arm
         bpy.ops.object.mode_set(mode='POSE')
@@ -1037,7 +1428,7 @@ def main():
         bpy.ops.wm.read_factory_settings(use_empty=True)
 
     log("==================== SUMMARY ====================")
-    for side in ("L", "R"):
+    for side in summary:
         results, allpass = summary[side]
         log(f"  {side}: {'ALL PASS' if allpass else 'FAIL'} -> " +
             ", ".join(f"{f}:{results[f][0]}({results[f][1]:+.3f})" for f in FINGERS))
