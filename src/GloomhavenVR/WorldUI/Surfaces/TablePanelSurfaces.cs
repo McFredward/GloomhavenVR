@@ -2,6 +2,10 @@ using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
+using MapRuleLibrary.Adventure;
+using MapRuleLibrary.Party;
+using ScenarioRuleLibrary;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -679,5 +683,182 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         return manager != null && manager.MissionObjectiveContainer != null
             ? manager.MissionObjectiveContainer.transform as RectTransform
             : null;
+    }
+
+    // ---- personal quest line (campaign) --------------------------------------------------
+
+    /// <summary>
+    /// The CURRENT character's personal quest, shown as a compact mod-drawn TMP block
+    /// anchored just BELOW the converted objectives panel (left of the control board).
+    /// The objectives host carries live GAME UI (MissionObjectiveContainer), so appending
+    /// content INSIDE it would be invasive — a standalone world-space label that
+    /// pose-follows the host every tick is robust against reconversion and tray moves.
+    ///
+    /// Data path (verified in decompiled GH.Runtime/ActorStatPanel.InitializeCharacterCard):
+    /// campaign-only — <c>AdventureState.MapState.MapParty.SelectedCharacters</c> maps the
+    /// actor's <c>Class.ID</c> to its <c>CMapCharacter.PersonalQuest</c>
+    /// (<c>CPersonalQuestState</c>, MapRuleLibrary.Party); concealed remote quests stay
+    /// hidden with the game's own gate. Title = the quest's localized objective title
+    /// (<c>PersonalQuestYMLData.LocalisedObjectiveTitle</c>, LocalisedName fallback);
+    /// progress = <c>PersonalQuestObjectiveUtils.CalculateObjectives</c> — the SAME helper
+    /// the game's quest tracker UI uses (UIPersonalQuestObjectiveTracker.SetPersonalQuest).
+    /// The current character is the game's own tab-switchable hand
+    /// (<c>CardsGameApi.ActiveHand().PlayerActor</c> — CardsHandManager.CurrentHand), so
+    /// the block updates on character selection changes via the 0.5 s refresh.
+    /// </summary>
+    private const float QuestRefreshInterval = 0.5f;
+    /// <summary>Label rect height as a fraction of the panel width (label-local units).</summary>
+    private const float QuestRectHeightFrac = 0.34f;
+    /// <summary>Gap between the panel's bottom edge and the label top (fraction of width).</summary>
+    private const float QuestGapFrac = 0.03f;
+
+    private static readonly Vector3[] QuestCorners = new Vector3[4];
+    private static bool s_questErrorLogged;
+
+    private GameObject? _questGo;
+    private TextMeshPro? _questTmp;
+    private float _nextQuestRefresh;
+    private string _questShown = "";
+
+    public override void Tick()
+    {
+        base.Tick();
+        TickQuestLabel();
+    }
+
+    public override void Shutdown()
+    {
+        if (_questGo != null)
+            Object.Destroy(_questGo);
+        _questGo = null;
+        _questTmp = null;
+        _questShown = "";
+        base.Shutdown();
+    }
+
+    private void TickQuestLabel()
+    {
+        bool panelVisible = Panel != null && Panel.HostGo != null && Panel.HostGo.activeInHierarchy;
+        if (!panelVisible)
+        {
+            if (_questGo != null && _questGo.activeSelf)
+                _questGo.SetActive(false); // hides with the tray/panel, like the dock itself
+            return;
+        }
+
+        if (Time.unscaledTime >= _nextQuestRefresh)
+        {
+            _nextQuestRefresh = Time.unscaledTime + QuestRefreshInterval;
+            string text = BuildQuestText();
+            if (text.Length > 0)
+            {
+                bool fresh = EnsureQuestLabel(); // rebuilds after scene unloads (Unity-null aware)
+                if (fresh || text != _questShown)
+                    _questTmp!.text = text;
+            }
+            _questShown = text;
+        }
+
+        bool show = _questShown.Length > 0 && _questGo != null;
+        if (_questGo != null && _questGo.activeSelf != show)
+            _questGo.SetActive(show);
+        if (!show)
+            return;
+
+        // Pose-follow: anchored below the host's world rect (the exact plane the converted
+        // objectives render on), sized proportional to the panel width so it rides tray
+        // grabs/resizes and diorama zoom for free.
+        Panel!.HostRect.GetWorldCorners(QuestCorners); // 0=BL, 1=TL, 2=TR, 3=BR
+        Vector3 bl = QuestCorners[0];
+        float width = (QuestCorners[3] - bl).magnitude;
+        if (width < 1e-4f)
+            return; // not laid out yet
+        Vector3 up = (QuestCorners[1] - bl).normalized;
+        Vector3 bottomCenter = (bl + QuestCorners[3]) * 0.5f;
+        Transform t = _questGo!.transform;
+        t.rotation = Panel.HostTransform.rotation;
+        t.localScale = Vector3.one * width;
+        t.position = bottomCenter - up * (width * (QuestGapFrac + QuestRectHeightFrac * 0.5f));
+    }
+
+    /// <summary>Build (or rebuild after a scene unload) the quest TMP label. True when fresh.</summary>
+    private bool EnsureQuestLabel()
+    {
+        if (_questGo != null && _questTmp != null)
+            return false;
+        if (_questGo != null)
+            Object.Destroy(_questGo); // half-built remnant — never expected, but never leak
+        _questGo = new GameObject("GloomhavenVR.PersonalQuest");
+        _questTmp = _questGo.AddComponent<TextMeshPro>();
+        _questTmp.alignment = TextAlignmentOptions.Top;
+        _questTmp.color = new Color(0.92f, 0.88f, 0.76f);
+        NativeButtonSkin.ApplyFont(_questTmp); // native HUD font, like the pile captions
+        // Label-local units: scale = panel width, so 0.96 ≈ full panel width; auto-size
+        // shrinks/wraps long localized strings inside the block (TmpFit policy).
+        TmpFit.Fit(_questTmp, 0.96f, QuestRectHeightFrac, maxFontSize: 0.65f);
+        VRLayers.Apply(_questGo);
+        return true;
+    }
+
+    /// <summary>
+    /// "title\nobjective · objective" for the current character's personal quest, or ""
+    /// (hidden): no campaign / no actor / no quest / concealed remote quest. Guarded —
+    /// a game-side surprise must never starve the WorldUI tick (the unguarded-Update
+    /// lesson); failures log once and render nothing.
+    /// </summary>
+    private static string BuildQuestText()
+    {
+        try
+        {
+            CardsHandUI? hand = CardsGameApi.ActiveHand();
+            CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
+            if (actor == null || actor.Class == null)
+                return "";
+            var mapState = AdventureState.MapState;
+            if (mapState == null || mapState.MapParty == null || !mapState.IsCampaign)
+                return ""; // guildmaster/standalone modes have no personal quests
+            CPersonalQuestState? quest = null;
+            CMapCharacter[] characters = mapState.MapParty.SelectedCharactersArray;
+            if (characters == null)
+                return "";
+            for (int i = 0; i < characters.Length; i++)
+            {
+                CMapCharacter c = characters[i];
+                if (c != null && c.CharacterID == actor.Class.ID)
+                {
+                    quest = c.PersonalQuest;
+                    break;
+                }
+            }
+            if (quest == null)
+                return "";
+            // The game's own conceal gate (ActorStatPanel): remote players' concealed
+            // quests stay hidden online.
+            if (quest.IsConcealed && FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+                return "";
+            var data = quest.ParentPersonalQuestData;
+            if (data == null)
+                return "";
+            string titleKey = !string.IsNullOrEmpty(data.LocalisedObjectiveTitle)
+                ? data.LocalisedObjectiveTitle
+                : data.LocalisedName;
+            string title = Loc.Game(titleKey, "Personal quest");
+            List<string>? lines = PersonalQuestObjectiveUtils.CalculateObjectives(quest.PersonalQuestConditionState);
+            string body = lines != null && lines.Count > 0
+                ? string.Join(" · ", lines)
+                : (string.IsNullOrEmpty(data.LocalisedObjectiveNotProgressed)
+                    ? ""
+                    : Loc.Game(data.LocalisedObjectiveNotProgressed, ""));
+            return body.Length > 0 ? title + "\n" + body : title;
+        }
+        catch (System.Exception ex)
+        {
+            if (!s_questErrorLogged)
+            {
+                s_questErrorLogged = true;
+                VRLog.Warn("WorldUI", $"Personal-quest line unavailable ({ex.Message}) — hidden.");
+            }
+            return "";
+        }
     }
 }
