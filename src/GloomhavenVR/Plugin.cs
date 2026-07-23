@@ -60,6 +60,18 @@ public class Plugin : BaseUnityPlugin
     /// </summary>
     internal static ConfigEntry<float> WorldTiltDegrees = null!;
 
+    /// <summary>
+    /// [Rig] Masked tilt re-aim: head yaw angular speed (deg/s) above which the frozen tilt
+    /// axis may silently rotate toward the current view (VRRigDriver.TickWorldTilt).
+    /// </summary>
+    internal static ConfigEntry<float> MaskedReaimHeadRate = null!;
+
+    /// <summary>[Rig] Masked tilt re-aim: correction speed as a fraction of the head's yaw speed (subthreshold gain).</summary>
+    internal static ConfigEntry<float> MaskedReaimGain = null!;
+
+    /// <summary>[Rig] Masked tilt re-aim: view-vs-tilt yaw errors below this (degrees) are ignored entirely.</summary>
+    internal static ConfigEntry<float> MaskedReaimDeadband = null!;
+
     /// <summary>Disable PPv2 (PostProcessLayer/PostProcessVolume) while VR runs (P1 default: on).</summary>
     internal static ConfigEntry<bool> DisablePostProcessing = null!;
 
@@ -229,6 +241,24 @@ public class Plugin : BaseUnityPlugin
             "gravity relative to your head — the horizon no longer matches your inner ear. " +
             "Increase in small steps (the settings panel steps 5 degrees) and prefer " +
             "moderate angles. Live: changes apply immediately and persist.");
+        MaskedReaimHeadRate = Config.Bind(
+            "Rig", "MaskedReaimHeadRate", 30f,
+            "World tilt only. When you physically turn your body/head, the direction the " +
+            "tilt tips toward is silently re-aimed to your view — but ONLY while your head " +
+            "is rotating faster than this threshold (degrees per second), so the correction " +
+            "is perceptually masked by your own motion (redirected-rotation technique). " +
+            "Below the threshold the world stays bit-frozen. Default 30.");
+        MaskedReaimGain = Config.Bind(
+            "Rig", "MaskedReaimGain", 0.15f,
+            "World tilt only. Speed of the masked tilt re-aim as a fraction of your head's " +
+            "yaw speed (0-0.5). 0.15 = the axis re-aims at 15% of however fast your head is " +
+            "turning — far below the ~20% rotation-gain detection threshold, so the world " +
+            "never visibly moves. Higher converges faster but risks being noticeable.");
+        MaskedReaimDeadband = Config.Bind(
+            "Rig", "MaskedReaimDeadband", 5f,
+            "World tilt only. View-vs-tilt direction errors smaller than this (degrees) are " +
+            "ignored — ordinary looking-around never triggers any correction, and a residual " +
+            "misalignment this small is visually indistinguishable from a perfect aim.");
         DisablePostProcessing = Config.Bind(
             "Compat", "DisablePostProcessing", true,
             "Disable PostProcessing v2 (PostProcessLayer/PostProcessVolume) while VR is active. " +
