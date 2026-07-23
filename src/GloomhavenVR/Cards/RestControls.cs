@@ -51,7 +51,7 @@ internal sealed class RestControls
         if (_shortButton == null && tray.ShortRestAnchor != null)
         {
             _shortButton = PlayTray.BoardButton.Create(tray.ShortRestAnchor, size,
-                new Color(0.72f, 0.6f, 0.28f), // warm gold accent when selected
+                new Color(0.62f, 0.52f, 0.30f), // T4: parchment-gold accent when selected (antique)
                 // No game key exists for a short rest button (GUI_SHORT_REST is absent) — mod string.
                 Core.Loc.Mod("short_rest"),
                 () => ShortRestRequested?.Invoke(),
@@ -62,7 +62,7 @@ internal sealed class RestControls
         if (_longButton == null && tray.LongRestAnchor != null)
         {
             _longButton = PlayTray.BoardButton.Create(tray.LongRestAnchor, size,
-                new Color(0.4f, 0.55f, 0.85f), // cool blue accent when selected
+                new Color(0.37f, 0.44f, 0.56f), // T4: antique slate-blue accent when selected
                 Core.Loc.Game("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
                 round: round, diameter: diameter, thickness: thickness, boxy: !round);

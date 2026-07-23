@@ -70,8 +70,9 @@ internal static class NativeButtonSkin
     private static float _pressedMul = 0.7f;
     private static float _disabledMul = 0.5f;
 
-    /// <summary>The game's parchment-gold accent (#EACF8C) — its de-facto emphasis colour.</summary>
-    private static readonly Color AccentGold = new(0.918f, 0.812f, 0.549f, 1f);
+    /// <summary>Emphasis tint for native faces — T4: softened from the game's #EACF8C
+    /// toward an aged parchment-brass so an accented cap glows warm, not neon.</summary>
+    private static readonly Color AccentGold = new(0.84f, 0.72f, 0.48f, 1f);
 
     /// <summary>Native label colour: warm parchment (#F3DDAB), the game's button-text gold.</summary>
     internal static readonly Color LabelColor = new(0.953f, 0.867f, 0.671f, 1f);
@@ -189,6 +190,45 @@ internal static class NativeButtonSkin
         if (mat.HasProperty("_ZTestMode"))
             mat.SetInt("_ZTestMode", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
         mat.SetInt("unity_GUIZTestMode", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+    }
+
+    /// <summary>
+    /// T4 (button restyle): ENGRAVED look for a board-button label — a thin dark-umber
+    /// SDF outline on the label's per-instance font material, so the parchment glyphs
+    /// read as letters carved into (not stickered onto) the wooden cap. Subtle by
+    /// design (width 0.10 of the SDF range); properties are probed so any TMP shader
+    /// variant without an outline is a clean no-op. Idempotent — safe after every font
+    /// (re)assignment; call AFTER <see cref="ApplyFont"/> (which mints the material
+    /// instance this writes to). Deliberately NOT part of ApplyFont itself: captions,
+    /// HUD lines and the quest block share that path and must stay un-outlined.
+    /// </summary>
+    internal static void StyleEngravedLabel(TMP_Text label)
+    {
+        if (label == null || label.font == null)
+            return; // no font yet — the caller re-applies fonts late, restyle then
+        Material mat = label.fontMaterial; // per-label instance (never the shared asset)
+        if (mat == null)
+            return;
+        if (mat.HasProperty("_OutlineColor"))
+            mat.SetColor("_OutlineColor", new Color(0.13f, 0.09f, 0.05f, 0.85f)); // dark umber
+        if (mat.HasProperty("_OutlineWidth"))
+        {
+            mat.SetFloat("_OutlineWidth", 0.10f);
+            mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
+        }
+        // A whisper of the same umber as an underlay shadow sells the carved depth
+        // (UNDERLAY_ON is the TMP shader's gate for the whole underlay pass).
+        if (mat.HasProperty("_UnderlayColor"))
+        {
+            mat.SetColor("_UnderlayColor", new Color(0.08f, 0.05f, 0.03f, 0.55f));
+            if (mat.HasProperty("_UnderlaySoftness"))
+                mat.SetFloat("_UnderlaySoftness", 0.35f);
+            if (mat.HasProperty("_UnderlayOffsetX"))
+                mat.SetFloat("_UnderlayOffsetX", 0.25f);
+            if (mat.HasProperty("_UnderlayOffsetY"))
+                mat.SetFloat("_UnderlayOffsetY", -0.25f);
+            mat.EnableKeyword("UNDERLAY_ON");
+        }
     }
 
     /// <summary>

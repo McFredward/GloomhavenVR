@@ -151,6 +151,9 @@ internal static class CardsConfig
     /// <summary>ACTIVE CARDS area on the control board's right edge (feature 6): the currently-active ability cards, permanently shown + grabbable.</summary>
     internal static ConfigEntry<bool> ActivePile = null!;
 
+    /// <summary>Aliasing round 3 (T3): runtime MIP BAKE of the game's mipless card-face atlases — adopted card faces sample trilinear/aniso mipmapped copies instead (texture-space shimmer fix).</summary>
+    internal static ConfigEntry<bool> FaceMipBake = null!;
+
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
     internal static ConfigEntry<ControlBoard> Board = null!;
 
@@ -479,6 +482,14 @@ internal static class CardsConfig
             "the column on release); the active HALF of each card is highlighted. Purely " +
             "informational — grabbing an active card never selects or commits it. Empty when " +
             "no card is active. false = no active-cards area at all.");
+        FaceMipBake = _file.Bind("Cards", "FaceMipBake", true,
+            "Aliasing round 3 (T3): the game ships its card-face sprite atlases WITHOUT mipmaps " +
+            "(FACE TEXTURE DIAG: mips=1), so the adopted card faces shimmer under minification " +
+            "no matter the MSAA/supersampling level. When true, each unique card-face texture is " +
+            "baked ONCE at runtime into a mipmapped trilinear/aniso-8 copy (GPU blit -> readback " +
+            "-> mip chain) and the face Images' sprites are swapped to equivalent sprites on the " +
+            "baked copy (rect/pivot/border/PPU preserved; originals restored when a face is " +
+            "returned to the game). false = leave the game's mipless atlases untouched.");
         Board = _file.Bind("Cards", "Board", ControlBoard.Oak,
             "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
             "live from the VR settings panel. Oak = the original bundled board (default); Steel " +

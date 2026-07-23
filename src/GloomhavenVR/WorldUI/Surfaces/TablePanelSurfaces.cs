@@ -685,26 +685,36 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             : null;
     }
 
-    // ---- personal quest line (campaign) --------------------------------------------------
+    // ---- battle goal line (per-scenario secret goal) -------------------------------------
 
     /// <summary>
-    /// The CURRENT character's personal quest, shown as a compact mod-drawn TMP block
-    /// anchored just BELOW the converted objectives panel (left of the control board).
-    /// The objectives host carries live GAME UI (MissionObjectiveContainer), so appending
-    /// content INSIDE it would be invasive — a standalone world-space label that
-    /// pose-follows the host every tick is robust against reconversion and tray moves.
+    /// The CURRENT character's SECRET BATTLE GOAL for the running scenario ("persönliche
+    /// Quest für das Szenario" — NOT the campaign retirement quest, which the first cut
+    /// showed by mistake), shown as a compact mod-drawn TMP block anchored just BELOW the
+    /// converted objectives panel (left of the control board). The objectives host carries
+    /// live GAME UI (MissionObjectiveContainer), so appending content INSIDE it would be
+    /// invasive — a standalone world-space label that pose-follows the host every tick is
+    /// robust against reconversion and tray moves.
     ///
-    /// Data path (verified in decompiled GH.Runtime/ActorStatPanel.InitializeCharacterCard):
-    /// campaign-only — <c>AdventureState.MapState.MapParty.SelectedCharacters</c> maps the
-    /// actor's <c>Class.ID</c> to its <c>CMapCharacter.PersonalQuest</c>
-    /// (<c>CPersonalQuestState</c>, MapRuleLibrary.Party); concealed remote quests stay
-    /// hidden with the game's own gate. Title = the quest's localized objective title
-    /// (<c>PersonalQuestYMLData.LocalisedObjectiveTitle</c>, LocalisedName fallback);
-    /// progress = <c>PersonalQuestObjectiveUtils.CalculateObjectives</c> — the SAME helper
-    /// the game's quest tracker UI uses (UIPersonalQuestObjectiveTracker.SetPersonalQuest).
-    /// The current character is the game's own tab-switchable hand
-    /// (<c>CardsGameApi.ActiveHand().PlayerActor</c> — CardsHandManager.CurrentHand), so
-    /// the block updates on character selection changes via the 0.5 s refresh.
+    /// Data path (verified in decompiled GH.Runtime/ActorStatPanel.cs:566-571 — the exact
+    /// resolution the game's own stat panel uses):
+    /// <c>AdventureState.MapState.InProgressQuestState.GetChosenBattleGoal(actor.Class.ID)</c>
+    /// → <c>CBattleGoalState</c> (MapRuleLibrary.Party); its <c>BattleGoal</c> property
+    /// resolves the <c>BattleGoalYMLData</c> record whose <c>LocalisedName</c> /
+    /// <c>LocalisedDescription</c> are the SAME localization keys the game's
+    /// <c>UIBattleGoalProgress.SetBattleGoal</c> feeds through TextLocalizedListener.
+    /// Progress mirrors <c>UIScenarioBattleGoalProgress</c>:
+    /// <c>BattleGoalConditionState.CurrentProgress / TotalConditionsAndTargets</c>.
+    ///
+    /// SECRECY (multiplayer): battle goals are secret. The game's own gate
+    /// (BattleGoalContainer.Show / ActorStatPanel.cs:566): online, a goal renders ONLY for
+    /// actors under my control (<c>!FFSNetwork.IsOnline || actor.IsUnderMyControl</c>) —
+    /// mirrored verbatim here, and the current character is always the LOCAL tab-switchable
+    /// hand (<c>CardsGameApi.ActiveHand().PlayerActor</c> — CardsHandManager.CurrentHand),
+    /// so remote players' goals can never render. Exists in campaign AND guildmaster
+    /// (CampaignOnly goal cards are filtered at deal time by the game itself,
+    /// CQuestState.RollAndAssignBattleGoals) — no IsCampaign gate. Empty until the player
+    /// picks a goal on the scenario intro; updates via the 0.5 s refresh.
     /// </summary>
     private const float QuestRefreshInterval = 0.5f;
     /// <summary>Label rect height as a fraction of the panel width (label-local units).</summary>
@@ -788,7 +798,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             return false;
         if (_questGo != null)
             Object.Destroy(_questGo); // half-built remnant — never expected, but never leak
-        _questGo = new GameObject("GloomhavenVR.PersonalQuest");
+        _questGo = new GameObject("GloomhavenVR.BattleGoal");
         _questTmp = _questGo.AddComponent<TextMeshPro>();
         _questTmp.alignment = TextAlignmentOptions.Top;
         _questTmp.color = new Color(0.92f, 0.88f, 0.76f);
@@ -801,10 +811,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     }
 
     /// <summary>
-    /// "title\nobjective · objective" for the current character's personal quest, or ""
-    /// (hidden): no campaign / no actor / no quest / concealed remote quest. Guarded —
-    /// a game-side surprise must never starve the WorldUI tick (the unguarded-Update
-    /// lesson); failures log once and render nothing.
+    /// "title\nrequirement (progress/target)" for the current character's chosen SECRET
+    /// BATTLE GOAL, or "" (hidden): no running quest / no goal chosen yet / remote actor
+    /// online (secrecy gate — see the class doc). Guarded — a game-side surprise must
+    /// never starve the WorldUI tick (the unguarded-Update lesson); failures log once
+    /// and render nothing.
     /// </summary>
     private static string BuildQuestText()
     {
@@ -815,40 +826,29 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             if (actor == null || actor.Class == null)
                 return "";
             var mapState = AdventureState.MapState;
-            if (mapState == null || mapState.MapParty == null || !mapState.IsCampaign)
-                return ""; // guildmaster/standalone modes have no personal quests
-            CPersonalQuestState? quest = null;
-            CMapCharacter[] characters = mapState.MapParty.SelectedCharactersArray;
-            if (characters == null)
+            MapRuleLibrary.MapState.CQuestState? questState =
+                mapState != null ? mapState.InProgressQuestState : null;
+            if (questState == null)
+                return ""; // no running quest (level editor / pre-scenario) — nothing dealt
+            // SECRECY (the game's own gate, BattleGoalContainer.Show / ActorStatPanel.cs:566):
+            // online, a battle goal is shown ONLY for actors under my control. ActiveHand is
+            // the local player's hand, so this is belt-and-braces — but the game enforces it
+            // this exact way and so do we.
+            if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
                 return "";
-            for (int i = 0; i < characters.Length; i++)
+            CBattleGoalState? goal = questState.GetChosenBattleGoal(actor.Class.ID);
+            var data = goal != null ? goal.BattleGoal : null;
+            if (goal == null || data == null)
+                return ""; // not chosen yet (intro picker still open) — hidden like the game's tracker
+            string title = Loc.Game(data.LocalisedName, "Battle goal");
+            string body = Loc.Game(data.LocalisedDescription, "");
+            // Progress the way the game's UIScenarioBattleGoalProgress renders it.
+            var cond = goal.BattleGoalConditionState;
+            if (cond != null && cond.TotalConditionsAndTargets > 0)
             {
-                CMapCharacter c = characters[i];
-                if (c != null && c.CharacterID == actor.Class.ID)
-                {
-                    quest = c.PersonalQuest;
-                    break;
-                }
+                string progress = $"{cond.CurrentProgress}/{cond.TotalConditionsAndTargets}";
+                body = body.Length > 0 ? body + "  (" + progress + ")" : "(" + progress + ")";
             }
-            if (quest == null)
-                return "";
-            // The game's own conceal gate (ActorStatPanel): remote players' concealed
-            // quests stay hidden online.
-            if (quest.IsConcealed && FFSNetwork.IsOnline && !actor.IsUnderMyControl)
-                return "";
-            var data = quest.ParentPersonalQuestData;
-            if (data == null)
-                return "";
-            string titleKey = !string.IsNullOrEmpty(data.LocalisedObjectiveTitle)
-                ? data.LocalisedObjectiveTitle
-                : data.LocalisedName;
-            string title = Loc.Game(titleKey, "Personal quest");
-            List<string>? lines = PersonalQuestObjectiveUtils.CalculateObjectives(quest.PersonalQuestConditionState);
-            string body = lines != null && lines.Count > 0
-                ? string.Join(" · ", lines)
-                : (string.IsNullOrEmpty(data.LocalisedObjectiveNotProgressed)
-                    ? ""
-                    : Loc.Game(data.LocalisedObjectiveNotProgressed, ""));
             return body.Length > 0 ? title + "\n" + body : title;
         }
         catch (System.Exception ex)
@@ -856,7 +856,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             if (!s_questErrorLogged)
             {
                 s_questErrorLogged = true;
-                VRLog.Warn("WorldUI", $"Personal-quest line unavailable ({ex.Message}) — hidden.");
+                VRLog.Warn("WorldUI", $"Battle-goal line unavailable ({ex.Message}) — hidden.");
             }
             return "";
         }
