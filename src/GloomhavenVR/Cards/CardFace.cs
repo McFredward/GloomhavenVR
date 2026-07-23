@@ -134,8 +134,19 @@ internal sealed class CardFace
         // Aliasing round 3: log (once) what the world-space card canvas ACTUALLY samples.
         LogFaceTextureDiag(owner);
 
+        // T3 mip bake: swap the face's mipless-atlas sprites for mip-baked equivalents
+        // (guarded inside; art loads async so Maintain re-scans on a slow cadence too).
+        CardFaceMipBake.Rescan(owner.fullAbilityCard);
+        _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+
         return true;
     }
+
+    /// <summary>T3: cadence for re-running the sprite swap while adopted — card art loads
+    /// ASYNC and the game reassigns sprites on state changes, both of which put the
+    /// original mipless sprites back on the Images. 1 s keeps the cost negligible.</summary>
+    private const float MipRescanInterval = 1f;
+    private float _nextMipRescan;
 
     // ------------------------------------------------- rendered-texture diagnostics --
 
@@ -186,8 +197,9 @@ internal sealed class CardFace
             s_texDiagLogged = true;
             VRLog.Info("Cards", "FACE TEXTURE DIAG (game atlases the adopted card canvas samples): " +
                                 $"{sb} — mips=1 ⇒ the source atlas is MIPLESS: texture-space shimmer " +
-                                "cannot be fixed camera-side (MSAA/aniso can't help); raise " +
-                                "[RenderQuality] EyeResolutionScale (e.g. 1.3) instead.");
+                                "cannot be fixed camera-side (MSAA/supersampling can't help). " +
+                                "[Cards] FaceMipBake (T3) now swaps these sprites onto mip-baked " +
+                                "trilinear/aniso copies — see the MIP BAKE log lines for what was baked.");
         }
         catch (System.Exception ex)
         {
@@ -494,6 +506,13 @@ internal sealed class CardFace
         }
         if (!_face.gameObject.activeSelf)
             _face.gameObject.SetActive(true);
+        // T3 mip bake: periodic re-scan (async art arrivals / game sprite reassignments
+        // put mipless originals back — swap them for the baked copies again).
+        if (Time.unscaledTime >= _nextMipRescan)
+        {
+            _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+            CardFaceMipBake.Rescan(_owner!.fullAbilityCard);
+        }
         // Re-assert the FULL anchor frame, not just the anchored position (test #19
         // x-offset): on ActionSelection entry the game re-anchors the face rect —
         // <c>AbilityCardUI.ToggleFullCard(active: true)</c> sets
@@ -558,6 +577,10 @@ internal sealed class CardFace
 
         if (face == null)
             return;
+
+        // T3 mip bake: hand the ORIGINAL sprites back before the widget returns to the
+        // game's pool (full-restore contract; guarded inside).
+        CardFaceMipBake.RestoreSprites(face);
 
         // Owner/parent may already be destroyed during scene teardown.
         if (owner != null)

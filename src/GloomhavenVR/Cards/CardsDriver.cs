@@ -945,9 +945,46 @@ internal sealed class CardsDriver : MonoBehaviour
     private VRCard? _laserHover;
 
     /// <summary>
+    /// Fan-grab reliability (T2): unscaled-time deadline until which the LAST laser-hovered
+    /// fan card still wins the trigger after the beam slips off it. The trigger PULL itself
+    /// jerks the aim ray (hardware: grabs out of the open fan missed every 2nd-3rd try) —
+    /// the exact frame of TriggerDown the ray often no longer touches the narrow card
+    /// strip, the hover cleared, and the trigger fell through to nothing (the proximity
+    /// fallback was ALSO deferred: our own fan clamp from the previous frame keeps
+    /// <c>Ray.HasFreshUiHit</c> fresh, and ProximityGrabber yields on that flag). A short
+    /// grace keeps the highlighted card the trigger's owner across the pull.
+    /// </summary>
+    private float _laserHoverGraceUntil;
+
+    /// <summary>How long (s, unscaled) a slipped-off fan hover still owns the trigger.
+    /// Long enough to bridge a trigger-pull jerk (a few frames), short enough that the
+    /// beam clamp visibly releases as soon as the player genuinely points away.</summary>
+    private const float FanHoverGraceSeconds = 0.15f;
+
+    /// <summary>One-shot session log guard for the fan grab-rescue confirmation line.</summary>
+    private static bool s_loggedFanRescue;
+
+    /// <summary>
     /// Demeo pluck (P6): the dominant hand's laser highlights fan cards (pop + one
     /// haptic tick per card change) and TriggerDown pulls the pointed card into the
     /// dominant hand (released on TriggerUp). Proximity grab keeps working unchanged.
+    ///
+    /// T2 (fan grab misses ~every 2nd-3rd try): when the ray does NOT land on a fan card
+    /// this frame, two rescue paths mirror the tray's LIFT-PRIORITY accept (task #2)
+    /// before the hover is dropped — the card the player was visibly promised wins the
+    /// trigger instead of the pull falling through:
+    /// 1. Proximity lift-priority: the dominant hand's proximity HIGHLIGHT is a fan card
+    ///    (the popped card under the reaching hand — the affordance promise). Beam clamps
+    ///    to it, TriggerDown grabs exactly it. Reaching into the fan previously lost the
+    ///    trigger to Ray.HasFreshUiHit arbitration (see ProximityGrabber.Tick): the fan
+    ///    clamp raises the flag every hovered frame, so the proximity path NEVER fired
+    ///    while the laser was anywhere near the fan.
+    /// 2. Hover grace: the last laser-hovered card still wins for a short window
+    ///    (<see cref="FanHoverGraceSeconds"/>) after the beam slips off — the trigger
+    ///    pull itself jerks the ray off the narrow card strip on the press frame.
+    /// Both yield to a live game-UI hit (RayUgui) exactly like the tray pattern, so a
+    /// UI click can never double-fire with a grab; the beam clamp keeps suppressing the
+    /// board far-click (Cards ticks before Board). Single-winner by construction.
     /// </summary>
     private void UpdateFanLaser()
     {
@@ -964,6 +1001,41 @@ internal sealed class CardsDriver : MonoBehaviour
             || card == null
             || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
         {
+            // T2 rescue paths (see method doc): the highlighted/just-hovered fan card wins
+            // the trigger even though the ray misses it this frame. Yields to a live game-UI
+            // hit like the tray lift-priority accept.
+            if (!dom.RayUgui.HasHit)
+            {
+                VRCard? rescue = null;
+                if (dom.Grabber.Highlighted is VRCard prox && _fan.Contains(prox) && !prox.IsHeld)
+                    rescue = prox; // 1. the popped card under the reaching hand
+                else if (_laserHover != null && !_laserHover.IsHeld && _fan.Contains(_laserHover)
+                         && Time.unscaledTime <= _laserHoverGraceUntil)
+                    rescue = _laserHover; // 2. trigger-pull jerk grace
+
+                if (rescue != null)
+                {
+                    // A stale laser pop on a DIFFERENT card than the rescue winner drops now.
+                    if (_laserHover != null && !ReferenceEquals(_laserHover, rescue))
+                        ClearLaserHover();
+                    // Clamp the beam onto the winner (telegraphs the grab target, keeps the
+                    // board far-click + proximity double-path suppressed via HasFreshUiHit).
+                    dom.Ray.UiHitOverride = rescue.transform.position;
+                    if (dom.TriggerDown && rescue.CanGrab)
+                    {
+                        if (!s_loggedFanRescue)
+                        {
+                            s_loggedFanRescue = true;
+                            VRLog.Info("Cards", "Fan grab RESCUE active (T2): highlighted fan card " +
+                                                "won a trigger whose ray missed the card strip " +
+                                                "(lift-priority / pull-jerk grace).");
+                        }
+                        ClearLaserHover();
+                        dom.Grabber.ForceGrab(rescue, releaseOnTriggerUp: true);
+                    }
+                    return;
+                }
+            }
             ClearLaserHover();
             return;
         }
@@ -975,6 +1047,7 @@ internal sealed class CardsDriver : MonoBehaviour
             card.SetLaserHover(true);
             dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
+        _laserHoverGraceUntil = Time.unscaledTime + FanHoverGraceSeconds; // refresh the pull-jerk grace
 
         // Clamp the visible beam to the card — also raises Ray.HasFreshUiHit, which
         // suppresses the board far-click for this trigger press.

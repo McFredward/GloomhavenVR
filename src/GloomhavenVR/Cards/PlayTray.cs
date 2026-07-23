@@ -751,7 +751,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // pass boxy:true — that is why "Fixiert"/"Einstellungen" showed no walls but "Fortfahren"
         // did. Build them as the same beveled keycaps (thickness ≈ SquareCapThickness).
         _followToggle = BoardButton.Create(pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), Core.Loc.Mod("follow"), ToggleFollow,
+            new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
+            Core.Loc.Mod("follow"), ToggleFollow,
             thickness: 0.03f, boxy: true);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
@@ -762,7 +763,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         gearAnchor.localPosition += CardsConfig.VRSettingsOffset(CardsConfig.CurrentBoard).Value;
         _gearAnchor = gearAnchor;
         _gear = BoardButton.Create(gearAnchor, new Vector2(0.062f, 0.030f),
-            new Color(0.4f, 0.42f, 0.5f), Core.Loc.Mod("set"),
+            new Color(0.37f, 0.36f, 0.38f), // T4: aged pewter (near-neutral, hint of cool)
+            Core.Loc.Mod("set"),
             () => WorldUI.SettingsPanel.RequestToggle(),
             thickness: 0.03f, boxy: true); // Item 5: beveled keycap walls like Confirm/Undo
 
@@ -2394,7 +2396,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Initial labels are overwritten by the live game-widget label each TickStatus
         // (ConfirmLabel()/UndoLabel()); route the fallback literals through the game keys.
         _confirm = BoardButton.Create(confirmParent, rectSize,
-            new Color(0.22f, 0.52f, 0.25f), Core.Loc.Game("GUI_CONFIRM", "Confirm"),
+            new Color(0.35f, 0.46f, 0.28f), // T4: muted sage green — antique, still clearly "go"
+            Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
             round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
@@ -2403,7 +2406,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         RegisterLaserTarget(_confirm.Collider!, _confirm);
 
         _undo = BoardButton.Create(undoParent, rectSize,
-            new Color(0.45f, 0.32f, 0.2f), Core.Loc.Game("GUI_UNDO", "Undo"),
+            new Color(0.44f, 0.31f, 0.20f), // T4: worn leather brown (kept — already antique)
+            Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
             round: round, diameter: side, thickness: SquareCapThickness, boxy: !round);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
@@ -2905,12 +2909,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // ---- Item 1b: SOLID, on-theme keycap palette (aged brass / dark wood / parchment) ----
         // The 3D square cap renders as three submeshes, all driven together from the button
         // STATE colour (disabled / accent / confirmed / dwell) so state signalling is preserved:
-        //   • TOP   — the state colour (semantic: bronze disabled, brass idle, green accent, gold
-        //             readied…). Item 1b: the idle/disabled bases are now warm AGED BRASS/BRONZE,
-        //             not the old dark neutral grey.
-        //   • BEVEL — a BRIGHT parchment/brass 45° chamfer ring framing the top. This is the
-        //             "catch-light" edge: bright against everything else, angled so it stays
-        //             visible even near top-down. The primary "this button is RAISED" cue.
+        //   • TOP   — the state colour (semantic; T4 antique palette: dark-wood disabled,
+        //             warm-parchment available, muted accents, worn-brass readied).
+        //   • BEVEL — an AGED-BRASS 45° chamfer ring framing the top (T4: softened from the
+        //             old near-white parchment). Still the "catch-light" edge: lighter than
+        //             top and wall, angled so it stays visible even near top-down — the
+        //             primary "this button is RAISED" cue, now reading as a brass inlay.
         //   • WALL  — a solid, WARM dark-WOOD side band so the cap separates from the board by both
         //             value AND hue, yet still reads as a physical material (not a black void).
         //
@@ -2932,11 +2936,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// <summary>How far (0..1) the wall leans from "darker top" toward <see cref="WallWarm"/>.</summary>
         private const float WallWarmLerp = 0.42f;
 
-        /// <summary>The bright parchment/brass tone the lit bevel ring is pulled toward.</summary>
-        private static readonly Color BevelHighlight = new(0.92f, 0.83f, 0.60f);
+        /// <summary>
+        /// The AGED-BRASS tone the lit bevel ring is pulled toward (T4 restyle: the ring
+        /// reads as a worn brass frame set into the carved dark-wood plaque, not the old
+        /// near-white parchment catch-light that over-glowed against the board).
+        /// </summary>
+        private static readonly Color BevelHighlight = new(0.66f, 0.53f, 0.32f);
 
-        /// <summary>How far (0..1) the bevel is brightened from the top toward <see cref="BevelHighlight"/>.</summary>
-        private const float BevelLerp = 0.62f;
+        /// <summary>How far (0..1) the bevel is pulled from the top toward <see cref="BevelHighlight"/>.
+        /// T4: softened from 0.62 — the raised read survives, the wireframe-bright rim does not.</summary>
+        private const float BevelLerp = 0.48f;
 
         /// <summary>Item 4: dark, warm side-wall colour for a given top/state colour.</summary>
         private static Color WallTint(Color top)
@@ -3030,7 +3039,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 $"CLOSED SOLID: {(closedSolid ? "YES" : "NO")} (verts {vtx}, tris {triTotal}, submesh indices " +
                 $"top/bevel/wall {s0}/{s1}/{s2}; back+bottom cap in wall submesh 2 — expect 40/20/6/24/30). " +
                 "Winding is now OUTWARD (RH normal = +n), so no interior/underside shows through under Cull Back (item 7). " +
-                "Solid on-theme palette: aged-brass top / bright parchment bevel / dark-wood walls (item 1b).");
+                "Antique palette (T4): dark-wood plaque / parchment-glow available / aged-brass bevel inlay / dark-wood walls.");
         }
 
         private TextMeshPro? _label;
@@ -3056,27 +3065,31 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         internal Collider? Collider { get; private set; }
 
         /// <summary>
-        /// Item 1b: DISABLED cap TOP — a dimmed, desaturated AGED BRONZE. Warm and solid
-        /// (never the old glassy dark-grey 0.24): a worn, unlit brass key. Tunable.
+        /// T4 antique restyle: DISABLED cap TOP — plain DARK WOOD, barely lighter than the
+        /// board itself. A disabled key reads as an unlit carved plaque (the grain texture
+        /// still shows), clearly "asleep" next to the parchment glow of an available one.
         /// </summary>
-        private static readonly Color DisabledColor = new(0.31f, 0.26f, 0.19f);
+        private static readonly Color DisabledColor = new(0.21f, 0.16f, 0.11f);
 
         /// <summary>
-        /// Item 1b: IDLE (enabled, no accent) cap TOP — worn AGED BRASS. The solid, opaque
-        /// on-theme base every enabled key rests at; state accents tint up from here. Tunable.
+        /// T4 antique restyle: IDLE/AVAILABLE cap TOP — a warm PARCHMENT glow over the
+        /// wood grain. The solid, opaque base every enabled key rests at ("this one you
+        /// can press"); state accents tint from here. Desaturated toward antique — no
+        /// candy saturation on the board.
         /// </summary>
-        private static readonly Color IdleColor = new(0.47f, 0.38f, 0.23f);
+        private static readonly Color IdleColor = new(0.60f, 0.51f, 0.35f);
 
         /// <summary>
-        /// Confirmed/readied state (test #19): gold cap — clearly distinct from
-        /// both the green CONFIRM accent and the idle grey, matching the tray's
-        /// brass "locked in" language. Shown while the game reports the player
-        /// readied (revocable — pressing again un-readies).
+        /// Confirmed/readied state (test #19): ACTIVE = worn BRASS (T4: desaturated from
+        /// the old saturated gold) — clearly distinct from both the muted CONFIRM accent
+        /// and the parchment idle, matching the tray's brass "locked in" language. Shown
+        /// while the game reports the player readied (revocable — pressing un-readies).
         /// </summary>
-        private static readonly Color ConfirmedColor = new(0.82f, 0.62f, 0.15f);
+        private static readonly Color ConfirmedColor = new(0.68f, 0.52f, 0.24f);
 
-        /// <summary>Charge tint the cap ramps toward while a poke dwell runs (test #19).</summary>
-        private static readonly Color DwellChargeColor = new(1f, 0.95f, 0.75f);
+        /// <summary>Charge tint the cap ramps toward while a poke dwell runs (test #19).
+        /// T4: soft parchment, in key with the antique palette (was near-white).</summary>
+        private static readonly Color DwellChargeColor = new(0.93f, 0.86f, 0.68f);
 
         /// <summary>
         /// How close the fingertip must stay to the cap for the dwell to keep
@@ -3291,6 +3304,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             // white otherwise (procedural fallback).
             tmp.color = WorldUI.NativeButtonSkin.HasFont ? WorldUI.NativeButtonSkin.LabelColor : Color.white;
             WorldUI.NativeButtonSkin.ApplyFont(tmp);
+            WorldUI.NativeButtonSkin.StyleEngravedLabel(tmp); // T4: parchment glyphs carved into the cap
             // Draw the label ABOVE the native sprite face (test #26): both are transparent
             // renderers with ZWrite off, so sorting order — not the label's nearer z —
             // decides who wins. The face uses sortingOrder 1; without this the sprite drew

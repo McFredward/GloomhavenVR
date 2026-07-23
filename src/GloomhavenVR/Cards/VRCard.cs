@@ -552,18 +552,40 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private bool _laserPopped;
 
     /// <summary>
+    /// T2 (fan grab misses): extra grab-accept depth a FANNED card's collider grows
+    /// TOWARD THE VIEWER (-Z, the side the reaching hand approaches from), on top of the
+    /// 0.02 exact-fit thickness. The exact-fit box demanded the palm essentially touch
+    /// the card plane before ProximityGrabber would highlight it; a modest 3 cm apron on
+    /// the approach side accepts the hand just BEFORE contact — mirroring the slot-dock
+    /// apron pattern (<see cref="DockPadDepth"/>) that fixed the same miss on the tray.
+    /// Card-local meters, so it scales with the fan/diorama exactly like the card.
+    /// Neighbor arbitration unchanged: the strip width still bounds X, and the pad is
+    /// identical on every fanned card, so nearest-collider + the 2.5 cm switch margin
+    /// resolve overlaps exactly as before.
+    /// </summary>
+    private const float FanGrabDepthPad = 0.03f;
+
+    /// <summary>
     /// P6 fan-collider strip: while fanned, each card's grab collider shrinks to its
     /// VISIBLE (un-overlapped) strip so neighboring colliders never fight for the
     /// hover — the source of the constant haptic buzz in test #8. The full collider
     /// comes back via <see cref="ResetColliderRegion"/> (grab, tray, half layout).
+    /// T2: the fan strip additionally grows a viewer-side accept apron
+    /// (<see cref="FanGrabDepthPad"/>) so the reaching hand highlights the card a
+    /// touch earlier — the highlighted card then wins the trigger via the fan
+    /// lift-priority rescue (CardsDriver.UpdateFanLaser).
     /// </summary>
     internal void SetColliderRegion(float width, float offsetX)
     {
         if (_box == null)
             return;
         _dockGrabPad = false; // fan strips own the collider shape — a fanned card is never slot-docked
-        _box.size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y, _fullColliderSize.z);
-        _box.center = new Vector3(offsetX, 0f, 0f);
+        _box.size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y,
+            _fullColliderSize.z + FanGrabDepthPad);
+        // Bias the extra depth entirely onto the viewer side (-Z): the hand approaches
+        // from there; the far side keeps the exact fit so the pad never pokes through
+        // the palm the fan hovers over.
+        _box.center = new Vector3(offsetX, 0f, -FanGrabDepthPad * 0.5f);
     }
 
     // Task #2 follow-up (grab UNDER the docked card): the exact-fit collider is thin

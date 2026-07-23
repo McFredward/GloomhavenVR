@@ -163,12 +163,14 @@ internal sealed class ButtonCluster
         _root = new GameObject("GloomhavenVR.ButtonCluster");
 
         // Left-to-right: Undo | Ready (center, larger) | Skip. Offsets in real meters.
+        // T4 antique palette: accents desaturated toward worn-material tones (leather /
+        // sage / slate) so the cluster reads as carved board furniture, not plastic keys.
         _undo = PhysicalButton.Create(_root.transform, "Undo", new Vector3(-0.11f, 0f, 0f), 0.038f,
-            new Color(0.75f, 0.45f, 0.25f), ClickUndo);
+            new Color(0.45f, 0.33f, 0.22f), ClickUndo);
         _ready = PhysicalButton.Create(_root.transform, "Ready", Vector3.zero, 0.05f,
-            new Color(0.25f, 0.7f, 0.35f), ClickReady);
+            new Color(0.35f, 0.46f, 0.28f), ClickReady);
         _skip = PhysicalButton.Create(_root.transform, "Skip", new Vector3(0.11f, 0f, 0f), 0.038f,
-            new Color(0.35f, 0.55f, 0.8f), ClickSkip);
+            new Color(0.37f, 0.44f, 0.56f), ClickSkip);
 
         // Mod layer (render-only — pokes go through the VRInteractables registry).
         VRLayers.Apply(_root);
@@ -398,7 +400,9 @@ internal sealed class ButtonCluster
             // DEPTH-CORRECT: lit opaque BoardLit (the PlayTray solid-keycap path) — writes depth
             // and depth-tests LEqual, so the base is occluded by walls in front and self-occludes
             // like a real object, instead of the old unlit Overlay forced to ZTest Always.
-            _baseRenderer.sharedMaterial = CreateLitMaterial(new Color(0.16f, 0.14f, 0.12f));
+            // T4: dark-WOOD base plaque (matches the tray button surrounds; the shared
+            // wood-grain _MainTex from NewKeycapMaterial gives it the carved surface).
+            _baseRenderer.sharedMaterial = CreateLitMaterial(new Color(0.15f, 0.12f, 0.08f));
 
             // Travelling cap (squashed cylinder).
             GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -451,6 +455,7 @@ internal sealed class ButtonCluster
             // button-text colour when sampled; white otherwise.
             _label.color = NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : Color.white;
             NativeButtonSkin.ApplyFont(_label);
+            NativeButtonSkin.StyleEngravedLabel(_label); // T4: carved-into-the-cap label look
             // Draw the label above the native sprite face (test #26): both transparent,
             // ZWrite off — sorting order decides, and the face uses sortingOrder 1. Both
             // stay TINY (≤3) so the held-figure info panel host canvas (StatPanelSurface,
@@ -545,9 +550,10 @@ internal sealed class ButtonCluster
             bool visible = real.gameObject.activeInHierarchy && real.IsVisibility;
             bool canUse = visible && real.IsInteractable && !locked
                           && !real.warningMask.gameObject.activeSelf;
-            // Warm accent while the state is a "confirm" flavor (>= CONTINUE commits StepComplete).
+            // Worn-BRASS accent while the state is a "confirm" flavor (>= CONTINUE commits
+            // StepComplete) — T4: antique brass instead of the old saturated gold.
             Color accent = real.buttonState >= ReadyButton.EButtonState.EREADYBUTTONCONTINUE
-                ? new Color(0.85f, 0.65f, 0.2f)
+                ? new Color(0.68f, 0.52f, 0.24f)
                 : _accent;
             SetState(visible, canUse, real.buttonText != null ? real.buttonText.text : null, accent);
         }
@@ -602,7 +608,9 @@ internal sealed class ButtonCluster
                 // flat sprite reads (its side would otherwise show the accent colour).
                 NativeButtonSkin.Apply(_capFace,
                     interactable ? NativeButtonSkin.FaceState.Idle : NativeButtonSkin.FaceState.Disabled);
-                var body = new Color(0.12f, 0.11f, 0.10f, 1f);
+                // T4: the neutralised cylinder body under the native face is dark WOOD
+                // (grain-textured via NewKeycapMaterial), matching the tray plaques.
+                var body = new Color(0.14f, 0.11f, 0.07f, 1f);
                 if (body != _appliedColor)
                 {
                     _appliedColor = body;
@@ -611,8 +619,13 @@ internal sealed class ButtonCluster
             }
             else
             {
+                // T4: disabled sinks toward DARK WOOD (an unlit carved plaque) instead of
+                // multiplying toward black — the grain texture stays readable, the state
+                // contrast (parchment-warm available vs dark-wood disabled) stays clear.
                 Color baseColor = accentOverride ?? _accent;
-                Color applied = interactable ? baseColor : baseColor * 0.35f;
+                Color applied = interactable
+                    ? baseColor
+                    : Color.Lerp(baseColor, new Color(0.17f, 0.13f, 0.09f), 0.75f);
                 if (applied != _appliedColor)
                 {
                     _appliedColor = applied;
@@ -629,9 +642,12 @@ internal sealed class ButtonCluster
                     _mirroredText = text;
                     _label.text = text ?? string.Empty;
                     if (_label.font == null)
+                    {
                         // Late font pickup goes through the skin so the depth-honest
                         // material fix (queue 3000 + ZTest LEqual) rides the new font too.
                         NativeButtonSkin.ApplyFont(_label);
+                        NativeButtonSkin.StyleEngravedLabel(_label); // T4: engraved look rides along
+                    }
                 }
             }
         }

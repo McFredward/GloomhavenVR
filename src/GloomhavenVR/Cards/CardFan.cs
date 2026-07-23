@@ -650,7 +650,7 @@ internal sealed class CardFan
             card.SetHome(_root, pos, rot, 1f, instant || opening);
 
             if (i == n - 1)
-                card.ResetColliderRegion(); // fully exposed
+                card.SetColliderRegion(w, 0f); // fully exposed — full width, T2 viewer-side accept pad included
             else
                 card.SetColliderRegion(strip, -(w - strip) * 0.5f);
         }
@@ -827,8 +827,13 @@ internal sealed class CardFan
         if (!IsOpen || _root == null)
             return false;
 
-        float halfW = CardsConfig.CardWidth.Value * 0.5f;
-        float halfH = CardsConfig.CardHeight * 0.5f;
+        // T2 (fan grab misses): a MODEST accept margin around each card's rect so a ray
+        // that lands a few mm off the edge (trigger-pull jerk, overlapping strips) still
+        // hits the card the player is visibly aiming at. Nearest-hit + the sticky rule
+        // still arbitrate overlaps, so widening every card cannot flip the winner.
+        const float acceptMargin = 1.10f;
+        float halfW = CardsConfig.CardWidth.Value * 0.5f * acceptMargin;
+        float halfH = CardsConfig.CardHeight * 0.5f * acceptMargin;
 
         for (int i = 0; i < _cards.Count; i++)
         {
