@@ -104,11 +104,10 @@ internal static class ComfortSettings
 {
     private const string SectionName = "Comfort";
 
-    // Recenter presets (real meters). TableHeightOffset shifts on top of the preset.
+    // Recenter preset (real meters). TableHeightOffset shifts on top of the preset.
+    // The old seated preset is GONE (user: irrelevant — the world is freely draggable).
     internal const float StandingEyeHeightMeters = 0.70f;
     internal const float StandingEyeBackMeters = 0.70f;
-    internal const float SeatedEyeHeightMeters = 0.50f;
-    internal const float SeatedEyeBackMeters = 0.55f;
 
     private static ConfigFile? _file;
 
@@ -162,7 +161,12 @@ internal static class ComfortSettings
     /// <summary>Which hand's stick turns (Dominant follows <c>[Hands] PrimaryHand</c>).</summary>
     public static ComfortSetting<TurnHandChoice> TurnHand { get; private set; } = null!;
 
-    /// <summary>Seated preset: recenter puts the eyes lower and closer to the table.</summary>
+    /// <summary>
+    /// DEPRECATED, no effect: the seated-mode preset was removed (user: irrelevant — the
+    /// world is freely draggable; recenter always uses the standing preset now). The
+    /// entry is only still BOUND because ComfortGizmos.cs and VRRigDriver.cs (owned by
+    /// other seams) still read it for diagnostics — delete it together with those reads.
+    /// </summary>
     public static ComfortSetting<bool> SeatedMode { get; private set; } = null!;
 
     /// <summary>Extra eye height above the table on recenter, real meters (+ = table lower).</summary>
@@ -204,17 +208,14 @@ internal static class ComfortSettings
     internal static float EffectiveScaleMax =>
         !IsBound ? 1f : FreeMovement.Value ? Mathf.Max(ScaleMax.Value, FreeScaleMaxMultiplier) : ScaleMax.Value;
 
-    /// <summary>Recenter eye height above the table plane, real meters (preset + offset).</summary>
+    /// <summary>Recenter eye height above the table plane, real meters (standing preset + offset).</summary>
     internal static float EffectiveEyeHeightMeters =>
         !IsBound
             ? StandingEyeHeightMeters
-            : (SeatedMode.Value ? SeatedEyeHeightMeters : StandingEyeHeightMeters) + TableHeightOffset.Value;
+            : StandingEyeHeightMeters + TableHeightOffset.Value;
 
-    /// <summary>Recenter eye distance back from the table focus, real meters.</summary>
-    internal static float EffectiveEyeBackMeters =>
-        !IsBound
-            ? StandingEyeBackMeters
-            : SeatedMode.Value ? SeatedEyeBackMeters : StandingEyeBackMeters;
+    /// <summary>Recenter eye distance back from the table focus, real meters (standing preset).</summary>
+    internal static float EffectiveEyeBackMeters => StandingEyeBackMeters;
 
     /// <summary>Persisted scale multiplier, clamped into the effective limits.</summary>
     internal static float ClampedSavedMultiplier =>
@@ -279,8 +280,9 @@ internal static class ComfortSettings
         TurnHand = Bind("TurnHand", TurnHandChoice.Dominant,
             "Which thumbstick turns. Dominant follows [Hands] PrimaryHand.");
         SeatedMode = Bind("SeatedMode", false,
-            "Seated preset: recenter places your eyes lower and closer to the table edge. " +
-            "Changing this re-runs recenter immediately.");
+            "DEPRECATED, no effect: the seated-mode preset was removed (the world is freely " +
+            "draggable; recenter always uses the standing preset). Kept bound only while " +
+            "diagnostic readers (ComfortGizmos, VRRigDriver) still reference it.");
         TableHeightOffset = Bind("TableHeightOffset", 0f,
             "Extra eye height above the table on recenter, in real meters (positive = table " +
             "sits lower). Changing this re-runs recenter immediately.",
