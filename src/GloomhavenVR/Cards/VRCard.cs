@@ -25,15 +25,43 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal static VRHand? InteractionBlockedHand;
 
     /// <summary>
+    /// Single-winner hand-contact arbitration (user issue A/B): the hand whose fan/dock
+    /// contact CardsDriver arbitrates every tick. Suppressed cards refuse THIS hand in
+    /// <see cref="AllowsHand"/>, so the ProximityGrabber's highlight (and therefore the
+    /// grab) always lands on the one arbitration winner — never on a card the hand merely
+    /// brushes while sweeping.
+    /// </summary>
+    internal static VRHand? HandArbitrationHand;
+
+    /// <summary>
+    /// Issue A (fan sweep multi-lift): true while CardsDriver's per-tick single-winner
+    /// arbitration elected a DIFFERENT card as the hand-contact winner. While set, this
+    /// card's hand-driven pop sources (<see cref="_popped"/> proximity highlight,
+    /// <see cref="_pokeHover"/> fingertip touch) are ignored — only ONE card lifts at a
+    /// time — and <see cref="AllowsHand"/> refuses the arbitration hand so grab priority
+    /// follows the same winner. The laser pop (<see cref="_laserPopped"/>) is never
+    /// gated: the laser path already works single-winner on its own.
+    /// </summary>
+    private bool _handPopSuppressed;
+
+    /// <summary>Set by CardsDriver's hand-contact arbitration (see <see cref="_handPopSuppressed"/>).</summary>
+    internal void SetHandPopSuppressed(bool suppressed) => _handPopSuppressed = suppressed;
+
+    /// <summary>
     /// Per-hand grab/hover gate (see <see cref="InteractionBlockedHand"/>). While the
     /// slot-dock apron is active, a docked card also YIELDS to the tray's grab bar:
     /// the apron-extended collider may overlap the bar's grab zone, and ProximityGrabber
     /// is single-winner by distance — without this gate the card could steal the
     /// highlight from a palm clearly placed at the bar (accidental card grabs, bar
     /// unreachable). The card only wins there when the palm is inside its CORE box.
+    /// Issue A: a card suppressed by the driver's hand-contact arbitration additionally
+    /// refuses the arbitration hand, so the proximity highlight/grab can only land on
+    /// the single elected winner (the driver never suppresses the laser-hovered card,
+    /// so laser plucks keep working unchanged).
     /// </summary>
     public bool AllowsHand(VRHand hand) =>
         !ReferenceEquals(hand, InteractionBlockedHand)
+        && !(_handPopSuppressed && ReferenceEquals(hand, HandArbitrationHand))
         && !(_dockGrabPad && PalmClearlyAtTrayBar(hand));
 
     /// <summary>
@@ -50,10 +78,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         Vector3 palm = hand.Rig.PalmCenter.position;
 
         // Palm inside the card's CORE box → the card legitimately wins even at the bar.
+        // Issue B hysteresis (highlight "glitches away while the hand is at the card"):
+        // while THIS card is the live proximity highlight its card-wins core is judged
+        // ×DockPadStickyScale larger, so a palm resting right at the core boundary can
+        // no longer flip-flop between card and bar on tracking jitter — the card only
+        // yields once the palm has moved decisively toward the bar.
         Vector3 local = transform.InverseTransformPoint(palm);
-        Vector3 half = _fullColliderSize * 0.5f;
+        float sticky = _popped ? DockPadStickyScale : 1f;
+        Vector3 half = _fullColliderSize * (0.5f * sticky);
         if (Mathf.Abs(local.x) <= half.x && Mathf.Abs(local.y) <= half.y
-            && Mathf.Abs(local.z) <= Mathf.Max(half.z, DockPadDepth * 0.5f))
+            && Mathf.Abs(local.z) <= Mathf.Max(half.z, DockPadDepth * 0.5f * sticky))
             return false;
 
         // "Clearly at the bar" = palm inside the bar's own grab zone volume.
@@ -608,7 +642,35 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private const float DockPadDownFrac = 0.35f;  // × card height, below — the under-grab
     private const float DockPadDepth = 0.04f;     // face-normal thickness while docked
 
+    /// <summary>
+    /// Issue B hysteresis: while a docked card is the live proximity highlight its accept
+    /// apron (and the bar-yield core test) grows by this factor — ENTER zone = the base
+    /// pads, EXIT zone = ×1.3. A palm resting right at the apron edge (or at the bar-yield
+    /// core boundary) used to flicker the highlight on tracking jitter, and a trigger in a
+    /// flicker-off frame fell through to board actions ("grabbing slightly off does
+    /// nothing"). All pads stay CARD-LOCAL units, so both zones scale with the board.
+    /// </summary>
+    private const float DockPadStickyScale = 1.3f;
+
     private bool _dockGrabPad;
+
+    /// <summary>
+    /// Issue B (neighbor separation): the runtime slot pitch of the control board in
+    /// CARD-LOCAL units (this collider's space) — computed from the live slot transforms
+    /// so it tracks every board scale/config. -1 when no board/slots exist. Used to clamp
+    /// the apron side pads so two docked cards' grab zones can never cross the midline
+    /// between the recesses, no matter how the pad fractions or SlotCardFill are tuned.
+    /// </summary>
+    private float DockSlotPitchLocal()
+    {
+        PlayTray? tray = PlayTray.Current;
+        Transform? s0 = tray != null ? tray.SlotTransform(0) : null;
+        Transform? s1 = tray != null ? tray.SlotTransform(1) : null;
+        if (s0 == null || s1 == null)
+            return -1f;
+        float lossy = transform.lossyScale.x;
+        return lossy > 1e-5f ? Vector3.Distance(s0.position, s1.position) / lossy : -1f;
+    }
 
     /// <summary>
     /// Enable/disable the slot-dock grab apron (PlayTray sets it on dock, clears it on
@@ -632,13 +694,24 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             return;
         if (_dockGrabPad)
         {
-            float padX = _fullColliderSize.x * DockPadSideFrac;
-            float padUp = _fullColliderSize.y * DockPadUpFrac;
-            float padDown = _fullColliderSize.y * DockPadDownFrac;
+            // Issue B hysteresis: the apron a hand must ENTER is the base pads; once this
+            // card holds the highlight the EXIT apron grows ×DockPadStickyScale so jitter
+            // at the zone edge cannot flicker the highlight (and eat the grab). Everything
+            // is card-local, so the whole zone scales with the board.
+            float sticky = _popped ? DockPadStickyScale : 1f;
+            float padX = _fullColliderSize.x * DockPadSideFrac * sticky;
+            float padUp = _fullColliderSize.y * DockPadUpFrac * sticky;
+            float padDown = _fullColliderSize.y * DockPadDownFrac * sticky;
+            // Neighbor separation: the side pads may never push this card's grab zone past
+            // the midline to the neighboring slot recess — clamp against the RUNTIME slot
+            // pitch (95 % of the half-gap leaves a small dead seam between the two aprons).
+            float pitch = DockSlotPitchLocal();
+            if (pitch > 0f)
+                padX = Mathf.Min(padX, Mathf.Max(0f, (pitch - _fullColliderSize.x) * 0.5f * 0.95f));
             _box.size = new Vector3(
                 _fullColliderSize.x + padX * 2f,
                 _fullColliderSize.y + padUp + padDown,
-                Mathf.Max(_fullColliderSize.z, DockPadDepth));
+                Mathf.Max(_fullColliderSize.z, DockPadDepth * sticky));
             _box.center = new Vector3(0f, -(padDown - padUp) * 0.5f, 0f);
             return;
         }
@@ -750,6 +823,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _dockGrabPad = false;  // in-hand: exact-card collider again (the apron is a docked-only affordance)
         ResetColliderRegion(); // full card again (fan strips, see SetColliderRegion)
         _laserPopped = false;
+        _handPopSuppressed = false; // a held card is out of the contact arbitration pool
         _releaseGlide = 0f; // re-grab mid-glide: the held pose takes over cleanly
         try
         {
@@ -823,7 +897,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         }
     }
 
-    public void OnGrabHighlight(VRHand hand, bool highlighted) => _popped = highlighted;
+    public void OnGrabHighlight(VRHand hand, bool highlighted)
+    {
+        bool changed = _popped != highlighted;
+        _popped = highlighted;
+        // Issue B hysteresis: while slot-docked the accept apron (and the bar-yield core)
+        // grows on highlight and shrinks back on un-highlight — enter zone < exit zone.
+        // Fan strips own the collider shape, so this only re-applies for docked cards.
+        if (changed && _dockGrabPad)
+            ResetColliderRegion();
+    }
 
     protected override void OnEnable()
     {
@@ -915,8 +998,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         }
         float speed = CardsConfig.CardLerpSpeed.Value;
         // Pop from ANY hover source: grabber/poke-select (_popped), laser (_laserPopped),
-        // or a light fingertip touch (_pokeHover, test #9).
-        float popTarget = _popped || _laserPopped || _pokeHover ? 1f : 0f;
+        // or a light fingertip touch (_pokeHover, test #9). Issue A: the hand-driven
+        // sources are gated by the driver's single-winner arbitration — while another
+        // card is the elected hand-contact winner this card may not lift, so a sweeping
+        // hand can never raise more than one card. The laser pop is never gated.
+        float popTarget = _laserPopped || (!_handPopSuppressed && (_popped || _pokeHover)) ? 1f : 0f;
         _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
 
         // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up. The
@@ -951,6 +1037,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _popped = false;
         _laserPopped = false;
         _pokeHover = false;
+        _handPopSuppressed = false; // arbitration flags never outlive a pooled/parked card
         _pop = 0f;
         _releaseGlide = 0f;
     }

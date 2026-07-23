@@ -275,6 +275,7 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_applyOrientation)
         {
             _applyOrientation = false;
+            _expectedPoseChange = "user-settings (orientation tuning)"; // sanctioned move (issue C watchdog)
             _tray.ReapplyOrientation();
             VRLog.Info("Cards", $"Debug live-apply [{b}]: orientation tilt {CardsConfig.BoardTilt(b).Value:F0}°, " +
                                 $"yaw {CardsConfig.BoardYaw(b).Value:F0}°, scale {CardsConfig.BoardScale(b).Value:F2}×, " +
@@ -337,6 +338,198 @@ internal sealed class CardsDriver : MonoBehaviour
         }
     }
 
+    // ------------------------------------------------------------ board pose guard (issue C) --
+
+    // The board's last-known pose, tracked in PARENT-LOCAL space (world pose changes caused
+    // by the rig/anchor moving — recenter, diorama scale — are NOT board moves and must not
+    // trip the watchdog). Doubles as the carry-over pose for a tray rebuilt outside the
+    // board-switch path (TryRestoreCarriedPose).
+    private Transform? _watchRoot;
+    private Transform? _watchParent;
+    private Vector3 _watchLocalPos;
+    private Quaternion _watchLocalRot = Quaternion.identity;
+    private Vector3 _watchScale = Vector3.one;
+    private bool _watchValid;
+    private bool _watchGrabbed;
+    private WorldUI.PanelGrabHandle? _watchHandle;
+
+    /// <summary>Set by sanctioned re-pose paths right before they move the board; consumed
+    /// (and cleared) by <see cref="TickBoardPoseWatch"/> the same frame. A pose change with
+    /// no expected trigger pending logs a Warn — the "no silent recompute remains" proof.</summary>
+    private string? _expectedPoseChange;
+
+    /// <summary>
+    /// ISSUE C watchdog: track the board root's parent-local pose every frame and log each
+    /// change with its trigger:
+    /// - <c>initial</c> — the first placement of a freshly built board;
+    /// - <c>rebuild-restored (…)</c> — a rebuild/board-switch/session-resume that restored
+    ///   the previous pose;
+    /// - <c>user-grab</c> — the player moved/resized the tray by its grab bar (tracked
+    ///   silently while gripped, one summary line on release);
+    /// - <c>user-settings (…)</c> — orientation/scale tuning from the settings panel;
+    /// - anything else — <c>Warn UNSANCTIONED</c>, i.e. a game event moved the board.
+    /// Allocation-free in steady state; hidden boards (deferred placement, hands down) are
+    /// not watched — SetVisible only shows a placed board, so the first visible frame IS
+    /// the placement.
+    /// </summary>
+    private void TickBoardPoseWatch()
+    {
+        Transform? root = _tray.Root;
+        if (root == null)
+        {
+            // Root gone (board switch teardown / shutdown): keep the last baseline — it is
+            // the carry-over pose for TryRestoreCarriedPose — but drop the per-root refs.
+            _watchRoot = null;
+            _watchHandle = null;
+            _watchGrabbed = false;
+            return;
+        }
+        if (!_tray.IsVisible)
+        {
+            _watchGrabbed = false;
+            return; // hidden = not (yet) placed or parked away — nothing to prove
+        }
+
+        if (!ReferenceEquals(_watchRoot, root))
+        {
+            // Fresh (or rebuilt) board root just became visible: this IS a placement.
+            _watchRoot = root;
+            _watchHandle = root.GetComponentInChildren<WorldUI.PanelGrabHandle>(true);
+            Baseline(root);
+            LogBoardPose(_expectedPoseChange ?? "initial", root);
+            _expectedPoseChange = null;
+            return;
+        }
+
+        bool grabbed = _watchHandle != null && _watchHandle.IsGrabbed;
+        if (grabbed)
+        {
+            _watchGrabbed = true;
+            Baseline(root); // user is moving it — follow silently, summarize on release
+            _expectedPoseChange = null;
+            return;
+        }
+        if (_watchGrabbed)
+        {
+            _watchGrabbed = false;
+            Baseline(root);
+            LogBoardPose("user-grab", root);
+            _expectedPoseChange = null;
+            return;
+        }
+
+        // Pin/follow toggles re-parent with worldPositionStays — re-baseline the local pose
+        // silently (the world pose did not move, so it is not a placement).
+        if (!ReferenceEquals(root.parent, _watchParent))
+        {
+            Baseline(root);
+            _expectedPoseChange = null;
+            return;
+        }
+
+        bool moved =
+            (root.localPosition - _watchLocalPos).sqrMagnitude > 0.005f * 0.005f
+            || Quaternion.Angle(root.localRotation, _watchLocalRot) > 0.5f
+            || Mathf.Abs(root.localScale.x - _watchScale.x) > 0.005f * Mathf.Max(_watchScale.x, 0.01f);
+        if (moved)
+        {
+            string? trigger = _expectedPoseChange;
+            Baseline(root);
+            if (trigger != null)
+            {
+                LogBoardPose(trigger, root);
+            }
+            else
+            {
+                VRLog.Warn("Cards", "Board pose changed WITHOUT a sanctioned trigger (UNSANCTIONED " +
+                                    "recompute — this must never happen; report this log). " +
+                                    DescribeBoardPose(root));
+            }
+        }
+        _expectedPoseChange = null; // expected triggers are valid for exactly one frame
+    }
+
+    private void Baseline(Transform root)
+    {
+        _watchParent = root.parent;
+        _watchLocalPos = root.localPosition;
+        _watchLocalRot = root.localRotation;
+        _watchScale = root.localScale;
+        _watchValid = true;
+    }
+
+    private void LogBoardPose(string trigger, Transform root) =>
+        VRLog.Info("Cards", $"Board pose [{trigger}]: {DescribeBoardPose(root)}");
+
+    private static string DescribeBoardPose(Transform root) =>
+        $"world pos {root.position}, yaw {root.eulerAngles.y:F0}°, scale {root.localScale.x:F2}×.";
+
+    /// <summary>
+    /// ISSUE C: session-resume re-assert that KEEPS the board pose. The user requirement is
+    /// absolute — fixed or follow mode, the board never moves without explicit user action —
+    /// so an HMD doff/don only re-shows the board where it already is. The single exception
+    /// is a genuinely LOST pose (non-finite, stranded far beyond reach, or fallen below the
+    /// floor — a frozen/zeroed head pose during the presence loss can produce these), where
+    /// staying put would leave the board unusable: only then is a recovery re-seat allowed.
+    /// Mirrors PlayTray.ReassertPlacement's PINNED "lost" criteria, applied to BOTH modes.
+    /// </summary>
+    private void ReassertBoardKeepingPose()
+    {
+        if (_tray.Root == null)
+            return;
+
+        bool hadPose = _tray.TryCapturePose(out Vector3 pos, out Quaternion rot, out Vector3 scale);
+        bool lost = true;
+        Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
+        if (hadPose && head != null)
+        {
+            Transform root = _tray.Root!;
+            float s = root.parent != null ? root.parent.lossyScale.x : 1f;
+            Vector3 delta = pos - head.transform.position;
+            var horizontal = new Vector3(delta.x, 0f, delta.z);
+            bool finite = !(float.IsNaN(pos.x) || float.IsInfinity(pos.x)
+                            || float.IsNaN(pos.y) || float.IsInfinity(pos.y)
+                            || float.IsNaN(pos.z) || float.IsInfinity(pos.z));
+            lost = !finite || horizontal.magnitude > 6f * s || delta.y < -2f * s;
+        }
+
+        if (lost)
+        {
+            // Recovery only: the pose is unusable — PlayTray's re-assert may re-seat near
+            // the head (FOLLOW) / snap back (PINNED). Sanctioned, and says so in the log.
+            _expectedPoseChange = "resume-recovery (pose was lost)";
+            _tray.ReassertPlacement("session resume — pose lost");
+            return;
+        }
+
+        // Pose is sane: restore it verbatim (marks the tray placed + re-pins as needed) and
+        // let the queued Rebuild re-assert visibility — shown again, exactly where it was.
+        _expectedPoseChange = "rebuild-restored (session resume)";
+        _tray.RestorePose(pos, rot, scale);
+        VRLog.Info("Cards", "Session resume: control board pose PRESERVED (no re-seat — the board " +
+                            "never moves without explicit user action).");
+    }
+
+    /// <summary>
+    /// ISSUE C: carry the board pose over a tray rebuild that is NOT a board switch (the
+    /// switch path captures its own pose in <see cref="RebuildBoard"/>). If the factory had
+    /// to re-create the tray root while the watchdog still holds a valid parent-local pose
+    /// under the SAME parent, re-apply it so the new root spawns exactly where the old one
+    /// stood instead of re-placing at the head. Returns true when a pose was restored.
+    /// </summary>
+    private bool TryRestoreCarriedPose()
+    {
+        Transform? root = _tray.Root;
+        if (!_watchValid || root == null || _watchParent == null
+            || !ReferenceEquals(root.parent, _watchParent))
+            return false;
+        Vector3 pos = _watchParent.TransformPoint(_watchLocalPos);
+        Quaternion rot = _watchParent.rotation * _watchLocalRot;
+        _expectedPoseChange = "rebuild-restored (carried pose)";
+        _tray.RestorePose(pos, rot, _watchScale);
+        return true;
+    }
+
     private void OnDestroy()
     {
         ClearLaserHover();
@@ -350,6 +543,9 @@ internal sealed class CardsDriver : MonoBehaviour
         _insertGap = -1;
         _insertHighlightCard = null;
         VRCard.InteractionBlockedHand = null;
+        VRCard.HandArbitrationHand = null;
+        _handContactWinner = null;
+        _contactSuppressed.Clear(); // flags themselves die with the cards (OnDisable clears)
         _emptyFanHint.Destroy(); // task #9: ghost placard teardown
         _fan.Destroy();
         _browser.Destroy();
@@ -367,32 +563,28 @@ internal sealed class CardsDriver : MonoBehaviour
     private void OnModeChanged(VRModeChange change)
     {
         _dirty = true;
-        // Item 8: re-anchor the tray only on a GENUINELY new decision point — a new
-        // turn/round arriving from a spectate/flow state — NOT when merely RETURNING
-        // to HalfSelection (or CardSelection) from a targeting/modal round-trip. Marking
-        // an attack hex ends BoardTargeting → HalfSelection; a modal confirm ends
-        // ModalUI → HalfSelection. Neither is a fresh turn, yet the old unconditional
-        // InvalidatePlacement forced PlaceAtHead to re-seat the board on the next frame
-        // ("the board clips to a different position" after marking a target). Skipping
-        // the two "returning" sources leaves the placed board exactly where it is while
-        // still re-anchoring FOLLOW mode on a real new turn (From = TableIdle/Menu2D)
-        // or the CardSelection → HalfSelection turn-start progression (From =
-        // CardSelection). InvalidatePlacement is already a no-op when pinned.
-        // Item 4: confirming the enemy-info reveal LAUNDERS the modal round-trip — the
-        // game ReadyButton unlocks the UI (ModalUI → TableIdle) and THEN calls Pass()
-        // (TableIdle → HalfSelection), two synchronous transitions. By the time
-        // HalfSelection arrives, From has been rewritten from ModalUI to TableIdle, so the
-        // `From != ModalUI` guard above no longer catches it and the board glitched to the
-        // mid-camera-move head pose. Detect the laundered case (previous transition was
-        // ModalUI → TableIdle, this one is TableIdle → *) and treat it like the direct
-        // modal round-trip: do NOT re-seat. The user requires the board NEVER glitch.
+        // ISSUE C (the board must NEVER jump): the control board is deliberately NOT
+        // re-anchored on ANY mode change any more. The previous policy re-seated FOLLOW
+        // boards on "genuinely new decision points" (To == CardSelection/HalfSelection
+        // arriving from TableIdle/Menu2D/CardSelection) — exactly the transition every
+        // turn CONFIRM produces. The hardware log caught it five times in one session
+        // ("[Cards] Control board placed" after each "CONFIRM → ReadyButton clicked"):
+        // PlaceAtHead recomputes the pose from the CURRENT head yaw/position, so the
+        // board visibly jumped whenever the player had turned or moved since the last
+        // placement (log: yaw -9° → 42° across one confirm). Policy now: the FIRST
+        // placement (or an explicit user action — tray grab, board switch restore,
+        // settings orientation tuning, lost-pose recovery after an HMD doff/don)
+        // computes a pose; a game event never does. The item-8/item-4 modal round-trip
+        // laundering detection that used to guard this block is obsolete with it.
+        // The floating half-selection layout keeps its per-turn re-anchor — it is
+        // head-relative ephemera (re-docked/re-shown per decision), not the persistent
+        // board the user manually places.
         bool modalRoundTrip = change.From == VRMode.TableIdle
                               && _prevFrom == VRMode.ModalUI && _prevTo == VRMode.TableIdle;
         if ((change.To == VRMode.CardSelection || change.To == VRMode.HalfSelection)
             && change.From != VRMode.BoardTargeting && change.From != VRMode.ModalUI
             && !modalRoundTrip)
         {
-            _tray.InvalidatePlacement();
             _half.InvalidatePlacement();
         }
         _prevFrom = change.From;
@@ -545,14 +737,22 @@ internal sealed class CardsDriver : MonoBehaviour
         // Item 3: a presence regain (HMD re-donned) re-asserts the board placement so it is never
         // gone or stranded far after taking the headset off and back on. Runs here on the main
         // thread with a reliably-valid head pose (the handler only set the flag).
+        // ISSUE C: the re-assert now PRESERVES the board's pose unless it is genuinely lost —
+        // see ReassertBoardKeepingPose (PlayTray.ReassertPlacement would re-seat a FOLLOW board
+        // at the head, which is a silent move without user action).
         if (_reassertTray)
         {
             _reassertTray = false;
-            _tray.ReassertPlacement("session resume");
+            ReassertBoardKeepingPose();
         }
 
         // Debug-menu / hand-edited per-board tuning live-applies here (Part F).
         ApplyBoardTuning();
+
+        // ISSUE C proof instrument: every board pose change is logged with its trigger
+        // (initial / rebuild-restored / user-grab / user-settings) — an UNSANCTIONED
+        // recompute logs a Warn, so the next hardware log can prove none remain.
+        TickBoardPoseWatch();
 
         // GLOBAL hand-fan geometry live-apply ("Fan" debug category): re-lay the open fan at the
         // new step/arc/radius/hover-split. Independent of the control board (fan is not tray-bound),
@@ -640,6 +840,11 @@ internal sealed class CardsDriver : MonoBehaviour
             UpdateBrowseLaser();
             UpdateActiveLaser();
         }
+        // Issue A/B: elect the ONE fan/dock card the free hand is in contact with (closest,
+        // with incumbent hysteresis) — every other card's hand-driven lift drops and the
+        // grab follows the same winner. Runs after the laser paths so the laser-hovered
+        // card of THIS frame is never suppressed (laser plucks stay untouched).
+        UpdateHandContactArbitration();
         UpdateFanHoverSplit();
         UpdateOverlayGate(); // B/C: game-state gate (results window / narrator dialog / scenario end) before both overlay paths
         UpdateSlotHighlight();
@@ -1177,8 +1382,13 @@ internal sealed class CardsDriver : MonoBehaviour
         }
 
         // Precedence: laser wins whenever a fan card is laser-hovered (primary controller
-        // path); proximity highlight only fills in when the laser hovers nothing.
+        // path); the hand-contact arbitration winner fills in when the laser hovers nothing
+        // (issue A: the split always opens around the ONE lifted card — the proximity
+        // highlight follows the same winner via AllowsHand, so it stays the fallback for
+        // the first frame after a winner change).
         VRCard? hovered = _laserHover;
+        if (hovered == null && _handContactWinner != null && _fan.Contains(_handContactWinner))
+            hovered = _handContactWinner;
         if (hovered == null)
         {
             VRHand? dom = VRHands.Primary;
@@ -1205,6 +1415,145 @@ internal sealed class CardsDriver : MonoBehaviour
                 return i;
         }
         return -1;
+    }
+
+    // ------------------------------------------- hand-contact single winner (issue A/B) --
+
+    /// <summary>Fingertip contact reach (m, scale 1) — mirrors CardFan.FingertipHoverReach.</summary>
+    private const float ContactTipReach = 0.035f;
+
+    /// <summary>Palm contact reach (m, scale 1) — mirrors ProximityGrabber.ReachMeters.</summary>
+    private const float ContactPalmReach = 0.13f;
+
+    /// <summary>Incumbent hysteresis (m, scale 1): a rival card must be this much CLOSER to the
+    /// hand than the currently lifted card to steal the lift — the winner cannot flutter at
+    /// strip boundaries while the hand sweeps through the fan.</summary>
+    private const float ContactStickyMargin = 0.02f;
+
+    /// <summary>The single card the free hand is currently "in contact with" (null = none).</summary>
+    private VRCard? _handContactWinner;
+
+    /// <summary>Cards currently pop-suppressed by the arbitration — cleared and re-filled every
+    /// tick so a card leaving the fan/dock pools can never keep a stale suppression.</summary>
+    private readonly List<VRCard> _contactSuppressed = new(24);
+
+    /// <summary>One-shot session log guard for the arbitration confirmation line.</summary>
+    private static bool s_loggedContactArbitration;
+
+    /// <summary>
+    /// USER ISSUE A (fan sweep lifts several cards) + B (dock highlight fights): per-tick
+    /// SINGLE-WINNER arbitration over every card the free (dominant) hand can touch — the
+    /// open fan's cards plus the slot-docked/pick-field cards. Among all cards in contact
+    /// range (index tip within <see cref="ContactTipReach"/> OR palm within
+    /// <see cref="ContactPalmReach"/> of the card's grab collider), exactly ONE wins: the
+    /// closest by hand distance, with a <see cref="ContactStickyMargin"/> hysteresis bonus
+    /// for the incumbent so the lift never flutters at strip boundaries. Every other pool
+    /// card is suppressed (<see cref="VRCard.SetHandPopSuppressed"/>): its hand-driven pop
+    /// drops immediately AND it refuses the hand in <c>AllowsHand</c>, so the
+    /// ProximityGrabber's highlight — and therefore the trigger grab — lands on the same
+    /// single winner. The laser-hovered fan/tray card is never suppressed (the laser path
+    /// already arbitrates itself and its pluck must keep working). Allocation-free.
+    /// </summary>
+    private void UpdateHandContactArbitration()
+    {
+        VRHand? dom = VRHands.Primary;
+        VRCard.HandArbitrationHand = dom;
+
+        VRCard? winner = null;
+        if (dom != null && !ReferenceEquals(dom, _gateHand) && dom.HasPose
+            && dom.Grabber.Held == null && !_modalInputBlocked)
+        {
+            Vector3 tip = dom.Rig.IndexTip.position;
+            Vector3 palm = dom.Rig.PalmCenter.position;
+            float scale = dom.WorldScale;
+            float tipReach = ContactTipReach * scale;
+            float palmReach = ContactPalmReach * scale;
+            float sticky = ContactStickyMargin * scale;
+            float best = float.MaxValue;
+
+            if (_fan.IsOpen)
+            {
+                IReadOnlyList<VRCard> fanCards = _fan.Cards;
+                for (int i = 0; i < fanCards.Count; i++)
+                    ScoreContact(fanCards[i], tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+            }
+            if (_tray.IsVisible)
+            {
+                ScoreContact(_tray.Occupant(0), tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+                ScoreContact(_tray.Occupant(1), tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+                for (int i = 0; i < _fieldCards.Count; i++)
+                    ScoreContact(_fieldCards[i], tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+            }
+        }
+
+        if (!ReferenceEquals(winner, _handContactWinner))
+        {
+            _handContactWinner = winner;
+            if (winner != null && !s_loggedContactArbitration)
+            {
+                s_loggedContactArbitration = true;
+                VRLog.Info("Cards", "Hand-contact SINGLE-WINNER arbitration active (issue A/B): only " +
+                                    "the closest touched fan/dock card lifts; sweeping the hand can " +
+                                    "no longer raise multiple cards, and the grab follows the winner.");
+            }
+        }
+
+        // Re-derive the suppression set from scratch every tick (stale-flag proof: a card
+        // that left the pools mid-frame is cleared here or by its own OnDisable).
+        for (int i = 0; i < _contactSuppressed.Count; i++)
+        {
+            if (_contactSuppressed[i] != null)
+                _contactSuppressed[i].SetHandPopSuppressed(false);
+        }
+        _contactSuppressed.Clear();
+        if (winner == null)
+            return;
+        if (_fan.IsOpen)
+        {
+            IReadOnlyList<VRCard> fanCards = _fan.Cards;
+            for (int i = 0; i < fanCards.Count; i++)
+                SuppressContactLoser(fanCards[i], winner);
+        }
+        if (_tray.IsVisible)
+        {
+            SuppressContactLoser(_tray.Occupant(0), winner);
+            SuppressContactLoser(_tray.Occupant(1), winner);
+            for (int i = 0; i < _fieldCards.Count; i++)
+                SuppressContactLoser(_fieldCards[i], winner);
+        }
+    }
+
+    /// <summary>Contact score of <paramref name="card"/>: min distance of index tip / palm center
+    /// to its grab collider, incumbent bonus applied; out of both reaches = no candidate.</summary>
+    private void ScoreContact(VRCard? card, Vector3 tip, Vector3 palm, float tipReach,
+        float palmReach, float sticky, ref VRCard? winner, ref float best)
+    {
+        if (card == null || card.IsHeld)
+            return;
+        if (!card.TryFingertipDistance(tip, out float tipDist)
+            || !card.TryFingertipDistance(palm, out float palmDist))
+            return;
+        if (tipDist > tipReach && palmDist > palmReach)
+            return;
+        float score = Mathf.Min(tipDist, palmDist);
+        if (ReferenceEquals(card, _handContactWinner))
+            score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
+        if (score < best)
+        {
+            best = score;
+            winner = card;
+        }
+    }
+
+    /// <summary>Suppress a pool card that lost the contact arbitration. The laser-hovered
+    /// fan/tray card is exempt — laser hover/pluck must keep working unchanged.</summary>
+    private void SuppressContactLoser(VRCard? card, VRCard winner)
+    {
+        if (card == null || card.IsHeld || ReferenceEquals(card, winner)
+            || ReferenceEquals(card, _laserHover) || ReferenceEquals(card, _trayCardHover))
+            return;
+        card.SetHandPopSuppressed(true);
+        _contactSuppressed.Add(card);
     }
 
     // ------------------------------------------------------------------ board laser --
@@ -1884,6 +2233,7 @@ internal sealed class CardsDriver : MonoBehaviour
             ClearFakeCards();
         _boundHand = hand;
 
+        bool hadTrayRoot = _tray.Root != null;
         _tray.EnsureBuilt(_factory, anchor);
         // PART D: on a board SWITCH, re-apply the captured pose (the new board spawns in the exact
         // same place) instead of PlaceAtHead. A genuine first build has no captured pose and places
@@ -1891,7 +2241,15 @@ internal sealed class CardsDriver : MonoBehaviour
         if (_hasSwitchPose)
         {
             _hasSwitchPose = false;
+            _expectedPoseChange = "rebuild-restored (board switch)"; // sanctioned (issue C watchdog)
             _tray.RestorePose(_switchPos, _switchRot, _switchScale);
+        }
+        else if (!hadTrayRoot && TryRestoreCarriedPose())
+        {
+            // ISSUE C: the tray root was re-created OUTSIDE the board-switch path (e.g. torn
+            // down externally) — carry the previous pose over instead of re-placing at the
+            // head. The factory re-creates the object; the pose survives.
+            VRLog.Info("Cards", "Tray rebuilt — previous board pose carried over (no re-place at head).");
         }
         _rest.EnsureBuilt(_tray);
         _half.EnsureBuilt(anchor);
