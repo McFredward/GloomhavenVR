@@ -1203,10 +1203,13 @@ internal static class ModalFallback
             if (outFor < RecallOutOfViewSeconds)
                 continue;
 
-            // RECALL — the same placement the window floated with.
+            // RECALL — the same placement the window floated with (user request A: with the
+            // panel's size passed along, the recall pose also avoids the control board /
+            // other open modals; the panel itself is excluded from the obstacle set).
             if (wp.Grab != null)
             {
-                if (!ComputeHmdPose(out Vector3 p, out Quaternion r, out _))
+                Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
+                if (!ComputeHmdPose(out Vector3 p, out Quaternion r, out _, 0, half, wp.Panel))
                     continue; // no head pose this tick — retry next tick, timer keeps running
                 wp.Grab.PlaceFrameAt(p, r);
             }
@@ -2032,7 +2035,10 @@ internal static class ModalFallback
             // remains as a safety net should Grab ever be null.)
             if (wp.Grab != null)
             {
-                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _))
+                // User request A: pass the panel's size so the refloat pose also avoids the
+                // control board / other open modals (this panel excluded from the obstacles).
+                Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
+                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel))
                     wp.Grab.PlaceFrameAt(pos, rot);
             }
             else
@@ -2209,6 +2215,261 @@ internal static class ModalFallback
         return reason;
     }
 
+    // ---- SPAWN OVERLAP AVOIDANCE (user request A) ---------------------------------------------
+    //
+    // A freshly spawned/recalled modal must not open INSIDE another mod-placed object — the
+    // narrator/story dialog routinely spawned interpenetrating the control board (both are
+    // head-relative at similar reach). Obstacles considered: the Cards control board / play
+    // tray (discovered READ-ONLY at runtime by its root object name — Cards code is not
+    // touched) and the other currently-open converted modals. Resolution order per the spawn
+    // rules: raise up first (respecting the same eye-level readability cap as the board-plane
+    // floor clamp), then swing laterally around the head toward free space, never leaving
+    // ±OverlapMaxYawDeg of the original placement direction; best-effort (least-overlap
+    // candidate) when nothing clears. These are SPAWN RULES ONLY — this path runs exclusively
+    // from ComputeHmdPose (spawn / presence-regain refloat / lost-menu recall), NEVER per
+    // frame (the placement-healing regression rule), so the user can freely move everything
+    // afterwards.
+
+    /// <summary>Safety margin (real meters × scale) padded around the new modal's bounds.</summary>
+    private const float OverlapMarginMeters = 0.04f;
+
+    /// <summary>Clearance (real meters × scale) between an obstacle's top and the raised modal's bottom.</summary>
+    private const float OverlapRaiseClearanceMeters = 0.05f;
+
+    /// <summary>Max lateral deviation from the original placement direction (degrees) — the
+    /// window must still spawn in the view area, roughly along the gaze.</summary>
+    private const float OverlapMaxYawDeg = 30f;
+
+    /// <summary>Lateral search step (degrees) — free side first, then the other side.</summary>
+    private const float OverlapYawStepDeg = 10f;
+
+    /// <summary>Assumed thickness of a floated modal (real meters) for the box test.</summary>
+    private const float OverlapPanelDepthMeters = 0.03f;
+
+    // Spawn-time scratch (this path never runs per frame).
+    private static readonly List<string> ObstacleNames = new(4);
+    private static readonly List<Bounds> ObstacleBoundsList = new(4);
+    private static readonly Vector3[] ObstacleCorners = new Vector3[4];
+
+    /// <summary>
+    /// Gather the world-space AABBs the new modal must not intersect. The control board is
+    /// discovered by its root name ("GloomhavenVR.PlayTray" — read-only; GameObject.Find only
+    /// returns it while it is active, i.e. actually visible) and measured via its renderers
+    /// (board slab + docked cards/buttons). Other floated modals come from <see cref="Converted"/>;
+    /// <paramref name="self"/> is excluded (refloat/recall re-places an EXISTING panel).
+    /// <paramref name="includeModals"/> is false for staggered secondaries — those overlap their
+    /// parent DELIBERATELY (item 2/3b foreground stacking), only the board is avoided.
+    /// </summary>
+    private static void CollectSpawnObstacles(ConvertedPanel? self, bool includeModals, float scale)
+    {
+        ObstacleNames.Clear();
+        ObstacleBoundsList.Clear();
+
+        GameObject tray = GameObject.Find("GloomhavenVR.PlayTray");
+        if (tray != null)
+        {
+            bool has = false;
+            var b = new Bounds();
+            Renderer[] renderers = tray.GetComponentsInChildren<Renderer>(false);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer r = renderers[i];
+                if (r == null || !r.enabled)
+                    continue;
+                if (!has)
+                {
+                    b = r.bounds;
+                    has = true;
+                }
+                else
+                {
+                    b.Encapsulate(r.bounds);
+                }
+            }
+            if (has)
+            {
+                ObstacleNames.Add(tray.name);
+                ObstacleBoundsList.Add(b);
+            }
+        }
+
+        if (!includeModals)
+            return;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!wp.Panel.IsAlive || wp.Panel.HostGo == null || !wp.Panel.HostGo.activeInHierarchy
+                || ReferenceEquals(wp.Panel, self))
+                continue;
+            RectTransform host = wp.Panel.HostRect;
+            if (host == null)
+                continue;
+            host.GetWorldCorners(ObstacleCorners);
+            var b = new Bounds(ObstacleCorners[0], Vector3.zero);
+            for (int c = 1; c < 4; c++)
+                b.Encapsulate(ObstacleCorners[c]);
+            b.Expand(OverlapPanelDepthMeters * scale); // flat rect → thin slab
+            ObstacleNames.Add(wp.Window != null ? wp.Window.name : host.name);
+            ObstacleBoundsList.Add(b);
+        }
+    }
+
+    /// <summary>
+    /// World-axis AABB of the new modal at a candidate center: the panel is an upright thin
+    /// slab yawed to face the head (the same yaw <see cref="ComputeHmdPose"/> derives from the
+    /// head→position direction), conservatively boxed with <see cref="OverlapMarginMeters"/>.
+    /// </summary>
+    private static Bounds CandidateBounds(Vector3 pos, Vector3 headPos, Vector2 half, float scale)
+    {
+        Vector3 flat = pos - headPos;
+        flat.y = 0f;
+        float yaw = flat.sqrMagnitude < 1e-6f ? 0f : Mathf.Atan2(flat.x, flat.z);
+        float cos = Mathf.Abs(Mathf.Cos(yaw));
+        float sin = Mathf.Abs(Mathf.Sin(yaw));
+        float halfDepth = OverlapPanelDepthMeters * 0.5f * scale;
+        float margin = OverlapMarginMeters * scale;
+        var ext = new Vector3(
+            cos * half.x + sin * halfDepth + margin,
+            half.y + margin,
+            sin * half.x + cos * halfDepth + margin);
+        return new Bounds(pos, ext * 2f);
+    }
+
+    /// <summary>
+    /// Total penetration across all obstacles (sum of per-obstacle minimal separation depths,
+    /// 0 = clear) + the index of the most-penetrated obstacle.
+    /// </summary>
+    private static float OverlapAmount(Bounds candidate, out int worstIdx)
+    {
+        float total = 0f;
+        float worst = 0f;
+        worstIdx = -1;
+        for (int i = 0; i < ObstacleBoundsList.Count; i++)
+        {
+            Bounds b = ObstacleBoundsList[i];
+            float px = Mathf.Min(candidate.max.x, b.max.x) - Mathf.Max(candidate.min.x, b.min.x);
+            float py = Mathf.Min(candidate.max.y, b.max.y) - Mathf.Max(candidate.min.y, b.min.y);
+            float pz = Mathf.Min(candidate.max.z, b.max.z) - Mathf.Max(candidate.min.z, b.min.z);
+            if (px <= 0f || py <= 0f || pz <= 0f)
+                continue;
+            float pen = Mathf.Min(px, Mathf.Min(py, pz));
+            total += pen;
+            if (pen > worst)
+            {
+                worst = pen;
+                worstIdx = i;
+            }
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// Spawn-time overlap resolution (runs AFTER the pitch/board-plane clamps, spawn/refloat/
+    /// recall only): if the modal's projected bounds intersect an obstacle, first RAISE it so
+    /// its bottom clears the tallest overlapped obstacle (capped at eye level +
+    /// <see cref="MaxAboveEyeMeters"/> — the readability rule), then SWING it laterally around
+    /// the head (constant distance, free side first, ≤ ±<see cref="OverlapMaxYawDeg"/>°).
+    /// Falls back to the least-overlapping candidate. Returns the human-readable resolution
+    /// note for the MODAL SPAWN CLAMP log line, or null when the pose was already clear.
+    /// </summary>
+    private static string? ResolveSpawnOverlap(Transform head, ref Vector3 pos, float scale,
+        Vector2 half, ConvertedPanel? self, bool includeModals)
+    {
+        if (half.x <= 1e-5f || half.y <= 1e-5f)
+            return null;
+        CollectSpawnObstacles(self, includeModals, scale);
+        if (ObstacleBoundsList.Count == 0)
+            return null;
+
+        Vector3 headPos = head.position;
+        Bounds cand = CandidateBounds(pos, headPos, half, scale);
+        float startPen = OverlapAmount(cand, out int worstIdx);
+        if (startPen <= 0f)
+            return null;
+        string obstacle = ObstacleNames[worstIdx];
+        Vector3 original = pos;
+        Vector3 best = pos;
+        float bestPen = startPen;
+
+        // Step 1 — raise: lift the center until the bottom edge clears every overlapped
+        // obstacle's top, capped at eye level (same cap as the board-plane floor clamp).
+        float eyeCap = headPos.y + MaxAboveEyeMeters * scale;
+        float targetY = pos.y;
+        for (int i = 0; i < ObstacleBoundsList.Count; i++)
+        {
+            if (cand.Intersects(ObstacleBoundsList[i]))
+                targetY = Mathf.Max(targetY,
+                    ObstacleBoundsList[i].max.y + half.y + OverlapRaiseClearanceMeters * scale);
+        }
+        Vector3 raised = pos;
+        raised.y = Mathf.Max(pos.y, Mathf.Min(targetY, eyeCap));
+        float pen = OverlapAmount(CandidateBounds(raised, headPos, half, scale), out _);
+        if (pen < bestPen)
+        {
+            bestPen = pen;
+            best = raised;
+        }
+        if (pen <= 0f)
+        {
+            pos = raised;
+            return $"intersected '{obstacle}' — raised +{(raised.y - original.y) / scale:F2} m";
+        }
+
+        // Step 2 — lateral: swing around the head at constant distance (raised height kept),
+        // free side (away from the blocking obstacle) first, 10° steps up to ±30°.
+        Vector3 flat = new Vector3(pos.x - headPos.x, 0f, pos.z - headPos.z);
+        if (flat.sqrMagnitude > 1e-6f)
+        {
+            Vector3 toObs = ObstacleBoundsList[worstIdx].center - headPos;
+            toObs.y = 0f;
+            // Cross(flat, toObs).y > 0 → obstacle sits to the RIGHT of the placement
+            // direction → free space is to the LEFT (negative yaw), and vice versa.
+            float freeSide = Vector3.Cross(flat, toObs).y > 0f ? -1f : 1f;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                float side = pass == 0 ? freeSide : -freeSide;
+                for (float step = OverlapYawStepDeg; step <= OverlapMaxYawDeg + 0.01f;
+                     step += OverlapYawStepDeg)
+                {
+                    Vector3 swung = headPos + Quaternion.Euler(0f, side * step, 0f) * flat;
+                    swung.y = raised.y;
+                    pen = OverlapAmount(CandidateBounds(swung, headPos, half, scale), out _);
+                    if (pen < bestPen)
+                    {
+                        bestPen = pen;
+                        best = swung;
+                    }
+                    if (pen <= 0f)
+                    {
+                        pos = swung;
+                        return $"intersected '{obstacle}' — raised +{(raised.y - original.y) / scale:F2} m, " +
+                               $"swung {step:F0}° {(side < 0f ? "left" : "right")}";
+                    }
+                }
+            }
+        }
+
+        // Best-effort: nothing cleared inside the view cone — take the least-overlapping pose.
+        pos = best;
+        return $"intersected '{obstacle}' — best-effort least-overlap pose " +
+               $"(residual {bestPen / Mathf.Max(scale, 1e-4f):F2} m, moved " +
+               $"{(best - original).magnitude / Mathf.Max(scale, 1e-4f):F2} m)";
+    }
+
+    /// <summary>
+    /// The new modal's world half-extents (width/height halves, world units) as
+    /// <see cref="CanvasConversion.PlaceHost"/> will render it: pixels × CanvasScaleMm ×
+    /// worldScale (= diorama scale × the window's board-relative extra scale).
+    /// </summary>
+    private static Vector2 PanelWorldHalfSize(ConvertedPanel panel, float worldScale)
+    {
+        RectTransform rect = panel.HostRect;
+        if (rect == null)
+            return default;
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        return new Vector2(rect.rect.width, rect.rect.height) * (0.5f * metersPerPixel * worldScale);
+    }
+
     /// <summary>
     /// HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.
     /// <paramref name="staggerIndex"/> nudges the window right+down so stacked secondary windows
@@ -2229,7 +2490,7 @@ internal static class ModalFallback
     /// diagnostic line per call states the clamp decision for hardware-log verification.
     /// </summary>
     private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale,
-        int staggerIndex = 0)
+        int staggerIndex = 0, Vector2 halfSize = default, ConvertedPanel? self = null)
     {
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
@@ -2259,6 +2520,13 @@ internal static class ModalFallback
         Vector3 rawPos = pos;
         string? clampReason = ClampSpawnPose(h, ref pos, scale);
 
+        // User request A: never spawn INSIDE the control board or another open modal —
+        // raise / swing laterally toward free space (spawn/refloat/recall only, never per
+        // frame). Staggered secondaries deliberately overlap their parent window (item 2/3b),
+        // so they only avoid the board.
+        string? overlapNote = ResolveSpawnOverlap(h, ref pos, scale, halfSize, self,
+            includeModals: staggerIndex == 0);
+
         // Facing is YAW-ONLY (upright) and points the readable face AT THE HEAD — same
         // convention as PanelPlacement.Facing: flatten the vector FROM the head TO the placed
         // position (NOT the raw gaze forward). For a centred primary window the two coincide,
@@ -2284,7 +2552,7 @@ internal static class ModalFallback
         // raised panel still faces the eyes. Spawn-only, capped, never applied unclamped so the
         // default upright look is untouched.
         float tiltDeg = 0f;
-        if (clampReason != null)
+        if (clampReason != null || overlapNote != null)
         {
             Vector3 toHead = h.position - pos;
             float flatDist = Mathf.Sqrt(toHead.x * toHead.x + toHead.z * toHead.z);
@@ -2301,9 +2569,12 @@ internal static class ModalFallback
         VRLog.Info("WorldUI", "MODAL SPAWN CLAMP: pose " +
                               $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
                               $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +
-                              (clampReason == null
-                                  ? " — unchanged (above the board plane, gaze within limits)."
-                                  : $" — {clampReason}; upward tilt {tiltDeg:F0}°.") +
+                              (clampReason == null && overlapNote == null
+                                  ? " — unchanged (above the board plane, gaze within limits, no overlap)."
+                                  : $" — {clampReason ?? "no plane/gaze clamp"}; upward tilt {tiltDeg:F0}°.") +
+                              (overlapNote == null
+                                  ? " OVERLAP: none."
+                                  : $" OVERLAP: {overlapNote}.") +
                               $" boardPlaneY={(TryGetBoardPlaneY(out float by) ? by.ToString("F2") : "n/a")}, " +
                               $"scale={scale:F2}, stagger={staggerIndex}.");
         return true;
@@ -2332,7 +2603,12 @@ internal static class ModalFallback
     /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
     private static void PlaceAtHmd(ConvertedPanel panel, float extraScale, int staggerIndex = 0)
     {
-        if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale, staggerIndex))
+        // User request A: hand the panel's projected world size to the pose computation so
+        // the spawn-time overlap resolution can box-test it against the control board and
+        // the other open modals (self excluded — refloat/recall re-places an existing panel).
+        Vector2 half = PanelWorldHalfSize(panel, PanelLayout.WorldScale * extraScale);
+        if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale, staggerIndex,
+                half, panel))
             return;
         CanvasConversion.PlaceHost(panel, pos, rot, scale * extraScale);
     }

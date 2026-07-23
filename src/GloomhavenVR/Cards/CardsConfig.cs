@@ -548,8 +548,12 @@ internal static class CardsConfig
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
             _boardYaw[i] = _file.Bind("Cards", $"BoardYaw_{board}", 0f,
                 $"[{board}] extra board yaw ADDED on top of the grab-written TrayYaw, degrees. Seeded 0 (Oak).");
-            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 1f,
-                $"[{board}] board size MULTIPLIER applied on top of the grab-written TrayScale. Seeded 1 (Oak).");
+            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 0.4f,
+                $"[{board}] board size MULTIPLIER applied on top of the grab-written TrayScale. " +
+                "Default 0.4: the board is rig-anchored, so its apparent size does not shrink with " +
+                "the table — with the default table scale now 2.5x (table reads 2.5x smaller than " +
+                "the old 1.0x default) the board default shrinks by the same ratio, 1.0 / 2.5 = 0.4, " +
+                "so it fits the default table again. Was seeded 1 (Oak) before the 2.5x table default.");
             _boardPosOffset[i] = _file.Bind("Cards", $"BoardPosOffset_{board}", Vector3.zero,
                 $"[{board}] board position offset ADDED on top of the tray head-relative offset, real " +
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
@@ -623,6 +627,33 @@ internal static class CardsConfig
             _decisionScale[i] = _file.Bind("Cards", $"DecisionScale_{board}", 1f,
                 $"[{board}] size MULTIPLIER of the shared DECISION DOCK (its docked prompt row pose-follows the " +
                 "mount's lossyScale). Seeded 1 (Oak).");
+        }
+
+        // ONE-TIME defaults migration (paired with the 2.5x default table scale in
+        // [Comfort] SavedScaleMultiplier): BepInEx keeps values saved in an existing config
+        // file, so the new 0.4 BoardScale default above only reaches FRESH installs by itself.
+        // For existing files, adopt 0.4 ONLY where the user never touched the old default
+        // (saved value == old default 1.0 — BoardScale is hand-edit/debug-menu only, so an
+        // exact 1.0 means untouched). The marker makes this run at most once per config file;
+        // a grab-written TrayScale is the user's own tuning and is NEVER migrated.
+        ConfigEntry<bool> boardScaleMigrated = _file.Bind("Cards", "BoardScaleDefault04Applied",
+            false,
+            "Internal one-time migration marker: the 0.4x BoardScale default (paired with the " +
+            "2.5x table-scale default) has been offered to this config file. Do not edit.");
+        if (!boardScaleMigrated.Value)
+        {
+            foreach (ControlBoard board in System.Enum.GetValues(typeof(ControlBoard)))
+            {
+                ConfigEntry<float> entry = _boardScale[(int)board];
+                if (Mathf.Approximately(entry.Value, 1f))
+                {
+                    entry.Value = 0.4f;
+                    Core.VRLog.Info("Cards", $"One-time migration: BoardScale_{board} was at the old " +
+                                        "default 1.0 (never tuned) — adopted the new default 0.4 " +
+                                        "to fit the 2.5x default table scale.");
+                }
+            }
+            boardScaleMigrated.Value = true;
         }
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----
