@@ -193,70 +193,73 @@ internal sealed class VRRigDriver : MonoBehaviour
     private bool _tiltActive;
     private float _lastTiltTarget;
 
-    // VIEW-AIMED TILT AXIS, gated + eased (hardware round 3 — the tilt was STILL nauseating).
-    // Round 2 aimed the tilt at the head→FocusPoint line, but the pivot can sit far off to
-    // the side of what the player actually LOOKS at (log 0a2767928 line 3370: axis↔head-right
-    // 41.8° while the user faced elsewhere) — a tilt whose axis is 41.8° off the view reads
-    // as tilt·sin(41.8°) of pure ROLL in the player's vision, and roll is the single most
-    // nauseating rotation VR can show. Requirement: the world must always settle tilted
-    // toward the CAMERA/VIEW direction. COMFORT DESIGN: a per-frame view-locked axis would
-    // be even worse — every casual head turn would continuously ROLL the whole world in
-    // sync with the head (the horizon visibly pivoting as you glance around). So the axis is
-    // GATED and EASED instead:
-    //   - _axisYawTarget re-targets to the flattened view yaw ONLY when the view has moved
-    //     beyond AxisRetargetDeadbandDegrees away from it (glances inside the deadband
-    //     change nothing — the horizon stays rock solid), and
-    //   - _axisYawCurrent eases toward the target exponentially (AxisEaseSharpness ≈ settles
-    //     in ~1 s), so a deliberate re-orientation re-aims the tilt as a slow, sub-threshold
-    //     drift instead of a live roll, and
-    //   - discrete world-motion events (snap/smooth turn, world-grab release, recenter, rig
-    //     build) SNAP the axis to the live view via NotifyTiltAxisSnap — the scene already
-    //     moved wholesale that frame, which masks the re-aim; easing after a snap turn would
-    //     itself read as a slow roll right after every turn, and
-    //   - while a WORLD GRAB is ACTIVE (hardware round 4) the deadband is bypassed and the
-    //     target tracks the live view continuously with a faster ease
-    //     (GrabAxisEaseSharpness) — the player is deliberately hauling the whole scene, so
-    //     the re-aim is masked and waiting for the release snap left the tilt mis-aimed
-    //     for the entire drag.
-    // Net effect: the tilt always ends up facing where you look, and the axis never moves
-    // fast enough (or at all, inside the deadband) to register as motion.
-    private float _axisYawCurrent;   // yaw (deg) of the direction the world tilts toward
-    private float _axisYawTarget;    // deadband-gated goal for _axisYawCurrent
+    // VIEW-AIMED TILT AXIS, EVENT-GATED (hardware round 5 — FROZEN outside locomotion).
+    // Round 3 aimed the tilt at the view via a 25° deadband + 3/s ease. The round-4
+    // hardware log (LogOutput.log, grep WorldTilt) proved that design nauseating anyway:
+    // axisYaw chased the VIEW across 72.9°→16.8°→90.5°→88.8°→57.5°→2.2°→82.4° while the
+    // user merely looked around — every deadband crossing re-aimed the axis and the ease
+    // then ROTATED THE ENTIRE WORLD about the focus pivot for the next second, so the
+    // world swam on pure head movement (the ease made it worse: the glide outlived each
+    // glance). HARD REQUIREMENT (same rule as every other system): head movement must
+    // have ZERO visible effect on the world. Policy now:
+    //   - Outside explicit locomotion the axis yaw is PERFECTLY FROZEN. No deadband, no
+    //     ease, no view sampling feeds it — the head can do anything and the world does
+    //     not move by even a micro-degree (the per-frame reconstruction then produces
+    //     desired == current and skips the transform write entirely).
+    //   - The axis re-aims to the live view ONLY synchronized with explicit locomotion,
+    //     where the scene already moves wholesale and the re-aim is vestibularly masked:
+    //     snap/smooth turn, recenter, world-grab release/disengage, rig build. Those
+    //     events call NotifyTiltAxisSnap(reason); the snap applies next LateUpdate and
+    //     is logged WITH its trigger so the hardware log proves no change ever fires
+    //     without a locomotion event.
+    //   - While a WORLD GRAB is ACTIVE the axis TRACKS the live view continuously with
+    //     an ease (GrabAxisEaseSharpness) — explicitly requested (hardware round 4): the
+    //     player is deliberately hauling the whole scene, which masks the re-aim, and
+    //     waiting for the release snap left the tilt mis-aimed for the entire drag.
+    // Net effect: look around all day — rock solid horizon; every tilt re-aim rides on a
+    // world motion the player caused with their hands, never with their head.
+    private float _axisYawCurrent;   // yaw (deg) of the direction the world tilts toward; FROZEN outside locomotion
     private bool _axisYawInitialized;
-    private bool _axisSnapRequested;
 
-    /// <summary>View-yaw deadband before the tilt axis re-targets (deg). Inside it the
-    /// horizon is perfectly static no matter how the head turns.</summary>
-    private const float AxisRetargetDeadbandDegrees = 25f;
-
-    /// <summary>Axis ease rate (1/s, exponential). 3/s ⇒ ~95 % of a re-target is absorbed
-    /// in ~1 s — slow enough to stay under the roll-perception threshold.</summary>
-    private const float AxisEaseSharpness = 3f;
+    /// <summary>Pending locomotion-event snap reason, null when none. Set by
+    /// <see cref="NotifyTiltAxisSnap"/>; consumed (and logged) by the next TickWorldTilt
+    /// with a valid view. Last-wins when several events land in one frame.</summary>
+    private string? _axisSnapReason;
 
     /// <summary>Axis ease rate while a WORLD GRAB is active (1/s, exponential). While the
-    /// player drags/spins the world the deadband is bypassed and the axis TRACKS the live
-    /// view continuously (hardware round 4 — waiting for release made the tilt visibly
-    /// mis-aimed mid-drag, then snap on release); the deliberate whole-scene motion masks
-    /// the re-aim, so a fast ease is comfortable — but still an ease, not a hard lock, so
-    /// the horizon never jitters 1:1 with head noise.</summary>
+    /// player drags/spins the world the axis TRACKS the live view continuously (hardware
+    /// round 4 — waiting for release made the tilt visibly mis-aimed mid-drag, then snap
+    /// on release); the deliberate whole-scene motion masks the re-aim, so a fast ease is
+    /// comfortable — but still an ease, not a hard lock, so the horizon never jitters 1:1
+    /// with head noise. This is the ONLY continuous axis motion left, and it runs solely
+    /// while the grab button is held.</summary>
     private const float GrabAxisEaseSharpness = 4f;
 
     /// <summary>
     /// Snap the world-tilt axis to the live view direction next LateUpdate (no easing).
-    /// Call ONLY when the whole scene moved wholesale this frame (stick turn, world-grab
-    /// release, recenter) — the scene motion masks the re-aim, whereas the eased path
-    /// would roll the horizon for the next second (comfort note on the axis fields).
+    /// Call ONLY when the whole scene moved wholesale this frame from an EXPLICIT
+    /// locomotion input (stick turn, world-grab release, recenter) — the scene motion
+    /// masks the re-aim. This is the ONLY path that can move the axis outside an active
+    /// world grab (round 5: zero head-driven re-aims). <paramref name="reason"/> is
+    /// logged with the applied snap (throttled for per-frame callers like smooth turn).
     /// </summary>
     internal static void NotifyTiltAxisSnap(string reason)
     {
-        _ = reason; // kept for call-site self-documentation; no per-event log (spammy on smooth turn)
         if (Instance != null)
-            Instance._axisSnapRequested = true;
+            Instance._axisSnapReason = reason;
     }
 
     /// <summary>Cadence of the tilt-axis diagnostic line while the tilt is active (seconds).</summary>
     private const float TiltLogIntervalSeconds = 5f;
     private float _nextTiltLogTime;
+
+    // Change-attribution diagnostics (round 5): every axis/magnitude change logs its
+    // TRIGGER so the hardware log can prove no change ever fires without a locomotion
+    // event. Per-frame triggers (smooth turn, active grab) re-log at most once per
+    // ChangeLogThrottleSeconds; a NEW trigger always logs immediately.
+    private const float ChangeLogThrottleSeconds = 1f;
+    private string _lastChangeTrigger = "none";
+    private float _nextChangeLogTime;
 
     // Head camera clear color: [Rig] VoidColor (default pure black since test #6 —
     // the diagnostic-grey era is over; the config description documents that a dark
@@ -441,21 +444,18 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// of every game object are untouched, so nothing changes for multiplayer peers except
     /// our own (honestly moved) avatar pose.
     ///
-    /// TILT AXIS (hardware round 3 — VIEW-aimed, gated + eased; see the axis-field comfort
-    /// note). Round 2 aimed the tilt at the flattened head→pivot line, which is only right
-    /// while the player happens to FACE the pivot: the log (build 0a2767928, line 3370)
-    /// caught axis↔head-right at 41.8° while the user looked elsewhere, and an axis yaw
-    /// error δ shows up as tilt·sin(δ) of pure ROLL in the player's vision — still
-    /// nauseating. Requirement: the world must tilt toward the CAMERA/VIEW direction,
-    /// never any other angle, even while moving. The axis is therefore the horizontal
-    /// RIGHT of the flattened view forward — but NOT re-derived live every frame (that
-    /// would roll the world continuously as the head turns, worse than the bug): the view
-    /// yaw is sampled each frame in the UNTILTED reference frame (strip T of R = T ∘ Y off
-    /// the head rotation first, so the axis never depends on the tilt it produces —
-    /// idempotent, same rule as round 2), then deadband-gated and eased into
-    /// <c>_axisYawCurrent</c>, with instant snaps on discrete world-motion events. The
-    /// diag line logs axis↔head-right, which now settles ≈0° whenever the player's view
-    /// is settled.
+    /// TILT AXIS (hardware round 5 — VIEW-aimed but EVENT-GATED; see the axis-field
+    /// comfort note). The axis is the horizontal RIGHT of the flattened view forward,
+    /// sampled in the UNTILTED reference frame (strip T of R = T ∘ Y off the head
+    /// rotation first, so the axis never depends on the tilt it produces — idempotent,
+    /// same rule as round 2) — but the sample is ADOPTED only on explicit locomotion
+    /// events (NotifyTiltAxisSnap: stick turn, recenter, world-grab release, rig build)
+    /// or continuously while a world grab is ACTIVE (eased; explicitly requested in
+    /// round 4). Outside those, <c>_axisYawCurrent</c> is perfectly frozen: rounds 3-4's
+    /// deadband + per-frame ease chased the view as the user looked around (round-4 log:
+    /// axisYaw 72.9°→16.8°→90.5°→…) and each re-aim rotated the whole world about the
+    /// pivot — head movement MUST have zero visible effect on the world, so no
+    /// head-pose-driven path may write the axis at all.
     ///
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
     /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
@@ -504,36 +504,50 @@ internal sealed class VRRigDriver : MonoBehaviour
             }
         }
 
-        // COMFORT GATE (rationale on the axis fields): first frame / snap events adopt the
-        // view yaw instantly (scene motion masks it, or no tilt was visible yet); otherwise
-        // the target only moves once the view leaves the deadband — casual glances leave
-        // the horizon untouched — and the current axis eases toward the target so slowly
-        // (~1 s) that a deliberate re-orientation never reads as the world rolling.
-        // WORLD-GRAB EXCEPTION (hardware round 4): while the player is actively dragging
-        // the world, the deadband is bypassed and the target tracks the live view every
-        // frame with a faster ease (GrabAxisEaseSharpness) — the tilt re-aims continuously
-        // DURING the drag (the deliberate scene motion masks it) instead of only snapping
-        // on release (WorldGrab still requests that snap, which cleans up any residue).
+        // EVENT GATE (round 5, rationale on the axis fields): the axis yaw may ONLY move
+        // on an explicit locomotion event — a pending NotifyTiltAxisSnap (stick turn,
+        // recenter, world-grab release, …), first-frame adoption at rig build, or
+        // continuously (eased) WHILE a world grab is active. Every change records its
+        // trigger for the attributed log below. Outside these branches the axis is
+        // untouched — no deadband, no ease, no view-driven write of any kind: desired
+        // stays == current under pure head movement and the transform write is skipped,
+        // so the world is bit-frozen no matter where the user looks.
         bool grabActive = WorldGrab.Instance != null && WorldGrab.Instance.IsGrabbing;
-        if (!_axisYawInitialized || _axisSnapRequested)
+        string? changeTrigger = null;
+        if (!_axisYawInitialized)
         {
-            if (viewValid || !_axisYawInitialized)
+            // First tilt frame of this rig: adopt whatever view we have (even the
+            // fallback _axisYawCurrent when degenerate) — no tilt was visible yet.
+            _axisYawCurrent = viewYaw;
+            _axisYawInitialized = true;
+            _axisSnapReason = null; // superseded — the build adoption IS the snap
+            changeTrigger = "rig-build";
+        }
+        else if (_axisSnapReason != null)
+        {
+            // Locomotion-event snap. A degenerate view (looking straight down/up) keeps
+            // the reason PENDING — the snap applies the first frame the flattened
+            // forward is valid again, still attributed to its locomotion trigger.
+            if (viewValid)
             {
-                _axisYawTarget = viewYaw;
                 _axisYawCurrent = viewYaw;
-                _axisYawInitialized = true;
+                changeTrigger = _axisSnapReason;
+                _axisSnapReason = null;
             }
-            _axisSnapRequested = false;
         }
-        else if (viewValid
-                 && (grabActive
-                     || Mathf.Abs(Mathf.DeltaAngle(_axisYawTarget, viewYaw)) > AxisRetargetDeadbandDegrees))
+        else if (grabActive && viewValid)
         {
-            _axisYawTarget = viewYaw;
+            // Active world grab: track the live view with an ease (round 4, requested) —
+            // the player is deliberately hauling the scene, which masks the re-aim.
+            float next = Mathf.LerpAngle(_axisYawCurrent, viewYaw,
+                1f - Mathf.Exp(-GrabAxisEaseSharpness * Time.unscaledDeltaTime));
+            if (Mathf.Abs(Mathf.DeltaAngle(next, _axisYawCurrent)) > 1e-4f)
+            {
+                _axisYawCurrent = next;
+                changeTrigger = "world-grab";
+            }
         }
-        float easeSharpness = grabActive ? GrabAxisEaseSharpness : AxisEaseSharpness;
-        _axisYawCurrent = Mathf.LerpAngle(_axisYawCurrent, _axisYawTarget,
-            1f - Mathf.Exp(-easeSharpness * Time.unscaledDeltaTime));
+        // else: FROZEN. Head movement alone reaches no branch above.
 
         // Tilt axis = horizontal right of the (gated/eased) tilt-toward direction: tilting
         // about the view-right reads as pure pitch (board tips toward you), zero roll.
@@ -543,18 +557,40 @@ internal sealed class VRRigDriver : MonoBehaviour
             ? Quaternion.AngleAxis(target, axis) * yawOnly
             : yawOnly;
 
+        // TILT MAGNITUDE edge (round 5 audit): target only ever changes when the user
+        // clicks the [Rig] WorldTiltDegrees ±5° setting (SettingsPanel is its sole
+        // writer; zoom/scale never touch it) — an explicit user input, so applying it
+        // immediately is correct. Attribute it so the log proves the provenance.
         if (!Mathf.Approximately(target, _lastTiltTarget))
         {
             _lastTiltTarget = target;
-            _nextTiltLogTime = 0f; // edge-trigger the diagnostic line below
+            changeTrigger = changeTrigger == null ? "config-change" : changeTrigger + "+config-change";
+            _nextTiltLogTime = 0f; // edge-trigger the periodic diagnostic line below
         }
 
-        // Diagnostic (hardware log proof for the view-aimed axis): on every tilt change and
-        // every few seconds while active, log pivot/head, the axis state (current/target/
-        // live-view yaw) and the angle between the axis and the player's flattened
-        // head-right. With the view-derived axis this settles ≈0° whenever the player's
-        // gaze is settled (up to the deadband while easing); round 2's head→pivot axis
-        // logged 41.8° here while the user looked away from the pivot.
+        // CHANGE-ATTRIBUTED diagnostic (round 5): EVERY axis/magnitude change logs its
+        // trigger, throttled only for repeats of the SAME per-frame trigger (smooth
+        // turn, active grab). Hardware-log contract: any world motion the tilt system
+        // causes appears here with a locomotion trigger; a hardware log showing world
+        // motion WITHOUT such a line (or lines triggered by nothing but head movement)
+        // falsifies the design.
+        if (changeTrigger != null)
+        {
+            bool repeatTrigger = changeTrigger == _lastChangeTrigger;
+            _lastChangeTrigger = changeTrigger;
+            if (!repeatTrigger || Time.unscaledTime >= _nextChangeLogTime)
+            {
+                _nextChangeLogTime = Time.unscaledTime + ChangeLogThrottleSeconds;
+                VRLog.Info("Rig", $"WorldTilt change [{changeTrigger}]: axisYaw → {_axisYawCurrent:F1}° " +
+                                  $"(view {viewYaw:F1}°), tilt {target:0}°.");
+            }
+        }
+
+        // Periodic diagnostic while active: axis state + axis↔head-right. The axis is
+        // frozen between locomotion events, so axisYaw must read IDENTICAL across
+        // consecutive lines unless a change line (with trigger) sits between them —
+        // that invariant is what the next hardware log should show. axis↔head-right
+        // now legitimately drifts with the head (the head moves, the axis must not).
         if (target > 0f && _camera != null && Time.unscaledTime >= _nextTiltLogTime)
         {
             _nextTiltLogTime = Time.unscaledTime + TiltLogIntervalSeconds;
@@ -564,11 +600,10 @@ internal sealed class VRRigDriver : MonoBehaviour
                 ? Vector3.Angle(axis, headRight.normalized)
                 : -1f;
             VRLog.Info("Rig", $"WorldTilt {target:0}°: pivot {pivot}, head {headWorld}, " +
-                              $"axisYaw cur {_axisYawCurrent:F1}°/tgt {_axisYawTarget:F1}° (view {viewYaw:F1}°, " +
-                              $"deadband {AxisRetargetDeadbandDegrees:0}°), axis {axis} — " +
+                              $"axisYaw {_axisYawCurrent:F1}° FROZEN (live view {viewYaw:F1}°, " +
+                              $"last change [{_lastChangeTrigger}]), axis {axis} — " +
                               $"axis↔head-right {axisVsHeadRight:F1}° " +
-                              "(≈0 ⇒ tilt aimed at the view, pure toward-player pitch; " +
-                              $"≤{AxisRetargetDeadbandDegrees:0}° by design while settling).");
+                              "(free to drift with the head; the AXIS may only move on a logged trigger).");
         }
 
         float error = Quaternion.Angle(current, desired);
@@ -952,8 +987,9 @@ internal sealed class VRRigDriver : MonoBehaviour
         if (_tiltActive)
             _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
         // The recenter teleports the head to the seat — a wholesale view change; the tilt
-        // axis must adopt the new view instantly (easing would roll the fresh horizon).
-        _axisSnapRequested = true;
+        // axis must adopt the new view instantly (an eased catch-up would roll the fresh
+        // horizon, and a frozen axis would leave the tilt aimed at the OLD seat).
+        _axisSnapReason = "recenter";
 
         float scale = _rigRoot.transform.localScale.x;
 
@@ -1044,7 +1080,8 @@ internal sealed class VRRigDriver : MonoBehaviour
         _kind = RigKind.None;
         _tiltActive = false; // the tilted transform dies with the rig; a new rig re-tilts fresh
         _axisYawInitialized = false; // next rig adopts the then-current view yaw from scratch
-        _axisSnapRequested = false;
+        _axisSnapReason = null;
+        _lastChangeTrigger = "none";
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
