@@ -3,6 +3,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
 using MapRuleLibrary.Adventure;
+using MapRuleLibrary.MapState;
 using MapRuleLibrary.Party;
 using ScenarioRuleLibrary;
 using TMPro;
@@ -811,13 +812,69 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     }
 
     /// <summary>
-    /// "title\nrequirement (progress/target)" for the current character's chosen SECRET
+    /// Completion-state colors, matching the read of the game's own battle-goal tracker
+    /// (UIScenarioBattleGoalProgress: green check when completed, red X when failed).
+    /// </summary>
+    private const string CheckColorHex = "#58C24E"; // green — completedCheck equivalent
+    private const string CrossColorHex = "#D9453C"; // red — failedCheck equivalent
+
+    /// <summary>
+    /// Completion glyph for the requirement line, mirroring the game's char-info tracker
+    /// (<c>UIScenarioBattleGoalProgress.RefreshState</c>/<c>UpdateProgress</c> — the
+    /// green <c>completedCheck</c> / red <c>failedCheck</c> objects) as colored TMP text:
+    /// - <c>Failed</c> (the goal's fail condition tripped) → red ✗;
+    /// - fulfilled → green ✓. Fulfilled mirrors the game's two paths exactly: a
+    ///   single-condition goal (total ≤ 1) completes the moment progress reaches the
+    ///   total; a multi-condition goal additionally requires a POSITIVE condition
+    ///   (the game's OnCompletedProgress listener refuses NegativeCondition goals,
+    ///   which only "complete" by surviving to scenario end);
+    /// - otherwise (in progress) → no glyph, the "(x/y)" progress already narrates.
+    /// Returns a trailing-space-suffixed rich-text prefix or "".
+    /// </summary>
+    private string QuestStateGlyph(CUnlockConditionState? cond)
+    {
+        if (cond == null)
+            return "";
+        int total = cond.TotalConditionsAndTargets;
+        int current = cond.CurrentProgress;
+        if (cond.Failed)
+            return $"<color={CrossColorHex}>{PickGlyph('✗', 'X')}</color> ";
+        bool fulfilled = total > 0 && current >= total && (total <= 1 || !cond.NegativeCondition);
+        return fulfilled ? $"<color={CheckColorHex}>{PickGlyph('✓', '+')}</color> " : "";
+    }
+
+    /// <summary>
+    /// The preferred glyph when the label's font (incl. fallbacks) can render it, else the
+    /// ASCII stand-in — a missing glyph would draw as a hollow box. ✓ is proven on hardware
+    /// in this same harvested HUD font (the tray's "✓ READY" label); ✗ gets the same check.
+    /// Unresolvable while the label/font is still building → stand-in; the 0.5 s refresh
+    /// re-evaluates and the changed string re-applies automatically.
+    /// </summary>
+    private char PickGlyph(char preferred, char fallback)
+    {
+        TMP_FontAsset? font = _questTmp != null ? _questTmp.font : null;
+        try
+        {
+            return font != null && font.HasCharacter(preferred, searchFallbacks: true)
+                ? preferred
+                : fallback;
+        }
+        catch (System.Exception)
+        {
+            return fallback; // font asset mid-teardown — never break the quest line over a glyph
+        }
+    }
+
+    /// <summary>
+    /// "title\n[✓/✗ ]requirement (progress/target)" for the current character's chosen SECRET
     /// BATTLE GOAL, or "" (hidden): no running quest / no goal chosen yet / remote actor
-    /// online (secrecy gate — see the class doc). Guarded — a game-side surprise must
+    /// online (secrecy gate — see the class doc). The ✓ (green) / ✗ (red) completion glyph
+    /// mirrors the game's own char-info tracker — see <see cref="QuestStateGlyph"/>.
+    /// Guarded — a game-side surprise must
     /// never starve the WorldUI tick (the unguarded-Update lesson); failures log once
     /// and render nothing.
     /// </summary>
-    private static string BuildQuestText()
+    private string BuildQuestText()
     {
         try
         {
@@ -849,6 +906,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
                 string progress = $"{cond.CurrentProgress}/{cond.TotalConditionsAndTargets}";
                 body = body.Length > 0 ? body + "  (" + progress + ")" : "(" + progress + ")";
             }
+            // Green ✓ / red ✗ before the requirement line, exactly like the char-info panel
+            // (updates live: the 0.5 s refresh re-derives the state and re-applies on change).
+            string glyph = QuestStateGlyph(cond);
+            if (glyph.Length > 0)
+                body = body.Length > 0 ? glyph + body : glyph.TrimEnd();
             return body.Length > 0 ? title + "\n" + body : title;
         }
         catch (System.Exception ex)
