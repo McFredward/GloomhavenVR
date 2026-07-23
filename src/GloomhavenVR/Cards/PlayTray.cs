@@ -1489,16 +1489,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.TrayScale.Value:F2}×.");
     }
 
-    /// <summary>
-    /// Force re-placement next time the tray shows (mode re-entry) — FOLLOW mode
-    /// only: a pinned tray stays exactly where the player left it (test #15).
-    /// </summary>
-    internal void InvalidatePlacement()
-    {
-        if (CardsConfig.TrayFollow.Value)
-            _placed = false;
-    }
-
     // ------------------------------------------------------------------ slots --
 
     internal VRCard? Occupant(int slot) => _occupants[slot];
