@@ -75,6 +75,9 @@ internal sealed class AvatarMirror
     private ActorBehaviour? _figureSource;
     private GameObject? _figureClone;   // container (reflected pose); animator clone is its child
     private Transform? _cloneAnimated;  // the clip-driven clone root inside the container
+    private bool _figureAttachLogged;   // one-line hand-local diagnostic, once per grab
+    private VRCard? _loggedCardLeft;    // held-card attach diagnostic, once per grab per hand
+    private VRCard? _loggedCardRight;
 
     private const int MaxMirrorCards = 12; // matches RemoteHandFan's clamp
     private readonly List<GameObject> _cardSlabs = new(MaxMirrorCards);
@@ -216,6 +219,59 @@ internal sealed class AvatarMirror
             : rot;
     }
 
+    /// <summary>
+    /// Mirror a HAND-ATTACHED item's world pose by carrying its REAL-hand-local pose over to the
+    /// RENDERED mirror hand's frame — the only side-correct way to mirror something riding a hand.
+    ///
+    /// Transform math (why plain <see cref="Reflect"/> is wrong for hand-attached items):
+    /// a true planar mirror M is an IMPROPER transform (det −1); a Transform can only carry a
+    /// PROPER rotation, so <see cref="Reflect"/> rebuilds the mirrored orientation from the
+    /// reflected forward/up via LookRotation. That proper rotation is R' = M·R·D with
+    /// D = diag(−1, 1, 1): identical to the true reflection on the forward and up axes, but with
+    /// the local X axis (the thumb↔pinky axis of a hand) pointing OPPOSITE to the true reflection
+    /// of the real hand's X. The un-mirrored hand mesh rendered under R' is exactly how the mirror
+    /// hand is drawn (holder pose, set in <see cref="UpdateHand"/>).
+    ///
+    /// A held item sits at handPos + R·o (hand-local offset o, thumb side ⇒ o.x has the thumb
+    /// sign). Reflecting its WORLD pose exactly (the old code) lands it at holderPos + M·R·o —
+    /// which, expressed in the rendered mirror hand's frame, is R'⁻¹·(M·R·o) = D·o: X flipped, so
+    /// the figure/card rendered at the PINKY side of the mirrored hand (the reported bug).
+    ///
+    /// Fix: real hand frame → hand-local pose → re-emit under the mirrored hand's frame:
+    ///   o        = R⁻¹·(itemPos − handPos)          (rigid, world-metre offset — scale-proof)
+    ///   localRot = R⁻¹·itemRot
+    ///   outPos   = holderPos + R'·o,   outRot = R'·localRot
+    /// Now the item's offset in the rendered mirror hand's frame is o — the SAME hand-frame
+    /// offset as on the real hand (thumb-side sign preserved), so it sits between thumb and
+    /// index in the glass exactly like it does on the real hand. <paramref name="handLocal"/>
+    /// returns o for the attach diagnostic. False when the hand/holder frame is unavailable
+    /// (untracked hand) — caller falls back to plain reflection.
+    /// </summary>
+    private bool TryMirrorThroughHand(VRHand? hand, Vector3 itemPos, Quaternion itemRot,
+        out Vector3 outPos, out Quaternion outRot, out Vector3 handLocal)
+    {
+        outPos = default;
+        outRot = Quaternion.identity;
+        handLocal = default;
+        if (hand == null || !hand.IsTracked || hand.Rig == null || hand.Rig.Root == null)
+            return false;
+        Transform? holder = hand.Side == HandSide.Left ? _leftHolder : _rightHolder;
+        if (holder == null || !holder.gameObject.activeSelf)
+            return false; // mirror hand not rendered this frame — no frame to attach to
+
+        Transform handT = hand.Rig.Root;
+        Quaternion invHand = Quaternion.Inverse(handT.rotation);
+        handLocal = invHand * (itemPos - handT.position);
+        Quaternion localRot = invHand * itemRot;
+
+        // Holder pose was written this frame by UpdateHand (Tick order guarantees it). Pure
+        // quaternion math on the world-metre offset — the holder's localScale (rig/diorama
+        // scale) must NOT rescale o, the offset is already in world units.
+        outPos = holder.position + holder.rotation * handLocal;
+        outRot = holder.rotation * localRot;
+        return true;
+    }
+
     // ---- lifecycle ----------------------------------------------------------------------
 
     private void Build()
@@ -316,7 +372,7 @@ internal sealed class AvatarMirror
             return;
         }
 
-        // Reflect the RENDERED pose of the held mini, not the raw animated transform:
+        // Mirror the RENDERED pose of the held mini, not the raw animated transform:
         // the grab drives the ROOT (ActorBehaviour_HeldTransform_Patch suppresses the
         // game's writers; FigureGrabbable poses the root under the hand anchor), and
         // HeldFigures.PinAnimatedRoots re-zeroes the animated child's localPosition every
@@ -324,13 +380,52 @@ internal sealed class AvatarMirror
         // the animated object AT ITS PARENT'S position with the animated object's own
         // rotation. st.position itself can be a mid-frame clip value (the clips write
         // ABSOLUTE root position curves between our Update sample and the pin).
+        //
+        // The mini rides a HAND, so it must go through the hand-frame path
+        // (TryMirrorThroughHand): a plain world-pose reflection lands it X-flipped in the
+        // rendered mirror hand's frame — at the PINKY instead of between thumb and index
+        // (see the math doc on TryMirrorThroughHand). Plain Reflect stays as the fallback
+        // for the frame-gap cases (holding hand untracked / holder not rendered).
         Transform st = source.transform;
         Vector3 renderedPos = st.parent != null ? st.parent.position : st.position;
-        Reflect(renderedPos, st.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
+        VRHand? holdingHand = FindHoldingHand(held);
+        Vector3 p;
+        Quaternion r;
+        if (TryMirrorThroughHand(holdingHand, renderedPos, st.rotation, out p, out r, out Vector3 lp))
+        {
+            if (!_figureAttachLogged)
+            {
+                _figureAttachLogged = true;
+                // Attach diagnostic: o is the item's offset in BOTH the real and the mirrored
+                // hand's frame by construction — thumb-side sign preserved.
+                VRLog.Info("WorldUI", $"Mirror held-figure attach: hand={holdingHand!.Side}, "
+                    + $"handLocalOffset={lp.ToString("F3")} (same in mirrored hand frame; thumb-side X sign preserved).");
+            }
+        }
+        else
+        {
+            Reflect(renderedPos, st.rotation, planePoint, normal, out p, out r);
+        }
         Transform ct = _figureClone!.transform;
         ct.SetPositionAndRotation(p, r);
         ct.localScale = st.lossyScale; // container parent (_root) is unit scale ⇒ local == world
     }
+
+    /// <summary>The <see cref="VRHand"/> whose grabber physically holds <paramref name="held"/>
+    /// (the grab is a <see cref="FigureGrabbable"/> in the hand's ProximityGrabber), or null
+    /// (e.g. released this frame while still registered, or grabber torn down).</summary>
+    private static VRHand? FindHoldingHand(ActorBehaviour held)
+    {
+        if (IsHolding(VRHands.Left, held))
+            return VRHands.Left;
+        if (IsHolding(VRHands.Right, held))
+            return VRHands.Right;
+        return null;
+    }
+
+    private static bool IsHolding(VRHand? hand, ActorBehaviour held) =>
+        hand != null && hand.Grabber != null
+        && hand.Grabber.Held is FigureGrabbable fg && ReferenceEquals(fg.Actor, held);
 
     /// <summary>
     /// Visual-only clone of the held figure's animated subtree — the
@@ -462,6 +557,7 @@ internal sealed class AvatarMirror
         _figureClone = null;
         _cloneAnimated = null;
         _figureSource = null;
+        _figureAttachLogged = false;
     }
 
     // ---- card fan mirroring -----------------------------------------------------------------
@@ -479,6 +575,18 @@ internal sealed class AvatarMirror
         CardFan? fan = CardFan.Current;
         int used = 0;
 
+        // Grip-held cards are HAND-ATTACHED: they must go through the hand-frame path
+        // (TryMirrorThroughHand) or they render X-flipped in the mirrored hand — at the
+        // pinky instead of between thumb and index (same bug as the held figure; see the
+        // math doc on TryMirrorThroughHand). So the fan loop SKIPS them (a plucked fan
+        // card stays in fan.Cards while held) and MirrorHeldCard places them instead.
+        VRCard? heldLeft = GripHeldCard(VRHands.Left);
+        VRCard? heldRight = GripHeldCard(VRHands.Right);
+        if (!ReferenceEquals(_loggedCardLeft, heldLeft))
+            _loggedCardLeft = null;   // released / swapped — re-arm the attach diagnostic
+        if (!ReferenceEquals(_loggedCardRight, heldRight))
+            _loggedCardRight = null;
+
         if (fan != null && fan.IsOpen)
         {
             IReadOnlyList<VRCard> cards = fan.Cards;
@@ -486,18 +594,18 @@ internal sealed class AvatarMirror
             for (int i = 0; i < count; i++)
             {
                 VRCard card = cards[i];
-                if (card == null)
-                    continue;
+                if (card == null || ReferenceEquals(card, heldLeft) || ReferenceEquals(card, heldRight))
+                    continue; // grip-held: mirrored via the hand-frame path below
                 if (!PlaceSlab(used, card.transform, planePoint, normal))
                     return; // card assets unavailable (no CardMesh material) — skip quietly
                 used++;
             }
         }
 
-        // A card held IN THE HAND shows up in the glass too (the fan loop above only covers
-        // it while the fan is open AND still lists it).
-        used = MirrorHeldCard(VRHands.Left, fan, used, planePoint, normal);
-        used = MirrorHeldCard(VRHands.Right, fan, used, planePoint, normal);
+        // A card held IN THE HAND shows up in the glass too — placed hand-relative so it
+        // sits on the same side of the mirrored hand as on the real one.
+        used = MirrorHeldCard(VRHands.Left, heldLeft, used, planePoint, normal);
+        used = MirrorHeldCard(VRHands.Right, heldRight, used, planePoint, normal);
 
         for (int i = used; i < _cardSlabs.Count; i++)
         {
@@ -506,41 +614,58 @@ internal sealed class AvatarMirror
         }
     }
 
+    /// <summary>The single <see cref="VRCard"/> this hand grip-holds, or null.</summary>
+    private static VRCard? GripHeldCard(VRHand? hand) =>
+        hand != null && hand.Grabber != null && hand.Grabber.Held is VRCard card && card != null
+            ? card : null;
+
     /// <summary>
-    /// Mirror the single <see cref="VRCard"/> this hand grip-holds (if any) as one more back
-    /// slab. Skips cards the open-fan loop already mirrored this frame (a fan card stays in
-    /// <c>fan.Cards</c> while held). Returns the updated used-slab count.
+    /// Mirror the single grip-held <see cref="VRCard"/> of this hand (if any) as one more back
+    /// slab, posed through the hand-frame path so it keeps its thumb-side placement in the
+    /// glass. Falls back to plain reflection only when the hand frame is unavailable
+    /// (untracked). Returns the updated used-slab count.
     /// </summary>
-    private int MirrorHeldCard(VRHand? hand, CardFan? fan, int used, Vector3 planePoint, Vector3 normal)
+    private int MirrorHeldCard(VRHand? hand, VRCard? card, int used, Vector3 planePoint, Vector3 normal)
     {
-        if (hand == null || hand.Grabber == null || hand.Grabber.Held is not VRCard card || card == null)
+        if (hand == null || card == null)
             return used;
 
-        if (fan != null && fan.IsOpen)
+        Transform ct = card.transform;
+        if (TryMirrorThroughHand(hand, ct.position, ct.rotation, out Vector3 p, out Quaternion r, out Vector3 lp))
         {
-            IReadOnlyList<VRCard> cards = fan.Cards;
-            int count = Mathf.Min(cards.Count, MaxMirrorCards);
-            for (int i = 0; i < count; i++)
+            bool logged = hand.Side == HandSide.Left
+                ? ReferenceEquals(_loggedCardLeft, card)
+                : ReferenceEquals(_loggedCardRight, card);
+            if (!logged)
             {
-                if (ReferenceEquals(cards[i], card))
-                    return used; // already mirrored by the fan loop
+                if (hand.Side == HandSide.Left) _loggedCardLeft = card; else _loggedCardRight = card;
+                VRLog.Info("WorldUI", $"Mirror held-card attach: hand={hand.Side}, "
+                    + $"handLocalOffset={lp.ToString("F3")} (same in mirrored hand frame; thumb-side X sign preserved).");
             }
+            return PlaceSlabAt(used, p, r, ct.lossyScale) ? used + 1 : used;
         }
 
-        return PlaceSlab(used, card.transform, planePoint, normal) ? used + 1 : used;
+        return PlaceSlab(used, ct, planePoint, normal) ? used + 1 : used;
     }
 
     /// <summary>Pose pooled slab <paramref name="index"/> at the reflection of a live card
     /// transform. False when the slab assets are unavailable.</summary>
     private bool PlaceSlab(int index, Transform ct, Vector3 planePoint, Vector3 normal)
     {
+        Reflect(ct.position, ct.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
+        return PlaceSlabAt(index, p, r, ct.lossyScale);
+    }
+
+    /// <summary>Pose pooled slab <paramref name="index"/> at an already-mirrored world pose.
+    /// False when the slab assets are unavailable.</summary>
+    private bool PlaceSlabAt(int index, Vector3 p, Quaternion r, Vector3 scale)
+    {
         GameObject slab = GetOrCreateSlab(index);
         if (slab == null)
             return false;
-        Reflect(ct.position, ct.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
         Transform slabT = slab.transform;
         slabT.SetPositionAndRotation(p, r);
-        slabT.localScale = ct.lossyScale; // slab parent (_root) is unit scale
+        slabT.localScale = scale; // slab parent (_root) is unit scale
         if (!slab.activeSelf)
             slab.SetActive(true);
         return true;
@@ -603,6 +728,9 @@ internal sealed class AvatarMirror
         _figureClone = null;
         _cloneAnimated = null;
         _figureSource = null;
+        _figureAttachLogged = false;
+        _loggedCardLeft = null;
+        _loggedCardRight = null;
         _cardSlabs.Clear();
         if (_cardSlabMesh != null)
             Object.Destroy(_cardSlabMesh);
