@@ -133,13 +133,14 @@ internal sealed class DecisionDockSurface : WorldSurface
     private readonly List<Canvas> _disabledCanvases = new(2);
     private static readonly List<Canvas> CanvasScratch = new(8);
 
-    // ---- docked-row adjustments (users #5 + #7a; recorded & restored on undock) ----------
+    // ---- docked-row adjustments (users #5 + #7a + #11b; recorded & restored on undock) ---
 
-    /// <summary>Desired vertical gap (uGUI px) between the prompt text block and the widget row (user #7a).</summary>
-    private const float RowGapTargetPx = 24f;
-
-    /// <summary>Only compress when the authored gap exceeds the target by at least this much.</summary>
-    private const float RowGapMinDeltaPx = 8f;
+    /// <summary>
+    /// Only compress when the authored gap exceeds the configured target
+    /// (<see cref="WorldUIConfig.DecisionRowGapPx"/>, user #11b) by at least this much —
+    /// a small epsilon so a row already at target is not micro-shuffled.
+    /// </summary>
+    private const float RowGapMinDeltaPx = 1f;
 
     /// <summary>
     /// Antique multiply-tint for the docked row's widget backgrounds (user #5): the
@@ -155,10 +156,26 @@ internal sealed class DecisionDockSurface : WorldSurface
     private readonly List<(Graphic graphic, Color color)> _tintedGraphics = new(8);
     private static readonly List<Selectable> SelectableScratch = new(8);
     private static readonly List<TMP_Text> TextScratch = new(8);
+    private static readonly List<Graphic> GraphicScratch = new(16);
     private static readonly List<Transform> FreeTextScratch = new(4);
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
-    public DecisionDockSurface() => Instance = this;
+    public DecisionDockSurface()
+    {
+        Instance = this;
+        // User #11b: the gap target is live-tunable — re-apply the row adjustments in
+        // place when it changes while a row is docked (AdjustDockedRow restores first,
+        // so re-running is idempotent). Unsubscribed in Shutdown.
+        if (WorldUIConfig.DecisionRowGapPx != null)
+            WorldUIConfig.DecisionRowGapPx.SettingChanged += OnRowGapSettingChanged;
+    }
+
+    /// <summary>User #11b: live re-apply of the docked-row gap when the config bind changes.</summary>
+    private void OnRowGapSettingChanged(object? sender, System.EventArgs e)
+    {
+        if (Panel != null)
+            AdjustDockedRow();
+    }
 
     public override string Name => "DecisionDock";
     protected override bool ConfigEnabled => WorldUIConfig.DecisionDock.Value;
@@ -379,17 +396,30 @@ internal sealed class DecisionDockSurface : WorldSurface
     // ---- docked-row adjustments (users #5 + #7a) ----------------------------------------
 
     /// <summary>
-    /// One-shot per dock. (a) USER #5 — antique restyle: every Selectable background in
+    /// One-shot per dock (re-run live on a <see cref="WorldUIConfig.DecisionRowGapPx"/>
+    /// change). (a) USER #5 — antique restyle: every Selectable background in
     /// the docked row is multiply-tinted toward the mod's dark-wood/aged-brass board-
     /// button family and its labels turn parchment gold (<see cref="NativeButtonSkin.LabelColor"/>),
     /// so the docked native buttons ("Auswahl beenden", Ja/Nein, burn choices …) read
-    /// like the VR-settings gear instead of the game's default look. (b) USER #7a — gap
-    /// compression: prompts docked WITH their question text (the YesNoDialog box) author
-    /// a large empty band between text and buttons (2D dialog spacing); the widget-only
-    /// containers are shifted up until the gap is <see cref="RowGapTargetPx"/>.
-    /// Everything is recorded and handed back by <see cref="RestoreRowAdjustments"/> on
-    /// undock — live game widgets are never permanently mutated. Rows without free text
-    /// (DialogPopup option row, TakeDamage row) skip (b) automatically.
+    /// like the VR-settings gear instead of the game's default look. (b) USERS #7a/#11b —
+    /// gap compression: prompts docked WITH their prompt text (the YesNoDialog box, the
+    /// take-damage row's "Erleide entweder Schaden…" block) author a large empty band
+    /// between text and widgets (2D dialog spacing); the widget-only containers are
+    /// shifted up until the gap is <see cref="WorldUIConfig.DecisionRowGapPx"/>.
+    ///
+    /// USER #11b MEASUREMENT FIX: the first cut measured the gap as
+    /// (min RECT-bottom of ALL free labels) − (widget top) — which no-op'd on the
+    /// take-damage row ("Schaden erhalten"): TMP labels there are authored in rects far
+    /// TALLER than their glyphs (rect bottom well below the visible text), and free
+    /// labels/graphics that sit AT or BELOW the widget band (the damage-amount block)
+    /// dragged the measured "text bottom" down to — or past — the widget top, so the
+    /// computed gap came out tiny/negative and the row was reported as "without question
+    /// text". Now the text edge is GLYPH-TRUE (TMP <c>textBounds</c>, rect fallback) and
+    /// only free elements wholly ABOVE the widget band count, so the gap measured is the
+    /// visible band the user actually sees. Everything is recorded and handed back by
+    /// <see cref="RestoreRowAdjustments"/> on undock — live game widgets are never
+    /// permanently mutated. Rows with no free element above their widgets (DialogPopup
+    /// option row) still no-op — there is no gap to compress inside them.
     /// </summary>
     private void AdjustDockedRow()
     {
@@ -427,34 +457,53 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
         }
 
-        // (b) text↔button gap compression. "Free text" = TMP labels that are NOT part
-        // of a widget (the question/description block).
-        FreeTextScratch.Clear();
-        TextScratch.Clear();
-        root.GetComponentsInChildren(includeInactive: false, TextScratch);
-        float textBottom = float.MaxValue;
-        for (int i = 0; i < TextScratch.Count; i++)
+        // (b) text↔widget gap compression (users #7a/#11b — see the method doc for the
+        // measurement rules). Widget band first: top edge of the highest Selectable.
+        float widgetTop = float.MinValue;
+        for (int i = 0; i < SelectableScratch.Count; i++)
         {
-            TMP_Text label = TextScratch[i];
-            if (label == null || label.GetComponentInParent<Selectable>() != null)
-                continue;
-            FreeTextScratch.Add(label.transform);
-            textBottom = Mathf.Min(textBottom, EdgeYIn(root, label.rectTransform, min: true));
+            var rt = SelectableScratch[i] != null ? SelectableScratch[i].transform as RectTransform : null;
+            if (rt != null)
+                widgetTop = Mathf.Max(widgetTop, EdgeYIn(root, rt, min: false));
         }
-        float shiftedBy = 0f;
-        if (FreeTextScratch.Count > 0 && SelectableScratch.Count > 0)
+
+        // Free elements = Graphics (TMP labels, icons) NOT inside a widget, counted only
+        // when they sit wholly ABOVE the widget band; the NEAREST one above (min bottom)
+        // defines the visible gap. TMP bottoms are glyph-true (textBounds), so a label
+        // rect authored taller than its text no longer fakes a closed gap.
+        FreeTextScratch.Clear();
+        float freeBottom = float.MaxValue;
+        if (widgetTop > float.MinValue)
         {
-            float widgetTop = float.MinValue;
-            for (int i = 0; i < SelectableScratch.Count; i++)
+            GraphicScratch.Clear();
+            root.GetComponentsInChildren(includeInactive: false, GraphicScratch);
+            for (int i = 0; i < GraphicScratch.Count; i++)
             {
-                var rt = SelectableScratch[i] != null ? SelectableScratch[i].transform as RectTransform : null;
-                if (rt != null)
-                    widgetTop = Mathf.Max(widgetTop, EdgeYIn(root, rt, min: false));
+                Graphic g = GraphicScratch[i];
+                if (g == null || g.GetComponentInParent<Selectable>() != null)
+                    continue;
+                var grt = g.transform as RectTransform;
+                if (grt == null || ReferenceEquals(grt, root))
+                    continue;
+                float bottom = g is TMP_Text label
+                    ? GlyphBottomIn(root, label)
+                    : EdgeYIn(root, grt, min: true);
+                if (bottom <= widgetTop)
+                    continue; // at/below the widget band (backgrounds, damage-amount block) — not the gap edge
+                FreeTextScratch.Add(g.transform);
+                freeBottom = Mathf.Min(freeBottom, bottom);
             }
-            float gap = textBottom - widgetTop;
-            if (widgetTop > float.MinValue && gap > RowGapTargetPx + RowGapMinDeltaPx)
+        }
+
+        float gapTarget = Mathf.Clamp(WorldUIConfig.DecisionRowGapPx.Value, 0f, 60f);
+        float shiftedBy = 0f;
+        float gap = 0f;
+        if (FreeTextScratch.Count > 0 && widgetTop > float.MinValue)
+        {
+            gap = freeBottom - widgetTop;
+            if (gap > gapTarget + RowGapMinDeltaPx)
             {
-                shiftedBy = gap - RowGapTargetPx;
+                shiftedBy = gap - gapTarget;
                 ShiftWidgetContainers(root, shiftedBy);
             }
         }
@@ -463,8 +512,27 @@ internal sealed class DecisionDockSurface : WorldSurface
             VRLog.Info("WorldUI", $"DECISION DOCK: row adjusted — {styled} widget background(s) antique-tinted " +
                                   "(dark-wood/brass + parchment labels, the VR-settings-button style)" +
                                   (shiftedBy > 0f
-                                      ? $", text↔button gap compressed by {shiftedBy:F0}px (target {RowGapTargetPx:F0}px)."
-                                      : "."));
+                                      ? $", text↔widget gap {gap:F0}px → {gapTarget:F0}px " +
+                                        $"(widgets shifted up {shiftedBy:F0}px, [WorldUI] DecisionRowGapPx)."
+                                      : FreeTextScratch.Count > 0
+                                          ? $", text↔widget gap {gap:F0}px already ≤ target {gapTarget:F0}px — untouched."
+                                          : ", no free text/graphic above the widget band — no gap to compress."));
+    }
+
+    /// <summary>
+    /// Glyph-true bottom edge (root-local Y) of a TMP label: the rendered text bounds,
+    /// not the authored rect — dialog labels are routinely authored in rects far taller
+    /// than their glyphs, which made the old rect-based gap read as already closed
+    /// (user #11b). Falls back to the rect edge when the label has no rendered glyphs.
+    /// </summary>
+    private static float GlyphBottomIn(RectTransform root, TMP_Text label)
+    {
+        label.ForceMeshUpdate(); // one-shot per dock; the row was just reparented, ensure fresh bounds
+        Bounds b = label.textBounds;
+        if (string.IsNullOrEmpty(label.text) || b.size.x <= 0.001f || b.size.y <= 0.001f)
+            return EdgeYIn(root, label.rectTransform, min: true);
+        Vector3 world = label.transform.TransformPoint(new Vector3(b.center.x, b.min.y, 0f));
+        return root.InverseTransformPoint(world).y;
     }
 
     /// <summary>Min/max local-Y of a rect's corners expressed in <paramref name="root"/> space.</summary>
@@ -616,6 +684,8 @@ internal sealed class DecisionDockSurface : WorldSurface
 
     public override void Shutdown()
     {
+        if (WorldUIConfig.DecisionRowGapPx != null)
+            WorldUIConfig.DecisionRowGapPx.SettingChanged -= OnRowGapSettingChanged; // user #11b live-apply
         bool hadPanel = Panel != null;
         base.Shutdown(); // releases the conversion → row back in its 2D home
         if (hadPanel)
