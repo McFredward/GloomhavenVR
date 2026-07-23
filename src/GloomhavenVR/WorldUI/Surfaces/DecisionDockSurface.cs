@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -132,6 +133,31 @@ internal sealed class DecisionDockSurface : WorldSurface
     private readonly List<Canvas> _disabledCanvases = new(2);
     private static readonly List<Canvas> CanvasScratch = new(8);
 
+    // ---- docked-row adjustments (users #5 + #7a; recorded & restored on undock) ----------
+
+    /// <summary>Desired vertical gap (uGUI px) between the prompt text block and the widget row (user #7a).</summary>
+    private const float RowGapTargetPx = 24f;
+
+    /// <summary>Only compress when the authored gap exceeds the target by at least this much.</summary>
+    private const float RowGapMinDeltaPx = 8f;
+
+    /// <summary>
+    /// Antique multiply-tint for the docked row's widget backgrounds (user #5): the
+    /// game-default light stone sprite sinks toward the dark wood / aged brass family
+    /// of the mod's board buttons (the VR-settings gear look). Multiplied onto the
+    /// authored Graphic colour, so per-widget differences survive; uGUI ColorTint
+    /// transitions multiply on the CanvasRenderer ON TOP of this, so pressed/disabled
+    /// dimming keeps working.
+    /// </summary>
+    private static readonly Color AntiqueTint = new(0.58f, 0.46f, 0.31f, 1f);
+
+    private readonly List<(RectTransform rt, Vector2 anchoredPos)> _shiftedRects = new(2);
+    private readonly List<(Graphic graphic, Color color)> _tintedGraphics = new(8);
+    private static readonly List<Selectable> SelectableScratch = new(8);
+    private static readonly List<TMP_Text> TextScratch = new(8);
+    private static readonly List<Transform> FreeTextScratch = new(4);
+    private static readonly Vector3[] CornerScratch = new Vector3[4];
+
     public DecisionDockSurface() => Instance = this;
 
     public override string Name => "DecisionDock";
@@ -206,6 +232,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             // the new target THIS tick.
             if (Panel != null || _suppressedWindow != null)
             {
+                RestoreRowAdjustments();
                 RestoreSuppression();
                 if (Panel != null && ReleaseCurrentPanel())
                     VRLog.Info("WorldUI", "DECISION DOCK: active prompt changed — previous row " +
@@ -243,9 +270,12 @@ internal sealed class DecisionDockSurface : WorldSurface
         {
             _wantSince = 0f;
             if (!hadPanel)
+            {
                 VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' widget row docked below the cards " +
                                       "(window/vignette/card suppressed, fan gate stays live, no ModalUI) — " +
                                       "restored to 2D when the prompt closes.");
+                AdjustDockedRow(); // users #5 + #7a: antique tint + text↔button gap compression
+            }
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
             // The one surface that must accept input even under the game's UI-lock
             // raycaster mirror — the ModalFallback floating-modal exemption.
@@ -257,9 +287,10 @@ internal sealed class DecisionDockSurface : WorldSurface
             _hmdFloatPlaced = false;
             if (hadPanel)
             {
+                RestoreRowAdjustments();
                 RestoreSuppression();
                 VRLog.Info("WorldUI", "DECISION DOCK: widget row released — restored to its 2D home " +
-                                      $"(open={open}), suppression lifted.");
+                                      $"(open={open}), suppression lifted, row style/layout restored.");
             }
             // Claim grace: claimed but unconverted (row not isolatable / Convert
             // failed) → after the grace, hand the window to the generic fallback.
@@ -343,6 +374,157 @@ internal sealed class DecisionDockSurface : WorldSurface
         Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
         CanvasConversion.PlaceHost(Panel, pos, rot, scale * FloatScaleFactor);
         return true;
+    }
+
+    // ---- docked-row adjustments (users #5 + #7a) ----------------------------------------
+
+    /// <summary>
+    /// One-shot per dock. (a) USER #5 — antique restyle: every Selectable background in
+    /// the docked row is multiply-tinted toward the mod's dark-wood/aged-brass board-
+    /// button family and its labels turn parchment gold (<see cref="NativeButtonSkin.LabelColor"/>),
+    /// so the docked native buttons ("Auswahl beenden", Ja/Nein, burn choices …) read
+    /// like the VR-settings gear instead of the game's default look. (b) USER #7a — gap
+    /// compression: prompts docked WITH their question text (the YesNoDialog box) author
+    /// a large empty band between text and buttons (2D dialog spacing); the widget-only
+    /// containers are shifted up until the gap is <see cref="RowGapTargetPx"/>.
+    /// Everything is recorded and handed back by <see cref="RestoreRowAdjustments"/> on
+    /// undock — live game widgets are never permanently mutated. Rows without free text
+    /// (DialogPopup option row, TakeDamage row) skip (b) automatically.
+    /// </summary>
+    private void AdjustDockedRow()
+    {
+        RestoreRowAdjustments(); // never double-record
+        RectTransform? root = Panel?.Target;
+        if (root == null)
+            return;
+
+        // (a) antique tint + parchment labels.
+        SelectableScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, SelectableScratch);
+        int styled = 0;
+        for (int i = 0; i < SelectableScratch.Count; i++)
+        {
+            Selectable sel = SelectableScratch[i];
+            if (sel == null)
+                continue;
+            Graphic? bg = sel.targetGraphic != null ? sel.targetGraphic : sel.image;
+            if (bg != null)
+            {
+                _tintedGraphics.Add((bg, bg.color));
+                bg.color = bg.color * AntiqueTint;
+                styled++;
+            }
+            TextScratch.Clear();
+            sel.GetComponentsInChildren(includeInactive: false, TextScratch);
+            for (int t = 0; t < TextScratch.Count; t++)
+            {
+                TMP_Text label = TextScratch[t];
+                if (label == null)
+                    continue;
+                _tintedGraphics.Add((label, label.color));
+                Color gold = NativeButtonSkin.LabelColor;
+                label.color = new Color(gold.r, gold.g, gold.b, label.color.a);
+            }
+        }
+
+        // (b) text↔button gap compression. "Free text" = TMP labels that are NOT part
+        // of a widget (the question/description block).
+        FreeTextScratch.Clear();
+        TextScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, TextScratch);
+        float textBottom = float.MaxValue;
+        for (int i = 0; i < TextScratch.Count; i++)
+        {
+            TMP_Text label = TextScratch[i];
+            if (label == null || label.GetComponentInParent<Selectable>() != null)
+                continue;
+            FreeTextScratch.Add(label.transform);
+            textBottom = Mathf.Min(textBottom, EdgeYIn(root, label.rectTransform, min: true));
+        }
+        float shiftedBy = 0f;
+        if (FreeTextScratch.Count > 0 && SelectableScratch.Count > 0)
+        {
+            float widgetTop = float.MinValue;
+            for (int i = 0; i < SelectableScratch.Count; i++)
+            {
+                var rt = SelectableScratch[i] != null ? SelectableScratch[i].transform as RectTransform : null;
+                if (rt != null)
+                    widgetTop = Mathf.Max(widgetTop, EdgeYIn(root, rt, min: false));
+            }
+            float gap = textBottom - widgetTop;
+            if (widgetTop > float.MinValue && gap > RowGapTargetPx + RowGapMinDeltaPx)
+            {
+                shiftedBy = gap - RowGapTargetPx;
+                ShiftWidgetContainers(root, shiftedBy);
+            }
+        }
+
+        if (styled > 0 || shiftedBy > 0f)
+            VRLog.Info("WorldUI", $"DECISION DOCK: row adjusted — {styled} widget background(s) antique-tinted " +
+                                  "(dark-wood/brass + parchment labels, the VR-settings-button style)" +
+                                  (shiftedBy > 0f
+                                      ? $", text↔button gap compressed by {shiftedBy:F0}px (target {RowGapTargetPx:F0}px)."
+                                      : "."));
+    }
+
+    /// <summary>Min/max local-Y of a rect's corners expressed in <paramref name="root"/> space.</summary>
+    private static float EdgeYIn(RectTransform root, RectTransform rt, bool min)
+    {
+        rt.GetWorldCorners(CornerScratch);
+        float edge = min ? float.MaxValue : float.MinValue;
+        for (int i = 0; i < 4; i++)
+        {
+            float y = root.InverseTransformPoint(CornerScratch[i]).y;
+            edge = min ? Mathf.Min(edge, y) : Mathf.Max(edge, y);
+        }
+        return edge;
+    }
+
+    /// <summary>
+    /// Shift every subtree that holds ONLY widgets (no free text) up by
+    /// <paramref name="deltaY"/> root-local px: recurse from the root, move a child
+    /// whole when its subtree contains widgets but none of the free-text labels,
+    /// descend when it mixes both. Original anchoredPositions are recorded.
+    /// </summary>
+    private void ShiftWidgetContainers(RectTransform node, float deltaY)
+    {
+        for (int i = 0; i < node.childCount; i++)
+        {
+            var child = node.GetChild(i) as RectTransform;
+            if (child == null || !child.gameObject.activeSelf)
+                continue;
+            if (child.GetComponentInChildren<Selectable>(includeInactive: false) == null)
+                continue; // no widgets below — leave (text/decoration)
+            bool hasFreeText = false;
+            for (int t = 0; t < FreeTextScratch.Count && !hasFreeText; t++)
+                hasFreeText = FreeTextScratch[t] != null && FreeTextScratch[t].IsChildOf(child);
+            if (hasFreeText)
+            {
+                ShiftWidgetContainers(child, deltaY); // mixed subtree — go deeper
+            }
+            else
+            {
+                _shiftedRects.Add((child, child.anchoredPosition));
+                child.anchoredPosition += new Vector2(0f, deltaY);
+            }
+        }
+    }
+
+    /// <summary>Undo <see cref="AdjustDockedRow"/> — colours and positions back to the game's own values.</summary>
+    private void RestoreRowAdjustments()
+    {
+        for (int i = 0; i < _tintedGraphics.Count; i++)
+        {
+            if (_tintedGraphics[i].graphic != null)
+                _tintedGraphics[i].graphic.color = _tintedGraphics[i].color;
+        }
+        _tintedGraphics.Clear();
+        for (int i = 0; i < _shiftedRects.Count; i++)
+        {
+            if (_shiftedRects[i].rt != null)
+                _shiftedRects[i].rt.anchoredPosition = _shiftedRects[i].anchoredPos;
+        }
+        _shiftedRects.Clear();
     }
 
     // ---- window-remainder suppression (HandSuppression pattern; nothing destroyed) -----
@@ -437,7 +619,10 @@ internal sealed class DecisionDockSurface : WorldSurface
         bool hadPanel = Panel != null;
         base.Shutdown(); // releases the conversion → row back in its 2D home
         if (hadPanel)
+        {
+            RestoreRowAdjustments();
             RestoreSuppression();
+        }
         _active = null;
         _activeWindow = null;
         _wantSince = 0f;
