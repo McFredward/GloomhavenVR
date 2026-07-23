@@ -145,6 +145,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private bool _categoryListOpen;
     /// <summary>Wall-fade tuning EXPANDER state (collapsed by default; same accordion idiom).</summary>
     private bool _wallFadeOpen;
+    /// <summary>"Knöpfe" (ButtonTuning) EXPANDER state (collapsed by default; same accordion idiom).</summary>
+    private bool _buttonTuningOpen;
     private readonly List<GameObject> _debugRows = new(24);          // every debug row (teardown + gate)
     private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -173,6 +175,17 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         _instance = this;
         Loc.OnChanged += RefreshLanguage; // live language following: rebuild while open
+        // External ButtonTuning writes (cfg edit/reload, another writer) refresh the
+        // "Knöpfe" rows immediately instead of waiting for the 0.25 s cadence. Cheap:
+        // only fires on entry writes, and RefreshAll is the same pass a stepper click runs.
+        ButtonTuning.Changed += OnButtonTuningChanged;
+    }
+
+    /// <summary>ButtonTuning.Changed → refresh the open panel's readouts (no-op while closed).</summary>
+    private void OnButtonTuningChanged()
+    {
+        if (_open)
+            RefreshAll();
     }
 
     /// <summary>
@@ -253,6 +266,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     public void Shutdown()
     {
         Loc.OnChanged -= RefreshLanguage;
+        ButtonTuning.Changed -= OnButtonTuningChanged;
         if (ReferenceEquals(_instance, this))
             _instance = null;
         SetOpen(false);
@@ -1020,6 +1034,24 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value = Mathf.Clamp(e.Value + d * 1f, 0f, 40f);
             });
 
+        // Decision-only ROW-GAP row (shown only when Element == Decision): the GLOBAL
+        // [WorldUI] DecisionRowGapPx — target vertical gap (uGUI px) between a docked
+        // decision prompt's text block and its button row. GLOBAL but edited from this
+        // element's rows (precedent: the initiative 3D-depth row above). Live:
+        // DecisionDockSurface subscribes SettingChanged and re-compresses an OPEN dock
+        // immediately; BepInEx persists on set.
+        var decisionGapRow = Row();
+        RegisterDebugRow(decisionGapRow.gameObject,
+            () => PerBoard() && CurrentElement() == DebugElement.Decision);
+        Label(decisionGapRow, "Entscheidungs-Abstand", 16f, flexible: true);
+        MiniStepper(decisionGapRow,
+            () => $"{WorldUIConfig.DecisionRowGapPx.Value:0}px",
+            d =>
+            {
+                ConfigEntry<float> e = WorldUIConfig.DecisionRowGapPx;
+                e.Value = Mathf.Clamp(e.Value + d * 2f, 0f, 60f);
+            });
+
         // Piles-only BROWSE-fan anchor rows (shown only when Element == Piles): live-tune where
         // the poke-toggle pile browse fan floats above the board — [Cards] BrowseFanOffset,
         // board-local meters ADDED to the fixed above-board base. GLOBAL (not per-board): the
@@ -1034,6 +1066,49 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var actionRow = Row();
         RegisterDebugRow(actionRow.gameObject, PerBoard);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
+
+        // "Knöpfe" — 3D-button geometry group (ButtonTuning, dev.gloomhavenvr.buttons.cfg):
+        // the transient round-phase button group's offset/shape/cap size ([TransientButtons])
+        // and the square-keycap geometry ([SquareCaps] Width/Height/Depth/Travel, 0 = the
+        // authored default, shown as "Auto"). Wrapped in a collapsed-by-default EXPANDER
+        // (same accordion idiom as "Wall fade tuning") under the Buttons tab so the tab
+        // stays compact; the group spans several button elements, hence category-level.
+        // Every entry live-applies WITHOUT restart: writing bumps ButtonTuning.Version and
+        // PlayTray.TickStatus / ButtonCluster.Tick rebuild the affected caps on their next
+        // tick. External writes (cfg edit/reload) refresh the rows via ButtonTuning.Changed
+        // (subscribed in the constructor) on top of the 0.25 s refresh cadence.
+        ButtonTuning.Bind();
+        var buttonTuningHeader = Row();
+        RegisterDebugRow(buttonTuningHeader.gameObject,
+            () => CurrentCategory == DebugCategory.Buttons);
+        Label(buttonTuningHeader, "Knöpfe", 16f, flexible: true);
+        CycleButton(buttonTuningHeader, 40f,
+            () => _buttonTuningOpen ? "-" : "+",
+            () => _buttonTuningOpen = !_buttonTuningOpen);
+
+        AddButtonTuningRow("Versatz X", ButtonTuning.TransientOffsetX, 0.005f, -0.30f, 0.30f,
+            v => $"{v * 1000f:0}mm");
+        AddButtonTuningRow("Versatz Y", ButtonTuning.TransientOffsetY, 0.005f, -0.30f, 0.30f,
+            v => $"{v * 1000f:0}mm");
+        // Shape cycle for the transient group (Round puck <-> Square keycap).
+        if (ButtonTuning.TransientShape != null)
+        {
+            ConfigEntry<ButtonShape> shapeEntry = ButtonTuning.TransientShape;
+            var transientShapeRow = Row();
+            RegisterDebugRow(transientShapeRow.gameObject, ButtonTuningRowsVisible);
+            Label(transientShapeRow, Loc.Mod("shape"), 16f, flexible: true);
+            CycleButton(transientShapeRow, 100f,
+                () => ShapeLabel(shapeEntry.Value),
+                () => shapeEntry.Value = shapeEntry.Value == ButtonShape.Round
+                    ? ButtonShape.Square
+                    : ButtonShape.Round);
+        }
+        AddButtonTuningRow("Kappengröße", ButtonTuning.TransientCapSize, 0.002f, 0.015f, 0.09f,
+            v => $"{v * 1000f:0}mm");
+        AddButtonTuningAutoRow("Breite", ButtonTuning.SquareCapWidth, 0.005f, 0.02f, 0.20f);
+        AddButtonTuningAutoRow("Höhe", ButtonTuning.SquareCapHeight, 0.005f, 0.015f, 0.20f);
+        AddButtonTuningAutoRow("Tiefe", ButtonTuning.SquareCapDepth, 0.002f, 0.006f, 0.08f);
+        AddButtonTuningAutoRow("Hub", ButtonTuning.PressTravel, 0.001f, 0.002f, 0.02f);
 
         // FAN category (GLOBAL): the hand-card fan's width/roundness/spacing. Live-applied by
         // CardsDriver (relayout) so tuning updates the fan immediately; grab/hover geometry derives
@@ -1054,31 +1129,35 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddFanStepper("Reveal exit °", CardsConfig.RevealExitDegrees, 5f, 5f, 80f, v => $"{v:0}°");
         AddFanStepper("Open time", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
 
-        // HANDS category (GLOBAL, both hands; NOT per-board). These surface the existing [Hands] seat
-        // offsets that VRHand.SyncVisualOffset applies LIVE every frame — the "static visual offset at
-        // the wrist" — so tuning moves where the visual hand sits/rotates relative to the tracked
-        // controller, live + persisted (BepInEx). The offset is SHARED device-space for both hands
-        // (+X is the same controller-local X on each); the per-hand mesh/rig mirroring in HandVisuals is
-        // unaffected. Shown only under the Hands tab.
-        AddHandStepper(Loc.Mod("hand_x"), Plugin.HandLateralOffset, 0.002f, degrees: false);
-        AddHandStepper(Loc.Mod("hand_y"), Plugin.HandVerticalOffset, 0.002f, degrees: false);
-        AddHandStepper(Loc.Mod("hand_z"), Plugin.HandForwardOffset, 0.002f, degrees: false);
-        AddHandStepper(Loc.Mod("hand_pitch"), Plugin.GripPitchOffsetDegrees, 1f, degrees: true);
+        // HANDS category (GLOBAL, both hands; NOT per-board). PER-STYLE rework (user):
+        // EVERY hand-tuning value below is stored PER HAND STYLE — the four seat values
+        // as [Hands] {Style}GripPitchDegrees/{Style}LateralOffset/… in
+        // dev.gloomhavenvr.hands.cfg (seeded once from the old shared seat controls +
+        // per-style trims, so tuned values carried over to all three styles) and the
+        // scale as the existing per-style [Hands] {Style}Scale in the main cfg. Each row
+        // edits the style CURRENTLY worn; the "Stil" row cycles it right here so all
+        // three sets are reachable without leaving the tab. Everything live-applies per
+        // frame (VRHand.SyncVisualOffset re-reads the ACTIVE style's entries every
+        // frame — a style switch re-seats/rescales instantly too). Force the config bound
+        // (idempotent) so the seat rows work even if the Hands module hasn't inited.
+        HandsConfig.Bind();
+        var handsStyleRow = Row();
+        RegisterDebugRow(handsStyleRow.gameObject, () => CurrentCategory == DebugCategory.Hands);
+        Label(handsStyleRow, "Stil", 16f, flexible: true);
+        CycleButton(handsStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        var handsNote = Row(18f);
+        RegisterDebugRow(handsNote.gameObject, () => CurrentCategory == DebugCategory.Hands);
+        Label(handsNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
 
-        // Per-STYLE rows (item: per-style hand settings). Each row drives the entry of
-        // the style CURRENTLY worn ([Hands] HandStyle — cycle it with the main panel's
-        // hand-style button), so only the active style's values are ever shown/tuned:
-        // uniform visual scale plus the four seat TRIMS added on top of the shared seat
-        // controls above. All live-apply per frame (VRHand.SyncVisualOffset).
-        AddStyleStepper("Style scale", () => Plugin.HandStyleScale, 0.02f, 0.2f, 3f,
+        AddStyleStepper(Loc.Mod("size"), () => Plugin.HandStyleScale, 0.02f, 0.2f, 3f,
             v => $"{v:0.00}x");
-        AddStyleStepper("Style X trim", () => Plugin.HandStyleLateralTrim, 0.002f, -0.2f, 0.2f,
+        AddStyleStepper(Loc.Mod("hand_x"), () => HandsConfig.StyleSeatLateral, 0.002f, -0.3f, 0.3f,
             v => $"{v * 1000f:0}mm");
-        AddStyleStepper("Style Y trim", () => Plugin.HandStyleVerticalTrim, 0.002f, -0.2f, 0.2f,
+        AddStyleStepper(Loc.Mod("hand_y"), () => HandsConfig.StyleSeatVertical, 0.002f, -0.3f, 0.3f,
             v => $"{v * 1000f:0}mm");
-        AddStyleStepper("Style Z trim", () => Plugin.HandStyleForwardTrim, 0.002f, -0.2f, 0.2f,
+        AddStyleStepper(Loc.Mod("hand_z"), () => HandsConfig.StyleSeatForward, 0.002f, -0.3f, 0.3f,
             v => $"{v * 1000f:0}mm");
-        AddStyleStepper("Style pitch trim", () => Plugin.HandStylePitchTrim, 1f, -90f, 90f,
+        AddStyleStepper(Loc.Mod("hand_pitch"), () => HandsConfig.StyleSeatPitch, 1f, -90f, 90f,
             v => $"{v:0}°");
 
         // FIGURES category (GLOBAL): live-tune the HELD board-figure pose — the mini is centered
@@ -1223,6 +1302,55 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
     }
 
+    /// <summary>Shared visibility of the "Knöpfe" expander's option rows (Buttons tab + expanded).</summary>
+    private bool ButtonTuningRowsVisible() =>
+        CurrentCategory == DebugCategory.Buttons && _buttonTuningOpen;
+
+    /// <summary>
+    /// "Knöpfe" stepper row bound directly to a live ButtonTuning <see cref="ConfigEntry{T}"/>
+    /// (mm readout). Writing persists (BepInEx) and live-applies: the entry's SettingChanged
+    /// bumps ButtonTuning.Version and PlayTray/ButtonCluster rebuild the caps on their next
+    /// tick. Skipped entirely if Bind() failed (config dir unwritable) — same policy as
+    /// <see cref="AddWallFadeRow"/>. Shown only while the expander is open on the Buttons tab.
+    /// </summary>
+    private void AddButtonTuningRow(string label, ConfigEntry<float>? entry, float step, float min,
+        float max, Func<float, string> format)
+    {
+        if (entry == null)
+            return;
+        var row = Row();
+        RegisterDebugRow(row.gameObject, ButtonTuningRowsVisible);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => format(entry.Value),
+            d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
+    }
+
+    /// <summary>
+    /// "Knöpfe" stepper row for the [SquareCaps] entries where 0 = "authored default"
+    /// (readout "Auto"). Stepping + from Auto enters the range at its minimum; stepping
+    /// - below the minimum collapses back to Auto (0) — so the authored look is always
+    /// one press away. Live-applies exactly like <see cref="AddButtonTuningRow"/>.
+    /// </summary>
+    private void AddButtonTuningAutoRow(string label, ConfigEntry<float>? entry, float step,
+        float min, float max)
+    {
+        if (entry == null)
+            return;
+        var row = Row();
+        RegisterDebugRow(row.gameObject, ButtonTuningRowsVisible);
+        Label(row, label, 16f, flexible: true);
+        MiniStepper(row,
+            () => entry.Value <= 0f ? "Auto" : $"{entry.Value * 1000f:0}mm",
+            d =>
+            {
+                float v = entry.Value <= 0f
+                    ? (d > 0 ? min : 0f)              // from Auto: + enters at the minimum
+                    : entry.Value + d * step;
+                entry.Value = v < min ? 0f : Mathf.Min(v, max); // below min → back to Auto
+            });
+    }
+
     /// <summary>
     /// FAN category (global) stepper bound to a global fan <see cref="ConfigEntry{T}"/>. Writing the
     /// entry persists (BepInEx) and live-applies (CardsDriver relayouts the open fan). Clamped to
@@ -1240,26 +1368,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Item 4: a global hand-offset stepper row bound directly to a [Hands] <see cref="ConfigEntry{T}"/>
-    /// (mm for the position offsets, ° for the grip pitch). Writing the entry persists (BepInEx) and
-    /// live-applies (VRHand.SyncVisualOffset re-reads it every frame). Shown only under the Hands tab.
-    /// </summary>
-    private void AddHandStepper(string label, ConfigEntry<float> entry, float step, bool degrees)
-    {
-        var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Hands);
-        Label(row, label, 16f, flexible: true);
-        MiniStepper(row,
-            () => degrees ? $"{entry.Value:0}°" : $"{entry.Value * 1000f:0}mm",
-            d => entry.Value += d * step);
-    }
-
-    /// <summary>
-    /// Per-STYLE hand stepper row: drives the [Hands] entry of the style CURRENTLY worn
+    /// Per-STYLE hand stepper row: drives the entry of the style CURRENTLY worn
     /// (indexed by [Hands] HandStyle into the given per-style entry array), so the Hands
-    /// tab only ever shows the active style's scale/trims. Writing persists (BepInEx) and
-    /// live-applies (VRHand.SyncVisualOffset re-reads per frame). Shown only under the
-    /// Hands tab; shows "—" while the config is not bound yet.
+    /// tab only ever shows the active style's values — since the per-style rework EVERY
+    /// hand-tuning row (scale + the four seat controls) goes through here. Writing
+    /// persists (BepInEx) and live-applies (VRHand.SyncVisualOffset re-reads per frame).
+    /// Shown only under the Hands tab; shows "—" while the config is not bound yet.
     /// </summary>
     private void AddStyleStepper(string label, Func<ConfigEntry<float>[]?> entries, float step,
         float min, float max, Func<float, string> format)
