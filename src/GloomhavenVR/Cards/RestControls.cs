@@ -39,9 +39,21 @@ internal sealed class RestControls
         // per-board offset depth. Round-2: an extra per-board SPACING spreads the two apart.
         ControlBoard active = CardsConfig.CurrentBoard;
         float diameter = CardsConfig.RestButtonDiameter(active).Value;
-        float thickness = CardsConfig.RoundButtonThickness.Value;
         bool round = CardsConfig.RestButtonShape(active).Value == ButtonShape.Round;
-        var size = new Vector2(diameter, diameter); // round overrides from diameter; square uses this side
+
+        // Category split ([RestButtons], user: "every value applies ONLY to its own category" —
+        // same pattern PlayTray.BuildButtons uses for [BoardButtons]): the rest keycaps read the
+        // [RestButtons] set EXCLUSIVELY — SQUARE caps take its Width/Height (rectangular caps),
+        // and BOTH shapes take its Depth/Travel. ROUND discs keep the per-board authored diameter
+        // (the square W/H do not apply, exactly like the Confirm/Undo round caps). The numeric
+        // defaults reproduce today's look bit-identically (0.105 × 0.105 × 0.012 / 4 mm travel =
+        // the authored RestButtonDiameter / RoundButtonThickness / BoardButton.CapTravel).
+        WorldUI.ButtonTuning.Bind();
+        float thickness = WorldUI.ButtonTuning.RestCapDepth;
+        float travel = WorldUI.ButtonTuning.RestCapTravel;
+        var size = round
+            ? new Vector2(diameter, diameter)                                                  // round: per-board diameter
+            : new Vector2(WorldUI.ButtonTuning.RestCapWidth, WorldUI.ButtonTuning.RestCapHeight); // square: [RestButtons] W/H
         // Per-board disc offset: X/Y in the board plane, Z = proud depth toward the player
         // (NEGATIVE = prouder). Replaces the old localPosition(insetX,0,0) + raycast reseat.
         Vector3 offset = CardsConfig.RestButtonOffset(active).Value;
@@ -55,7 +67,7 @@ internal sealed class RestControls
                 // No game key exists for a short rest button (GUI_SHORT_REST is absent) — mod string.
                 Core.Loc.Mod("short_rest"),
                 () => ShortRestRequested?.Invoke(),
-                round: round, diameter: diameter, thickness: thickness, boxy: !round);
+                round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel);
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
         }
@@ -65,7 +77,7 @@ internal sealed class RestControls
                 new Color(0.37f, 0.44f, 0.56f), // T4: antique slate-blue accent when selected
                 Core.Loc.Game("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
-                round: round, diameter: diameter, thickness: thickness, boxy: !round);
+                round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel);
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
         }
@@ -82,8 +94,10 @@ internal sealed class RestControls
 
         if (built > 0)
             Core.VRLog.Info("Cards", $"RestControls: built {built} {(round ? "ROUND" : "SQUARE")} rest button(s) " +
-                $"for {active} (size {diameter:F3} m, thickness {thickness:F3} m, offset {offset}, " +
-                $"spacing {spacing:F3} m) — per-board predictable seat, no raycast.");
+                $"for {active} (size {size.x:F3}×{size.y:F3} m, [RestButtons] W/H/D " +
+                $"{WorldUI.ButtonTuning.RestCapWidth:F3}/{WorldUI.ButtonTuning.RestCapHeight:F3}/{WorldUI.ButtonTuning.RestCapDepth:F3} m, " +
+                $"travel {WorldUI.ButtonTuning.RestCapTravel:F3} m, offset {offset}, spacing {spacing:F3} m) — " +
+                "per-board predictable seat, no raycast.");
     }
 
     /// <summary>
