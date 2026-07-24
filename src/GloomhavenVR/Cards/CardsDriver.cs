@@ -921,6 +921,7 @@ internal sealed class CardsDriver : MonoBehaviour
         LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
         LogFanState(hand);
         LogActionSelectionState(_fakeActive ? null : hand); // second-character action deadlock diagnostic
+        TickTakeDamageSelection(); // task #6: select the attacked character during a take-damage decision
     }
 
     // ------------------------------------------------- per-frame tick attribution guard --
@@ -2504,8 +2505,28 @@ internal sealed class CardsDriver : MonoBehaviour
                 break;
 
             case CardHandMode.ActionSelection:
-                halfVisible = true;
-                CollectRoundCards(hand, _halfBuffer);
+                // Task #5 (clear the control board after the own turn): CardsHandUI.currentMode
+                // STAYS ActionSelection after the player's own turn ends (it is only re-driven
+                // by the next CardsHandManager.Show, which never runs during an enemy turn), so
+                // this case is still hit while an ENEMY is up — and the two played cards would
+                // otherwise stay docked on the board. Dock them ONLY while it is genuinely THIS
+                // character's own action turn (CardsGameApi.IsActionTurn == Choreographer.
+                // CurrentActor is this hand's locally-controlled player). The moment an enemy (or
+                // any other actor) becomes current, halfVisible stays false and _halfBuffer stays
+                // empty, so the zone loop below PARKS the played cards — the board is cleared.
+                // When the character's own turn comes round again the cards re-dock. This is
+                // pure VR presentation: the game's own 2D round-card state is untouched, and the
+                // two-character sequential turns each show their own actor's cards (CurrentActor
+                // is that actor during its turn). Long rest is unaffected: the long-rester's own
+                // turn keeps CurrentActor == its player (IsActionTurn true) with an empty round
+                // pile, exactly as before.
+                bool actionTurn = CardsGameApi.IsActionTurn(hand);
+                if (actionTurn)
+                {
+                    halfVisible = true;
+                    CollectRoundCards(hand, _halfBuffer);
+                }
+                LogActionTurnLock(hand, actionTurn);
                 break;
 
             default:
@@ -3750,6 +3771,112 @@ internal sealed class CardsDriver : MonoBehaviour
             VRLog.Info("Cards", $"Selection LOCKED — mode still CardsSelection but phase is " +
                                 $"{PhaseManager.PhaseType} (not selection): played cards docked read-only, fan unbound, " +
                                 "nothing reclaimable until the next card-selection phase.");
+    }
+
+    // Change-dedup for the action-turn board-clear diagnostic (task #5): last logged actionTurn.
+    private bool? _loggedActionTurn;
+
+    /// <summary>
+    /// Task #5 diagnostic (change-deduped Info): prove from the log alone when the two played
+    /// cards are docked on the control board vs cleared during the ActionSelection phase, and
+    /// which actor drove the transition. Docked only on this character's own action turn;
+    /// cleared the moment an enemy (or any other actor) is up. Logged once per state change.
+    /// </summary>
+    private void LogActionTurnLock(CardsHandUI hand, bool actionTurn)
+    {
+        if (_loggedActionTurn == actionTurn)
+            return;
+        _loggedActionTurn = actionTurn;
+        CActor? current = CardsGameApi.CurrentTurnActor();
+        string who = current != null ? CardsGameApi.ActorLabel(current) : "none";
+        if (actionTurn)
+            VRLog.Info("Cards", $"Control board: played cards DOCKED — this character's own action turn (current actor '{who}').");
+        else
+            VRLog.Info("Cards", $"Control board: played cards CLEARED — own turn over, current actor is '{who}' " +
+                                "(not this character): board empty during the enemy/other turn.");
+    }
+
+    // ---------------------------------------------- take-damage selection (task #6) --
+
+    // Task #6: while a take-damage decision is open for a character THIS client controls, drive
+    // the game's SELECTED actor to that character so the wrist HUD (and any other selection-
+    // driven UI) show it; restore the pre-decision selection when it closes. Edge-detected so
+    // the game's own selection path (InitiativeTrack.Select) fires once per open, not per frame.
+    private bool _damageSelActive;
+    private CActor? _damageSelSubject; // the attacked actor we forced-selected
+    private CActor? _damageSelPrev;    // selection captured before we took over (restored on close)
+
+    /// <summary>
+    /// Drive/restore the game's selected actor around an open take-damage decision. When a
+    /// decision opens for a locally controlled attacked character
+    /// (<see cref="CardsGameApi.DrivableTakeDamageSubject"/> — MP-guarded to IsUnderMyControl),
+    /// select that character through the game's own initiative-track selection seam so the wrist
+    /// overlay shows it. On close, restore the previous selection — but only if our forced
+    /// selection still stands, so a selection the game itself moved on to is never clobbered.
+    /// Runs inside the isolated per-frame tick guard (attributed if it throws).
+    /// </summary>
+    private void TickTakeDamageSelection()
+    {
+        if (!CardsGameApi.InScenario)
+        {
+            _damageSelActive = false;
+            _damageSelSubject = null;
+            _damageSelPrev = null;
+            return;
+        }
+
+        CPlayerActor? subject = CardsGameApi.DrivableTakeDamageSubject();
+        if (subject != null)
+        {
+            if (!_damageSelActive)
+            {
+                _damageSelActive = true;
+                _damageSelPrev = CardsGameApi.SelectedActor();
+                _damageSelSubject = subject;
+                if (CardsGameApi.SelectActor(subject))
+                    VRLog.Info("Cards", $"Take-damage decision: selected the attacked character " +
+                                        $"'{CardsGameApi.ActorLabel(subject)}' (previous selection " +
+                                        $"'{(_damageSelPrev != null ? CardsGameApi.ActorLabel(_damageSelPrev) : "none")}') — " +
+                                        "wrist HUD and selection-driven UI now follow it.");
+            }
+            else if (!ReferenceEquals(_damageSelSubject, subject))
+            {
+                // A new/re-targeted decision opened before the previous one released — re-point.
+                _damageSelSubject = subject;
+                if (CardsGameApi.SelectActor(subject))
+                    VRLog.Info("Cards", $"Take-damage decision: selection re-pointed to the attacked " +
+                                        $"character '{CardsGameApi.ActorLabel(subject)}'.");
+            }
+            else
+            {
+                // Re-assert if something moved selection off the attacked actor while the
+                // decision is still open (SelectActor no-ops when already selected).
+                CActor? cur = CardsGameApi.SelectedActor();
+                if (cur == null || !ReferenceEquals(cur, subject))
+                    CardsGameApi.SelectActor(subject);
+            }
+        }
+        else if (_damageSelActive)
+        {
+            _damageSelActive = false;
+            CActor? cur = CardsGameApi.SelectedActor();
+            CActor? subj = _damageSelSubject;
+            CActor? prev = _damageSelPrev;
+            _damageSelSubject = null;
+            _damageSelPrev = null;
+            if (subj != null && cur != null && ReferenceEquals(cur, subj)
+                && prev != null && !ReferenceEquals(prev, subj))
+            {
+                if (CardsGameApi.SelectActor(prev))
+                    VRLog.Info("Cards", $"Take-damage decision closed: selection restored to " +
+                                        $"'{CardsGameApi.ActorLabel(prev)}'.");
+            }
+            else
+            {
+                VRLog.Info("Cards", "Take-damage decision closed: leaving current selection as-is " +
+                                    "(the game changed it, or there was no prior selection to restore).");
+            }
+        }
     }
 
     // ---------------------------------------------------------- long-rest turn pump --
