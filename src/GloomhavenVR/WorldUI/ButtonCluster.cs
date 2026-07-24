@@ -984,6 +984,9 @@ internal sealed class ButtonCluster
             Color applied = interactable
                 ? baseColor
                 : Color.Lerp(baseColor, new Color(0.17f, 0.13f, 0.09f), 0.75f);
+            // USER DEBUG OPTION: [ButtonColors] ClusterCapTint (multiplier, default white = no change)
+            // lets the user darken/re-hue the round-phase caps live so the label reads over them.
+            applied *= ButtonTuning.ClusterCapTint;
             if (applied != _appliedColor)
             {
                 _appliedColor = applied;

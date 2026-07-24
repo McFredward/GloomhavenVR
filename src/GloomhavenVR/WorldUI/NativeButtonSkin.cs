@@ -86,14 +86,20 @@ internal static class NativeButtonSkin
     /// outline+underlay in <see cref="StyleEngravedLabel"/> (a dark keyline separates the
     /// bright glyphs from a bright cap); legibility on the DARK caps comes from this bright
     /// fill. The antique look is kept — it is a paler parchment, not a cold white.</summary>
-    internal static readonly Color LabelColor = new(0.984f, 0.953f, 0.878f, 1f);
+    /// USER DEBUG OPTION (2026-07 — "give me the TEXT COLORS as a debug option"): now the live
+    /// <see cref="ButtonTuning.LabelColor"/> bind ([ButtonColors] LabelR/G/B), whose DEFAULT is
+    /// this exact #FBF3E0, so nothing changes until the user tunes it. Every consumer (cluster
+    /// caps, board keycaps, docked native captions) reads this property, so a stepper edit
+    /// re-colours them all (keycaps on the ButtonTuning.Version rebuild, the cluster per-tick).</summary>
+    internal static Color LabelColor => ButtonTuning.LabelColor;
 
-    /// <summary>Engraved-label outline colour (dark umber, fully opaque) — logged with the round-label offset.</summary>
-    private static readonly Color EngraveOutlineColor = new(0.09f, 0.06f, 0.03f, 1f);
+    /// <summary>Engraved-label outline colour — live <see cref="ButtonTuning.LabelOutlineColor"/>
+    /// bind ([ButtonColors] LabelOutlineR/G/B); default dark umber, fully opaque.</summary>
+    private static Color EngraveOutlineColor => ButtonTuning.LabelOutlineColor;
 
-    /// <summary>Engraved-label outline width, fraction of the SDF spread (user #3: thickened
-    /// 0.10 → 0.20 so the dark keyline actually separates the glyphs from a light brass cap).</summary>
-    private const float EngraveOutlineWidth = 0.20f;
+    /// <summary>Engraved-label outline width, fraction of the SDF spread — live
+    /// <see cref="ButtonTuning.LabelOutlineWidth"/> bind (default 0.20).</summary>
+    private static float EngraveOutlineWidth => ButtonTuning.LabelOutlineWidth;
 
     /// <summary>One-shot log guard for the applied label colour/outline (user #3).</summary>
     private static bool _styleLogged;
@@ -235,26 +241,42 @@ internal static class NativeButtonSkin
         // bright glyphs and the bright cap merged; a full-opacity 0.20 rim now clearly rings
         // every letter and reads against both light and dark caps (paired with the brightened
         // LabelColor fill). Still a dark umber, not black — the carved-engraving look holds.
+        // USER DEBUG OPTION: colour/width from the live [ButtonColors] binds, and the outline is
+        // gated on the LabelOutline toggle (OFF → width 0 + keyword off = a flat label). Applied on
+        // the keycap rebuild that a ButtonColors edit triggers (ButtonTuning.Version), so toggling
+        // it live takes effect on the next re-skin.
+        bool outlineOn = ButtonTuning.LabelOutlineEnabled;
         if (mat.HasProperty("_OutlineColor"))
             mat.SetColor("_OutlineColor", EngraveOutlineColor);
         if (mat.HasProperty("_OutlineWidth"))
         {
-            mat.SetFloat("_OutlineWidth", EngraveOutlineWidth);
-            mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
+            mat.SetFloat("_OutlineWidth", outlineOn ? EngraveOutlineWidth : 0f);
+            if (outlineOn)
+                mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
+            else
+                mat.DisableKeyword("OUTLINE_ON");
         }
         // A soft dark drop-shadow underlay sells the carved depth AND adds a second contrast
         // cue on light caps (a shaded halo below/right of the glyphs). Darkened and its alpha
         // raised (0.55 → 0.70) so it holds on a bright brass cap (UNDERLAY_ON gates the pass).
+        // User debug option: gated on the LabelUnderlay toggle (OFF → keyword off = no shadow).
         if (mat.HasProperty("_UnderlayColor"))
         {
-            mat.SetColor("_UnderlayColor", new Color(0.05f, 0.03f, 0.02f, 0.70f));
-            if (mat.HasProperty("_UnderlaySoftness"))
-                mat.SetFloat("_UnderlaySoftness", 0.35f);
-            if (mat.HasProperty("_UnderlayOffsetX"))
-                mat.SetFloat("_UnderlayOffsetX", 0.30f);
-            if (mat.HasProperty("_UnderlayOffsetY"))
-                mat.SetFloat("_UnderlayOffsetY", -0.30f);
-            mat.EnableKeyword("UNDERLAY_ON");
+            if (ButtonTuning.LabelUnderlayEnabled)
+            {
+                mat.SetColor("_UnderlayColor", new Color(0.05f, 0.03f, 0.02f, 0.70f));
+                if (mat.HasProperty("_UnderlaySoftness"))
+                    mat.SetFloat("_UnderlaySoftness", 0.35f);
+                if (mat.HasProperty("_UnderlayOffsetX"))
+                    mat.SetFloat("_UnderlayOffsetX", 0.30f);
+                if (mat.HasProperty("_UnderlayOffsetY"))
+                    mat.SetFloat("_UnderlayOffsetY", -0.30f);
+                mat.EnableKeyword("UNDERLAY_ON");
+            }
+            else
+            {
+                mat.DisableKeyword("UNDERLAY_ON");
+            }
         }
 
         if (!_styleLogged)

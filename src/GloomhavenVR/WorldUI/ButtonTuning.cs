@@ -72,6 +72,22 @@ internal static class ButtonTuning
     internal const float DefaultRestDepth = 0.012f;     // authored CardsConfig.RoundButtonThickness (rest disc/cap thickness)
     internal const float DefaultRestTravel = 0.004f;    // BoardButton.CapTravel (rest discs used the authored default)
 
+    // ---- authored colour defaults ([ButtonColors] — reproduce today's look bit-exact) -------
+    // Label fill = NativeButtonSkin.LabelColor bright warm parchment (#FBF3E0); outline = its
+    // dark-umber engrave keyline; every cap-face tint seeds WHITE (1,1,1) = identity multiply.
+    internal const float DefaultLabelR = 0.984f;
+    internal const float DefaultLabelG = 0.953f;
+    internal const float DefaultLabelB = 0.878f;
+    internal const float DefaultLabelOutlineR = 0.09f;
+    internal const float DefaultLabelOutlineG = 0.06f;
+    internal const float DefaultLabelOutlineB = 0.03f;
+    internal const float DefaultLabelOutlineWidth = 0.20f; // fraction of the SDF spread
+
+    /// <summary>Keycap category whose [ButtonColors] cap-face TINT applies (see <see cref="CapTint"/>).
+    /// Matches the geometry categories; <see cref="CapCategory.Rest"/> is the default so the
+    /// RestControls call site (which does not pass one) picks up the rest tint automatically.</summary>
+    internal enum CapCategory { Board, Dashboard, Cluster, Rest }
+
     // ---- [RoundButtons] — transient round-phase button group (ButtonCluster ONLY) ---------
     internal static ConfigEntry<float>? RoundOffsetX;
     internal static ConfigEntry<float>? RoundOffsetY;
@@ -101,6 +117,25 @@ internal static class ButtonTuning
     internal static ConfigEntry<float>? RestHeight;
     internal static ConfigEntry<float>? RestDepth;
     internal static ConfigEntry<float>? RestTravel;
+
+    // ---- [ButtonColors] — user-tunable keycap LABEL text + cap-FACE colours (user: "give me
+    // the TEXT COLORS and BUTTON COLORS as a debug option"). Defaults reproduce today's look
+    // EXACTLY: the label binds seed the current bright-parchment fill / dark-umber outline, and
+    // every cap-face tint seeds WHITE (1,1,1) = an identity multiply so caps are unchanged until
+    // the user edits. R/G/B floats (0..1) so the settings panel steppers them cleanly. ----------
+    internal static ConfigEntry<float>? LabelR;
+    internal static ConfigEntry<float>? LabelG;
+    internal static ConfigEntry<float>? LabelB;
+    internal static ConfigEntry<bool>? LabelOutline;
+    internal static ConfigEntry<float>? LabelOutlineR;
+    internal static ConfigEntry<float>? LabelOutlineG;
+    internal static ConfigEntry<float>? LabelOutlineB;
+    internal static ConfigEntry<float>? LabelOutlineW;
+    internal static ConfigEntry<bool>? LabelUnderlay;
+    internal static ConfigEntry<float>? BoardCapTintR, BoardCapTintG, BoardCapTintB;      // Confirm/Undo
+    internal static ConfigEntry<float>? DashCapTintR, DashCapTintG, DashCapTintB;         // gear/Fixiert
+    internal static ConfigEntry<float>? ClusterCapTintR, ClusterCapTintG, ClusterCapTintB; // round-phase cluster
+    internal static ConfigEntry<float>? RestCapTintR, RestCapTintG, RestCapTintB;         // short/long rest
 
     /// <summary>Raised on every entry write (settings-panel steppers bind here).</summary>
     internal static event System.Action? Changed;
@@ -216,6 +251,57 @@ internal static class ButtonTuning
             "Press travel (meters) of the short/long REST keycaps — cap sink distance and the " +
             "depth-fire push distance. Applies ONLY to the rest buttons. Live; clamped 0.002..0.02.");
 
+        // ---- [ButtonColors] — keycap LABEL text + cap-FACE colours (user debug option) --------
+        LabelR = config.Bind("ButtonColors", "LabelR", DefaultLabelR,
+            "Engraved keycap LABEL colour — RED channel (0..1). Colours the text on EVERY 3D keycap " +
+            "(Confirm/Undo, gear/Fixiert, short/long rest, the round-phase cluster) AND the docked " +
+            "native button captions. Default 0.984 = the bright warm parchment (#FBF3E0). Live.");
+        LabelG = config.Bind("ButtonColors", "LabelG", DefaultLabelG,
+            "Engraved keycap LABEL colour — GREEN channel (0..1). Default 0.953 (#FBF3E0). Live.");
+        LabelB = config.Bind("ButtonColors", "LabelB", DefaultLabelB,
+            "Engraved keycap LABEL colour — BLUE channel (0..1). Default 0.878 (#FBF3E0). Live.");
+        LabelOutline = config.Bind("ButtonColors", "LabelOutline", true,
+            "Draw the dark keyline OUTLINE around the keycap label (the carved-engraving rim that " +
+            "separates bright glyphs from a light brass cap). Turn OFF for a flat label. Default true. Live.");
+        LabelOutlineR = config.Bind("ButtonColors", "LabelOutlineR", DefaultLabelOutlineR,
+            "Keycap label OUTLINE colour — RED channel (0..1). Default 0.09 = dark umber. Live.");
+        LabelOutlineG = config.Bind("ButtonColors", "LabelOutlineG", DefaultLabelOutlineG,
+            "Keycap label OUTLINE colour — GREEN channel (0..1). Default 0.06 = dark umber. Live.");
+        LabelOutlineB = config.Bind("ButtonColors", "LabelOutlineB", DefaultLabelOutlineB,
+            "Keycap label OUTLINE colour — BLUE channel (0..1). Default 0.03 = dark umber. Live.");
+        LabelOutlineW = config.Bind("ButtonColors", "LabelOutlineWidth", DefaultLabelOutlineWidth,
+            "Keycap label OUTLINE width, fraction of the SDF spread (thicker = a heavier dark rim). " +
+            "Default 0.20. Live; clamped 0..1.");
+        LabelUnderlay = config.Bind("ButtonColors", "LabelUnderlay", true,
+            "Draw the soft dark drop-shadow UNDERLAY beneath the keycap label (a second contrast cue " +
+            "on light caps). Turn OFF to drop the shadow. Default true. Live.");
+
+        BoardCapTintR = config.Bind("ButtonColors", "BoardCapTintR", 1f,
+            "Confirm/Undo keycap FACE colour TINT — RED channel (0..1), MULTIPLIED into the cap face " +
+            "(native sprite AND procedural). 1 = unchanged; lower = darker/less red, so white text reads. Live.");
+        BoardCapTintG = config.Bind("ButtonColors", "BoardCapTintG", 1f,
+            "Confirm/Undo keycap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
+        BoardCapTintB = config.Bind("ButtonColors", "BoardCapTintB", 1f,
+            "Confirm/Undo keycap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
+        DashCapTintR = config.Bind("ButtonColors", "DashCapTintR", 1f,
+            "Dashboard gear + Fixiert (follow/pin) plate FACE tint — RED channel (0..1). 1 = unchanged. Live.");
+        DashCapTintG = config.Bind("ButtonColors", "DashCapTintG", 1f,
+            "Dashboard gear + Fixiert plate FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
+        DashCapTintB = config.Bind("ButtonColors", "DashCapTintB", 1f,
+            "Dashboard gear + Fixiert plate FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
+        ClusterCapTintR = config.Bind("ButtonColors", "ClusterCapTintR", 1f,
+            "Round-phase cluster (Ready/Undo/Skip) cap FACE tint — RED channel (0..1). 1 = unchanged. Live.");
+        ClusterCapTintG = config.Bind("ButtonColors", "ClusterCapTintG", 1f,
+            "Round-phase cluster cap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
+        ClusterCapTintB = config.Bind("ButtonColors", "ClusterCapTintB", 1f,
+            "Round-phase cluster cap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
+        RestCapTintR = config.Bind("ButtonColors", "RestCapTintR", 1f,
+            "Short/long REST keycap FACE tint — RED channel (0..1). 1 = unchanged. Live.");
+        RestCapTintG = config.Bind("ButtonColors", "RestCapTintG", 1f,
+            "Short/long REST keycap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
+        RestCapTintB = config.Bind("ButtonColors", "RestCapTintB", 1f,
+            "Short/long REST keycap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
+
         MigrateLegacy(config);
 
         Hook(RoundOffsetX);
@@ -240,6 +326,19 @@ internal static class ButtonTuning
         Hook(RestHeight);
         Hook(RestDepth);
         Hook(RestTravel);
+        Hook(LabelR);
+        Hook(LabelG);
+        Hook(LabelB);
+        Hook(LabelOutline);
+        Hook(LabelOutlineR);
+        Hook(LabelOutlineG);
+        Hook(LabelOutlineB);
+        Hook(LabelOutlineW);
+        Hook(LabelUnderlay);
+        Hook(BoardCapTintR); Hook(BoardCapTintG); Hook(BoardCapTintB);
+        Hook(DashCapTintR); Hook(DashCapTintG); Hook(DashCapTintB);
+        Hook(ClusterCapTintR); Hook(ClusterCapTintG); Hook(ClusterCapTintB);
+        Hook(RestCapTintR); Hook(RestCapTintG); Hook(RestCapTintB);
     }
 
     /// <summary>
@@ -412,6 +511,54 @@ internal static class ButtonTuning
 
     /// <summary>[RestButtons] press travel (short/long rest keycaps ONLY).</summary>
     internal static float RestCapTravel => Clamped(RestTravel, DefaultRestTravel, 0.002f, 0.02f);
+
+    // ---- [ButtonColors] live accessors (safe before Bind — fall back to the authored look) ----
+
+    /// <summary>Engraved keycap LABEL fill colour (user debug option). Default = the bright warm
+    /// parchment #FBF3E0; consumed by <see cref="NativeButtonSkin.LabelColor"/>.</summary>
+    internal static Color LabelColor => new(
+        Clamped(LabelR, DefaultLabelR, 0f, 1f),
+        Clamped(LabelG, DefaultLabelG, 0f, 1f),
+        Clamped(LabelB, DefaultLabelB, 0f, 1f), 1f);
+
+    /// <summary>Engraved keycap label OUTLINE colour. Default = dark umber (#170F08-ish).</summary>
+    internal static Color LabelOutlineColor => new(
+        Clamped(LabelOutlineR, DefaultLabelOutlineR, 0f, 1f),
+        Clamped(LabelOutlineG, DefaultLabelOutlineG, 0f, 1f),
+        Clamped(LabelOutlineB, DefaultLabelOutlineB, 0f, 1f), 1f);
+
+    /// <summary>Keycap label outline width (fraction of the SDF spread). Default 0.20.</summary>
+    internal static float LabelOutlineWidth => Clamped(LabelOutlineW, DefaultLabelOutlineWidth, 0f, 1f);
+
+    /// <summary>Whether the dark keyline outline is drawn on keycap labels (default on).</summary>
+    internal static bool LabelOutlineEnabled => LabelOutline == null || LabelOutline.Value;
+
+    /// <summary>Whether the dark drop-shadow underlay is drawn under keycap labels (default on).</summary>
+    internal static bool LabelUnderlayEnabled => LabelUnderlay == null || LabelUnderlay.Value;
+
+    /// <summary>Confirm/Undo keycap FACE tint (multiplier, default white = unchanged).</summary>
+    internal static Color BoardCapTint => Tint3(BoardCapTintR, BoardCapTintG, BoardCapTintB);
+
+    /// <summary>Gear + Fixiert (follow/pin) plate FACE tint (multiplier, default white).</summary>
+    internal static Color DashCapTint => Tint3(DashCapTintR, DashCapTintG, DashCapTintB);
+
+    /// <summary>Round-phase cluster (Ready/Undo/Skip) cap FACE tint (multiplier, default white).</summary>
+    internal static Color ClusterCapTint => Tint3(ClusterCapTintR, ClusterCapTintG, ClusterCapTintB);
+
+    /// <summary>Short/long REST keycap FACE tint (multiplier, default white).</summary>
+    internal static Color RestCapTint => Tint3(RestCapTintR, RestCapTintG, RestCapTintB);
+
+    /// <summary>Cap-face TINT for a category (default white = identity multiply until edited).</summary>
+    internal static Color CapTint(CapCategory category) => category switch
+    {
+        CapCategory.Board => BoardCapTint,
+        CapCategory.Dashboard => DashCapTint,
+        CapCategory.Cluster => ClusterCapTint,
+        _ => RestCapTint,
+    };
+
+    private static Color Tint3(ConfigEntry<float>? r, ConfigEntry<float>? g, ConfigEntry<float>? b) => new(
+        Clamped(r, 1f, 0f, 1f), Clamped(g, 1f, 0f, 1f), Clamped(b, 1f, 0f, 1f), 1f);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
