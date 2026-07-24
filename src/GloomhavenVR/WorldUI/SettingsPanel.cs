@@ -51,7 +51,7 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class SettingsPanel : IPanelGrabOwner
 {
-    private const float PanelWidthPx = 380f;
+    private const float PanelWidthPx = 520f; // sidebar + content two-column (2026-07 redesign)
     private const float RowHeightPx = 34f;
     private const float RefreshInterval = 0.25f;
 
@@ -66,7 +66,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// renders at this width at [WorldUI] SettingsScale = 1; SettingsScale (0.5×–2×) is then the
     /// user's ONLY size control. WorldScale is still used for POSITION/distance, not size.
     /// </summary>
-    private const float SettingsPanelWidthMeters = 0.6f;
+    private const float SettingsPanelWidthMeters = 0.82f; // widened with PanelWidthPx to keep text density constant
     private const float BarGapMeters = 0.03f;           // panel bottom edge sits this far above the bar center
     private const float BarThickness = 0.024f;
     private const float BarWidthFraction = 0.55f;
@@ -116,67 +116,78 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Debug-menu top-level TAB. The user browses the debug menu by category first (an
-    /// expandable accordion of option rows — same idiom as the Element chooser), and the
-    /// Element chooser then offers only the 2–5 elements of that category
-    /// instead of all 14 at once. <see cref="Board"/> is a single-element per-board tab; Fan and
-    /// Hands are GLOBAL tabs (no per-board Oak/Steel/Bronze selector, no element cycle) — their
-    /// settings apply to every board.
+    /// TOP-LEVEL navigation category — the persistent left-hand SIDEBAR entries (2026-07 UX
+    /// redesign, user: "the debug menu is cluttered — give me a faster overview and better
+    /// navigation"). Selecting a category in the sidebar swaps the right-hand content pane to
+    /// show ONLY that category's rows/elements (poke- and laser-driven, exactly like every
+    /// other button). Element-BEARING categories (Tasten, Board) additionally expose an
+    /// in-pane Element chooser (the existing accordion) over the many board-attached elements;
+    /// every other category is a flat scannable list. Order matches <see cref="NavElements"/>.
     /// </summary>
-    private enum DebugCategory { Buttons, Panels, Overlays, Widgets, Board, Fan, Hands, Figures, Wrist }
-    private const int DebugCategoryCount = 9;
+    private enum NavCat { Welt, Anzeige, Waende, Avatar, Haende, Figuren, Handgelenk, Tasten, Board }
+    private const int NavCatCount = 9;
 
     /// <summary>
-    /// SINGLE source of truth for category → elements (re-slice by editing this one table). A
-    /// per-board category lists the <see cref="DebugElement"/>s its Element cycle walks; a GLOBAL
-    /// category (Fan, Hands) has an EMPTY list — <see cref="CategoryIsGlobal"/> keys off that and
-    /// hides the board + element selectors, showing the category's own global steppers instead.
-    /// Order matches <see cref="DebugCategory"/>.
+    /// SINGLE source of truth for category → board-attached elements (re-slice by editing this
+    /// one table). Only the two element-BEARING categories carry a list — <see cref="NavCat.Tasten"/>
+    /// (every button group: rest keys, Confirm/Undo group, cluster, the [RoundButtons] /
+    /// [BoardButtons] / [BoardDashboard] geometry sets, and the decision dock) and
+    /// <see cref="NavCat.Board"/> (the board itself + every panel/overlay/widget). All other
+    /// categories have an EMPTY list — <see cref="CategoryHasElements"/> keys off that and hides
+    /// the board + element selectors, showing the category's own flat rows instead. Order matches
+    /// <see cref="NavCat"/>.
     /// </summary>
-    private static readonly DebugElement[][] CategoryElements =
+    private static readonly DebugElement[][] NavElements =
     {
+        Array.Empty<DebugElement>(),                                                                          // Welt
+        Array.Empty<DebugElement>(),                                                                          // Anzeige
+        Array.Empty<DebugElement>(),                                                                          // Wände
+        Array.Empty<DebugElement>(),                                                                          // Avatar
+        Array.Empty<DebugElement>(),                                                                          // Hände
+        Array.Empty<DebugElement>(),                                                                          // Figuren
+        Array.Empty<DebugElement>(),                                                                          // Handgelenk
         new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardButtons,
-                DebugElement.BoardDashboard, DebugElement.Decision },                                         // Buttons ("Tasten")
-        new[] { DebugElement.Objectives, DebugElement.Elements, DebugElement.Initiative,
-                DebugElement.Piles, DebugElement.Active },                                                    // Panels
-        new[] { DebugElement.Overlays, DebugElement.Readout },                                                // Overlays
-        new[] { DebugElement.VRSettings, DebugElement.Pin },                                                  // Widgets
-        new[] { DebugElement.Board },                                                                         // Board
-        System.Array.Empty<DebugElement>(),                                                                  // Fan (global)
-        System.Array.Empty<DebugElement>(),                                                                  // Hands (global)
-        System.Array.Empty<DebugElement>(),                                                                  // Figures (global)
-        System.Array.Empty<DebugElement>(),                                                                  // Wrist (global)
+                DebugElement.BoardDashboard, DebugElement.Decision },                                         // Tasten
+        new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
+                DebugElement.Initiative, DebugElement.Piles, DebugElement.Active,
+                DebugElement.Overlays, DebugElement.Readout,
+                DebugElement.VRSettings, DebugElement.Pin },                                                  // Board
     };
 
-    /// <summary>GLOBAL tabs (Fan, Hands) apply to every board — no per-board selector, no element cycle.</summary>
-    private static bool CategoryIsGlobal(DebugCategory c) => CategoryElements[(int)c].Length == 0;
+    /// <summary>Element-BEARING categories (Tasten, Board) expose the in-pane board + element chooser.</summary>
+    private static bool CategoryHasElements(NavCat c) => NavElements[(int)c].Length > 0;
 
-    private int _debugCategory;
+    /// <summary>True while the current sidebar category is one of the element-bearing tuning tabs.</summary>
+    private bool PerBoard() => CategoryHasElements(CurrentNav);
+
+    private int _navCat;
     /// <summary>Remembered element index PER category (nice-to-have persistence within a session).</summary>
-    private readonly int[] _categoryElement = new int[DebugCategoryCount];
+    private readonly int[] _categoryElement = new int[NavCatCount];
     /// <summary>Element ACCORDION state: true while the per-element option rows are expanded.</summary>
     private bool _elementListOpen;
-    /// <summary>Category ACCORDION state: true while the per-category option rows are expanded.</summary>
-    private bool _categoryListOpen;
-    /// <summary>Wall-fade tuning EXPANDER state (collapsed by default; same accordion idiom).</summary>
-    private bool _wallFadeOpen;
-    private readonly List<GameObject> _debugRows = new(24);          // every debug row (teardown + gate)
-    private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
+    private readonly List<GameObject> _rows = new(64);          // every gated content row (teardown + show/hide)
+    private readonly List<Func<bool>> _rowVisible = new(64);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
     private bool _respawnRequested;     // every OPEN drops the panel in view in front of the head
     private float _sizeScale;           // diorama WorldScale snapshotted at open (item 1/6: board-sized, zoom-stable)
 
-    private DebugCategory CurrentCategory => (DebugCategory)_debugCategory;
-    private DebugElement[] CurrentCategoryElements => CategoryElements[_debugCategory];
+    // ---- content build cursor (2026-07 sidebar redesign) --------------------------------------
+    /// <summary>Rows built by <see cref="Row"/> parent here while set (sidebar/content column); else the canvas root.</summary>
+    private RectTransform? _rowParent;
+    /// <summary>Rows built by <see cref="Row"/> register with this visibility predicate while set; null = always visible (header/sidebar).</summary>
+    private Func<bool>? _rowGate;
 
-    /// <summary>The element the per-board steppers currently drive (the selected element of the current per-board category).</summary>
+    private NavCat CurrentNav => (NavCat)_navCat;
+    private DebugElement[] CurrentCategoryElements => NavElements[_navCat];
+
+    /// <summary>The element the per-board steppers currently drive (the selected element of the current element-bearing category).</summary>
     private DebugElement CurrentElement()
     {
-        DebugElement[] els = CategoryElements[_debugCategory];
+        DebugElement[] els = NavElements[_navCat];
         if (els.Length == 0)
-            return DebugElement.Board; // GLOBAL category (Fan/Hands): element rows are hidden anyway
-        int idx = Mathf.Clamp(_categoryElement[_debugCategory], 0, els.Length - 1);
+            return DebugElement.Board; // flat category: element rows are hidden anyway
+        int idx = Mathf.Clamp(_categoryElement[_navCat], 0, els.Length - 1);
         return els[idx];
     }
 
@@ -229,8 +240,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _facedPoseVersion = -1;
         _healLogged = false;
         _refreshers.Clear();
-        _debugRows.Clear();
-        _debugRowVisible.Clear();
+        _rows.Clear();
+        _rowVisible.Clear();
+        _rowParent = null;
+        _rowGate = null;
         SetOpen(true); // Build() re-runs with the new language and re-registers everything
     }
 
@@ -302,8 +315,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _respawnRequested = false;
         _sizeScale = 0f; // re-snapshot the diorama scale on the next open
         _refreshers.Clear();
-        _debugRows.Clear();
-        _debugRowVisible.Clear();
+        _rows.Clear();
+        _rowVisible.Clear();
+        _rowParent = null;
+        _rowGate = null;
     }
 
     // ---- open/close ----------------------------------------------------------------------
@@ -604,8 +619,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // exactly ONE clean set per build (Build is only ever reached with _holder == null,
         // so the previous holder and its rows are already gone).
         _refreshers.Clear();
-        _debugRows.Clear();
-        _debugRowVisible.Clear();
+        _rows.Clear();
+        _rowVisible.Clear();
+        _rowParent = null;
+        _rowGate = null;
 
         MixedReality.Bind(); // MR config may be read below before VRRigDriver's first tick
 
@@ -641,12 +658,31 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var fitter = _root.AddComponent<ContentSizeFitter>();
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        // Header ------------------------------------------------------------------
+        // ---- Header: breadcrumb (where am I) + close, spanning both columns --------
+        _rowParent = null;
+        _rowGate = null;
         var header = Row();
-        Label(header, "GloomhavenVR", 20f, bold: true, flexible: true);
+        TextMeshProUGUI crumb = Label(header, "", 18f, bold: true, flexible: true);
+        _refreshers.Add(() => crumb.text = "GloomhavenVR   ›   " + NavCatLabel(CurrentNav));
         Button(header, "X", 40f, () => SetOpen(false));
 
-        Section(Loc.Mod("comfort"));
+        // ---- Body: persistent category SIDEBAR | swappable CONTENT pane -----------
+        BuildBody(out RectTransform sidebar, out RectTransform content);
+
+        // Sidebar — one always-visible button per top-level category. Poke or laser
+        // selects it (plain uGUI Button, same as every other control); the content pane
+        // then shows ONLY that category's rows.
+        _rowParent = sidebar;
+        _rowGate = null;
+        for (int c = 0; c < NavCatCount; c++)
+            BuildNavButton(c);
+
+        // Everything below builds into the CONTENT column, each row gated to its category
+        // (or, for the two element-bearing tabs, to its category + selected element).
+        _rowParent = content;
+
+        // ===== Welt — Komfort & Bewegung =====
+        GateCat(NavCat.Welt);
 
         // Table scale: SetScaleMultiplier applies live around the head + persists.
         Stepper(Loc.Mod("table_scale"),
@@ -676,10 +712,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     Mathf.Clamp(ComfortSettings.SnapTurnDegrees.Value + delta * 15f, 15f, 90f);
             });
 
-        // Seated mode ("Sitzmodus") row removed (user: irrelevant — the world is freely
-        // draggable, so a recenter height preset adds nothing). Recenter always uses the
-        // standing preset + TableHeightOffset now (ComfortSettings.EffectiveEyeHeightMeters).
-
         Stepper(Loc.Mod("table_height"),
             () => ComfortSettings.IsBound ? $"{ComfortSettings.TableHeightOffset.Value:+0.00;-0.00;0.00}m" : "-",
             delta =>
@@ -692,13 +724,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Demeo-style world tilt ([Rig] WorldTiltDegrees, 5° steps, 0-60): the diorama appears
         // tilted toward the player (rig-side counter-rotation — VRRigDriver.TickWorldTilt reads
         // the entry every frame, so stepping applies live; BepInEx persists on set).
-        Stepper("World tilt",
+        Stepper("Welt-Neigung",
             () => $"{Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f):0}°",
             delta => Plugin.WorldTiltDegrees.Value =
                 Mathf.Clamp(Plugin.WorldTiltDegrees.Value + delta * 5f, 0f, 60f));
-
-        // Vignette row removed (user: no effect, not wanted) — ComfortVignette component
-        // deleted with it; the ComfortSettings bindings are gone too.
 
         Toggle(Loc.Mod("free_movement"),
             () => ComfortSettings.IsBound && ComfortSettings.FreeMovement.Value,
@@ -721,70 +750,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var recenterRow = Row();
         Button(recenterRow, Loc.Mod("recenter_now"), 0f, Comfort.RequestRecenter, flexible: true);
 
-        Section(Loc.Mod("modules"));
-
         Toggle(Loc.Mod("dominant_hand_right"),
             () => !string.Equals(Plugin.PrimaryHand.Value, "Left", StringComparison.OrdinalIgnoreCase),
             v => Plugin.PrimaryHand.Value = v ? "Right" : "Left");
 
-        Toggle(Loc.Mod("board_far_ray"),
-            () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
-            v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
-
-        Toggle(Loc.Mod("world_ui_surfaces"),
-            () => WorldUIConfig.Master.Value,
-            v => WorldUIConfig.Master.Value = v);
-
-        // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
-        // view-dependent wall fade run (it follows the HMD — see WallFadeDisable); OFF
-        // (default) keeps walls always solid. Applies LIVE — the Harmony postfix consults
-        // the entry every frame, no restart needed.
-        Toggle("Wall see-through",
-            () => Plugin.WallFade.Value,
-            v => Plugin.WallFade.Value = v);
-
-        // Wall-fade decision thresholds (live [WallFade] config — WallSegmentFade re-reads
-        // them every evaluation tick, no restart). Debug-gated steppers (same master gate as
-        // the board-tuning rows below) so the Modules section stays compact in normal play,
-        // but they LIVE here, right under the Wall see-through toggle they tune. Wrapped in
-        // a collapsed-by-default EXPANDER row (accordion idiom, like the debug Element
-        // chooser): the four steppers only show while "Wall fade tuning" is expanded.
-        WallFadeTuning.Bind();
-        var wallFadeHeader = Row();
-        RegisterDebugRow(wallFadeHeader.gameObject, () => true);
-        Label(wallFadeHeader, "Wall fade tuning", 16f, flexible: true);
-        CycleButton(wallFadeHeader, 40f,
-            () => _wallFadeOpen ? "-" : "+",
-            () => _wallFadeOpen = !_wallFadeOpen);
-        AddWallFadeRow("Fade on", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
-            v => $"{v * 100f:0}%");
-        AddWallFadeRow("Fade off", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
-            v => $"{v * 100f:0}%");
-        AddWallFadeRow("Unfade (moved)", WallFadeTuning.ExitDwellMoved, 0.5f, 0.1f, 60f,
-            v => $"{v:0.0}s");
-        AddWallFadeRow("Unfade (still)", WallFadeTuning.ExitDwellStationary, 0.5f, 0.1f, 120f,
-            v => $"{v:0.0}s");
-
-        Toggle(Loc.Mod("disable_post"),
-            () => Plugin.DisablePostProcessing.Value,
-            v => Plugin.DisablePostProcessing.Value = v);
-
-        var note = Row(22f);
-        Label(note, Loc.Mod("applies_next_start"), 12f, flexible: true);
-
-        Section(Loc.Mod("board"));
-
-        // Control-board model: cycles Oak → Steel → Bronze (mod 3), mirroring the Turn
-        // enum cycle above. CardsDriver subscribes to Board.SettingChanged and rebuilds
-        // the tray live, so the newly selected board loads without leaving the panel.
-        var boardRow = Row();
-        Label(boardRow, Loc.Mod("control_board"), 16f, flexible: true);
-        CycleButton(boardRow, 100f,
-            () => CardsConfig.Board.Value.ToString(),
-            () => CardsConfig.Board.Value =
-                (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
-
-        Section(Loc.Mod("display"));
+        // ===== Anzeige — Display / Render / Mixed Reality =====
+        GateCat(NavCat.Anzeige);
 
         // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag
         // set by the panel's X button and reconverts it at the persisted pose; HIDE releases
@@ -794,27 +765,34 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             v => CombatLogSurface.SetUserVisible(v, "settings"));
 
         // MSAA on the VR eye textures ([RenderQuality] MsaaLevel — Rig.RenderQuality):
-        // the game's own AA lived in the PostProcessLayer the mod kill-switches, so this
-        // is the ONLY anti-aliasing in VR. Cycles Off → 2x → 4x → 8x. Applies IMMEDIATELY:
-        // the rig's per-frame RenderQuality tick re-asserts QualitySettings.antiAliasing
-        // and pushes the level to the XR display subsystem, which re-allocates the eye
-        // textures live — no rig rebuild, no restart.
+        // Cycles Off → 2x → 4x → 8x. Applies IMMEDIATELY (the rig's per-frame RenderQuality
+        // tick re-asserts it and re-allocates the eye textures live — no restart).
         var msaaRow = Row();
         Label(msaaRow, "MSAA", 16f, flexible: true);
         CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
 
-        // Supersampling ([RenderQuality] EyeResolutionScale — Rig.RenderQuality): the
-        // eye-texture resolution scale, 0.8–2.0 in 0.1 steps. NOTE: MSAA is proven DEAD
-        // under VDXR (the runtime caps the swapchain at 1x — EYE-TARGET DIAG verdict), so
-        // this brute-force lever is the working anti-aliasing control there. Applies live
-        // (the swapchain re-allocates) and persists (BepInEx saves on set).
+        // Supersampling ([RenderQuality] EyeResolutionScale) — eye-texture resolution scale,
+        // 0.8–2.0 in 0.1 steps. The working AA lever under VDXR (MSAA capped at 1x there).
         var ssRow = Row();
         Label(ssRow, "Supersampling", 16f, flexible: true);
         MiniStepper(ssRow, RenderQuality.EyeScaleLabel, RenderQuality.StepEyeScale);
-        var msaaNote = Row(18f);
-        Label(msaaNote, "MSAA has no effect under VDXR — use supersampling", 12f, flexible: true);
+        var msaaNote = Row(28f);
+        Label(msaaNote, "MSAA wirkt nicht unter VDXR – Supersampling nutzen", 12f, flexible: true);
 
-        Section(Loc.Mod("mixed_reality"));
+        Toggle(Loc.Mod("disable_post"),
+            () => Plugin.DisablePostProcessing.Value,
+            v => Plugin.DisablePostProcessing.Value = v);
+
+        Toggle(Loc.Mod("world_ui_surfaces"),
+            () => WorldUIConfig.Master.Value,
+            v => WorldUIConfig.Master.Value = v);
+
+        Toggle(Loc.Mod("board_far_ray"),
+            () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
+            v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
+
+        var startNote = Row(22f);
+        Label(startNote, Loc.Mod("applies_next_start"), 12f, flexible: true);
 
         // MR chroma-key mode (item 7): disables all skyboxes and clears the sky/background to
         // the key color so a compositor (Virtual Desktop) can passthrough-composite the room.
@@ -825,22 +803,44 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(mrColorRow, Loc.Mod("key_color"), 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
-        Section(Loc.Mod("avatar"));
+        // ===== Wände — Wanddurchsicht & Fade-Feineinstellung =====
+        GateCat(NavCat.Waende);
 
-        // Multiplayer avatar (always visible while the panel is open, NOT debug-gated): pick one of
-        // the three head masks (writes [Net] MaskId — synchronized so other VR players see it) and
-        // toggle a local self-preview mirror (writes [Net] MirrorEnabled). Both live-apply:
-        // LocalRigSampler stamps MaskId on every send and AvatarMirror reads MirrorEnabled each tick.
-        // Force the [Net] entries bound so the picker works even with the networking hook off.
+        // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
+        // view-dependent wall fade run (it follows the HMD); OFF (default) keeps walls solid.
+        // Applies LIVE — the Harmony postfix consults the entry every frame.
+        Toggle("Wände durchsichtig",
+            () => Plugin.WallFade.Value,
+            v => Plugin.WallFade.Value = v);
+
+        // Wall-fade thresholds (live [WallFade] config — WallSegmentFade re-reads the clamped
+        // accessors every evaluation tick). No longer hidden behind a collapsed expander: this
+        // IS the Wände category, so the four rows read directly.
+        WallFadeTuning.Bind();
+        AddWallFadeRow("Einblenden", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
+            v => $"{v * 100f:0}%");
+        AddWallFadeRow("Ausblenden", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
+            v => $"{v * 100f:0}%");
+        AddWallFadeRow("Wieder ein (bewegt)", WallFadeTuning.ExitDwellMoved, 0.5f, 0.1f, 60f,
+            v => $"{v:0.0}s");
+        AddWallFadeRow("Wieder ein (ruhig)", WallFadeTuning.ExitDwellStationary, 0.5f, 0.1f, 120f,
+            v => $"{v:0.0}s");
+
+        // ===== Avatar — Mehrspieler-Erscheinung =====
+        GateCat(NavCat.Avatar);
+
+        // Multiplayer avatar: head mask (writes [Net] MaskId — synchronized), a local
+        // self-preview mirror ([Net] MirrorEnabled), and how much of OTHER players' boards
+        // this client renders ([Net] RemoteBoards). Force the [Net] entries bound so the
+        // pickers work even with the networking hook off.
         Net.NetModule.BindConfig();
         var maskRow = Row();
         Label(maskRow, Loc.Mod("head_mask"), 16f, flexible: true);
         CycleButton(maskRow, 120f, MaskLabel, CycleMask);
 
         // Hand style: cycles Glove → Plate → Arcane (writes [Hands] HandStyle; HandsDriver
-        // subscribes SettingChanged and rebuilds the hand visuals live, mirroring the
-        // control-board selector). Synchronized: the choice rides the avatar rig packet
-        // (AvatarState.HandStyle) so other VR players see it on your remote avatar.
+        // rebuilds the hand visuals live). Synchronized via the avatar rig packet. Also
+        // reachable as the "Stil" row under Hände/Figuren/Handgelenk (same bind).
         var handStyleRow = Row();
         Label(handStyleRow, Loc.Mod("hands"), 16f, flexible: true);
         CycleButton(handStyleRow, 120f, HandStyleLabel, CycleHandStyle);
@@ -849,20 +849,242 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
             v => { if (Net.NetModule.MirrorEnabled != null) Net.NetModule.MirrorEnabled.Value = v; });
 
-        // How much of OTHER players' control boards this client renders (Off / only in the action
-        // phase / always). Writes [Net] RemoteBoards. The anti-cheat reveal gate always applies on
-        // top: a remote's round cards stay BACKS until the secret selection phase ends.
         var remoteBoardsRow = Row();
         Label(remoteBoardsRow, Loc.Mod("remote_boards"), 16f, flexible: true);
         CycleButton(remoteBoardsRow, 150f, RemoteBoardsLabel, CycleRemoteBoards);
 
-        BuildDebugSection();
+        // ===== Hände (pro Stil) + Kartenfächer =====
+        BuildHandsCategory();
+
+        // ===== Figuren (pro Stil) =====
+        BuildFiguresCategory();
+
+        // ===== Handgelenk (pro Stil) =====
+        BuildWristCategory();
+
+        // ===== Tasten + Board — the element-bearing tuning tabs =====
+        BuildElementTuning();
+
+        _rowParent = null;
+        _rowGate = null;
+
+        // Single visibility pass: each gated row shown iff its own predicate (category, or
+        // category + selected element) is satisfied. Never more than one category's rows
+        // are visible at once, so the pane stays a short, scannable list.
+        _refreshers.Add(() =>
+        {
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                GameObject go = _rows[i];
+                // A row can be Unity-null if its holder was destroyed out from under us
+                // (scene unload) while the panel instance survived; skip rather than throw.
+                if (go == null)
+                    continue;
+                bool show = _rowVisible[i]();
+                if (go.activeSelf != show)
+                    go.SetActive(show);
+            }
+        });
 
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
         if (_holder == null)
             return;
         VRLayers.Apply(_holder.gameObject);
         _holder.gameObject.SetActive(false);
+    }
+
+    // ---- sidebar + content scaffold (2026-07 redesign) ----------------------------------------
+
+    /// <summary>Set the ambient row gate to "this sidebar category is selected".</summary>
+    private void GateCat(NavCat c) => _rowGate = () => _navCat == (int)c;
+
+    /// <summary>Localized sidebar/breadcrumb name of a top-level category (reuses existing Loc keys).</summary>
+    private static string NavCatLabel(NavCat c) => c switch
+    {
+        NavCat.Welt => "Welt",
+        NavCat.Anzeige => Loc.Mod("display"),
+        NavCat.Waende => "Wände",
+        NavCat.Avatar => Loc.Mod("avatar"),
+        NavCat.Haende => Loc.Mod("hands"),
+        NavCat.Figuren => Loc.Mod("cat_figures"),
+        NavCat.Handgelenk => Loc.Mod("cat_wrist"),
+        NavCat.Tasten => Loc.Mod("cat_buttons"),
+        NavCat.Board => Loc.Mod("board"),
+        _ => c.ToString(),
+    };
+
+    /// <summary>
+    /// Build the two-column body: a fixed-width category sidebar on the left and a
+    /// flexible-width content pane on the right, both riding the root's vertical layout.
+    /// </summary>
+    private void BuildBody(out RectTransform sidebar, out RectTransform content)
+    {
+        var bodyGo = new GameObject("Body") { layer = 5 };
+        bodyGo.AddComponent<RectTransform>();
+        bodyGo.transform.SetParent(_root!.transform, worldPositionStays: false);
+        var h = bodyGo.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = 10f;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childControlWidth = true;
+        h.childControlHeight = true;
+        h.childAlignment = TextAnchor.UpperLeft;
+        var bodyRect = (RectTransform)bodyGo.transform;
+
+        sidebar = BuildColumn(bodyRect, "Sidebar", 132f);
+        content = BuildColumn(bodyRect, "Content", 0f);
+    }
+
+    /// <summary>One body column (VerticalLayoutGroup). fixedWidth &gt; 0 pins the width (sidebar); 0 = flexible (content).</summary>
+    private static RectTransform BuildColumn(RectTransform parent, string name, float fixedWidth)
+    {
+        var go = new GameObject(name) { layer = 5 };
+        var rect = go.AddComponent<RectTransform>();
+        go.transform.SetParent(parent, worldPositionStays: false);
+        if (fixedWidth > 0f)
+        {
+            // Subtle inset behind the sidebar so it reads as a distinct nav column.
+            var img = go.AddComponent<Image>();
+            img.color = new Color(0.04f, 0.04f, 0.07f, 0.85f);
+            img.raycastTarget = false;
+        }
+        var v = go.AddComponent<VerticalLayoutGroup>();
+        v.spacing = 4f;
+        v.padding = new RectOffset(fixedWidth > 0f ? 6 : 4, fixedWidth > 0f ? 6 : 4, 4, 4);
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        v.childControlWidth = true;
+        v.childControlHeight = true;
+        v.childAlignment = TextAnchor.UpperLeft;
+        var le = go.AddComponent<LayoutElement>();
+        if (fixedWidth > 0f)
+        {
+            le.preferredWidth = fixedWidth;
+            le.minWidth = fixedWidth;
+        }
+        else
+        {
+            le.flexibleWidth = 1f;
+        }
+        return rect;
+    }
+
+    /// <summary>One sidebar category button: selects the tab (poke/laser) and marks the active one.</summary>
+    private void BuildNavButton(int idx)
+    {
+        var row = Row(30f);
+        (Button btn, TextMeshProUGUI txt) = Button(row, "", 0f, () =>
+        {
+            _navCat = idx;
+            _elementListOpen = false; // switching tabs collapses the element accordion
+            RefreshAll();
+        }, flexible: true);
+        var img = (Image)btn.targetGraphic;
+        _refreshers.Add(() =>
+        {
+            bool sel = _navCat == idx;
+            txt.text = NavCatLabel((NavCat)idx);
+            txt.fontStyle = sel ? FontStyles.Bold : FontStyles.Normal;
+            img.color = sel
+                ? new Color(0.28f, 0.34f, 0.48f, 0.98f)
+                : new Color(0.15f, 0.16f, 0.21f, 0.95f);
+        });
+    }
+
+    // ---- per-style categories (Hände / Figuren / Handgelenk) ----------------------------------
+
+    /// <summary>
+    /// HANDS category (GLOBAL, both hands; per HAND STYLE) + the card-fan geometry. Each row
+    /// edits the style CURRENTLY worn; the "Stil" row cycles it right here so all three sets are
+    /// reachable without leaving the tab. Live: VRHand.SyncVisualOffset re-reads the ACTIVE
+    /// style's entries every frame (a style switch re-seats/rescales instantly too).
+    /// </summary>
+    private void BuildHandsCategory()
+    {
+        GateCat(NavCat.Haende);
+        HandsConfig.Bind(); // idempotent — so the seat rows work even if the Hands module has not inited
+        var handsStyleRow = Row();
+        Label(handsStyleRow, "Stil", 16f, flexible: true);
+        CycleButton(handsStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        var handsNote = Row(18f);
+        Label(handsNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
+
+        AddStyleStepper(Loc.Mod("size"), () => Plugin.HandStyleScale, 0.02f, 0.2f, 3f,
+            v => $"{v:0.00}x", NavCat.Haende);
+        AddStyleStepper(Loc.Mod("hand_x"), () => HandsConfig.StyleSeatLateral, 0.002f, -0.3f, 0.3f,
+            v => $"{v * 1000f:0}mm", NavCat.Haende);
+        AddStyleStepper(Loc.Mod("hand_y"), () => HandsConfig.StyleSeatVertical, 0.002f, -0.3f, 0.3f,
+            v => $"{v * 1000f:0}mm", NavCat.Haende);
+        AddStyleStepper(Loc.Mod("hand_z"), () => HandsConfig.StyleSeatForward, 0.002f, -0.3f, 0.3f,
+            v => $"{v * 1000f:0}mm", NavCat.Haende);
+        AddStyleStepper(Loc.Mod("hand_pitch"), () => HandsConfig.StyleSeatPitch, 1f, -90f, 90f,
+            v => $"{v:0}°", NavCat.Haende);
+
+        // Card fan geometry ([Cards] fan entries, GLOBAL) — a labeled sub-section of Hände.
+        // Live-applied by CardsDriver (relayout) so tuning updates the open fan immediately.
+        GateCat(NavCat.Haende);
+        Section(Loc.Mod("cat_fan"));
+        AddFanStepper(Loc.Mod("fan_step"), CardsConfig.FanPerCardStepDegrees, 1f, 2f, 40f, v => $"{v:0}°");
+        AddFanStepper(Loc.Mod("fan_arc"), CardsConfig.FanArcSweepDegrees, 1f, 20f, 180f, v => $"{v:0}°");
+        AddFanStepper(Loc.Mod("fan_radius"), CardsConfig.FanEffectiveRadius, 0.002f, 0.05f, 0.4f,
+            v => $"{v * 1000f:0}mm");
+        AddFanStepper(Loc.Mod("fan_split"), CardsConfig.FanHoverSplitScale, 0.05f, 0.5f, 3f, v => $"{v:0.00}x");
+        // Palm-gate reveal roll angle + fan-out animation length (all live).
+        AddFanStepper("Aufdecken ein °", CardsConfig.RevealEnterDegrees, 5f, 15f, 85f, v => $"{v:0}°");
+        AddFanStepper("Aufdecken aus °", CardsConfig.RevealExitDegrees, 5f, 5f, 80f, v => $"{v:0}°");
+        AddFanStepper("Öffnungszeit", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
+    }
+
+    /// <summary>
+    /// FIGURES category (GLOBAL across boards; per HAND STYLE): the HELD board-figure pose docked
+    /// between thumb and index of the hand MESH (geometry differs per style). Live: FigureGrabConfig
+    /// re-poses the held mini immediately. "Aufrecht" is a global MODE toggle.
+    /// </summary>
+    private void BuildFiguresCategory()
+    {
+        GateCat(NavCat.Figuren);
+        FigureGrabConfig.Bind();
+        var figStyleRow = Row();
+        Label(figStyleRow, "Stil", 16f, flexible: true);
+        CycleButton(figStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        var figNote = Row(18f);
+        Label(figNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
+
+        AddFigureToggle(Loc.Mod("fig_upright"), FigureGrabConfig.HeldUpright);
+        AddStyleStepper(Loc.Mod("fig_x"), () => FigureGrabConfig.StyleHeldOffsetSide, 0.002f,
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", NavCat.Figuren);
+        AddStyleStepper(Loc.Mod("fig_y"), () => FigureGrabConfig.StyleHeldOffsetUp, 0.002f,
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", NavCat.Figuren);
+        AddStyleStepper(Loc.Mod("fig_z"), () => FigureGrabConfig.StyleHeldOffsetForward, 0.002f,
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", NavCat.Figuren);
+        AddStyleStepper(Loc.Mod("fig_tilt"), () => FigureGrabConfig.StyleHeldTiltDegrees, 5f,
+            -180f, 180f, v => $"{v:0}°", NavCat.Figuren);
+        AddStyleStepper(Loc.Mod("fig_yaw"), () => FigureGrabConfig.StyleHeldFaceYawDegrees, 5f,
+            -180f, 180f, v => $"{v:0}°", NavCat.Figuren);
+        AddStyleStepper(Loc.Mod("fig_scale"), () => FigureGrabConfig.StyleHeldScale, 0.1f,
+            0.2f, 5f, v => $"{v:0.00}x", NavCat.Figuren);
+    }
+
+    /// <summary>
+    /// WRIST category (per HAND STYLE): the wrist overview HUD's TILT (pitch/yaw/roll) and POSITION
+    /// offset (X/Y/Z). The accessors read/write the ACTIVE hand style's [WristHud] entry, and
+    /// WristHud re-applies every Tick — so both a nudge and a style switch move the HUD immediately.
+    /// </summary>
+    private void BuildWristCategory()
+    {
+        GateCat(NavCat.Handgelenk);
+        var wristStyleRow = Row();
+        Label(wristStyleRow, "Stil", 16f, flexible: true);
+        CycleButton(wristStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        var wristNote = Row(18f);
+        Label(wristNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
+
+        AddWristStepper(Loc.Mod("wrist_pitch"), () => WristHud.PitchDeg, v => WristHud.PitchDeg = v, 2f, v => $"{v:0}°");
+        AddWristStepper(Loc.Mod("wrist_yaw"),   () => WristHud.YawDeg,   v => WristHud.YawDeg = v,   2f, v => $"{v:0}°");
+        AddWristStepper(Loc.Mod("wrist_roll"),  () => WristHud.RollDeg,  v => WristHud.RollDeg = v,  2f, v => $"{v:0}°");
+        AddWristStepper(Loc.Mod("wrist_x"), () => WristHud.OffsetX, v => WristHud.OffsetX = v, 0.002f, v => $"{v * 1000f:0}mm");
+        AddWristStepper(Loc.Mod("wrist_y"), () => WristHud.OffsetY, v => WristHud.OffsetY = v, 0.002f, v => $"{v * 1000f:0}mm");
+        AddWristStepper(Loc.Mod("wrist_z"), () => WristHud.OffsetZ, v => WristHud.OffsetZ = v, 0.002f, v => $"{v * 1000f:0}mm");
     }
 
     // ---- Debug — Board tuning (Part E) ---------------------------------------------------------
@@ -874,59 +1096,27 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// (CardsDriver subscribes to each entry's SettingChanged). Gated behind [Cards] DebugMenu — the
     /// rows are built once but shown only while the toggle is on (the 0.25 s refresher flips them).
     /// </summary>
-    private void BuildDebugSection()
+    private void BuildElementTuning()
     {
-        Section(Loc.Mod("debug_board_tuning"));
-
+        // Board-tuning master toggle ([Cards] DebugMenu) — a PRESERVED bind, now a plain row at
+        // the top of the Board tab. It no longer GATES the tuning UI (the sidebar already hides
+        // tuning until you open Board/Tasten — the discoverability the user asked for); it stays
+        // reachable here so the [Cards] DebugMenu entry can still be toggled/persisted.
+        _rowGate = () => _navCat == (int)NavCat.Board;
         Toggle(Loc.Mod("enable_board_tuning"),
             () => CardsConfig.DebugMenu.Value,
             v =>
             {
                 CardsConfig.DebugMenu.Value = v;
                 if (v)
-                    VRLog.Info("Cards", "Debug board-tuning menu enabled — live per-board element tuning is now visible.");
+                    VRLog.Info("Cards", "Debug board-tuning menu enabled.");
             });
 
-        // CATEGORY chooser — ACCORDION (exactly the Element chooser pattern below; the old
-        // compact CYCLE button needed up to N-1 clicks to reach a tab once the categories
-        // grew to 9): the header row shows the selected category; pressing it expands one
-        // option row PER category right below (the panel's ContentSizeFitter grows around
-        // them); pressing an option selects that tab and collapses the list. Selecting a
-        // tab also collapses the Element accordion, exactly like the old cycle did. The
-        // Element chooser then walks only the CURRENT category's 2–5 elements.
-        var catRow = Row();
-        RegisterDebugRow(catRow.gameObject, () => true);
-        Label(catRow, Loc.Mod("category"), 16f, flexible: true);
-        CycleButton(catRow, 130f,
-            () => DebugCategoryLabel(CurrentCategory) + (_categoryListOpen ? " -" : " +"),
-            () => _categoryListOpen = !_categoryListOpen);
-
-        // One option row per category (fixed 9 — built once; label refreshers mark the
-        // selected tab, the shared visibility pass shows them only while expanded).
-        for (int c = 0; c < DebugCategoryCount; c++)
-        {
-            int idx = c; // capture per row
-            var catOptRow = Row(28f);
-            RegisterDebugRow(catOptRow.gameObject, () => _categoryListOpen);
-            Label(catOptRow, "", 13f); // fixed 28px gutter — reads as an indented sub-row
-            (Button _, TextMeshProUGUI catText) = Button(catOptRow, "", 0f, () =>
-            {
-                _debugCategory = idx;
-                _categoryListOpen = false; // select + collapse
-                _elementListOpen = false;  // switching tabs collapses the element accordion
-                RefreshAll();
-            }, flexible: true);
-            _refreshers.Add(() =>
-                catText.text = (_debugCategory == idx ? "> " : "")
-                               + DebugCategoryLabel((DebugCategory)idx));
-        }
-
-        // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all
-        // boards) AND for the global ButtonTuning elements (Rundenknöpfe / Boardtasten /
+        // Board cycle (Oak/Steel/Bronze) — the per-board element tuning edits the SELECTED
+        // board. Hidden for the GLOBAL ButtonTuning elements (Rundenknöpfe / Boardtasten /
         // Zahnrad & Fixiert — their values ride every board).
+        _rowGate = () => PerBoard() && !ElementIsGlobalTuning(CurrentElement());
         var boardRow = Row();
-        RegisterDebugRow(boardRow.gameObject,
-            () => !CategoryIsGlobal(CurrentCategory) && !ElementIsGlobalTuning(CurrentElement()));
         Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
         CycleButton(boardRow, 100f,
             () => CardsConfig.Board.Value.ToString(),
@@ -940,11 +1130,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // collapses the list. Hidden for global categories and for single-element
         // categories (Board) where a chooser would be a no-op. Rows are plain uGUI
         // buttons built by the shared helpers, so poke AND laser keep working unchanged.
+        _rowGate = () => PerBoard() && CurrentCategoryElements.Length > 1;
         var elemRow = Row();
-        RegisterDebugRow(elemRow.gameObject,
-            () => !CategoryIsGlobal(CurrentCategory) && CurrentCategoryElements.Length > 1);
         Label(elemRow, Loc.Mod("element"), 16f, flexible: true);
-        CycleButton(elemRow, 130f,
+        CycleButton(elemRow, 150f,
             () => DebugElementLabel(CurrentElement()) + (_elementListOpen ? " -" : " +"),
             () => _elementListOpen = !_elementListOpen);
 
@@ -952,7 +1141,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // each row's visibility predicate + label refresher re-scope it to the current
         // category, so category switches never rebuild anything).
         int maxElements = 0;
-        foreach (DebugElement[] els in CategoryElements)
+        foreach (DebugElement[] els in NavElements)
         {
             if (els.Length > maxElements)
                 maxElements = els.Length;
@@ -960,17 +1149,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         for (int i = 0; i < maxElements; i++)
         {
             int idx = i; // capture per row
+            _rowGate = () => _elementListOpen && PerBoard()
+                             && CurrentCategoryElements.Length > 1
+                             && idx < CurrentCategoryElements.Length;
             var optRow = Row(28f);
-            RegisterDebugRow(optRow.gameObject,
-                () => _elementListOpen && !CategoryIsGlobal(CurrentCategory)
-                      && CurrentCategoryElements.Length > 1
-                      && idx < CurrentCategoryElements.Length);
             Label(optRow, "", 13f); // fixed 28px gutter — reads as an indented sub-row
             (Button _, TextMeshProUGUI optText) = Button(optRow, "", 0f, () =>
             {
                 DebugElement[] els = CurrentCategoryElements;
                 if (idx < els.Length)
-                    _categoryElement[_debugCategory] = idx;
+                    _categoryElement[_navCat] = idx;
                 _elementListOpen = false; // select + collapse
                 RefreshAll();
             }, flexible: true);
@@ -980,13 +1168,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 if (idx >= els.Length)
                     return; // row is hidden by its predicate anyway
                 bool selected =
-                    Mathf.Clamp(_categoryElement[_debugCategory], 0, els.Length - 1) == idx;
+                    Mathf.Clamp(_categoryElement[_navCat], 0, els.Length - 1) == idx;
                 optText.text = (selected ? "> " : "") + DebugElementLabel(els[idx]);
             });
         }
-
-        // Per-element steppers (visible for the current per-board category + element). ---------
-        bool PerBoard() => !CategoryIsGlobal(CurrentCategory);
 
         // X / Y / Z offset steppers (mm), each drives the selected element's active-board offset.
         AddOffsetStepper("X", 0);
@@ -994,32 +1179,32 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddOffsetStepper("Z (proud)", 2);
 
         // Size / Scale stepper — hidden for elements with no size (Overlays, Initiative).
+        _rowGate = () => PerBoard() && ElementHasSize(CurrentElement());
         var sizeRow = Row();
-        RegisterDebugRow(sizeRow.gameObject, () => PerBoard() && ElementHasSize(CurrentElement()));
         Label(sizeRow, Loc.Mod("size"), 16f, flexible: true);
         MiniStepper(sizeRow, FormatSize, StepSize);
 
         // Spacing stepper — group gap (Rest disc gap / Confirm-Undo gap / inter-pile gap; Active COL step).
+        _rowGate = () => PerBoard() && ElementHasSpacing(CurrentElement());
         var spacingRow = Row();
-        RegisterDebugRow(spacingRow.gameObject, () => PerBoard() && ElementHasSpacing(CurrentElement()));
         Label(spacingRow, Loc.Mod("spacing"), 16f, flexible: true);
         MiniStepper(spacingRow, FormatSpacing, StepSpacing);
 
         // Active-only ROW step stepper (the grid's vertical spacing).
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Active;
         var rowGapRow = Row();
-        RegisterDebugRow(rowGapRow.gameObject, () => PerBoard() && CurrentElement() == DebugElement.Active);
         Label(rowGapRow, Loc.Mod("row_gap"), 16f, flexible: true);
         MiniStepper(rowGapRow, FormatActiveRowStep, StepActiveRowStep);
 
         // Shape cycle — shown only for the button GROUPS (Rest / Generic): flip Round <-> Square.
+        _rowGate = () => PerBoard() && ElementHasShape(CurrentElement());
         var shapeRow = Row();
-        RegisterDebugRow(shapeRow.gameObject, () => PerBoard() && ElementHasShape(CurrentElement()));
         Label(shapeRow, Loc.Mod("shape"), 16f, flexible: true);
         CycleButton(shapeRow, 100f, FormatShape, FlipShape);
 
         // Board-only Tilt / Yaw row (shown only when Element == Board).
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Board;
         var tiltYawRow = Row();
-        RegisterDebugRow(tiltYawRow.gameObject, () => PerBoard() && CurrentElement() == DebugElement.Board);
         Label(tiltYawRow, Loc.Mod("tilt_yaw"), 16f, flexible: true);
         MiniStepper(tiltYawRow,
             () => $"{CardsConfig.BoardTilt(CardsConfig.CurrentBoard).Value:0}°",
@@ -1040,9 +1225,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // initiative track's front-to-back portrait spread cap ([WorldUI] InitiativeDepthMaxSpreadPx,
         // px). InitiativeTrackSurface.NormalizeDepth re-reads it every tick and re-clamps, so the
         // recession updates live (0 = flat). Analogous to the Board Tilt/Yaw row above.
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Initiative;
         var initDepthRow = Row();
-        RegisterDebugRow(initDepthRow.gameObject, () => PerBoard() && CurrentElement() == DebugElement.Initiative);
-        Label(initDepthRow, "3D depth", 16f, flexible: true);
+        Label(initDepthRow, "3D-Tiefe", 16f, flexible: true);
         MiniStepper(initDepthRow,
             () => $"{WorldUIConfig.InitiativeDepthMaxSpreadPx.Value:0}px",
             d =>
@@ -1057,9 +1242,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // element's rows (precedent: the initiative 3D-depth row above). Live:
         // DecisionDockSurface subscribes SettingChanged and re-compresses an OPEN dock
         // immediately; BepInEx persists on set.
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Decision;
         var decisionGapRow = Row();
-        RegisterDebugRow(decisionGapRow.gameObject,
-            () => PerBoard() && CurrentElement() == DebugElement.Decision);
         Label(decisionGapRow, "Entscheidungs-Abstand", 16f, flexible: true);
         MiniStepper(decisionGapRow,
             () => $"{WorldUIConfig.DecisionRowGapPx.Value:0}px",
@@ -1079,9 +1263,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddBrowseOffsetStepper("Browse Y", 1);
         AddBrowseOffsetStepper("Browse Z", 2);
 
-        // Reset element (per-board categories only — resets the selected element).
+        // Reset element (element-bearing categories only — resets the selected element).
+        _rowGate = PerBoard;
         var actionRow = Row();
-        RegisterDebugRow(actionRow.gameObject, PerBoard);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
         // ButtonTuning elements of the "Tasten" category (request C + the 2026-07 category
@@ -1107,8 +1291,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         if (ButtonTuning.RoundShape != null)
         {
             ConfigEntry<ButtonShape> shapeEntry = ButtonTuning.RoundShape;
+            _rowGate = RoundButtonRowsVisible;
             var transientShapeRow = Row();
-            RegisterDebugRow(transientShapeRow.gameObject, RoundButtonRowsVisible);
             Label(transientShapeRow, Loc.Mod("shape"), 16f, flexible: true);
             CycleButton(transientShapeRow, 100f,
                 () => ShapeLabel(shapeEntry.Value),
@@ -1150,140 +1334,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddButtonTuningRow("Hub", ButtonTuning.DashTravel, 0.001f, 0.002f, 0.02f,
             v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
 
-        // FAN category (GLOBAL): the hand-card fan's width/roundness/spacing. Live-applied by
-        // CardsDriver (relayout) so tuning updates the fan immediately; grab/hover geometry derives
-        // from the same radius/step so it stays aligned. Shown only under the Fan tab.
-        AddFanStepper(Loc.Mod("fan_step"), CardsConfig.FanPerCardStepDegrees, 1f, 2f, 40f, v => $"{v:0}°");
-        AddFanStepper(Loc.Mod("fan_arc"), CardsConfig.FanArcSweepDegrees, 1f, 20f, 180f, v => $"{v:0}°");
-        AddFanStepper(Loc.Mod("fan_radius"), CardsConfig.FanEffectiveRadius, 0.002f, 0.05f, 0.4f,
-            v => $"{v * 1000f:0}mm");
-        AddFanStepper(Loc.Mod("fan_split"), CardsConfig.FanHoverSplitScale, 0.05f, 0.5f, 3f, v => $"{v:0.00}x");
-
-        // Reveal-angle round 2: the palm-gate reveal is a pure hand-ROLL angle in DEGREES
-        // (0 = palm down, 90 = thumb up, 180 = palm fully up; pitch/yaw irrelevant) +
-        // the fan-out animation length, all live: UpdatePalmGate re-reads the degrees
-        // every frame and CardFan reads the duration at each reveal, so tuning is
-        // interactive in-headset. Same Fan tab as the geometry rows.
-        // Bounds match the v3 asin-roll scale (0° flat … 90° palm to face; CardsConfig clamps 15-85 / 5-80).
-        AddFanStepper("Reveal enter °", CardsConfig.RevealEnterDegrees, 5f, 15f, 85f, v => $"{v:0}°");
-        AddFanStepper("Reveal exit °", CardsConfig.RevealExitDegrees, 5f, 5f, 80f, v => $"{v:0}°");
-        AddFanStepper("Open time", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
-
-        // HANDS category (GLOBAL, both hands; NOT per-board). PER-STYLE rework (user):
-        // EVERY hand-tuning value below is stored PER HAND STYLE — the four seat values
-        // as [Hands] {Style}GripPitchDegrees/{Style}LateralOffset/… in
-        // dev.gloomhavenvr.hands.cfg (seeded once from the old shared seat controls +
-        // per-style trims, so tuned values carried over to all three styles) and the
-        // scale as the existing per-style [Hands] {Style}Scale in the main cfg. Each row
-        // edits the style CURRENTLY worn; the "Stil" row cycles it right here so all
-        // three sets are reachable without leaving the tab. Everything live-applies per
-        // frame (VRHand.SyncVisualOffset re-reads the ACTIVE style's entries every
-        // frame — a style switch re-seats/rescales instantly too). Force the config bound
-        // (idempotent) so the seat rows work even if the Hands module hasn't inited.
-        HandsConfig.Bind();
-        var handsStyleRow = Row();
-        RegisterDebugRow(handsStyleRow.gameObject, () => CurrentCategory == DebugCategory.Hands);
-        Label(handsStyleRow, "Stil", 16f, flexible: true);
-        CycleButton(handsStyleRow, 120f, HandStyleLabel, CycleHandStyle);
-        var handsNote = Row(18f);
-        RegisterDebugRow(handsNote.gameObject, () => CurrentCategory == DebugCategory.Hands);
-        Label(handsNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
-
-        AddStyleStepper(Loc.Mod("size"), () => Plugin.HandStyleScale, 0.02f, 0.2f, 3f,
-            v => $"{v:0.00}x");
-        AddStyleStepper(Loc.Mod("hand_x"), () => HandsConfig.StyleSeatLateral, 0.002f, -0.3f, 0.3f,
-            v => $"{v * 1000f:0}mm");
-        AddStyleStepper(Loc.Mod("hand_y"), () => HandsConfig.StyleSeatVertical, 0.002f, -0.3f, 0.3f,
-            v => $"{v * 1000f:0}mm");
-        AddStyleStepper(Loc.Mod("hand_z"), () => HandsConfig.StyleSeatForward, 0.002f, -0.3f, 0.3f,
-            v => $"{v * 1000f:0}mm");
-        AddStyleStepper(Loc.Mod("hand_pitch"), () => HandsConfig.StyleSeatPitch, 1f, -90f, 90f,
-            v => $"{v:0}°");
-
-        // FIGURES category (GLOBAL across boards; PER HAND STYLE since request A): live-tune the
-        // HELD board-figure pose — the mini is docked between thumb and index of the hand MESH,
-        // whose geometry differs per style, so every pose stepper drives the ACTIVE style's
-        // [FigureGrab] {Style}Held* entry (dev.gloomhavenvr.figuregrab.cfg; seeded once from the
-        // old shared entries so tuned values carried over to all three styles). Everything
-        // live-applies: FigureGrabConfig subscribes every entry's SettingChanged — and the hand-
-        // style entry itself — and re-poses the currently-held mini immediately
-        // (FigureGrabbable.ReapplyAll), so tuning is interactive in-headset. The "Stil" row
-        // cycles the style right here so all three sets are reachable without leaving the tab;
-        // "Aufrecht" is a MODE toggle and stays global. Force the config bound so the steppers
-        // work even before the board module inits. Shown only under the Figures tab.
-        FigureGrabConfig.Bind();
-        var figStyleRow = Row();
-        RegisterDebugRow(figStyleRow.gameObject, () => CurrentCategory == DebugCategory.Figures);
-        Label(figStyleRow, "Stil", 16f, flexible: true);
-        CycleButton(figStyleRow, 120f, HandStyleLabel, CycleHandStyle);
-        var figNote = Row(18f);
-        RegisterDebugRow(figNote.gameObject, () => CurrentCategory == DebugCategory.Figures);
-        Label(figNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
-
-        AddFigureToggle(Loc.Mod("fig_upright"), FigureGrabConfig.HeldUpright);
-        AddStyleStepper(Loc.Mod("fig_x"), () => FigureGrabConfig.StyleHeldOffsetSide, 0.002f,
-            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", DebugCategory.Figures);
-        AddStyleStepper(Loc.Mod("fig_y"), () => FigureGrabConfig.StyleHeldOffsetUp, 0.002f,
-            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", DebugCategory.Figures);
-        AddStyleStepper(Loc.Mod("fig_z"), () => FigureGrabConfig.StyleHeldOffsetForward, 0.002f,
-            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", DebugCategory.Figures);
-        AddStyleStepper(Loc.Mod("fig_tilt"), () => FigureGrabConfig.StyleHeldTiltDegrees, 5f,
-            -180f, 180f, v => $"{v:0}°", DebugCategory.Figures);
-        AddStyleStepper(Loc.Mod("fig_yaw"), () => FigureGrabConfig.StyleHeldFaceYawDegrees, 5f,
-            -180f, 180f, v => $"{v:0}°", DebugCategory.Figures);
-        AddStyleStepper(Loc.Mod("fig_scale"), () => FigureGrabConfig.StyleHeldScale, 0.1f,
-            0.2f, 5f, v => $"{v:0.00}x", DebugCategory.Figures);
-
-        // WRIST category (item 10; PER HAND STYLE since request B): live-tune the wrist overview
-        // HUD pose — its TILT (pitch/yaw/roll on top of the flat-on-hand base) and its POSITION
-        // offset (X/Y/Z, meters) from the wrist anchor. The WristHud accessors behind these
-        // steppers read/write the ACTIVE hand style's [WristHud] {Style}* entry in
-        // dev.gloomhavenvr.hands.cfg (seeded once from the old global [WorldUI] WristHud*
-        // values), and WristHud re-reads + re-applies every Tick (WristHud.ApplyPose) — so both
-        // a stepper nudge AND a style switch move the watch-face HUD immediately. The "Stil"
-        // row cycles the style right here; the HUD's on/off toggle stays global. Shown only
-        // under the Wrist tab.
-        var wristStyleRow = Row();
-        RegisterDebugRow(wristStyleRow.gameObject, () => CurrentCategory == DebugCategory.Wrist);
-        Label(wristStyleRow, "Stil", 16f, flexible: true);
-        CycleButton(wristStyleRow, 120f, HandStyleLabel, CycleHandStyle);
-        var wristNote = Row(18f);
-        RegisterDebugRow(wristNote.gameObject, () => CurrentCategory == DebugCategory.Wrist);
-        Label(wristNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
-
-        AddWristStepper(Loc.Mod("wrist_pitch"), () => WristHud.PitchDeg, v => WristHud.PitchDeg = v, 2f, v => $"{v:0}°");
-        AddWristStepper(Loc.Mod("wrist_yaw"),   () => WristHud.YawDeg,   v => WristHud.YawDeg = v,   2f, v => $"{v:0}°");
-        AddWristStepper(Loc.Mod("wrist_roll"),  () => WristHud.RollDeg,  v => WristHud.RollDeg = v,  2f, v => $"{v:0}°");
-        AddWristStepper(Loc.Mod("wrist_x"), () => WristHud.OffsetX, v => WristHud.OffsetX = v, 0.002f, v => $"{v * 1000f:0}mm");
-        AddWristStepper(Loc.Mod("wrist_y"), () => WristHud.OffsetY, v => WristHud.OffsetY = v, 0.002f, v => $"{v * 1000f:0}mm");
-        AddWristStepper(Loc.Mod("wrist_z"), () => WristHud.OffsetZ, v => WristHud.OffsetZ = v, 0.002f, v => $"{v * 1000f:0}mm");
-
-        // Single visibility pass: master DebugMenu gate ANDed with each row's own predicate
-        // (category/element scope). Never more than a handful of rows visible at once.
-        _refreshers.Add(() =>
-        {
-            bool on = CardsConfig.DebugMenu.Value;
-            for (int i = 0; i < _debugRows.Count; i++)
-            {
-                GameObject go = _debugRows[i];
-                // A row can be Unity-null if its holder was destroyed out from under us
-                // (e.g. a scene unload) while the panel instance survived; skip it rather
-                // than let go.activeSelf throw every refresh (bug #5 flood). The Build()
-                // list-clear below is the real fix; this is the belt-and-braces guard.
-                if (go == null)
-                    continue;
-                bool show = on && _debugRowVisible[i]();
-                if (go.activeSelf != show)
-                    go.SetActive(show);
-            }
-        });
-    }
-
-    /// <summary>Register a debug row for the master on/off gate + its own category/element visibility predicate.</summary>
-    private void RegisterDebugRow(GameObject go, Func<bool> visible)
-    {
-        _debugRows.Add(go);
-        _debugRowVisible.Add(visible);
     }
 
     /// <summary>Elements that expose a Size/Scale stepper (Rest disc, Generic side, Active/Pile scale, Board scale, the two docks + the cluster).</summary>
@@ -1307,12 +1357,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     private void AddOffsetStepper(string label, int axis)
     {
-        var row = Row();
         // Every per-board element carries a Vector3 offset — except the global ButtonTuning
         // elements: RoundButtons has its own [RoundButtons] Versatz X/Y/Z rows, and the two
         // board keycap elements have no offset at all (ElementOffsetEntry() is null there).
-        RegisterDebugRow(row.gameObject,
-            () => !CategoryIsGlobal(CurrentCategory) && ElementOffsetEntry() != null);
+        _rowGate = () => PerBoard() && ElementOffsetEntry() != null;
+        var row = Row();
         Label(row, label, 16f, flexible: true);
         MiniStepper(row, () => FormatOffset(axis), d => StepOffset(axis, d));
     }
@@ -1325,9 +1374,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private void AddBrowseOffsetStepper(string label, int axis)
     {
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Piles;
         var row = Row();
-        RegisterDebugRow(row.gameObject,
-            () => !CategoryIsGlobal(CurrentCategory) && CurrentElement() == DebugElement.Piles);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () =>
@@ -1349,19 +1397,17 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Wall-fade threshold stepper row (lives in the Modules section next to the Wall
-    /// see-through toggle, but is debug-gated like the board-tuning rows: visible only
-    /// while [Cards] DebugMenu is on). Bound directly to a live [WallFade] entry —
-    /// writing persists (BepInEx) and applies on WallSegmentFade's next evaluation tick
-    /// (the driver re-reads the clamped WallFadeTuning accessors every frame).
+    /// Wall-fade threshold stepper row under the Wände category. Bound directly to a live
+    /// [WallFade] entry — writing persists (BepInEx) and applies on WallSegmentFade's next
+    /// evaluation tick (the driver re-reads the clamped WallFadeTuning accessors every frame).
     /// </summary>
     private void AddWallFadeRow(string label, ConfigEntry<float>? entry, float step, float min,
         float max, Func<float, string> format)
     {
         if (entry == null)
             return; // WallFadeTuning.Bind() failed (config dir unwritable) — skip the row
+        _rowGate = () => _navCat == (int)NavCat.Waende;
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => _wallFadeOpen); // collapsed-by-default expander
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => format(entry.Value),
@@ -1374,15 +1420,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     /// <summary>Visibility of the [RoundButtons] rows: Tasten → Rundenknöpfe element selected.</summary>
     private bool RoundButtonRowsVisible() =>
-        CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.RoundButtons;
+        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.RoundButtons;
 
     /// <summary>Visibility of the [BoardButtons] rows: Tasten → Boardtasten element selected.</summary>
     private bool BoardButtonRowsVisible() =>
-        CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.BoardButtons;
+        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.BoardButtons;
 
     /// <summary>Visibility of the [BoardDashboard] rows: Tasten → Zahnrad &amp; Fixiert element selected.</summary>
     private bool BoardDashboardRowsVisible() =>
-        CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.BoardDashboard;
+        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.BoardDashboard;
 
     /// <summary>
     /// ButtonTuning stepper row bound directly to a live <see cref="ConfigEntry{T}"/> (mm
@@ -1398,8 +1444,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         if (entry == null)
             return;
+        _rowGate = visible;
         var row = Row();
-        RegisterDebugRow(row.gameObject, visible);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => format(entry.Value),
@@ -1407,15 +1453,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// FAN category (global) stepper bound to a global fan <see cref="ConfigEntry{T}"/>. Writing the
-    /// entry persists (BepInEx) and live-applies (CardsDriver relayouts the open fan). Clamped to
-    /// [min,max]. Shown only under the Fan tab.
+    /// Card-fan stepper bound to a global fan <see cref="ConfigEntry{T}"/>. Writing the entry
+    /// persists (BepInEx) and live-applies (CardsDriver relayouts the open fan). Clamped to
+    /// [min,max]. Shown under the Hände tab (Kartenfächer sub-section).
     /// </summary>
     private void AddFanStepper(string label, ConfigEntry<float> entry, float step, float min, float max,
         Func<float, string> format)
     {
+        _rowGate = () => _navCat == (int)NavCat.Haende;
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Fan);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => format(entry.Value),
@@ -1433,10 +1479,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private void AddStyleStepper(string label, Func<ConfigEntry<float>[]?> entries, float step,
         float min, float max, Func<float, string> format,
-        DebugCategory category = DebugCategory.Hands)
+        NavCat category = NavCat.Haende)
     {
+        _rowGate = () => _navCat == (int)category;
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == category);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () =>
@@ -1480,8 +1526,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void AddWristStepper(string label, Func<float> get, Action<float> set, float step,
         Func<float, string> format)
     {
+        _rowGate = () => _navCat == (int)NavCat.Handgelenk;
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Wrist);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => format(get()),
@@ -1491,8 +1537,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>Held-figure boolean row (e.g. Upright) — same live-apply/persist path as the steppers.</summary>
     private void AddFigureToggle(string label, ConfigEntry<bool> entry)
     {
+        _rowGate = () => _navCat == (int)NavCat.Figuren;
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Figures);
         Label(row, label, 16f, flexible: true);
         ToggleButton(row, () => entry.Value, v => entry.Value = v);
     }
@@ -1708,21 +1754,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         };
     }
 
-    /// <summary>Localized name of a debug CATEGORY tab (the Category cycle readout). Board/Hands reuse existing element labels.</summary>
-    private static string DebugCategoryLabel(DebugCategory c) => c switch
-    {
-        DebugCategory.Buttons => Loc.Mod("cat_buttons"),
-        DebugCategory.Panels => Loc.Mod("cat_panels"),
-        DebugCategory.Overlays => Loc.Mod("overlays"),
-        DebugCategory.Widgets => Loc.Mod("cat_widgets"),
-        DebugCategory.Board => Loc.Mod("board"),
-        DebugCategory.Fan => Loc.Mod("cat_fan"),
-        DebugCategory.Hands => Loc.Mod("hands"),
-        DebugCategory.Figures => Loc.Mod("cat_figures"),
-        DebugCategory.Wrist => Loc.Mod("cat_wrist"),
-        _ => c.ToString(),
-    };
-
     /// <summary>Localized name of a debug-tunable board element (the Element cycle readout).</summary>
     private static string DebugElementLabel(DebugElement e) => e switch
     {
@@ -1744,7 +1775,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // "Kappengröße", …) — the round-phase skip buttons the user tunes here, plus the
         // category-split board elements (Confirm/Undo keycaps; gear + Fixiert plates).
         DebugElement.RoundButtons => "Rundenknöpfe",
-        DebugElement.BoardButtons => "Boardtasten",
+        DebugElement.BoardButtons => "Boardtasten (Bestätigen/Rückgängig)",
         DebugElement.BoardDashboard => "Zahnrad & Fixiert",
         _ => e.ToString(),
     };
@@ -2020,7 +2051,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         var go = new GameObject("Row") { layer = 5 };
         var rect = go.AddComponent<RectTransform>();
-        go.transform.SetParent(_root!.transform, worldPositionStays: false);
+        // Rows parent into the active build column (sidebar/content) while one is set; else the
+        // canvas root (header). And when a gate is set, register the row for the show/hide pass —
+        // this is the single mechanism that swaps the content pane per selected category.
+        go.transform.SetParent((_rowParent != null ? _rowParent : _root!.transform), worldPositionStays: false);
         var h = go.AddComponent<HorizontalLayoutGroup>();
         h.spacing = 6f;
         h.childForceExpandWidth = false;
@@ -2031,6 +2065,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var el = go.AddComponent<LayoutElement>();
         el.preferredHeight = height;
         el.minHeight = height;
+        if (_rowGate != null)
+        {
+            _rows.Add(go);
+            _rowVisible.Add(_rowGate);
+        }
         return rect;
     }
 
