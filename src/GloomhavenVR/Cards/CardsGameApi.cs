@@ -83,6 +83,35 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// Task #5: is it genuinely THIS hand's player's OWN action turn right now — the only
+    /// state in which the two played (round) ability cards should be docked on the control
+    /// board? During the <c>ActionSelection</c> phase every actor takes its turn in
+    /// initiative order, but <c>CardsHandUI.currentMode</c> STAYS
+    /// <c>CardHandMode.ActionSelection</c> after the player's own turn ends — it is only
+    /// re-driven by the next <c>CardsHandManager.Show(...)</c>, which does NOT run during an
+    /// enemy turn (the same stale-mode trap the CardsSelection lock guards, see
+    /// <see cref="IsSelectionPhase"/>). So the raw mode keeps the played cards docked all
+    /// through the enemy turn (the reported bug: cards still on the board while an ENEMY is
+    /// up). This returns true ONLY while the acting actor (<c>Choreographer.CurrentActor</c>,
+    /// verified :490) IS this hand's player actor — so the board clears the instant an enemy
+    /// (or any other actor) becomes current, and re-docks when the character's own turn comes
+    /// round again. The two-character sequential case resolves naturally: each character's own
+    /// turn makes <c>CurrentActor</c> its own player, so its own round cards dock — never the
+    /// other's. MP-guarded to locally controlled actors (never hijack a remote turn).
+    /// </summary>
+    internal static bool IsActionTurn(CardsHandUI hand)
+    {
+        if (hand == null || hand.PlayerActor == null)
+            return false;
+        Choreographer c = Choreographer.s_Choreographer;
+        if (c == null || !(c.CurrentActor is CPlayerActor cur))
+            return false;
+        if (!ReferenceEquals(cur, hand.PlayerActor))
+            return false;
+        return !FFSNetwork.IsOnline || cur.IsUnderMyControl;
+    }
+
+    /// <summary>
     /// True when we may drive this hand. Verified: <c>public static bool
     /// FFSNetwork.IsOnline</c>; <c>CPlayerActor.IsUnderMyControl</c> (used the same
     /// way throughout CardsHandUI, e.g. RefreshValidCards, CardsHandUI.cs:1635).
@@ -1291,6 +1320,119 @@ internal static class CardsGameApi
 
     /// <summary>Verified: <c>public virtual bool IsDeadPlayer</c> (CActor.cs:618) + <c>EType Type</c> (CActor.cs:299).</summary>
     internal static bool IsPlayer(CActor actor) => actor is CPlayerActor;
+
+    // ------------------------------------------------------- take-damage selection --
+
+    /// <summary>
+    /// Task #6: the character that is the subject of an OPEN take-damage decision — the actor
+    /// being attacked, resolved to the <see cref="CPlayerActor"/> the initiative track can
+    /// select (and the WristHud shows). <c>TakeDamagePanel.Show(actorBeingAttacked, …)</c>
+    /// stores the attacked actor (private <c>actorBeingAttacked</c>, publicized —
+    /// TakeDamagePanel.cs:97/219) and opens its UIWindow (<c>public bool IsOpen =&gt;
+    /// myWindow.IsOpen</c>, :165); <c>ResetAndHide</c> nulls it (:1058). A summon maps to its
+    /// <c>Summoner</c> (the selectable hero, CHeroSummonActor.cs:116); a player maps to itself;
+    /// anything else (a damaged enemy) yields null. Null unless the panel is OPEN. MULTIPLAYER:
+    /// the remote-player variant runs through <c>ShowOtherPlayer</c>, which HIDES the window
+    /// (<c>myWindow.Hide(instant: true)</c>, :1133 → <c>IsOpen</c> false), so a remote client's
+    /// decision never resolves here; the caller additionally gates on IsUnderMyControl.
+    /// Verified: <c>Singleton&lt;TakeDamagePanel&gt;.Instance</c>.
+    /// </summary>
+    internal static CPlayerActor? TakeDamageSubject()
+    {
+        TakeDamagePanel panel = Singleton<TakeDamagePanel>.Instance;
+        if (panel == null || !panel.IsOpen)
+            return null;
+        CActor attacked = panel.actorBeingAttacked;
+        if (attacked is CPlayerActor player)
+            return player;
+        if (attacked is CHeroSummonActor summon)
+            return summon.Summoner;
+        return null;
+    }
+
+    /// <summary>
+    /// Task #6 MP guard: does THIS client own the open take-damage decision? Mirrors the
+    /// game's own control test <c>TakeDamagePanel.ThisPlayerHasTakeDamageControl</c>
+    /// (TakeDamagePanel.cs:133 — true offline, else the attacked/cards actor's
+    /// IsUnderMyControl / host-for-enemy). Combined with the caller's own IsUnderMyControl
+    /// check so selection is never driven for a remote player's decision. Null-safe.
+    /// </summary>
+    internal static bool TakeDamageIsLocalDecision()
+    {
+        TakeDamagePanel panel = Singleton<TakeDamagePanel>.Instance;
+        return panel != null && panel.IsOpen && panel.ThisPlayerHasTakeDamageControl;
+    }
+
+    /// <summary>
+    /// Task #6: the attacked character we MAY drive selection to — <see cref="TakeDamageSubject"/>
+    /// gated to the LOCAL player's own controlled actors so a remote player's decision (or a
+    /// host-owned enemy damage) never hijacks this client's selection. Null unless an open
+    /// take-damage decision is under this client's control for a locally controlled hero.
+    /// </summary>
+    internal static CPlayerActor? DrivableTakeDamageSubject()
+    {
+        CPlayerActor? subject = TakeDamageSubject();
+        if (subject == null)
+            return null;
+        if (FFSNetwork.IsOnline && !subject.IsUnderMyControl)
+            return null;
+        return TakeDamageIsLocalDecision() ? subject : null;
+    }
+
+    /// <summary>
+    /// The actor the game currently has SELECTED on the initiative track, or null. Verified:
+    /// <c>public InitiativeTrackActorBehaviour SelectedActor()</c> (InitiativeTrack.cs:527) →
+    /// <c>public CActor Actor</c> (InitiativeTrackActorBehaviour.cs:33).
+    /// </summary>
+    internal static CActor? SelectedActor()
+    {
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track == null)
+            return null;
+        InitiativeTrackActorBehaviour beh = track.SelectedActor();
+        return beh != null ? beh.Actor : null;
+    }
+
+    /// <summary>
+    /// Task #6: drive the game's SELECTED actor to <paramref name="actor"/> through the
+    /// initiative track's OWN selection path — the exact state change a 2D click on that
+    /// character's initiative avatar makes. We locate the actor's behaviour in the track's own
+    /// <c>actorsUI</c> (private, publicized — InitiativeTrack.cs:73) and call
+    /// <c>public void Select(InitiativeTrackActorBehaviour)</c> (InitiativeTrack.cs:332):
+    /// deselect the old, select the new, world-highlight it and <c>SmartFocus</c> the camera.
+    /// We deliberately use this overload rather than <c>Select(CPlayerActor)</c> (:352), whose
+    /// extra per-avatar button-interactability gate can reject the drive while a MODAL damage
+    /// decision is up. The camera <c>SmartFocus(…, pauseDuringTransition: true)</c> is safe in
+    /// VR — the rig owns the head pose, <c>CameraController.LateUpdate</c> is prefix-skipped,
+    /// and <c>CameraArrivalGuard</c> completes/unpauses any focal-follow transition every frame
+    /// (Board/CameraArrivalGuard.cs). Still honours <c>IsSelectable</c> (false only in
+    /// <c>MonsterClassesSelectAbilityCards</c> / an improved-long-rest edge, InitiativeTrack.cs:114)
+    /// — returns false then. NOT a rules mutation: pure UI selection, the same seam the game
+    /// exposes to a click. Returns true when the selection now reflects <paramref name="actor"/>.
+    /// </summary>
+    internal static bool SelectActor(CActor actor)
+    {
+        if (actor == null)
+            return false;
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track == null || !track.IsSelectable)
+            return false;
+        InitiativeTrackActorBehaviour current = track.SelectedActor();
+        if (current != null && ReferenceEquals(current.Actor, actor))
+            return true; // already selected — nothing to do (no needless re-focus)
+        List<InitiativeTrackActorBehaviour> actors = track.actorsUI;
+        for (int i = 0; i < actors.Count; i++)
+        {
+            InitiativeTrackActorBehaviour beh = actors[i];
+            if (beh != null && ReferenceEquals(beh.Actor, actor))
+            {
+                track.Select(beh);
+                InitiativeTrackActorBehaviour now = track.SelectedActor();
+                return now != null && ReferenceEquals(now.Actor, actor);
+            }
+        }
+        return false;
+    }
 
     // ---------------------------------------------------------------- card piles --
 
