@@ -313,20 +313,22 @@ internal static class ButtonTuning
         // ---- [ButtonAnim] — keycap appear/disappear animation (user: general dissolve + APPEAR) ----
         AnimEnable = config.Bind("ButtonAnim", "Enable", true,
             "Play the appear/disappear animation on the 3D keycaps (Confirm/Undo, gear/Fixiert, the " +
-            "short/long rest keycaps and the transient round-phase cluster buttons). ON: a vanishing " +
-            "button shrinks out with a face-colored dust burst, an appearing one scales in with a slight " +
-            "overshoot. OFF: buttons pop in/out instantly (no dust, no scale). Input is live immediately " +
-            "either way. Default true. Live.");
+            "short/long rest keycaps and the transient round-phase cluster buttons). ON: a matched pair — " +
+            "a vanishing button CRUMBLES TO DUST (shrinks out with a face-colored dust burst) and an " +
+            "appearing one MATERIALIZES FROM DUST (converging dust motes settle onto the cap while its " +
+            "surface fades up to full colour — no scale pop). OFF: buttons pop in/out instantly (no dust, " +
+            "no fade). Input is live immediately either way. Default true. Live.");
         AnimAppearParticles = config.Bind("ButtonAnim", "AppearParticles", true,
-            "Emit a few converging 'assembling' dust particles when a keycap APPEARS (reuses the same " +
-            "pooled system as the disappear burst, in reverse). OFF = the scale-in alone. Default true. Live.");
+            "Emit the converging 'assembling' dust cloud when a keycap APPEARS (the disappear crumble " +
+            "burst in reverse — same pooled system, matched density). OFF = the surface fade-in alone. " +
+            "Default true. Live.");
         AnimDissolveDuration = config.Bind("ButtonAnim", "DisappearSeconds", DefaultDissolveSeconds,
             "Seconds the cap shrinks out while the dust burst plays when a keycap DISAPPEARS (the logical " +
             "hide — input off, layout reflow — is instant regardless). Default 0.16. Live; clamped 0.05..1.0.");
         AnimAppearDuration = config.Bind("ButtonAnim", "AppearSeconds", DefaultAppearSeconds,
-            "Seconds of the quick scale-in (from ~0.55 with a slight overshoot to 1.0) when a keycap " +
-            "APPEARS. Input/colliders are live from frame one — the animation is purely visual. Default " +
-            "0.15. Live; clamped 0.05..1.0.");
+            "Seconds of the materialize-from-dust APPEAR (converging dust motes settle onto the cap while " +
+            "its surface fades up from the dust to full colour, in place — no scale pop). Input/colliders " +
+            "are live from frame one — the animation is purely visual. Default 0.15. Live; clamped 0.05..1.0.");
 
         MigrateLegacy(config);
 
@@ -595,15 +597,15 @@ internal static class ButtonTuning
     /// <summary>Whether the keycap appear/disappear animation plays (OFF = instant pop, no dust/scale).</summary>
     internal static bool ButtonAnimEnabled => AnimEnable == null || AnimEnable.Value;
 
-    /// <summary>Whether the converging 'assembling' dust particles play on a keycap appear (needs
-    /// <see cref="ButtonAnimEnabled"/> too — the scale-in runs regardless while animation is on).</summary>
+    /// <summary>Whether the converging 'assembling' dust cloud plays on a keycap appear (needs
+    /// <see cref="ButtonAnimEnabled"/> too — the surface fade-in runs regardless while animation is on).</summary>
     internal static bool AppearParticlesEnabled => ButtonAnimEnabled && (AnimAppearParticles == null || AnimAppearParticles.Value);
 
     /// <summary>Seconds the cap shrinks out while the dust burst plays (logical hide is instant).
-    /// Floored at 0.05 so the shrink/scale ramps never divide by zero (use Enable=false for instant).</summary>
+    /// Floored at 0.05 so the shrink/fade ramps never divide by zero (use Enable=false for instant).</summary>
     internal static float DissolveSeconds => Clamped(AnimDissolveDuration, DefaultDissolveSeconds, 0.05f, 1.0f);
 
-    /// <summary>Seconds of the quick scale-in when a keycap appears (floored at 0.05 — see above).</summary>
+    /// <summary>Seconds of the materialize-from-dust surface fade-in when a keycap appears (floored at 0.05 — see above).</summary>
     internal static float AppearSeconds => Clamped(AnimAppearDuration, DefaultAppearSeconds, 0.05f, 1.0f);
 
     // Throttle so a relayout that shows/hides several caps in one frame logs once, not a storm.
@@ -646,7 +648,10 @@ internal static class ButtonTuning
 internal static class ButtonDissolveFx
 {
     private const int BurstCount = 22;
-    private const int AppearCount = 12; // fewer, converging — a quick "assembling" shimmer
+    // Materialize = the disappear's MATCHED PAIR (user: "a matched pair — crumble away / assemble
+    // from dust"), so the converging cloud is as dense as the crumble burst, not the old sparse
+    // 12-mote shimmer.
+    private const int MaterializeCount = BurstCount;
 
     private static ParticleSystem? _ps;
 
@@ -687,36 +692,42 @@ internal static class ButtonDissolveFx
     }
 
     /// <summary>
-    /// Emit a quick converging 'assembling' shimmer for a button that APPEARS (user: an appear
-    /// animation instead of popping in) — the dissolve burst in reverse. A handful of face-colored
-    /// motes spawn on a ring around the cap and drift INWARD toward its center over a short lifetime,
-    /// fading as they arrive, so the cap reads as coalescing into place under the scale-in. Same
-    /// pooled world-space system, per-particle Emit — no per-frame allocation. Same args as
-    /// <see cref="Play"/>. Purely local visuals; never delays interactivity.
+    /// MATERIALIZE-FROM-DUST for a button that APPEARS (user: "emerge from dust … a matched pair
+    /// with the crumble-away") — the <see cref="Play"/> dissolve burst run in REVERSE. A dense
+    /// cloud of face-colored motes (matched to the crumble's <see cref="BurstCount"/>) spawns on
+    /// a ring OUT around the cap and drifts INWARD, decelerating as it converges and settling ONTO
+    /// the cap face, fading as it arrives — so the cap reads as assembling out of the swept-away
+    /// powder rather than popping or scaling in. Spawn spread/inward speed mirror the crumble's
+    /// outward sweep so the two read as the same powder in opposite time order. Same pooled
+    /// world-space system, per-particle Emit — no per-frame allocation. Same args as
+    /// <see cref="Play"/>. Purely local visuals; never delays interactivity (input is already live).
     /// </summary>
-    internal static void PlayAppear(Vector3 center, Vector3 outNormal, float worldSize, Color color)
+    internal static void PlayMaterialize(Vector3 center, Vector3 outNormal, float worldSize, Color color)
     {
         if (_ps == null)
             BuildPool();
         if (_ps == null)
-            return; // shader-less environment — appear degrades to the scale-in alone
+            return; // shader-less environment — appear degrades to the surface fade-in alone
         color.a = 1f;
         worldSize = Mathf.Clamp(worldSize, 0.01f, 0.5f);
         var ep = new ParticleSystem.EmitParams();
-        for (int i = 0; i < AppearCount; i++)
+        for (int i = 0; i < MaterializeCount; i++)
         {
             Vector3 jitter = Random.insideUnitSphere;
             Vector3 inPlane = Vector3.ProjectOnPlane(jitter, outNormal);
             if (inPlane.sqrMagnitude < 1e-6f)
                 inPlane = Vector3.Cross(outNormal, Vector3.up);
             inPlane.Normalize();
-            float ring = worldSize * (0.55f + 0.15f * Random.value);
-            ep.position = center + inPlane * ring + outNormal * (worldSize * 0.15f * Random.value);
-            // Converge inward toward the cap center, with a slight lift toward the face so the
-            // motes settle ONTO the cap rather than sinking through it.
-            ep.velocity = (-inPlane * (0.9f + 0.4f * Random.value) + outNormal * 0.15f) * worldSize;
-            ep.startLifetime = 0.12f + 0.08f * Random.value;
-            ep.startSize = worldSize * (0.04f + 0.04f * Random.value);
+            // Spawn on the same ~0.45·size ring the crumble sweeps OUT to, lifted a little off the
+            // face, and converge inward toward the cap center so the powder gathers back into place.
+            float ring = worldSize * (0.40f + 0.20f * Random.value);
+            ep.position = center + inPlane * ring + outNormal * (worldSize * (0.10f + 0.15f * Random.value));
+            // Inward drift (mirrors the crumble's outward sweep magnitude) plus a slight lift toward
+            // the face so the motes settle ONTO the cap rather than sinking through it.
+            ep.velocity = (-inPlane * (0.8f + 0.6f * Random.value)
+                           + outNormal * 0.20f) * worldSize;
+            ep.startLifetime = 0.16f + 0.12f * Random.value;
+            ep.startSize = worldSize * (0.045f + 0.05f * Random.value);
             ep.startColor = color;
             _ps.Emit(ep, 1);
         }

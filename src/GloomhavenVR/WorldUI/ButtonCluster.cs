@@ -587,12 +587,13 @@ internal sealed class ButtonCluster
         // retract/re-entry and hover-flicker re-fire).
         private float _nextPressTime;
 
-        // Dust-dissolve hide / quick scale-in show (user #7). Logical hide is instant
-        // (collider off, excluded from the column layout); only the visuals shrink out.
+        // Dust-dissolve hide / materialize-from-dust show (user #7). Logical hide is instant
+        // (collider off, excluded from the column layout); only the visuals shrink out. Appear
+        // reverses it: converging dust + a surface fade-in, in place (no scale pop).
         private bool _logicalVisible = true;
         private bool _everShown;     // suppress the dust burst for the initial state settling
         private float _dissolveLeft; // shrink-out countdown, seconds
-        private float _appearLeft;   // scale-in countdown, seconds
+        private float _appearLeft;   // materialize-from-dust fade-in countdown, seconds
         private Vector3 _slotScale = Vector3.one; // authoritative scale from SetSlot
 
         /// <summary>Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>.</summary>
@@ -726,28 +727,38 @@ internal sealed class ButtonCluster
             // wood-grain _MainTex from NewKeycapMaterial gives it the carved surface).
             _baseRenderer.sharedMaterial = CreateLitMaterial(new Color(0.15f, 0.12f, 0.08f));
 
-            // Travelling cap (squashed cylinder, or boxy keycap when Shape=Square).
-            GameObject cap = GameObject.CreatePrimitive(
-                roundShape ? PrimitiveType.Cylinder : PrimitiveType.Cube);
-            cap.name = "Cap";
-            Object.Destroy(cap.GetComponent<Collider>());
-            cap.transform.SetParent(_rootGo.transform, worldPositionStays: false);
+            // Travelling cap: a SMOOTH generated disc (Round) or a boxy keycap (Shape=Square).
+            // ROUND FIX (user: "you can see the CORNERS in the 'round' buttons"): the round puck
+            // was Unity's ~20-sided PrimitiveType.Cylinder — faceted at cap size. It is now the
+            // shared 64-seg CardMesh.GetRoundCap disc (planar XY UVs → the carved-grain keycap
+            // _MainTex still maps), authored at REAL size (diameter capW × full height 2·capD) and
+            // rotated 90° about X so its face axis lands on +Y — the cap travel axis, viewer side
+            // +Y — reproducing the cylinder's placement (top face at _capRestY + capD).
+            GameObject cap;
             if (roundShape)
             {
-                cap.transform.localScale = new Vector3(capW, capD, capH); // cylinder height = 2*y
+                cap = new GameObject("Cap");
+                cap.transform.SetParent(_rootGo.transform, worldPositionStays: false);
+                cap.AddComponent<MeshFilter>().sharedMesh = Cards.CardMesh.GetRoundCap(capW, 2f * capD);
+                cap.AddComponent<MeshRenderer>();
+                cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f); // disc -Z (front) → +Y (viewer/top)
                 cap.transform.localPosition = new Vector3(0f, 0.024f, 0f);
             }
             else
             {
+                cap = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cap.name = "Cap";
+                Object.Destroy(cap.GetComponent<Collider>());
+                cap.transform.SetParent(_rootGo.transform, worldPositionStays: false);
                 cap.transform.localScale = new Vector3(capW, capD, capH); // cube: depth is full Y size
                 cap.transform.localPosition = new Vector3(0f, 0.015f + capD * 0.5f, 0f); // cap bottom at the puck's 0.015 seat
             }
             _cap = cap.transform;
             _capRestY = _cap.localPosition.y;
-            // Cap TOP face (viewer side): the Unity cylinder spans ±1×scale.y so its half-height
-            // is capD; the cube spans ±0.5×scale.y so its half-height is capD/2. The docked label
-            // seats a fixed margin proud of this, keeping the same real gap on the taller round
-            // cap that the shallow square cap already had (round-label flicker fix).
+            // Cap TOP face (viewer side): the round disc's half-height is capD (full height 2·capD);
+            // the cube spans ±0.5×scale.y so its half-height is capD/2. The docked label seats a
+            // fixed margin proud of this, keeping the same real gap on the taller round cap that the
+            // shallow square cap already had (round-label flicker fix).
             _capTopLocalY = _capRestY + (roundShape ? capD : capD * 0.5f);
             _capRenderer = cap.GetComponent<Renderer>();
             _capRenderer.sharedMaterial = CreateLitMaterial(_accent); // lit opaque, depth-correct (see base)
@@ -935,21 +946,23 @@ internal sealed class ButtonCluster
                 _logicalVisible = visible;
                 if (visible)
                 {
-                    // Cancel a running dissolve, restore the layout scale, quick scale-in.
+                    // Cancel a running dissolve, restore the layout scale, materialize from dust.
                     _dissolveLeft = 0f;
                     _rootGo.transform.localScale = _slotScale;
                     if (!_rootGo.activeSelf)
                         _rootGo.SetActive(true);
-                    // APPEAR (user): scale-in instead of a pop — but only once the button has
-                    // been shown before (suppresses the build-then-settle storm) and while the
-                    // animation is enabled ([ButtonAnim] Enable). Input is live immediately.
+                    // APPEAR = MATERIALIZE FROM DUST (user: emerge from dust, matched to the crumble —
+                    // NOT a scale pop): converging dust motes settle onto the cap while its surface
+                    // fades up to full colour, IN PLACE (see Animate). Only once the button has been
+                    // shown before (suppresses the build-then-settle storm) and while the animation is
+                    // enabled ([ButtonAnim] Enable). Input is live immediately.
                     _appearLeft = _everShown && ButtonTuning.ButtonAnimEnabled ? ButtonTuning.AppearSeconds : 0f;
                     _collider.enabled = _interactable; // re-sync after the hide forced it off
                     if (_appearLeft > 0f)
                     {
-                        ButtonTuning.LogAnim(_rootGo.name, "appear (scale-in)");
+                        ButtonTuning.LogAnim(_rootGo.name, "appear (materialize-from-dust)");
                         if (ButtonTuning.AppearParticlesEnabled)
-                            ButtonDissolveFx.PlayAppear(_cap.position, _rootGo.transform.up,
+                            ButtonDissolveFx.PlayMaterialize(_cap.position, _rootGo.transform.up,
                                 BaseRadius * 2f * Mathf.Abs(_rootGo.transform.lossyScale.x),
                                 _appliedColor);
                     }
@@ -1026,7 +1039,7 @@ internal sealed class ButtonCluster
 
         /// <summary>
         /// Cap animation (code-driven, no Animator), one call per cluster tick:
-        /// dust-dissolve shrink-out / appear scale-in (user #7), finger-follow cap
+        /// dust-dissolve shrink-out / materialize-from-dust fade-in (user #7), finger-follow cap
         /// travel and the DEPTH-FIRE press (user #6) — the press fires exactly when
         /// the fingertip has pushed the cap to ~90% of its full travel, re-arms after
         /// it rose back past ~50%. Releasing early = no fire, the cap springs back.
@@ -1053,14 +1066,27 @@ internal sealed class ButtonCluster
                 return;
             _everShown = true;
 
-            // Appear scale-in (quick, purely visual — input is live from frame one).
+            // Materialize-from-dust fade-in (user: emerge from dust, NOT a scale pop; purely
+            // visual — input is live from frame one). The cap stays at its layout scale IN PLACE
+            // while its OPAQUE surface brightens from the dust (0.15×) up to its applied colour,
+            // under the converging dust cloud. On completion it snaps back to the exact colour.
             if (_appearLeft > 0f)
             {
                 _appearLeft -= Time.deltaTime;
                 float k = 1f - Mathf.Max(0f, _appearLeft / ButtonTuning.AppearSeconds);
-                _rootGo.transform.localScale = _slotScale * Mathf.SmoothStep(0.55f, 1f, k);
+                _rootGo.transform.localScale = _slotScale; // materialize in place — no grow/scale pop
+                if (_capRenderer != null)
+                {
+                    float b = Mathf.SmoothStep(0.15f, 1f, k);
+                    Color faded = _appliedColor * b; faded.a = _appliedColor.a;
+                    _capRenderer.sharedMaterial.color = faded;
+                }
                 if (_appearLeft <= 0f)
+                {
                     _rootGo.transform.localScale = _slotScale;
+                    if (_capRenderer != null)
+                        _capRenderer.sharedMaterial.color = _appliedColor; // exact colour restored
+                }
             }
 
             if (_pressT > 0f)
