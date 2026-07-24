@@ -26,9 +26,10 @@ namespace GloomhavenVR.WorldUI;
 /// no patches needed. What this class owns is PRESENTATION: the tooltip lives on the
 /// dedicated persistent <c>tooltipCanvas</c> (Screen-Space-Camera), which is useless
 /// in the HMD; while active the canvas is flipped to WorldSpace and parked at a FIXED
-/// spot — the CONTROL BOARD's (PlayTray) TOP-LEFT corner, offset outward so it clears the
-/// cards, facing the player and scaling with the board (user #7a; the pre-existing curved-
-/// table <see cref="PanelSlot.Tooltip"/> slot is the menu / no-tray fallback). It is NOT
+/// spot — clearly ABOVE the CONTROL BOARD's (PlayTray) TOP edge, horizontally centered on
+/// the board, facing the player and scaling / tilting with the board (user #7a; the
+/// pre-existing curved-table <see cref="PanelSlot.Tooltip"/> slot is the menu / no-tray
+/// fallback). It is NOT
 /// anchored to the fingertip (the hover can come from the laser too, and the user wants a
 /// stable reading spot, not a spot that jumps around). A short hover grace (user #7b) keeps
 /// it from flickering away on micro-jitter off a tiny target: the game's own show/hide fade
@@ -68,25 +69,25 @@ internal sealed class WorldTooltips
     /// <summary>Unanchored world-space parking spot (out of every camera's view).</summary>
     private static readonly Vector3 ParkPosition = new(0f, -1000f, 0f);
 
-    // ---- board top-left anchor (user #7a, re-align fix) -------------------------------
-    // The tooltip is pinned OUTSIDE the CONTROL BOARD's (PlayTray) top-left corner, offset
-    // OUTWARD (further left + up, proud toward the viewer) so the PANEL BODY — not just the
-    // canvas pivot — never overlaps the board/cards. The anchor is recomputed from the
-    // board's LIVE world pose + lossy scale EVERY tick (see TryResolveTooltipPose), so a
-    // tray grab-resize (which rewrites Root.localScale) re-aligns the hint immediately.
+    // ---- fixed-above-board anchor (user #7a, "above not inside" fix) -------------------
+    // The tooltip is pinned clearly ABOVE the CONTROL BOARD's (PlayTray) TOP edge, along the
+    // board's own UP axis and horizontally CENTERED on the board, proud toward the viewer, so
+    // the whole PANEL BODY sits fully above the board face and never intrudes into it. The
+    // anchor is recomputed from the board's LIVE world pose + lossy scale EVERY tick (see
+    // TryResolveTooltipPose), so a tray grab-resize (which rewrites Root.localScale) and any
+    // tray move/tilt re-aligns the hint immediately.
     //
-    // Bug fixed: the previous anchor placed the canvas pivot a fixed 3 cm board-LOCAL margin
-    // beyond the edge via Root.TransformPoint. That carried the board scale, but ignored the
-    // tooltip's OWN rendered half-width, which is worldScale × ~hundreds of pixels ≈ 0.1 m —
-    // an order of magnitude past the 3 cm margin — and grows with the board, so the panel
-    // always sat INSIDE the board and intruded further the more the board was scaled up. The
-    // anchor now pushes out by (board half-extent + tooltip half-extent + margin), all in
-    // WORLD metres derived from the live lossy scale, so the whole panel clears at ANY scale.
+    // Bug history: earlier revisions parked the panel at the board's top-LEFT corner and
+    // pushed it outward by (board half-width + tooltip half-width + margin) derived from the
+    // AUTHORED plate constants (InitiativeMountWidth / BoardTopLocalY). The VISIBLE board
+    // (bundled frame + decorations) is LARGER than the authored plate, so a half-extent based
+    // on the constants UNDER-estimated the real edge and the panel still sat inside the board.
+    // The anchor now (1) derives the board's REAL top edge from the tray renderers' combined
+    // bounds (in board-LOCAL space, so tilt does not inflate it) instead of the constants, and
+    // (2) places the pivot straight ABOVE that edge by (tooltip half-height + margin) — a
+    // stable "fixed above" spot, not the side corner.
 
-    /// <summary>Extra clearance beyond the board's LEFT edge, board-local metres × live scale.</summary>
-    private const float BoardAnchorMarginX = 0.03f;
-
-    /// <summary>Extra clearance beyond the board's TOP (far) edge, board-local metres × live scale.</summary>
+    /// <summary>Extra clearance above the board's TOP edge, board-local metres × live scale.</summary>
     private const float BoardAnchorMarginY = 0.03f;
 
     /// <summary>Metres proud toward the viewer (board-local -Z is the viewer side) × live scale.</summary>
@@ -152,7 +153,7 @@ internal sealed class WorldTooltips
     private bool _gateOffLogged;
 
     /// <summary>Extents captured in the last pose resolve (park diagnostic — prove the panel clears the board).</summary>
-    private float _lastBoardHalfWidthWorld;
+    private float _lastBoardTopEdgeWorldY;
     private Vector2 _lastTooltipHalfWorld;
 
     /// <summary>Descendant transforms flattened this session (original local z + rotation for Restore).</summary>
@@ -163,6 +164,9 @@ internal sealed class WorldTooltips
 
     /// <summary>Reused world-corner buffer for measuring the tooltip's rendered size.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
+
+    /// <summary>Reused per-tick scan buffer for the board's mesh renderers (no steady-state allocation).</summary>
+    private static readonly List<MeshRenderer> BoardRendererScratch = new(48);
 
     private struct FlattenEntry
     {
@@ -282,29 +286,34 @@ internal sealed class WorldTooltips
             _parkedLogged = true;
             _parkedLogPos = pos;
             bool onBoard = PlayTray.Current != null && PlayTray.Current.IsVisible;
-            // Prove the panel clears the board: the anchor is pushed out by the board
-            // half-width + the tooltip's own rendered half-width + margin, so the resolved
-            // position + the two half-extents show the whole panel sits OUTSIDE the board.
+            // Prove the panel sits ABOVE the board: the pivot is placed above the REAL board
+            // top edge by (tooltip half-height + margin), so anchor.y − topEdge.y ≥ tooltip
+            // half-height — the whole panel body clears the top edge. Logs the resolved top-
+            // edge world Y, the tooltip half-height, and the final anchor for the hardware log.
             VRLog.Info("WorldUI",
-                $"Tooltip parked at {(onBoard ? "control-board top-left (outside)" : "fallback slot")} " +
-                $"anchor {pos:F3} (board scale {scale:F3}, board half-width {_lastBoardHalfWidthWorld:F3} m, " +
-                $"tooltip half {_lastTooltipHalfWorld.x:F3}×{_lastTooltipHalfWorld.y:F3} m).");
+                $"Tooltip parked {(onBoard ? "fixed ABOVE control-board top edge" : "at fallback slot")} " +
+                $"anchor {pos:F3} (board scale {scale:F3}, board top-edge world Y {_lastBoardTopEdgeWorldY:F3} m, " +
+                $"tooltip half {_lastTooltipHalfWorld.x:F3}×{_lastTooltipHalfWorld.y:F3} m → " +
+                $"clearance above edge {(pos.y - _lastBoardTopEdgeWorldY):F3} m).");
         }
     }
 
     /// <summary>
     /// Resolve the world pose the tooltip parks at (user #7a), recomputed EVERY tick so it
-    /// RE-ALIGNS the instant the board is moved/resized: the CONTROL BOARD's (PlayTray)
-    /// top-left corner, pushed OUTWARD past the left + top edges — by the board's own world
-    /// half-extent PLUS the tooltip's rendered half-extent PLUS a scaled margin — so the whole
-    /// PANEL BODY (not merely the canvas pivot) clears the board/cards at ANY board scale, and
-    /// proud toward the viewer, facing the player exactly like the board's docked panels (their
-    /// <c>mount.rotation == Root.rotation</c> faces the player). All offsets are WORLD metres
-    /// derived from the board's LIVE <c>lossyScale</c>, not a pre-scale local corner, which is
-    /// what the old TransformPoint anchor got wrong (it ignored the tooltip half-width entirely,
-    /// so the panel sat inside the board and intruded further as the board scaled up). Falls
-    /// back to the pre-existing <see cref="PanelSlot.Tooltip"/> table slot when no board is
-    /// present (menu / Cards module off).
+    /// RE-ALIGNS the instant the board is moved/resized/tilted: clearly ABOVE the CONTROL
+    /// BOARD's (PlayTray) TOP edge, along the board's own UP axis and horizontally CENTERED on
+    /// the board, proud toward the viewer, facing the player exactly like the board's docked
+    /// panels (their <c>mount.rotation == Root.rotation</c> faces the player).
+    ///
+    /// The top edge is the board's REAL rendered top, derived from the tray renderers' combined
+    /// bounds (see <see cref="TryGetBoardTopEdgeWorld"/>) — NOT the authored plate constants:
+    /// the visible board (bundled frame + decorations) is larger than the plate, so a
+    /// constant-based half-height under-estimated the edge and the panel still sat inside the
+    /// board (the "still inside" report). The pivot is then lifted above that edge by
+    /// (tooltip half-height + margin), so the whole panel body clears the edge at ANY board
+    /// scale and tilt (the offset is along the board up axis, so a tilt carries the panel with
+    /// it). Falls back to the pre-existing <see cref="PanelSlot.Tooltip"/> table slot when no
+    /// board is present (menu / Cards module off).
     /// </summary>
     private bool TryResolveTooltipPose(out Vector3 position, out Quaternion rotation)
     {
@@ -312,54 +321,115 @@ internal sealed class WorldTooltips
         {
             // Board basis (unit vectors; Transform.* ignore scale) and live lossy scale.
             Quaternion boardRot = root.rotation;
-            Vector3 right = boardRot * Vector3.right;    // board +X  (right edge)
             Vector3 up = boardRot * Vector3.up;          // board +Y  (top / far edge)
             Vector3 forward = boardRot * Vector3.forward;// board +Z  (away from viewer)
 
             Vector3 lossy = root.lossyScale;
-            float scaleX = Mathf.Max(Mathf.Abs(lossy.x), 0.0001f);
             float scaleY = Mathf.Max(Mathf.Abs(lossy.y), 0.0001f);
             float scaleZ = Mathf.Max(Mathf.Abs(lossy.z), 0.0001f);
 
-            // Board world half-extents = known board-local extents × live lossy scale
-            // (root origin is the board centre — the plate is placed at localPos 0,0).
-            float boardHalfWidth = PlayTray.InitiativeMountWidth * 0.5f * scaleX; // BoardW/2 × scale
-            float boardHalfHeight = PlayTray.BoardTopLocalY * scaleY;             // BoardH/2 × scale
+            // REAL board top edge in world space (horizontally centred over the board), from the
+            // tray's combined renderer bounds — captures the visible frame/decorations, not just
+            // the authored plate. Degrades to the BoardTopLocalY constant when no renderers.
+            Vector3 topEdgeWorld = GetBoardTopEdgeWorld(root);
 
-            // The tooltip's OWN rendered half-extents (world) — the piece the old anchor
-            // missed. This scales with the canvas world scale we set this tick, so it tracks
-            // the board resize for free.
+            // The tooltip's OWN rendered half-extents (world). Scales with the canvas world scale
+            // we set this tick, so it tracks the board resize for free — the panel's whole body
+            // must clear the top edge, so we lift by its half-HEIGHT.
             GetTooltipHalfExtents(out float ttHalfW, out float ttHalfH);
 
-            // Outward clearance margin, proportional to the board scale.
-            float marginX = BoardAnchorMarginX * scaleX;
-            float marginY = BoardAnchorMarginY * scaleY;
+            // Clearance above the edge + proud toward the viewer, both proportional to board scale.
+            float margin = BoardAnchorMarginY * scaleY;
             float proud = BoardAnchorProudZ * scaleZ;
 
-            // Board centre → push the CANVAS PIVOT out past the top-left edge by the sum of
-            // both half-extents + margin, so the whole panel sits OUTSIDE the board.
-            position = root.position
-                       - right * (boardHalfWidth + ttHalfW + marginX)
-                       + up * (boardHalfHeight + ttHalfH + marginY)
-                       - forward * proud;
+            // Fixed ABOVE the top edge: pivot = topEdge + up·(tooltipHalfHeight + margin), so the
+            // panel's bottom edge sits (margin) above the board's top edge. Proud toward viewer.
+            position = topEdgeWorld + up * (ttHalfH + margin) - forward * proud;
             rotation = boardRot; // docked-panel facing (faces the player)
 
-            _lastBoardHalfWidthWorld = boardHalfWidth;
+            _lastBoardTopEdgeWorldY = topEdgeWorld.y;
             _lastTooltipHalfWorld = new Vector2(ttHalfW, ttHalfH);
             return true;
         }
 
         // Safe fallback: the original curved-table slot (top-right, above initiative).
-        _lastBoardHalfWidthWorld = 0f;
+        _lastBoardTopEdgeWorldY = 0f;
         _lastTooltipHalfWorld = Vector2.zero;
         return PanelLayout.TryGetPose(PanelSlot.Tooltip, out position, out rotation);
+    }
+
+    /// <summary>
+    /// The CONTROL BOARD's REAL top edge in WORLD space, horizontally centred on the board.
+    /// Derived from the tray's combined MESH-RENDERER bounds expressed in the board's own LOCAL
+    /// space (so a board TILT does not inflate the extent the way a world AABB would): each
+    /// renderer's local-space mesh bounds are mapped into board-root-local coords and the max
+    /// local +Y across them is the true top edge — the visible frame + decorations, which sit
+    /// PAST the authored plate (<see cref="PlayTray.BoardTopLocalY"/>). Horizontal centre is the
+    /// board root origin (X 0) — the plate is authored at localPos 0, so root origin IS the
+    /// board centre; Z stays on the board face plane (local Z 0). Degrades to the authored
+    /// <see cref="PlayTray.BoardTopLocalY"/> constant when the board has no mesh renderers yet
+    /// (procedural build mid-frame). Runs only while a tooltip is shown, and reuses a scan
+    /// buffer, so no steady-state allocation.
+    /// </summary>
+    private static Vector3 GetBoardTopEdgeWorld(Transform root)
+    {
+        float localTopY = PlayTray.BoardTopLocalY; // authored fallback
+        BoardRendererScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, BoardRendererScratch);
+        Matrix4x4 worldToLocal = root.worldToLocalMatrix;
+        bool has = false;
+        float maxLocalY = float.NegativeInfinity;
+        for (int i = 0; i < BoardRendererScratch.Count; i++)
+        {
+            MeshRenderer mr = BoardRendererScratch[i];
+            if (mr == null || !mr.enabled)
+                continue;
+
+            // Prefer the renderer's own LOCAL mesh bounds mapped through (worldToLocal ×
+            // rendererLocalToWorld) → board-root-local, which is tilt-tight; fall back to the
+            // renderer's world AABB corners mapped into local space when there is no mesh.
+            Bounds b;
+            Matrix4x4 toBoardLocal;
+            MeshFilter mf = mr.GetComponent<MeshFilter>();
+            Mesh? mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh != null)
+            {
+                b = mesh.bounds;
+                toBoardLocal = worldToLocal * mr.transform.localToWorldMatrix;
+            }
+            else
+            {
+                b = mr.bounds; // world AABB
+                toBoardLocal = worldToLocal;
+            }
+
+            Vector3 c = b.center, e = b.extents;
+            for (int s = 0; s < 8; s++)
+            {
+                Vector3 corner = c + new Vector3(
+                    (s & 1) == 0 ? -e.x : e.x,
+                    (s & 2) == 0 ? -e.y : e.y,
+                    (s & 4) == 0 ? -e.z : e.z);
+                float ly = toBoardLocal.MultiplyPoint3x4(corner).y;
+                if (ly > maxLocalY)
+                    maxLocalY = ly;
+                has = true;
+            }
+        }
+        BoardRendererScratch.Clear();
+        if (has)
+            localTopY = maxLocalY;
+
+        // Horizontally centred over the board (local X 0), on the board face plane (local Z 0),
+        // at the real top edge. TransformPoint carries the live lossy scale, pose and tilt.
+        return root.TransformPoint(new Vector3(0f, localTopY, 0f));
     }
 
     /// <summary>
     /// Measure the tooltip frame's rendered size in WORLD metres (half-width / half-height).
     /// Uses the frame's world corners, which carry the canvas world scale we set this tick, so
     /// the measurement tracks a board resize. Returns zeros when there is no frame yet (the
-    /// anchor then degrades to board-half + margin — still outside the board).
+    /// anchor then lifts only by the margin above the top edge — still above the board).
     /// </summary>
     private void GetTooltipHalfExtents(out float halfWidth, out float halfHeight)
     {
