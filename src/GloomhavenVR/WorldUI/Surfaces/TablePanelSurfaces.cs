@@ -924,3 +924,164 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         }
     }
 }
+
+/// <summary>
+/// SELECTION-PHASE "who still has to choose" cue, rendered ON THE INITIATIVE ORDER BAR (the
+/// <see cref="InitiativeTrackSurface"/> docked to the control-board tray) instead of on the board
+/// minis. A soft amber field is pulsed over the initiative entry of every actor the local player
+/// controls that has not yet finished card selection, so a glance at the initiative bar shows
+/// which characters still need choosing. The instant an actor commits (two cards / long rest) its
+/// entry glow clears, and the whole set clears when the selection phase ends.
+///
+/// The initiative bar is the game's OWN <c>InitiativeTrack</c> (adopted into world space by
+/// <see cref="InitiativeTrackSurface"/>, not copied), so there is a single set of entries; each
+/// actor's entry is the <c>InitiativeTrackActorBehaviour</c> resolved by the game's public
+/// <c>InitiativeTrack.FindInitiativeTrackActor(actor)</c> (its <c>.Actor</c> is the very
+/// <c>CPlayerActor</c> from the scenario, so the match is reference-exact). We attach a child
+/// <c>Image</c> overlay to that entry's RectTransform — never touching the entry's own graphics —
+/// and drive only its alpha. The overlay:
+/// <list type="bullet">
+/// <item>has <c>raycastTarget = false</c>, so it never intercepts the portrait's character-switch
+///   click (the whole point of the pokeable track);</item>
+/// <item>is drawn LAST (front) at a low, breathing alpha so the portrait stays fully readable — a
+///   subtle "waiting" tint, not a wash;</item>
+/// <item>is a nested descendant of the entry (not a direct <c>initiativeTrackHolder</c> child), so
+///   it is invisible to <see cref="InitiativeTrackSurface"/>'s per-portrait depth normalization
+///   (z==0 ⇒ ignored) and depth-aware laser pick (which only scans direct holder children);</item>
+/// <item>copies the entry's CURRENT layer every tick, so it rides the surface's mod-layer
+///   re-layering across convert/release cycles and renders on exactly the cameras the entry does.</item>
+/// </list>
+/// Entries are pooled/reused by the game, so we re-resolve pending → entry every tick and hide any
+/// overlay whose entry is no longer pending; overlays are kept (deactivated) for cheap reuse and
+/// only destroyed on <see cref="Reset"/> (module hot-reload).
+/// </summary>
+internal static class InitiativeSelectionGlow
+{
+    /// <summary>Warm amber "still waiting" tint; only the alpha is animated.</summary>
+    private static readonly Color GlowColor = new Color(1f, 0.72f, 0.20f);
+
+    /// <summary>Front overlay outset (uGUI px) so the tint bleeds slightly past the portrait edge.</summary>
+    private const float OutsetPixels = 6f;
+
+    // Overlay Image per entry we have ever lit (entry may be Unity-destroyed on scene change → pruned).
+    private static readonly Dictionary<InitiativeTrackActorBehaviour, Image> s_overlays = new(16);
+    private static readonly HashSet<InitiativeTrackActorBehaviour> s_active = new();
+    private static readonly List<InitiativeTrackActorBehaviour> s_stale = new(16);
+
+    /// <summary>
+    /// Show the pulsing glow on every pending actor's initiative entry at <paramref name="alpha"/>,
+    /// and hide the glow on every entry that is no longer pending. Safe to call with an empty list
+    /// (hides everything). No-op-safe when the track is not built yet.
+    /// </summary>
+    public static void Apply(List<CPlayerActor> pending, float alpha)
+    {
+        s_active.Clear();
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track != null && pending != null)
+        {
+            for (int i = 0; i < pending.Count; i++)
+            {
+                CPlayerActor actor = pending[i];
+                if (actor == null)
+                    continue;
+                InitiativeTrackActorBehaviour entry = track.FindInitiativeTrackActor(actor);
+                if (entry == null || !entry.gameObject.activeInHierarchy)
+                    continue; // entry not spawned / not on screen — light nothing this frame
+
+                Image overlay = EnsureOverlay(entry);
+                if (overlay == null)
+                    continue;
+                s_active.Add(entry);
+
+                // Ride the entry's current layer (mod layer when the surface is converted).
+                GameObject go = overlay.gameObject;
+                if (go.layer != entry.gameObject.layer)
+                    go.layer = entry.gameObject.layer;
+
+                Color c = GlowColor;
+                c.a = alpha;
+                overlay.color = c;
+                if (!go.activeSelf)
+                    go.SetActive(true);
+            }
+        }
+
+        // Deactivate overlays whose entry is no longer pending (committed, reassigned by pooling,
+        // exhausted, or gone). Prune entries the game has since destroyed.
+        s_stale.Clear();
+        foreach (KeyValuePair<InitiativeTrackActorBehaviour, Image> kv in s_overlays)
+        {
+            if (kv.Key == null || kv.Value == null || !s_active.Contains(kv.Key))
+                s_stale.Add(kv.Key!); // Unity fake-null (destroyed entry) is a real ref, never null
+        }
+        for (int i = 0; i < s_stale.Count; i++)
+        {
+            InitiativeTrackActorBehaviour entry = s_stale[i];
+            if (entry == null || !s_overlays.TryGetValue(entry, out Image overlay) || overlay == null)
+            {
+                s_overlays.Remove(entry!);
+                continue;
+            }
+            if (overlay.gameObject.activeSelf)
+                overlay.gameObject.SetActive(false);
+        }
+    }
+
+    /// <summary>Hide every glow (phase exit / feature off). Overlays are kept for cheap reuse.</summary>
+    public static void ClearAll()
+    {
+        if (s_overlays.Count == 0)
+            return;
+        foreach (Image overlay in s_overlays.Values)
+        {
+            if (overlay != null && overlay.gameObject.activeSelf)
+                overlay.gameObject.SetActive(false);
+        }
+    }
+
+    /// <summary>Destroy every overlay GameObject and forget them (module shutdown / hot-reload).</summary>
+    public static void Reset()
+    {
+        foreach (Image overlay in s_overlays.Values)
+        {
+            if (overlay != null)
+                Object.Destroy(overlay.gameObject);
+        }
+        s_overlays.Clear();
+        s_active.Clear();
+        s_stale.Clear();
+    }
+
+    /// <summary>Lazily build (or rebuild after a scene-swap destroyed it) the entry's overlay Image.</summary>
+    private static Image EnsureOverlay(InitiativeTrackActorBehaviour entry)
+    {
+        if (s_overlays.TryGetValue(entry, out Image existing))
+        {
+            if (existing != null)
+                return existing;
+            s_overlays.Remove(entry); // destroyed with the old track — rebuild below
+        }
+        if (entry.transform is not RectTransform parent)
+            return null!;
+
+        var go = new GameObject("GloomhavenVR.SelectionGlow", typeof(RectTransform), typeof(Image));
+        var rt = (RectTransform)go.transform;
+        rt.SetParent(parent, worldPositionStays: false);
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(-OutsetPixels, -OutsetPixels);
+        rt.offsetMax = new Vector2(OutsetPixels, OutsetPixels);
+        rt.localScale = Vector3.one;
+        rt.localRotation = Quaternion.identity;
+        rt.SetAsLastSibling(); // front tint — guaranteed visible over an opaque portrait
+
+        var img = go.GetComponent<Image>();
+        img.color = GlowColor;
+        img.raycastTarget = false; // MUST NOT eat the portrait's character-switch click
+        go.layer = parent.gameObject.layer;
+        go.SetActive(false); // Apply activates it this same tick
+
+        s_overlays[entry] = img;
+        return img;
+    }
+}

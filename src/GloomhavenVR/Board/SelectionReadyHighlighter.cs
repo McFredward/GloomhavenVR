@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI.Surfaces;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -9,21 +10,19 @@ namespace GloomhavenVR.Board;
 
 /// <summary>
 /// SELECTION-PHASE "who still has to choose" cue. During the card-selection phase
-/// (<c>CPhase.PhaseType.SelectAbilityCardsOrLongRest</c>) every board figure THIS client
-/// controls that has NOT yet finished its selection — i.e. has not placed two ability cards
-/// and has not confirmed a long rest — gets the game's OWN actor spotlight, gently pulsed, so
-/// the player can see at a glance which minis are still waiting on them. The moment an actor
-/// commits (two cards / long rest) its glow clears; when the phase ends every glow clears.
+/// (<c>CPhase.PhaseType.SelectAbilityCardsOrLongRest</c>) every actor THIS client controls that
+/// has NOT yet finished its selection — i.e. has not placed two ability cards and has not
+/// confirmed a long rest — gets its INITIATIVE ORDER BAR entry gently pulsed, so a glance at the
+/// initiative bar shows which characters are still waiting on the player. The moment an actor
+/// commits (two cards / long rest) its entry glow clears; when the phase ends every glow clears.
 ///
-/// NATIVE EFFECT (no new shader): the highlight is the game's own actor glow toggled through
-/// <c>ActorBehaviour.SetHilighted(figure, bool)</c> — the exact object the game lights under the
-/// active / initiative-selected figure (see <c>Choreographer.ClearHilightedActors</c> +
-/// <c>InitiativeTrack.Select</c>). We drive that same boolean on a slow duty cycle
-/// (<see cref="PulsePeriod"/>) so the pending minis "breathe" rather than sit as a static
-/// spotlight, which reads as "still needs you" instead of "this one is selected". Because it is
-/// the game's own effect it needs no bundle asset and matches the dungeon art exactly. (The
-/// bundled additive amber overlay <c>FigureGrab.FigureHighlight</c> remains the fallback for the
-/// grab-proximity cue; here we prefer the native glow per the feature request.)
+/// WHERE THE HIGHLIGHT LIVES: on the initiative bar, NOT on the board figures. This driver only
+/// DETECTS the pending set (below) and hands it to <see cref="InitiativeSelectionGlow"/>, which
+/// owns the initiative-entry rendering — it resolves each actor's own
+/// <c>InitiativeTrackActorBehaviour</c> via the game's public
+/// <c>InitiativeTrack.FindInitiativeTrackActor</c> and pulses a non-interactive amber overlay over
+/// it. (This replaces the earlier board-mini glow through <c>ActorBehaviour.SetHilighted</c>,
+/// which the player did not want; that path is gone.)
 ///
 /// AUTHORITATIVE "done" SIGNAL: <c>CPlayerActorExtensions.IsCardSelectionReady(actor)</c> — the
 /// SAME per-actor test the game itself uses to decide whether the round-ready button may light
@@ -33,30 +32,27 @@ namespace GloomhavenVR.Board;
 ///
 /// MULTIPLAYER: only the LOCAL player's own pending actors pulse — enumeration is filtered by
 /// <c>IsUnderControlOrSingle()</c> (offline every merc is mine; online only <c>IsUnderMyControl</c>),
-/// exactly the guard used by <c>Net/RevealGate</c>. We never light a teammate's figure, so this
-/// discloses nothing beyond what the vanilla client already shows.
+/// exactly the guard used by <c>Net/RevealGate</c>. We never light a teammate's entry, so this
+/// discloses nothing beyond what the vanilla initiative track already shows (remote un-locked-in
+/// players already render as "?").
 ///
-/// Re-asserted in <c>LateUpdate</c> (after the game's own highlight writes, mirroring
-/// <c>FigureGrab.FigureRingSuppressor</c>) and driven off <c>Time.unscaledTime</c> so the pulse
-/// keeps breathing while the game is time-paused during a camera transition in selection. We only
-/// ever turn OFF a glow we turned ON (tracked in <see cref="_owned"/>), so the game's own hover /
-/// selection highlight on an already-done figure is never suppressed.
+/// Driven in <c>LateUpdate</c> (after the game's own initiative writes) off <c>Time.unscaledTime</c>
+/// so the pulse keeps breathing while the game is time-paused during a camera transition in
+/// selection. The pending set is re-derived every tick, so an entry clears the instant its actor
+/// commits and the whole set clears when the phase ends.
 /// </summary>
 internal sealed class SelectionReadyHighlighter : MonoBehaviour
 {
-    // Slow "breathing" duty cycle for the native glow: visible for most of a 1.5 s cycle, a short
-    // dark gap, repeat — a soft pulse that reads as "pending", not a strobe. unscaledTime so it
-    // animates even while TimeManager is paused during selection camera moves.
+    // Smooth "breathing" glow: a low, gentle sine on the overlay alpha (unscaledTime so it animates
+    // even while TimeManager is paused during selection camera moves). Subtle enough to keep the
+    // portrait readable — a "still waiting" tint, not a strobe.
     private const float PulsePeriod = 1.5f;
-    private const float PulseOnFraction = 0.72f;
+    private const float MinAlpha = 0.10f;
+    private const float MaxAlpha = 0.34f;
 
     private static ConfigEntry<bool>? _enabled;
 
-    // Actors we currently drive, mapped to the figure GameObject we light. Only figures in here
-    // are ever turned OFF by us, so a done actor's game-owned highlight is left untouched.
-    private readonly Dictionary<CPlayerActor, GameObject> _owned = new();
     private readonly List<CPlayerActor> _pending = new(8);
-    private readonly List<CPlayerActor> _stale = new(8);
 
     // Last logged pending signature, so we only log when the pending/done split actually changes.
     private string _lastLoggedSignature = string.Empty;
@@ -69,10 +65,10 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
         ConfigFile config = ModuleConfig.Create("selectionready");
         _enabled = config.Bind(
             "SelectionReady", "Enabled", true,
-            "During the card-selection phase, pulse the game's native actor highlight under every " +
-            "figure YOU control that has not yet chosen two cards or a long rest, so it is clear " +
-            "which characters still need selecting. Clears the instant an actor commits and when " +
-            "the phase ends.");
+            "During the card-selection phase, pulse a soft highlight on the INITIATIVE ORDER BAR " +
+            "entry of every character YOU control that has not yet chosen two cards or a long rest, " +
+            "so it is clear on the initiative bar which characters still need selecting. Clears the " +
+            "instant an actor commits and when the phase ends.");
     }
 
     private void LateUpdate()
@@ -82,27 +78,26 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
 
     private void OnDestroy()
     {
-        ClearOwned();
+        InitiativeSelectionGlow.Reset();
     }
 
     private void Tick()
     {
         // Feature gate, phase gate, scenario gate — outside the selection phase (or with no live
-        // scenario / choreographer) clear everything we lit and restore the game's control.
+        // scenario) hide every entry glow and stop.
         if (_enabled is { Value: false }
             || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest
-            || Choreographer.s_Choreographer == null
             || ScenarioManager.Scenario?.PlayerActors == null)
         {
-            if (_owned.Count > 0)
-                ClearOwned();
+            InitiativeSelectionGlow.ClearAll();
+            _pending.Clear();
             _lastLoggedSignature = string.Empty;
             return;
         }
 
-        // Collect the LOCAL player's still-pending actors (initiative/display order = PlayerActors
-        // order, which is stable across the phase). IsCardSelectionReady is the game's own per-actor
-        // "committed two cards / long rest" test and is itself local-only, so remote actors drop out.
+        // Collect the LOCAL player's still-pending actors. IsCardSelectionReady is the game's own
+        // per-actor "committed two cards / long rest" test and is itself local-only, so remote
+        // actors drop out; IsUnderControlOrSingle is the belt-and-braces MP ownership guard.
         _pending.Clear();
         List<CPlayerActor> players = ScenarioManager.Scenario.PlayerActors;
         for (int i = 0; i < players.Count; i++)
@@ -112,50 +107,12 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
                 _pending.Add(player);
         }
 
-        // Drop actors we owned that are no longer pending (committed, exhausted, or gone) — force
-        // their glow OFF exactly once and hand control back to the game.
-        _stale.Clear();
-        foreach (KeyValuePair<CPlayerActor, GameObject> kv in _owned)
-        {
-            if (!_pending.Contains(kv.Key))
-                _stale.Add(kv.Key);
-        }
-        for (int i = 0; i < _stale.Count; i++)
-        {
-            CPlayerActor actor = _stale[i];
-            if (_owned.TryGetValue(actor, out GameObject figure) && figure != null)
-                ActorBehaviour.SetHilighted(figure, hilight: false);
-            _owned.Remove(actor);
-        }
-
-        // Pulse every pending actor's figure with the game's native highlight.
-        bool pulseOn = Time.unscaledTime % PulsePeriod < PulsePeriod * PulseOnFraction;
-        for (int i = 0; i < _pending.Count; i++)
-        {
-            CPlayerActor actor = _pending[i];
-            GameObject figure = Choreographer.s_Choreographer.FindClientActorGameObject(actor);
-            if (figure == null)
-            {
-                // Figure not spawned yet — keep the actor pending but light nothing this frame.
-                _owned.Remove(actor);
-                continue;
-            }
-            _owned[actor] = figure;
-            ActorBehaviour.SetHilighted(figure, pulseOn);
-        }
+        // Highlight the pending actors' initiative-bar entries, clearing any that just committed.
+        float t = (Mathf.Sin(Time.unscaledTime * (2f * Mathf.PI / PulsePeriod)) + 1f) * 0.5f;
+        float alpha = Mathf.Lerp(MinAlpha, MaxAlpha, t);
+        InitiativeSelectionGlow.Apply(_pending, alpha);
 
         LogIfChanged(players);
-    }
-
-    /// <summary>Force every glow we drove OFF and forget them (phase exit / shutdown).</summary>
-    private void ClearOwned()
-    {
-        foreach (GameObject figure in _owned.Values)
-        {
-            if (figure != null)
-                ActorBehaviour.SetHilighted(figure, hilight: false);
-        }
-        _owned.Clear();
     }
 
     /// <summary>Emit one log line listing pending vs done local actors whenever the split changes.</summary>
@@ -179,7 +136,7 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
             return;
         _lastLoggedSignature = signature;
         VRLog.Info("Board",
-            $"[SelectionReady] pending=[{(pendingNames.Length == 0 ? "-" : pendingNames.ToString())}] " +
+            $"[SelectionReady] initiative-bar glow pending=[{(pendingNames.Length == 0 ? "-" : pendingNames.ToString())}] " +
             $"done=[{(doneNames.Length == 0 ? "-" : doneNames.ToString())}]");
     }
 
