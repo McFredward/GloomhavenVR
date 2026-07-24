@@ -47,6 +47,16 @@ internal sealed class CardsDriver : MonoBehaviour
     // card and fly it into its destination pile. _flyingToPile holds the cards mid-flight so the
     // sweep leaves them untouched (no re-park, no re-launch — the fly runs exactly once per card).
     private readonly HashSet<VRCard> _lastHalfCards = new();
+    // Issue 1 (user): the SELECTED cards laid in the control-board SLOTS during card selection are
+    // the "cards already lying there". Switching character must DISAPPEAR (scale-down) the outgoing
+    // character's slot cards and APPEAR (scale-in, in place) the incoming character's — never a
+    // fly-from-below. _lastTrayCards is the previous rebuild's slot occupants (the vanish set, like
+    // _lastHalfCards for the docked round cards). _lastVisibleCards is every card that was in a
+    // VISIBLE zone (fan / tray / half) last rebuild: a slot card that was already visible there
+    // (e.g. one the player just DROPPED in from the fan) must GLIDE, not scale-in — only a card that
+    // was parked/hidden (a character switch bringing back another character's cards) appears.
+    private readonly HashSet<VRCard> _lastTrayCards = new();
+    private readonly HashSet<VRCard> _lastVisibleCards = new();
     private readonly HashSet<VRCard> _flyingToPile = new();
     private const float FlyToPileSeconds = 0.4f;
 
@@ -622,6 +632,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _liveGrabs.Clear();
         _flyingToPile.Clear(); // issue 5: no fly survives a driver teardown
         _lastHalfCards.Clear();
+        _lastTrayCards.Clear(); // issue 1
+        _lastVisibleCards.Clear();
         _lastCardWorldPos.Clear(); // issue 1
         _lastCardWorldRot.Clear();
         _burnWatchHand = null; // issue B
@@ -742,6 +754,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
+        _lastTrayCards.Clear(); // issue 1: slot occupants die with the hand's cards
+        _lastVisibleCards.Clear();
         _lastCardWorldPos.Clear(); // issue 1: last-known poses die with the hand's cards
         _lastCardWorldRot.Clear();
         _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
@@ -789,6 +803,8 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.RemoveCard(card);
             _flyingToPile.Remove(card); // recycled mid-flight: drop the stale fly ref (card dies)
             _lastHalfCards.Remove(card);
+            _lastTrayCards.Remove(card); // issue 1: no dead refs across a recycle
+            _lastVisibleCards.Remove(card);
             _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
             if (_fanOriginCards.Remove(card) && ReferenceEquals(_insertHighlightCard, card))
                 ClearFanInsertion(); // reorder subject recycled under us
@@ -2454,6 +2470,24 @@ internal sealed class CardsDriver : MonoBehaviour
         _lastHalfCards.Clear();
         _lastHalfCards.UnionWith(_halfBuffer);
 
+        // Issue 1: snapshot the PREVIOUS rebuild's slot occupants (the vanish set) and every card
+        // that was visible in a zone (the appear-suppression set) BEFORE SyncFromGameState re-seats
+        // for this (possibly new) character. Read the tray occupants LIVE here — they are still the
+        // outgoing character's cards until the sync below evicts them.
+        _lastTrayCards.Clear();
+        _lastVisibleCards.Clear();
+        _lastVisibleCards.UnionWith(_fanBuffer);
+        _lastVisibleCards.UnionWith(_halfBuffer);
+        for (int s = 0; s < 2; s++)
+        {
+            VRCard? occ = _tray.Occupant(s);
+            if (occ != null)
+            {
+                _lastTrayCards.Add(occ);
+                _lastVisibleCards.Add(occ);
+            }
+        }
+
         _fanBuffer.Clear();
         _halfBuffer.Clear();
 
@@ -2708,19 +2742,21 @@ internal sealed class CardsDriver : MonoBehaviour
                 {
                     // fly-to-pile owns this card — never also vanish it (no double animation).
                 }
-                // Issue 2: a docked action card that CLEARS on a character/turn switch (it was in
-                // last rebuild's half set) but is NOT flying to a pile used to POP away — now it
-                // shrinks + fades out, then parks. Everything else (fan close, browse/active, pool
-                // return) keeps its own instant park / own animation. Suppressed on the first
-                // rebuild after a board build so the scenario-load population never storms.
-                else if (!_dockAnimSuppressed && _lastHalfCards.Contains(card)
+                // Issue 2/1: a docked card that CLEARS on a character/turn switch — a played ACTION
+                // card (in last rebuild's half set) OR a SELECTED card lying in a board SLOT (in last
+                // rebuild's tray set) — but is NOT flying to a pile used to POP away. Now it shrinks +
+                // fades out IN PLACE, then parks. Everything else (fan close, browse/active, pool
+                // return) keeps its own instant park / own animation. Suppressed on the first rebuild
+                // after a board build so the scenario-load population never storms.
+                else if (!_dockAnimSuppressed && (_lastHalfCards.Contains(card) || _lastTrayCards.Contains(card))
                          && card.gameObject.activeInHierarchy)
                 {
                     VRCard vanishing = card;
+                    bool wasSlot = _lastTrayCards.Contains(card);
                     card.Vanish(() => _factory.Park(vanishing));
-                    VRLog.Info("Cards", $"Card disappear: '{card.name}' (docked action card cleared on a " +
-                                        $"character/turn switch) — scale-down + fade ({VRCard.DockVanishSeconds:F2}s), " +
-                                        "then parked (not flying to a pile).");
+                    VRLog.Info("Cards", $"Card disappear: '{card.name}' ({(wasSlot ? "selected slot" : "docked action")} " +
+                                        $"card cleared on a character/turn switch) — scale-down + fade " +
+                                        $"({VRCard.DockVanishSeconds:F2}s) in place, then parked (not flying to a pile).");
                 }
                 else
                 {
@@ -2755,6 +2791,27 @@ internal sealed class CardsDriver : MonoBehaviour
                 card.PlayAppear();
                 VRLog.Info("Cards", $"Card appear: '{card.name}' (docked action card shown for the new/active " +
                                     $"character) — scale-in + fade ({VRCard.DockAppearSeconds:F2}s) instead of a pop.");
+            }
+        }
+
+        // Issue 1 APPEAR (selected slot cards): a card that lands in a board SLOT because we switched
+        // TO a character who ALREADY had cards lying there — now a slot occupant, but NOT visible in
+        // any zone last rebuild (it was parked while the other character was active) — scales + fades
+        // IN, in place at its slot home (PlaceCard already asserted it), instead of flying up from
+        // below. A card that WAS visible last rebuild (the player just dropped it in from the fan)
+        // stays out of this so its release glide is preserved. Suppressed on the first board rebuild.
+        if (!_dockAnimSuppressed)
+        {
+            for (int s = 0; s < 2; s++)
+            {
+                VRCard? card = _tray.Occupant(s);
+                if (card == null || card.IsHeld || card.IsFlying || card.IsVanishing
+                    || _lastVisibleCards.Contains(card))
+                    continue;
+                card.PlayAppear();
+                VRLog.Info("Cards", $"Card appear: '{card.name}' (selected card shown in slot {s + 1} for a " +
+                                    $"character who already had cards lying there) — scale-in + fade " +
+                                    $"({VRCard.DockAppearSeconds:F2}s) in place instead of a fly-from-below.");
             }
         }
 
@@ -2830,7 +2887,8 @@ internal sealed class CardsDriver : MonoBehaviour
             return false; // pile offscreen / not built → fall back to the instant hide
 
         Vector3 arcUp = BoardUp();
-        float arcHeight = Vector3.Distance(card.transform.position, worldPos) * VRCard.FlyArcHeightFraction;
+        float minArc = BoardArcMin();
+        float arcHeight = Mathf.Max(minArc, Vector3.Distance(card.transform.position, worldPos) * VRCard.FlyArcHeightFraction);
         _flyingToPile.Add(card);
         VRCard flying = card;
         PileKind dest = fate;
@@ -2839,10 +2897,10 @@ internal sealed class CardsDriver : MonoBehaviour
             _flyingToPile.Remove(flying);
             _factory.Park(flying);
             VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the {dest} pile — parked.");
-        });
+        }, minArc);
         VRLog.Info("Cards", $"Fly-to-pile [turn-clear]: '{card.name}' → {fate} pile ({FlyToPileSeconds:F2}s, " +
-                            $"arc {arcHeight:F3} m over the board) — played round card cleared from the board " +
-                            "(VR presentation only; game pile state untouched).");
+                            $"arc {arcHeight:F3} m over the board, orientation locked) — played round card cleared " +
+                            "from the board (VR presentation only; game pile state untouched).");
         return true;
     }
 
@@ -2879,6 +2937,18 @@ internal sealed class CardsDriver : MonoBehaviour
     /// OVER the (possibly tilted) control board. Falls back to world-up before the tray exists.
     /// </summary>
     private Vector3 BoardUp() => _tray.Root != null ? _tray.Root.up : Vector3.up;
+
+    /// <summary>
+    /// Issue 3 (user): the absolute MINIMUM arc peak (world meters) a fly-to/from-pile must reach so
+    /// the card visibly clears the control board's top edge even on a SHORT hop — a flat skim was
+    /// unreadable. Scaled by the board's live diorama scale (so it tracks board size/config) at
+    /// ~1.5 card-heights of lift. The fly takes the max of this and its distance-proportional arc.
+    /// </summary>
+    private float BoardArcMin()
+    {
+        float boardScale = _tray.Root != null ? _tray.Root.lossyScale.x : 1f;
+        return boardScale * CardsConfig.CardHeight * 1.5f;
+    }
 
     /// <summary>
     /// Issue B (user, "when I burned a card due to damage I didn't perceive the animation"):
@@ -2940,6 +3010,7 @@ internal sealed class CardsDriver : MonoBehaviour
             return; // burnt pile off / not built — no destination to fly to
 
         Vector3 arcUp = BoardUp();
+        float minArc = BoardArcMin();
         VRCard? card = _factory.Find(widget);
         bool ownedElsewhere = card != null
             && (card.IsHeld || card.IsFlying || _flyingToPile.Contains(card) || _lastHalfCards.Contains(card));
@@ -2948,7 +3019,7 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             // Ideal: the real VR card is still live at its true board position — fly IT (face and
             // all), from where it actually sits, orientation held for the whole flight (FlyToPile).
-            float arcHeight = Vector3.Distance(card.transform.position, burntPos) * VRCard.FlyArcHeightFraction;
+            float arcHeight = Mathf.Max(minArc, Vector3.Distance(card.transform.position, burntPos) * VRCard.FlyArcHeightFraction);
             _flyingToPile.Add(card);
             VRCard flying = card;
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -2956,7 +3027,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 _flyingToPile.Remove(flying);
                 _factory.Park(flying);
                 VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the Burnt pile — parked.");
-            });
+            }, minArc);
             _lastCardWorldPos.Remove(widget); // consumed
             _lastCardWorldRot.Remove(widget);
             VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: '{card.name}' from {card.transform.position} → Burnt " +
@@ -2988,8 +3059,8 @@ internal sealed class CardsDriver : MonoBehaviour
         Transform? anchor = AnchorParent();
         if (anchor == null)
             return;
-        float slabArc = Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction;
-        BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp);
+        float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
+        BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
         VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: transient card-back slab from {fromPos} (the burned card's " +
                             $"true last position) → Burnt pile ({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the " +
                             "board), orientation held — no live VR card for the burned widget.");
@@ -3014,7 +3085,7 @@ internal sealed class CardsDriver : MonoBehaviour
         private Vector3 _toScale;
 
         internal static void Launch(Transform anchor, Vector3 fromWorld, Quaternion fixedRot, Vector3 toWorld,
-            float targetWorldWidth, float duration, Vector3 worldUp)
+            float targetWorldWidth, float duration, Vector3 worldUp, float minArcHeight = 0f)
         {
             float w = CardsConfig.CardWidth.Value;
             float h = CardsConfig.CardHeight;
@@ -3038,7 +3109,7 @@ internal sealed class CardsDriver : MonoBehaviour
             slab._from = fromWorld;
             slab._to = toWorld;
             slab._up = worldUp.sqrMagnitude > 1e-6f ? worldUp.normalized : Vector3.up;
-            slab._height = Vector3.Distance(fromWorld, toWorld) * VRCard.FlyArcHeightFraction;
+            slab._height = Mathf.Max(minArcHeight, Vector3.Distance(fromWorld, toWorld) * VRCard.FlyArcHeightFraction);
             slab._duration = Mathf.Max(0.05f, duration);
             slab._fromScale = Vector3.one * startLocal;
             slab._toScale = Vector3.one * Mathf.Max(1e-4f, endLocal);
@@ -3797,10 +3868,13 @@ internal sealed class CardsDriver : MonoBehaviour
 
         VRCard card = AdoptedCard(widget);
         bool changed = !ReferenceEquals(lost, _shortRestPresented);
-        if (!ReferenceEquals(card, _shortRestCard))
+        bool isNewCard = !ReferenceEquals(card, _shortRestCard);
+        if (isNewCard)
         {
             if (_shortRestCard != null)
-                _factory.Park(_shortRestCard); // redraw: park the previous sacrifice
+                // Issue 2 REDRAW: the previously-offered sacrifice flies BACK into the discard pile
+                // (that is where it came from) and parks — instead of just vanishing in place.
+                FlyShortRestCardToDiscard(_shortRestCard);
             _shortRestCard = card;
         }
 
@@ -3826,7 +3900,21 @@ internal sealed class CardsDriver : MonoBehaviour
         }
 
         card.gameObject.SetActive(true);
-        _tray.PlacePickCard(card, 0); // LEFT slot recess (test #28) — display-only sacrifice
+        _tray.PlacePickCard(card, 0); // LEFT slot recess (test #28) — display-only sacrifice; sets the home
+
+        // Issue 2: the offered sacrifice ORIGINATES in the discard pile (short rest loses a random
+        // DISCARDED card), so on a fresh present / redraw-swap it flies OUT of the discard pile and
+        // arcs over the board INTO the left slot — never popping up from below. A plain rebuild
+        // (same card still offered) leaves the seated card where it sits. Falls back gracefully to
+        // PlacePickCard's default seat when the discard pile is off / not built (no wrong-spot fly).
+        if (isNewCard && !card.IsHeld
+            && _piles.TryGetPileWorld(PileKind.Discard, out Vector3 srcPos, out float srcWidth))
+        {
+            card.FlyFromPile(srcPos, srcWidth, FlyToPileSeconds, BoardUp(), BoardArcMin());
+            VRLog.Info("Cards", $"Short rest: sacrifice '{CardsGameApi.CardName(widget)}' flies OUT of the discard " +
+                                $"pile into the left slot ({FlyToPileSeconds:F2}s, arc over the board, orientation " +
+                                "locked) — it originates there (issue 2; not a fly-from-below).");
+        }
 
         if (changed)
         {
@@ -3836,6 +3924,35 @@ internal sealed class CardsDriver : MonoBehaviour
                                 "(display-only; burn/redraw commits via the docked choice).");
             _shortRestPresented = lost;
         }
+    }
+
+    /// <summary>
+    /// Issue 2 (short-rest REDRAW): fly the previously-offered sacrifice card BACK into the discard
+    /// pile (its origin) with the same over-the-board arc as <see cref="TryStartFlyToPile"/>, then
+    /// park it on arrival. Falls back to an instant park when the card is held / already parked or
+    /// the discard pile is off / not built (never a wrong-spot teleport). Purely VR presentation —
+    /// the game's own short-rest state is untouched.
+    /// </summary>
+    private void FlyShortRestCardToDiscard(VRCard card)
+    {
+        if (card.IsHeld || !card.gameObject.activeInHierarchy
+            || !_piles.TryGetPileWorld(PileKind.Discard, out Vector3 pos, out float width))
+        {
+            _factory.Park(card);
+            return;
+        }
+        float minArc = BoardArcMin();
+        _flyingToPile.Add(card);
+        VRCard flying = card;
+        card.FlyToPile(pos, width, FlyToPileSeconds, BoardUp(), () =>
+        {
+            _flyingToPile.Remove(flying);
+            _factory.Park(flying);
+            VRLog.Info("Cards", $"Short rest REDRAW: '{flying.name}' reached the discard pile — parked.");
+        }, minArc);
+        VRLog.Info("Cards", $"Short rest REDRAW: '{card.name}' flies BACK into the discard pile " +
+                            $"({FlyToPileSeconds:F2}s, arc over the board, orientation locked) before the new " +
+                            "sacrifice flies out.");
     }
 
     /// <summary>
@@ -3850,7 +3967,11 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         if (_shortRestCard != null)
         {
-            _factory.Park(_shortRestCard);
+            // Issue 2: if the sacrifice was just BURNED, TickBurnToPile is already flying the REAL
+            // card over the board into the burnt pile — do NOT park it out from under that flight;
+            // its own completion callback parks it on arrival. Otherwise park it now.
+            if (!_shortRestCard.IsFlying)
+                _factory.Park(_shortRestCard);
             _shortRestCard = null;
         }
         if (_shortRestPresented != null)
