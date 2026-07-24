@@ -25,6 +25,15 @@ namespace GloomhavenVR.WorldUI;
 /// different widths), shared height/depth and press travel. Consumed by
 /// <c>PlayTray.CreateDashboardButtons</c> ONLY.
 ///
+/// [RestButtons] — the short/long rest keycaps in the tray's rest zone (2026-07 category
+/// completion, user: "set button form per category for ALL buttons"): cap width/height
+/// (used when the per-board Rest shape is Square — Round rest discs keep the per-board
+/// authored diameter, exactly like the Confirm/Undo Round path), plus depth/extrusion and
+/// press travel that apply to BOTH shapes. Consumed by <c>RestControls.EnsureBuilt</c>
+/// ONLY. The Rest cap SHAPE and the round disc DIAMETER stay per-board
+/// (<c>CardsConfig.RestButtonShape</c>/<c>RestButtonDiameter</c>), so nothing here leaks
+/// across categories.
+///
 /// NO "Auto" SENTINEL any more (user: "give me a fixed numeric value everywhere"): every
 /// entry's DEFAULT is the exact authored value it replaced, so the shipped defaults
 /// reproduce the authored look bit-identically and every settings-panel stepper always
@@ -58,6 +67,10 @@ internal static class ButtonTuning
     internal const float DefaultDashHeight = 0.030f;    // authored gear/pin plate height
     internal const float DefaultDashDepth = 0.030f;     // authored gear/pin plate extrusion
     internal const float DefaultDashTravel = 0.004f;    // BoardButton.CapTravel (same authored travel)
+    internal const float DefaultRestWidth = 0.105f;     // authored RestButtonDiameter default (square rest-cap side)
+    internal const float DefaultRestHeight = 0.105f;
+    internal const float DefaultRestDepth = 0.012f;     // authored CardsConfig.RoundButtonThickness (rest disc/cap thickness)
+    internal const float DefaultRestTravel = 0.004f;    // BoardButton.CapTravel (rest discs used the authored default)
 
     // ---- [RoundButtons] — transient round-phase button group (ButtonCluster ONLY) ---------
     internal static ConfigEntry<float>? RoundOffsetX;
@@ -83,6 +96,12 @@ internal static class ButtonTuning
     internal static ConfigEntry<float>? DashDepth;
     internal static ConfigEntry<float>? DashTravel;
 
+    // ---- [RestButtons] — short/long rest keycaps (RestControls.EnsureBuilt ONLY) ----------
+    internal static ConfigEntry<float>? RestWidth;
+    internal static ConfigEntry<float>? RestHeight;
+    internal static ConfigEntry<float>? RestDepth;
+    internal static ConfigEntry<float>? RestTravel;
+
     /// <summary>Raised on every entry write (settings-panel steppers bind here).</summary>
     internal static event System.Action? Changed;
 
@@ -94,6 +113,20 @@ internal static class ButtonTuning
     internal const float PressFireFraction = 0.90f;
     /// <summary>The cap must rise back above (1 − this) … i.e. depth must fall to ≤ this fraction before a new press can fire.</summary>
     internal const float PressRearmFraction = 0.50f;
+
+    // ---- press debounce (user: keycap double-trigger — same fix as PileStack.OnPoke) --------
+    /// <summary>
+    /// Shared press-debounce cooldown (seconds) for the 3D keycaps (BoardButton + the
+    /// ButtonCluster caps), copied 1:1 from <c>PileViewer.PokeToggleCooldownSeconds</c>: after a
+    /// press commits, NO second press — from the retract/re-entry of the same physical poke, a
+    /// PokeInteractor hover flicker, or a cross-path poke+laser — fires within this window. It
+    /// composes with the depth-fire: the depth-fire (~90% travel) is the press event and still
+    /// requires the cap to first retract past <see cref="PressRearmFraction"/> to re-arm; this
+    /// cooldown additionally kills the exit+enter re-fire the hysteresis alone could not. The
+    /// board laser routes through the same cooldown (cooldown-debounced, NOT dwell), so a
+    /// deliberate second laser click after the window keeps working.
+    /// </summary>
+    internal const float PokePressCooldownSeconds = 0.4f;
 
     // ---- dissolve timing (user #7 — constants, not config) ---------------------------------
     /// <summary>Seconds the cap shrinks out while the dust burst plays (logical hide is instant).</summary>
@@ -169,6 +202,20 @@ internal static class ButtonTuning
             "Press travel (meters) of the gear + follow/pin plates. Applies ONLY to those two. " +
             "Live; clamped 0.002..0.02.");
 
+        RestWidth = config.Bind("RestButtons", "Width", DefaultRestWidth,
+            "Cap width (meters) of the short/long REST keycaps in the tray's rest zone while their " +
+            "per-board shape is Square. Round rest discs keep the per-board authored diameter. " +
+            "Applies ONLY to the rest buttons. Live; clamped 0.02..0.20.");
+        RestHeight = config.Bind("RestButtons", "Height", DefaultRestHeight,
+            "Cap height (meters) of the short/long REST keycaps while their per-board shape is " +
+            "Square. Applies ONLY to the rest buttons. Live; clamped 0.015..0.20.");
+        RestDepth = config.Bind("RestButtons", "Depth", DefaultRestDepth,
+            "Cap depth/extrusion (meters toward the player) of the short/long REST keycaps — for " +
+            "BOTH Round discs and Square caps. Applies ONLY to the rest buttons. Live; clamped 0.006..0.08.");
+        RestTravel = config.Bind("RestButtons", "Travel", DefaultRestTravel,
+            "Press travel (meters) of the short/long REST keycaps — cap sink distance and the " +
+            "depth-fire push distance. Applies ONLY to the rest buttons. Live; clamped 0.002..0.02.");
+
         MigrateLegacy(config);
 
         Hook(RoundOffsetX);
@@ -189,6 +236,10 @@ internal static class ButtonTuning
         Hook(DashHeight);
         Hook(DashDepth);
         Hook(DashTravel);
+        Hook(RestWidth);
+        Hook(RestHeight);
+        Hook(RestDepth);
+        Hook(RestTravel);
     }
 
     /// <summary>
@@ -350,6 +401,18 @@ internal static class ButtonTuning
     /// <summary>[BoardDashboard] gear + follow/pin press travel.</summary>
     internal static float DashboardTravel => Clamped(DashTravel, DefaultDashTravel, 0.002f, 0.02f);
 
+    /// <summary>[RestButtons] Square-shape cap width (short/long rest keycaps ONLY).</summary>
+    internal static float RestCapWidth => Clamped(RestWidth, DefaultRestWidth, 0.02f, 0.20f);
+
+    /// <summary>[RestButtons] Square-shape cap height (short/long rest keycaps ONLY).</summary>
+    internal static float RestCapHeight => Clamped(RestHeight, DefaultRestHeight, 0.015f, 0.20f);
+
+    /// <summary>[RestButtons] cap depth/extrusion — both Round discs and Square caps (rest keycaps ONLY).</summary>
+    internal static float RestCapDepth => Clamped(RestDepth, DefaultRestDepth, 0.006f, 0.08f);
+
+    /// <summary>[RestButtons] press travel (short/long rest keycaps ONLY).</summary>
+    internal static float RestCapTravel => Clamped(RestTravel, DefaultRestTravel, 0.002f, 0.02f);
+
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
 
@@ -361,7 +424,8 @@ internal static class ButtonTuning
                $"cap size {TransientCapRadius:F3} m, W/H/D {RoundCapWidth:F3}/{RoundCapHeight:F3}/{RoundCapDepth:F3} m, " +
                $"travel {RoundCapTravel:F3} m; board W/H/D {BoardCapWidth:F3}/{BoardCapHeight:F3}/{BoardCapDepth:F3} m, " +
                $"travel {BoardCapTravel:F3} m; dashboard gear/pin W {DashboardGearWidth:F3}/{DashboardPinWidth:F3} m, " +
-               $"H/D {DashboardHeight:F3}/{DashboardDepth:F3} m, travel {DashboardTravel:F3} m";
+               $"H/D {DashboardHeight:F3}/{DashboardDepth:F3} m, travel {DashboardTravel:F3} m; " +
+               $"rest W/H/D {RestCapWidth:F3}/{RestCapHeight:F3}/{RestCapDepth:F3} m, travel {RestCapTravel:F3} m";
     }
 }
 

@@ -558,6 +558,14 @@ internal sealed class ButtonCluster
         private Color _accent;
 
         private float _capRestY;
+        // Cap TOP face in root-local units (the outward/viewer-facing surface). The docked label
+        // is seated a fixed margin PROUD of THIS (not the cap CENTER): the round cylinder cap is
+        // taller than the shallow square/native cap, so the old center-relative offset left the
+        // Round label nearly flush with its top face → at the board's diorama scale the proud gap
+        // shrank under a millimetre and the co-planar TMP + opaque cap face z-fought per-eye under
+        // stereo (the "flickers very strongly" report). Anchoring to the top gives both shapes the
+        // same real proud gap. Set at build.
+        private float _capTopLocalY;
         private float _pressT;       // 1 = fully pressed, decays to 0
         private bool _interactable = true;
         private string? _mirroredText;
@@ -570,6 +578,13 @@ internal sealed class ButtonCluster
         private VRHand? _hoverHand;
         private bool _depthArmed = true;
 
+        // Press DEBOUNCE (user: keycaps double-trigger — port the PileStack.OnPoke fix). After a
+        // press commits, no second press fires until the cap retracted past PressRearmFraction to
+        // re-arm AND this shared cooldown elapsed; the laser path is cooldown-debounced too (never
+        // dwelled). Composes with the depth-fire (the ~90% press stays the event; this blocks the
+        // retract/re-entry and hover-flicker re-fire).
+        private float _nextPressTime;
+
         // Dust-dissolve hide / quick scale-in show (user #7). Logical hide is instant
         // (collider off, excluded from the column layout); only the visuals shrink out.
         private bool _logicalVisible = true;
@@ -580,6 +595,9 @@ internal sealed class ButtonCluster
 
         /// <summary>Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>.</summary>
         private const float FingertipRadius = 0.008f;
+
+        /// <summary>Root-local margin the docked label is held PROUD of the cap top face (flicker fix — see <see cref="_capTopLocalY"/>).</summary>
+        private const float DockedLabelProud = 0.010f;
 
         /// <summary>Live cap travel, cluster-local meters ([RoundButtons] Travel — authored default 8 mm).</summary>
         private static float TravelLocal => ButtonTuning.RoundCapTravel;
@@ -652,6 +670,7 @@ internal sealed class ButtonCluster
             _baseRenderer = _rootGo.GetComponentInChildren<Renderer>()!;
             _collider = _cap.GetComponent<BoxCollider>() ?? _cap.gameObject.AddComponent<BoxCollider>();
             _capRestY = _cap.localPosition.y;
+            _capTopLocalY = _capRestY; // prefab labels ride the LabelAnchor (SetDocked no-ops on _labelAnchored)
             CreateLabel(_rootGo.transform.Find("LabelAnchor"), radius);
         }
 
@@ -710,6 +729,11 @@ internal sealed class ButtonCluster
             }
             _cap = cap.transform;
             _capRestY = _cap.localPosition.y;
+            // Cap TOP face (viewer side): the Unity cylinder spans ±1×scale.y so its half-height
+            // is capD; the cube spans ±0.5×scale.y so its half-height is capD/2. The docked label
+            // seats a fixed margin proud of this, keeping the same real gap on the taller round
+            // cap that the shallow square cap already had (round-label flicker fix).
+            _capTopLocalY = _capRestY + (roundShape ? capD : capD * 0.5f);
             _capRenderer = cap.GetComponent<Renderer>();
             _capRenderer.sharedMaterial = CreateLitMaterial(_accent); // lit opaque, depth-correct (see base)
 
@@ -811,7 +835,14 @@ internal sealed class ButtonCluster
             Transform lt = _label.transform;
             if (docked)
             {
-                lt.localPosition = new Vector3(0f, _capRestY + 0.014f, 0f);
+                // Flat ONTO the cap, held DockedLabelProud off the cap TOP face (not the cap
+                // CENTER as before): the round cylinder cap's top is capD above centre vs the
+                // square cap's capD/2, so a centre-relative offset left the round label almost
+                // flush and it z-fought the opaque cap face per-eye under stereo (the flicker).
+                // Anchoring to the real top gives both shapes the same proud gap; the label's
+                // material already renders after the cap (queue 3000 + ZTest LEqual via
+                // NativeButtonSkin.StyleEngravedLabel, sortingOrder 3), so proud + LEqual is stable.
+                lt.localPosition = new Vector3(0f, _capTopLocalY + DockedLabelProud, 0f);
                 lt.localRotation = Quaternion.Euler(90f, 180f, 0f);
                 Core.TmpFit.Fit(_label, 0.105f, 0.045f, maxFontSize: 0.30f);
             }
@@ -1012,13 +1043,12 @@ internal sealed class ButtonCluster
             {
                 if (follow >= ButtonTuning.PressFireFraction)
                 {
-                    if (_depthArmed)
+                    // DEBOUNCE (user): fire only when re-armed AND past the shared cooldown, so a
+                    // retract-then-push or a hover flicker inside one poke cannot double-fire.
+                    if (_depthArmed && Time.unscaledTime >= _nextPressTime)
                     {
                         _depthArmed = false;
-                        _pressT = 1f;
-                        _hoverHand.SendHaptic(HapticPreset.ClickPulse);
-                        VRLog.Info("WorldUI", $"{_rootGo.name} pressed (source=poke-depth, {_hoverHand.Side}).");
-                        _onClick();
+                        Fire(_hoverHand, "poke-depth");
                     }
                 }
                 else if (follow <= ButtonTuning.PressRearmFraction)
@@ -1091,7 +1121,23 @@ internal sealed class ButtonCluster
                 _hoverHand = hand;
                 return;
             }
+            // Laser press: immediate, but cooldown-debounced (trigger bounce + cross-path
+            // poke+laser double-fire within the shared window). Never dwelled.
+            if (Time.unscaledTime < _nextPressTime)
+                return;
+            Fire(hand, "laser");
+        }
+
+        /// <summary>
+        /// Commit a press (depth-fire or laser): stamp the debounce cooldown, kick the cap
+        /// dip, haptic + log, then invoke. Single entry so both paths share the cooldown.
+        /// </summary>
+        private void Fire(VRHand hand, string source)
+        {
+            _nextPressTime = Time.unscaledTime + ButtonTuning.PokePressCooldownSeconds;
             _pressT = 1f;
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("WorldUI", $"{_rootGo.name} pressed (source={source}, {hand.Side}).");
             _onClick();
         }
     }
