@@ -1323,6 +1323,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(sizeRow, Loc.Mod("size"), 16f, flexible: true);
         MiniStepper(sizeRow, FormatSize, StepSize);
 
+        // Objectives-only WIDTH stepper (user request): widen the scenario TASK dock so its
+        // progress bar reads longer. Separate from the uniform "Größe" scale above — this scales
+        // ONLY the fit width budget (the panel grows leftward into open space). mm readout of the
+        // effective width budget, consistent with the offset rows.
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Objectives;
+        var objWidthRow = Row();
+        Label(objWidthRow, "Breite", 16f, flexible: true);
+        MiniStepper(objWidthRow, FormatObjectivesWidth, StepObjectivesWidth);
+
         // Spacing stepper — group gap (Rest disc gap / Confirm-Undo gap / inter-pile gap; Active COL step).
         _rowGate = () => PerBoard() && ElementHasSpacing(CurrentElement());
         var spacingRow = Row();
@@ -2030,6 +2039,25 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         }
     }
 
+    /// <summary>
+    /// Objectives dock width readout (user request): the EFFECTIVE fit-width budget in mm —
+    /// base <see cref="PlayTray.ObjectivesMountWidth"/> × the per-board <c>ObjectivesWidth</c>
+    /// multiplier — with the multiplier appended so both the physical size and the factor read.
+    /// </summary>
+    private string FormatObjectivesWidth()
+    {
+        ControlBoard b = CardsConfig.CurrentBoard;
+        float mult = CardsConfig.ObjectivesWidth(b).Value;
+        return $"{PlayTray.ObjectivesMountWidth * mult * 1000f:0}mm ({mult:0.0}x)";
+    }
+
+    /// <summary>Widen/narrow the objectives task dock (0.1× steps, 1.0–3.0). Live: the surface re-reads MountWidth.</summary>
+    private void StepObjectivesWidth(int delta)
+    {
+        ConfigEntry<float> e = CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard);
+        e.Value = Mathf.Clamp(e.Value + delta * 0.1f, 1f, 3f);
+    }
+
     // ---- Spacing / Row-gap / Shape steppers (round 2) --------------------------------------
 
     /// <summary>Spacing readout for the selected group element (mm for meter gaps, factor for the active COL step).</summary>
@@ -2252,6 +2280,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 break;
             case DebugElement.Objectives:
                 CardsConfig.ObjectivesScale(b).Value = (float)CardsConfig.ObjectivesScale(b).DefaultValue;
+                CardsConfig.ObjectivesWidth(b).Value = (float)CardsConfig.ObjectivesWidth(b).DefaultValue;
                 break;
             case DebugElement.Elements:
                 CardsConfig.ElementsScale(b).Value = (float)CardsConfig.ElementsScale(b).DefaultValue;

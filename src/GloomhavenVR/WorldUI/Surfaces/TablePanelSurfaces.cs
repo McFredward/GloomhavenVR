@@ -666,9 +666,41 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     protected override bool ConfigEnabled => WorldUIConfig.Objectives.Value;
     protected override PanelSlot Slot => PanelSlot.Objectives;
     protected override Transform? Mount => PlayTray.Current?.ObjectivesMount;
-    protected override float MountWidth => PlayTray.ObjectivesMountWidth;
+
+    /// <summary>
+    /// Task-panel WIDTH (user request: the LEFT scenario TASK — which can carry a PROGRESS BAR —
+    /// looked squished, the bar tiny). The dock fits its content UNIFORMLY into
+    /// <see cref="MountWidth"/> × <see cref="MountMaxHeight"/>; the objective row (text + a wide
+    /// horizontal <c>ImageProgressBar</c>) is WIDER than tall, so WIDTH is the binding constraint
+    /// and the whole panel — the fillAmount progress bar included — scales with the width budget.
+    /// So we widen that budget by the per-board <c>ObjectivesWidth</c> multiplier (default 1.6×,
+    /// live-tunable from the debug menu): the panel grows LEFTWARD from the board edge into open
+    /// space (GrowDirection = left ⇒ no board overlap / run-off) and the bar renders proportionally
+    /// longer. Read live each tick, so a debug-menu change re-fits next frame — no mount rebuild.
+    /// </summary>
+    protected override float MountWidth =>
+        PlayTray.ObjectivesMountWidth * CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value;
     protected override float MountMaxHeight => PlayTray.ObjectivesMountMaxHeight;
     protected override Vector2 GrowDirection => Vector2.left; // right edge on the mount
+
+    /// <summary>Last objectives width budget we logged (change-gated so a per-tick re-fit stays quiet).</summary>
+    private float _loggedWidth = -1f;
+
+    protected override void Place()
+    {
+        // Log the applied objectives width budget on (re)layout — once, and again whenever the
+        // debug-menu multiplier changes — so a "the task/progress bar is too narrow" report is
+        // diagnosable from the hardware log alone (Info: BepInEx's default disk config drops Debug).
+        float w = MountWidth;
+        if (Mathf.Abs(w - _loggedWidth) > 1e-4f)
+        {
+            _loggedWidth = w;
+            VRLog.Info("WorldUI", $"Objectives dock width budget {w * 1000f:F0} mm " +
+                                  $"({CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value:F2}× base " +
+                                  $"{PlayTray.ObjectivesMountWidth * 1000f:F0} mm) — progress bar scales with it.");
+        }
+        base.Place();
+    }
 
     /// <summary>
     /// Test #17: at the shared density the objectives text read too small (the

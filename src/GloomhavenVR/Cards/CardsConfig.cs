@@ -205,6 +205,9 @@ internal static class CardsConfig
     // seeded so today's look is unchanged until tuned. ----
     private static readonly ConfigEntry<Vector3>[] _objectivesOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _objectivesScale = new ConfigEntry<float>[3];
+    // Task-panel WIDTH (user request): a multiplier on the objectives dock's fit WIDTH budget
+    // (PlayTray.ObjectivesMountWidth) so the scenario task + its progress bar render longer/wider.
+    private static readonly ConfigEntry<float>[] _objectivesWidth = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _elementsOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _elementsScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _vrSettingsOffset = new ConfigEntry<Vector3>[3];
@@ -617,6 +620,16 @@ internal static class CardsConfig
                 "the fixed left-column base), board-local meters. Seeded 0 (Oak).");
             _objectivesScale[i] = _file.Bind("Cards", $"ObjectivesScale_{board}", 1f,
                 $"[{board}] size MULTIPLIER of the OBJECTIVES ('Aufgaben') dock. Seeded 1 (Oak).");
+            _objectivesWidth[i] = _file.Bind("Cards", $"ObjectivesWidth_{board}", 1.6f,
+                new ConfigDescription(
+                    $"[{board}] WIDTH MULTIPLIER of the OBJECTIVES ('Aufgaben') dock — scales the panel's " +
+                    "fit WIDTH budget (PlayTray.ObjectivesMountWidth, base 0.26 m) so the scenario TASK " +
+                    "and its PROGRESS BAR render LONGER/wider (the old fixed budget squished them). The " +
+                    "panel grows LEFTWARD from the board's left edge into open space (no board overlap); " +
+                    "while width is the binding fit constraint the whole objective — incl. its fillAmount " +
+                    "progress bar — scales up proportionally with this factor. Default 1.6 (wider than the " +
+                    "old 1.0). Live-applied: ObjectivesSurface re-reads MountWidth and re-lays-out each tick.",
+                    new AcceptableValueRange<float>(1f, 3f)));
             _elementsOffset[i] = _file.Bind("Cards", $"ElementsOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the ELEMENT infusion ('Elemente') dock mount local position (on top " +
                 "of the fixed left-column base below the objectives), board-local meters. Seeded 0 (Oak).");
@@ -899,6 +912,7 @@ internal static class CardsConfig
     // ---- Remaining board-attached element resolvers (items 4/6) ----
     internal static ConfigEntry<Vector3> ObjectivesOffset(ControlBoard b) => _objectivesOffset[(int)b];
     internal static ConfigEntry<float> ObjectivesScale(ControlBoard b) => _objectivesScale[(int)b];
+    internal static ConfigEntry<float> ObjectivesWidth(ControlBoard b) => _objectivesWidth[(int)b];
     internal static ConfigEntry<Vector3> ElementsOffset(ControlBoard b) => _elementsOffset[(int)b];
     internal static ConfigEntry<float> ElementsScale(ControlBoard b) => _elementsScale[(int)b];
     internal static ConfigEntry<Vector3> VRSettingsOffset(ControlBoard b) => _vrSettingsOffset[(int)b];
