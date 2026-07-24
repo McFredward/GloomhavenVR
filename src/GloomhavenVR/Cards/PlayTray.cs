@@ -3305,11 +3305,25 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 capDisc.transform.localRotation = discRot;
                 capDisc.transform.localScale = new Vector3(size.x, Mathf.Max(0.001f, thickness * 0.5f), size.x);
                 capFrontZ = CapRestZ - Mathf.Max(0.001f, thickness * 0.5f); // disc protrudes half its thickness toward the viewer
-                Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+                // User (rest-cap alignment): the round rest puck now wears the SAME antique keycap
+                // SURFACE as the square Confirm/Undo/gear/Fixiert caps. Previously this branch used a
+                // bare Standard material with a flat state colour — a plain plastic puck — while the
+                // boxy caps route through NewKeycapMaterial(BoxCapShader()), which shades via BoardLit
+                // (lit even in unlit scenes) AND carries the shared carved wood/parchment grain on
+                // _MainTex (grayscale grain × the per-state colour). Use that exact material path here
+                // so the disc reads as one of the same keycap family. SHAPE STAYS ROUND (the user asked
+                // for the same TEXTURE, not the same shape); the cylinder has one cap material (no
+                // bevel/wall submeshes), and SetCapColor drives its top colour exactly as before, so the
+                // per-rest accent tints (parchment-gold / slate-blue) and the [ButtonColors] RestCapTint
+                // are untouched. The engraved parchment label (StyleEngravedLabel below) already matches.
+                Shader? shader = BoxCapShader();
                 if (shader != null)
                 {
-                    capMaterial = new Material(shader) { color = DisabledColor };
+                    capMaterial = NewKeycapMaterial(shader, DisabledColor);
                     capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                    Core.VRLog.Info("Cards", $"BoardButton '{fallbackLabel}': ROUND cap skinned with the shared " +
+                                             "carved-grain keycap material (BoardLit + KeycapGrain _MainTex) — same antique " +
+                                             "wood/parchment surface as the square board keycaps; shape stays round, accent tint kept.");
                 }
                 capMeshRenderer = capDisc.GetComponent<MeshRenderer>();
             }
