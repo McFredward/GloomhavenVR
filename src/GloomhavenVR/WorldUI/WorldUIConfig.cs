@@ -92,6 +92,14 @@ internal static class WorldUIConfig
     /// <summary>Fingertip poke on the flat screen clicks at the poked position.</summary>
     internal static ConfigEntry<bool> PokeClick = null!;
 
+    /// <summary>
+    /// User #12: push-in confirmation depth (mm) for fingertip pokes on converted flat
+    /// uGUI buttons — plane contact only ARMS (pointerDown, pressed visual); the click
+    /// fires once the fingertip pushed this far THROUGH the plane. 0 = legacy instant
+    /// click on contact. Read live per tick by <c>Hands.Interact.PokeInteractor</c>.
+    /// </summary>
+    internal static ConfigEntry<float> PokePressDepthMm = null!;
+
     /// <summary>Click delivery: "execute" (ExecuteEvents, default) | "virtualmouse" | "both".</summary>
     internal static ConfigEntry<string> ClickMode = null!;
 
@@ -314,6 +322,16 @@ internal static class WorldUIConfig
             "position (press on plane contact, release on withdraw; latch rules as above). " +
             "The screen may be out of arm's reach at the default distance — lean/step in, " +
             "or reduce [WorldUI] ScreenDistance.");
+        PokePressDepthMm = _file.Bind("WorldUI", "PokePressDepthMm", 12f, new ConfigDescription(
+            "Push-in depth in MILLIMETERS a fingertip must travel THROUGH a flat (converted " +
+            "uGUI) button's canvas plane before the click fires. Touching the plane only ARMS " +
+            "the press: the button shows its pressed visual (pointerDown) with a light haptic " +
+            "tick; pushing past this depth fires the click with a stronger pulse; retracting " +
+            "before reaching it cancels silently — no click, no penalty, re-armed after pulling " +
+            "back out of the plane. Guards against accidental presses from brushing a panel " +
+            "without making deliberate presses tedious. 0 = legacy instant click on plane " +
+            "contact. Laser clicks are unaffected. Range 0-30.",
+            new AcceptableValueRange<float>(0f, 30f)));
         ClickMode = _file.Bind("WorldUI", "ClickMode", "execute",
             "How a latched click on the floating screen is delivered. 'execute' (default): " +
             "directly via uGUI ExecuteEvents on the raycast target — the same mechanism the " +

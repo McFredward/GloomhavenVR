@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using Script.GUI.Popups;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -157,7 +158,8 @@ internal sealed class DecisionDockSurface : WorldSurface
     private static readonly List<Selectable> SelectableScratch = new(8);
     private static readonly List<TMP_Text> TextScratch = new(8);
     private static readonly List<Graphic> GraphicScratch = new(16);
-    private static readonly List<Transform> FreeTextScratch = new(4);
+    private static readonly List<Transform> WidgetScratch = new(4);
+    private static readonly List<RectTransform> MoveUnitScratch = new(4);
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
     public DecisionDockSurface()
@@ -401,25 +403,28 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// the docked row is multiply-tinted toward the mod's dark-wood/aged-brass board-
     /// button family and its labels turn parchment gold (<see cref="NativeButtonSkin.LabelColor"/>),
     /// so the docked native buttons ("Auswahl beenden", Ja/Nein, burn choices …) read
-    /// like the VR-settings gear instead of the game's default look. (b) USERS #7a/#11b —
-    /// gap compression: prompts docked WITH their prompt text (the YesNoDialog box, the
-    /// take-damage row's "Erleide entweder Schaden…" block) author a large empty band
-    /// between text and widgets (2D dialog spacing); the widget-only containers are
-    /// shifted up until the gap is <see cref="WorldUIConfig.DecisionRowGapPx"/>.
+    /// like the VR-settings gear instead of the game's default look. (b) USERS
+    /// #7a/#11b/#12a — gap compression: prompts docked WITH their prompt text (the
+    /// take-damage row's "Erleide entweder Schaden…" block, the YesNoDialog box) author
+    /// a large empty band between text and widgets (2D dialog spacing); the widget
+    /// branches are shifted up until the visible gap equals
+    /// <see cref="WorldUIConfig.DecisionRowGapPx"/> — see
+    /// <see cref="CompressPromptGap"/> for the mechanism.
     ///
-    /// USER #11b MEASUREMENT FIX: the first cut measured the gap as
-    /// (min RECT-bottom of ALL free labels) − (widget top) — which no-op'd on the
-    /// take-damage row ("Schaden erhalten"): TMP labels there are authored in rects far
-    /// TALLER than their glyphs (rect bottom well below the visible text), and free
-    /// labels/graphics that sit AT or BELOW the widget band (the damage-amount block)
-    /// dragged the measured "text bottom" down to — or past — the widget top, so the
-    /// computed gap came out tiny/negative and the row was reported as "without question
-    /// text". Now the text edge is GLYPH-TRUE (TMP <c>textBounds</c>, rect fallback) and
-    /// only free elements wholly ABOVE the widget band count, so the gap measured is the
-    /// visible band the user actually sees. Everything is recorded and handed back by
-    /// <see cref="RestoreRowAdjustments"/> on undock — live game widgets are never
-    /// permanently mutated. Rows with no free element above their widgets (DialogPopup
-    /// option row) still no-op — there is no gap to compress inside them.
+    /// USER #12a MECHANISM FIX: two rounds of heuristics ("free Graphic above the
+    /// widget band", first rect-based then glyph-true) still classified the take-damage
+    /// row as having no text above its widgets — the panel's Selectable rects are
+    /// authored spanning their whole option columns, so the widget band's rect top sat
+    /// level with (or above) the prompt text and every Graphic was either "inside a
+    /// widget" or "not above the band". The classification is GONE: the prompt text and
+    /// the actionable widgets are now resolved from the game's own SERIALIZED fields per
+    /// known panel type (<see cref="ResolvePromptAnchors"/> — TakeDamagePanel.takeDamageText
+    /// + its two toggles/button, YesNoDialog.descriptionText + yes/no, DialogPopup.contentText
+    /// + option buttons), the gap is measured glyph-true text bottom → topmost VISIBLE
+    /// graphic of the widget branches, and the branches (the widget-side direct children
+    /// of each text↔widget fork node) are shifted up directly. Everything is recorded and
+    /// handed back by <see cref="RestoreRowAdjustments"/> on undock — live game widgets
+    /// are never permanently mutated.
     /// </summary>
     private void AdjustDockedRow()
     {
@@ -457,81 +462,206 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
         }
 
-        // (b) text↔widget gap compression (users #7a/#11b — see the method doc for the
-        // measurement rules). Widget band first: top edge of the highest Selectable.
-        float widgetTop = float.MinValue;
-        for (int i = 0; i < SelectableScratch.Count; i++)
-        {
-            var rt = SelectableScratch[i] != null ? SelectableScratch[i].transform as RectTransform : null;
-            if (rt != null)
-                widgetTop = Mathf.Max(widgetTop, EdgeYIn(root, rt, min: false));
-        }
+        // (b) text↔widget gap compression (users #7a/#11b/#12a): anchor-based on the
+        // prompt's serialized text/widget fields — see the method doc and CompressPromptGap.
+        string gapNote = CompressPromptGap(root);
 
-        // Free elements = Graphics (TMP labels, icons) NOT inside a widget, counted only
-        // when they sit wholly ABOVE the widget band; the NEAREST one above (min bottom)
-        // defines the visible gap. TMP bottoms are glyph-true (textBounds), so a label
-        // rect authored taller than its text no longer fakes a closed gap.
-        FreeTextScratch.Clear();
-        float freeBottom = float.MaxValue;
-        if (widgetTop > float.MinValue)
-        {
-            GraphicScratch.Clear();
-            root.GetComponentsInChildren(includeInactive: false, GraphicScratch);
-            for (int i = 0; i < GraphicScratch.Count; i++)
-            {
-                Graphic g = GraphicScratch[i];
-                if (g == null || g.GetComponentInParent<Selectable>() != null)
-                    continue;
-                var grt = g.transform as RectTransform;
-                if (grt == null || ReferenceEquals(grt, root))
-                    continue;
-                float bottom = g is TMP_Text label
-                    ? GlyphBottomIn(root, label)
-                    : EdgeYIn(root, grt, min: true);
-                if (bottom <= widgetTop)
-                    continue; // at/below the widget band (backgrounds, damage-amount block) — not the gap edge
-                FreeTextScratch.Add(g.transform);
-                freeBottom = Mathf.Min(freeBottom, bottom);
-            }
-        }
-
-        float gapTarget = Mathf.Clamp(WorldUIConfig.DecisionRowGapPx.Value, 0f, 60f);
-        float shiftedBy = 0f;
-        float gap = 0f;
-        if (FreeTextScratch.Count > 0 && widgetTop > float.MinValue)
-        {
-            gap = freeBottom - widgetTop;
-            if (gap > gapTarget + RowGapMinDeltaPx)
-            {
-                shiftedBy = gap - gapTarget;
-                ShiftWidgetContainers(root, shiftedBy);
-            }
-        }
-
-        if (styled > 0 || shiftedBy > 0f)
-            VRLog.Info("WorldUI", $"DECISION DOCK: row adjusted — {styled} widget background(s) antique-tinted " +
-                                  "(dark-wood/brass + parchment labels, the VR-settings-button style)" +
-                                  (shiftedBy > 0f
-                                      ? $", text↔widget gap {gap:F0}px → {gapTarget:F0}px " +
-                                        $"(widgets shifted up {shiftedBy:F0}px, [WorldUI] DecisionRowGapPx)."
-                                      : FreeTextScratch.Count > 0
-                                          ? $", text↔widget gap {gap:F0}px already ≤ target {gapTarget:F0}px — untouched."
-                                          : ", no free text/graphic above the widget band — no gap to compress."));
+        VRLog.Info("WorldUI", $"DECISION DOCK: row adjusted — {styled} widget background(s) antique-tinted " +
+                              "(dark-wood/brass + parchment labels, the VR-settings-button style)" + gapNote);
     }
 
     /// <summary>
-    /// Glyph-true bottom edge (root-local Y) of a TMP label: the rendered text bounds,
-    /// not the authored rect — dialog labels are routinely authored in rects far taller
-    /// than their glyphs, which made the old rect-based gap read as already closed
-    /// (user #11b). Falls back to the rect edge when the label has no rendered glyphs.
+    /// USER #12a gap mechanism (no classification): the active prompt's KNOWN text block
+    /// and actionable widgets (<see cref="ResolvePromptAnchors"/>, the game's serialized
+    /// fields) define the geometry directly. For each widget, the subtree to move is the
+    /// widget-side direct child of the deepest ancestor shared with the text (the fork
+    /// node where the text branch and that widget's branch separate) — moving it never
+    /// moves the text, and moving whole fork children keeps each option column's internal
+    /// layout intact. The visible gap is glyph-true text bottom (TMP textBounds) minus
+    /// the topmost VISIBLE Graphic of the moving branches (widget rects are authored
+    /// spanning whole columns and lie about where the drawn button starts); every branch
+    /// is shifted up by (gap − <see cref="WorldUIConfig.DecisionRowGapPx"/>), recorded in
+    /// <see cref="_shiftedRects"/> for restore. Returns the log fragment describing what
+    /// moved (element names + px) or why nothing did.
     /// </summary>
-    private static float GlyphBottomIn(RectTransform root, TMP_Text label)
+    private string CompressPromptGap(RectTransform root)
+    {
+        TMP_Text? text = ResolvePromptAnchors(WidgetScratch);
+        if (text == null || WidgetScratch.Count == 0)
+            return ", gap: no known text/widget anchors for this prompt — layout untouched.";
+        Transform tt = text.transform;
+        if (ReferenceEquals(tt, root) || !tt.IsChildOf(root))
+            return $", gap: prompt text '{text.name}' is not part of the docked row — nothing to compress.";
+
+        MoveUnitScratch.Clear();
+        for (int i = 0; i < WidgetScratch.Count; i++)
+        {
+            Transform w = WidgetScratch[i];
+            if (w == null || !w.IsChildOf(root))
+                continue;
+            if (tt.IsChildOf(w) || w.IsChildOf(tt))
+                return $", gap: text '{text.name}' and widget '{w.name}' share a branch — cannot separate, layout untouched.";
+            Transform? fork = SharedAncestor(w, tt);
+            if (fork == null)
+                continue; // different hierarchies (should not happen inside one row)
+            Transform unit = w;
+            while (unit.parent != null && !ReferenceEquals(unit.parent, fork))
+                unit = unit.parent;
+            if (unit is RectTransform urt && !MoveUnitScratch.Contains(urt))
+                MoveUnitScratch.Add(urt);
+        }
+        if (MoveUnitScratch.Count == 0)
+            return ", gap: no movable widget branch found under the docked row — layout untouched.";
+
+        float widgetTop = float.MinValue;
+        for (int i = 0; i < MoveUnitScratch.Count; i++)
+            widgetTop = Mathf.Max(widgetTop, VisualTopIn(root, MoveUnitScratch[i]));
+        float textBottom = GlyphEdgeIn(root, text, top: false);
+        float gap = textBottom - widgetTop;
+        float gapTarget = Mathf.Clamp(WorldUIConfig.DecisionRowGapPx.Value, 0f, 60f);
+        if (gap <= gapTarget + RowGapMinDeltaPx)
+            return $", text↔widget gap {gap:F0}px already ≤ target {gapTarget:F0}px — untouched.";
+
+        float delta = gap - gapTarget;
+        var names = new System.Text.StringBuilder(64);
+        for (int i = 0; i < MoveUnitScratch.Count; i++)
+        {
+            RectTransform unit = MoveUnitScratch[i];
+            // Express the root-space px delta in the unit's parent space (scale-safe).
+            Transform parent = unit.parent != null ? unit.parent : root;
+            float localY = parent.InverseTransformVector(root.TransformVector(new Vector3(0f, delta, 0f))).y;
+            _shiftedRects.Add((unit, unit.anchoredPosition));
+            unit.anchoredPosition += new Vector2(0f, localY);
+            if (names.Length > 0)
+                names.Append(", ");
+            names.Append('\'').Append(unit.name).Append('\'');
+        }
+        return $", text↔widget gap {gap:F0}px → {gapTarget:F0}px: moved {names} up by {delta:F0}px " +
+               "([WorldUI] DecisionRowGapPx).";
+    }
+
+    /// <summary>
+    /// The active prompt's prompt-text label and actionable widget transforms, straight
+    /// from the game's own serialized fields (no structural guessing): TakeDamagePanel's
+    /// takeDamageText ("Erleide entweder Schaden…") + burn toggles/take-damage button,
+    /// YesNoDialog's descriptionText + yes/no buttons, DialogPopup's contentText + pooled
+    /// option buttons. Null text or empty widget list → the caller logs and no-ops.
+    /// </summary>
+    private TMP_Text? ResolvePromptAnchors(List<Transform> widgets)
+    {
+        widgets.Clear();
+        switch (_active?.Name)
+        {
+            case "TakeDamagePanel":
+            {
+                TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
+                    ? Singleton<TakeDamagePanel>.Instance
+                    : null;
+                if (p == null)
+                    return null;
+                if (p.burnAvailableCardsToggle != null)
+                    widgets.Add(p.burnAvailableCardsToggle.transform);
+                if (p.burnDiscardedCardsToggle != null)
+                    widgets.Add(p.burnDiscardedCardsToggle.transform);
+                if (p.takeDamageButton != null)
+                    widgets.Add(p.takeDamageButton.transform);
+                return p.takeDamageText;
+            }
+            case "YesNoDialog":
+            {
+                YesNoDialog? d = CardsGameApi.ShortRestDialog();
+                if (d == null)
+                    return null;
+                if (d.yesButton != null)
+                    widgets.Add(d.yesButton.transform);
+                if (d.noButton != null)
+                    widgets.Add(d.noButton.transform);
+                return d.descriptionText;
+            }
+            case "DialogPopup":
+            {
+                UIManager? m = UIManager.Instance;
+                DialogPopup? d = m != null ? m.dialogPopup : null;
+                if (d == null)
+                    return null;
+                List<InputButton>? buttons = d.optionButtons;
+                if (buttons != null)
+                {
+                    for (int i = 0; i < buttons.Count; i++)
+                    {
+                        InputButton ib = buttons[i];
+                        if (ib != null && ib.gameObject.activeInHierarchy && ib.ExtendedButton != null)
+                            widgets.Add(ib.ExtendedButton.transform);
+                    }
+                }
+                return d.contentText;
+            }
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Deepest common ancestor of two transforms (depth-walk, null-tolerant).</summary>
+    private static Transform? SharedAncestor(Transform? a, Transform? b)
+    {
+        if (a == null || b == null)
+            return null;
+        int da = DepthOf(a), db = DepthOf(b);
+        while (da > db) { a = a!.parent; da--; }
+        while (db > da) { b = b!.parent; db--; }
+        while (a != null && b != null && !ReferenceEquals(a, b))
+        {
+            a = a.parent;
+            b = b.parent;
+        }
+        return a != null && ReferenceEquals(a, b) ? a : null;
+    }
+
+    private static int DepthOf(Transform t)
+    {
+        int d = 0;
+        for (Transform? p = t.parent; p != null; p = p.parent)
+            d++;
+        return d;
+    }
+
+    /// <summary>
+    /// Topmost VISIBLE edge (root-local Y) of a widget branch: the highest rendered
+    /// Graphic under it — glyph-true for TMP labels, rect corners otherwise. The
+    /// branch's own rect is only the fallback (widget rects are authored spanning
+    /// whole option columns, far above their drawn content).
+    /// </summary>
+    private static float VisualTopIn(RectTransform root, RectTransform unit)
+    {
+        GraphicScratch.Clear();
+        unit.GetComponentsInChildren(includeInactive: false, GraphicScratch);
+        float top = float.MinValue;
+        for (int i = 0; i < GraphicScratch.Count; i++)
+        {
+            Graphic g = GraphicScratch[i];
+            if (g == null)
+                continue;
+            float edge = g is TMP_Text label
+                ? GlyphEdgeIn(root, label, top: true)
+                : EdgeYIn(root, (RectTransform)g.transform, min: false);
+            top = Mathf.Max(top, edge);
+        }
+        return top > float.MinValue ? top : EdgeYIn(root, unit, min: false);
+    }
+
+    /// <summary>
+    /// Glyph-true top/bottom edge (root-local Y) of a TMP label: the rendered text
+    /// bounds, not the authored rect — dialog labels are routinely authored in rects far
+    /// taller than their glyphs, which made rect-based gaps lie (user #11b). Falls back
+    /// to the rect edge when the label has no rendered glyphs.
+    /// </summary>
+    private static float GlyphEdgeIn(RectTransform root, TMP_Text label, bool top)
     {
         label.ForceMeshUpdate(); // one-shot per dock; the row was just reparented, ensure fresh bounds
         Bounds b = label.textBounds;
         if (string.IsNullOrEmpty(label.text) || b.size.x <= 0.001f || b.size.y <= 0.001f)
-            return EdgeYIn(root, label.rectTransform, min: true);
-        Vector3 world = label.transform.TransformPoint(new Vector3(b.center.x, b.min.y, 0f));
+            return EdgeYIn(root, label.rectTransform, min: !top);
+        Vector3 world = label.transform.TransformPoint(new Vector3(b.center.x, top ? b.max.y : b.min.y, 0f));
         return root.InverseTransformPoint(world).y;
     }
 
@@ -546,36 +676,6 @@ internal sealed class DecisionDockSurface : WorldSurface
             edge = min ? Mathf.Min(edge, y) : Mathf.Max(edge, y);
         }
         return edge;
-    }
-
-    /// <summary>
-    /// Shift every subtree that holds ONLY widgets (no free text) up by
-    /// <paramref name="deltaY"/> root-local px: recurse from the root, move a child
-    /// whole when its subtree contains widgets but none of the free-text labels,
-    /// descend when it mixes both. Original anchoredPositions are recorded.
-    /// </summary>
-    private void ShiftWidgetContainers(RectTransform node, float deltaY)
-    {
-        for (int i = 0; i < node.childCount; i++)
-        {
-            var child = node.GetChild(i) as RectTransform;
-            if (child == null || !child.gameObject.activeSelf)
-                continue;
-            if (child.GetComponentInChildren<Selectable>(includeInactive: false) == null)
-                continue; // no widgets below — leave (text/decoration)
-            bool hasFreeText = false;
-            for (int t = 0; t < FreeTextScratch.Count && !hasFreeText; t++)
-                hasFreeText = FreeTextScratch[t] != null && FreeTextScratch[t].IsChildOf(child);
-            if (hasFreeText)
-            {
-                ShiftWidgetContainers(child, deltaY); // mixed subtree — go deeper
-            }
-            else
-            {
-                _shiftedRects.Add((child, child.anchoredPosition));
-                child.anchoredPosition += new Vector2(0f, deltaY);
-            }
-        }
     }
 
     /// <summary>Undo <see cref="AdjustDockedRow"/> — colours and positions back to the game's own values.</summary>
