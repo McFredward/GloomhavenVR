@@ -477,6 +477,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         rect.offsetMax = Vector2.zero;
         var image = img.AddComponent<Image>();
         image.color = Color.HSVToRGB((index * 0.13f) % 1f, 0.45f, 0.85f);
+        _dustTone = image.color; // crumble/materialize dust takes this placeholder's tone
 
         var textGo = new GameObject("Label");
         textGo.transform.SetParent(rect, worldPositionStays: false);
@@ -988,13 +989,36 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal const float FlyArcHeightFraction = 0.55f;
 
     /// <summary>
-    /// Parabolic lift offset along <paramref name="up"/> for a fly-to-pile at LINEAR progress
-    /// <paramref name="linearT"/> (0..1): <c>height · 4 · t · (1−t)</c> — zero at both ends,
-    /// peaking at <paramref name="height"/> when t = 0.5. Shared by <see cref="FlyToPile"/> and
-    /// the transient burn-slab fallback so both arcs match exactly (user issue: same arc).
+    /// SMOOTHNESS FLOOR (user issue 1 "choppy flights"): the flight never runs shorter than this,
+    /// so on a low frame-rate frame (the tick is unscaled-dt capped at 0.05 s) the eased motion
+    /// still has enough sub-steps to read as a smooth glide rather than a couple of visible jumps.
+    /// Callers may pass longer; the flight takes the larger of the two.
     /// </summary>
-    internal static Vector3 FlyArcOffset(float linearT, Vector3 up, float height) =>
-        up * (height * 4f * linearT * (1f - linearT));
+    internal const float MinFlySeconds = 0.35f;
+
+    /// <summary>
+    /// Smootherstep (Ken Perlin's C² ease-in-out: <c>6t⁵ − 15t⁴ + 10t³</c>) — symmetric about
+    /// t = 0.5 with zero first AND second derivative at both ends, so the eased motion has no
+    /// velocity/acceleration kink (the source of the "choppy" look). At t = 0.5 it returns exactly
+    /// 0.5, so a flight driven by this is at the spatial midpoint at the temporal midpoint — which
+    /// is exactly where the symmetric arc peaks, keeping the bow centered instead of lopsided.
+    /// </summary>
+    internal static float SmootherStep(float t)
+    {
+        t = Mathf.Clamp01(t);
+        return t * t * t * (t * (t * 6f - 15f) + 10f);
+    }
+
+    /// <summary>
+    /// Parabolic lift offset along <paramref name="up"/> for a fly-to-pile at eased progress
+    /// <paramref name="t"/> (0..1): <c>height · 4 · t · (1−t)</c> — zero at both ends, peaking at
+    /// <paramref name="height"/> when t = 0.5. The card flights feed the SMOOTHERSTEP-eased
+    /// parameter here (peak stays at the temporal midpoint because smootherstep is symmetric), so
+    /// the lift ramps up and settles as gently as the horizontal slide — no stepped/linear bow.
+    /// Shared by <see cref="FlyToPile"/> and the transient burn-slab fallback (same arc shape).
+    /// </summary>
+    internal static Vector3 FlyArcOffset(float t, Vector3 up, float height) =>
+        up * (height * 4f * t * (1f - t));
 
     /// <summary>True while this card is animating into a pile (see <see cref="FlyToPile"/>).</summary>
     internal bool IsFlying => _flying;
@@ -1015,14 +1039,18 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _flying = true;
         _flyIntro = false; // fly-OUT: run the park/hide completion on arrival
         _flyElapsed = 0f;
-        _flyDuration = Mathf.Max(0.05f, duration);
+        _flyDuration = Mathf.Max(MinFlySeconds, duration);
         _flyFromPos = transform.position;
         // Issue 3: LOCK the orientation to whatever the card had (face-up on the board) for the
         // whole flight — captured once, never changed, so the card never rotates or billboards.
         _flyRot = transform.rotation;
         _flyFromScale = transform.localScale;
         _flyToPos = targetWorldPos;
-        _flyArcUp = arcUp.sqrMagnitude > 1e-6f ? arcUp.normalized : Vector3.up;
+        // Issue 1 (arc toward the CEILING): the bow always lifts along WORLD up — toward the
+        // player's head / the ceiling — regardless of how the board is tilted. The caller's
+        // board-up `arcUp` is intentionally ignored so a tilted board can never lean the arch
+        // sideways or into the table.
+        _flyArcUp = Vector3.up;
         // Issue 3: peak the arch at max(distance-fraction, an absolute board-scaled floor) so even a
         // short hop still clears the board top instead of skimming across it.
         _flyArcHeight = Mathf.Max(minArcHeight, Vector3.Distance(_flyFromPos, _flyToPos) * FlyArcHeightFraction);
@@ -1035,6 +1063,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             : transform.localScale.x;
         _flyToScale = Vector3.one * Mathf.Max(1e-4f, targetLocal);
         _flyDone = onComplete;
+        LogAnim("fly-out", _flyFromPos, _flyToPos, "to pile (world-up arch, orientation locked)");
         // Drop every hover/grab affordance — a flying card makes no promises.
         Grabbable = false;
         _popped = false;
@@ -1069,11 +1098,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _flying = true;
         _flyIntro = true; // fly-IN: settle at home on arrival, do NOT park
         _flyElapsed = 0f;
-        _flyDuration = Mathf.Max(0.05f, duration);
+        _flyDuration = Mathf.Max(MinFlySeconds, duration);
         _flyFromPos = fromWorldPos;
         _flyToPos = toWorld;
-        _flyArcUp = arcUp.sqrMagnitude > 1e-6f ? arcUp.normalized : Vector3.up;
+        // Issue 1: arch along WORLD up (toward the ceiling / the player's head), never the tilted
+        // board up — the caller's `arcUp` is intentionally ignored.
+        _flyArcUp = Vector3.up;
         _flyArcHeight = Mathf.Max(minArcHeight, Vector3.Distance(_flyFromPos, _flyToPos) * FlyArcHeightFraction);
+        LogAnim("fly-in", _flyFromPos, _flyToPos, "from pile to home (world-up arch, orientation locked)");
 
         // Start pile-slab sized, grow to the home scale (mirror of FlyToPile's shrink).
         float parentLossy = parent != null ? parent.lossyScale.x : 1f;
@@ -1120,8 +1152,22 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     // VR presentation. A held/flying card is never appear/disappear-animated (the hand / fly owns
     // the pose); the two are mutually exclusive with the fly (CardsDriver only Vanishes cards the
     // fly-to-pile path declined), so a card is never double-animated.
-    internal const float DockVanishSeconds = 0.18f;
-    internal const float DockAppearSeconds = 0.15f;
+    internal const float DockVanishSeconds = 0.30f;
+    internal const float DockAppearSeconds = 0.28f;
+
+    /// <summary>
+    /// Issue 2 DUST: the card no longer shrinks to nothing / grows from nothing — the DUST is the
+    /// star. The card only settles to / rises from this scale as a SECONDARY cue while it crumbles
+    /// (vanish) or coalesces (appear); the primary read is the drifting dust puff + the quick fade.
+    /// </summary>
+    private const float DustSettleScale = 0.82f;
+
+    /// <summary>
+    /// The card's colour/tone the crumble/materialize dust motes take (user: "in the card's colour/
+    /// tone"). A warm parchment default reads as card-paper dust for real game faces; placeholder
+    /// cards seed their own tint (<see cref="BuildPlaceholderFace"/>).
+    /// </summary>
+    private Color _dustTone = new(0.80f, 0.72f, 0.55f);
 
     private bool _vanishing;
     private float _vanishElapsed;
@@ -1155,12 +1201,57 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _faceGroup.alpha = Mathf.Clamp01(alpha);
     }
 
+    // Throttle so a relayout that animates several cards in one frame logs a couple of lines, not a
+    // storm — shared across every card (mirrors the rooted-flip / ButtonTuning.LogAnim throttles).
+    private static float s_nextAnimLogAt;
+
     /// <summary>
-    /// Issue 2 DISAPPEAR: shrink + fade this docked card out over <see cref="DockVanishSeconds"/>,
-    /// then invoke <paramref name="onComplete"/> (CardsDriver parks/hides it). No-op-restart while
-    /// already vanishing; a held/flying card cannot vanish (the callback still runs so the caller's
-    /// park bookkeeping is not stranded). Rotation and position are held constant — the card shrinks
-    /// exactly where it sat, it never slides or reorients.
+    /// Log one card animation (user: "log each animation — type, from/to, reason"). Types: fly-out,
+    /// fly-in, vanish, appear. Throttled to the [Cards] debug channel so a multi-card sweep does not
+    /// spam the hardware log.
+    /// </summary>
+    private void LogAnim(string type, Vector3 from, Vector3 to, string reason)
+    {
+        float now = Time.unscaledTime;
+        if (now < s_nextAnimLogAt)
+            return;
+        s_nextAnimLogAt = now + 0.2f;
+        Core.VRLog.Debug("Cards", $"Card anim '{name}': {type} from ({from.x:F2},{from.y:F2},{from.z:F2}) " +
+                                  $"to ({to.x:F2},{to.y:F2},{to.z:F2}) — {reason}.");
+    }
+
+    /// <summary>
+    /// Emit the crumble (<paramref name="appear"/> = false) or materialize (<paramref name="appear"/>
+    /// = true) dust for this card at its CURRENT world pose, spread over the card's face rectangle in
+    /// its own colour/tone. Allocation-free (a shared pooled system). Degrades to no dust in a shader-
+    /// less environment — the fade + settle-scale still play.
+    /// </summary>
+    private void EmitCardDust(bool appear)
+    {
+        float lossy = transform.lossyScale.x;
+        float halfW = _fullColliderSize.x * 0.5f * lossy;
+        float halfH = _fullColliderSize.y * 0.5f * lossy;
+        if (halfW < 1e-4f || halfH < 1e-4f)
+            return;
+        Vector3 center = transform.position;
+        Vector3 right = transform.right;
+        Vector3 up = transform.up;
+        Vector3 outNormal = -transform.forward; // card +Z points AWAY from the viewer; dust puffs toward them
+        if (appear)
+            CardDustFx.EmitAppear(center, right, up, outNormal, halfW, halfH, _dustTone);
+        else
+            CardDustFx.EmitVanish(center, right, up, outNormal, halfW, halfH, _dustTone);
+    }
+
+    /// <summary>
+    /// Issue 2 DISAPPEAR ("crumble to dust"): the card bursts into a puff of drifting dust motes (in
+    /// its own colour/tone) and quickly fades over <see cref="DockVanishSeconds"/> — a tiny settle-
+    /// shrink is only a secondary cue — then invokes <paramref name="onComplete"/> (CardsDriver parks/
+    /// hides it). No-op-restart while already vanishing; a held/flying card cannot vanish (the callback
+    /// still runs so the caller's park bookkeeping is not stranded). Rotation and position are held
+    /// constant — the card crumbles exactly where it sat, it never slides or reorients. The dust is
+    /// purely visual; interactivity is dropped THIS instant below. Suppressed on the initial build by
+    /// the caller (CardsDriver only Vanishes an already-present card, never a first-built one).
     /// </summary>
     internal void Vanish(Action onComplete)
     {
@@ -1176,6 +1267,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _vanishElapsed = 0f;
         _vanishFromScale = transform.localScale;
         _vanishDone = onComplete;
+        EmitCardDust(appear: false); // crumble puff at the card's current pose
+        LogAnim("vanish", transform.position, transform.position, "dust crumble (in place)");
         // A vanishing card makes no promises — drop every hover/grab affordance.
         Grabbable = false;
         _popped = false;
@@ -1188,11 +1281,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     }
 
     /// <summary>
-    /// Issue 2 APPEAR: scale + fade this docked card IN over <see cref="DockAppearSeconds"/> instead
-    /// of popping from nothing. Snaps position/rotation to the current home immediately (no slide from
-    /// the pool origin) and starts from zero scale / zero alpha THIS instant so there is never a
-    /// full-size flash before the first animated frame. Called by CardsDriver right after the layout
-    /// asserts the card's home. No-op for a held/flying card.
+    /// Issue 2 APPEAR ("emerge from dust"): the card MATERIALIZES from converging/settling dust motes
+    /// (in its own colour/tone) plus a quick fade-in over <see cref="DockAppearSeconds"/>, instead of
+    /// scaling up from nothing — a tiny grow (from <see cref="DustSettleScale"/> to full) is only a
+    /// secondary cue. Snaps position/rotation to the current home immediately (no slide from the pool
+    /// origin) and starts near-full scale but fully transparent THIS instant so there is never a full-
+    /// opacity flash before the first animated frame. Called by CardsDriver right after the layout
+    /// asserts the card's home. No-op for a held/flying card. Suppressed on the initial build by the
+    /// caller (initial cards seed their home instantly and never call this — no materialize storm).
     /// </summary>
     internal void PlayAppear()
     {
@@ -1203,11 +1299,13 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _vanishDone = null;
         _appearElapsed = 0f;
         _instantNext = false;
-        // Seed the start pose NOW so no full-scale frame renders before Update's first appear tick.
+        // Seed the start pose NOW so no full-opacity frame renders before Update's first appear tick.
         transform.localPosition = _homePos;
         transform.localRotation = _homeRot;
-        transform.localScale = Vector3.zero;
+        transform.localScale = Vector3.one * (_homeScale * DustSettleScale);
         SetVisualAlpha(0f);
+        EmitCardDust(appear: true); // converging motes coalesce into the card at its home pose
+        LogAnim("appear", transform.position, transform.position, "dust materialize (in place)");
     }
 
     public override void OnRelease(VRHand hand, Vector3 velocity)
@@ -1336,12 +1434,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             float fdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
             _flyElapsed += fdt;
             float ft = _flyDuration > 0f ? Mathf.Clamp01(_flyElapsed / _flyDuration) : 1f;
-            float e = 1f - (1f - ft) * (1f - ft); // ease-out on the base slide
-            // Position eases toward the pile; the arc offset uses LINEAR ft so the lift peaks at
-            // the temporal midpoint and is zero at both ends (the card bows OVER the board).
-            transform.position = Vector3.Lerp(_flyFromPos, _flyToPos, e) + FlyArcOffset(ft, _flyArcUp, _flyArcHeight);
-            transform.rotation = _flyRot; // issue 3: fixed for the whole flight — never rotates
-            transform.localScale = Vector3.Lerp(_flyFromScale, _flyToScale, e);
+            // Issue 1 (SMOOTH): one SMOOTHERSTEP-eased parameter drives BOTH the horizontal slide
+            // AND the arc, so they ramp up and settle together (no ease-out slide fighting a linear
+            // bow — that mismatch was the "choppy"/lopsided look). Smootherstep is symmetric, so at
+            // the temporal midpoint the card is at the spatial midpoint AND the arc is at its peak.
+            float s = SmootherStep(ft);
+            transform.position = Vector3.Lerp(_flyFromPos, _flyToPos, s) + FlyArcOffset(s, _flyArcUp, _flyArcHeight);
+            transform.rotation = _flyRot; // issue 3: fixed for the whole flight — never rotates/billboards
+            transform.localScale = Vector3.Lerp(_flyFromScale, _flyToScale, s); // eased scale too
             if (ft >= 1f)
             {
                 _flying = false;
@@ -1363,16 +1463,17 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             return;
         }
 
-        // Issue 2 DISAPPEAR: shrink + fade out where the card sits (unscaled time, position/rotation
-        // held), then park via the completion callback. Owns the transform while it runs.
+        // Issue 2 DISAPPEAR (crumble to dust): the dust burst was emitted at Vanish(); here the card
+        // only quickly FADES while it settles a hair smaller (secondary cue), position/rotation held,
+        // then parks via the completion callback. Unscaled time; owns the transform while it runs.
         if (_vanishing)
         {
             float vdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fly anim
             _vanishElapsed += vdt;
             float vt = DockVanishSeconds > 0f ? Mathf.Clamp01(_vanishElapsed / DockVanishSeconds) : 1f;
-            float e = vt * vt; // ease-in shrink
-            transform.localScale = Vector3.Lerp(_vanishFromScale, Vector3.zero, e);
-            SetVisualAlpha(1f - vt);
+            float s = SmootherStep(vt);
+            transform.localScale = _vanishFromScale * Mathf.Lerp(1f, DustSettleScale, s); // slight settle only
+            SetVisualAlpha(1f - s);                                                       // dust carries the vanish
             if (vt >= 1f)
             {
                 _vanishing = false;
@@ -1384,18 +1485,19 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             return;
         }
 
-        // Issue 2 APPEAR: grow + fade in toward the home pose (position/rotation snapped, scale eased
-        // 0→home) so the docked card never pops from nothing. Unscaled time; ends fully opaque.
+        // Issue 2 APPEAR (emerge from dust): the converging motes were emitted at PlayAppear(); here
+        // the card FADES in while it grows the last little bit into place (secondary cue), position/
+        // rotation snapped to home. Unscaled time; ends fully opaque at full scale.
         if (_appearing)
         {
             float adt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             _appearElapsed += adt;
             float at = DockAppearSeconds > 0f ? Mathf.Clamp01(_appearElapsed / DockAppearSeconds) : 1f;
-            float e = 1f - (1f - at) * (1f - at); // ease-out grow
+            float s = SmootherStep(at);
             transform.localPosition = _homePos;
             transform.localRotation = _homeRot;
-            transform.localScale = Vector3.one * (_homeScale * e);
-            SetVisualAlpha(at);
+            transform.localScale = Vector3.one * (_homeScale * Mathf.Lerp(DustSettleScale, 1f, s));
+            SetVisualAlpha(s);
             if (at >= 1f)
             {
                 _appearing = false;
@@ -1488,5 +1590,126 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         _burnFx.Detach();
         DetachGameCard();
+    }
+}
+
+/// <summary>
+/// Issue 2 dust for VRCards (user: "crumble to dust / emerge from dust instead of shrink/grow — more
+/// EPIC"). ONE pooled world-space <see cref="ParticleSystem"/> serves EVERY card (Emit with per-
+/// particle position/velocity/colour — no per-card systems, no per-frame allocations; the only
+/// allocation is the one-time pool build). A deliberate sibling of <see cref="WorldUI.ButtonDissolveFx"/>
+/// — same look (a few dozen small quads, short life ~0.3 s, sideways/settling drift + alpha fade) —
+/// spread over the CARD FACE rectangle instead of a cap disc. Purely local visuals (never synced); the
+/// logical hide/show is always immediate (the caller drops input first). Lazily rebuilt if a scene
+/// unload destroyed the pool object; degrades to no dust in a shader-less environment.
+/// </summary>
+internal static class CardDustFx
+{
+    private const int VanishCount = 30; // crumble puff — a bit denser than a button (a card is bigger)
+    private const int AppearCount = 18; // fewer, converging — a quick "assembling" shimmer
+
+    private static ParticleSystem? _ps;
+
+    /// <summary>
+    /// Crumble burst: motes spawn across the card face rectangle (<paramref name="right"/>/
+    /// <paramref name="up"/> half-extents <paramref name="halfW"/>/<paramref name="halfH"/> in world
+    /// meters, centred on <paramref name="center"/>) and drift sideways + settle down + puff toward
+    /// the viewer along <paramref name="outNormal"/>, fading over their lifetime, in <paramref name="color"/>.
+    /// </summary>
+    internal static void EmitVanish(Vector3 center, Vector3 right, Vector3 up, Vector3 outNormal,
+        float halfW, float halfH, Color color)
+    {
+        if (_ps == null)
+            BuildPool();
+        if (_ps == null)
+            return; // shader-less environment — vanish degrades to the fade alone
+        color.a = 1f;
+        float span = Mathf.Clamp(Mathf.Max(halfW, halfH) * 2f, 0.01f, 0.6f); // scales drift/size
+        // A common sideways sweep so the powder reads as "swept away", plus per-particle jitter.
+        Vector3 sweep = Vector3.Cross(outNormal, Vector3.up);
+        if (sweep.sqrMagnitude < 1e-4f)
+            sweep = right;
+        sweep.Normalize();
+        var ep = new ParticleSystem.EmitParams();
+        for (int i = 0; i < VanishCount; i++)
+        {
+            float rx = (UnityEngine.Random.value - 0.5f) * 2f;
+            float ry = (UnityEngine.Random.value - 0.5f) * 2f;
+            ep.position = center + right * (rx * halfW) + up * (ry * halfH)
+                          + outNormal * (span * 0.04f * UnityEngine.Random.value);
+            ep.velocity = (sweep * (0.6f + 0.5f * UnityEngine.Random.value)
+                           + Vector3.down * (0.35f * UnityEngine.Random.value)      // settling
+                           + outNormal * (0.2f + 0.25f * UnityEngine.Random.value)) // puff toward the viewer
+                          * span;
+            ep.startLifetime = 0.26f + 0.18f * UnityEngine.Random.value;
+            ep.startSize = span * (0.05f + 0.05f * UnityEngine.Random.value);
+            ep.startColor = color;
+            _ps.Emit(ep, 1);
+        }
+    }
+
+    /// <summary>
+    /// Materialize shimmer (the crumble in reverse): motes spawn on a ring OUTSIDE the card face and
+    /// drift INWARD toward <paramref name="center"/>, fading as they arrive, so the card reads as
+    /// coalescing into place under the fade-in. Same pooled system / args as <see cref="EmitVanish"/>.
+    /// </summary>
+    internal static void EmitAppear(Vector3 center, Vector3 right, Vector3 up, Vector3 outNormal,
+        float halfW, float halfH, Color color)
+    {
+        if (_ps == null)
+            BuildPool();
+        if (_ps == null)
+            return; // shader-less environment — appear degrades to the fade alone
+        color.a = 1f;
+        float span = Mathf.Clamp(Mathf.Max(halfW, halfH) * 2f, 0.01f, 0.6f);
+        var ep = new ParticleSystem.EmitParams();
+        for (int i = 0; i < AppearCount; i++)
+        {
+            float rx = (UnityEngine.Random.value - 0.5f) * 2f;
+            float ry = (UnityEngine.Random.value - 0.5f) * 2f;
+            // Start OUTSIDE the card rectangle (×1.4) so the inward drift is clearly a gathering.
+            Vector3 offset = right * (rx * halfW * 1.4f) + up * (ry * halfH * 1.4f);
+            ep.position = center + offset + outNormal * (span * 0.12f * UnityEngine.Random.value);
+            Vector3 inward = offset.sqrMagnitude > 1e-8f ? -offset.normalized : -right;
+            ep.velocity = (inward * (0.9f + 0.4f * UnityEngine.Random.value)
+                           + outNormal * 0.12f) * span; // slight lift toward the face so motes settle ONTO it
+            ep.startLifetime = 0.14f + 0.10f * UnityEngine.Random.value;
+            ep.startSize = span * (0.045f + 0.045f * UnityEngine.Random.value);
+            ep.startColor = color;
+            _ps.Emit(ep, 1);
+        }
+    }
+
+    private static void BuildPool()
+    {
+        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Particles/Standard Unlit");
+        if (shader == null)
+            return;
+        var go = new GameObject("GloomhavenVR.CardDustFx");
+        _ps = go.AddComponent<ParticleSystem>();
+        ParticleSystem.MainModule main = _ps.main;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.playOnAwake = false;
+        main.loop = true; // keeps the system simulating; idle cost ~zero with no live particles
+        main.maxParticles = 512;
+        main.startSpeed = 0f;
+        main.gravityModifier = 0f;
+        ParticleSystem.EmissionModule emission = _ps.emission;
+        emission.enabled = false; // burst-only via Emit
+        ParticleSystem.ColorOverLifetimeModule col = _ps.colorOverLifetime;
+        col.enabled = true;
+        var grad = new UnityEngine.Gradient();
+        grad.SetKeys(
+            new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0.85f, 0.4f), new GradientAlphaKey(0f, 1f) });
+        col.color = new ParticleSystem.MinMaxGradient(grad);
+        ParticleSystem.SizeOverLifetimeModule size = _ps.sizeOverLifetime;
+        size.enabled = true;
+        size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0.3f));
+        var renderer = go.GetComponent<ParticleSystemRenderer>();
+        renderer.sharedMaterial = new Material(shader);
+        renderer.sortingOrder = 2;
+        Core.VRLayers.Apply(go);
+        _ps.Play(); // armed — particles only exist after Emit
     }
 }
