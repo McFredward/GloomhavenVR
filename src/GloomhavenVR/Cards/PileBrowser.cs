@@ -62,6 +62,21 @@ internal sealed class PileBrowser
     /// <summary>Poke-toggle proud offset toward the viewer (board-local −Z is out of the board face), meters.</summary>
     private const float BoardFloatProudZ = -0.05f;
 
+    // ---- physical hand sweep (single-winner highlight) ---------------------------
+    // The browse arc gets the SAME physical-hand behaviour as the palm fan: as the free
+    // (dominant) hand's index fingertip moves THROUGH the arc, the card nearest the tip
+    // lifts/enlarges and every other card drops immediately — exactly ONE highlight at a
+    // time, sweeping smoothly left-right. These reach constants mirror
+    // CardsDriver.UpdateHandContactArbitration / CardFan.FingertipHoverReach (scale-1 metres):
+    // a browse card is a CANDIDATE when the index tip is within ContactTipReach OR the palm
+    // within ContactPalmReach of its collider; the WINNER is the nearest by index-tip distance
+    // ALONE (palm noise stays out of the winner choice so the between-two-cards midpoint
+    // resolves deterministically), with a small incumbent hysteresis so the lift never
+    // flutters at a card boundary.
+    private const float ContactTipReach = 0.035f;   // ~3.5 cm index-tip candidacy
+    private const float ContactPalmReach = 0.13f;   // ~13 cm palm candidacy
+    private const float ContactStickyMargin = 0.02f; // incumbent hysteresis (m, scale 1)
+
     /// <summary>
     /// The poke-toggle fan's FIXED board-local base anchor (above the board top edge, slightly
     /// proud toward the viewer). The live anchor is this base plus the debug-menu-tunable
@@ -76,6 +91,12 @@ internal sealed class PileBrowser
     private TextMeshPro? _title;
     private VRHand? _followHand;
     private bool _boardAnchored; // poke-toggle fan parented under the board root (not held, not head-fallback)
+
+    // Hand-sweep state: the single browse card the physical hand is currently lifting (null =
+    // none) and the set of cards this tick pop-suppressed so nothing else can lift with it.
+    private VRCard? _handWinner;
+    private readonly List<VRCard> _handSuppressed = new(16);
+    private float _nextHandLogAt; // throttle clock (unscaled s) for the winner-change log
 
     internal bool IsOpen { get; private set; }
 
@@ -145,6 +166,7 @@ internal sealed class PileBrowser
         Kind = null;
         _followHand = null;
         _boardAnchored = false;
+        ClearHandSweep(); // drop any hand-sweep lift + suppression before the cards are released
         _cards.Clear();
         if (_root != null)
             _root.gameObject.SetActive(false);
@@ -152,6 +174,7 @@ internal sealed class PileBrowser
 
     internal void Destroy()
     {
+        ClearHandSweep();
         _cards.Clear();
         IsOpen = false;
         Kind = null;
@@ -266,6 +289,9 @@ internal sealed class PileBrowser
     {
         if (!IsOpen || _root == null)
             return;
+        // Physical hand sweep (user issue): move the free hand THROUGH the arc to highlight the
+        // card nearest the fingertip, exactly one at a time — same feel as the palm fan.
+        UpdateHandSweep();
         // Held mode: the pivot floats above the palm along the palm normal (+Y of PalmCenter).
         // Board-anchored mode: re-read the base + [Cards] BrowseFanOffset every frame — a cheap
         // Vector3 config read — so the debug menu's Piles 'Browse X/Y/Z' steppers move an OPEN
@@ -318,6 +344,137 @@ internal sealed class PileBrowser
             card.SetHome(_root, pos, rot, CardScale, instant);
             card.ResetColliderRegion(); // browse cards are not fan-stripped
         }
+    }
+
+    // ------------------------------------------------------------------ hand sweep --
+
+    /// <summary>
+    /// Physical HAND sweep over the browse arc — the browse counterpart of
+    /// <see cref="CardFan.UpdateFingertipHover"/> + <c>CardsDriver.UpdateHandContactArbitration</c>.
+    /// Reads the free (dominant) hand's index fingertip + palm DIRECTLY from the rig every
+    /// frame and elects a SINGLE winner among the browse cards: the card nearest the index
+    /// tip (candidacy by tip ≤ <see cref="ContactTipReach"/> OR palm ≤ <see cref="ContactPalmReach"/>,
+    /// ranked by tip distance alone, with a <see cref="ContactStickyMargin"/> incumbent bonus so
+    /// the lift never flutters between two cards). The winner lifts via
+    /// <see cref="VRCard.SetFingertipHover"/> (the same pop the laser gives) and EVERY other browse
+    /// card is <see cref="VRCard.SetHandPopSuppressed">pop-suppressed</see> for the sweeping hand,
+    /// so a hand moving through the arc can never raise more than one card — exactly like the fan.
+    ///
+    /// LASER vs HAND: purely spatial, so the two never fight. When the hand is physically IN the
+    /// arc a fingertip/palm candidate exists → the hand drives (and, being deep in the arc, the
+    /// aim ray no longer lands a clean browse hit, so <c>CardsDriver.UpdateBrowseLaser</c> clears its
+    /// own hover that same frame). When the hand is OUT at pointing distance nothing is within
+    /// reach → no winner, this method suppresses/lifts nothing, and the existing laser hover
+    /// (resolved in CardsDriver before this Tick) is the sole highlight. Read-only throughout:
+    /// this only raises/enlarges for readability — it never grabs or plays a browse card.
+    /// Allocation-free. No-op while closed (Tick guards <see cref="IsOpen"/>).
+    /// </summary>
+    private void UpdateHandSweep()
+    {
+        // Re-derive the suppression set from scratch every tick (stale-flag proof: a card that
+        // left the arc mid-frame is cleared here or by its own OnDisable).
+        for (int i = 0; i < _handSuppressed.Count; i++)
+        {
+            if (_handSuppressed[i] != null)
+                _handSuppressed[i].SetHandPopSuppressed(false);
+        }
+        _handSuppressed.Clear();
+
+        VRHand? dom = VRHands.Primary;
+        VRCard? winner = null, runnerUp = null;
+        float winnerTip = 0f, runnerTip = 0f;
+        float bestScore = float.MaxValue, secondScore = float.MaxValue;
+
+        // The sweeping hand is the dominant/free hand: it must be tracked and NOT busy holding
+        // something. In HELD mode the pinch that opened the browse holds via _followHand, whose
+        // Grabber.Held != null then naturally excludes it (a held hand is not a sweeping hand).
+        if (dom != null && !ReferenceEquals(dom, _followHand) && dom.HasPose
+            && dom.Grabber.Held == null)
+        {
+            Vector3 tip = dom.Rig.IndexTip.position;
+            Vector3 palm = dom.Rig.PalmCenter.position;
+            float scale = dom.WorldScale;
+            float tipReach = ContactTipReach * scale;
+            float palmReach = ContactPalmReach * scale;
+            float sticky = ContactStickyMargin * scale;
+
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard c = _cards[i];
+                // Skip held/rooted cards: a card that cannot pop must not win, or a dead card
+                // would suppress the lift of a real candidate right next to it.
+                if (c == null || c.IsHeld || !c.CanGrab)
+                    continue;
+                if (!c.TryFingertipDistance(tip, out float tipDist)
+                    || !c.TryFingertipDistance(palm, out float palmDist))
+                    continue;
+                if (tipDist > tipReach && palmDist > palmReach)
+                    continue; // out of BOTH reaches — not a candidate (palm still qualifies)
+                float score = tipDist; // rank by the index tip alone; palm only qualified candidacy
+                if (ReferenceEquals(c, _handWinner))
+                    score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
+                if (score < bestScore)
+                {
+                    runnerUp = winner; secondScore = bestScore; runnerTip = winnerTip;
+                    winner = c; bestScore = score; winnerTip = tipDist;
+                }
+                else if (score < secondScore)
+                {
+                    runnerUp = c; secondScore = score; runnerTip = tipDist;
+                }
+            }
+        }
+
+        if (!ReferenceEquals(winner, _handWinner))
+        {
+            _handWinner?.SetFingertipHover(false);
+            _handWinner = winner;
+            _handWinner?.SetFingertipHover(true);
+
+            // Throttled log: winner + its index-tip distance + runner-up, so the next hardware
+            // log proves the single-winner tip-first resolution (rate-limited against a flood).
+            float now = Time.unscaledTime;
+            if (winner != null && now >= _nextHandLogAt)
+            {
+                _nextHandLogAt = now + 0.5f;
+                string runner = runnerUp != null
+                    ? $"'{runnerUp.name}' (index-tip {runnerTip * 100f:F1} cm)"
+                    : "none";
+                Core.VRLog.Info("Cards",
+                    $"Pile-browse hand sweep: '{winner.name}' — index-tip {winnerTip * 100f:F1} cm; " +
+                    $"runner-up {runner}. The card nearest the index finger lifts; sweeping keeps " +
+                    "exactly ONE browse card highlighted.");
+            }
+        }
+
+        if (winner == null)
+            return;
+        // Scope the suppression to the sweeping hand (the same static the fan arbitration uses;
+        // dom == VRHands.Primary here, so this agrees with CardsDriver's own per-frame set).
+        VRCard.HandArbitrationHand = dom;
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard c = _cards[i];
+            if (c == null || c.IsHeld || ReferenceEquals(c, winner))
+                continue;
+            c.SetHandPopSuppressed(true);
+            _handSuppressed.Add(c);
+        }
+    }
+
+    /// <summary>Drop any live hand-sweep lift + suppression (browse close / destroy) so a closed
+    /// browse never leaves a stale pop or a suppressed card behind.</summary>
+    private void ClearHandSweep()
+    {
+        if (_handWinner != null)
+            _handWinner.SetFingertipHover(false);
+        _handWinner = null;
+        for (int i = 0; i < _handSuppressed.Count; i++)
+        {
+            if (_handSuppressed[i] != null)
+                _handSuppressed[i].SetHandPopSuppressed(false);
+        }
+        _handSuppressed.Clear();
     }
 
     // ------------------------------------------------------------------ laser pick --
