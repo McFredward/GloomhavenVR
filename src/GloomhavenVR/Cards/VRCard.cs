@@ -956,8 +956,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     // completion callback parks/hides it as before. Purely VR presentation — the game's own 2D pile
     // state is untouched. A flying card is out of every zone/hover/grab path.
     private bool _flying;
+    // Issue 2 (short-rest choreography): a fly-IN (the burn-offered card flying OUT of the discard
+    // pile INTO its display slot) settles at its HOME pose on arrival and hands back to the normal
+    // home-lerp — it must NOT run the park/hide completion a fly-OUT (to a pile) does. This flag
+    // distinguishes the two while they share the one <see cref="_flying"/> tween machinery.
+    private bool _flyIntro;
     private Vector3 _flyFromPos;
-    private Quaternion _flyFromRot;
+    // Issue 3 (user): the LOCKED orientation held for the ENTIRE flight — captured once at launch
+    // and never changed (no billboarding, no reorient at launch or on arrival). The card keeps
+    // facing exactly as it did (face-up on the board) so it never rotates or tumbles in the air.
+    private Quaternion _flyRot;
     private Vector3 _flyFromScale;
     private Vector3 _flyToPos;
     private Vector3 _flyToScale;
@@ -968,14 +976,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private Action? _flyDone;
 
     /// <summary>
-    /// Issue A (user): the straight-line fly-to-pile passed THROUGH the control board. The
-    /// flight now bows UP along the board's up axis so the card arcs OVER the board into the
-    /// pile. The lift is a fraction of the travel distance (world meters), so it scales with
-    /// the board's diorama scale automatically (a bigger board → longer world travel → taller
-    /// arc), landing the peak in the ~0.1–0.2 m range at the default board scale. Zero at both
-    /// ends (parabola peaking at the temporal midpoint).
+    /// Issue A/3 (user): the straight-line fly-to-pile passed THROUGH the control board, and even
+    /// the first arc was a flat skim the user could not follow. The flight now bows UP along the
+    /// board's up axis so the card arcs clearly OVER the board top, visibly readable in flight. The
+    /// lift is this fraction of the travel distance (world meters) so it scales with the board's
+    /// diorama scale automatically; callers ALSO pass an absolute <c>minArcHeight</c> (board-scaled)
+    /// so even a SHORT hop still peaks above the board's top edge. Zero at both ends (parabola
+    /// peaking at the temporal midpoint). Raised from 0.35 → 0.55 for issue 3 (a taller, clearly
+    /// followable arch rather than a flat pass).
     /// </summary>
-    internal const float FlyArcHeightFraction = 0.35f;
+    internal const float FlyArcHeightFraction = 0.55f;
 
     /// <summary>
     /// Parabolic lift offset along <paramref name="up"/> for a fly-to-pile at LINEAR progress
@@ -999,17 +1009,23 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <paramref name="arcUp"/> (the board's up axis, so it works when the board is tilted) so the
     /// card arcs OVER the board instead of passing through it — see <see cref="FlyArcOffset"/>.
     /// </summary>
-    internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Vector3 arcUp, Action onComplete)
+    internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Vector3 arcUp,
+        Action onComplete, float minArcHeight = 0f)
     {
         _flying = true;
+        _flyIntro = false; // fly-OUT: run the park/hide completion on arrival
         _flyElapsed = 0f;
         _flyDuration = Mathf.Max(0.05f, duration);
         _flyFromPos = transform.position;
-        _flyFromRot = transform.rotation;
+        // Issue 3: LOCK the orientation to whatever the card had (face-up on the board) for the
+        // whole flight — captured once, never changed, so the card never rotates or billboards.
+        _flyRot = transform.rotation;
         _flyFromScale = transform.localScale;
         _flyToPos = targetWorldPos;
         _flyArcUp = arcUp.sqrMagnitude > 1e-6f ? arcUp.normalized : Vector3.up;
-        _flyArcHeight = Vector3.Distance(_flyFromPos, _flyToPos) * FlyArcHeightFraction;
+        // Issue 3: peak the arch at max(distance-fraction, an absolute board-scaled floor) so even a
+        // short hop still clears the board top instead of skimming across it.
+        _flyArcHeight = Mathf.Max(minArcHeight, Vector3.Distance(_flyFromPos, _flyToPos) * FlyArcHeightFraction);
         // Convert the wanted on-screen width into a LOCAL scale under the current parent, so the
         // card ends roughly the size of a pile slab regardless of the board's live diorama scale.
         float parentLossy = transform.parent != null ? transform.parent.lossyScale.x : 1f;
@@ -1030,10 +1046,66 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _instantNext = false;
     }
 
+    /// <summary>
+    /// Issue 2 (short-rest choreography): fly this card IN from a pile — the reverse of
+    /// <see cref="FlyToPile"/>. The burn-offered short-rest card ORIGINATES in the discard pile, so
+    /// it flies OUT of <paramref name="fromWorldPos"/> (growing from the pile-slab size) and ARCHES
+    /// over the board into the HOME pose the layout already asserted (<see cref="SetHome"/> /
+    /// PlacePickCard must run first), then settles there and hands back to the normal home-lerp — it
+    /// never parks/hides (that is the fly-OUT completion). Orientation is LOCKED to the home
+    /// (face-up) rotation for the whole flight — no rotation, no billboard. Runs on unscaled time,
+    /// bowing along <paramref name="arcUp"/> (the board up axis) so it works on a tilted board.
+    /// No-op on a held card (the hand owns the pose).
+    /// </summary>
+    internal void FlyFromPile(Vector3 fromWorldPos, float fromWorldWidth, float duration, Vector3 arcUp, float minArcHeight = 0f)
+    {
+        if (IsHeld)
+            return;
+        Transform? parent = transform.parent;
+        // The destination is the home pose the layout just set (in parent-local space).
+        Vector3 toWorld = parent != null ? parent.TransformPoint(_homePos) : _homePos;
+        _flyRot = parent != null ? parent.rotation * _homeRot : _homeRot; // LOCKED upright/home orientation
+
+        _flying = true;
+        _flyIntro = true; // fly-IN: settle at home on arrival, do NOT park
+        _flyElapsed = 0f;
+        _flyDuration = Mathf.Max(0.05f, duration);
+        _flyFromPos = fromWorldPos;
+        _flyToPos = toWorld;
+        _flyArcUp = arcUp.sqrMagnitude > 1e-6f ? arcUp.normalized : Vector3.up;
+        _flyArcHeight = Mathf.Max(minArcHeight, Vector3.Distance(_flyFromPos, _flyToPos) * FlyArcHeightFraction);
+
+        // Start pile-slab sized, grow to the home scale (mirror of FlyToPile's shrink).
+        float parentLossy = parent != null ? parent.lossyScale.x : 1f;
+        float w = CardsConfig.CardWidth.Value;
+        float fromLocal = (parentLossy > 1e-5f && w > 1e-5f) ? fromWorldWidth / (parentLossy * w) : _homeScale;
+        _flyFromScale = Vector3.one * Mathf.Max(1e-4f, fromLocal);
+        _flyToScale = Vector3.one * Mathf.Max(1e-4f, _homeScale);
+        _flyDone = null; // intro settles at home in Update — no park callback
+
+        // Drop every hover/grab affordance — a flying card makes no promises.
+        Grabbable = false;
+        _popped = false;
+        _laserPopped = false;
+        _pokeHover = false;
+        _handPopSuppressed = false;
+        _pop = 0f;
+        _releaseGlide = 0f;
+        _instantNext = false;
+        SetVisualAlpha(1f); // the offered card is fully visible for the whole flight (no fade)
+
+        // Seed the start pose (at the pile) NOW so no home-pose frame renders before Update's first
+        // fly tick — the card visibly departs FROM the pile, never flashing at its slot first.
+        transform.position = _flyFromPos;
+        transform.rotation = _flyRot;
+        transform.localScale = _flyFromScale;
+    }
+
     /// <summary>Cancel any in-flight fly-to-pile (teardown / re-adoption). Does NOT run the callback.</summary>
     private void CancelFly()
     {
         _flying = false;
+        _flyIntro = false;
         _flyDone = null;
     }
 
@@ -1268,11 +1340,22 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             // Position eases toward the pile; the arc offset uses LINEAR ft so the lift peaks at
             // the temporal midpoint and is zero at both ends (the card bows OVER the board).
             transform.position = Vector3.Lerp(_flyFromPos, _flyToPos, e) + FlyArcOffset(ft, _flyArcUp, _flyArcHeight);
-            transform.rotation = _flyFromRot;
+            transform.rotation = _flyRot; // issue 3: fixed for the whole flight — never rotates
             transform.localScale = Vector3.Lerp(_flyFromScale, _flyToScale, e);
             if (ft >= 1f)
             {
                 _flying = false;
+                if (_flyIntro)
+                {
+                    // Issue 2 fly-IN: settle exactly at the home pose and hand back to the normal
+                    // home-lerp (no park). The card is now sitting at its display slot.
+                    _flyIntro = false;
+                    transform.localPosition = _homePos;
+                    transform.localRotation = _homeRot;
+                    transform.localScale = Vector3.one * _homeScale;
+                    SetVisualAlpha(1f);
+                    return;
+                }
                 Action? done = _flyDone;
                 _flyDone = null;
                 done?.Invoke();
