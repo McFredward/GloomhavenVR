@@ -54,10 +54,16 @@ internal sealed class PileViewer
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>Local caption for one pile (real game loc keys with safe English fallbacks).</summary>
+    // Pile captions use the game's OWN card-overview SECTION-HEADER keys — proper pile
+    // NOUNS in every shipped language. The old GUI_TAKE_DAMAGE_* keys were action verb
+    // phrases ("Burn 1 Available Card" / "1 verfügbare Karte verbrennen"), so the caption
+    // read the truncated "Verfügbare Karte Ver"; the DISCARD one was likewise a verb
+    // ("Burn 2 Discarded Cards"). GUI_CARD_SECTION_DISCARDED = Discarded/Abgeworfen and
+    // GUI_CARD_SECTION_BURNT = Burned/Verbrannt are the labels the game's card sections use.
     internal static string Caption(PileKind kind) => kind switch
     {
-        PileKind.Discard => Core.Loc.Game("GUI_TAKE_DAMAGE_DISCARD", "Discard"),
-        PileKind.Burnt => Core.Loc.Game("GUI_TAKE_DAMAGE_BURN", "Burnt"),
+        PileKind.Discard => Core.Loc.Game("GUI_CARD_SECTION_DISCARDED", "Discarded"),
+        PileKind.Burnt => Core.Loc.Game("GUI_CARD_SECTION_BURNT", "Burned"),
         PileKind.Items => Core.Loc.Mod("items"),
         _ => Core.Loc.Mod("items"),
     };
@@ -104,6 +110,10 @@ internal sealed class PileViewer
         {
             _locHooked = true;
             Core.Loc.OnChanged += RefreshLabels;
+            // One-time: surface the resolved (active-language) pile captions so the next
+            // hardware log confirms the German/EN values from the game's section keys.
+            VRLog.Info("Cards", $"Pile captions: discard=\"{Caption(PileKind.Discard)}\", " +
+                                $"burnt=\"{Caption(PileKind.Burnt)}\" (GUI_CARD_SECTION_* section nouns).");
         }
     }
 
