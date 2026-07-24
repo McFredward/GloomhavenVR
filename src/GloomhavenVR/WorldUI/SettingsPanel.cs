@@ -205,7 +205,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.ButtonColors },
         // Hände/Offsets — the per-hand-style embodiment offsets folded in from the old top-level tabs.
         new[] { DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets },
-        // Welt-Tuning — the developer-grade wall see-through fade fractions.
+        // Wand-Durchsicht — the developer-grade wall see-through fade fractions (user 3: renamed
+        // from the misleading "Welt-Tuning" since it only controls wall see-through).
         new[] { DebugElement.WallFade },
     };
 
@@ -1128,8 +1129,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddFanStepper("Aufdecken ein °", CardsConfig.RevealEnterDegrees, 5f, 15f, 85f, v => $"{v:0}°");
         AddFanStepper("Aufdecken aus °", CardsConfig.RevealExitDegrees, 5f, 5f, 80f, v => $"{v:0}°");
         AddFanStepper("Öffnungszeit", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
-        // Depth curvature: side cards recede into depth with many cards (live).
-        AddFanStepper("Krümmung Tiefe", CardsConfig.FanSideDepthCurve, 0.005f, 0f, 0.12f, v => $"{v * 1000f:0}mm");
+        // Depth curvature: side cards recede into (or bulge OUT of) depth with many cards (live).
+        // User 4: min is −0.12 so the curvature can also go the OTHER direction (a separate worker
+        // widens the bind's own clamp range to match).
+        AddFanStepper("Krümmung Tiefe", CardsConfig.FanSideDepthCurve, 0.005f, -0.12f, 0.12f, v => $"{v * 1000f:0}mm");
         AddFanStepper("Krümmung Kurve", CardsConfig.FanCurvePower, 0.1f, 0.5f, 4f, v => $"{v:0.0}");
         _rowGate = HandOffsetRowsVisible;
         var curveMinRow = Row();
@@ -1488,55 +1491,149 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddButtonTuningRow("Hub", ButtonTuning.RestTravel, 0.001f, 0.002f, 0.02f,
             v => $"{v * 1000f:0}mm", RestButtonTuningRowsVisible);
 
-        // Tasten → Knopf-Farben ([ButtonColors] — user 4): the keycap LABEL text colour + engrave
-        // outline + underlay shadow, and a per-category cap-FACE tint (default 1 = unchanged). Every
-        // row writes its ConfigEntry, which bumps ButtonTuning.Version → NativeButtonSkin re-skins the
-        // caps live (keycaps on the Version rebuild, cluster per-tick). Floats step 0.05 in 0..1.
+        // Tasten → Knopf-Farben ([ButtonColors] — user 4 + user 1): the keycap LABEL text colour +
+        // engrave outline + underlay shadow, and a per-category cap-FACE tint. The PRIMARY control is
+        // now a LASER-CLICKABLE COLOUR PALETTE per target (user 1: "change the colour directly with
+        // the laser instead of RGB values"). AddColorPalette lays out a grid of swatch buttons on the
+        // panel canvas (same Image/Button interaction path as every other control, so poke + laser
+        // both work); clicking a swatch writes its RGB into the target's three *R/G/B binds at once,
+        // which bumps ButtonTuning.Version → NativeButtonSkin re-skins the caps live (keycaps on the
+        // Version rebuild, cluster per-tick). The two engrave toggles + Konturbreite stay as steppers;
+        // the reset case (restores every bind) is unchanged.
         _rowGate = ButtonColorRowsVisible;
         Section("Text");
-        AddButtonTuningRow("Text Rot", ButtonTuning.LabelR, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Text Grün", ButtonTuning.LabelG, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Text Blau", ButtonTuning.LabelB, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddColorPalette("Text-Farbe", ButtonTuning.LabelR, ButtonTuning.LabelG, ButtonTuning.LabelB,
+            ColorSwatches, ButtonColorRowsVisible);
         AddColorToggle("Kontur", ButtonTuning.LabelOutline);
-        AddButtonTuningRow("Kontur Rot", ButtonTuning.LabelOutlineR, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Kontur Grün", ButtonTuning.LabelOutlineG, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Kontur Blau", ButtonTuning.LabelOutlineB, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddColorPalette("Kontur-Farbe", ButtonTuning.LabelOutlineR, ButtonTuning.LabelOutlineG,
+            ButtonTuning.LabelOutlineB, ColorSwatches, ButtonColorRowsVisible);
         AddButtonTuningRow("Konturbreite", ButtonTuning.LabelOutlineW, 0.05f, 0f, 1f,
             v => $"{v:0.00}", ButtonColorRowsVisible);
         AddColorToggle("Schatten", ButtonTuning.LabelUnderlay);
 
+        // Cap-face tints are MULTIPLIERS (1,1,1 = identity/unchanged). A palette of tint colours works
+        // the same way — the swatch writes the three tint channels — and "Weiß" (1,1,1) is the neutral
+        // no-tint swatch (which is also each cap tint's default, so it shows highlighted at rest).
         _rowGate = ButtonColorRowsVisible;
-        Section("Kappen");
-        AddButtonTuningRow("Board-Kappe Rot", ButtonTuning.BoardCapTintR, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Board-Kappe Grün", ButtonTuning.BoardCapTintG, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Board-Kappe Blau", ButtonTuning.BoardCapTintB, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Zahnrad-Kappe Rot", ButtonTuning.DashCapTintR, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Zahnrad-Kappe Grün", ButtonTuning.DashCapTintG, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Zahnrad-Kappe Blau", ButtonTuning.DashCapTintB, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Zugleiste-Kappe Rot", ButtonTuning.ClusterCapTintR, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Zugleiste-Kappe Grün", ButtonTuning.ClusterCapTintG, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Zugleiste-Kappe Blau", ButtonTuning.ClusterCapTintB, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Rast-Kappe Rot", ButtonTuning.RestCapTintR, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Rast-Kappe Grün", ButtonTuning.RestCapTintG, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
-        AddButtonTuningRow("Rast-Kappe Blau", ButtonTuning.RestCapTintB, 0.05f, 0f, 1f,
-            v => $"{v:0.00}", ButtonColorRowsVisible);
+        Section("Kappen (Tönung)");
+        AddColorPalette("Board-Kappe", ButtonTuning.BoardCapTintR, ButtonTuning.BoardCapTintG,
+            ButtonTuning.BoardCapTintB, ColorSwatches, ButtonColorRowsVisible);
+        AddColorPalette("Zahnrad-Kappe", ButtonTuning.DashCapTintR, ButtonTuning.DashCapTintG,
+            ButtonTuning.DashCapTintB, ColorSwatches, ButtonColorRowsVisible);
+        AddColorPalette("Zugleiste-Kappe", ButtonTuning.ClusterCapTintR, ButtonTuning.ClusterCapTintG,
+            ButtonTuning.ClusterCapTintB, ColorSwatches, ButtonColorRowsVisible);
+        AddColorPalette("Rast-Kappe", ButtonTuning.RestCapTintR, ButtonTuning.RestCapTintG,
+            ButtonTuning.RestCapTintB, ColorSwatches, ButtonColorRowsVisible);
+    }
+
+    /// <summary>
+    /// Shared colour palette (user 1) for the Knopf-Farben swatch grids. Covers what the keycaps
+    /// need: bright parchment/near-white (= the LabelR/G/B default), warm golds, dark umber/near-black
+    /// (= the LabelOutline default, and dark caps so light text reads), wood browns, brass, neutral
+    /// greys, and a small spectrum. "Weiß" (1,1,1) is the cap-tint identity/default. Comment names are
+    /// documentation only; the swatches render as pure colour chips.
+    /// </summary>
+    private static readonly Color[] ColorSwatches =
+    {
+        new(0.984f, 0.953f, 0.878f), // Pergament (= LabelR/G/B default)
+        new(1f, 1f, 1f),             // Weiß (cap-tint identity / default)
+        new(0.80f, 0.80f, 0.80f),    // Hellgrau
+        new(0.50f, 0.50f, 0.50f),    // Grau
+        new(0.25f, 0.25f, 0.25f),    // Dunkelgrau
+        new(0.09f, 0.06f, 0.03f),    // Umbra (= LabelOutline default, near-black)
+        new(0.02f, 0.02f, 0.02f),    // Schwarz
+        new(0.85f, 0.65f, 0.13f),    // Gold
+        new(0.95f, 0.82f, 0.45f),    // Helles Gold
+        new(0.62f, 0.50f, 0.28f),    // Messing (brass)
+        new(0.45f, 0.30f, 0.16f),    // Holz
+        new(0.28f, 0.18f, 0.09f),    // Dunkles Holz
+        new(0.75f, 0.18f, 0.15f),    // Rot
+        new(0.25f, 0.55f, 0.28f),    // Grün
+        new(0.25f, 0.40f, 0.65f),    // Blau
+        new(0.90f, 0.55f, 0.20f),    // Bernstein
+    };
+
+    /// <summary>
+    /// User 1: a LASER-CLICKABLE COLOUR PALETTE for one colour target (label fill, outline, or a cap
+    /// tint). Builds a titled section then a grid of colour-chip buttons on the panel canvas — each a
+    /// uGUI Image + Button (the SAME interaction path as every other panel button, so poke AND laser
+    /// hit them). Clicking a swatch writes its RGB into the three *R/G/B binds AT ONCE (→ ButtonTuning
+    /// .Version bump → live re-skin). The swatch whose colour currently matches the binds (within a
+    /// small epsilon) shows a bright highlight frame, so the active choice is visible. Skipped whole if
+    /// any bind failed to bind (config dir unwritable), matching the stepper-row policy. Rows gate to
+    /// <paramref name="visible"/> (Debug → Knopf-Farben selected).
+    /// </summary>
+    private void AddColorPalette(string label, ConfigEntry<float>? rBind, ConfigEntry<float>? gBind,
+        ConfigEntry<float>? bBind, Color[] swatches, Func<bool> visible)
+    {
+        if (rBind == null || gBind == null || bBind == null)
+            return;
+
+        _rowGate = visible;
+        var titleRow = Row(22f);
+        Label(titleRow, label, 14f, bold: true, flexible: true);
+
+        const int perRow = 8;
+        for (int start = 0; start < swatches.Length; start += perRow)
+        {
+            _rowGate = visible;
+            var row = Row(30f);
+            int end = Mathf.Min(start + perRow, swatches.Length);
+            for (int i = start; i < end; i++)
+            {
+                Color c = swatches[i];
+                BuildSwatch(row, c,
+                    () => { rBind.Value = c.r; gBind.Value = c.g; bBind.Value = c.b; },
+                    () => ColorMatches(rBind, gBind, bBind, c));
+            }
+        }
+    }
+
+    /// <summary>
+    /// One colour chip: an outer border frame (highlighted while selected) around an inner Image +
+    /// Button that carries the colour and the click. targetGraphic is the inner Image so poke/laser
+    /// raycast the chip exactly like a normal panel button.
+    /// </summary>
+    private void BuildSwatch(RectTransform row, Color color, Action onClick, Func<bool> isSelected)
+    {
+        var outerGo = new GameObject("Swatch") { layer = 5 };
+        outerGo.transform.SetParent(row, worldPositionStays: false);
+        var border = outerGo.AddComponent<Image>();
+        border.raycastTarget = false;
+        var le = outerGo.AddComponent<LayoutElement>();
+        le.preferredWidth = 34f;
+        le.minWidth = 34f;
+        le.flexibleWidth = 0f;
+
+        var innerGo = new GameObject("Chip") { layer = 5 };
+        innerGo.transform.SetParent(outerGo.transform, worldPositionStays: false);
+        var chip = innerGo.AddComponent<Image>();
+        chip.color = color;
+        var button = innerGo.AddComponent<Button>();
+        button.targetGraphic = chip;
+        button.onClick.AddListener(() => Safe(() => { onClick(); RefreshAll(); }));
+        var ir = (RectTransform)innerGo.transform;
+        ir.anchorMin = Vector2.zero;
+        ir.anchorMax = Vector2.one;
+        ir.offsetMin = new Vector2(3f, 3f);
+        ir.offsetMax = new Vector2(-3f, -3f);
+
+        _refreshers.Add(() =>
+            border.color = isSelected()
+                ? new Color(1f, 0.92f, 0.35f, 1f)      // bright highlight frame = active choice
+                : new Color(0.10f, 0.10f, 0.13f, 1f)); // subtle bezel otherwise
+    }
+
+    /// <summary>True while the three colour binds match a swatch's RGB within a small epsilon.</summary>
+    private static bool ColorMatches(ConfigEntry<float>? r, ConfigEntry<float>? g, ConfigEntry<float>? b,
+        Color c)
+    {
+        if (r == null || g == null || b == null)
+            return false;
+        const float eps = 0.02f;
+        return Mathf.Abs(r.Value - c.r) < eps
+               && Mathf.Abs(g.Value - c.g) < eps
+               && Mathf.Abs(b.Value - c.b) < eps;
     }
 
     /// <summary>
@@ -2057,7 +2154,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugSubCat.KartenStapel => "Karten & Stapel",
         DebugSubCat.Tasten => "Tasten",
         DebugSubCat.Offsets => "Hände/Offsets",
-        DebugSubCat.WeltTuning => "Welt-Tuning",
+        // User 3: the old "Welt-Tuning" was misleading — this sub-category only holds the wall
+        // see-through fade tuning, so it is named for what it actually controls.
+        DebugSubCat.WeltTuning => "Wand-Durchsicht",
         _ => s.ToString(),
     };
 
