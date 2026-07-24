@@ -71,6 +71,9 @@ internal sealed class BoardModule : IVRModule
         FigureGrab.FigureGrabConfig.Bind();
         // Issue #6: hex-highlight swim mitigation config (dev.gloomhavenvr.hexhighlight.cfg).
         HexHighlightFix.BindConfig();
+        // Selection-phase pending cue toggle (dev.gloomhavenvr.selectionready.cfg) — bound up-front
+        // so the section always exists even when the driver stays dormant.
+        SelectionReadyHighlighter.Bind();
 
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {
@@ -110,6 +113,9 @@ internal sealed class BoardModule : IVRModule
         _driverGo.AddComponent<FigureGrab.FigureGrabDriver>();
         // Feature #3: laser + dominant-hand "A" (primaryButton) → game hex ping.
         _driverGo.AddComponent<BoardPing>();
+        // Selection cue: pulse the native actor glow under the local player's figures that have
+        // not yet finished card selection (two cards / long rest).
+        _driverGo.AddComponent<SelectionReadyHighlighter>();
 
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
     }
