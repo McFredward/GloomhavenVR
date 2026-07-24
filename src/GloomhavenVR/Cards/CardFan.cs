@@ -295,7 +295,7 @@ internal sealed class CardFan
             float rad = (start + step * i) * Mathf.Deg2Rad;
             float cx = Mathf.Sin(rad) * radius;
             float cy = (Mathf.Cos(rad) - 1f) * radius * archFactor;
-            float cz = -ZStagger * i;
+            float cz = -ZStagger * i + SideDepth(i, n); // match the bowed layout so the gap maps in depth too
             if (cx < local.x)
                 gap++;
             float dx = cx - local.x, dy = cy - local.y, dz = cz - local.z;
@@ -520,14 +520,20 @@ internal sealed class CardFan
         // fan faces the head POSITION, pivoted on the fan center (the palm).
         Quaternion baseFacing = Quaternion.LookRotation(away.normalized, Vector3.up);
 
-        // Edge-read fix (gaze-responsive facing): a full hand's arc is a flat sheet billboarded
-        // about its center, so turning the head to read a card at one END rigidly re-faced the
-        // sheet and swung that far card AWAY (its edge receded) — the opposite of the reader's
-        // intent. UpdateGazeBias returns an eased extra YAW (deg, about world up) that turns the
-        // fan partially toward the head's GAZE direction, tipping the looked-at end TOWARD the
-        // viewer (the arc "opens" under the gaze) while the fan center stays put. 0 within the
-        // center dead zone => legacy behavior unchanged there.
-        float biasYaw = UpdateGazeBias(away, head.transform.forward);
+        // Gaze-responsive facing (edge-read): OPT-IN and OFF by default — the user prefers the
+        // steady billboard plus the depth curvature (see SideDepth / Relayout) as the primary
+        // shape response. When [Cards] FanGazeBias is ON, UpdateGazeBias returns an eased extra
+        // YAW (deg, about world up) that turns the fan partway toward the head's GAZE so the
+        // looked-at end tips TOWARD the viewer; a WIDE deadzone + side-hysteresis stop it
+        // dithering as the head shakes across the fan center (the reported indecisiveness).
+        float biasYaw = 0f;
+        if (CardsConfig.FanGazeBias.Value)
+            biasYaw = UpdateGazeBias(away, head.transform.forward);
+        else if (_gazeBiasYaw != 0f || _gazeSide != 0)
+        {
+            _gazeBiasYaw = 0f; // disabled mid-bias: drop any residual so re-enabling eases from center
+            _gazeSide = 0;
+        }
         _root.rotation = biasYaw != 0f
             ? Quaternion.AngleAxis(biasYaw, Vector3.up) * baseFacing
             : baseFacing;
@@ -540,10 +546,17 @@ internal sealed class CardFan
     // FanInsertGapFactor precedent above. All are pure yaw about world up (matching the fan's
     // horizontal arc); head PITCH is projected out so looking down at the fan adds no bias.
 
-    /// <summary>Gaze offset (deg off "looking straight at the fan center") within which NO bias is
-    /// applied — the comfortable center zone that preserves the legacy billboard and stops the fan
-    /// swimming under normal small head motion.</summary>
-    private const float GazeBiasDeadzoneDeg = 12f;
+    /// <summary>Gaze offset (deg off "looking straight at the fan center") the head must CLEAR before the
+    /// bias commits to a side. WIDE (was 12°) — the center zone where the fan stays squarely billboarded,
+    /// so ordinary head motion (and a left-right shake crossing center) never nudges the lean. Paired with
+    /// <see cref="GazeBiasReleaseDeg"/> for hysteresis: once committed to a side the bias only relaxes
+    /// back to center when the gaze returns inside the smaller release band — it cannot dither at center.</summary>
+    private const float GazeBiasDeadzoneDeg = 20f;
+
+    /// <summary>Gaze offset (deg) at which a committed side RELEASES back to center (hysteresis floor,
+    /// below GazeBiasDeadzoneDeg). The gate holds its current side between this and the deadzone, so a
+    /// head shake sweeping through center cannot rapid-flip the lean's sign.</summary>
+    private const float GazeBiasReleaseDeg = 10f;
 
     /// <summary>Gaze offset (deg) at which the bias reaches full weight (smoothstep-ramped between
     /// the dead zone and here). ~the half-arc a full hand subtends, so an edge card hits full bias.</summary>
@@ -566,6 +579,11 @@ internal sealed class CardFan
     /// <summary>Eased state: extra yaw (deg, about world up) currently applied to the fan facing.</summary>
     private float _gazeBiasYaw;
 
+    /// <summary>Hysteresis state: which side the gaze bias is currently COMMITTED to (0 = center/none,
+    /// -1 = leaning toward the viewer's left / card i=0, +1 = right). The target yaw sign is driven by
+    /// THIS, not the instantaneous SignedAngle, so a head shake across center cannot flip the lean.</summary>
+    private int _gazeSide;
+
     /// <summary>Throttle clock for the gaze-bias diagnostic (unscaled seconds of the last line).</summary>
     private float _gazeLogTime;
 
@@ -586,15 +604,45 @@ internal sealed class CardFan
         {
             // Signed horizontal angle of the gaze off "looking straight at the fan center".
             // AngleAxis(gazeOffset, up) rotates awayH exactly onto gazeH (same Unity sign
-            // convention as SignedAngle), so turning the fan by a FRACTION of gazeOffset turns
-            // it toward the gaze — sign-consistent by construction, tips the looked-at end
-            // forward on either side with no hand-tuned flip.
+            // convention as SignedAngle), so turning the fan toward the gaze is sign-consistent.
             gazeOffset = Vector3.SignedAngle(awayH, gazeH, up);
             float mag = Mathf.Abs(gazeOffset);
-            float t = Mathf.Clamp01((mag - GazeBiasDeadzoneDeg)
-                                    / Mathf.Max(0.01f, GazeBiasFullDeg - GazeBiasDeadzoneDeg));
-            t = t * t * (3f - 2f * t); // smoothstep ease-in/out of the weight
-            target = Mathf.Clamp(gazeOffset * GazeBiasGain * t, -GazeBiasMaxYawDeg, GazeBiasMaxYawDeg);
+            int side = gazeOffset < 0f ? -1 : 1;
+
+            // DITHER FIX (hysteresis): the old code fed gazeOffset's raw sign straight into the
+            // target, so as the head shook across the fan center SignedAngle flipped sign every
+            // few degrees and the fan swung indecisively. Now the COMMITTED side is a latch:
+            //   center (0) -> a side only once the gaze clears the WIDE deadzone;
+            //   a side -> center only once the gaze falls back inside the smaller release band.
+            // Between release and deadzone the side is held, so a sweep through center parks the
+            // lean at center (target 0) and re-commits decisively past the deadzone — never a
+            // rapid sign flip. The target's sign comes from _gazeSide, not the live gazeOffset.
+            if (_gazeSide == 0)
+            {
+                if (mag > GazeBiasDeadzoneDeg)
+                    _gazeSide = side;
+            }
+            else if (mag < GazeBiasReleaseDeg)
+            {
+                _gazeSide = 0;
+            }
+            else if (side != _gazeSide && mag > GazeBiasDeadzoneDeg)
+            {
+                _gazeSide = side; // firm, past-deadzone crossing to the opposite side
+            }
+
+            if (_gazeSide != 0)
+            {
+                float t = Mathf.Clamp01((mag - GazeBiasDeadzoneDeg)
+                                        / Mathf.Max(0.01f, GazeBiasFullDeg - GazeBiasDeadzoneDeg));
+                t = t * t * (3f - 2f * t); // smoothstep ease-in/out of the weight
+                target = Mathf.Clamp(_gazeSide * mag * GazeBiasGain * t,
+                                     -GazeBiasMaxYawDeg, GazeBiasMaxYawDeg);
+            }
+        }
+        else
+        {
+            _gazeSide = 0;
         }
 
         // Ease toward the target on unscaled, frame-rate-independent time (alive while paused).
@@ -611,10 +659,9 @@ internal sealed class CardFan
             && now - _gazeLogTime > 1f)
         {
             _gazeLogTime = now;
-            string end = Mathf.Abs(gazeOffset) <= GazeBiasDeadzoneDeg ? "CENTER"
-                : gazeOffset < 0f ? "LEFT" : "RIGHT";
+            string end = _gazeSide == 0 ? "CENTER" : _gazeSide < 0 ? "LEFT" : "RIGHT";
             Core.VRLog.Info("Cards",
-                $"Fan gaze-bias: gazeOff={gazeOffset:F1}deg end={end} biasYaw={_gazeBiasYaw:F1}deg (n={_cards.Count})");
+                $"Fan gaze-bias: gazeOff={gazeOffset:F1}deg committed={end} biasYaw={_gazeBiasYaw:F1}deg (n={_cards.Count})");
         }
 
         return _gazeBiasYaw;
@@ -626,6 +673,43 @@ internal sealed class CardFan
     // backing thickness so fanned cards can never interpenetrate visually — the
     // overlap is pure render order, like a real hand of cards (test #8 fix).
     private const float ZStagger = 0.004f;
+
+    /// <summary>Throttle clock for the depth-curvature diagnostic (unscaled seconds of the last line).</summary>
+    private float _curveLogTime;
+
+    /// <summary>
+    /// Depth curvature: how far card <paramref name="i"/> of a hand of <paramref name="n"/> recedes
+    /// AWAY from the viewer along the fan's local forward axis (+Z, since the fan faces the head with
+    /// -Z), so a full hand bows into depth like a real held fan — the center card sits nearest and the
+    /// edge cards fall back. Quadratic (<see cref="CardsConfig.FanCurvePower"/>) in the card's
+    /// fraction-from-center (0 at the middle, 1 at the outermost), scaled to
+    /// <see cref="CardsConfig.FanSideDepthCurve"/> metres at the edge and ramped by hand size (flat at
+    /// or below <see cref="CardsConfig.FanCurveMinCards"/>, full at <see cref="CardsConfig.FanMaxHandForCurve"/>)
+    /// so a small hand stays nearly flat. Returns 0 when disabled / a tiny hand. Live-read each layout.
+    ///
+    /// NOTE (raycast/collider safety): this shifts ONLY each card's local Z, never its rotation. The
+    /// pluck raycast (<see cref="TryRaycast"/>) builds its per-card plane from the LIVE card transform
+    /// (<c>t.position</c>/<c>t.forward</c>) and its rect from <c>InverseTransformPoint</c> (Z-independent
+    /// for the X/Y bounds), so the ray follows the moved card automatically and the hit rect is unchanged;
+    /// the shrunken grab colliders (<see cref="VRCard.SetColliderRegion"/>) ride the transform likewise.
+    /// </summary>
+    private static float SideDepth(int i, int n)
+    {
+        if (n < 2)
+            return 0f;
+        float curve = CardsConfig.FanSideDepthCurve.Value;
+        if (curve <= 0f)
+            return 0f;
+        int lo = Mathf.Clamp(CardsConfig.FanCurveMinCards.Value, 1, 64);
+        if (n <= lo)
+            return 0f; // small hand: stay flat
+        float center = (n - 1) * 0.5f;
+        float frac = center > 0f ? Mathf.Abs(i - center) / center : 0f; // 0 center .. 1 outermost
+        float power = Mathf.Clamp(CardsConfig.FanCurvePower.Value, 0.5f, 4f);
+        int hi = Mathf.Max(lo + 1, CardsConfig.FanMaxHandForCurve.Value);
+        float fill = Mathf.Clamp01((float)(n - lo) / (hi - lo)); // 0 at lo .. 1 at full hand
+        return curve * Mathf.Pow(frac, power) * fill;
+    }
 
     // ---------------------------------------------------------------- item 8: wider, rounder fan --
     // The fan's width/roundness/spacing (per-card step cap, total arc sweep, arc radius, hover-split
@@ -718,12 +802,13 @@ internal sealed class CardFan
 
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
-            // Arc bends around a pivot below the fan root; z-stagger keeps the
-            // draw order stable (later cards nearer the viewer = -Z).
+            // Arc bends around a pivot below the fan root; z-stagger keeps the draw order stable
+            // (later cards nearer the viewer = -Z) and SideDepth bows the SIDES back into depth
+            // (+Z, away from the viewer) so a full hand curves like a real held fan.
             var rot = Quaternion.Euler(0f, 0f, -angle * tiltFactor);
             var pos = new Vector3(Mathf.Sin(rad) * radius,
                                   (Mathf.Cos(rad) - 1f) * radius * archFactor,
-                                  -ZStagger * i);
+                                  -ZStagger * i + SideDepth(i, n));
 
             // Slide non-hovered cards along their OWN local right (rot * X, in fan space) to
             // open the split gap around the hovered card. The hovered card is the pivot and
@@ -776,6 +861,18 @@ internal sealed class CardFan
         else if (_overlay != null && _overlay.activeSelf)
         {
             _overlay.SetActive(false);
+        }
+
+        // Throttled depth-curvature diagnostic (>=2 s apart): applied edge recession in mm, hand
+        // size, and the gaze-bias enable state — so the debug menu tuning is observable in the log.
+        float logNow = Time.unscaledTime;
+        if (logNow - _curveLogTime > 2f)
+        {
+            _curveLogTime = logNow;
+            float edgeMm = SideDepth(0, n) * 1000f;
+            Core.VRLog.Info("Cards",
+                $"Fan depth-curve: edgeDepth={edgeMm:F1}mm n={n} " +
+                $"gazeBias={(CardsConfig.FanGazeBias.Value ? "ON" : "off")}");
         }
     }
 
@@ -890,7 +987,7 @@ internal sealed class CardFan
                 var rot = Quaternion.Euler(0f, 0f, -angle * tiltFactor);
                 var pos = new Vector3(Mathf.Sin(rad) * radius,
                                       (Mathf.Cos(rad) - 1f) * radius * archFactor,
-                                      -ZStagger * i);
+                                      -ZStagger * i + SideDepth(i, n));
                 var collapsed = new Vector3(collapsedXY.x, collapsedXY.y, -ZStagger * i);
                 card.SetHome(_root, Vector3.Lerp(pos, collapsed, e),
                     Quaternion.Slerp(rot, collapsedRot, e), 1f, instant: true);
