@@ -404,8 +404,15 @@ internal sealed class StatPanelSurface
             {
                 // Informational panel (no buttons, verified) — NOT pokeable: never in
                 // UguiPokeSurfaces, so neither ray nor poke nor IsPointerOverUI see it.
+                // flatten2D (test #21): the actor/enemy stat card carries the game's baked
+                // local-z / local rotation (subtle perspective styling under the game's UI
+                // camera) that becomes literal 3D geometry on a world-space host — text/icons
+                // protrude out of the panel plane. Flatten zeros every descendant's local-z +
+                // local rotation, and CanvasConversion.LateTick RE-runs the flatten EVERY frame
+                // while shown (FlattenEnabled) so a NEW ENEMY TYPE repopulating the card with
+                // fresh tilted stat rows / ability text can NEVER re-acquire the 3D tilt.
                 watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
-                    pokeable: false, sortingOrder: StatPanelSortingOrder);
+                    pokeable: false, sortingOrder: StatPanelSortingOrder, flatten2D: true);
                 if (watch.Panel != null)
                 {
                     CountConversion(watch, name);
@@ -480,11 +487,14 @@ internal sealed class StatPanelSurface
         }
 
         // Convert + dock the copy at the second hand (same machinery as the real panels).
+        // flatten2D: the snapshot copy is a clone of the same tilted stat-card hierarchy, so it
+        // needs the identical per-frame flatten (FlattenEnabled → LateTick) or the second hand's
+        // enemy card protrudes in 3D exactly like the real one did.
         if (_copyPanel != null && !_copyPanel.IsAlive)
             _copyPanel = null;
         if (_copyHolder != null && _copyRect != null && _copyPanel == null)
             _copyPanel = CanvasConversion.Convert(_copyRect, "ActorStatPanelCopy", pokeable: false,
-                sortingOrder: StatPanelSortingOrder);
+                sortingOrder: StatPanelSortingOrder, flatten2D: true);
         if (_copyPanel != null)
         {
             if (_copyPanel.HostRaycaster != null && _copyPanel.HostRaycaster.enabled)

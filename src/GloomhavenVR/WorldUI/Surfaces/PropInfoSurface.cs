@@ -126,8 +126,11 @@ internal sealed class PropInfoSurface
             {
                 // Informational panel (no buttons, verified) — NOT pokeable: never in
                 // UguiPokeSurfaces, so neither ray nor poke nor IsPointerOverUI see it.
+                // flatten2D (test #21): the prop/text info card carries the same baked local-z /
+                // local rotation as the stat panels — neutralize it (and re-flatten every frame via
+                // LateTick) so hover-card text/icons lie flat instead of protruding in 3D.
                 watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
-                    pokeable: false);
+                    pokeable: false, flatten2D: true);
                 if (watch.Panel != null)
                 {
                     CountConversion(watch, name);
