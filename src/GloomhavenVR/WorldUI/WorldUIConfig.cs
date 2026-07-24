@@ -50,10 +50,12 @@ internal static class WorldUIConfig
     internal static ConfigEntry<float> InitiativeDepthMaxSpreadPx = null!;
 
     /// <summary>
-    /// User #11b: target vertical gap (uGUI px) between a docked decision row's prompt text
-    /// ("Erleide entweder Schaden…") and its widgets ("Schaden erhalten" …). Live-applied by
-    /// <see cref="Surfaces.DecisionDockSurface"/> while a row is docked; a later settings-panel
-    /// phase adds a stepper for it. Range 0–60.
+    /// User #11b/#14: the docked decision row's vertical gap. It now drives the docked
+    /// widget block's PLACEMENT (a quantity the mod owns): the interactive-widget block top
+    /// is docked this many uGUI px (in the row's own scale) BELOW the board's lower edge /
+    /// prompt line. Smaller = the buttons ride UP toward the prompt; larger = they drop.
+    /// Live-applied by <see cref="Surfaces.DecisionDockSurface"/> (re-runs placement on
+    /// change). Range 0–120 (widened from 60 so the stepper closes the observed gap).
     /// </summary>
     internal static ConfigEntry<float> DecisionRowGapPx = null!;
 
@@ -271,15 +273,18 @@ internal static class WorldUIConfig
             "depth is compressed proportionally to land at this cap (never amplified). Higher = " +
             "stronger recession; 0 = flat. Live-tunable in the debug menu (Panels -> Initiative). " +
             "Range 0..40.");
-        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", 12f, new ConfigDescription(
-            "Target vertical gap in uGUI pixels between a docked decision prompt's text block " +
-            "(e.g. 'Erleide entweder Schaden …') and its button/toggle row (e.g. 'Schaden " +
-            "erhalten') on the control board. The authored 2D dialog spacing is COMPRESSED down " +
-            "to this value (rows authored tighter than the target are left alone — the row is " +
-            "never spread apart). Applied to every docked decision row (take-damage/burn choice, " +
-            "burn-confirm dialog, short-rest Yes/No, …) and live-reapplied to an open dock when " +
-            "changed.",
-            new AcceptableValueRange<float>(0f, 60f)));
+        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", 40f, new ConfigDescription(
+            "Vertical gap (uGUI pixels, in the docked row's own scale) between the control " +
+            "board's lower edge — where the game draws the decision prompt line, e.g. " +
+            "'Schadensphase: Erleide entweder Schaden …' — and the TOP of the docked " +
+            "interactive widget block (the 'Schaden erhalten' / burn buttons, the burn-confirm " +
+            "options, the short-rest Ja/Nein). The mod owns where this block docks, so this " +
+            "value drives the block's PLACEMENT directly: LOWER it to pull the buttons UP toward " +
+            "the prompt (closing the gap), RAISE it to drop them. Applied to every docked " +
+            "decision row and re-applied live to an open dock the instant it changes. The grab " +
+            "bar is never overlapped (the block always sits at least its clearance below it). " +
+            "Range 0-120.",
+            new AcceptableValueRange<float>(0f, 120f)));
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
