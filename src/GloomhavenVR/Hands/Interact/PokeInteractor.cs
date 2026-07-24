@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -21,6 +22,15 @@ namespace GloomhavenVR.Hands.Interact;
 ///    depth cancels without a click; retracting past ReleaseDepth re-arms the next
 ///    press; depth 0 restores the old instant click on contact. Game modality is
 ///    respected because hits come from the canvas's own (enabled) GraphicRaycaster only.
+///
+///    PER-CANVAS PRESS MODE (user #13b): a canvas tagged in
+///    <see cref="DeliberatePokeSurfaces"/> (the decision dock's high-stakes buttons)
+///    takes the DELIBERATE v1 semantics instead — contact arms exactly the same, but
+///    the click fires only on the conscious WITHDRAWAL back past ReleaseDepth in FRONT
+///    of the plane; sweeping through past PressThrough or leaving sideways cancels
+///    silently (no click, no cooldown charge). "You have to push in AND consciously
+///    pull back" — a sweep of the hand across the dock can never trigger a decision.
+///    Gated live by [WorldUI] DecisionPokeDeliberate (default true).
 ///
 /// Plain class ticked by <see cref="VRHand"/> every frame after pose update.
 /// No per-frame allocations: for-loops over registries, reused event data.
@@ -74,7 +84,8 @@ internal sealed class PokeInteractor
 
     private Canvas? _activeCanvas;
     private bool _canvasPressed;
-    private bool _pressPending; // push-in mode: pointerDown sent, click awaiting fire depth
+    private bool _pressPending;    // pointerDown sent, click awaiting fire depth / withdrawal
+    private bool _pressDeliberate; // user #13b: pending press is on a deliberate (v1) canvas
     private float _lastCanvasClick = -1f;
 
     /// <summary>One-shot init log for the poke click mode (two hands share one line).</summary>
@@ -161,6 +172,22 @@ internal sealed class PokeInteractor
         _activeCanvas = null;
         _canvasPressed = false;
         _pressPending = false;
+        _pressDeliberate = false;
+    }
+
+    /// <summary>
+    /// USER #13b: does THIS canvas take the deliberate v1 press (contact arms, click on
+    /// withdrawal past ReleaseDepth, sweep-through cancels)? Registered per docked
+    /// canvas by the decision dock; [WorldUI] DecisionPokeDeliberate (default true) is
+    /// the live escape hatch — off restores the shared push-in behaviour for decision
+    /// buttons too. Null-tolerant on config for module init order.
+    /// </summary>
+    private static bool IsDeliberate(Canvas canvas)
+    {
+        if (!DeliberatePokeSurfaces.Contains(canvas))
+            return false;
+        var entry = WorldUI.WorldUIConfig.DecisionPokeDeliberate;
+        return entry == null || entry.Value;
     }
 
     // ---- collider pokeables -------------------------------------------------------------
@@ -268,8 +295,11 @@ internal sealed class PokeInteractor
             // plane on a press, so tolerate some press-through before dropping it.
             float signed = Vector3.Dot(tip - t.position, t.forward);
             float maxThrough = UguiPokeSurfaces.TuningFor(canvas).PressThrough * scale;
-            if (_pressPending && ReferenceEquals(canvas, _activeCanvas))
-                maxThrough *= PendingPressThroughGrace; // don't drop a pending press mid-stab
+            // Depth-fire mode only: don't drop a pending press mid-stab. A DELIBERATE
+            // (v1) pending press keeps the plain guard — sweeping through past
+            // PressThrough must DROP the canvas and cancel silently, never click.
+            if (_pressPending && !_pressDeliberate && ReferenceEquals(canvas, _activeCanvas))
+                maxThrough *= PendingPressThroughGrace;
             if (signed > maxThrough)
                 continue; // far behind the canvas — ignore
 
@@ -294,9 +324,13 @@ internal sealed class PokeInteractor
         // Canvas switch / loss cancels in-flight pointer state.
         if (!ReferenceEquals(best, _activeCanvas))
         {
+            // Canvas lost mid-press = the v1 cancel paths for a deliberate press:
+            // swept through past PressThrough or left the rect sideways → pointerUp
+            // without a click, silent, no cooldown charge.
             _pointer.Cancel();
             _canvasPressed = false;
             _pressPending = false;
+            _pressDeliberate = false;
             _activeCanvas = best;
         }
 
@@ -350,7 +384,20 @@ internal sealed class PokeInteractor
                 _canvasPressed = true;
                 if (Time.unscaledTime - _lastCanvasClick >= ClickCooldownSeconds)
                 {
-                    if (fireDepth <= 0f)
+                    // USER #13b: a deliberate (v1) canvas always ARMS on contact — even
+                    // with PokePressDepthMm = 0 — because its click is defined by the
+                    // conscious withdrawal, not by contact or push depth.
+                    bool deliberate = IsDeliberate(_activeCanvas);
+                    if (deliberate || fireDepth > 0f)
+                    {
+                        // Arm only — pressed visual now; click at depth (v3) or on
+                        // withdrawal (deliberate v1).
+                        _pressPending = true;
+                        _pressDeliberate = deliberate;
+                        _pointer.Press(screenPos);
+                        _hand.SendHaptic(HapticPreset.HoverTick); // light arming tick
+                    }
+                    else
                     {
                         // Instant mode (PokePressDepthMm = 0): full click on contact.
                         _lastCanvasClick = Time.unscaledTime;
@@ -358,19 +405,31 @@ internal sealed class PokeInteractor
                         _pointer.Release(screenPos);
                         _hand.SendHaptic(HapticPreset.ClickPulse);
                     }
-                    else
-                    {
-                        // Push-in mode: arm only — pressed visual now, click at depth.
-                        _pressPending = true;
-                        _pointer.Press(screenPos);
-                        _hand.SendHaptic(HapticPreset.HoverTick); // light arming tick
-                    }
                 }
             }
         }
         else if (_pressPending)
         {
-            if (bestSigned >= fireDepth * scale)
+            if (_pressDeliberate)
+            {
+                // DELIBERATE v1 (user #13b, decision buttons): the click fires on the
+                // conscious WITHDRAWAL — the fingertip retracting back past ReleaseDepth
+                // in FRONT of the plane. Push depth never fires; sweeping through past
+                // PressThrough (or leaving the rect sideways) drops the canvas in the
+                // scan above → Cancel, silent. Firing at the withdrawal edge means the
+                // fingertip is already past the re-arm hysteresis, so the press fully
+                // re-arms here (next contact presses again, cooldown still applies).
+                if (bestSigned < -tuning.ReleaseDepth * scale)
+                {
+                    _pressPending = false;
+                    _pressDeliberate = false;
+                    _canvasPressed = false;
+                    _lastCanvasClick = Time.unscaledTime;
+                    _pointer.Release(screenPos); // up + click (released over the pressed handler)
+                    _hand.SendHaptic(HapticPreset.ClickPulse); // fire pulse on the pull-out
+                }
+            }
+            else if (bestSigned >= fireDepth * scale)
             {
                 _pressPending = false;
                 _lastCanvasClick = Time.unscaledTime;
@@ -390,5 +449,61 @@ internal sealed class PokeInteractor
         {
             _canvasPressed = false; // re-armed: the next plane contact presses again
         }
+    }
+}
+
+/// <summary>
+/// USER #13b: per-canvas poke PRESS-MODE registry. Canvases tagged here take the
+/// DELIBERATE v1 press semantics in <see cref="PokeInteractor"/> — contact only arms
+/// (pointerDown + light haptic), the CLICK fires on the conscious withdrawal back past
+/// ReleaseDepth, and sweep-through/leave-sideways cancels silently — instead of the
+/// shared v3 push-in depth-fire. Registered per docked canvas by
+/// <c>WorldUI.Surfaces.DecisionDockSurface</c> (the take-damage burn choice, the
+/// burn-confirm dialog, the short-rest Ja/Nein: accidental instant triggers on these
+/// are costly and irreversible); every unregistered canvas keeps the v3 behaviour.
+/// The [WorldUI] DecisionPokeDeliberate config is checked LIVE at press time by the
+/// interactor, so this registry only says WHICH canvases are decision surfaces.
+/// Mirrors the <see cref="UguiPokeSurfaces"/> conventions: reference-compared list,
+/// allocation-free lookup, Unity-null-tolerant unregister.
+/// </summary>
+internal static class DeliberatePokeSurfaces
+{
+    private static readonly List<Canvas> Canvases = new(2);
+
+    /// <summary>Tag a poke canvas deliberate-press (one log line per registration).</summary>
+    public static void Register(Canvas canvas, string owner)
+    {
+        if (canvas == null)
+        {
+            Core.VRLog.Warn("Interact", "DeliberatePokeSurfaces.Register called with null canvas — ignored.");
+            return;
+        }
+        if (Contains(canvas))
+            return;
+        Canvases.Add(canvas);
+        Core.VRLog.Info("Interact", $"Poke press-mode: canvas '{canvas.name}' registered DELIBERATE for " +
+                                    $"{owner} — contact arms (pressed visual + light haptic), the CLICK " +
+                                    "fires on the conscious withdrawal past ReleaseDepth, sweep-through/" +
+                                    "leave-sideways cancels silently ([WorldUI] DecisionPokeDeliberate).");
+    }
+
+    /// <summary>Reference-based removal (a released host canvas may already be Unity-destroyed).</summary>
+    public static void Unregister(Canvas canvas)
+    {
+        if (canvas is not null)
+            Canvases.Remove(canvas);
+    }
+
+    /// <summary>True when this canvas was tagged deliberate (reference compare, allocation-free).</summary>
+    internal static bool Contains(Canvas? canvas)
+    {
+        if (canvas is null)
+            return false;
+        for (int i = 0; i < Canvases.Count; i++)
+        {
+            if (ReferenceEquals(Canvases[i], canvas))
+                return true;
+        }
+        return false;
     }
 }
