@@ -1128,6 +1128,23 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddFanStepper("Aufdecken ein °", CardsConfig.RevealEnterDegrees, 5f, 15f, 85f, v => $"{v:0}°");
         AddFanStepper("Aufdecken aus °", CardsConfig.RevealExitDegrees, 5f, 5f, 80f, v => $"{v:0}°");
         AddFanStepper("Öffnungszeit", CardsConfig.FanOpenDuration, 0.02f, 0f, 0.6f, v => $"{v * 1000f:0}ms");
+        // Depth curvature: side cards recede into depth with many cards (live).
+        AddFanStepper("Krümmung Tiefe", CardsConfig.FanSideDepthCurve, 0.005f, 0f, 0.12f, v => $"{v * 1000f:0}mm");
+        AddFanStepper("Krümmung Kurve", CardsConfig.FanCurvePower, 0.1f, 0.5f, 4f, v => $"{v:0.0}");
+        _rowGate = HandOffsetRowsVisible;
+        var curveMinRow = Row();
+        Label(curveMinRow, "Krümmung ab Karten", 16f, flexible: true);
+        MiniStepper(curveMinRow,
+            () => $"{CardsConfig.FanCurveMinCards.Value}",
+            d =>
+            {
+                ConfigEntry<int> e = CardsConfig.FanCurveMinCards;
+                e.Value = Mathf.Clamp(e.Value + (int)Mathf.Sign(d), 1, 12);
+            });
+        _rowGate = HandOffsetRowsVisible;
+        var gazeRow = Row();
+        Label(gazeRow, "Blick-Neigung", 16f, flexible: true);
+        ToggleButton(gazeRow, () => CardsConfig.FanGazeBias.Value, v => CardsConfig.FanGazeBias.Value = v);
     }
 
     /// <summary>
