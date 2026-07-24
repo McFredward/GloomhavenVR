@@ -5,45 +5,85 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Live-tunable 3D-button geometry (user requests #8/#9, canonical <see cref="ModuleConfig.Create"/>
-/// pattern — <c>dev.gloomhavenvr.buttons.cfg</c>). Two groups:
+/// Live-tunable 3D-button geometry (user requests #8/#9 + the 2026-07 category split,
+/// canonical <see cref="ModuleConfig.Create"/> pattern — <c>dev.gloomhavenvr.buttons.cfg</c>).
 ///
-/// TRANSIENT round-phase buttons (user #8 — the ButtonCluster column that shows the game's
-/// turn-flow buttons like "Bewegung überspringen"): position offset in the tray-root plane,
-/// cap shape (round puck / square keycap) and cap size — the group the user pressed by
-/// accident because it sat too close to the card slots. The DEFAULT anchor itself also moved
-/// down-board (see <see cref="ButtonCluster"/> column constants) so the group clears the slot
-/// row out of the box; these offsets shift it further from there.
+/// PER-CATEGORY bind sets (user: "every value must apply ONLY to its own category"):
 ///
-/// SQUARE keycaps (user #9 — Confirm/Undo/gear/follow on the control board and the cluster's
-/// caps when the transient shape is Square): independent cap WIDTH and HEIGHT (rectangular
-/// caps), cap DEPTH (the extrusion toward the player) and press TRAVEL (how far the cap sinks
-/// — also the distance the fingertip must push for the depth-fire press, user #6). Width /
-/// height / depth / travel use 0 = "authored default" so the shipped look is bit-identical
-/// until a value is set.
+/// [RoundButtons] — the TRANSIENT round-phase button group (the ButtonCluster column that
+/// shows the game's turn-flow buttons like "Bewegung überspringen"): position offset in the
+/// tray-root frame (X sideways, Y up-board, Z out of the board toward the player), cap shape
+/// (round puck / square keycap), cap size, and — for its Square shape — its OWN cap
+/// width/height/depth and press travel. Consumed by <see cref="ButtonCluster"/> ONLY.
+///
+/// [BoardButtons] — the Confirm/Undo ("Fortfahren"/"Rückgängig machen") keycaps on the
+/// control board: cap width/height/depth and press travel. Consumed by
+/// <c>PlayTray.BuildButtons</c> ONLY.
+///
+/// [BoardDashboard] — the settings gear ("Einstellungen") and the follow/pin toggle
+/// ("Fixiert") flat plates on the control board: per-button width (they are authored at
+/// different widths), shared height/depth and press travel. Consumed by
+/// <c>PlayTray.CreateDashboardButtons</c> ONLY.
+///
+/// NO "Auto" SENTINEL any more (user: "give me a fixed numeric value everywhere"): every
+/// entry's DEFAULT is the exact authored value it replaced, so the shipped defaults
+/// reproduce the authored look bit-identically and every settings-panel stepper always
+/// shows a real number. Legacy files ([TransientButtons] offsets/shape/cap size and the
+/// shared [SquareCaps] 0=Auto geometry that leaked across categories) are migrated once on
+/// <see cref="Bind"/>: nonzero values are copied into every category they used to affect
+/// (preserving the user's current look), 0-sentinels resolve to the new numeric defaults,
+/// and the legacy entries are removed from the cfg (logged).
 ///
 /// Consumers re-read the clamped accessors and rebuild on <see cref="Version"/> change
 /// (PlayTray.TickStatus / ButtonCluster.Tick), so every entry is live — no restart. The
-/// settings panel binds steppers against the public entries + <see cref="Changed"/> in a
-/// later phase. All values are LOCAL visuals — nothing here syncs to multiplayer.
+/// settings panel binds steppers against the public entries + <see cref="Changed"/>.
+/// All values are LOCAL visuals — nothing here syncs to multiplayer.
 /// </summary>
 internal static class ButtonTuning
 {
     private static ConfigFile? _file;
 
-    // ---- transient round-phase button group (user #8) ------------------------------------
-    internal static ConfigEntry<float>? TransientOffsetX;
-    internal static ConfigEntry<float>? TransientOffsetY;
-    internal static ConfigEntry<Cards.ButtonShape>? TransientShape;
-    internal static ConfigEntry<float>? TransientCapSize;
+    // ---- authored defaults (the exact values each bind replaced — see the consumers) ------
+    internal const float DefaultRoundCapSize = 0.042f;  // ButtonCluster column cap-radius ceiling
+    internal const float DefaultRoundWidth = 0.084f;    // square cluster cap = 2 × the 42 mm radius
+    internal const float DefaultRoundHeight = 0.084f;
+    internal const float DefaultRoundDepth = 0.012f;    // authored square cluster-cap extrusion
+    internal const float DefaultRoundTravel = 0.008f;   // authored 8 mm cluster cap travel
+    internal const float DefaultBoardWidth = 0.073f;    // authored ConfirmUndoSize default (CardsConfig)
+    internal const float DefaultBoardHeight = 0.073f;
+    internal const float DefaultBoardDepth = 0.036f;    // PlayTray.SquareCapThickness
+    internal const float DefaultBoardTravel = 0.004f;   // BoardButton.CapTravel
+    internal const float DefaultGearWidth = 0.062f;     // authored gear plate width
+    internal const float DefaultPinWidth = 0.068f;      // authored follow/pin plate width
+    internal const float DefaultDashHeight = 0.030f;    // authored gear/pin plate height
+    internal const float DefaultDashDepth = 0.030f;     // authored gear/pin plate extrusion
+    internal const float DefaultDashTravel = 0.004f;    // BoardButton.CapTravel (same authored travel)
 
-    // ---- square keycap geometry (user #9) ------------------------------------------------
-    internal static ConfigEntry<float>? SquareCapWidth;
-    internal static ConfigEntry<float>? SquareCapHeight;
-    internal static ConfigEntry<float>? SquareCapDepth;
-    internal static ConfigEntry<float>? PressTravel;
+    // ---- [RoundButtons] — transient round-phase button group (ButtonCluster ONLY) ---------
+    internal static ConfigEntry<float>? RoundOffsetX;
+    internal static ConfigEntry<float>? RoundOffsetY;
+    internal static ConfigEntry<float>? RoundOffsetZ;
+    internal static ConfigEntry<Cards.ButtonShape>? RoundShape;
+    internal static ConfigEntry<float>? RoundCapSize;
+    internal static ConfigEntry<float>? RoundWidth;
+    internal static ConfigEntry<float>? RoundHeight;
+    internal static ConfigEntry<float>? RoundDepth;
+    internal static ConfigEntry<float>? RoundTravel;
 
-    /// <summary>Raised on every entry write (settings-panel steppers bind here later).</summary>
+    // ---- [BoardButtons] — Confirm/Undo keycaps (PlayTray.BuildButtons ONLY) ---------------
+    internal static ConfigEntry<float>? BoardWidth;
+    internal static ConfigEntry<float>? BoardHeight;
+    internal static ConfigEntry<float>? BoardDepth;
+    internal static ConfigEntry<float>? BoardTravel;
+
+    // ---- [BoardDashboard] — gear + Fixiert plates (PlayTray.CreateDashboardButtons ONLY) --
+    internal static ConfigEntry<float>? DashGearWidth;
+    internal static ConfigEntry<float>? DashPinWidth;
+    internal static ConfigEntry<float>? DashHeight;
+    internal static ConfigEntry<float>? DashDepth;
+    internal static ConfigEntry<float>? DashTravel;
+
+    /// <summary>Raised on every entry write (settings-panel steppers bind here).</summary>
     internal static event System.Action? Changed;
 
     /// <summary>Monotonic change counter — pull-based consumers rebuild when it moves.</summary>
@@ -67,49 +107,186 @@ internal static class ButtonTuning
             return;
         ConfigFile config = _file = ModuleConfig.Create("buttons");
 
-        TransientOffsetX = config.Bind("TransientButtons", "OffsetX", 0f,
+        RoundOffsetX = config.Bind("RoundButtons", "OffsetX", 0f,
             "Sideways offset (tray-ROOT-local meters, +X = toward the board's right edge / the " +
             "Undo-gear pads) of the transient round-phase button group (skip-step etc.) from its " +
             "default anchor. Live; clamped -0.30..0.30.");
-        TransientOffsetY = config.Bind("TransientButtons", "OffsetY", 0f,
+        RoundOffsetY = config.Bind("RoundButtons", "OffsetY", 0f,
             "Up-board offset (tray-ROOT-local meters, +Y = toward the card slots / far edge, " +
             "-Y = toward the bottom edge and handle) of the transient button group from its " +
             "default anchor. Live; clamped -0.30..0.30.");
-        TransientShape = config.Bind("TransientButtons", "Shape", Cards.ButtonShape.Round,
+        RoundOffsetZ = config.Bind("RoundButtons", "OffsetZ", 0f,
+            "Out-of-plane offset (tray-ROOT-local meters, +Z = OUT of the board toward the " +
+            "player, -Z = sunk toward/behind the board face) of the transient button group " +
+            "from its default proud seat. Live; clamped -0.30..0.30.");
+        RoundShape = config.Bind("RoundButtons", "Shape", Cards.ButtonShape.Round,
             "Cap shape of the transient round-phase buttons: Round = flattened puck (default), " +
-            "Square = boxy keycap (then SquareCaps Width/Height/Depth apply to them too). Live.");
-        TransientCapSize = config.Bind("TransientButtons", "CapSize", 0.042f,
+            "Square = boxy keycap (then this section's Width/Height/Depth apply). Live.");
+        RoundCapSize = config.Bind("RoundButtons", "CapSize", DefaultRoundCapSize,
             "Cap radius (cluster-local meters) of the transient buttons. The column auto-fit only " +
             "SHRINKS below this when several buttons must share the column; a single button uses " +
             "exactly this size. Live; clamped 0.015..0.09.");
+        RoundWidth = config.Bind("RoundButtons", "Width", DefaultRoundWidth,
+            "Cap width (meters) of the transient buttons while Shape=Square. Applies ONLY to " +
+            "this group. Live; clamped 0.02..0.20.");
+        RoundHeight = config.Bind("RoundButtons", "Height", DefaultRoundHeight,
+            "Cap height (meters) of the transient buttons while Shape=Square. Applies ONLY to " +
+            "this group. Live; clamped 0.015..0.20.");
+        RoundDepth = config.Bind("RoundButtons", "Depth", DefaultRoundDepth,
+            "Cap depth/extrusion (meters toward the player) of the transient buttons while " +
+            "Shape=Square. Applies ONLY to this group. Live; clamped 0.006..0.08.");
+        RoundTravel = config.Bind("RoundButtons", "Travel", DefaultRoundTravel,
+            "Press travel (meters) of the transient buttons — how far a cap sinks under the " +
+            "fingertip before the depth-fire press commits (fires at 90% of travel). Applies " +
+            "ONLY to this group. Live; clamped 0.002..0.02.");
 
-        SquareCapWidth = config.Bind("SquareCaps", "Width", 0f,
-            "Cap width (meters, along the board's X) of the SQUARE keycaps — Confirm/Undo/gear/" +
-            "follow on the board, and the cluster caps when TransientButtons.Shape=Square. " +
-            "0 = each button's authored width (per-board Confirm/Undo size; gear 0.062; follow " +
-            "0.068). Set Width and Height independently for rectangular caps. Live; clamped " +
-            "0.02..0.20 when set.");
-        SquareCapHeight = config.Bind("SquareCaps", "Height", 0f,
-            "Cap height (meters, along the board's Y) of the SQUARE keycaps. 0 = each button's " +
-            "authored height. Live; clamped 0.015..0.20 when set.");
-        SquareCapDepth = config.Bind("SquareCaps", "Depth", 0f,
-            "Cap depth/extrusion (meters toward the player) of the SQUARE keycaps. 0 = authored " +
-            "(Confirm/Undo 0.036; gear/follow 0.030; square cluster caps 0.012). Live; clamped " +
-            "0.006..0.08 when set.");
-        PressTravel = config.Bind("SquareCaps", "Travel", 0f,
-            "Press travel (meters) — how far a cap sinks under the fingertip, and therefore how " +
-            "far you must push it in before the press fires (depth-fire at 90% of travel). " +
-            "Applies to ALL 3D board/cluster caps. 0 = authored (board buttons 0.004; cluster " +
-            "caps 0.008). Live; clamped 0.002..0.02 when set.");
+        BoardWidth = config.Bind("BoardButtons", "Width", DefaultBoardWidth,
+            "Cap width (meters, along the board's X) of the Confirm/Undo keycaps on the control " +
+            "board. Applies ONLY to Confirm/Undo (square shape). Live; clamped 0.02..0.20.");
+        BoardHeight = config.Bind("BoardButtons", "Height", DefaultBoardHeight,
+            "Cap height (meters, along the board's Y) of the Confirm/Undo keycaps. Applies ONLY " +
+            "to Confirm/Undo (square shape). Live; clamped 0.015..0.20.");
+        BoardDepth = config.Bind("BoardButtons", "Depth", DefaultBoardDepth,
+            "Cap depth/extrusion (meters toward the player) of the Confirm/Undo keycaps. " +
+            "Applies ONLY to Confirm/Undo. Live; clamped 0.006..0.08.");
+        BoardTravel = config.Bind("BoardButtons", "Travel", DefaultBoardTravel,
+            "Press travel (meters) of the Confirm/Undo keycaps — cap sink distance and the " +
+            "depth-fire push distance. Applies ONLY to Confirm/Undo. Live; clamped 0.002..0.02.");
 
-        Hook(TransientOffsetX);
-        Hook(TransientOffsetY);
-        Hook(TransientShape);
-        Hook(TransientCapSize);
-        Hook(SquareCapWidth);
-        Hook(SquareCapHeight);
-        Hook(SquareCapDepth);
-        Hook(PressTravel);
+        DashGearWidth = config.Bind("BoardDashboard", "GearWidth", DefaultGearWidth,
+            "Cap width (meters) of the settings-gear plate on the control board. Applies ONLY " +
+            "to the gear. Live; clamped 0.02..0.20.");
+        DashPinWidth = config.Bind("BoardDashboard", "PinWidth", DefaultPinWidth,
+            "Cap width (meters) of the follow/pin toggle ('Fixiert') plate on the control " +
+            "board. Applies ONLY to that toggle. Live; clamped 0.02..0.20.");
+        DashHeight = config.Bind("BoardDashboard", "Height", DefaultDashHeight,
+            "Cap height (meters) of the gear + follow/pin plates. Applies ONLY to those two. " +
+            "Live; clamped 0.015..0.20.");
+        DashDepth = config.Bind("BoardDashboard", "Depth", DefaultDashDepth,
+            "Cap depth/extrusion (meters toward the player) of the gear + follow/pin plates. " +
+            "Applies ONLY to those two. Live; clamped 0.006..0.08.");
+        DashTravel = config.Bind("BoardDashboard", "Travel", DefaultDashTravel,
+            "Press travel (meters) of the gear + follow/pin plates. Applies ONLY to those two. " +
+            "Live; clamped 0.002..0.02.");
+
+        MigrateLegacy(config);
+
+        Hook(RoundOffsetX);
+        Hook(RoundOffsetY);
+        Hook(RoundOffsetZ);
+        Hook(RoundShape);
+        Hook(RoundCapSize);
+        Hook(RoundWidth);
+        Hook(RoundHeight);
+        Hook(RoundDepth);
+        Hook(RoundTravel);
+        Hook(BoardWidth);
+        Hook(BoardHeight);
+        Hook(BoardDepth);
+        Hook(BoardTravel);
+        Hook(DashGearWidth);
+        Hook(DashPinWidth);
+        Hook(DashHeight);
+        Hook(DashDepth);
+        Hook(DashTravel);
+    }
+
+    /// <summary>
+    /// ONE-TIME legacy migration (pre-split cfg → per-category sections). The old file had
+    /// [TransientButtons] OffsetX/OffsetY/Shape/CapSize plus a SHARED [SquareCaps]
+    /// Width/Height/Depth/Travel where 0 = "authored default" ("Auto") — and the shared
+    /// entries leaked across button categories. Rules:
+    /// - [TransientButtons] values move 1:1 into [RoundButtons] (same semantics).
+    /// - A NONZERO [SquareCaps] value is copied into EVERY category it used to affect
+    ///   (RoundButtons + BoardButtons + BoardDashboard) so the user's current look is
+    ///   preserved exactly; the categories are then independently adjustable.
+    /// - A saved 0 was the old "Auto" sentinel: it is NOT copied (a literal 0 would build
+    ///   0-sized caps) — the new numeric per-category defaults, which ARE the authored
+    ///   values 0 used to mean, take over. Logged.
+    /// The legacy entries are then removed from the cfg and the file saved, so this runs
+    /// exactly once per install.
+    /// </summary>
+    private static void MigrateLegacy(ConfigFile config)
+    {
+        bool hasLegacy;
+        try
+        {
+            hasLegacy = System.IO.File.Exists(config.ConfigFilePath)
+                        && System.IO.File.ReadAllText(config.ConfigFilePath) is string text
+                        && (text.Contains("[TransientButtons]") || text.Contains("[SquareCaps]"));
+        }
+        catch (System.Exception)
+        {
+            hasLegacy = false; // unreadable file — nothing to migrate from
+        }
+        if (!hasLegacy)
+            return;
+
+        // Bind the legacy entries (this consumes whatever the user saved; absent = default).
+        ConfigEntry<float> offX = config.Bind("TransientButtons", "OffsetX", 0f, "legacy");
+        ConfigEntry<float> offY = config.Bind("TransientButtons", "OffsetY", 0f, "legacy");
+        ConfigEntry<Cards.ButtonShape> shape =
+            config.Bind("TransientButtons", "Shape", Cards.ButtonShape.Round, "legacy");
+        ConfigEntry<float> capSize = config.Bind("TransientButtons", "CapSize", DefaultRoundCapSize, "legacy");
+        ConfigEntry<float> width = config.Bind("SquareCaps", "Width", 0f, "legacy");
+        ConfigEntry<float> height = config.Bind("SquareCaps", "Height", 0f, "legacy");
+        ConfigEntry<float> depth = config.Bind("SquareCaps", "Depth", 0f, "legacy");
+        ConfigEntry<float> travel = config.Bind("SquareCaps", "Travel", 0f, "legacy");
+
+        var moved = new System.Text.StringBuilder();
+        var zeros = new System.Text.StringBuilder();
+
+        void Copy(string name, float value, params ConfigEntry<float>?[] targets)
+        {
+            if (value > 0f)
+            {
+                foreach (ConfigEntry<float>? t in targets)
+                {
+                    if (t != null)
+                        t.Value = value;
+                }
+                moved.Append(moved.Length > 0 ? ", " : "").Append($"{name}={value:F3}");
+            }
+            else
+            {
+                // Old 0 = "Auto" sentinel → the new numeric per-category defaults apply.
+                zeros.Append(zeros.Length > 0 ? ", " : "").Append(name);
+            }
+        }
+
+        if (RoundOffsetX != null && offX.Value != 0f)
+            RoundOffsetX.Value = offX.Value;
+        if (RoundOffsetY != null && offY.Value != 0f)
+            RoundOffsetY.Value = offY.Value;
+        if (RoundShape != null && shape.Value != Cards.ButtonShape.Round)
+            RoundShape.Value = shape.Value;
+        if (RoundCapSize != null && capSize.Value > 0f)
+            RoundCapSize.Value = capSize.Value;
+
+        Copy("Width", width.Value, RoundWidth, BoardWidth, DashGearWidth, DashPinWidth);
+        Copy("Height", height.Value, RoundHeight, BoardHeight, DashHeight);
+        Copy("Depth", depth.Value, RoundDepth, BoardDepth, DashDepth);
+        Copy("Travel", travel.Value, RoundTravel, BoardTravel, DashTravel);
+
+        config.Remove(offX.Definition);
+        config.Remove(offY.Definition);
+        config.Remove(shape.Definition);
+        config.Remove(capSize.Definition);
+        config.Remove(width.Definition);
+        config.Remove(height.Definition);
+        config.Remove(depth.Definition);
+        config.Remove(travel.Definition);
+        config.Save();
+
+        VRLog.Info("WorldUI", "ButtonTuning: migrated legacy [TransientButtons]/[SquareCaps] entries to the " +
+                              "per-category sections (RoundButtons/BoardButtons/BoardDashboard) — " +
+                              (moved.Length > 0
+                                  ? $"copied {moved} into every category the shared entry used to affect; "
+                                  : "no nonzero shared geometry to copy; ") +
+                              (zeros.Length > 0
+                                  ? $"{zeros} were 0 ('Auto') → rewritten to the per-category numeric authored defaults; "
+                                  : "") +
+                              "legacy entries removed (one-time).");
     }
 
     private static void Hook<T>(ConfigEntry<T> entry) =>
@@ -119,47 +296,72 @@ internal static class ButtonTuning
             Changed?.Invoke();
         };
 
-    // ---- clamped live accessors (safe before Bind — fall back to shipped defaults) ---------
+    // ---- clamped live accessors (safe before Bind — fall back to authored defaults) --------
 
-    /// <summary>Tray-root-plane offset of the transient button group (user #8).</summary>
-    internal static Vector2 TransientOffset => new(
-        Clamped(TransientOffsetX, 0f, -0.30f, 0.30f),
-        Clamped(TransientOffsetY, 0f, -0.30f, 0.30f));
+    /// <summary>Tray-root-frame offset of the transient button group (user #8): X sideways, Y up-board, Z toward the player.</summary>
+    internal static Vector3 TransientOffset => new(
+        Clamped(RoundOffsetX, 0f, -0.30f, 0.30f),
+        Clamped(RoundOffsetY, 0f, -0.30f, 0.30f),
+        Clamped(RoundOffsetZ, 0f, -0.30f, 0.30f));
 
     /// <summary>Whether the transient cluster caps are round pucks (default) or square keycaps.</summary>
     internal static bool TransientRound =>
-        TransientShape == null || TransientShape.Value == Cards.ButtonShape.Round;
+        RoundShape == null || RoundShape.Value == Cards.ButtonShape.Round;
 
     /// <summary>Configured transient cap radius, cluster-local meters (auto-fit ceiling).</summary>
-    internal static float TransientCapRadius => Clamped(TransientCapSize, 0.042f, 0.015f, 0.09f);
+    internal static float TransientCapRadius => Clamped(RoundCapSize, DefaultRoundCapSize, 0.015f, 0.09f);
 
-    /// <summary>Square-cap width, or <paramref name="authored"/> while the entry is 0/auto.</summary>
-    internal static float WidthOr(float authored) => Override(SquareCapWidth, authored, 0.02f, 0.20f);
+    /// <summary>[RoundButtons] square-shape cap width (transient cluster ONLY).</summary>
+    internal static float RoundCapWidth => Clamped(RoundWidth, DefaultRoundWidth, 0.02f, 0.20f);
 
-    /// <summary>Square-cap height, or <paramref name="authored"/> while the entry is 0/auto.</summary>
-    internal static float HeightOr(float authored) => Override(SquareCapHeight, authored, 0.015f, 0.20f);
+    /// <summary>[RoundButtons] square-shape cap height (transient cluster ONLY).</summary>
+    internal static float RoundCapHeight => Clamped(RoundHeight, DefaultRoundHeight, 0.015f, 0.20f);
 
-    /// <summary>Square-cap depth/extrusion, or <paramref name="authored"/> while the entry is 0/auto.</summary>
-    internal static float DepthOr(float authored) => Override(SquareCapDepth, authored, 0.006f, 0.08f);
+    /// <summary>[RoundButtons] square-shape cap depth (transient cluster ONLY).</summary>
+    internal static float RoundCapDepth => Clamped(RoundDepth, DefaultRoundDepth, 0.006f, 0.08f);
 
-    /// <summary>Press travel, or <paramref name="authored"/> while the entry is 0/auto.</summary>
-    internal static float TravelOr(float authored) => Override(PressTravel, authored, 0.002f, 0.02f);
+    /// <summary>[RoundButtons] press travel (transient cluster ONLY).</summary>
+    internal static float RoundCapTravel => Clamped(RoundTravel, DefaultRoundTravel, 0.002f, 0.02f);
+
+    /// <summary>[BoardButtons] cap width (Confirm/Undo keycaps ONLY).</summary>
+    internal static float BoardCapWidth => Clamped(BoardWidth, DefaultBoardWidth, 0.02f, 0.20f);
+
+    /// <summary>[BoardButtons] cap height (Confirm/Undo keycaps ONLY).</summary>
+    internal static float BoardCapHeight => Clamped(BoardHeight, DefaultBoardHeight, 0.015f, 0.20f);
+
+    /// <summary>[BoardButtons] cap depth (Confirm/Undo keycaps ONLY).</summary>
+    internal static float BoardCapDepth => Clamped(BoardDepth, DefaultBoardDepth, 0.006f, 0.08f);
+
+    /// <summary>[BoardButtons] press travel (Confirm/Undo keycaps ONLY).</summary>
+    internal static float BoardCapTravel => Clamped(BoardTravel, DefaultBoardTravel, 0.002f, 0.02f);
+
+    /// <summary>[BoardDashboard] settings-gear plate width (gear ONLY).</summary>
+    internal static float DashboardGearWidth => Clamped(DashGearWidth, DefaultGearWidth, 0.02f, 0.20f);
+
+    /// <summary>[BoardDashboard] follow/pin ('Fixiert') plate width (that toggle ONLY).</summary>
+    internal static float DashboardPinWidth => Clamped(DashPinWidth, DefaultPinWidth, 0.02f, 0.20f);
+
+    /// <summary>[BoardDashboard] gear + follow/pin plate height.</summary>
+    internal static float DashboardHeight => Clamped(DashHeight, DefaultDashHeight, 0.015f, 0.20f);
+
+    /// <summary>[BoardDashboard] gear + follow/pin plate depth.</summary>
+    internal static float DashboardDepth => Clamped(DashDepth, DefaultDashDepth, 0.006f, 0.08f);
+
+    /// <summary>[BoardDashboard] gear + follow/pin press travel.</summary>
+    internal static float DashboardTravel => Clamped(DashTravel, DefaultDashTravel, 0.002f, 0.02f);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
 
-    private static float Override(ConfigEntry<float>? entry, float authored, float min, float max) =>
-        entry == null || entry.Value <= 0f ? authored : Mathf.Clamp(entry.Value, min, max);
-
-    /// <summary>One-line value dump for the "geometry config applied" log (0 = authored default).</summary>
+    /// <summary>One-line value dump for the "geometry config applied" log (all values numeric — no Auto).</summary>
     internal static string Describe()
     {
-        Vector2 off = TransientOffset;
-        return $"transient offset ({off.x:F3}, {off.y:F3}) m, shape {(TransientRound ? "Round" : "Square")}, " +
-               $"cap size {TransientCapRadius:F3} m; square W/H/D " +
-               $"{Clamped(SquareCapWidth, 0f, 0f, 0.20f):F3}/{Clamped(SquareCapHeight, 0f, 0f, 0.20f):F3}/" +
-               $"{Clamped(SquareCapDepth, 0f, 0f, 0.08f):F3} m, travel {Clamped(PressTravel, 0f, 0f, 0.02f):F3} m " +
-               "(0 = authored)";
+        Vector3 off = TransientOffset;
+        return $"round offset ({off.x:F3}, {off.y:F3}, {off.z:F3}) m, shape {(TransientRound ? "Round" : "Square")}, " +
+               $"cap size {TransientCapRadius:F3} m, W/H/D {RoundCapWidth:F3}/{RoundCapHeight:F3}/{RoundCapDepth:F3} m, " +
+               $"travel {RoundCapTravel:F3} m; board W/H/D {BoardCapWidth:F3}/{BoardCapHeight:F3}/{BoardCapDepth:F3} m, " +
+               $"travel {BoardCapTravel:F3} m; dashboard gear/pin W {DashboardGearWidth:F3}/{DashboardPinWidth:F3} m, " +
+               $"H/D {DashboardHeight:F3}/{DashboardDepth:F3} m, travel {DashboardTravel:F3} m";
     }
 }
 

@@ -101,11 +101,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Decision,
         // Request C (2026-07): the transient round-phase buttons ("Bewegung überspringen",
         // "Angriff überspringen", …) as their OWN clearly-named element under the "Tasten"
-        // category — the ButtonTuning geometry ([TransientButtons] offset/shape/cap size +
-        // the [SquareCaps] rows) lives here now instead of the old collapsed "Knöpfe"
-        // expander the user could not find. GLOBAL values (not per board), so the generic
-        // per-board offset/board rows hide themselves for this element.
+        // category — the ButtonTuning [RoundButtons] geometry (offset X/Y/Z, shape, cap
+        // size, width/height/depth/travel) lives here now instead of the old collapsed
+        // "Knöpfe" expander the user could not find. GLOBAL values (not per board), so the
+        // generic per-board offset/board rows hide themselves for this element.
         RoundButtons,
+        // Category split (2026-07, user: "every value applies ONLY to its own category"):
+        // the board keycaps got their OWN ButtonTuning sections and therefore their OWN
+        // "Tasten" elements — [BoardButtons] = the Confirm/Undo ("Fortfahren"/"Rückgängig
+        // machen") keycaps, [BoardDashboard] = the gear ("Einstellungen") + follow
+        // ("Fixiert") plates. GLOBAL like RoundButtons (values ride every board).
+        BoardButtons,
+        BoardDashboard,
     }
 
     /// <summary>
@@ -129,7 +136,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private static readonly DebugElement[][] CategoryElements =
     {
         new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
-                DebugElement.RoundButtons, DebugElement.Decision },                                           // Buttons ("Tasten")
+                DebugElement.RoundButtons, DebugElement.BoardButtons,
+                DebugElement.BoardDashboard, DebugElement.Decision },                                         // Buttons ("Tasten")
         new[] { DebugElement.Objectives, DebugElement.Elements, DebugElement.Initiative,
                 DebugElement.Piles, DebugElement.Active },                                                    // Panels
         new[] { DebugElement.Overlays, DebugElement.Readout },                                                // Overlays
@@ -914,10 +922,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         }
 
         // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all
-        // boards) AND for the global Rundenknöpfe element (its ButtonTuning values ride every board).
+        // boards) AND for the global ButtonTuning elements (Rundenknöpfe / Boardtasten /
+        // Zahnrad & Fixiert — their values ride every board).
         var boardRow = Row();
         RegisterDebugRow(boardRow.gameObject,
-            () => !CategoryIsGlobal(CurrentCategory) && CurrentElement() != DebugElement.RoundButtons);
+            () => !CategoryIsGlobal(CurrentCategory) && !ElementIsGlobalTuning(CurrentElement()));
         Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
         CycleButton(boardRow, 100f,
             () => CardsConfig.Board.Value.ToString(),
@@ -1075,28 +1084,31 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         RegisterDebugRow(actionRow.gameObject, PerBoard);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
-        // "Rundenknöpfe" element (request C — replaced the old collapsed "Knöpfe" expander the
-        // user could not find): the 3D-button geometry group (ButtonTuning,
-        // dev.gloomhavenvr.buttons.cfg) as a first-class ELEMENT of the "Tasten" category —
-        // the transient round-phase button group ("Bewegung überspringen", "Angriff
-        // überspringen", …): offset/shape/cap size ([TransientButtons]) plus the square-keycap
-        // geometry ([SquareCaps] Width/Height/Depth/Travel, 0 = the authored default, shown as
-        // "Auto"). Rows show while Tasten → Rundenknöpfe is selected (ButtonTuningRowsVisible).
-        // Every entry live-applies WITHOUT restart: writing bumps ButtonTuning.Version and
-        // PlayTray.TickStatus / ButtonCluster.Tick rebuild the affected caps on their next
-        // tick. External writes (cfg edit/reload) refresh the rows via ButtonTuning.Changed
-        // (subscribed in the constructor) on top of the 0.25 s refresh cadence.
+        // ButtonTuning elements of the "Tasten" category (request C + the 2026-07 category
+        // split): three first-class GLOBAL elements, each bound to ITS OWN cfg section so a
+        // value can never leak across button categories, and EVERY stepper shows a real
+        // number (the 0="Auto" sentinel is gone — the numeric defaults ARE the authored
+        // values). Rows show while their element is selected. Every entry live-applies
+        // WITHOUT restart: writing bumps ButtonTuning.Version and PlayTray.TickStatus /
+        // ButtonCluster.Tick rebuild the affected caps on their next tick. External writes
+        // (cfg edit/reload) refresh the rows via ButtonTuning.Changed (subscribed in the
+        // constructor) on top of the 0.25 s refresh cadence.
         ButtonTuning.Bind();
-        AddButtonTuningRow("Versatz X", ButtonTuning.TransientOffsetX, 0.005f, -0.30f, 0.30f,
-            v => $"{v * 1000f:0}mm");
-        AddButtonTuningRow("Versatz Y", ButtonTuning.TransientOffsetY, 0.005f, -0.30f, 0.30f,
-            v => $"{v * 1000f:0}mm");
+
+        // Tasten → Rundenknöpfe ([RoundButtons] — the transient turn-flow cluster).
+        AddButtonTuningRow("Versatz X", ButtonTuning.RoundOffsetX, 0.005f, -0.30f, 0.30f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+        AddButtonTuningRow("Versatz Y", ButtonTuning.RoundOffsetY, 0.005f, -0.30f, 0.30f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+        // User: "the Rundenknöpfe have no Versatz Z" — out-of-plane offset, + = toward the player.
+        AddButtonTuningRow("Versatz Z", ButtonTuning.RoundOffsetZ, 0.005f, -0.30f, 0.30f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
         // Shape cycle for the transient group (Round puck <-> Square keycap).
-        if (ButtonTuning.TransientShape != null)
+        if (ButtonTuning.RoundShape != null)
         {
-            ConfigEntry<ButtonShape> shapeEntry = ButtonTuning.TransientShape;
+            ConfigEntry<ButtonShape> shapeEntry = ButtonTuning.RoundShape;
             var transientShapeRow = Row();
-            RegisterDebugRow(transientShapeRow.gameObject, ButtonTuningRowsVisible);
+            RegisterDebugRow(transientShapeRow.gameObject, RoundButtonRowsVisible);
             Label(transientShapeRow, Loc.Mod("shape"), 16f, flexible: true);
             CycleButton(transientShapeRow, 100f,
                 () => ShapeLabel(shapeEntry.Value),
@@ -1104,12 +1116,39 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                     ? ButtonShape.Square
                     : ButtonShape.Round);
         }
-        AddButtonTuningRow("Kappengröße", ButtonTuning.TransientCapSize, 0.002f, 0.015f, 0.09f,
-            v => $"{v * 1000f:0}mm");
-        AddButtonTuningAutoRow("Breite", ButtonTuning.SquareCapWidth, 0.005f, 0.02f, 0.20f);
-        AddButtonTuningAutoRow("Höhe", ButtonTuning.SquareCapHeight, 0.005f, 0.015f, 0.20f);
-        AddButtonTuningAutoRow("Tiefe", ButtonTuning.SquareCapDepth, 0.002f, 0.006f, 0.08f);
-        AddButtonTuningAutoRow("Hub", ButtonTuning.PressTravel, 0.001f, 0.002f, 0.02f);
+        AddButtonTuningRow("Kappengröße", ButtonTuning.RoundCapSize, 0.002f, 0.015f, 0.09f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+        AddButtonTuningRow("Breite", ButtonTuning.RoundWidth, 0.005f, 0.02f, 0.20f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+        AddButtonTuningRow("Höhe", ButtonTuning.RoundHeight, 0.005f, 0.015f, 0.20f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+        AddButtonTuningRow("Tiefe", ButtonTuning.RoundDepth, 0.002f, 0.006f, 0.08f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+        AddButtonTuningRow("Hub", ButtonTuning.RoundTravel, 0.001f, 0.002f, 0.02f,
+            v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
+
+        // Tasten → Boardtasten ([BoardButtons] — the Confirm/Undo keycaps).
+        AddButtonTuningRow("Breite", ButtonTuning.BoardWidth, 0.005f, 0.02f, 0.20f,
+            v => $"{v * 1000f:0}mm", BoardButtonRowsVisible);
+        AddButtonTuningRow("Höhe", ButtonTuning.BoardHeight, 0.005f, 0.015f, 0.20f,
+            v => $"{v * 1000f:0}mm", BoardButtonRowsVisible);
+        AddButtonTuningRow("Tiefe", ButtonTuning.BoardDepth, 0.002f, 0.006f, 0.08f,
+            v => $"{v * 1000f:0}mm", BoardButtonRowsVisible);
+        AddButtonTuningRow("Hub", ButtonTuning.BoardTravel, 0.001f, 0.002f, 0.02f,
+            v => $"{v * 1000f:0}mm", BoardButtonRowsVisible);
+
+        // Tasten → Zahnrad & Fixiert ([BoardDashboard] — gear + follow/pin plates; the two
+        // plates are authored at different widths, so each keeps its own width row).
+        AddButtonTuningRow("Breite Zahnrad", ButtonTuning.DashGearWidth, 0.005f, 0.02f, 0.20f,
+            v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
+        AddButtonTuningRow("Breite Fixiert", ButtonTuning.DashPinWidth, 0.005f, 0.02f, 0.20f,
+            v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
+        AddButtonTuningRow("Höhe", ButtonTuning.DashHeight, 0.005f, 0.015f, 0.20f,
+            v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
+        AddButtonTuningRow("Tiefe", ButtonTuning.DashDepth, 0.002f, 0.006f, 0.08f,
+            v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
+        AddButtonTuningRow("Hub", ButtonTuning.DashTravel, 0.001f, 0.002f, 0.02f,
+            v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
 
         // FAN category (GLOBAL): the hand-card fan's width/roundness/spacing. Live-applied by
         // CardsDriver (relayout) so tuning updates the fan immediately; grab/hover geometry derives
@@ -1269,8 +1308,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void AddOffsetStepper(string label, int axis)
     {
         var row = Row();
-        // Every per-board element carries a Vector3 offset — except RoundButtons, whose offsets
-        // are its own global [TransientButtons] rows (ElementOffsetEntry() is null there).
+        // Every per-board element carries a Vector3 offset — except the global ButtonTuning
+        // elements: RoundButtons has its own [RoundButtons] Versatz X/Y/Z rows, and the two
+        // board keycap elements have no offset at all (ElementOffsetEntry() is null there).
         RegisterDebugRow(row.gameObject,
             () => !CategoryIsGlobal(CurrentCategory) && ElementOffsetEntry() != null);
         Label(row, label, 16f, flexible: true);
@@ -1328,53 +1368,42 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
     }
 
-    /// <summary>Shared visibility of the ButtonTuning rows: Tasten → Rundenknöpfe element selected.</summary>
-    private bool ButtonTuningRowsVisible() =>
+    /// <summary>The three GLOBAL ButtonTuning elements (per-board board selector is hidden for them).</summary>
+    private static bool ElementIsGlobalTuning(DebugElement e) =>
+        e is DebugElement.RoundButtons or DebugElement.BoardButtons or DebugElement.BoardDashboard;
+
+    /// <summary>Visibility of the [RoundButtons] rows: Tasten → Rundenknöpfe element selected.</summary>
+    private bool RoundButtonRowsVisible() =>
         CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.RoundButtons;
 
+    /// <summary>Visibility of the [BoardButtons] rows: Tasten → Boardtasten element selected.</summary>
+    private bool BoardButtonRowsVisible() =>
+        CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.BoardButtons;
+
+    /// <summary>Visibility of the [BoardDashboard] rows: Tasten → Zahnrad &amp; Fixiert element selected.</summary>
+    private bool BoardDashboardRowsVisible() =>
+        CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.BoardDashboard;
+
     /// <summary>
-    /// "Rundenknöpfe" stepper row bound directly to a live ButtonTuning <see cref="ConfigEntry{T}"/>
-    /// (mm readout). Writing persists (BepInEx) and live-applies: the entry's SettingChanged
-    /// bumps ButtonTuning.Version and PlayTray/ButtonCluster rebuild the caps on their next
-    /// tick. Skipped entirely if Bind() failed (config dir unwritable) — same policy as
-    /// <see cref="AddWallFadeRow"/>. Shown only while Tasten → Rundenknöpfe is selected.
+    /// ButtonTuning stepper row bound directly to a live <see cref="ConfigEntry{T}"/> (mm
+    /// readout, always a real number — no "Auto" sentinel any more; the entry defaults ARE
+    /// the authored values). Writing persists (BepInEx) and live-applies: the entry's
+    /// SettingChanged bumps ButtonTuning.Version and PlayTray/ButtonCluster rebuild the
+    /// caps on their next tick. Skipped entirely if Bind() failed (config dir unwritable) —
+    /// same policy as <see cref="AddWallFadeRow"/>. Shown while <paramref name="visible"/>
+    /// says the row's Tasten element is selected.
     /// </summary>
     private void AddButtonTuningRow(string label, ConfigEntry<float>? entry, float step, float min,
-        float max, Func<float, string> format)
+        float max, Func<float, string> format, Func<bool> visible)
     {
         if (entry == null)
             return;
         var row = Row();
-        RegisterDebugRow(row.gameObject, ButtonTuningRowsVisible);
+        RegisterDebugRow(row.gameObject, visible);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () => format(entry.Value),
             d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
-    }
-
-    /// <summary>
-    /// "Rundenknöpfe" stepper row for the [SquareCaps] entries where 0 = "authored default"
-    /// (readout "Auto"). Stepping + from Auto enters the range at its minimum; stepping
-    /// - below the minimum collapses back to Auto (0) — so the authored look is always
-    /// one press away. Live-applies exactly like <see cref="AddButtonTuningRow"/>.
-    /// </summary>
-    private void AddButtonTuningAutoRow(string label, ConfigEntry<float>? entry, float step,
-        float min, float max)
-    {
-        if (entry == null)
-            return;
-        var row = Row();
-        RegisterDebugRow(row.gameObject, ButtonTuningRowsVisible);
-        Label(row, label, 16f, flexible: true);
-        MiniStepper(row,
-            () => entry.Value <= 0f ? "Auto" : $"{entry.Value * 1000f:0}mm",
-            d =>
-            {
-                float v = entry.Value <= 0f
-                    ? (d > 0 ? min : 0f)              // from Auto: + enters at the minimum
-                    : entry.Value + d * step;
-                entry.Value = v < min ? 0f : Mathf.Min(v, max); // below min → back to Auto
-            });
     }
 
     /// <summary>
@@ -1712,8 +1741,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.Cluster => Loc.Mod("cluster"),
         DebugElement.Decision => Loc.Mod("decision"),
         // Request C: hardcoded German like the other ButtonTuning row labels ("Versatz X",
-        // "Kappengröße", …) — the round-phase skip buttons the user tunes here.
+        // "Kappengröße", …) — the round-phase skip buttons the user tunes here, plus the
+        // category-split board elements (Confirm/Undo keycaps; gear + Fixiert plates).
         DebugElement.RoundButtons => "Rundenknöpfe",
+        DebugElement.BoardButtons => "Boardtasten",
+        DebugElement.BoardDashboard => "Zahnrad & Fixiert",
         _ => e.ToString(),
     };
 
@@ -1740,6 +1772,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 break;
             }
         }
+    }
+
+    /// <summary>Restore one ButtonTuning float entry to its (authored numeric) default.</summary>
+    private static void ResetTuningF(ConfigEntry<float>? e)
+    {
+        if (e != null)
+            e.Value = (float)e.DefaultValue;
     }
 
     private void ResetDebugElement()
@@ -1803,21 +1842,36 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 break;
             case DebugElement.RoundButtons:
             {
-                // GLOBAL ButtonTuning group (not per-board): restore all eight entries.
-                static void ResetF(ConfigEntry<float>? e)
-                {
-                    if (e != null)
-                        e.Value = (float)e.DefaultValue;
-                }
-                ResetF(ButtonTuning.TransientOffsetX);
-                ResetF(ButtonTuning.TransientOffsetY);
-                ResetF(ButtonTuning.TransientCapSize);
-                ResetF(ButtonTuning.SquareCapWidth);
-                ResetF(ButtonTuning.SquareCapHeight);
-                ResetF(ButtonTuning.SquareCapDepth);
-                ResetF(ButtonTuning.PressTravel);
-                if (ButtonTuning.TransientShape != null)
-                    ButtonTuning.TransientShape.Value = (ButtonShape)ButtonTuning.TransientShape.DefaultValue;
+                // GLOBAL [RoundButtons] group (not per-board): restore the full geometry set.
+                ResetTuningF(ButtonTuning.RoundOffsetX);
+                ResetTuningF(ButtonTuning.RoundOffsetY);
+                ResetTuningF(ButtonTuning.RoundOffsetZ);
+                ResetTuningF(ButtonTuning.RoundCapSize);
+                ResetTuningF(ButtonTuning.RoundWidth);
+                ResetTuningF(ButtonTuning.RoundHeight);
+                ResetTuningF(ButtonTuning.RoundDepth);
+                ResetTuningF(ButtonTuning.RoundTravel);
+                if (ButtonTuning.RoundShape != null)
+                    ButtonTuning.RoundShape.Value = (ButtonShape)ButtonTuning.RoundShape.DefaultValue;
+                break;
+            }
+            case DebugElement.BoardButtons:
+            {
+                // GLOBAL [BoardButtons] group: the Confirm/Undo keycap geometry.
+                ResetTuningF(ButtonTuning.BoardWidth);
+                ResetTuningF(ButtonTuning.BoardHeight);
+                ResetTuningF(ButtonTuning.BoardDepth);
+                ResetTuningF(ButtonTuning.BoardTravel);
+                break;
+            }
+            case DebugElement.BoardDashboard:
+            {
+                // GLOBAL [BoardDashboard] group: the gear + follow/pin plate geometry.
+                ResetTuningF(ButtonTuning.DashGearWidth);
+                ResetTuningF(ButtonTuning.DashPinWidth);
+                ResetTuningF(ButtonTuning.DashHeight);
+                ResetTuningF(ButtonTuning.DashDepth);
+                ResetTuningF(ButtonTuning.DashTravel);
                 break;
             }
         }
