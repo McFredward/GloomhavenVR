@@ -308,6 +308,24 @@ internal static class CardsConfig
     /// </summary>
     internal static ConfigEntry<Vector3> BrowseFanOffset = null!;
 
+    /// <summary>Fan depth curvature (global): max recession in real meters of the OUTERMOST card AWAY
+    /// from the viewer (fan-local +Z) so a full hand bows into depth like a real held fan — center
+    /// card nearest, edge cards fall back. 0 = flat (the old billboarded sheet).</summary>
+    internal static ConfigEntry<float> FanSideDepthCurve = null!;
+
+    /// <summary>Fan depth curvature (global): exponent of the fraction-from-center curve. 2 = quadratic
+    /// (gentle near center, steep at the edges); 1 = linear wedge; higher = flatter middle, sharper edges.</summary>
+    internal static ConfigEntry<float> FanCurvePower = null!;
+
+    /// <summary>Fan depth curvature (global): card count below which the fan stays FLAT (no depth bow).
+    /// The bow ramps in from here up to FanMaxHandForCurve so a small hand is nearly flat.</summary>
+    internal static ConfigEntry<int> FanCurveMinCards = null!;
+
+    /// <summary>Fan facing (global): enable the gaze-responsive yaw bias (opt-in). Default OFF — the fan
+    /// billboards steadily and the depth curvature is the primary shape. ON adds a hysteresis-gated yaw
+    /// toward the head's gaze so an edge card tips forward when you look at it (no center dither).</summary>
+    internal static ConfigEntry<bool> FanGazeBias = null!;
+
     internal static void Bind()
     {
         if (_file != null)
@@ -799,6 +817,37 @@ internal static class CardsConfig
             "own pose and scale. Live: PileBrowser re-reads it every frame while a browse fan is " +
             "open, so the in-VR debug menu's Piles-element 'Browse X/Y/Z' steppers move the open " +
             "fan immediately. Seeded 0 (today's placement).");
+
+        // ---- Fan DEPTH curvature + gaze-bias toggle (in-VR debug 'Fan' category) ----
+        FanSideDepthCurve = _file.Bind("Cards", "FanSideDepthCurve", 0.035f,
+            new ConfigDescription(
+                "Hand fan (global): DEPTH CURVATURE — how far (real meters) the OUTERMOST card recedes " +
+                "AWAY from the viewer along the fan's forward axis, so a full hand bows into depth like " +
+                "a real held fan (center card nearest, edge cards fall back). Recession is quadratic " +
+                "(FanCurvePower) in each card's distance from center and ramps in with hand size " +
+                "(flat below FanCurveMinCards, full at FanMaxHandForCurve). Grab/hover raycasting " +
+                "tracks the moved cards automatically. 0 = flat (the old billboarded sheet).",
+                new AcceptableValueRange<float>(0f, 0.12f)));
+        FanCurvePower = _file.Bind("Cards", "FanCurvePower", 2f,
+            new ConfigDescription(
+                "Hand fan (global): depth-curvature exponent applied to each card's fraction-from-center " +
+                "(0 at the middle card, 1 at the outermost). 2 = quadratic (gentle near the center, " +
+                "steepening toward the edges — reads like a real fan); 1 = a straight wedge; higher = a " +
+                "flatter middle with sharper edge recession.",
+                new AcceptableValueRange<float>(0.5f, 4f)));
+        FanCurveMinCards = _file.Bind("Cards", "FanCurveMinCards", 3,
+            new ConfigDescription(
+                "Hand fan (global): card count at/below which the fan stays FLAT (no depth bow). The " +
+                "curvature ramps in linearly from here up to FanMaxHandForCurve, so 1-3 cards read flat " +
+                "and a full hand curves noticeably.",
+                new AcceptableValueRange<int>(1, 12)));
+        FanGazeBias = _file.Bind("Cards", "FanGazeBias", false,
+            "Hand fan (global): enable the gaze-responsive facing YAW (opt-in, default OFF). OFF = the " +
+            "fan billboards steadily toward the head and the DEPTH curvature (FanSideDepthCurve) is the " +
+            "sole shape response — the steady, predictable follow. ON re-adds an eased extra yaw that " +
+            "turns the fan partway toward the head's gaze so the looked-at edge tips forward; a WIDE " +
+            "deadzone plus side-hysteresis means a left-right head shake no longer dithers about which " +
+            "way to lean near the fan center (it holds center until the gaze clearly commits to a side).");
     }
 
     /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
