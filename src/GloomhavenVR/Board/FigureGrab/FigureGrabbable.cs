@@ -329,7 +329,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             ? FigureGrabConfig.HeldUprightRotation(side)
             : Quaternion.Euler(FigureGrabConfig.HeldEuler);
 
-        t.localScale = _heldBaseScale * FigureGrabConfig.HeldScale.Value;
+        t.localScale = _heldBaseScale * FigureGrabConfig.ActiveHeldScale;
     }
 
     /// <summary>

@@ -72,23 +72,20 @@ internal sealed class WristHud
     private string _lastIdentity = string.Empty;
     private bool _eventsAttached;
 
-    // ---- Item 10: live-tunable pose (the "Wrist" debug category) --------------------------
+    // ---- Item 10 + per-style rework: live-tunable pose (the "Wrist" debug category) --------
     // The watch-face pose — its OFFSET from the wrist anchor and its TILT (pitch/yaw/roll on
     // top of the flat-on-hand base) — is re-read and re-applied every Tick (ApplyPose), so
     // nudging a stepper in the VR debug menu moves the HUD immediately.
     //
-    // OWNERSHIP: the persistent home for these tunables is the [WorldUI] config, whose file
-    // WorldUIConfig owns (this branch must not edit it — see the report for the ConfigEntry
-    // fields + Bind snippets to add). To stay green + live WITHOUT those symbols, each tunable
-    // is a nullable ConfigEntry reference the parent assigns right after WorldUIConfig.Bind(),
-    // paired with a local-static fallback: while the entry is null the static default is used
-    // (in-session only, no persistence); once the parent wires the entries the SAME accessors
-    // persist (BepInEx) and live-apply with no further edit to this file. Defaults reproduce
-    // the previous hard-coded resting pose exactly (OffsetY +1.5 cm proud of the hand, OffsetZ
-    // +1 cm toward the fingers, zero tilt).
-    // CS0649: these are assigned by the PARENT (right after WorldUIConfig.Bind) once the
-    // [WorldUI] entries exist — deliberately unassigned on this branch, so silence the
-    // "never assigned, always null" note; the null-guarded accessors fall back to the statics.
+    // PER HAND STYLE (2026-07 request B): the HUD rests on the hand MESH, whose shape differs
+    // per style (Glove/Plate/Arcane), so the persistent home of the pose is the PER-STYLE
+    // [WristHud] section of dev.gloomhavenvr.hands.cfg (HandsConfig.StyleWrist*, seeded once
+    // from the legacy global [WorldUI] WristHud* entries so a tuned pose carried over to all
+    // three styles). The accessors below read/write the ACTIVE style ([Hands] HandStyle), so
+    // the debug steppers edit the style currently worn and a style switch re-poses the HUD on
+    // the very next Tick. The legacy [WorldUI] entries stay bound (WorldUIConfig assigns them
+    // here) purely as the pre-Bind fallback + the per-style seed source; the statics are the
+    // last-resort in-session fallback. The HUD's on/off toggle ([WorldUI] WristHud) is global.
 #pragma warning disable CS0649
     internal static ConfigEntry<float>? PitchEntry, YawEntry, RollEntry,
                                          OffsetXEntry, OffsetYEntry, OffsetZEntry;
@@ -96,12 +93,67 @@ internal sealed class WristHud
     private static float _pitch, _yaw, _roll;
     private static float _offX = 0f, _offY = 0.015f, _offZ = 0.01f;
 
-    internal static float PitchDeg { get => PitchEntry?.Value ?? _pitch; set { if (PitchEntry != null) PitchEntry.Value = value; else _pitch = value; } }
-    internal static float YawDeg   { get => YawEntry?.Value   ?? _yaw;   set { if (YawEntry   != null) YawEntry.Value   = value; else _yaw   = value; } }
-    internal static float RollDeg  { get => RollEntry?.Value  ?? _roll;  set { if (RollEntry  != null) RollEntry.Value  = value; else _roll  = value; } }
-    internal static float OffsetX  { get => OffsetXEntry?.Value ?? _offX; set { if (OffsetXEntry != null) OffsetXEntry.Value = value; else _offX = value; } }
-    internal static float OffsetY  { get => OffsetYEntry?.Value ?? _offY; set { if (OffsetYEntry != null) OffsetYEntry.Value = value; else _offY = value; } }
-    internal static float OffsetZ  { get => OffsetZEntry?.Value ?? _offZ; set { if (OffsetZEntry != null) OffsetZEntry.Value = value; else _offZ = value; } }
+    /// <summary>The ACTIVE style's element of a per-style pose array, else <paramref name="fallback"/>.</summary>
+    private static float StyleGet(ConfigEntry<float>[]? styled, float fallback)
+    {
+        try
+        {
+            return styled != null ? styled[HandsConfig.ActiveStyleIndex].Value : fallback;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    /// <summary>Write the ACTIVE style's element of a per-style pose array. False = not bound yet.</summary>
+    private static bool StyleSet(ConfigEntry<float>[]? styled, float value)
+    {
+        try
+        {
+            if (styled != null)
+            {
+                styled[HandsConfig.ActiveStyleIndex].Value = value; // BepInEx persists on set
+                return true;
+            }
+        }
+        catch
+        {
+            // fall through to the legacy path
+        }
+        return false;
+    }
+
+    internal static float PitchDeg
+    {
+        get => StyleGet(HandsConfig.StyleWristPitch, PitchEntry?.Value ?? _pitch);
+        set { if (!StyleSet(HandsConfig.StyleWristPitch, value)) { if (PitchEntry != null) PitchEntry.Value = value; else _pitch = value; } }
+    }
+    internal static float YawDeg
+    {
+        get => StyleGet(HandsConfig.StyleWristYaw, YawEntry?.Value ?? _yaw);
+        set { if (!StyleSet(HandsConfig.StyleWristYaw, value)) { if (YawEntry != null) YawEntry.Value = value; else _yaw = value; } }
+    }
+    internal static float RollDeg
+    {
+        get => StyleGet(HandsConfig.StyleWristRoll, RollEntry?.Value ?? _roll);
+        set { if (!StyleSet(HandsConfig.StyleWristRoll, value)) { if (RollEntry != null) RollEntry.Value = value; else _roll = value; } }
+    }
+    internal static float OffsetX
+    {
+        get => StyleGet(HandsConfig.StyleWristOffsetX, OffsetXEntry?.Value ?? _offX);
+        set { if (!StyleSet(HandsConfig.StyleWristOffsetX, value)) { if (OffsetXEntry != null) OffsetXEntry.Value = value; else _offX = value; } }
+    }
+    internal static float OffsetY
+    {
+        get => StyleGet(HandsConfig.StyleWristOffsetY, OffsetYEntry?.Value ?? _offY);
+        set { if (!StyleSet(HandsConfig.StyleWristOffsetY, value)) { if (OffsetYEntry != null) OffsetYEntry.Value = value; else _offY = value; } }
+    }
+    internal static float OffsetZ
+    {
+        get => StyleGet(HandsConfig.StyleWristOffsetZ, OffsetZEntry?.Value ?? _offZ);
+        set { if (!StyleSet(HandsConfig.StyleWristOffsetZ, value)) { if (OffsetZEntry != null) OffsetZEntry.Value = value; else _offZ = value; } }
+    }
 
     // Flat-on-hand base rotation (see Build's rotation block): panel normal = wrist +Y, plane
     // spans wrist X/Z. The live pitch/yaw/roll compose in the panel's own local frame on top.
