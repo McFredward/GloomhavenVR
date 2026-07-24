@@ -803,6 +803,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
             v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
 
+        // User 7c: action-phase element hints (the tooltip parked at the board's top-left)
+        // on/off. Live: WorldTooltips.LateTick reads WorldUIConfig.ActionElementHints every tick.
+        Toggle("Element-Hinweise",
+            () => WorldUIConfig.ActionElementHints.Value,
+            v => WorldUIConfig.ActionElementHints.Value = v);
+
         var startNote = Row(22f);
         Label(startNote, Loc.Mod("applies_next_start"), 12f, flexible: true);
 
