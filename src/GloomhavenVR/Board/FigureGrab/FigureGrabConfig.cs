@@ -12,6 +12,18 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <see cref="ModuleConfig.Create"/> — self-contained, so this worker never has to edit
 /// the shared <see cref="BoardConfig"/>. Feature toggle plus the in-hand pose tunables
 /// (held scale / offset / tilt) that need a hardware pass to feel right.
+///
+/// PER HAND STYLE (2026-07 request A): the held mini is docked between thumb and index of
+/// the hand MESH, whose geometry differs per style (Glove/Plate/Arcane) — so every held-pose
+/// tunable (offset X/Y/Z, tilt, face yaw, scale) is stored PER STYLE (the <c>Style*</c>
+/// arrays, exactly the HandsConfig per-style seat pattern): each style is SEEDED on first
+/// bind from the legacy global entry in this same file (BepInEx returns saved over default,
+/// so a tuned pose carries over to all three styles instead of resetting; afterwards the
+/// saved per-style value always wins). The <c>Active*</c> accessors read the ACTIVE style
+/// ([Hands] HandStyle) live, and both a value edit AND a style switch re-pose the currently
+/// held mini immediately (SettingChanged → <see cref="FigureGrabbable.ReapplyAll"/>). The
+/// legacy global entries stay bound as harmless orphans (pre-Bind fallback + seed source).
+/// <see cref="HeldUpright"/> is a MODE, not geometry — it stays global.
 /// </summary>
 internal static class FigureGrabConfig
 {
@@ -50,11 +62,56 @@ internal static class FigureGrabConfig
     /// </summary>
     public static ConfigEntry<float> HeldFaceYawDegrees = null!;
 
+    // ---- per-STYLE held pose (request A; indexed by (int)HandStyle: Glove/Plate/Arcane) ----
+
+    /// <summary>Per-style held lateral offset (GrabAnchor-local X, meters).</summary>
+    public static ConfigEntry<float>[]? StyleHeldOffsetSide;
+
+    /// <summary>Per-style held offset out of the palm (GrabAnchor-local Y, meters).</summary>
+    public static ConfigEntry<float>[]? StyleHeldOffsetUp;
+
+    /// <summary>Per-style held offset toward the fingertips (GrabAnchor-local Z, meters).</summary>
+    public static ConfigEntry<float>[]? StyleHeldOffsetForward;
+
+    /// <summary>Per-style held tilt (degrees).</summary>
+    public static ConfigEntry<float>[]? StyleHeldTiltDegrees;
+
+    /// <summary>Per-style upright-mode face yaw (degrees).</summary>
+    public static ConfigEntry<float>[]? StyleHeldFaceYawDegrees;
+
+    /// <summary>Per-style inspection zoom on top of the board world-scale.</summary>
+    public static ConfigEntry<float>[]? StyleHeldScale;
+
+    /// <summary>The ACTIVE style's per-style value, else the legacy global, else the shipped default.</summary>
+    private static float StyleOr(ConfigEntry<float>[]? entries, ConfigEntry<float>? legacy, float shipped)
+    {
+        try
+        {
+            if (entries != null)
+                return entries[Hands.HandsConfig.ActiveStyleIndex].Value;
+            return legacy != null ? legacy.Value : shipped;
+        }
+        catch
+        {
+            return shipped;
+        }
+    }
+
+    internal static float ActiveHeldSide => StyleOr(StyleHeldOffsetSide, HeldOffsetSide, 0f);
+    internal static float ActiveHeldUp => StyleOr(StyleHeldOffsetUp, HeldOffsetUp, 0.03f);
+    internal static float ActiveHeldForward => StyleOr(StyleHeldOffsetForward, HeldOffsetForward, 0.03f);
+    internal static float ActiveHeldTilt => StyleOr(StyleHeldTiltDegrees, HeldTiltDegrees, 0f);
+    internal static float ActiveHeldFaceYaw => StyleOr(StyleHeldFaceYawDegrees, HeldFaceYawDegrees, 0f);
+
+    /// <summary>Active-style inspection zoom (what <see cref="FigureGrabbable"/> applies).</summary>
+    internal static float ActiveHeldScale => StyleOr(StyleHeldScale, HeldScale, 1.5f);
+
     /// <summary>
     /// GrabAnchor-local held position for the RIGHT hand — the canonical pose the debug
-    /// steppers tune. The LEFT hand derives from it by mirroring (see <see cref="HeldOffsetFor"/>).
+    /// steppers tune (ACTIVE hand style). The LEFT hand derives from it by mirroring
+    /// (see <see cref="HeldOffsetFor"/>).
     /// </summary>
-    internal static Vector3 HeldOffset => new(HeldOffsetSide.Value, HeldOffsetUp.Value, HeldOffsetForward.Value);
+    internal static Vector3 HeldOffset => new(ActiveHeldSide, ActiveHeldUp, ActiveHeldForward);
 
     /// <summary>
     /// The GrabAnchor-local held offset for a given hand. The tuned values are canonical for
@@ -68,7 +125,7 @@ internal static class FigureGrabConfig
     internal static Vector3 HeldOffsetFor(HandSide side)
     {
         float sideSign = side == HandSide.Left ? -1f : 1f;
-        return new Vector3(sideSign * HeldOffsetSide.Value, HeldOffsetUp.Value, HeldOffsetForward.Value);
+        return new Vector3(sideSign * ActiveHeldSide, ActiveHeldUp, ActiveHeldForward);
     }
 
     /// <summary>
@@ -78,7 +135,7 @@ internal static class FigureGrabConfig
     /// the tuned RIGHT-hand yaw. (Roll is always 0 here, so only the yaw needs the flip.)
     /// </summary>
     internal static float HeldFaceYawFor(HandSide side)
-        => side == HandSide.Left ? -HeldFaceYawDegrees.Value : HeldFaceYawDegrees.Value;
+        => side == HandSide.Left ? -ActiveHeldFaceYaw : ActiveHeldFaceYaw;
 
     /// <summary>
     /// Issue A — the upright held orientation as a FIXED CONSTANT rotation RELATIVE TO THE
@@ -97,10 +154,10 @@ internal static class FigureGrabConfig
     /// toward the player (negated for the left hand, tilt mirror-invariant), both live-tunable.
     /// </summary>
     internal static Quaternion HeldUprightRotation(HandSide side)
-        => Quaternion.Euler(HeldTiltDegrees.Value, HeldFaceYawFor(side), 0f);
+        => Quaternion.Euler(ActiveHeldTilt, HeldFaceYawFor(side), 0f);
 
     /// <summary>Legacy palm-pose rotation (tilt only), relative to the GrabAnchor.</summary>
-    internal static Vector3 HeldEuler => new(HeldTiltDegrees.Value, 0f, 0f);
+    internal static Vector3 HeldEuler => new(ActiveHeldTilt, 0f, 0f);
 
     private static ConfigFile? _file;
 
@@ -142,9 +199,49 @@ internal static class FigureGrabConfig
             "Upright mode only: extra yaw (degrees) to spin the mini's front toward you. Set 180 " +
             "if it faces away. Tune on hardware.");
 
+        // PER-STYLE held pose (request A): one absolute offset/tilt/yaw/scale set per hand
+        // style. The BIND DEFAULT of each entry is the legacy global entry's CURRENT value
+        // (bound just above in this same file — saved wins over shipped default), so a first
+        // run SEEDS every style with the user's tuned pose; any later run keeps the saved
+        // per-style value. No marker entry needed: the seed is only consulted while the key
+        // is absent from the cfg. HeldUpright stays global (a mode, not geometry).
+        string[] styleNames = { "Glove", "Plate", "Arcane" }; // index == (int)HandStyle
+        StyleHeldOffsetSide = new ConfigEntry<float>[HandStyles.Count];
+        StyleHeldOffsetUp = new ConfigEntry<float>[HandStyles.Count];
+        StyleHeldOffsetForward = new ConfigEntry<float>[HandStyles.Count];
+        StyleHeldTiltDegrees = new ConfigEntry<float>[HandStyles.Count];
+        StyleHeldFaceYawDegrees = new ConfigEntry<float>[HandStyles.Count];
+        StyleHeldScale = new ConfigEntry<float>[HandStyles.Count];
+        for (int i = 0; i < HandStyles.Count; i++)
+        {
+            string s = styleNames[i];
+            string per = $"PER-STYLE absolute value while the {s} hand style is worn " +
+                "(supersedes the shared legacy entry it was seeded from on first run). " +
+                "Live-tunable — a held mini re-poses immediately.";
+            StyleHeldOffsetSide[i] = config.Bind(
+                "FigureGrab", $"{s}HeldOffsetSide", HeldOffsetSide.Value,
+                $"Held lateral position offset (grab-anchor local X) toward the thumb-index pinch. {per}");
+            StyleHeldOffsetUp[i] = config.Bind(
+                "FigureGrab", $"{s}HeldOffsetUp", HeldOffsetUp.Value,
+                $"Held position offset out of the palm (grab-anchor local Y). {per}");
+            StyleHeldOffsetForward[i] = config.Bind(
+                "FigureGrab", $"{s}HeldOffsetForward", HeldOffsetForward.Value,
+                $"Held position offset toward the fingertips (grab-anchor local Z). {per}");
+            StyleHeldTiltDegrees[i] = config.Bind(
+                "FigureGrab", $"{s}HeldTiltDegrees", HeldTiltDegrees.Value,
+                $"Held tilt (degrees) — tip the mini toward your face for inspection. {per}");
+            StyleHeldFaceYawDegrees[i] = config.Bind(
+                "FigureGrab", $"{s}HeldFaceYawDegrees", HeldFaceYawDegrees.Value,
+                $"Upright mode only: extra yaw (degrees) to spin the mini's front toward you. {per}");
+            StyleHeldScale[i] = config.Bind(
+                "FigureGrab", $"{s}HeldScale", HeldScale.Value,
+                $"Inspection zoom applied on top of the figure's board world-scale while held. {per}");
+        }
+
         // Live-tune hook: any held-pose tunable change re-poses the currently-held mini in-hand
         // (the in-headset debug-menu steppers), so tuning is interactive. BepInEx still persists
-        // every write to dev.gloomhavenvr.figuregrab.cfg.
+        // every write to dev.gloomhavenvr.figuregrab.cfg. The legacy globals keep their hooks
+        // (harmless — unread once the per-style entries exist).
         void Reapply(object sender, EventArgs e) => FigureGrabbable.ReapplyAll();
         HeldScale.SettingChanged += Reapply;
         HeldOffsetForward.SettingChanged += Reapply;
@@ -153,5 +250,18 @@ internal static class FigureGrabConfig
         HeldUpright.SettingChanged += Reapply;
         HeldTiltDegrees.SettingChanged += Reapply;
         HeldFaceYawDegrees.SettingChanged += Reapply;
+        for (int i = 0; i < HandStyles.Count; i++)
+        {
+            StyleHeldOffsetSide[i].SettingChanged += Reapply;
+            StyleHeldOffsetUp[i].SettingChanged += Reapply;
+            StyleHeldOffsetForward[i].SettingChanged += Reapply;
+            StyleHeldTiltDegrees[i].SettingChanged += Reapply;
+            StyleHeldFaceYawDegrees[i].SettingChanged += Reapply;
+            StyleHeldScale[i].SettingChanged += Reapply;
+        }
+        // A hand-style SWITCH changes which per-style set is active — re-pose a held mini
+        // right away (the Active* accessors read the new style on the next call).
+        if (Plugin.HandStyle != null)
+            Plugin.HandStyle.SettingChanged += Reapply;
     }
 }

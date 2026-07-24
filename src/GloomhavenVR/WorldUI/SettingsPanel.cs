@@ -99,6 +99,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Objectives, Elements, VRSettings, Pin, Readout, Cluster,
         // Item C: the shared decision dock (text + buttons under the board).
         Decision,
+        // Request C (2026-07): the transient round-phase buttons ("Bewegung überspringen",
+        // "Angriff überspringen", …) as their OWN clearly-named element under the "Tasten"
+        // category — the ButtonTuning geometry ([TransientButtons] offset/shape/cap size +
+        // the [SquareCaps] rows) lives here now instead of the old collapsed "Knöpfe"
+        // expander the user could not find. GLOBAL values (not per board), so the generic
+        // per-board offset/board rows hide themselves for this element.
+        RoundButtons,
     }
 
     /// <summary>
@@ -121,7 +128,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private static readonly DebugElement[][] CategoryElements =
     {
-        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster, DebugElement.Decision },       // Buttons
+        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
+                DebugElement.RoundButtons, DebugElement.Decision },                                           // Buttons ("Tasten")
         new[] { DebugElement.Objectives, DebugElement.Elements, DebugElement.Initiative,
                 DebugElement.Piles, DebugElement.Active },                                                    // Panels
         new[] { DebugElement.Overlays, DebugElement.Readout },                                                // Overlays
@@ -145,8 +153,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private bool _categoryListOpen;
     /// <summary>Wall-fade tuning EXPANDER state (collapsed by default; same accordion idiom).</summary>
     private bool _wallFadeOpen;
-    /// <summary>"Knöpfe" (ButtonTuning) EXPANDER state (collapsed by default; same accordion idiom).</summary>
-    private bool _buttonTuningOpen;
     private readonly List<GameObject> _debugRows = new(24);          // every debug row (teardown + gate)
     private readonly List<Func<bool>> _debugRowVisible = new(24);    // parallel per-row visibility predicate
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -176,7 +182,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _instance = this;
         Loc.OnChanged += RefreshLanguage; // live language following: rebuild while open
         // External ButtonTuning writes (cfg edit/reload, another writer) refresh the
-        // "Knöpfe" rows immediately instead of waiting for the 0.25 s cadence. Cheap:
+        // "Rundenknöpfe" rows immediately instead of waiting for the 0.25 s cadence. Cheap:
         // only fires on entry writes, and RefreshAll is the same pass a stepper click runs.
         ButtonTuning.Changed += OnButtonTuningChanged;
     }
@@ -907,9 +913,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                                + DebugCategoryLabel((DebugCategory)idx));
         }
 
-        // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all boards).
+        // Board cycle (Oak/Steel/Bronze) — HIDDEN for GLOBAL categories (Fan, Hands apply to all
+        // boards) AND for the global Rundenknöpfe element (its ButtonTuning values ride every board).
         var boardRow = Row();
-        RegisterDebugRow(boardRow.gameObject, () => !CategoryIsGlobal(CurrentCategory));
+        RegisterDebugRow(boardRow.gameObject,
+            () => !CategoryIsGlobal(CurrentCategory) && CurrentElement() != DebugElement.RoundButtons);
         Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
         CycleButton(boardRow, 100f,
             () => CardsConfig.Board.Value.ToString(),
@@ -1067,25 +1075,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         RegisterDebugRow(actionRow.gameObject, PerBoard);
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
-        // "Knöpfe" — 3D-button geometry group (ButtonTuning, dev.gloomhavenvr.buttons.cfg):
-        // the transient round-phase button group's offset/shape/cap size ([TransientButtons])
-        // and the square-keycap geometry ([SquareCaps] Width/Height/Depth/Travel, 0 = the
-        // authored default, shown as "Auto"). Wrapped in a collapsed-by-default EXPANDER
-        // (same accordion idiom as "Wall fade tuning") under the Buttons tab so the tab
-        // stays compact; the group spans several button elements, hence category-level.
+        // "Rundenknöpfe" element (request C — replaced the old collapsed "Knöpfe" expander the
+        // user could not find): the 3D-button geometry group (ButtonTuning,
+        // dev.gloomhavenvr.buttons.cfg) as a first-class ELEMENT of the "Tasten" category —
+        // the transient round-phase button group ("Bewegung überspringen", "Angriff
+        // überspringen", …): offset/shape/cap size ([TransientButtons]) plus the square-keycap
+        // geometry ([SquareCaps] Width/Height/Depth/Travel, 0 = the authored default, shown as
+        // "Auto"). Rows show while Tasten → Rundenknöpfe is selected (ButtonTuningRowsVisible).
         // Every entry live-applies WITHOUT restart: writing bumps ButtonTuning.Version and
         // PlayTray.TickStatus / ButtonCluster.Tick rebuild the affected caps on their next
         // tick. External writes (cfg edit/reload) refresh the rows via ButtonTuning.Changed
         // (subscribed in the constructor) on top of the 0.25 s refresh cadence.
         ButtonTuning.Bind();
-        var buttonTuningHeader = Row();
-        RegisterDebugRow(buttonTuningHeader.gameObject,
-            () => CurrentCategory == DebugCategory.Buttons);
-        Label(buttonTuningHeader, "Knöpfe", 16f, flexible: true);
-        CycleButton(buttonTuningHeader, 40f,
-            () => _buttonTuningOpen ? "-" : "+",
-            () => _buttonTuningOpen = !_buttonTuningOpen);
-
         AddButtonTuningRow("Versatz X", ButtonTuning.TransientOffsetX, 0.005f, -0.30f, 0.30f,
             v => $"{v * 1000f:0}mm");
         AddButtonTuningRow("Versatz Y", ButtonTuning.TransientOffsetY, 0.005f, -0.30f, 0.30f,
@@ -1160,34 +1161,57 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddStyleStepper(Loc.Mod("hand_pitch"), () => HandsConfig.StyleSeatPitch, 1f, -90f, 90f,
             v => $"{v:0}°");
 
-        // FIGURES category (GLOBAL): live-tune the HELD board-figure pose — the mini is centered
-        // in the palm and hard to place offline (user hardware feedback). Each stepper writes a
-        // [FigureGrab] entry, which persists (dev.gloomhavenvr.figuregrab.cfg) AND live-applies:
-        // FigureGrabConfig subscribes every entry's SettingChanged and re-poses the currently-held
-        // mini immediately (FigureGrabbable.ReapplyAll), so tuning is interactive in-headset. Force
-        // the config bound so the steppers work even before the board module inits. Shown only under
-        // the Figures tab.
+        // FIGURES category (GLOBAL across boards; PER HAND STYLE since request A): live-tune the
+        // HELD board-figure pose — the mini is docked between thumb and index of the hand MESH,
+        // whose geometry differs per style, so every pose stepper drives the ACTIVE style's
+        // [FigureGrab] {Style}Held* entry (dev.gloomhavenvr.figuregrab.cfg; seeded once from the
+        // old shared entries so tuned values carried over to all three styles). Everything
+        // live-applies: FigureGrabConfig subscribes every entry's SettingChanged — and the hand-
+        // style entry itself — and re-poses the currently-held mini immediately
+        // (FigureGrabbable.ReapplyAll), so tuning is interactive in-headset. The "Stil" row
+        // cycles the style right here so all three sets are reachable without leaving the tab;
+        // "Aufrecht" is a MODE toggle and stays global. Force the config bound so the steppers
+        // work even before the board module inits. Shown only under the Figures tab.
         FigureGrabConfig.Bind();
-        AddFigureToggle(Loc.Mod("fig_upright"), FigureGrabConfig.HeldUpright);
-        AddFigureStepper(Loc.Mod("fig_x"), FigureGrabConfig.HeldOffsetSide, 0.002f, -0.2f, 0.2f,
-            v => $"{v * 1000f:0}mm");
-        AddFigureStepper(Loc.Mod("fig_y"), FigureGrabConfig.HeldOffsetUp, 0.002f, -0.2f, 0.2f,
-            v => $"{v * 1000f:0}mm");
-        AddFigureStepper(Loc.Mod("fig_z"), FigureGrabConfig.HeldOffsetForward, 0.002f, -0.2f, 0.2f,
-            v => $"{v * 1000f:0}mm");
-        AddFigureStepper(Loc.Mod("fig_tilt"), FigureGrabConfig.HeldTiltDegrees, 5f, -180f, 180f,
-            v => $"{v:0}°");
-        AddFigureStepper(Loc.Mod("fig_yaw"), FigureGrabConfig.HeldFaceYawDegrees, 5f, -180f, 180f,
-            v => $"{v:0}°");
-        AddFigureStepper(Loc.Mod("fig_scale"), FigureGrabConfig.HeldScale, 0.1f, 0.2f, 5f,
-            v => $"{v:0.00}x");
+        var figStyleRow = Row();
+        RegisterDebugRow(figStyleRow.gameObject, () => CurrentCategory == DebugCategory.Figures);
+        Label(figStyleRow, "Stil", 16f, flexible: true);
+        CycleButton(figStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        var figNote = Row(18f);
+        RegisterDebugRow(figNote.gameObject, () => CurrentCategory == DebugCategory.Figures);
+        Label(figNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
 
-        // WRIST category (GLOBAL, item 10): live-tune the left-wrist overview HUD pose — its TILT
-        // (pitch/yaw/roll on top of the flat-on-hand base) and its POSITION offset (X/Y/Z, meters)
-        // from the wrist anchor. WristHud re-reads + re-applies these every Tick (WristHud.ApplyPose),
-        // so nudging a stepper moves the watch-face HUD immediately. Backed today by WristHud's local
-        // statics (in-session); the parent swaps them for [WorldUI] config entries (persist + live) —
-        // see the report. Shown only under the Wrist tab.
+        AddFigureToggle(Loc.Mod("fig_upright"), FigureGrabConfig.HeldUpright);
+        AddStyleStepper(Loc.Mod("fig_x"), () => FigureGrabConfig.StyleHeldOffsetSide, 0.002f,
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", DebugCategory.Figures);
+        AddStyleStepper(Loc.Mod("fig_y"), () => FigureGrabConfig.StyleHeldOffsetUp, 0.002f,
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", DebugCategory.Figures);
+        AddStyleStepper(Loc.Mod("fig_z"), () => FigureGrabConfig.StyleHeldOffsetForward, 0.002f,
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", DebugCategory.Figures);
+        AddStyleStepper(Loc.Mod("fig_tilt"), () => FigureGrabConfig.StyleHeldTiltDegrees, 5f,
+            -180f, 180f, v => $"{v:0}°", DebugCategory.Figures);
+        AddStyleStepper(Loc.Mod("fig_yaw"), () => FigureGrabConfig.StyleHeldFaceYawDegrees, 5f,
+            -180f, 180f, v => $"{v:0}°", DebugCategory.Figures);
+        AddStyleStepper(Loc.Mod("fig_scale"), () => FigureGrabConfig.StyleHeldScale, 0.1f,
+            0.2f, 5f, v => $"{v:0.00}x", DebugCategory.Figures);
+
+        // WRIST category (item 10; PER HAND STYLE since request B): live-tune the wrist overview
+        // HUD pose — its TILT (pitch/yaw/roll on top of the flat-on-hand base) and its POSITION
+        // offset (X/Y/Z, meters) from the wrist anchor. The WristHud accessors behind these
+        // steppers read/write the ACTIVE hand style's [WristHud] {Style}* entry in
+        // dev.gloomhavenvr.hands.cfg (seeded once from the old global [WorldUI] WristHud*
+        // values), and WristHud re-reads + re-applies every Tick (WristHud.ApplyPose) — so both
+        // a stepper nudge AND a style switch move the watch-face HUD immediately. The "Stil"
+        // row cycles the style right here; the HUD's on/off toggle stays global. Shown only
+        // under the Wrist tab.
+        var wristStyleRow = Row();
+        RegisterDebugRow(wristStyleRow.gameObject, () => CurrentCategory == DebugCategory.Wrist);
+        Label(wristStyleRow, "Stil", 16f, flexible: true);
+        CycleButton(wristStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        var wristNote = Row(18f);
+        RegisterDebugRow(wristNote.gameObject, () => CurrentCategory == DebugCategory.Wrist);
+        Label(wristNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
+
         AddWristStepper(Loc.Mod("wrist_pitch"), () => WristHud.PitchDeg, v => WristHud.PitchDeg = v, 2f, v => $"{v:0}°");
         AddWristStepper(Loc.Mod("wrist_yaw"),   () => WristHud.YawDeg,   v => WristHud.YawDeg = v,   2f, v => $"{v:0}°");
         AddWristStepper(Loc.Mod("wrist_roll"),  () => WristHud.RollDeg,  v => WristHud.RollDeg = v,  2f, v => $"{v:0}°");
@@ -1245,8 +1269,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void AddOffsetStepper(string label, int axis)
     {
         var row = Row();
-        // Every per-board element carries a Vector3 offset, so this shows for any non-global category.
-        RegisterDebugRow(row.gameObject, () => !CategoryIsGlobal(CurrentCategory));
+        // Every per-board element carries a Vector3 offset — except RoundButtons, whose offsets
+        // are its own global [TransientButtons] rows (ElementOffsetEntry() is null there).
+        RegisterDebugRow(row.gameObject,
+            () => !CategoryIsGlobal(CurrentCategory) && ElementOffsetEntry() != null);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row, () => FormatOffset(axis), d => StepOffset(axis, d));
     }
@@ -1302,16 +1328,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
     }
 
-    /// <summary>Shared visibility of the "Knöpfe" expander's option rows (Buttons tab + expanded).</summary>
+    /// <summary>Shared visibility of the ButtonTuning rows: Tasten → Rundenknöpfe element selected.</summary>
     private bool ButtonTuningRowsVisible() =>
-        CurrentCategory == DebugCategory.Buttons && _buttonTuningOpen;
+        CurrentCategory == DebugCategory.Buttons && CurrentElement() == DebugElement.RoundButtons;
 
     /// <summary>
-    /// "Knöpfe" stepper row bound directly to a live ButtonTuning <see cref="ConfigEntry{T}"/>
+    /// "Rundenknöpfe" stepper row bound directly to a live ButtonTuning <see cref="ConfigEntry{T}"/>
     /// (mm readout). Writing persists (BepInEx) and live-applies: the entry's SettingChanged
     /// bumps ButtonTuning.Version and PlayTray/ButtonCluster rebuild the caps on their next
     /// tick. Skipped entirely if Bind() failed (config dir unwritable) — same policy as
-    /// <see cref="AddWallFadeRow"/>. Shown only while the expander is open on the Buttons tab.
+    /// <see cref="AddWallFadeRow"/>. Shown only while Tasten → Rundenknöpfe is selected.
     /// </summary>
     private void AddButtonTuningRow(string label, ConfigEntry<float>? entry, float step, float min,
         float max, Func<float, string> format)
@@ -1327,7 +1353,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// "Knöpfe" stepper row for the [SquareCaps] entries where 0 = "authored default"
+    /// "Rundenknöpfe" stepper row for the [SquareCaps] entries where 0 = "authored default"
     /// (readout "Auto"). Stepping + from Auto enters the range at its minimum; stepping
     /// - below the minimum collapses back to Auto (0) — so the authored look is always
     /// one press away. Live-applies exactly like <see cref="AddButtonTuningRow"/>.
@@ -1368,18 +1394,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Per-STYLE hand stepper row: drives the entry of the style CURRENTLY worn
-    /// (indexed by [Hands] HandStyle into the given per-style entry array), so the Hands
-    /// tab only ever shows the active style's values — since the per-style rework EVERY
-    /// hand-tuning row (scale + the four seat controls) goes through here. Writing
-    /// persists (BepInEx) and live-applies (VRHand.SyncVisualOffset re-reads per frame).
-    /// Shown only under the Hands tab; shows "—" while the config is not bound yet.
+    /// Per-STYLE stepper row: drives the entry of the style CURRENTLY worn (indexed by
+    /// [Hands] HandStyle into the given per-style entry array), so the tab only ever shows
+    /// the active style's values — the Hands tab (scale + the four seat controls), the
+    /// Figures tab (held-mini pose) and any future per-style group all go through here.
+    /// Writing persists (BepInEx) and live-applies (VRHand.SyncVisualOffset re-reads per
+    /// frame; FigureGrabConfig re-poses via SettingChanged). Shown only under the given
+    /// category's tab; shows "—" while the config is not bound yet.
     /// </summary>
     private void AddStyleStepper(string label, Func<ConfigEntry<float>[]?> entries, float step,
-        float min, float max, Func<float, string> format)
+        float min, float max, Func<float, string> format,
+        DebugCategory category = DebugCategory.Hands)
     {
         var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Hands);
+        RegisterDebugRow(row.gameObject, () => CurrentCategory == category);
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
             () =>
@@ -1414,27 +1442,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Item 2b: a global held-figure stepper row bound directly to a [FigureGrab]
-    /// <see cref="ConfigEntry{T}"/> (offset mm / rotation ° / scale). Writing the entry persists
-    /// (BepInEx) and live-applies (FigureGrabConfig re-poses the held mini on SettingChanged).
-    /// Clamped to [min,max]. Shown only under the Figures tab.
-    /// </summary>
-    private void AddFigureStepper(string label, ConfigEntry<float> entry, float step, float min, float max,
-        Func<float, string> format)
-    {
-        var row = Row();
-        RegisterDebugRow(row.gameObject, () => CurrentCategory == DebugCategory.Figures);
-        Label(row, label, 16f, flexible: true);
-        MiniStepper(row,
-            () => format(entry.Value),
-            d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
-    }
-
-    /// <summary>
-    /// Item 10: a global WRIST-HUD pose stepper row bound to a WristHud getter/setter (degrees for
-    /// pitch/yaw/roll, mm for the X/Y/Z offset). Setting the value re-poses the wrist HUD live —
-    /// WristHud.ApplyPose re-reads it every Tick — and (once the parent wires the [WorldUI] config
-    /// entries behind these accessors) persists via BepInEx. Shown only under the Wrist tab.
+    /// Item 10: a WRIST-HUD pose stepper row bound to a WristHud getter/setter (degrees for
+    /// pitch/yaw/roll, mm for the X/Y/Z offset). Since the per-style rework (request B) the
+    /// accessors read/write the ACTIVE hand style's entry, so these rows edit the style
+    /// currently worn. Setting the value re-poses the wrist HUD live — WristHud.ApplyPose
+    /// re-reads it every Tick — and persists via BepInEx. Shown only under the Wrist tab.
     /// </summary>
     private void AddWristStepper(string label, Func<float> get, Action<float> set, float step,
         Func<float, string> format)
@@ -1699,6 +1711,9 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.Readout => Loc.Mod("readout"),
         DebugElement.Cluster => Loc.Mod("cluster"),
         DebugElement.Decision => Loc.Mod("decision"),
+        // Request C: hardcoded German like the other ButtonTuning row labels ("Versatz X",
+        // "Kappengröße", …) — the round-phase skip buttons the user tunes here.
+        DebugElement.RoundButtons => "Rundenknöpfe",
         _ => e.ToString(),
     };
 
@@ -1786,6 +1801,25 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             case DebugElement.Decision:
                 CardsConfig.DecisionScale(b).Value = (float)CardsConfig.DecisionScale(b).DefaultValue;
                 break;
+            case DebugElement.RoundButtons:
+            {
+                // GLOBAL ButtonTuning group (not per-board): restore all eight entries.
+                static void ResetF(ConfigEntry<float>? e)
+                {
+                    if (e != null)
+                        e.Value = (float)e.DefaultValue;
+                }
+                ResetF(ButtonTuning.TransientOffsetX);
+                ResetF(ButtonTuning.TransientOffsetY);
+                ResetF(ButtonTuning.TransientCapSize);
+                ResetF(ButtonTuning.SquareCapWidth);
+                ResetF(ButtonTuning.SquareCapHeight);
+                ResetF(ButtonTuning.SquareCapDepth);
+                ResetF(ButtonTuning.PressTravel);
+                if (ButtonTuning.TransientShape != null)
+                    ButtonTuning.TransientShape.Value = (ButtonShape)ButtonTuning.TransientShape.DefaultValue;
+                break;
+            }
         }
         VRLog.Info("Cards", $"Debug: reset {CurrentElement()} for {b} to defaults.");
     }

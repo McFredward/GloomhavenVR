@@ -180,6 +180,60 @@ internal static class HandsConfig
         StyleValue(StyleSeatForward, style, LegacySeat(Plugin.HandForwardOffset,
             Plugin.HandStyleForwardTrim, style, DefaultSeatForward));
 
+    // ---- per-STYLE wrist-HUD pose (2026-07 request B) --------------------------------------
+    // The watch-face wrist HUD (WorldUI.WristHud) rests on the back of the hand MESH, whose
+    // thickness/shape differs per hand style — so its pose (tilt + offset from the wrist
+    // anchor) is PER STYLE too, exactly like the seat controls above. Section [WristHud] of
+    // this cfg file; each style is SEEDED on first bind from the legacy global [WorldUI]
+    // WristHud* entries (bound idempotently right before the seed reads them, because
+    // HandsModule inits BEFORE WorldUIModule), so a tuned wrist pose carries over to all
+    // three styles instead of resetting. WristHud.ApplyPose re-reads the ACTIVE style every
+    // Tick, so edits AND style switches live-apply. The HUD's on/off toggle stays GLOBAL
+    // ([WorldUI] WristHud) — enabling it is not a geometry preference.
+
+    /// <summary>Per-style wrist-HUD pitch (degrees) on top of the flat-on-hand base.</summary>
+    public static ConfigEntry<float>[]? StyleWristPitch;
+
+    /// <summary>Per-style wrist-HUD yaw (degrees).</summary>
+    public static ConfigEntry<float>[]? StyleWristYaw;
+
+    /// <summary>Per-style wrist-HUD roll (degrees).</summary>
+    public static ConfigEntry<float>[]? StyleWristRoll;
+
+    /// <summary>Per-style wrist-HUD offset along wrist X (meters).</summary>
+    public static ConfigEntry<float>[]? StyleWristOffsetX;
+
+    /// <summary>Per-style wrist-HUD offset out the back of the hand (wrist +Y, meters).</summary>
+    public static ConfigEntry<float>[]? StyleWristOffsetY;
+
+    /// <summary>Per-style wrist-HUD offset toward the fingers (wrist +Z, meters).</summary>
+    public static ConfigEntry<float>[]? StyleWristOffsetZ;
+
+    // Shipped defaults of the legacy global [WorldUI] WristHud* pose (WristHud.cs statics).
+    private const float DefaultWristOffsetY = 0.015f;
+    private const float DefaultWristOffsetZ = 0.01f;
+
+    /// <summary>
+    /// Index of the ACTIVE hand style ([Hands] HandStyle, clamped; Glove before Plugin
+    /// bound). The per-style consumers that are not per-hand rig objects (wrist HUD,
+    /// held-figure pose) key off the CONFIGURED style — the settings panel edits the same.
+    /// </summary>
+    public static int ActiveStyleIndex
+    {
+        get
+        {
+            try
+            {
+                return (int)HandStyles.Clamp(
+                    Plugin.HandStyle != null ? (int)Plugin.HandStyle.Value : 0);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+    }
+
     /// <summary>The style's element of a per-style array, or <paramref name="fallback"/> (null/throw-safe).</summary>
     private static float StyleValue(ConfigEntry<float>[]? entries, int style, float fallback)
     {
@@ -215,6 +269,23 @@ internal static class HandsConfig
             return shippedDefault;
         }
         return v;
+    }
+
+    /// <summary>
+    /// The legacy GLOBAL wrist-HUD pose value ([WorldUI] WristHud*) used as the one-time
+    /// per-style SEED (and only ever consulted while the per-style key is absent from this
+    /// cfg), so behavior is identical before and after the per-style rework.
+    /// </summary>
+    private static float LegacyWrist(ConfigEntry<float>? global, float shippedDefault)
+    {
+        try
+        {
+            return global != null ? global.Value : shippedDefault;
+        }
+        catch
+        {
+            return shippedDefault;
+        }
     }
 
     public static void Bind()
@@ -322,6 +393,45 @@ internal static class HandsConfig
                 "absolute value (supersedes the old shared HandForwardOffset + trim; seeded on " +
                 "first run). Live-tunable.");
         }
+        // PER-STYLE wrist-HUD pose (request B): seed each style from the legacy GLOBAL
+        // [WorldUI] WristHud* entries. WorldUIConfig.Bind is idempotent and is called here
+        // FIRST because HandsModule inits before WorldUIModule — without it the seed would
+        // read unbound entries and silently reset a tuned wrist pose to the shipped defaults.
+        WorldUI.WorldUIConfig.Bind();
+        StyleWristPitch = new ConfigEntry<float>[HandStyles.Count];
+        StyleWristYaw = new ConfigEntry<float>[HandStyles.Count];
+        StyleWristRoll = new ConfigEntry<float>[HandStyles.Count];
+        StyleWristOffsetX = new ConfigEntry<float>[HandStyles.Count];
+        StyleWristOffsetY = new ConfigEntry<float>[HandStyles.Count];
+        StyleWristOffsetZ = new ConfigEntry<float>[HandStyles.Count];
+        for (int i = 0; i < HandStyles.Count; i++)
+        {
+            string s = styleNames[i];
+            string per = $"PER-STYLE absolute value while the {s} hand style is worn " +
+                "(supersedes the shared [WorldUI] WristHud* entry it was seeded from on first " +
+                "run). Live-tunable — WristHud re-applies every tick.";
+            StyleWristPitch[i] = config.Bind(
+                "WristHud", $"{s}Pitch", LegacyWrist(WorldUI.WorldUIConfig.WristHudPitch, 0f),
+                $"Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base. {per}");
+            StyleWristYaw[i] = config.Bind(
+                "WristHud", $"{s}Yaw", LegacyWrist(WorldUI.WorldUIConfig.WristHudYaw, 0f),
+                $"Wrist overview HUD yaw (degrees). {per}");
+            StyleWristRoll[i] = config.Bind(
+                "WristHud", $"{s}Roll", LegacyWrist(WorldUI.WorldUIConfig.WristHudRoll, 0f),
+                $"Wrist overview HUD roll (degrees). {per}");
+            StyleWristOffsetX[i] = config.Bind(
+                "WristHud", $"{s}OffsetX", LegacyWrist(WorldUI.WorldUIConfig.WristHudOffsetX, 0f),
+                $"Wrist overview HUD offset along wrist X, real meters. {per}");
+            StyleWristOffsetY[i] = config.Bind(
+                "WristHud", $"{s}OffsetY",
+                LegacyWrist(WorldUI.WorldUIConfig.WristHudOffsetY, DefaultWristOffsetY),
+                $"Wrist overview HUD offset out the back of the hand (wrist +Y), real meters. {per}");
+            StyleWristOffsetZ[i] = config.Bind(
+                "WristHud", $"{s}OffsetZ",
+                LegacyWrist(WorldUI.WorldUIConfig.WristHudOffsetZ, DefaultWristOffsetZ),
+                $"Wrist overview HUD offset toward the fingers (wrist +Z), real meters. {per}");
+        }
+
         VRLog.Info("Hands", "[Hands] Per-style seat controls bound: " +
             string.Join("; ", System.Array.ConvertAll(styleNames, n =>
             {
