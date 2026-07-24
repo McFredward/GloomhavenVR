@@ -80,6 +80,7 @@ internal sealed class CardFan
         _root.SetParent(hand.Rig.PalmCenter, worldPositionStays: false);
         _root.gameObject.SetActive(true);
         _followInit = true; // G4: snap to the palm on the first Tick, don't ease in
+        _gazeBiasYaw = 0f;  // edge-read fix: start facing the head squarely; ease into any bias
         IsOpen = true;
         Current = this; // expose the open fan to the net presence sender (hand-card count)
         _closeElapsed = -1f; // reopen mid-collapse: the open animation takes over from here
@@ -511,11 +512,112 @@ internal sealed class CardFan
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
-        Vector3 away = _root.position - head.transform.position;
+        Vector3 headPos = head.transform.position;
+        Vector3 away = _root.position - headPos;
         if (away.sqrMagnitude < 1e-6f)
             return;
-        // Cards' +Z points away from the viewer (uGUI reads from -Z).
-        _root.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+        // Cards' +Z points away from the viewer (uGUI reads from -Z). Base billboard: the whole
+        // fan faces the head POSITION, pivoted on the fan center (the palm).
+        Quaternion baseFacing = Quaternion.LookRotation(away.normalized, Vector3.up);
+
+        // Edge-read fix (gaze-responsive facing): a full hand's arc is a flat sheet billboarded
+        // about its center, so turning the head to read a card at one END rigidly re-faced the
+        // sheet and swung that far card AWAY (its edge receded) — the opposite of the reader's
+        // intent. UpdateGazeBias returns an eased extra YAW (deg, about world up) that turns the
+        // fan partially toward the head's GAZE direction, tipping the looked-at end TOWARD the
+        // viewer (the arc "opens" under the gaze) while the fan center stays put. 0 within the
+        // center dead zone => legacy behavior unchanged there.
+        float biasYaw = UpdateGazeBias(away, head.transform.forward);
+        _root.rotation = biasYaw != 0f
+            ? Quaternion.AngleAxis(biasYaw, Vector3.up) * baseFacing
+            : baseFacing;
+    }
+
+    // ------------------------------------------------------------------ gaze-facing bias --
+
+    // Gaze-responsive fan facing (edge-read fix). LOCAL tunables with sane defaults until the
+    // orchestrator promotes them to live-tunable CardsConfig "Fan" entries — mirrors the
+    // FanInsertGapFactor precedent above. All are pure yaw about world up (matching the fan's
+    // horizontal arc); head PITCH is projected out so looking down at the fan adds no bias.
+
+    /// <summary>Gaze offset (deg off "looking straight at the fan center") within which NO bias is
+    /// applied — the comfortable center zone that preserves the legacy billboard and stops the fan
+    /// swimming under normal small head motion.</summary>
+    private const float GazeBiasDeadzoneDeg = 12f;
+
+    /// <summary>Gaze offset (deg) at which the bias reaches full weight (smoothstep-ramped between
+    /// the dead zone and here). ~the half-arc a full hand subtends, so an edge card hits full bias.</summary>
+    private const float GazeBiasFullDeg = 42f;
+
+    /// <summary>Fraction of the gaze offset the fan turns toward the gaze at full weight: 1 = the
+    /// fan faces squarely along the gaze, 0.6 opens the gazed edge forward without full gaze-lock
+    /// swim (keeps the fan feeling attached to the palm, not head-locked).</summary>
+    private const float GazeBiasGain = 0.6f;
+
+    /// <summary>Hard clamp on the applied extra yaw (deg): caps the swing so a glance far past the
+    /// fan can never spin it around — nausea / "still on my hand" guard.</summary>
+    private const float GazeBiasMaxYawDeg = 32f;
+
+    /// <summary>Exponential ease rate (1/s) of the applied yaw toward its target — smooth, no jitter,
+    /// no snap on a quick head flick. UNSCALED time so it stays alive while the game pauses for
+    /// card selection (like the fan-out reveal).</summary>
+    private const float GazeBiasSmoothing = 9f;
+
+    /// <summary>Eased state: extra yaw (deg, about world up) currently applied to the fan facing.</summary>
+    private float _gazeBiasYaw;
+
+    /// <summary>Throttle clock for the gaze-bias diagnostic (unscaled seconds of the last line).</summary>
+    private float _gazeLogTime;
+
+    /// <summary>
+    /// Compute + ease the gaze-facing bias. <paramref name="away"/> is head->fan (the base
+    /// billboard forward); <paramref name="headForward"/> is the gaze. Returns the eased extra yaw
+    /// in degrees about world up (0 = no bias / within the center dead zone). Allocation-free.
+    /// </summary>
+    private float UpdateGazeBias(Vector3 away, Vector3 headForward)
+    {
+        Vector3 up = Vector3.up;
+        Vector3 awayH = Vector3.ProjectOnPlane(away, up);
+        Vector3 gazeH = Vector3.ProjectOnPlane(headForward, up);
+
+        float target = 0f;
+        float gazeOffset = 0f;
+        if (awayH.sqrMagnitude > 1e-6f && gazeH.sqrMagnitude > 1e-6f)
+        {
+            // Signed horizontal angle of the gaze off "looking straight at the fan center".
+            // AngleAxis(gazeOffset, up) rotates awayH exactly onto gazeH (same Unity sign
+            // convention as SignedAngle), so turning the fan by a FRACTION of gazeOffset turns
+            // it toward the gaze — sign-consistent by construction, tips the looked-at end
+            // forward on either side with no hand-tuned flip.
+            gazeOffset = Vector3.SignedAngle(awayH, gazeH, up);
+            float mag = Mathf.Abs(gazeOffset);
+            float t = Mathf.Clamp01((mag - GazeBiasDeadzoneDeg)
+                                    / Mathf.Max(0.01f, GazeBiasFullDeg - GazeBiasDeadzoneDeg));
+            t = t * t * (3f - 2f * t); // smoothstep ease-in/out of the weight
+            target = Mathf.Clamp(gazeOffset * GazeBiasGain * t, -GazeBiasMaxYawDeg, GazeBiasMaxYawDeg);
+        }
+
+        // Ease toward the target on unscaled, frame-rate-independent time (alive while paused).
+        float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+        _gazeBiasYaw = Mathf.Lerp(_gazeBiasYaw, target, 1f - Mathf.Exp(-GazeBiasSmoothing * dt));
+        if (Mathf.Abs(_gazeBiasYaw) < 0.05f)
+            _gazeBiasYaw = 0f;
+
+        // Throttled diagnostic (>=1 s apart, only while off-center or biased): fan facing vs head
+        // yaw + which END of the arc is under gaze. gazeOffset < 0 = gaze to the viewer's LEFT
+        // (toward card i=0, fan-local -X); the bias then tips that left end toward the viewer.
+        float now = Time.unscaledTime;
+        if ((Mathf.Abs(gazeOffset) > GazeBiasDeadzoneDeg || Mathf.Abs(_gazeBiasYaw) > 0.5f)
+            && now - _gazeLogTime > 1f)
+        {
+            _gazeLogTime = now;
+            string end = Mathf.Abs(gazeOffset) <= GazeBiasDeadzoneDeg ? "CENTER"
+                : gazeOffset < 0f ? "LEFT" : "RIGHT";
+            Core.VRLog.Info("Cards",
+                $"Fan gaze-bias: gazeOff={gazeOffset:F1}deg end={end} biasYaw={_gazeBiasYaw:F1}deg (n={_cards.Count})");
+        }
+
+        return _gazeBiasYaw;
     }
 
     // ------------------------------------------------------------------ layout --
