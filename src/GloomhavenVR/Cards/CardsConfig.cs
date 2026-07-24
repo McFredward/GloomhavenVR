@@ -502,12 +502,12 @@ internal static class CardsConfig
             "so any selection is safe. Changing this tears down and rebuilds the tray live " +
             "(CardsDriver), re-seating the cards on the newly loaded board.");
 
-        DebugMenu = _file.Bind("Cards", "DebugMenu", false,
-            "In-VR DEBUG MENU: show the 'Debug — Board tuning' section in the settings panel. " +
-            "It live-tunes every board-attached element PER BOARD (round rest buttons, square " +
-            "Confirm/Undo, slot overlays, initiative track, whole-board tilt/yaw/scale/pos) and " +
-            "writes the per-board offsets below (BepInEx persists on every change — no save button). " +
-            "Default OFF; toggle it on from the panel when you want to dial a board in.");
+        DebugMenu = _file.Bind("Cards", "DebugMenu", true,
+            "In-VR DEBUG MENU: legacy master flag for the 'Debug — Board tuning' section. As of the " +
+            "2026-07 settings-panel redesign the deep tuning lives in its OWN top-level 'Debug' sidebar " +
+            "category (hidden from the default view), so this flag is ALWAYS treated as true by the panel " +
+            "and is no longer switchable there. Kept bound so existing config files load cleanly and any " +
+            "external reader keeps working. Default ON.");
 
         // ---- Per-board element tuning (Part A) ----
         // Bound with one entry per board (loop over the ControlBoard enum). All boards seed

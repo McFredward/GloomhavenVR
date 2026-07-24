@@ -113,6 +113,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // ("Fixiert") plates. GLOBAL like RoundButtons (values ride every board).
         BoardButtons,
         BoardDashboard,
+        // Issue 2 (2026-07 Debug section): the four wall see-through FADE fractions are
+        // developer-grade tuning, so they moved out of the user-facing "Wände" category into
+        // the new "Debug" section as their OWN global element (like RoundButtons). GLOBAL —
+        // no per-board offset/board selector.
+        WallFade,
     }
 
     /// <summary>
@@ -120,19 +125,22 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// redesign, user: "the debug menu is cluttered — give me a faster overview and better
     /// navigation"). Selecting a category in the sidebar swaps the right-hand content pane to
     /// show ONLY that category's rows/elements (poke- and laser-driven, exactly like every
-    /// other button). Element-BEARING categories (Tasten, Board) additionally expose an
-    /// in-pane Element chooser (the existing accordion) over the many board-attached elements;
-    /// every other category is a flat scannable list. Order matches <see cref="NavElements"/>.
+    /// other button). The element-BEARING category (Debug) additionally exposes an in-pane
+    /// Element chooser (the existing accordion) over the many board-attached elements; every other
+    /// category is a flat scannable list. Order matches <see cref="NavElements"/>.
     /// </summary>
-    private enum NavCat { Welt, Anzeige, Waende, Avatar, Haende, Figuren, Handgelenk, Tasten, Board }
-    private const int NavCatCount = 9;
+    // Issue 2 (2026-07): the two element-BEARING tuning tabs (Tasten + Board) plus the wall-fade
+    // fractions were consolidated into ONE new top-level "Debug" category so the default sidebar
+    // shows only genuinely user-facing categories. Debug is the sole element-bearing category now.
+    private enum NavCat { Welt, Anzeige, Waende, Avatar, Haende, Figuren, Handgelenk, Debug }
+    private const int NavCatCount = 8;
 
     /// <summary>
     /// SINGLE source of truth for category → board-attached elements (re-slice by editing this
-    /// one table). Only the two element-BEARING categories carry a list — <see cref="NavCat.Tasten"/>
-    /// (every button group: rest keys, Confirm/Undo group, cluster, the [RoundButtons] /
-    /// [BoardButtons] / [BoardDashboard] geometry sets, and the decision dock) and
-    /// <see cref="NavCat.Board"/> (the board itself + every panel/overlay/widget). All other
+    /// one table). Only the ONE element-BEARING category carries a list — <see cref="NavCat.Debug"/>
+    /// (every board panel/overlay/widget PLUS every button group: rest keys, Confirm/Undo group
+    /// including its [BoardButtons] rectangle geometry, cluster, the [RoundButtons] /
+    /// [BoardDashboard] geometry sets, the decision dock, and the wall-fade fractions). All other
     /// categories have an EMPTY list — <see cref="CategoryHasElements"/> keys off that and hides
     /// the board + element selectors, showing the category's own flat rows instead. Order matches
     /// <see cref="NavCat"/>.
@@ -146,16 +154,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Array.Empty<DebugElement>(),                                                                          // Hände
         Array.Empty<DebugElement>(),                                                                          // Figuren
         Array.Empty<DebugElement>(),                                                                          // Handgelenk
-        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
-                DebugElement.RoundButtons, DebugElement.BoardButtons,
-                DebugElement.BoardDashboard, DebugElement.Decision },                                         // Tasten
+        // Debug (issue 2): the union of the former Board (panels/widgets) + Tasten (button geometry)
+        // elements, plus the wall-fade fractions as one global WallFade element. Issue 6: the former
+        // standalone BoardButtons element is GONE — its [BoardButtons] rectangle W/H/D/Travel rows now
+        // live under Generic (the SAME physical Confirm/Undo caps), so "Generisch" exposes the exact
+        // side lengths. Board is element 0 so the Debug pane opens on the whole-board tuning.
         new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
                 DebugElement.Initiative, DebugElement.Piles, DebugElement.Active,
-                DebugElement.Overlays, DebugElement.Readout,
-                DebugElement.VRSettings, DebugElement.Pin },                                                  // Board
+                DebugElement.Overlays, DebugElement.Readout, DebugElement.VRSettings, DebugElement.Pin,
+                DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
+                DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
+                DebugElement.WallFade },                                                                      // Debug
     };
 
-    /// <summary>Element-BEARING categories (Tasten, Board) expose the in-pane board + element chooser.</summary>
+    /// <summary>The element-BEARING category (Debug) exposes the in-pane board + element chooser.</summary>
     private static bool CategoryHasElements(NavCat c) => NavElements[(int)c].Length > 0;
 
     /// <summary>True while the current sidebar category is one of the element-bearing tuning tabs.</summary>
@@ -803,19 +815,31 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(mrColorRow, Loc.Mod("key_color"), 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
-        // ===== Wände — Wanddurchsicht & Fade-Feineinstellung =====
+        // Which control-board MODEL is loaded (Oak/Steel/Bronze) — a genuinely user-facing choice
+        // (issue 2 keep-list), so it lives here in the default view. It is the SAME [Cards] Board
+        // entry the Debug per-board tuning selects, so switching here also retargets the Debug pane.
+        // Live: CardsDriver rebuilds the tray on change.
+        var boardModelRow = Row();
+        Label(boardModelRow, Loc.Mod("control_board"), 16f, flexible: true);
+        CycleButton(boardModelRow, 100f,
+            () => CardsConfig.Board.Value.ToString(),
+            () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
+
+        // ===== Wände — nur der Nutzer-Schalter (die Feineinstellung liegt jetzt unter Debug) =====
         GateCat(NavCat.Waende);
 
         // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
         // view-dependent wall fade run (it follows the HMD); OFF (default) keeps walls solid.
-        // Applies LIVE — the Harmony postfix consults the entry every frame.
+        // Applies LIVE — the Harmony postfix consults the entry every frame. USER-FACING (issue 2),
+        // so the on/off toggle stays in this default category.
         Toggle("Wände durchsichtig",
             () => Plugin.WallFade.Value,
             v => Plugin.WallFade.Value = v);
 
         // Wall-fade thresholds (live [WallFade] config — WallSegmentFade re-reads the clamped
-        // accessors every evaluation tick). No longer hidden behind a collapsed expander: this
-        // IS the Wände category, so the four rows read directly.
+        // accessors every evaluation tick). Issue 2: developer-grade fractions, so each row now
+        // gates itself to Debug → Wandüberblendung (WallFadeRowsVisible) rather than this category —
+        // the build order here is irrelevant since every row registers its own gate.
         WallFadeTuning.Bind();
         AddWallFadeRow("Einblenden", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
             v => $"{v * 100f:0}%");
@@ -862,7 +886,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // ===== Handgelenk (pro Stil) =====
         BuildWristCategory();
 
-        // ===== Tasten + Board — the element-bearing tuning tabs =====
+        // ===== Debug — the sole element-bearing tuning tab (board panels + button geometry + fade) =====
         BuildElementTuning();
 
         _rowParent = null;
@@ -908,8 +932,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         NavCat.Haende => Loc.Mod("hands"),
         NavCat.Figuren => Loc.Mod("cat_figures"),
         NavCat.Handgelenk => Loc.Mod("cat_wrist"),
-        NavCat.Tasten => Loc.Mod("cat_buttons"),
-        NavCat.Board => Loc.Mod("board"),
+        NavCat.Debug => "Debug",
         _ => c.ToString(),
     };
 
@@ -959,12 +982,21 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var le = go.AddComponent<LayoutElement>();
         if (fixedWidth > 0f)
         {
+            // Issue 1 (sidebar buttons rescale on page change): PIN the sidebar column so the
+            // content pane's per-page ContentSizeFitter can never re-fit it. minWidth == preferredWidth
+            // fixes the width in EVERY HorizontalLayoutGroup regime (surplus goes only to flexible
+            // children, and the min==pref clamp survives the shrink regime), and flexibleWidth/Height = 0
+            // guarantees the column is never stretched to the taller content pane's width OR height —
+            // so the nav buttons render pixel-identical whatever page is open.
             le.preferredWidth = fixedWidth;
             le.minWidth = fixedWidth;
+            le.flexibleWidth = 0f;
+            le.flexibleHeight = 0f;
         }
         else
         {
             le.flexibleWidth = 1f;
+            le.flexibleHeight = 0f;
         }
         return rect;
     }
@@ -1098,19 +1130,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private void BuildElementTuning()
     {
-        // Board-tuning master toggle ([Cards] DebugMenu) — a PRESERVED bind, now a plain row at
-        // the top of the Board tab. It no longer GATES the tuning UI (the sidebar already hides
-        // tuning until you open Board/Tasten — the discoverability the user asked for); it stays
-        // reachable here so the [Cards] DebugMenu entry can still be toggled/persisted.
-        _rowGate = () => _navCat == (int)NavCat.Board;
-        Toggle(Loc.Mod("enable_board_tuning"),
-            () => CardsConfig.DebugMenu.Value,
-            v =>
-            {
-                CardsConfig.DebugMenu.Value = v;
-                if (v)
-                    VRLog.Info("Cards", "Debug board-tuning menu enabled.");
-            });
+        // Issue 5: the "Board-Justierung aktivieren" toggle is GONE — board tuning is now ALWAYS
+        // active. [Cards] DebugMenu stays bound (default ON) for config compatibility but the panel
+        // never gates on it and never lets the user switch it off. The deep tuning is instead tucked
+        // away under the dedicated "Debug" sidebar category (issue 2), which is the real
+        // discoverability the user wanted.
 
         // Board cycle (Oak/Steel/Bronze) — the per-board element tuning edits the SELECTED
         // board. Hidden for the GLOBAL ButtonTuning elements (Rundenknöpfe / Boardtasten /
@@ -1311,7 +1335,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddButtonTuningRow("Hub", ButtonTuning.RoundTravel, 0.001f, 0.002f, 0.02f,
             v => $"{v * 1000f:0}mm", RoundButtonRowsVisible);
 
-        // Tasten → Boardtasten ([BoardButtons] — the Confirm/Undo keycaps).
+        // Debug → Generisch ([BoardButtons] — the Confirm/Undo keycaps). Issue 6: these are the
+        // SAME physical caps as the Generic element, so the exact rectangle side lengths (independent
+        // Breite/Höhe) plus Tiefe/Hub now appear right under "Generisch" — no separate Boardtasten
+        // element. For SQUARE Confirm/Undo (the default GenericButtonShape) these Width/Height are the
+        // authoritative cap size (PlayTray.BuildButtons); the round "Größe" diameter row above only
+        // drives the Round shape, exactly like the Rest element pairs a diameter with [RestButtons] W/H.
         AddButtonTuningRow("Breite", ButtonTuning.BoardWidth, 0.005f, 0.02f, 0.20f,
             v => $"{v * 1000f:0}mm", BoardButtonRowsVisible);
         AddButtonTuningRow("Höhe", ButtonTuning.BoardHeight, 0.005f, 0.015f, 0.20f,
@@ -1417,7 +1446,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         if (entry == null)
             return; // WallFadeTuning.Bind() failed (config dir unwritable) — skip the row
-        _rowGate = () => _navCat == (int)NavCat.Waende;
+        _rowGate = WallFadeRowsVisible; // issue 2: moved into Debug → Wandüberblendung
         var row = Row();
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
@@ -1425,25 +1454,37 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             d => entry.Value = Mathf.Clamp(entry.Value + d * step, min, max));
     }
 
-    /// <summary>The three GLOBAL ButtonTuning elements (per-board board selector is hidden for them).</summary>
+    /// <summary>
+    /// The GLOBAL ButtonTuning elements (per-board board selector is hidden for them).
+    /// WallFade is global too (the wall-fade fractions ride no board). BoardButtons is no longer a
+    /// standalone element (issue 6 — merged into Generic), so it is not listed.
+    /// </summary>
     private static bool ElementIsGlobalTuning(DebugElement e) =>
-        e is DebugElement.RoundButtons or DebugElement.BoardButtons or DebugElement.BoardDashboard;
+        e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade;
 
-    /// <summary>Visibility of the [RoundButtons] rows: Tasten → Rundenknöpfe element selected.</summary>
+    /// <summary>Visibility of the [RoundButtons] rows: Debug → Rundenknöpfe element selected.</summary>
     private bool RoundButtonRowsVisible() =>
-        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.RoundButtons;
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.RoundButtons;
 
-    /// <summary>Visibility of the [BoardButtons] rows: Tasten → Boardtasten element selected.</summary>
+    /// <summary>
+    /// Visibility of the [BoardButtons] Confirm/Undo keycap geometry rows. Issue 6: these are the
+    /// SAME physical Confirm/Undo caps as the Generic element, so the rectangle Width/Height/Depth/
+    /// Travel steppers now surface under Debug → Generisch (there is no separate Boardtasten element).
+    /// </summary>
     private bool BoardButtonRowsVisible() =>
-        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.BoardButtons;
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.Generic;
 
-    /// <summary>Visibility of the [BoardDashboard] rows: Tasten → Zahnrad &amp; Fixiert element selected.</summary>
+    /// <summary>Visibility of the [BoardDashboard] rows: Debug → Zahnrad &amp; Fixiert element selected.</summary>
     private bool BoardDashboardRowsVisible() =>
-        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.BoardDashboard;
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.BoardDashboard;
 
-    /// <summary>Visibility of the [RestButtons] geometry rows: Tasten → Ruhetasten element selected.</summary>
+    /// <summary>Visibility of the [RestButtons] geometry rows: Debug → Ruhetasten element selected.</summary>
     private bool RestButtonTuningRowsVisible() =>
-        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.Rest;
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.Rest;
+
+    /// <summary>Visibility of the wall-fade fraction rows: Debug → Wandüberblendung element selected.</summary>
+    private bool WallFadeRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.WallFade;
 
     /// <summary>
     /// ButtonTuning stepper row bound directly to a live <see cref="ConfigEntry{T}"/> (mm
@@ -1792,6 +1833,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.RoundButtons => "Rundenknöpfe",
         DebugElement.BoardButtons => "Boardtasten (Bestätigen/Rückgängig)",
         DebugElement.BoardDashboard => "Zahnrad & Fixiert",
+        DebugElement.WallFade => "Wandüberblendung",
         _ => e.ToString(),
     };
 
@@ -1852,6 +1894,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 CardsConfig.ConfirmUndoSize(b).Value = (float)CardsConfig.ConfirmUndoSize(b).DefaultValue;
                 CardsConfig.GenericButtonSpacing(b).Value = (float)CardsConfig.GenericButtonSpacing(b).DefaultValue;
                 CardsConfig.GenericButtonShape(b).Value = (ButtonShape)CardsConfig.GenericButtonShape(b).DefaultValue;
+                // Issue 6: the GLOBAL [BoardButtons] Confirm/Undo keycap geometry (the square
+                // rectangle W/H/D/Travel) is edited from this element, so reset it here too.
+                ResetTuningF(ButtonTuning.BoardWidth);
+                ResetTuningF(ButtonTuning.BoardHeight);
+                ResetTuningF(ButtonTuning.BoardDepth);
+                ResetTuningF(ButtonTuning.BoardTravel);
                 break;
             }
             case DebugElement.Active:
@@ -1923,6 +1971,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 ResetTuningF(ButtonTuning.DashHeight);
                 ResetTuningF(ButtonTuning.DashDepth);
                 ResetTuningF(ButtonTuning.DashTravel);
+                break;
+            }
+            case DebugElement.WallFade:
+            {
+                // GLOBAL wall-fade fractions (issue 2): restore the four [WallFade] thresholds.
+                ResetTuningF(WallFadeTuning.OnFraction);
+                ResetTuningF(WallFadeTuning.OffFraction);
+                ResetTuningF(WallFadeTuning.ExitDwellMoved);
+                ResetTuningF(WallFadeTuning.ExitDwellStationary);
                 break;
             }
         }
