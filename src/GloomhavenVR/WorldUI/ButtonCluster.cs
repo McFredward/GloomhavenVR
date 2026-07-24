@@ -940,8 +940,19 @@ internal sealed class ButtonCluster
                     _rootGo.transform.localScale = _slotScale;
                     if (!_rootGo.activeSelf)
                         _rootGo.SetActive(true);
-                    _appearLeft = _everShown ? ButtonTuning.AppearSeconds : 0f;
+                    // APPEAR (user): scale-in instead of a pop — but only once the button has
+                    // been shown before (suppresses the build-then-settle storm) and while the
+                    // animation is enabled ([ButtonAnim] Enable). Input is live immediately.
+                    _appearLeft = _everShown && ButtonTuning.ButtonAnimEnabled ? ButtonTuning.AppearSeconds : 0f;
                     _collider.enabled = _interactable; // re-sync after the hide forced it off
+                    if (_appearLeft > 0f)
+                    {
+                        ButtonTuning.LogAnim(_rootGo.name, "appear (scale-in)");
+                        if (ButtonTuning.AppearParticlesEnabled)
+                            ButtonDissolveFx.PlayAppear(_cap.position, _rootGo.transform.up,
+                                BaseRadius * 2f * Mathf.Abs(_rootGo.transform.lossyScale.x),
+                                _appliedColor);
+                    }
                 }
                 else
                 {
@@ -951,16 +962,17 @@ internal sealed class ButtonCluster
                     _hoverHand = null;
                     _depthArmed = true;
                     _collider.enabled = false;
-                    if (_everShown && _rootGo.activeInHierarchy)
+                    if (_everShown && _rootGo.activeInHierarchy && ButtonTuning.ButtonAnimEnabled)
                     {
                         _dissolveLeft = ButtonTuning.DissolveSeconds;
+                        ButtonTuning.LogAnim(_rootGo.name, "disappear (dust dissolve)");
                         ButtonDissolveFx.Play(_cap.position, _rootGo.transform.up,
                             BaseRadius * 2f * Mathf.Abs(_rootGo.transform.lossyScale.x),
                             _appliedColor);
                     }
                     else
                     {
-                        _rootGo.SetActive(false); // initial settling / hidden cluster — silent pop
+                        _rootGo.SetActive(false); // initial settling / hidden cluster / anim off — silent pop
                     }
                 }
             }

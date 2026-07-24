@@ -3517,7 +3517,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     Collider.enabled = true;
                 if (!gameObject.activeSelf)
                     gameObject.SetActive(true);
-                _showLeft = _ticked ? WorldUI.ButtonTuning.AppearSeconds : 0f; // quick scale-in (user #7)
+                // APPEAR (user): quick scale-in instead of a pop — only once the button has ticked
+                // (suppresses the build-then-settle storm) and while the animation is enabled
+                // ([ButtonAnim] Enable). Input/collider are already live above.
+                _showLeft = _ticked && WorldUI.ButtonTuning.ButtonAnimEnabled ? WorldUI.ButtonTuning.AppearSeconds : 0f;
+                if (_showLeft > 0f)
+                {
+                    WorldUI.ButtonTuning.LogAnim(name, "appear (scale-in)");
+                    if (WorldUI.ButtonTuning.AppearParticlesEnabled)
+                    {
+                        Vector3 c = _cap != null ? _cap.position : transform.position;
+                        float fp = Collider is BoxCollider b ? Mathf.Max(b.size.x, b.size.y) : 0.05f;
+                        WorldUI.ButtonDissolveFx.PlayAppear(c, -transform.forward,
+                            fp * Mathf.Abs(transform.lossyScale.x), CurrentCapColor());
+                    }
+                }
                 return;
             }
             // LOGICAL hide is immediate (user #7 contract): input off now, visuals may linger.
@@ -3527,10 +3541,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 CancelDwell();
             if (Collider != null)
                 Collider.enabled = false;
-            if (!_ticked || !gameObject.activeInHierarchy)
+            if (!_ticked || !gameObject.activeInHierarchy || !WorldUI.ButtonTuning.ButtonAnimEnabled)
             {
-                // Initial state settling (built then hidden the same frame) or already
-                // invisible with the tray — pop away silently, no dust.
+                // Initial state settling (built then hidden the same frame), already invisible
+                // with the tray, or the animation is disabled — pop away silently, no dust.
                 gameObject.SetActive(false);
                 return;
             }
@@ -3539,6 +3553,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             _shownScale = transform.localScale;
             _showLeft = 0f;
             _hideLeft = WorldUI.ButtonTuning.DissolveSeconds;
+            WorldUI.ButtonTuning.LogAnim(name, "disappear (dust dissolve)");
             Vector3 center = _cap != null ? _cap.position : transform.position;
             float footprint = Collider is BoxCollider bc ? Mathf.Max(bc.size.x, bc.size.y) : 0.05f;
             WorldUI.ButtonDissolveFx.Play(center, -transform.forward,
