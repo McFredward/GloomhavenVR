@@ -176,33 +176,44 @@ namespace GloomhavenVR.WorldUI;
 /// the camera renders they replace. No per-frame allocations: mirror sync is field
 /// copies; records allocate only when a NEW camera is first mirrored.
 ///
-/// BLACK-BASE FALLBACK — LEFT-EYE MIRROR (hardware log build e6e6bffa1: the CampaignMap
-/// read BLACK in the LEFT eye, greyish in the RIGHT): the left eye normally shows the
-/// GAME cameras' own render (the base RT), which the desktop mirror and the mono
-/// fallback also use. That render can come out BLACK when the game camera runs a
-/// camera image effect / post-processing stack (OnRenderImage) that fails once its
-/// <c>targetTexture</c> is redirected onto our RT — a Unity image-effect-to-RT gotcha.
-/// The 3D map scene ('MapCamera', perspective, mask 0xF00FFE37) is the first such
-/// camera the screen ever captures (the menu's game cameras render nothing / only a
-/// camera-plane video, so they never hit it). The bare mod MIRROR — a plain camera
-/// with NO image-effect component — renders the raw scene fine (the greyish, ungraded
-/// right eye), which is the proof the geometry is in view and capturable.
+/// MAP BASE CAPTURE (hardware log builds e6e6bffa1 → 892455e8a: the CampaignMap read
+/// BLACK where the map should be). WHAT ACTUALLY DRAWS THE MAP (decompiled, confirmed):
+/// the campaign map parchment is ORDINARY MESH GEOMETRY — MapChoreographer.worldMap, a
+/// MeshRenderer with GH_WorldMap_01..04 materials — NOT an image effect, command buffer,
+/// render-texture, or screen-space canvas. So the earlier "the map is a post-processing
+/// effect a mirror can't reproduce" theory was WRONG.
 ///
-/// So when the base RT reads black while a 3D background camera is actively rendering,
-/// the LEFT eye is driven by a bare mod mirror too (a zero-offset clone of the source,
-/// into <see cref="_rtLeft"/>) — both eyes then show the raw scene with the SAME
-/// per-eye parallax the menu has (left at the source pose, right offset + convergence-
-/// shifted), so the map reads as a 3D window instead of a black void. The only cost is
-/// the game camera's own post-fx grading on that scene (already lost — it rendered
-/// black) plus one extra scene render while engaged. Detection is a throttled, 8x8-
-/// downsampled, ASYNC non-black probe of the base RT (<see cref="AsyncGPUReadback"/> —
-/// no GPU stall) requiring several consecutive black reads, so no currently-working
-/// scene (menu video, guildmaster town whose camera has no breaking effect) is ever
-/// switched. Engagement is sticky for the scene (the game base RT stays black) and
-/// re-arms on the next captured-stack release. [WorldUI] ScreenLeftMirrorFallback off
-/// = legacy (black left eye if the game camera renders black). NOTE: this covers the
-/// STEREO path; with StereoScreen off the mono single-RT path still shows the game
-/// camera's (black) render — the default is stereo on.
+/// Why every earlier attempt still went black — TWO independent causes, both now covered:
+///   (1) The game 'MapCamera' (perspective, mask 0xF00FFE37, depth −1) renders ALL-BLACK
+///       into the base RT once its <c>targetTexture</c> is redirected onto our RT (log
+///       max channel 1/255). So the LEFT eye / mono / desktop, which read the base RT,
+///       are black.
+///   (2) MapCamera's mask 0xF00FFE37 EXCLUDES the parchment's layer (excluded layers:
+///       3,6,7,8,20-27). The first attempt's rescue mirror copied that same mask, so it
+///       too skipped the parchment — the RIGHT eye showed the greyish NON-parchment
+///       background but a BLACK map region, and driving the left eye from an identical
+///       mirror simply made BOTH eyes black over the map.
+///
+/// FIX: when the base RT is detected black while a 3D background camera renders, the mod
+/// renders the map scene ITSELF — a zero-offset bare clone of the source camera with a
+/// WIDENED culling mask (all layers minus the mod layer, so the parchment layer is always
+/// included) and no image effect — into <see cref="_rtLeft"/>. That mod render is
+/// guaranteed non-black. Both eyes are then driven from it through the VIDEO DEPTH SHIFT
+/// path (both eyes = ±UV-shifted copies of _rtLeft, converged at the screen), giving the
+/// map the same 3D-window parallax the menu video gets — the KNOWN-WORKING stereo route,
+/// not a geometry mirror pair. If the shift path is unavailable (VideoDepthLayer off /
+/// VideoDepth 0 / shifted-RT failure) both eyes fall back to _rtLeft MONOSCOPICALLY —
+/// non-black either way (correctness first, 3D second). Cost: the scene's own colour
+/// grading (already lost — it was black) plus one extra scene render while engaged.
+///
+/// Detection is a throttled, 8x8-downsampled, ASYNC non-black probe of the base RT
+/// (<see cref="AsyncGPUReadback"/> — no GPU stall) requiring several consecutive black
+/// reads, so no currently-working scene (menu video, guildmaster town whose camera
+/// renders fine) is ever switched. Engagement is sticky for the scene (the game base RT
+/// stays black) and re-arms on the next captured-stack release. [WorldUI]
+/// ScreenLeftMirrorFallback off = legacy (black map if the game camera renders black).
+/// NOTE: this covers the STEREO path; with StereoScreen off the mono single-RT path
+/// still shows the game camera's (black) render — the default is stereo on.
 /// </summary>
 internal sealed class FlatScreenStereo
 {
@@ -245,12 +256,12 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<float>? s_videoDepth;
     private static ConfigEntry<bool>? s_leftMirrorFallback;
 
-    // ---- black-base fallback (class doc BLACK-BASE FALLBACK) --------------------------------
+    // ---- map base capture (class doc MAP BASE CAPTURE) -------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
     private const int BlackProbeSize = 8;
     /// <summary>Frames between async non-black probes of the base RT (while not yet engaged).</summary>
     private const int BlackProbeIntervalFrames = 30;
-    /// <summary>Consecutive all-black probe results before the left-eye mirror engages (transient guard).</summary>
+    /// <summary>Consecutive all-black probe results before map base capture engages (transient guard).</summary>
     private const int BlackConsecutiveToEngage = 3;
     /// <summary>Max 0..255 channel value still counted as "black" (guards a near-black graded frame).</summary>
     private const int BlackChannelThreshold = 6;
@@ -262,7 +273,7 @@ internal sealed class FlatScreenStereo
         public Camera Mirror = null!;
         public Transform MirrorTransform = null!;
         public GameObject Go = null!;
-        // Left-eye mirror (class doc BLACK-BASE FALLBACK) — created lazily only once the
+        // Map base-capture camera (class doc MAP BASE CAPTURE) — created lazily only once the
         // base RT is found to render black; a zero-offset bare clone of the source.
         public Camera? MirrorLeft;
         public Transform? MirrorLeftTransform;
@@ -295,15 +306,21 @@ internal sealed class FlatScreenStereo
     private RenderTexture? _leftRt;
     private Material? _quadMaterial;
 
-    // ---- black-base fallback (class doc BLACK-BASE FALLBACK) --------------------------------
-    /// <summary>Left-eye mirror output while <see cref="_leftMirrorMode"/> — bare mod render of the raw scene.</summary>
+    // ---- map base capture (class doc MAP BASE CAPTURE) -------------------------------------
+    /// <summary>
+    /// The mod's own render of the map scene while <see cref="_mapBaseCapture"/> — a bare
+    /// clone of the base 3D camera rendered with a WIDENED culling mask (all layers minus
+    /// the mod layer) so it captures the map parchment even though the game MapCamera's own
+    /// mask (0xF00FFE37) excludes that layer. Fed into the video depth-shift path so both
+    /// eyes show this non-black map (class doc MAP BASE CAPTURE).
+    /// </summary>
     private RenderTexture? _rtLeft;
     /// <summary>Small RT the base RT is downsampled into for the async non-black probe.</summary>
     private RenderTexture? _probeRt;
-    /// <summary>True once the base RT was found black — the left eye is driven by mod mirrors, not the game render.</summary>
-    private bool _leftMirrorMode;
-    /// <summary>Left-shifted RT creation failed this activation → no left-mirror fallback (avoid retry spam).</summary>
-    private bool _leftMirrorFailed;
+    /// <summary>True once the base RT was found black — both eyes are driven by the mod's own widened-mask map render, not the game render.</summary>
+    private bool _mapBaseCapture;
+    /// <summary>Map-base-capture RT creation failed this activation → stay on the game render (avoid retry spam).</summary>
+    private bool _mapBaseCaptureFailed;
     private int _blackProbeFrame = int.MinValue;
     private int _blackConsecutive;
     /// <summary>True while an async base-RT probe is in flight (one at a time).</summary>
@@ -416,14 +433,15 @@ internal sealed class FlatScreenStereo
             "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
             "geometry; clamped to 1-60.");
         s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", true,
-            "Rescue the LEFT eye when a captured 3D scene renders BLACK into the screen's " +
-            "render texture (the campaign map: its camera runs a post-processing/image effect " +
-            "that fails once its target is redirected onto our RT, so its own render is black " +
-            "while the mod mirror renders the raw scene fine). When the base RT is detected " +
-            "black, the left eye is driven by a bare mod mirror too, so both eyes show the 3D " +
-            "scene with parallax instead of one black eye. Costs that scene's own colour " +
+            "Rescue the map when a captured 3D scene renders BLACK into the screen's render " +
+            "texture (the campaign map: the game MapCamera renders all-black once its target " +
+            "is redirected onto our RT, AND its culling mask excludes the map parchment's " +
+            "layer). When the base RT is detected black, the mod renders the map scene itself " +
+            "with a WIDENED culling mask into its own texture and drives BOTH eyes from it " +
+            "through the depth-shift path — a non-black 3D-window map (mono non-black if the " +
+            "shift is unavailable) instead of a black void. Costs that scene's own colour " +
             "grading (already lost — it was black) plus one extra render while engaged. " +
-            "Off = legacy (black left eye if the game camera renders black).");
+            "Off = legacy (black map if the game camera renders black).");
     }
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
@@ -475,11 +493,11 @@ internal sealed class FlatScreenStereo
             _rtRight.Create();
         }
 
-        // Left-eye mirror RT tracks the base RT's dimensions (class doc BLACK-BASE
-        // FALLBACK); only kept alive while engaged.
+        // Map base-capture RT tracks the base RT's dimensions (class doc MAP BASE
+        // CAPTURE); only kept alive while engaged.
         if (_rtLeft != null && (_rtLeft.width != leftRt!.width || _rtLeft.height != leftRt.height))
             ReleaseLeftRt();
-        if (_leftMirrorMode && _rtLeft == null)
+        if (_mapBaseCapture && _rtLeft == null)
             EnsureLeftRt();
 
         if (!_active)
@@ -550,8 +568,8 @@ internal sealed class FlatScreenStereo
         ReleaseProbeRt();
         _probeGen++;                 // invalidate any in-flight probe callback
         _probePending = false;
-        _leftMirrorMode = false;
-        _leftMirrorFailed = false;
+        _mapBaseCapture = false;
+        _mapBaseCaptureFailed = false;
         _blackConsecutive = 0;
         if (_root != null)
         {
@@ -587,9 +605,9 @@ internal sealed class FlatScreenStereo
         _rtLeftShifted = null;
     }
 
-    // ---- black-base fallback: left-eye mirror (class doc BLACK-BASE FALLBACK) ----------------
+    // ---- map base capture: RT (class doc MAP BASE CAPTURE) ---------------------------------
 
-    /// <summary>Create the left-eye mirror RT matching the base RT (returns false on failure).</summary>
+    /// <summary>Create the map base-capture RT matching the base RT (returns false on failure).</summary>
     private bool EnsureLeftRt()
     {
         if (_leftRt == null)
@@ -801,20 +819,26 @@ internal sealed class FlatScreenStereo
             proj.m02 -= proj.m00 * (_sepScene / _convScene);
         mirror.projectionMatrix = proj;
 
-        // Left-eye mirror (class doc BLACK-BASE FALLBACK): a zero-offset bare clone of
-        // the source, so the LEFT eye no longer depends on the game camera's own
-        // (black) render into the base RT. Same fields as the right mirror; NO eye
-        // offset and the source's UNMODIFIED projection — it sits exactly where the
-        // game camera did, keeping the left↔right baseline = _sepScene and the
-        // convergence carried entirely by the right eye's asymmetric frustum.
-        if (_leftMirrorMode && _rtLeft != null)
+        // MAP BASE CAPTURE (class doc): a zero-offset bare clone of the source rendered
+        // with a WIDENED culling mask into the mod's own RT (_rtLeft), which the video
+        // depth-shift path then samples for BOTH eyes. The map parchment is ordinary mesh
+        // geometry (decompiled MapChoreographer.worldMap, GH_WorldMap materials) sitting on
+        // a layer the game MapCamera's mask (0xF00FFE37) EXCLUDES — so copying the source
+        // mask (the first attempt) reproduced a BLACK map region. Rendering all layers
+        // except the mod layer captures the parchment regardless of which layer it is on;
+        // the source's UNMODIFIED projection keeps the map framed exactly as the game did.
+        if (_mapBaseCapture && _rtLeft != null)
         {
             EnsureLeftMirror(entry);
             Camera lm = entry.MirrorLeft!;
             entry.MirrorLeftTransform!.SetPositionAndRotation(st.position, st.rotation);
             lm.clearFlags = source.clearFlags;
             lm.backgroundColor = source.backgroundColor;
-            lm.cullingMask = source.cullingMask & ~VRLayers.ModLayerMask;
+            // WIDENED mask (all layers minus the mod layer) — the core fix: the game
+            // MapCamera excludes the parchment's layer, so a source-mask clone renders it
+            // black. Our own camera has no image effect either, so the redirect breakage
+            // that blacks the game render into the base RT cannot affect it.
+            lm.cullingMask = ~VRLayers.ModLayerMask;
             lm.depth = source.depth;
             lm.rect = source.rect;
             lm.nearClipPlane = source.nearClipPlane;
@@ -861,11 +885,15 @@ internal sealed class FlatScreenStereo
 
         // Decision (class doc): the intro guard forces the suspension outright —
         // zero shift, the intro must remain verified-identical. Otherwise an active
-        // camera-plane video engages the uniform shift; if the shift path is
-        // unavailable (kill switch / zero depth / no shifted RT) the suspension
-        // fallback takes over — never one-eyed, never black (the vanilla player
-        // keeps drawing into the left RT either way).
+        // camera-plane video OR the map base capture engages the uniform shift; if the
+        // shift path is unavailable (kill switch / zero depth / no shifted RT) the
+        // suspension fallback takes over — never one-eyed, never black (the mod's own
+        // map render / the vanilla player keeps feeding the shift source either way).
+        // MAP BASE CAPTURE (class doc): the map's effect-less mesh is rendered by our own
+        // widened-mask camera into _rtLeft; routing it through the SAME shift path the
+        // menu video uses gives both eyes a non-black 3D-window map (task step 3).
         bool depthLayer = s_videoDepthLayer?.Value ?? true;
+        string? shiftSource = videoSource ?? (_mapBaseCapture ? "map base capture" : null);
         bool shift = false;
         bool suspend = false;
         string? suspendWhy = null;
@@ -873,12 +901,12 @@ internal sealed class FlatScreenStereo
         {
             suspend = true;
         }
-        else if (anyVideo)
+        else if (anyVideo || _mapBaseCapture)
         {
             if (!depthLayer)
                 suspendWhy = "VideoDepthLayer disabled";
             else if (_videoShiftUv <= 0f)
-                suspendWhy = "VideoDepth is 0 (video on the screen plane = plain mono)";
+                suspendWhy = "VideoDepth is 0 (content on the screen plane = plain mono)";
             else if (!EnsureShiftRt())
                 suspendWhy = "shifted-RT unavailable";
             else
@@ -890,12 +918,13 @@ internal sealed class FlatScreenStereo
         {
             _videoShift = shift;
             VRLog.Info("WorldUI", shift
-                ? $"Video depth shift ENGAGED for '{videoSource}': player untouched (vanilla " +
-                  "camera-plane render into the left RT); mirrors off, both eyes show shifted " +
-                  $"copies of the left RT (±{_videoShiftUv:F4} UV, {VideoOverscan:F2}x overscan) " +
-                  "— the whole background reads behind the glass UI."
-                : "Video depth shift RELEASED — camera-plane video no longer active on a " +
-                  "captured camera; per-eye mirror parallax re-engages.");
+                ? $"Depth shift ENGAGED for '{shiftSource}': shift source untouched (mod map " +
+                  "render into _rtLeft for the map base capture; vanilla camera-plane video into " +
+                  "the left RT otherwise); mirrors off, both eyes show shifted copies of it " +
+                  $"(±{_videoShiftUv:F4} UV, {VideoOverscan:F2}x overscan) — the background/map " +
+                  "reads behind the glass UI."
+                : "Depth shift RELEASED — no camera-plane video / map base capture active; " +
+                  "per-eye mirror parallax re-engages.");
         }
 
         if (suspend != _videoSuspended)
@@ -906,9 +935,10 @@ internal sealed class FlatScreenStereo
                     ? "Stereo screen SUSPENDED — intro guard: pre-menu scenes force identical " +
                       "eyes (both eyes = left RT, zero shift; the intro must remain " +
                       "verified-identical)."
-                    : "Stereo screen SUSPENDED — a captured camera plays a camera-plane video " +
-                      $"and the depth shift is unavailable ({suspendWhy}); both eyes show the " +
-                      "left RT until it ends.")
+                    : "Stereo screen SUSPENDED — the depth shift is unavailable " +
+                      $"({suspendWhy}); both eyes show the " +
+                      (_mapBaseCapture ? "mod map render (_rtLeft, mono non-black)" : "left RT") +
+                      " until it resumes.")
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
 
@@ -922,18 +952,21 @@ internal sealed class FlatScreenStereo
             if (want)
                 anyMirrorRendering = true;
 
-            // Left mirror follows the same gate, additionally gated on the fallback.
+            // The map base-capture camera renders whenever the fallback is engaged and its
+            // source is on — INDEPENDENT of the parallax-mirror gate (which is off while the
+            // shift runs): it fills _rtLeft, the very source the shift then samples for both
+            // eyes. Without this it would go dark exactly when the shift needs it.
             if (entry.MirrorLeft != null)
             {
-                bool wantLeft = want && _leftMirrorMode;
+                bool wantLeft = entry.SourceOn && _mapBaseCapture;
                 if (entry.MirrorLeft.enabled != wantLeft)
                     entry.MirrorLeft.enabled = wantLeft;
             }
         }
 
-        // Black-base probe (class doc BLACK-BASE FALLBACK): a 3D background camera is
+        // Map base-capture probe (class doc MAP BASE CAPTURE): a 3D background camera is
         // actively rendering (mirrors on) but the game's own render may be black —
-        // check the base RT and engage the left-eye mirror if so.
+        // check the base RT and engage map base capture if so.
         TickBlackProbe(anyMirrorRendering);
     }
 
@@ -972,7 +1005,7 @@ internal sealed class FlatScreenStereo
         return true;
     }
 
-    // ---- black-base fallback: probe + engage (class doc BLACK-BASE FALLBACK) -----------------
+    // ---- map base capture: probe + engage (class doc MAP BASE CAPTURE) ----------------------
 
     /// <summary>
     /// Throttled ASYNC non-black probe of the base RT. Runs only while a 3D background
@@ -983,7 +1016,7 @@ internal sealed class FlatScreenStereo
     /// </summary>
     private void TickBlackProbe(bool anyMirrorRendering)
     {
-        if (_leftMirrorMode || _leftMirrorFailed || !(s_leftMirrorFallback?.Value ?? true))
+        if (_mapBaseCapture || _mapBaseCaptureFailed || !(s_leftMirrorFallback?.Value ?? true))
             return;
         if (!anyMirrorRendering || _leftRt == null || _probePending)
             return;
@@ -1017,7 +1050,7 @@ internal sealed class FlatScreenStereo
     {
         _probePending = false;
         // Ignore results from a torn-down / superseded activation.
-        if (!_active || _leftMirrorMode || _probeReqGen != _probeGen || req.hasError)
+        if (!_active || _mapBaseCapture || _probeReqGen != _probeGen || req.hasError)
             return;
 
         var data = req.GetData<Color32>();
@@ -1045,37 +1078,42 @@ internal sealed class FlatScreenStereo
     }
 
     /// <summary>
-    /// The base RT reads black while a 3D background camera renders — switch the LEFT
-    /// eye to a bare mod mirror (created + rendered on the next sweep). Sticky for the
-    /// scene (the game render stays black); re-arms on the next stack release.
+    /// The base RT reads black while a 3D background camera renders — engage MAP BASE
+    /// CAPTURE: the mod renders the map scene itself with a WIDENED culling mask into
+    /// _rtLeft (created + rendered on the next sweep) and routes it through the depth-shift
+    /// path for both eyes. Sticky for the scene (the game render stays black); re-arms on
+    /// the next stack release.
     /// </summary>
     private void EngageLeftMirror(int maxChannel)
     {
-        if (_leftMirrorMode)
+        if (_mapBaseCapture)
             return;
         if (!EnsureLeftRt())
         {
-            _leftMirrorFailed = true;
-            VRLog.Warn("WorldUI", "Black-base fallback: left-eye mirror RT creation failed — " +
-                                  "left eye stays on the game render (may be black). Retries next activation.");
+            _mapBaseCaptureFailed = true;
+            VRLog.Warn("WorldUI", "Map base capture: capture RT creation failed — " +
+                                  "both eyes stay on the game render (may be black). Retries next activation.");
             return;
         }
-        _leftMirrorMode = true;
-        VRLog.Info("WorldUI", $"Black-base fallback ENGAGED: the screen's base RenderTexture reads " +
+        _mapBaseCapture = true;
+        VRLog.Info("WorldUI", $"MAP BASE CAPTURE ENGAGED: the screen's base RenderTexture reads " +
                               $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
-                              "3D background camera renders — the game camera's own render is black (an image " +
-                              "effect that fails on a redirected targetTexture, e.g. the campaign MapCamera). " +
-                              "The LEFT eye now renders from a bare mod mirror too, so both eyes show the 3D " +
-                              "scene with parallax (map reads as a 3D window; the scene's own colour grading is " +
-                              "lost — it was black). Re-arms on the next scene change.");
+                              "3D background camera renders. Decompiled evidence: the campaign map parchment is " +
+                              "ordinary mesh geometry (MapChoreographer.worldMap, GH_WorldMap materials) on a layer " +
+                              "the game MapCamera's mask (0xF00FFE37) EXCLUDES, and MapCamera's own render into the " +
+                              "redirected base RT comes out all-black. The mod now renders the map itself with a " +
+                              "WIDENED culling mask (all layers minus the mod layer) into _rtLeft and drives BOTH " +
+                              "eyes from it through the depth-shift path (3D window; mono non-black if the shift is " +
+                              "unavailable). The scene's own colour grading is lost — it was black. Re-arms on the " +
+                              "next scene change.");
     }
 
-    /// <summary>Create the lazily-allocated left-eye mirror camera for this entry (bare, disabled).</summary>
+    /// <summary>Create the lazily-allocated map base-capture camera for this entry (bare, disabled).</summary>
     private void EnsureLeftMirror(MirrorEntry entry)
     {
         if (entry.MirrorLeft != null || _root == null || _rtLeft == null)
             return;
-        var go = new GameObject("GloomhavenVR.StereoMirrorL." + entry.Source.name);
+        var go = new GameObject("GloomhavenVR.MapBaseCapture." + entry.Source.name);
         go.transform.SetParent(_root.transform, worldPositionStays: false);
         var cam = go.AddComponent<Camera>();
         cam.enabled = false;                            // EndStackSync flips it on
@@ -1085,8 +1123,9 @@ internal sealed class FlatScreenStereo
         entry.MirrorLeft = cam;
         entry.MirrorLeftTransform = go.transform;
         entry.GoLeft = go;
-        VRLog.Info("WorldUI", $"Black-base fallback: left-eye mirror created for '{entry.Source.name}' " +
-                              "(zero offset, unmodified projection — the left eye of the 3D pair).");
+        VRLog.Info("WorldUI", $"Map base capture: capture camera created for '{entry.Source.name}' " +
+                              "(zero offset, unmodified projection, WIDENED culling mask — renders the map " +
+                              "into _rtLeft; the depth-shift path drives both eyes from it).");
     }
 
     /// <summary>Destroy all mirrors (captured stack released — scene change / hide). Cheap to rebuild.</summary>
@@ -1097,13 +1136,13 @@ internal sealed class FlatScreenStereo
         _mirrors.Clear();
         _bySource.Clear();
 
-        // Re-arm the black-base fallback for the next scene (class doc BLACK-BASE
-        // FALLBACK): the evidence (a black base RT) belongs to the scene we just left.
+        // Re-arm map base capture for the next scene (class doc MAP BASE
+        // CAPTURE): the evidence (a black base RT) belongs to the scene we just left.
         // The RT is kept (dimensions re-checked in Tick); a late probe callback is
         // invalidated by the generation bump.
-        if (_leftMirrorMode || _blackConsecutive != 0)
+        if (_mapBaseCapture || _blackConsecutive != 0)
         {
-            _leftMirrorMode = false;
+            _mapBaseCapture = false;
             _blackConsecutive = 0;
             _probeGen++;
             _probePending = false;
@@ -1197,8 +1236,12 @@ internal sealed class FlatScreenStereo
         if (mat == null)
             return;
 
+        // Shift source: the mod's own map render (_rtLeft) while the map base capture is
+        // engaged — the game's base RT is black there; the camera-plane video's left RT
+        // otherwise (class doc MAP BASE CAPTURE / VIDEO DEPTH SHIFT).
+        RenderTexture? shiftSrc = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
         if (_videoShift && _shiftBlitFrame != Time.frameCount
-            && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
+            && shiftSrc != null && _rtRight != null && _rtLeftShifted != null)
         {
             _shiftBlitFrame = Time.frameCount;
             // Behind-the-screen (uncrossed) disparity displaces each eye's IMAGE
@@ -1210,8 +1253,8 @@ internal sealed class FlatScreenStereo
             float shift = _videoShiftUv;
             var scale = new Vector2(zoom, zoom);
             RenderTexture? previous = RenderTexture.active;
-            Graphics.Blit(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
-            Graphics.Blit(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
+            Graphics.Blit(shiftSrc, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
+            Graphics.Blit(shiftSrc, _rtRight, scale, new Vector2(margin - shift, margin));
             RenderTexture.active = previous;
         }
 
@@ -1251,19 +1294,21 @@ internal sealed class FlatScreenStereo
                                           : "using pass-parity fallback where Mono is reported."));
         }
 
-        // Target per eye: suspension → left RT for both; video depth shift → the
-        // per-eye shifted copies; otherwise the mirror-rendered right RT and, for the
-        // left eye, the base RT — or the LEFT MIRROR RT while the black-base fallback
-        // is engaged (class doc BLACK-BASE FALLBACK; the game render is black there).
+        // Target per eye: suspension → the shift source for both (the mod map render
+        // _rtLeft while the map base capture is engaged so the mono fallback is non-black,
+        // else the left RT); depth shift → the per-eye shifted copies; otherwise the
+        // mirror-rendered right RT and, for the left eye, the base RT (class doc MAP BASE
+        // CAPTURE — the game render is black there, which is why base capture routes
+        // through the shift/mono path instead of the base RT).
         RenderTexture? target;
         if (_videoSuspended)
-            target = _leftRt;
+            target = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
         else if (right)
             target = _rtRight != null ? _rtRight : _leftRt;
         else
-            target = _leftMirrorMode && _rtLeft != null ? _rtLeft : _leftRt;
+            target = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
         if (target != null && !ReferenceEquals(mat.mainTexture, target))
             mat.mainTexture = target;
     }
