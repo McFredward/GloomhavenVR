@@ -3194,13 +3194,15 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // the depth-fire at ~90% travel is still the press event; this only blocks the re-fire.
         private float _nextPressTime;
 
-        // Dust-dissolve hide / quick scale-in show (user #7). The logical hide is INSTANT
+        // Dust-dissolve hide / materialize-from-dust show (user #7). The logical hide is INSTANT
         // (collider off, poke state dropped); only the visuals shrink out for
-        // ButtonTuning.DissolveSeconds while the pooled dust burst plays.
+        // ButtonTuning.DissolveSeconds while the pooled dust burst plays. Appear reverses it:
+        // converging dust + a surface fade-in, in place (no scale/grow pop).
         private bool _logicalVisible = true;
         private bool _ticked;      // false until the first Update — a hide before then is silent (initial state settling)
         private float _hideLeft;   // dissolve shrink countdown, seconds
-        private float _showLeft;   // appear scale-in countdown, seconds
+        private float _showLeft;   // materialize-from-dust fade-in countdown, seconds
+        private Color _appearTarget = Color.white; // the cap colour the materialize fade ramps UP to
         private Vector3 _shownScale = Vector3.one;
 
         /// <summary>
@@ -3215,10 +3217,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// or procedural grey cube). Pass <paramref name="round"/> = true to build a
         /// ROUND disc sized to <paramref name="diameter"/> × <paramref name="thickness"/>
         /// that seats in the board's round rest-notches (feature 6a): the Base is a
-        /// recessed dark "well" ring, the Cap a palette-tinted pressable puck, both
-        /// flattened <see cref="PrimitiveType.Cylinder"/>s (Unity's cylinder is Y-up and
-        /// 2 units tall → rotate 90° about X so the disc axis lands on the button's local
-        /// Z press axis, then scale radius-X / half-height-Y / radius-Z). Round buttons
+        /// recessed dark "well" ring, the Cap a palette-tinted pressable puck, both SMOOTH
+        /// generated 64-sided discs (<see cref="CardMesh.GetRoundCap"/> — user: Unity's
+        /// primitive cylinder is only ~20-sided so a large round cap showed visible CORNERS;
+        /// the disc is authored at real size in the button's local frame, front face toward
+        /// the viewer along -Z, so no primitive rotation/scale is needed). Round buttons
         /// always use the procedural palette cap (the native skin's 9-slice is a rounded
         /// RECTANGLE, never a circle), so they read as turned-into-the-board discs. The
         /// existing cap-travel machinery, label and trigger collider are unchanged.
@@ -3237,22 +3240,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (round && diameter > 0f)
                 size = new Vector2(diameter, diameter);
 
-            // Cylinder discs stand the mesh axis (Y) up the button's local Z: rotate +90°
-            // about X so the +Y cylinder axis maps to +Z, then localScale (radius, half-
-            // height, radius) — the half-height (0.5 → mesh is 2 tall) becomes the disc
-            // thickness along Z, the radial X/Z become the diameter across the face.
-            var discRot = Quaternion.Euler(90f, 0f, 0f);
-
+            // Round caps (Base well + Cap puck) are SMOOTH generated discs now (user: the
+            // 'round' buttons showed visible CORNERS from Unity's ~20-sided primitive cylinder) —
+            // CardMesh.GetRoundCap authors the disc directly in the button's local frame (front
+            // face toward the viewer, -Z), so no primitive rotation/scale is needed.
             GameObject basePlate;
             if (round)
             {
-                basePlate = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                basePlate.name = "Base";
-                Object.Destroy(basePlate.GetComponent<Collider>());
+                // Smooth generated disc (user: the 'round' buttons showed visible CORNERS — Unity's
+                // primitive cylinder is only ~20-sided). Identity rotation / unit scale: the mesh is
+                // authored at REAL size (diameter × 6 mm thickness, centred on the origin), matching
+                // the old flattened-cylinder footprint. Slightly wider than the cap → a visible
+                // recessed well ring around the puck. Cached/shared across identical caps.
+                basePlate = new GameObject("Base");
                 basePlate.transform.SetParent(go.transform, worldPositionStays: false);
-                basePlate.transform.localRotation = discRot;
-                // Slightly wider than the cap → a visible recessed well ring around the puck.
-                basePlate.transform.localScale = new Vector3(size.x + 0.006f, 0.003f, size.x + 0.006f);
+                basePlate.AddComponent<MeshFilter>().sharedMesh =
+                    CardMesh.GetRoundCap(size.x + 0.006f, 0.006f);
+                basePlate.AddComponent<MeshRenderer>();
                 basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
             }
             else
@@ -3295,16 +3299,20 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
             if (round)
             {
-                // Round pressable puck: a flattened cylinder tinted from the board palette
-                // (StateColor) — no native 9-slice (it can't be circular). Sits proud of
-                // the well toward the viewer (-Z) and travels with the cap holder.
-                var capDisc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                capDisc.name = "CapMesh";
-                Object.Destroy(capDisc.GetComponent<Collider>());
+                // Round pressable puck: a smooth GENERATED disc (user: the 'round' buttons showed
+                // visible CORNERS — Unity's primitive cylinder is only ~20-sided, so a large round
+                // cap read as a faceted polygon). CardMesh.GetRoundCap builds a 64-sided disc at
+                // REAL size (diameter × thickness), identity-rotated / unit-scaled, so its front
+                // face still protrudes thickness/2 toward the viewer (-Z) exactly like the old
+                // flattened cylinder. Planar XY UVs let the shared carved-grain keycap _MainTex map
+                // across the round face (see below); one submesh = one keycap material. Sits proud
+                // of the well toward the viewer and travels with the cap holder.
+                float capThickR = Mathf.Max(0.002f, thickness);
+                var capDisc = new GameObject("CapMesh");
                 capDisc.transform.SetParent(cap.transform, worldPositionStays: false);
-                capDisc.transform.localRotation = discRot;
-                capDisc.transform.localScale = new Vector3(size.x, Mathf.Max(0.001f, thickness * 0.5f), size.x);
-                capFrontZ = CapRestZ - Mathf.Max(0.001f, thickness * 0.5f); // disc protrudes half its thickness toward the viewer
+                capDisc.AddComponent<MeshFilter>().sharedMesh = CardMesh.GetRoundCap(size.x, capThickR);
+                capDisc.AddComponent<MeshRenderer>();
+                capFrontZ = CapRestZ - capThickR * 0.5f; // disc protrudes half its thickness toward the viewer
                 // User (rest-cap alignment): the round rest puck now wears the SAME antique keycap
                 // SURFACE as the square Confirm/Undo/gear/Fixiert caps. Previously this branch used a
                 // bare Standard material with a flat state colour — a plain plastic puck — while the
@@ -3323,7 +3331,20 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                     Core.VRLog.Info("Cards", $"BoardButton '{fallbackLabel}': ROUND cap skinned with the shared " +
                                              "carved-grain keycap material (BoardLit + KeycapGrain _MainTex) — same antique " +
-                                             "wood/parchment surface as the square board keycaps; shape stays round, accent tint kept.");
+                                             "wood/parchment surface as the square board keycaps; shape stays round (64-seg " +
+                                             "generated disc), accent tint kept.");
+                }
+                else
+                {
+                    // Shaderless environment: the generated disc has no default material (unlike the
+                    // old CreatePrimitive cylinder), so seat a plain Standard-tinted material to match
+                    // the pre-fix fallback look — never render an unmaterialed (magenta) disc.
+                    Shader? fb = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+                    if (fb != null)
+                    {
+                        capMaterial = new Material(fb) { color = DisabledColor };
+                        capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                    }
                 }
                 capMeshRenderer = capDisc.GetComponent<MeshRenderer>();
             }
@@ -3531,19 +3552,22 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                     Collider.enabled = true;
                 if (!gameObject.activeSelf)
                     gameObject.SetActive(true);
-                // APPEAR (user): quick scale-in instead of a pop — only once the button has ticked
-                // (suppresses the build-then-settle storm) and while the animation is enabled
-                // ([ButtonAnim] Enable). Input/collider are already live above.
+                // APPEAR = MATERIALIZE FROM DUST (user: emerge from dust, matched to the crumble —
+                // NOT a scale/grow pop): converging dust motes settle onto the cap while its surface
+                // fades up from the dust to its full state colour, IN PLACE (no scaling). Only once
+                // the button has ticked (suppresses the build-then-settle storm) and while the
+                // animation is enabled ([ButtonAnim] Enable). Input/collider are already live above.
                 _showLeft = _ticked && WorldUI.ButtonTuning.ButtonAnimEnabled ? WorldUI.ButtonTuning.AppearSeconds : 0f;
                 if (_showLeft > 0f)
                 {
-                    WorldUI.ButtonTuning.LogAnim(name, "appear (scale-in)");
+                    _appearTarget = CurrentCapColor(); // the colour the surface fades UP to
+                    WorldUI.ButtonTuning.LogAnim(name, "appear (materialize-from-dust)");
                     if (WorldUI.ButtonTuning.AppearParticlesEnabled)
                     {
                         Vector3 c = _cap != null ? _cap.position : transform.position;
                         float fp = Collider is BoxCollider b ? Mathf.Max(b.size.x, b.size.y) : 0.05f;
-                        WorldUI.ButtonDissolveFx.PlayAppear(c, -transform.forward,
-                            fp * Mathf.Abs(transform.lossyScale.x), CurrentCapColor());
+                        WorldUI.ButtonDissolveFx.PlayMaterialize(c, -transform.forward,
+                            fp * Mathf.Abs(transform.lossyScale.x), _appearTarget);
                     }
                 }
                 return;
@@ -3652,14 +3676,27 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             }
             _ticked = true;
 
-            // Quick scale-in on appear (user #7) — runs alongside the normal press logic.
+            // MATERIALIZE-FROM-DUST fade-in (user: emerge from dust, NOT a scale pop) — runs
+            // alongside the normal press logic. The cap stays at full scale IN PLACE while its
+            // OPAQUE surface brightens from the dust (0.15×) up to its true state colour (a real
+            // fade with no transparency needed — safe on the BoardLit/Standard caps), under the
+            // converging dust cloud. On completion UpdateColor() restores the exact state colours.
             if (_showLeft > 0f)
             {
                 _showLeft -= Time.deltaTime;
                 float k = 1f - Mathf.Max(0f, _showLeft / WorldUI.ButtonTuning.AppearSeconds);
-                transform.localScale = _shownScale * Mathf.SmoothStep(0.55f, 1f, k);
+                transform.localScale = _shownScale; // materialize in place — no grow/scale pop
+                float b = Mathf.SmoothStep(0.15f, 1f, k);
+                Color faded = _appearTarget * b; faded.a = _appearTarget.a;
+                if (_capFace != null)
+                    _capFace.color = faded;
+                else
+                    SetCapColor(faded);
                 if (_showLeft <= 0f)
+                {
                     transform.localScale = _shownScale;
+                    UpdateColor(); // snap back to the exact state colour (top/bevel/wall or native face)
+                }
             }
 
             if (_dwellHand != null)

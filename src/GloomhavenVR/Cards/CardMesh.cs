@@ -347,6 +347,141 @@ internal static class CardMesh
         return mesh;
     }
 
+    /// <summary>
+    /// Segment count for the generated round board caps (user: "you can see the CORNERS in
+    /// the 'round' buttons"). Unity's <see cref="PrimitiveType.Cylinder"/> has only ~20 radial
+    /// sides, so a large round keycap reads as a faceted polygon; 64 sides reads perfectly
+    /// smooth at the caps' on-board size while staying a trivial one-time build.
+    /// </summary>
+    internal const int RoundCapSegments = 64;
+
+    private static readonly System.Collections.Generic.Dictionary<(int, int, int), Mesh> _roundCapCache = new();
+
+    /// <summary>
+    /// Cached, SHARED high-segment round-cap disc (see <see cref="BuildRoundCap"/>). Keyed on
+    /// (diameter, thickness, segments) quantised to 0.1 mm so identical caps — every rest disc,
+    /// and Confirm/Undo when their per-board shape is Round — reuse ONE mesh instead of
+    /// rebuilding per button. Never rebuilt per frame (called once at each button's build).
+    /// </summary>
+    internal static Mesh GetRoundCap(float diameter, float thickness, int segments = RoundCapSegments)
+    {
+        segments = Mathf.Clamp(segments, 12, 128);
+        var key = (Mathf.RoundToInt(diameter * 10000f), Mathf.RoundToInt(thickness * 10000f), segments);
+        if (_roundCapCache.TryGetValue(key, out Mesh cached) && cached != null)
+            return cached;
+        Mesh built = BuildRoundCap(diameter, thickness, segments);
+        _roundCapCache[key] = built;
+        return built;
+    }
+
+    /// <summary>
+    /// Smooth round keycap/disc mesh (user: the 'round' board buttons showed visible CORNERS
+    /// because they were Unity's ~20-sided <see cref="PrimitiveType.Cylinder"/>). A genuine
+    /// <paramref name="segments"/>-sided disc — a front cap fan (viewer side, −Z), a back cap
+    /// fan (+Z) and a radial side wall — authored at REAL size (<paramref name="diameter"/> ×
+    /// <paramref name="thickness"/>, centred on the local origin) so the owning holder stays
+    /// identity-rotated / unit-scaled, reproducing the exact placement the flattened cylinder
+    /// had (the front face protrudes <paramref name="thickness"/>/2 toward the viewer).
+    ///
+    /// Planar XY UVs (u = x/diameter + 0.5, v = y/diameter + 0.5) — the SAME convention as the
+    /// card front (<see cref="Build"/>) and the beveled keycap (<see cref="BuildBeveledKeycap"/>)
+    /// — so the shared carved-grain keycap <c>_MainTex</c> (grayscale grain × the state colour)
+    /// maps across the round face exactly as it does on the square caps; the side wall samples
+    /// its rim XY (a thin grain strip, like the keycap walls, texture set to Repeat). One
+    /// submesh (the round caps carry a single keycap material — no bevel/wall split), so the
+    /// caller's <c>sharedMaterial</c> and <c>SetCapColor</c> drive it unchanged.
+    /// </summary>
+    internal static Mesh BuildRoundCap(float diameter, float thickness, int segments)
+    {
+        segments = Mathf.Clamp(segments, 12, 128);
+        int seg = segments;
+        float r = diameter * 0.5f;
+        float h = Mathf.Max(0.0005f, thickness * 0.5f);
+        float zFront = -h;  // viewer side (−Z), matching the flattened-cylinder placement
+        float zBack = h;
+
+        var verts = new System.Collections.Generic.List<Vector3>(seg * 4 + 2);
+        var norms = new System.Collections.Generic.List<Vector3>(seg * 4 + 2);
+        var uvs = new System.Collections.Generic.List<Vector2>(seg * 4 + 2);
+        var tris = new System.Collections.Generic.List<int>(seg * 12);
+
+        Vector2 Uv(float x, float y) => new(x / diameter + 0.5f, y / diameter + 0.5f);
+
+        var ring = new Vector2[seg];
+        for (int i = 0; i < seg; i++)
+        {
+            float a = 2f * Mathf.PI * i / seg;
+            ring[i] = new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r);
+        }
+
+        // Front ring + centre (normal −Z, viewer side).
+        int frontBase = verts.Count;
+        for (int i = 0; i < seg; i++)
+        {
+            verts.Add(new Vector3(ring[i].x, ring[i].y, zFront));
+            norms.Add(Vector3.back);
+            uvs.Add(Uv(ring[i].x, ring[i].y));
+        }
+        int frontCenter = verts.Count;
+        verts.Add(new Vector3(0f, 0f, zFront)); norms.Add(Vector3.back); uvs.Add(new Vector2(0.5f, 0.5f));
+
+        // Back ring + centre (normal +Z).
+        int backBase = verts.Count;
+        for (int i = 0; i < seg; i++)
+        {
+            verts.Add(new Vector3(ring[i].x, ring[i].y, zBack));
+            norms.Add(Vector3.forward);
+            uvs.Add(Uv(ring[i].x, ring[i].y));
+        }
+        int backCenter = verts.Count;
+        verts.Add(new Vector3(0f, 0f, zBack)); norms.Add(Vector3.forward); uvs.Add(new Vector2(0.5f, 0.5f));
+
+        // Side wall: duplicated ring verts (front+back) with hard radial-outward normals.
+        int wallBase = verts.Count;
+        for (int i = 0; i < seg; i++)
+        {
+            Vector3 outward = new Vector3(ring[i].x, ring[i].y, 0f).normalized;
+            verts.Add(new Vector3(ring[i].x, ring[i].y, zFront));
+            verts.Add(new Vector3(ring[i].x, ring[i].y, zBack));
+            norms.Add(outward); norms.Add(outward);
+            uvs.Add(Uv(ring[i].x, ring[i].y)); uvs.Add(Uv(ring[i].x, ring[i].y));
+        }
+
+        // Front cap fan (visible from −Z): centre → next → i (clockwise from −Z, per Build's
+        // front face — the winding that makes the RH normal point toward the viewer).
+        for (int i = 0; i < seg; i++)
+        {
+            int next = (i + 1) % seg;
+            tris.Add(frontCenter); tris.Add(frontBase + next); tris.Add(frontBase + i);
+        }
+        // Back cap fan (visible from +Z): centre → i → next.
+        for (int i = 0; i < seg; i++)
+        {
+            int next = (i + 1) % seg;
+            tris.Add(backCenter); tris.Add(backBase + i); tris.Add(backBase + next);
+        }
+        // Side wall quads (outward-facing — same winding as Build's rim: a,c,b / c,d,b).
+        for (int i = 0; i < seg; i++)
+        {
+            int next = (i + 1) % seg;
+            int a = wallBase + i * 2;        // front, i
+            int b = wallBase + i * 2 + 1;    // back, i
+            int c = wallBase + next * 2;     // front, next
+            int d = wallBase + next * 2 + 1; // back, next
+            tris.Add(a); tris.Add(c); tris.Add(b);
+            tris.Add(c); tris.Add(d); tris.Add(b);
+        }
+
+        var mesh = new Mesh { name = "GloomhavenVR.RoundCap" };
+        mesh.SetVertices(verts);
+        mesh.SetNormals(norms);
+        mesh.SetUVs(0, uvs);
+        mesh.subMeshCount = 1;
+        mesh.SetTriangles(tris, 0);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
     private static Vector3 OutwardNormal(Vector2 p, float hw, float hh, float r)
     {
         // Direction from the nearest corner-arc center (also correct on the straight
