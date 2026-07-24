@@ -928,54 +928,83 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 /// <summary>
 /// SELECTION-PHASE "who still has to choose" cue, rendered ON THE INITIATIVE ORDER BAR (the
 /// <see cref="InitiativeTrackSurface"/> docked to the control-board tray) instead of on the board
-/// minis. A soft amber field is pulsed over the initiative entry of every actor the local player
-/// controls that has not yet finished card selection, so a glance at the initiative bar shows
-/// which characters still need choosing. The instant an actor commits (two cards / long rest) its
-/// entry glow clears, and the whole set clears when the selection phase ends.
+/// minis. A small amber RING pulses AROUND the portrait of every actor the local player controls
+/// that has not yet finished card selection, so a glance at the initiative bar shows which
+/// characters still need choosing. The instant an actor commits (two cards / long rest) its ring
+/// clears, and the whole set clears when the selection phase ends.
+///
+/// WHY A FRAME AROUND THE PORTRAIT, NOT A FILL OVER IT (user feedback): the first cut washed a flat
+/// amber field over the whole initiative entry and the user saw NOTHING and disliked the "flat area
+/// that doesn't fit". Two things sank it: it was parented to the <c>InitiativeTrackActorBehaviour</c>
+/// (the layout/click NODE), whose RectTransform is not the visible avatar rect — a fill+few-px
+/// overlay on it lands off the actual portrait art — and a low-alpha wash reads as nothing anyway.
+/// This version attaches a hollow, 9-sliced amber border sprite as a child of the AVATAR PORTRAIT
+/// itself (<c>InitiativeTrackActorAvatar.m_AvatarImage</c>, the <c>RawImage</c> the game draws the
+/// character face on), sized to the portrait rect + an outset, so the glow sits in the margin band
+/// straddling the portrait edge — visibly framing the face rather than covering it, and correctly
+/// placed/scaled because it inherits the portrait's own rect, depth, and layer.
 ///
 /// The initiative bar is the game's OWN <c>InitiativeTrack</c> (adopted into world space by
-/// <see cref="InitiativeTrackSurface"/>, not copied), so there is a single set of entries; each
-/// actor's entry is the <c>InitiativeTrackActorBehaviour</c> resolved by the game's public
+/// <see cref="InitiativeTrackSurface"/>, not copied); each actor's entry is the
+/// <c>InitiativeTrackActorBehaviour</c> resolved by the game's public
 /// <c>InitiativeTrack.FindInitiativeTrackActor(actor)</c> (its <c>.Actor</c> is the very
-/// <c>CPlayerActor</c> from the scenario, so the match is reference-exact). We attach a child
-/// <c>Image</c> overlay to that entry's RectTransform — never touching the entry's own graphics —
-/// and drive only its alpha. The overlay:
+/// <c>CPlayerActor</c> from the scenario, so the match is reference-exact). The ring:
 /// <list type="bullet">
 /// <item>has <c>raycastTarget = false</c>, so it never intercepts the portrait's character-switch
 ///   click (the whole point of the pokeable track);</item>
-/// <item>is drawn LAST (front) at a low, breathing alpha so the portrait stays fully readable — a
-///   subtle "waiting" tint, not a wash;</item>
-/// <item>is a nested descendant of the entry (not a direct <c>initiativeTrackHolder</c> child), so
-///   it is invisible to <see cref="InitiativeTrackSurface"/>'s per-portrait depth normalization
-///   (z==0 ⇒ ignored) and depth-aware laser pick (which only scans direct holder children);</item>
-/// <item>copies the entry's CURRENT layer every tick, so it rides the surface's mod-layer
-///   re-layering across convert/release cycles and renders on exactly the cameras the entry does.</item>
+/// <item>is a hollow (fillCenter=false) 9-sliced border — a thin amber outline in the portrait's
+///   margin — so the face stays fully visible; it breathes (alpha + a subtle scale pulse) on
+///   <c>Time.unscaledTime</c> so it keeps animating while the game is time-paused during the
+///   selection camera move;</item>
+/// <item>is a nested descendant of the portrait (not a direct <c>initiativeTrackHolder</c> child) at
+///   local z 0, so it is invisible to <see cref="InitiativeTrackSurface"/>'s per-portrait depth
+///   normalization (z==0 ⇒ ignored) and depth-aware laser pick (which only scans direct holder
+///   children), while inheriting the portrait's compressed depth for correct occlusion;</item>
+/// <item>copies the portrait's CURRENT layer every tick, so it rides the surface's mod-layer
+///   re-layering across convert/release cycles and renders on exactly the cameras the portrait does.</item>
 /// </list>
 /// Entries are pooled/reused by the game, so we re-resolve pending → entry every tick and hide any
-/// overlay whose entry is no longer pending; overlays are kept (deactivated) for cheap reuse and
-/// only destroyed on <see cref="Reset"/> (module hot-reload).
+/// ring whose entry is no longer pending; rings are kept (deactivated) for cheap reuse and only
+/// destroyed on <see cref="Reset"/> (module hot-reload).
 /// </summary>
 internal static class InitiativeSelectionGlow
 {
-    /// <summary>Warm amber "still waiting" tint; only the alpha is animated.</summary>
+    /// <summary>Warm amber "still waiting" ring; only alpha (× the sprite's own falloff) is tinted.</summary>
     private static readonly Color GlowColor = new Color(1f, 0.72f, 0.20f);
 
-    /// <summary>Front overlay outset (uGUI px) so the tint bleeds slightly past the portrait edge.</summary>
-    private const float OutsetPixels = 6f;
+    /// <summary>Ring outset (uGUI px) past the portrait rect, so the frame sits in the margin band.</summary>
+    private const float OutsetPixels = 8f;
 
-    // Overlay Image per entry we have ever lit (entry may be Unity-destroyed on scene change → pruned).
-    private static readonly Dictionary<InitiativeTrackActorBehaviour, Image> s_overlays = new(16);
+    /// <summary>Peak of the breathing scale pulse (1 = portrait+outset size). Subtle, in-theme.</summary>
+    private const float ScalePulse = 0.05f;
+
+    /// <summary>Breaths per second of the ring's scale pulse (matches the driver's alpha period).</summary>
+    private const float PulseHz = 1f / 1.5f;
+
+    // Ring Image per entry we have ever lit (entry may be Unity-destroyed on scene change → pruned).
+    private static readonly Dictionary<InitiativeTrackActorBehaviour, Image> s_rings = new(16);
     private static readonly HashSet<InitiativeTrackActorBehaviour> s_active = new();
     private static readonly List<InitiativeTrackActorBehaviour> s_stale = new(16);
 
+    /// <summary>Shared generated ring sprite (hollow 9-sliced amber border); built once, reused for all.</summary>
+    private static Sprite? s_ringSprite;
+
+    // One-shot on-screen diagnostic per entry so a future "I see no ring" is answerable from the log.
+    private static readonly HashSet<InitiativeTrackActorBehaviour> s_diagLogged = new();
+    private static readonly Vector3[] s_diagCorners = new Vector3[4];
+
     /// <summary>
-    /// Show the pulsing glow on every pending actor's initiative entry at <paramref name="alpha"/>,
-    /// and hide the glow on every entry that is no longer pending. Safe to call with an empty list
-    /// (hides everything). No-op-safe when the track is not built yet.
+    /// Pulse the ring around every pending actor's portrait at <paramref name="alpha"/>, and hide the
+    /// ring on every entry that is no longer pending. Safe to call with an empty list (hides
+    /// everything). No-op-safe when the track is not built yet.
     /// </summary>
     public static void Apply(List<CPlayerActor> pending, float alpha)
     {
         s_active.Clear();
+        // Breathing scale, in phase with the driver's alpha pulse; unscaledTime so it animates even
+        // while TimeManager is paused during the selection camera move.
+        float breath = 1f + ScalePulse * (Mathf.Sin(Time.unscaledTime * (2f * Mathf.PI * PulseHz)) + 1f) * 0.5f;
+
         InitiativeTrack track = InitiativeTrack.Instance;
         if (track != null && pending != null)
         {
@@ -988,28 +1017,32 @@ internal static class InitiativeSelectionGlow
                 if (entry == null || !entry.gameObject.activeInHierarchy)
                     continue; // entry not spawned / not on screen — light nothing this frame
 
-                Image overlay = EnsureOverlay(entry);
-                if (overlay == null)
-                    continue;
+                Image ring = EnsureRing(entry);
+                if (ring == null)
+                    continue; // portrait not resolvable yet — retry next tick
                 s_active.Add(entry);
 
-                // Ride the entry's current layer (mod layer when the surface is converted).
-                GameObject go = overlay.gameObject;
-                if (go.layer != entry.gameObject.layer)
-                    go.layer = entry.gameObject.layer;
+                // Ride the portrait's current layer (mod layer when the surface is converted).
+                GameObject go = ring.gameObject;
+                int layer = ring.transform.parent != null ? ring.transform.parent.gameObject.layer : go.layer;
+                if (go.layer != layer)
+                    go.layer = layer;
 
                 Color c = GlowColor;
                 c.a = alpha;
-                overlay.color = c;
+                ring.color = c;
+                ring.transform.localScale = new Vector3(breath, breath, 1f);
                 if (!go.activeSelf)
                     go.SetActive(true);
+
+                LogRingDiagOnce(entry, ring);
             }
         }
 
-        // Deactivate overlays whose entry is no longer pending (committed, reassigned by pooling,
+        // Deactivate rings whose entry is no longer pending (committed, reassigned by pooling,
         // exhausted, or gone). Prune entries the game has since destroyed.
         s_stale.Clear();
-        foreach (KeyValuePair<InitiativeTrackActorBehaviour, Image> kv in s_overlays)
+        foreach (KeyValuePair<InitiativeTrackActorBehaviour, Image> kv in s_rings)
         {
             if (kv.Key == null || kv.Value == null || !s_active.Contains(kv.Key))
                 s_stale.Add(kv.Key!); // Unity fake-null (destroyed entry) is a real ref, never null
@@ -1017,71 +1050,179 @@ internal static class InitiativeSelectionGlow
         for (int i = 0; i < s_stale.Count; i++)
         {
             InitiativeTrackActorBehaviour entry = s_stale[i];
-            if (entry == null || !s_overlays.TryGetValue(entry, out Image overlay) || overlay == null)
+            if (entry == null || !s_rings.TryGetValue(entry, out Image ring) || ring == null)
             {
-                s_overlays.Remove(entry!);
+                s_rings.Remove(entry!);
                 continue;
             }
-            if (overlay.gameObject.activeSelf)
-                overlay.gameObject.SetActive(false);
+            if (ring.gameObject.activeSelf)
+                ring.gameObject.SetActive(false);
         }
     }
 
-    /// <summary>Hide every glow (phase exit / feature off). Overlays are kept for cheap reuse.</summary>
+    /// <summary>Hide every ring (phase exit / feature off). Rings are kept for cheap reuse.</summary>
     public static void ClearAll()
     {
-        if (s_overlays.Count == 0)
+        if (s_rings.Count == 0)
             return;
-        foreach (Image overlay in s_overlays.Values)
+        foreach (Image ring in s_rings.Values)
         {
-            if (overlay != null && overlay.gameObject.activeSelf)
-                overlay.gameObject.SetActive(false);
+            if (ring != null && ring.gameObject.activeSelf)
+                ring.gameObject.SetActive(false);
         }
     }
 
-    /// <summary>Destroy every overlay GameObject and forget them (module shutdown / hot-reload).</summary>
+    /// <summary>Destroy every ring GameObject and forget them (module shutdown / hot-reload).</summary>
     public static void Reset()
     {
-        foreach (Image overlay in s_overlays.Values)
+        foreach (Image ring in s_rings.Values)
         {
-            if (overlay != null)
-                Object.Destroy(overlay.gameObject);
+            if (ring != null)
+                Object.Destroy(ring.gameObject);
         }
-        s_overlays.Clear();
+        s_rings.Clear();
         s_active.Clear();
         s_stale.Clear();
+        s_diagLogged.Clear();
     }
 
-    /// <summary>Lazily build (or rebuild after a scene-swap destroyed it) the entry's overlay Image.</summary>
-    private static Image EnsureOverlay(InitiativeTrackActorBehaviour entry)
+    /// <summary>
+    /// Resolve the actual VISIBLE portrait rect of an entry — the avatar face
+    /// (<c>InitiativeTrackActorAvatar.m_AvatarImage</c>, a <c>RawImage</c>). We take the first active
+    /// RawImage under the entry's <c>Avatar</c> (the character face is the avatar's only RawImage;
+    /// every other graphic — initiative digit, name, selection frame — is a TMP/Image). Returns null
+    /// while the avatar has not been pooled in yet.
+    /// </summary>
+    private static RectTransform? FindPortraitRect(InitiativeTrackActorBehaviour entry)
     {
-        if (s_overlays.TryGetValue(entry, out Image existing))
+        InitiativeTrackActorAvatar avatar = entry.Avatar;
+        if (avatar == null)
+            return null;
+        RawImage[] raws = avatar.GetComponentsInChildren<RawImage>(includeInactive: false);
+        for (int i = 0; i < raws.Length; i++)
         {
-            if (existing != null)
-                return existing;
-            s_overlays.Remove(entry); // destroyed with the old track — rebuild below
+            RawImage r = raws[i];
+            if (r != null && r.transform is RectTransform rt)
+                return rt;
         }
-        if (entry.transform is not RectTransform parent)
-            return null!;
+        return null;
+    }
 
-        var go = new GameObject("GloomhavenVR.SelectionGlow", typeof(RectTransform), typeof(Image));
+    /// <summary>Lazily build (or rebuild after a scene-swap destroyed it) the entry's portrait ring.</summary>
+    private static Image EnsureRing(InitiativeTrackActorBehaviour entry)
+    {
+        if (s_rings.TryGetValue(entry, out Image existing))
+        {
+            if (existing != null && existing.transform.parent != null)
+                return existing;
+            s_rings.Remove(entry); // destroyed / re-pooled with the old track — rebuild below
+        }
+
+        RectTransform? portrait = FindPortraitRect(entry);
+        if (portrait == null)
+            return null!; // avatar face not laid out yet — caller retries next tick
+
+        var go = new GameObject("GloomhavenVR.SelectionRing", typeof(RectTransform), typeof(Image));
         var rt = (RectTransform)go.transform;
-        rt.SetParent(parent, worldPositionStays: false);
+        rt.SetParent(portrait, worldPositionStays: false);
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(-OutsetPixels, -OutsetPixels);
         rt.offsetMax = new Vector2(OutsetPixels, OutsetPixels);
         rt.localScale = Vector3.one;
         rt.localRotation = Quaternion.identity;
-        rt.SetAsLastSibling(); // front tint — guaranteed visible over an opaque portrait
+        rt.localPosition = new Vector3(rt.localPosition.x, rt.localPosition.y, 0f); // z==0 ⇒ ignored by depth passes
+        rt.SetAsLastSibling(); // draw after the face — the ring lives in the margin, nothing occludes it
 
         var img = go.GetComponent<Image>();
+        img.sprite = GetRingSprite();
+        img.type = Image.Type.Sliced;
+        img.fillCenter = false; // hollow — a frame, never a wash over the face
         img.color = GlowColor;
         img.raycastTarget = false; // MUST NOT eat the portrait's character-switch click
-        go.layer = parent.gameObject.layer;
+        go.layer = portrait.gameObject.layer;
         go.SetActive(false); // Apply activates it this same tick
 
-        s_overlays[entry] = img;
+        s_rings[entry] = img;
         return img;
+    }
+
+    /// <summary>
+    /// Generate the shared hollow ring sprite once: a soft amber OUTLINE that fades from a bright core
+    /// near the portrait edge inward to nothing, authored so it 9-slices cleanly (the falloff lives
+    /// entirely inside the sprite border, the stretched center is fully transparent). White pixels —
+    /// the amber comes from <see cref="GlowColor"/> tinting the Image.
+    /// </summary>
+    private static Sprite GetRingSprite()
+    {
+        if (s_ringSprite != null)
+            return s_ringSprite;
+
+        const int size = 48;
+        const int border = 16; // 9-slice margin (px) — the whole glow falloff fits inside it
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false, linear: false)
+        {
+            name = "GloomhavenVR.SelectionRingTex",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+        };
+        var px = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        {
+            int dyEdge = Mathf.Min(y, size - 1 - y);
+            for (int x = 0; x < size; x++)
+            {
+                int dxEdge = Mathf.Min(x, size - 1 - x);
+                float d = Mathf.Min(dxEdge, dyEdge); // px to the nearest outer edge
+                float a;
+                if (d < 2f)
+                    a = d / 2f;                       // soft outer lip
+                else if (d <= 6f)
+                    a = 1f;                           // bright outline core
+                else if (d < border)
+                {
+                    float t = (d - 6f) / (border - 6f); // fade inward to transparent
+                    a = (1f - t) * (1f - t);
+                }
+                else
+                    a = 0f;                           // transparent center (stretched by 9-slice)
+                px[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.Clamp(Mathf.RoundToInt(a * 255f), 0, 255));
+            }
+        }
+        tex.SetPixels32(px);
+        tex.Apply(updateMipmaps: false);
+
+        // ppu 100 == the uGUI reference, so the border strips render ~border px thick in UI space.
+        s_ringSprite = Sprite.Create(
+            tex, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f),
+            100f, 0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
+        s_ringSprite.name = "GloomhavenVR.SelectionRing";
+        return s_ringSprite;
+    }
+
+    /// <summary>
+    /// One line per entry the first time its ring lights: the resolved portrait, its world-space rect
+    /// size, and the layer it renders on — so a "the ring is invisible" report is diagnosable from the
+    /// hardware log alone (Info level: BepInEx's default disk config drops Debug). Never throws.
+    /// </summary>
+    private static void LogRingDiagOnce(InitiativeTrackActorBehaviour entry, Image ring)
+    {
+        if (!s_diagLogged.Add(entry))
+            return;
+        try
+        {
+            if (ring.transform is not RectTransform rt)
+                return;
+            rt.GetWorldCorners(s_diagCorners); // 0=BL,1=TL,2=TR,3=BR
+            float w = (s_diagCorners[3] - s_diagCorners[0]).magnitude;
+            float h = (s_diagCorners[1] - s_diagCorners[0]).magnitude;
+            string portrait = rt.parent != null ? rt.parent.name : "?";
+            VRLog.Info("Board", $"[SelectionReady] ring on portrait '{portrait}' (entry '{entry.name}'): " +
+                                $"world {w:F3}x{h:F3} m, layer {LayerMask.LayerToName(ring.gameObject.layer)}.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Board", $"[SelectionReady] ring diag skipped ({ex.Message}).");
+        }
     }
 }

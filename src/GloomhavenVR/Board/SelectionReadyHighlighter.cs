@@ -43,12 +43,14 @@ namespace GloomhavenVR.Board;
 /// </summary>
 internal sealed class SelectionReadyHighlighter : MonoBehaviour
 {
-    // Smooth "breathing" glow: a low, gentle sine on the overlay alpha (unscaledTime so it animates
-    // even while TimeManager is paused during selection camera moves). Subtle enough to keep the
-    // portrait readable — a "still waiting" tint, not a strobe.
+    // Smooth "breathing" ring: a gentle sine on the amber portrait-frame alpha (unscaledTime so it
+    // animates even while TimeManager is paused during selection camera moves). Because the glow is
+    // now a THIN OUTLINE in the portrait's margin (InitiativeSelectionGlow) — not a flat wash over
+    // the face the user couldn't see — it can breathe at a bold, clearly-visible alpha while the
+    // hollow center keeps the portrait fully readable. The scale pulse is added ring-side in phase.
     private const float PulsePeriod = 1.5f;
-    private const float MinAlpha = 0.10f;
-    private const float MaxAlpha = 0.34f;
+    private const float MinAlpha = 0.40f;
+    private const float MaxAlpha = 0.90f;
 
     private static ConfigEntry<bool>? _enabled;
 
