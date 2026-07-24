@@ -113,8 +113,8 @@ internal sealed class BoardModule : IVRModule
         _driverGo.AddComponent<FigureGrab.FigureGrabDriver>();
         // Feature #3: laser + dominant-hand "A" (primaryButton) → game hex ping.
         _driverGo.AddComponent<BoardPing>();
-        // Selection cue: pulse the native actor glow under the local player's figures that have
-        // not yet finished card selection (two cards / long rest).
+        // Selection cue: pulse a soft highlight on the INITIATIVE ORDER BAR entry of every local
+        // player figure that has not yet finished card selection (two cards / long rest).
         _driverGo.AddComponent<SelectionReadyHighlighter>();
 
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
