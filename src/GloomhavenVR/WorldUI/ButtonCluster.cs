@@ -353,7 +353,9 @@ internal sealed class ButtonCluster
                               "proud of the board face; labels depth-honest (per-label font-material instance, " +
                               "queue 3000 + ZTest LEqual). ANTIQUE caps (user #5): wood-grain keycap + engraved " +
                               "parchment label, the VR-settings-gear style (game-default sprite face removed). " +
-                              "Docked layout (user #8): RIGHT-side auto-fit column beside the Undo/gear pads.");
+                              $"Round-label seated {PhysicalButton.DockedLabelProud * 1000f:0.0} mm proud of the cap TOP face " +
+                              "(user #4: down from 10 mm so it no longer floats; anti-flicker from render-queue + ZTest " +
+                              "ordering, not the offset). Docked layout (user #8): RIGHT-side auto-fit column beside the Undo/gear pads.");
     }
 
     /// <summary>
@@ -596,8 +598,21 @@ internal sealed class ButtonCluster
         /// <summary>Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>.</summary>
         private const float FingertipRadius = 0.008f;
 
-        /// <summary>Root-local margin the docked label is held PROUD of the cap top face (flicker fix — see <see cref="_capTopLocalY"/>).</summary>
-        private const float DockedLabelProud = 0.010f;
+        /// <summary>
+        /// Cluster-local margin the docked round/square label is held PROUD of the cap TOP face.
+        /// FLOAT FIX (user #4 — "the text floats very visibly ABOVE the button"): the previous
+        /// 10 mm over-corrected the earlier z-fight bug — on a ~9 mm-deep round puck a 10 mm gap
+        /// equals the whole cap height, so the label read as a plane HOVERING a cap-depth above
+        /// the face. Cut to 2 mm: the label now sits just barely off the face (reads as printed
+        /// ON it), and it still does not flicker because it does not rely on the raw offset alone —
+        /// the label's font-material renders in the Transparent queue (3000) with ZWrite OFF and
+        /// ZTest LEqual AFTER the opaque BoardLit cap (Geometry queue, ZWrite ON), so it wins the
+        /// composite even near-coplanar; this 2 mm only has to clear per-eye depth-buffer precision
+        /// noise (sub-millimetre in world after the ~0.84 slot × 0.7 dock × 0.4 board shrink), which
+        /// it does with margin. Board Confirm/Undo/gear/rest caps are a different label path
+        /// (BoardButton labelZ, proud on the −Z cap FACE) and are untouched by this constant.
+        /// </summary>
+        internal const float DockedLabelProud = 0.002f;
 
         /// <summary>Live cap travel, cluster-local meters ([RoundButtons] Travel — authored default 8 mm).</summary>
         private static float TravelLocal => ButtonTuning.RoundCapTravel;
