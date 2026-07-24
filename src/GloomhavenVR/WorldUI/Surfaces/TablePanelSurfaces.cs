@@ -291,21 +291,92 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// </summary>
     private Canvas? _depthPickHost;
 
+    // ---- inter-round reorder animation (let the game's slide play out) ---------------------
+    /// <summary>
+    /// True while the game's initiative REORDER ANIMATION is running (or one is queued behind the
+    /// current one). Between rounds the game re-sorts the track and plays
+    /// <c>InitiativeTrack.AnimateInitiativeReorder</c>: it DISABLES the holder's
+    /// <c>HorizontalLayoutGroup</c> + <c>ContentSizeFitter</c>, records each entry's CURRENT
+    /// <c>transform.position.x</c>, sorts, then <c>LeanTween.moveX</c>-slides every entry to its
+    /// sorted slot over <c>trackReorderDuration</c> (verified decompiled InitiativeTrack.cs).
+    /// <c>LeanTween.moveX</c> tweens each portrait's WORLD <c>transform.position.x</c>
+    /// (LTDescr.setMoveX). Our per-tick passes fight that: the central content re-fit
+    /// (<see cref="CanvasConversion.FitHostToContent"/>) shifts the track's
+    /// <c>Target.anchoredPosition</c> and resizes the host when the (layout-disabled) row's bounds
+    /// change during the slide, moving the WORLD reference frame out from under those recorded
+    /// world-x targets — the slide only hints, then flickers, then the coroutine's end re-enables
+    /// the layout group and snaps to the final order. So while the track is animating we HOLD OFF
+    /// both interfering passes (freeze the fit, skip depth normalization); they resume on the final,
+    /// settled order once the slide completes.
+    /// </summary>
+    private bool _reorderActive;
+
+    /// <summary><see cref="ConvertedPanel.FitEnabled"/> captured when the reorder began, restored when it settles.</summary>
+    private bool _fitEnabledBeforeReorder = true;
+
     public override void Tick()
     {
         bool wasConverted = Panel != null;
         base.Tick();
         if (Panel != null)
-            NormalizeDepth();
+        {
+            // Let the game's reorder slide play out un-stomped (see _reorderActive docs): while it
+            // animates, freeze the content re-fit and skip depth normalization; resume when it settles.
+            UpdateReorderHold();
+            if (!_reorderActive)
+                NormalizeDepth();
+        }
         else if (wasConverted)
         {
+            _reorderActive = false; // host gone — the next conversion starts a fresh hold
             RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
             UnregisterDepthPick();
         }
     }
 
+    /// <summary>
+    /// Track the game's reorder-animation state and, on its edges, freeze/thaw the interfering
+    /// per-tick passes so the slide is neither stomped (mid-animation re-fit invalidates the tween's
+    /// recorded world-x slots → flicker) nor snapped. The signal is the game's own
+    /// <c>InitiativeTrack.isAnimating</c> (true for the whole <c>AnimateInitiativeReorder</c> window)
+    /// OR'd with <c>animationDelayed</c> (a second reorder queued behind the current one) so a
+    /// back-to-back re-sort holds continuously instead of thawing for the one-frame gap between them.
+    /// </summary>
+    private void UpdateReorderHold()
+    {
+        InitiativeTrack track = InitiativeTrack.Instance;
+        bool animating = track != null && (track.isAnimating || track.animationDelayed);
+        if (animating == _reorderActive)
+            return;
+        _reorderActive = animating;
+
+        if (animating)
+        {
+            // Freeze the central content fit for the slide's duration: FitHostToContent shifts
+            // Target.anchoredPosition and resizes the host, which invalidates the tween's recorded
+            // WORLD-x slots mid-animation — the reported flicker. Capture the current state so a
+            // surface that was (or wasn't) fitting is restored exactly on settle.
+            if (Panel != null)
+            {
+                _fitEnabledBeforeReorder = Panel.FitEnabled;
+                Panel.FitEnabled = false;
+            }
+            VRLog.Info("WorldUI", "Initiative reorder animation detected — deferring content re-fit " +
+                                  "and depth normalization so the game's slide plays out un-stomped.");
+        }
+        else
+        {
+            // Settled on the final order: resume the normal fit + depth normalization.
+            if (Panel != null)
+                Panel.FitEnabled = _fitEnabledBeforeReorder;
+            VRLog.Info("WorldUI", "Initiative reorder animation complete — resuming content re-fit " +
+                                  "and depth normalization on the final order.");
+        }
+    }
+
     public override void Shutdown()
     {
+        _reorderActive = false; // the panel is about to be released — drop any active hold
         RestoreDepth(); // before base releases the panel (holder still alive here)
         UnregisterDepthPick();
         base.Shutdown();
