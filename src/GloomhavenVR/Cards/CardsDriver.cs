@@ -68,8 +68,38 @@ internal sealed class CardsDriver : MonoBehaviour
 
     // ------------------------------------------------------------------ lifecycle --
 
+    /// <summary>One-shot guard for the BoardTargeting Grab-policy grant (survives driver rebuilds).</summary>
+    private static bool s_grabPolicyGranted;
+
     private void OnEnable()
     {
+        // USER BUG A (hardware log 4125-4193, "during movement destination selection I
+        // could not grab the control board / options / VR settings bars — vibrates but
+        // won't grab; laser grab dead too"): movement-destination selection is
+        // Choreographer state WaitingForPlayerWaypointSelection → VRMode.BoardTargeting,
+        // and the Phase-2 BoardTargeting policy carried NO Grab for EITHER hand — a
+        // pre-panel-grab-era decision. Every grab primitive dies with it: proximity grip
+        // on the tray/options/settings bars, PanelGrabHandle laser-carry
+        // (ProximityGrabber.ForceGrab refuses on Enabled=false — the log's eleven
+        // "LASER-CARRY armed" lines with no engage) and figure plucks
+        // (FigureGrabDriver also grabs through ProximityGrabber). Meanwhile
+        // RayGrabDriver's hover tint + haptic never consult Grabber.Enabled — the
+        // "flickers and vibrates but won't grab" symptom. Desktop parity: the mouse can
+        // always drag windows during targeting; per-object gates (VRCard.CanGrab,
+        // GrabVisible) keep deciding WHAT is grabbable. Granted through the mode
+        // machine's documented extension API (never a patch on the frozen class).
+        if (!s_grabPolicyGranted)
+        {
+            s_grabPolicyGranted = true;
+            VRModeStateMachine.SetHandInteractorPolicy(VRMode.BoardTargeting, HandRole.Dominant,
+                Core.Events.Interactors.Ray | Core.Events.Interactors.Poke | Core.Events.Interactors.Grab);
+            VRModeStateMachine.SetHandInteractorPolicy(VRMode.BoardTargeting, HandRole.NonDominant,
+                Core.Events.Interactors.Poke | Core.Events.Interactors.Grab);
+            VRLog.Info("Cards", "BoardTargeting interactor policy now includes Grab (both hands) — " +
+                                "control-board/panel bars and figure grabs stay usable during " +
+                                "move/target selection (user bug A).");
+        }
+
         VRModeStateMachine.ModeChanged += OnModeChanged;
         VREvents.CardSelectionChanged += OnCardSelectionChanged;
         VREvents.HandShown += OnHandShown;
@@ -1530,6 +1560,11 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         if (card == null || card.IsHeld)
             return;
+        // Rooted cards (user bug B) can neither pop nor be grabbed — they must not win
+        // the contact arbitration either, or a dead card would suppress the pop/grab of
+        // a real candidate right next to it.
+        if (!card.CanGrab)
+            return;
         if (!card.TryFingertipDistance(tip, out float tipDist)
             || !card.TryFingertipDistance(palm, out float palmDist))
             return;
@@ -1651,15 +1686,29 @@ internal sealed class CardsDriver : MonoBehaviour
         if (cardWins)
         {
             ClearBoardPokeHover();
+            // USER BUG B (rooted cards): a slot-docked card that is NOT grabbable in the
+            // current phase (locked selection / committed round cards — CanGrab false)
+            // must produce ZERO pop, ZERO scale change, ZERO haptic on laser hover: the
+            // hover-pop is a GRAB affordance promise, and popping a card that refuses the
+            // grab set up the pop↔drop oscillation (constant buzz + pulse). The beam
+            // still clamps to the card so the trigger can never fall through to a board
+            // click BEHIND it; action taps on a card face route through the registered
+            // face canvas (RayUgui), which already outranks this path when closer.
+            if (!card!.CanGrab)
+            {
+                ClearTrayCardHover();
+                dom.Ray.UiHitOverride = cardPoint;
+                return;
+            }
             if (!ReferenceEquals(card, _trayCardHover))
             {
                 ClearTrayCardHover();
                 _trayCardHover = card;
-                card!.SetLaserHover(true);
+                card.SetLaserHover(true);
                 dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on change
             }
             dom.Ray.UiHitOverride = cardPoint;
-            if (dom.TriggerDown && card!.CanGrab)
+            if (dom.TriggerDown)
             {
                 VRCard grab = card;
                 ClearTrayCardHover();

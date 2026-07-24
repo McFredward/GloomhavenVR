@@ -152,6 +152,23 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Layout owners toggle this; combined with base "not already held".</summary>
     internal bool Grabbable { get; set; } = true;
 
+    /// <summary>
+    /// USER BUG B — the explicit ROOTED predicate: this card may not be grabbed in the
+    /// current phase (committed/played cards docked during action execution, locked
+    /// selection, modal block), so it must lie rooted — ZERO pop, ZERO scale change,
+    /// ZERO hover haptic from hand and laser alike. Exactly the not-held complement of
+    /// <see cref="CanGrab"/>: every hover-pop is a grab-affordance promise, and a card
+    /// that refuses the grab must never make it. Action taps on the card face (top/
+    /// bottom halves, consume buttons) route through the registered face canvas and the
+    /// poke zones — independent of the pop system, so they keep working.
+    /// </summary>
+    internal bool IsRooted => !IsHeld && !CanGrab;
+
+    // Rooted-flip diagnostic: log the transitions once (throttled, shared across cards)
+    // so hardware logs show WHEN a card became rooted / grabbable again.
+    private bool _wasRooted;
+    private static float s_nextRootedLogAt;
+
     /// <summary>Raised on grip-release with palm velocity — CardsDriver routes fan/tray drops.</summary>
     internal event Action<VRCard, VRHand, Vector3>? Released;
 
@@ -371,6 +388,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         // Bug #2: the live face art is now hosted under our canvas — push it (and the slab)
         // over the control-board button widgets so the button text can't bleed through.
         SetRenderOnTop(true);
+        NeutralizeFaceHoverFx();
         return true;
     }
 
@@ -378,10 +396,71 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal void DetachGameCard()
     {
         // Restore the game's own materials/sorting BEFORE handing the face back to the game.
+        RestoreFaceHoverFx();
         SetRenderOnTop(false);
         if (_face.IsAdopted)
             _face.Restore();
         GameCard = null;
+    }
+
+    // ------------------------------------------------------------ face hover FX --
+
+    // USER BUG B (docked card "pulses — rapidly grows, shrinks, grows — and vibrates
+    // constantly" during the action phase): the adopted face keeps the game's own
+    // ExtendedButton components ('Top button'/'Bottom button', consume buttons), whose
+    // pointer-enter runs ToggleHighlight → a LeanTween SCALE of the button rect
+    // (highlightScaleFactor) plus an anchoredPosition hoverMovement shift
+    // (ExtendedButton.cs:407-478, verified ilspycmd). Under our world-space canvas the
+    // synthesized pointers (finger poke via UguiPokeSurfaces, dominant laser via
+    // RayUguiDriver) hover those rects — and the scale/move animation shifts the very
+    // rect under the stationary pointer, so enter→grow→raycast-target-changes→exit→
+    // shrink→re-enter loops forever: the visible pulse, with a HoverTick haptic on every
+    // hovered-element change (RayUguiDriver.Tick). CardFace.Maintain additionally snaps
+    // the face root scale back each frame, fighting the tween. Neutralize the SOURCE on
+    // the adopted subtree: scale factor → 1 (tween becomes a no-op) and hoverMovement →
+    // zero (no shift). The game's tint/selection highlight and all click paths are
+    // untouched — action taps keep working. Originals restored on detach (pool-safe).
+    private readonly System.Collections.Generic.List<(ExtendedButton button, float scale, Vector3 move)>
+        _neutralizedHoverFx = new();
+
+    private static bool s_loggedHoverFxNeutralized;
+
+    private void NeutralizeFaceHoverFx()
+    {
+        if (_canvasRect == null)
+            return;
+        ExtendedButton[] buttons = _canvasRect.GetComponentsInChildren<ExtendedButton>(true);
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            ExtendedButton button = buttons[i];
+            if (button == null)
+                continue;
+            _neutralizedHoverFx.Add((button, button.highlightScaleFactor, button.hoverMovement));
+            button.highlightScaleFactor = 1f;
+            button.hoverMovement = Vector3.zero;
+        }
+        if (buttons.Length > 0 && !s_loggedHoverFxNeutralized)
+        {
+            s_loggedHoverFxNeutralized = true;
+            Core.VRLog.Info("Cards", $"Face hover FX neutralized on adopted cards ({buttons.Length} ExtendedButton(s) " +
+                                     "on the first face): highlightScaleFactor→1, hoverMovement→0 — the game's " +
+                                     "hover scale/shift no longer oscillates under the VR pointers (user bug B); " +
+                                     "tint highlight + clicks unchanged, originals restored on detach.");
+        }
+    }
+
+    private void RestoreFaceHoverFx()
+    {
+        for (int i = 0; i < _neutralizedHoverFx.Count; i++)
+        {
+            (ExtendedButton button, float scale, Vector3 move) = _neutralizedHoverFx[i];
+            if (button != null)
+            {
+                button.highlightScaleFactor = scale;
+                button.hoverMovement = move;
+            }
+        }
+        _neutralizedHoverFx.Clear();
     }
 
     /// <summary>Dev placeholder face (no game card): colored quad + big index label.</summary>
@@ -921,7 +1000,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     public void OnPokeEnter(VRHand hand)
     {
-        if (PokeSelectEnabled && AllowsHand(hand))
+        // Rooted gate (user bug B): zero pop, zero haptic while the card refuses grabs.
+        if (PokeSelectEnabled && AllowsHand(hand) && !IsRooted)
         {
             _popped = true;
             hand.SendHaptic(HapticPreset.HoverTick);
@@ -1002,7 +1082,24 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         // sources are gated by the driver's single-winner arbitration — while another
         // card is the elected hand-contact winner this card may not lift, so a sweeping
         // hand can never raise more than one card. The laser pop is never gated.
-        float popTarget = _laserPopped || (!_handPopSuppressed && (_popped || _pokeHover)) ? 1f : 0f;
+        // USER BUG B: ALL sources are additionally gated by the rooted predicate — a card
+        // that cannot be grabbed in this phase makes no grab promise: zero pop, zero
+        // scale change, no matter which hover flag a driver left set. Single choke point,
+        // so a stale hover flag can never pulse a rooted card.
+        bool rooted = IsRooted;
+        if (rooted != _wasRooted)
+        {
+            _wasRooted = rooted;
+            if (Time.unscaledTime >= s_nextRootedLogAt)
+            {
+                s_nextRootedLogAt = Time.unscaledTime + 1f;
+                Core.VRLog.Info("Cards", $"Card '{name}' rooted={rooted} (Grabbable={Grabbable}, " +
+                                          $"mode={Core.Events.VRModeStateMachine.CurrentMode}) — " +
+                                          (rooted ? "hover pop/haptics OFF (grab refused this phase)."
+                                                  : "hover pop/haptics back ON."));
+            }
+        }
+        float popTarget = !rooted && (_laserPopped || (!_handPopSuppressed && (_popped || _pokeHover))) ? 1f : 0f;
         _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
 
         // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up. The

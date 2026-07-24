@@ -204,6 +204,11 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
         VRInteractables.UnregisterGrabbable(this);
         if (_attached)
             DetachFromHand();
+        // GRAB STATE hygiene (user bug A): a grabbable disabled/re-parked WHILE held used
+        // to keep Holder set — IsHeld read true on a pooled card forever. The holding
+        // hand's ProximityGrabber heals its own Held reference (HealDeadHeld) and calls
+        // OnRelease, which tolerates an already-cleared Holder.
+        Holder = null;
     }
 
     public virtual void OnGrab(VRHand hand)
