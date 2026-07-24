@@ -74,8 +74,29 @@ internal static class NativeButtonSkin
     /// toward an aged parchment-brass so an accented cap glows warm, not neon.</summary>
     private static readonly Color AccentGold = new(0.84f, 0.72f, 0.48f, 1f);
 
-    /// <summary>Native label colour: warm parchment (#F3DDAB), the game's button-text gold.</summary>
-    internal static readonly Color LabelColor = new(0.953f, 0.867f, 0.671f, 1f);
+    /// <summary>
+    /// Native label colour. CONTRAST FIX (user #3 — "the text has the SAME colour as the
+    /// buttons"): the old warm parchment-gold (#F3DDAB) sat only a hue apart from the warm
+    /// brass/parchment cap faces (rest-short #9E8540, confirm-brass #AD843D, follow-brass
+    /// #94752D) — same family, low luminance separation, and the wood-grain grain darkened
+    /// the glyph region too. Pushed to a BRIGHT, near-white warm parchment (#FBF3E0): clearly
+    /// lighter AND much less saturated than any cap accent, so it reads even on the lightest
+    /// brass caps, and its luminance (~0.94) sits well above every cap face (0.14 dark-wood
+    /// disabled … 0.53 brightest brass). Legibility on the LIGHT caps comes from the dark
+    /// outline+underlay in <see cref="StyleEngravedLabel"/> (a dark keyline separates the
+    /// bright glyphs from a bright cap); legibility on the DARK caps comes from this bright
+    /// fill. The antique look is kept — it is a paler parchment, not a cold white.</summary>
+    internal static readonly Color LabelColor = new(0.984f, 0.953f, 0.878f, 1f);
+
+    /// <summary>Engraved-label outline colour (dark umber, fully opaque) — logged with the round-label offset.</summary>
+    private static readonly Color EngraveOutlineColor = new(0.09f, 0.06f, 0.03f, 1f);
+
+    /// <summary>Engraved-label outline width, fraction of the SDF spread (user #3: thickened
+    /// 0.10 → 0.20 so the dark keyline actually separates the glyphs from a light brass cap).</summary>
+    private const float EngraveOutlineWidth = 0.20f;
+
+    /// <summary>One-shot log guard for the applied label colour/outline (user #3).</summary>
+    private static bool _styleLogged;
 
     /// <summary>True once the live button sprite has been harvested from the scene.</summary>
     internal static bool HasSprite => EnsureSampled() && _normalSprite != null;
@@ -209,25 +230,43 @@ internal static class NativeButtonSkin
         Material mat = label.fontMaterial; // per-label instance (never the shared asset)
         if (mat == null)
             return;
+        // CONTRAST FIX (user #3): a fully-opaque, thicker dark keyline. On a LIGHT brass/
+        // parchment cap the old 0.10-wide, 85%-alpha umber outline barely registered, so the
+        // bright glyphs and the bright cap merged; a full-opacity 0.20 rim now clearly rings
+        // every letter and reads against both light and dark caps (paired with the brightened
+        // LabelColor fill). Still a dark umber, not black — the carved-engraving look holds.
         if (mat.HasProperty("_OutlineColor"))
-            mat.SetColor("_OutlineColor", new Color(0.13f, 0.09f, 0.05f, 0.85f)); // dark umber
+            mat.SetColor("_OutlineColor", EngraveOutlineColor);
         if (mat.HasProperty("_OutlineWidth"))
         {
-            mat.SetFloat("_OutlineWidth", 0.10f);
+            mat.SetFloat("_OutlineWidth", EngraveOutlineWidth);
             mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
         }
-        // A whisper of the same umber as an underlay shadow sells the carved depth
-        // (UNDERLAY_ON is the TMP shader's gate for the whole underlay pass).
+        // A soft dark drop-shadow underlay sells the carved depth AND adds a second contrast
+        // cue on light caps (a shaded halo below/right of the glyphs). Darkened and its alpha
+        // raised (0.55 → 0.70) so it holds on a bright brass cap (UNDERLAY_ON gates the pass).
         if (mat.HasProperty("_UnderlayColor"))
         {
-            mat.SetColor("_UnderlayColor", new Color(0.08f, 0.05f, 0.03f, 0.55f));
+            mat.SetColor("_UnderlayColor", new Color(0.05f, 0.03f, 0.02f, 0.70f));
             if (mat.HasProperty("_UnderlaySoftness"))
                 mat.SetFloat("_UnderlaySoftness", 0.35f);
             if (mat.HasProperty("_UnderlayOffsetX"))
-                mat.SetFloat("_UnderlayOffsetX", 0.25f);
+                mat.SetFloat("_UnderlayOffsetX", 0.30f);
             if (mat.HasProperty("_UnderlayOffsetY"))
-                mat.SetFloat("_UnderlayOffsetY", -0.25f);
+                mat.SetFloat("_UnderlayOffsetY", -0.30f);
             mat.EnableKeyword("UNDERLAY_ON");
+        }
+
+        if (!_styleLogged)
+        {
+            _styleLogged = true;
+            VRLog.Info("WorldUI", "NativeButtonSkin keycap-label CONTRAST (user #3): fill " +
+                                  $"RGB({LabelColor.r:F2},{LabelColor.g:F2},{LabelColor.b:F2}) " +
+                                  "bright warm parchment (#FBF3E0), " +
+                                  $"outline RGBA({EngraveOutlineColor.r:F2},{EngraveOutlineColor.g:F2}," +
+                                  $"{EngraveOutlineColor.b:F2},{EngraveOutlineColor.a:F2}) dark umber " +
+                                  $"width {EngraveOutlineWidth:F2}, + dark underlay shadow — readable on both " +
+                                  "light (brass/parchment) and dark (wood/pewter) caps.");
         }
     }
 
@@ -360,6 +399,7 @@ internal static class NativeButtonSkin
     internal static void Reset()
     {
         _sampled = false;
+        _styleLogged = false;
         _normalSprite = _pressedSprite = _disabledSprite = _highlightedSprite = null;
         _font = null;
         _pressedMul = 0.7f;
