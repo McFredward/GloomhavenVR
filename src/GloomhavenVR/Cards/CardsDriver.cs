@@ -1483,8 +1483,20 @@ internal sealed class CardsDriver : MonoBehaviour
     /// tick so a card leaving the fan/dock pools can never keep a stale suppression.</summary>
     private readonly List<VRCard> _contactSuppressed = new(24);
 
-    /// <summary>One-shot session log guard for the arbitration confirmation line.</summary>
-    private static bool s_loggedContactArbitration;
+    /// <summary>Throttle clock (unscaled seconds) for the arbitration winner-change log.</summary>
+    private float _nextContactLogAt;
+
+    /// <summary>Running arbitration tally: the elected winner + runner-up plus their ranking
+    /// scores and raw index-tip distances (for the throttled log). Reset each tick.</summary>
+    private struct ContactPick
+    {
+        public VRCard? Winner;
+        public float Best;      // winner's ranking score (incumbent hysteresis already applied)
+        public float WinnerTip; // winner's RAW index-tip distance (m), for the log
+        public VRCard? RunnerUp;
+        public float Second;    // runner-up's ranking score
+        public float RunnerTip; // runner-up's RAW index-tip distance (m), for the log
+    }
 
     /// <summary>
     /// USER ISSUE A (fan sweep lifts several cards) + B (dock highlight fights): per-tick
@@ -1505,7 +1517,7 @@ internal sealed class CardsDriver : MonoBehaviour
         VRHand? dom = VRHands.Primary;
         VRCard.HandArbitrationHand = dom;
 
-        VRCard? winner = null;
+        var pick = new ContactPick { Best = float.MaxValue, Second = float.MaxValue };
         if (dom != null && !ReferenceEquals(dom, _gateHand) && dom.HasPose
             && dom.Grabber.Held == null && !_modalInputBlocked)
         {
@@ -1515,32 +1527,49 @@ internal sealed class CardsDriver : MonoBehaviour
             float tipReach = ContactTipReach * scale;
             float palmReach = ContactPalmReach * scale;
             float sticky = ContactStickyMargin * scale;
-            float best = float.MaxValue;
 
             if (_fan.IsOpen)
             {
+                // FAN SWEEP (user issue: hand exactly BETWEEN two cards): rank fan
+                // candidates PRIMARILY by index-fingertip distance (tipFirst) so the card
+                // nearest the pointing finger always wins. The palm reach still QUALIFIES a
+                // card as a candidate, but mixing the wide, noisy palm metric into the
+                // WINNER choice let two adjacent cards' near-equal palm distances flip the
+                // lift back and forth — tip-first ranking resolves the midpoint case
+                // deterministically.
                 IReadOnlyList<VRCard> fanCards = _fan.Cards;
                 for (int i = 0; i < fanCards.Count; i++)
-                    ScoreContact(fanCards[i], tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+                    ScoreContact(fanCards[i], tip, palm, tipReach, palmReach, sticky, tipFirst: true, ref pick);
             }
             if (_tray.IsVisible)
             {
-                ScoreContact(_tray.Occupant(0), tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
-                ScoreContact(_tray.Occupant(1), tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+                // Dock / pick-field cards keep the min(tip,palm) reach metric — the complaint
+                // is the fan sweep, and these sit far enough apart not to oscillate.
+                ScoreContact(_tray.Occupant(0), tip, palm, tipReach, palmReach, sticky, tipFirst: false, ref pick);
+                ScoreContact(_tray.Occupant(1), tip, palm, tipReach, palmReach, sticky, tipFirst: false, ref pick);
                 for (int i = 0; i < _fieldCards.Count; i++)
-                    ScoreContact(_fieldCards[i], tip, palm, tipReach, palmReach, sticky, ref winner, ref best);
+                    ScoreContact(_fieldCards[i], tip, palm, tipReach, palmReach, sticky, tipFirst: false, ref pick);
             }
         }
 
+        VRCard? winner = pick.Winner;
         if (!ReferenceEquals(winner, _handContactWinner))
         {
             _handContactWinner = winner;
-            if (winner != null && !s_loggedContactArbitration)
+            // Throttled arbitration log: winner + its index-tip distance + runner-up, so the
+            // next hardware log proves the tip-first resolution (between-two-cards no longer
+            // flip-flops). Rate-limited so a rapid crossing cannot flood the log.
+            float now = Time.unscaledTime;
+            if (winner != null && now >= _nextContactLogAt)
             {
-                s_loggedContactArbitration = true;
-                VRLog.Info("Cards", "Hand-contact SINGLE-WINNER arbitration active (issue A/B): only " +
-                                    "the closest touched fan/dock card lifts; sweeping the hand can " +
-                                    "no longer raise multiple cards, and the grab follows the winner.");
+                _nextContactLogAt = now + 0.5f;
+                string runner = pick.RunnerUp != null
+                    ? $"'{pick.RunnerUp.name}' (index-tip {pick.RunnerTip * 100f:F1} cm)"
+                    : "none";
+                VRLog.Info("Cards", $"Hand-contact winner (tip-first fan ranking): '{winner.name}' " +
+                                    $"— index-tip {pick.WinnerTip * 100f:F1} cm; runner-up {runner}. " +
+                                    "The card nearest the index finger wins; sweeping between two fan " +
+                                    "cards no longer flip-flops the lift.");
             }
         }
 
@@ -1569,10 +1598,18 @@ internal sealed class CardsDriver : MonoBehaviour
         }
     }
 
-    /// <summary>Contact score of <paramref name="card"/>: min distance of index tip / palm center
-    /// to its grab collider, incumbent bonus applied; out of both reaches = no candidate.</summary>
+    /// <summary>
+    /// Fold <paramref name="card"/> into the running <paramref name="pick"/>. Candidacy is the
+    /// same for every pool: index tip within <see cref="ContactTipReach"/> OR palm within
+    /// <see cref="ContactPalmReach"/> of the grab collider. The RANKING metric differs:
+    /// <paramref name="tipFirst"/> (the fan sweep) ranks by the index-fingertip distance ALONE —
+    /// the palm only qualified candidacy — so the card nearest the pointing finger always wins
+    /// and the between-two-cards midpoint resolves deterministically; otherwise (dock/pick field)
+    /// the legacy min(tip,palm) reach metric is kept. The incumbent hysteresis bonus applies to
+    /// whichever metric is used, so the winner stays stable as the finger crosses the midpoint.
+    /// </summary>
     private void ScoreContact(VRCard? card, Vector3 tip, Vector3 palm, float tipReach,
-        float palmReach, float sticky, ref VRCard? winner, ref float best)
+        float palmReach, float sticky, bool tipFirst, ref ContactPick pick)
     {
         if (card == null || card.IsHeld)
             return;
@@ -1585,14 +1622,26 @@ internal sealed class CardsDriver : MonoBehaviour
             || !card.TryFingertipDistance(palm, out float palmDist))
             return;
         if (tipDist > tipReach && palmDist > palmReach)
-            return;
-        float score = Mathf.Min(tipDist, palmDist);
+            return; // out of BOTH reaches — not a candidate (palm reach still qualifies)
+        // Fan sweep: rank by the index tip alone (palm noise stays out of the winner choice);
+        // dock/field: legacy min(tip,palm).
+        float score = tipFirst ? tipDist : Mathf.Min(tipDist, palmDist);
         if (ReferenceEquals(card, _handContactWinner))
             score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
-        if (score < best)
+        if (score < pick.Best)
         {
-            best = score;
-            winner = card;
+            pick.RunnerUp = pick.Winner; // the old leader becomes the runner-up
+            pick.Second = pick.Best;
+            pick.RunnerTip = pick.WinnerTip;
+            pick.Winner = card;
+            pick.Best = score;
+            pick.WinnerTip = tipDist;
+        }
+        else if (score < pick.Second)
+        {
+            pick.RunnerUp = card;
+            pick.Second = score;
+            pick.RunnerTip = tipDist;
         }
     }
 
