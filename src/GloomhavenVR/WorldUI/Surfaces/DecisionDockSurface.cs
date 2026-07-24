@@ -144,6 +144,17 @@ internal sealed class DecisionDockSurface : WorldSurface
     private const float RowGapMinDeltaPx = 1f;
 
     /// <summary>
+    /// User #13a correction: the dark slab in the gap screenshot is the TRAY'S BRASS GRAB
+    /// BAR (<c>PlayTray.BuildHandle</c>: root-local y −0.19, zone −0.215..−0.165) — a live
+    /// affordance, never suppressed. A row that fits the mount budget stays ~28 mm below
+    /// it by construction (mount y −0.29, max height 0.12 → row top ≤ −0.23), but a row
+    /// still overflowing the height budget (the MinDensityScale clamp) is centered on the
+    /// mount and could reach up into the bar — <see cref="Place"/> pushes the host down so
+    /// the row's top edge keeps this clearance (scale-1 metres) under the bar's zone.
+    /// </summary>
+    private const float BarClearanceMeters = 0.008f;
+
+    /// <summary>
     /// Antique multiply-tint for the docked row's widget backgrounds (user #5): the
     /// game-default light stone sprite sinks toward the dark wood / aged brass family
     /// of the mod's board buttons (the VR-settings gear look). Multiplied onto the
@@ -153,13 +164,15 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// </summary>
     private static readonly Color AntiqueTint = new(0.58f, 0.46f, 0.31f, 1f);
 
-    private readonly List<(RectTransform rt, Vector2 anchoredPos)> _shiftedRects = new(2);
+    private readonly List<(RectTransform rt, Vector2 anchoredPos)> _shiftedRects = new(4);
     private readonly List<(Graphic graphic, Color color)> _tintedGraphics = new(8);
+    private readonly List<LayoutGroup> _disabledLayoutGroups = new(2);
+    private Canvas? _deliberateCanvas;
+    private bool _barClearanceLogged;
     private static readonly List<Selectable> SelectableScratch = new(8);
     private static readonly List<TMP_Text> TextScratch = new(8);
     private static readonly List<Graphic> GraphicScratch = new(16);
-    private static readonly List<Transform> WidgetScratch = new(4);
-    private static readonly List<RectTransform> MoveUnitScratch = new(4);
+    private static readonly List<RectTransform> WidgetRectScratch = new(4);
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
     public DecisionDockSurface()
@@ -251,6 +264,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             // the new target THIS tick.
             if (Panel != null || _suppressedWindow != null)
             {
+                UnregisterDeliberateCanvas();
                 RestoreRowAdjustments();
                 RestoreSuppression();
                 if (Panel != null && ReleaseCurrentPanel())
@@ -293,7 +307,9 @@ internal sealed class DecisionDockSurface : WorldSurface
                 VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' widget row docked below the cards " +
                                       "(window/vignette/card suppressed, fan gate stays live, no ModalUI) — " +
                                       "restored to 2D when the prompt closes.");
-                AdjustDockedRow(); // users #5 + #7a: antique tint + text↔button gap compression
+                AdjustDockedRow();          // users #5 + #7a/#13a: antique tint + text↔button gap compression
+                RegisterDeliberateCanvas(); // user #13b: decision buttons take the deliberate v1 poke press
+                _barClearanceLogged = false;
             }
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
             // The one surface that must accept input even under the game's UI-lock
@@ -306,6 +322,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             _hmdFloatPlaced = false;
             if (hadPanel)
             {
+                UnregisterDeliberateCanvas();
                 RestoreRowAdjustments();
                 RestoreSuppression();
                 VRLog.Info("WorldUI", "DECISION DOCK: widget row released — restored to its 2D home " +
@@ -373,8 +390,41 @@ internal sealed class DecisionDockSurface : WorldSurface
             PlayTray.DecisionMountMaxHeight * density / rect.height);
         float metersPerPx = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale) / density;
 
+        // Grab-bar clearance (user #13a correction): the tray's brass handle bar hangs
+        // just under the board's bottom edge, ABOVE the decision zone — it is a live
+        // grab affordance and must stay usable, and neither the prompt text (row top)
+        // nor the widgets may slide up under it. A compressed row keeps ~28 mm static
+        // clearance by construction; this guard covers the overflow case (row taller
+        // than the mount budget after the MinDensityScale clamp, centered on the
+        // mount): project the bar's grab zone onto the mount's up axis and push the
+        // whole host DOWN just enough that the row's top edge stays below the zone
+        // with BarClearanceMeters to spare.
+        Vector3 pos = mount.position;
+        if (PlayTray.Current?.HandleZone is BoxCollider barZone)
+        {
+            Vector3 up = mount.up;
+            float rowTop = rect.yMax * metersPerPx * trayScale; // row top above mount origin, world m
+            Transform bt = barZone.transform;
+            float barCenterUp = Vector3.Dot(bt.TransformPoint(barZone.center) - mount.position, up);
+            float barHalfUp = 0.5f * barZone.size.y * Mathf.Abs(bt.lossyScale.y);
+            float overshoot = rowTop - (barCenterUp - barHalfUp - BarClearanceMeters * trayScale);
+            if (overshoot > 0f)
+            {
+                pos -= up * overshoot;
+                if (!_barClearanceLogged)
+                {
+                    _barClearanceLogged = true;
+                    VRLog.Info("WorldUI", $"DECISION DOCK: row top would reach the tray grab bar — host " +
+                                          $"pushed down {overshoot * 1000f:F0} mm so the bar stays clear " +
+                                          $"(row top {rowTop * 1000f:F0} mm above mount, bar zone bottom " +
+                                          $"{(barCenterUp - barHalfUp) * 1000f:F0} mm, clearance " +
+                                          $"{BarClearanceMeters * trayScale * 1000f:F0} mm).");
+                }
+            }
+        }
+
         Transform host = Panel.HostTransform;
-        host.SetPositionAndRotation(mount.position, mount.rotation); // centered origin
+        host.SetPositionAndRotation(pos, mount.rotation); // centered origin (bar-clearance shifted)
         host.localScale = Vector3.one * (metersPerPx * trayScale);
     }
 
@@ -411,20 +461,24 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <see cref="WorldUIConfig.DecisionRowGapPx"/> — see
     /// <see cref="CompressPromptGap"/> for the mechanism.
     ///
-    /// USER #12a MECHANISM FIX: two rounds of heuristics ("free Graphic above the
-    /// widget band", first rect-based then glyph-true) still classified the take-damage
-    /// row as having no text above its widgets — the panel's Selectable rects are
-    /// authored spanning their whole option columns, so the widget band's rect top sat
-    /// level with (or above) the prompt text and every Graphic was either "inside a
-    /// widget" or "not above the band". The classification is GONE: the prompt text and
-    /// the actionable widgets are now resolved from the game's own SERIALIZED fields per
-    /// known panel type (<see cref="ResolvePromptAnchors"/> — TakeDamagePanel.takeDamageText
-    /// + its two toggles/button, YesNoDialog.descriptionText + yes/no, DialogPopup.contentText
-    /// + option buttons), the gap is measured glyph-true text bottom → topmost VISIBLE
-    /// graphic of the widget branches, and the branches (the widget-side direct children
-    /// of each text↔widget fork node) are shifted up directly. Everything is recorded and
-    /// handed back by <see cref="RestoreRowAdjustments"/> on undock — live game widgets
-    /// are never permanently mutated.
+    /// USER #13a MECHANISM FIX (round 4 — no fork nodes): round 3 resolved the prompt
+    /// text from the game's serialized <c>TakeDamagePanel.takeDamageText</c> and walked
+    /// up to the text↔widget FORK node — but on the real prefab that serialized field is
+    /// the take-damage BUTTON'S OWN LABEL ('Text' under 'Receive Damage'; its colour is
+    /// driven together with <c>damageAmount</c> in <c>UpdateTakeDamageOptionVisuals</c>,
+    /// TakeDamagePanel.cs:385/393), so "text and widget share a branch" held by
+    /// construction and the layout was never touched (log evidence, build c55674f57).
+    /// Fork nodes are GONE: only the widgets' OWN root rects (the serialized Selectable
+    /// transforms, <see cref="ResolvePromptWidgets"/>) are ever moved — displacing a
+    /// leaf rect cannot move the header text no matter how the branches fork. The
+    /// header text is found GEOMETRICALLY (any TMP in the row outside every widget rect
+    /// whose glyphs sit above the widget band), the gap is measured glyph-true header
+    /// bottom → topmost VISIBLE widget graphic, and every widget rect shifts up by
+    /// (gap − DecisionRowGapPx). A LayoutGroup on a moved widget's direct parent would
+    /// re-assert the authored position on its next rebuild — it is component-disabled
+    /// while docked. Everything is recorded and handed back by
+    /// <see cref="RestoreRowAdjustments"/> on undock — live game widgets are never
+    /// permanently mutated.
     /// </summary>
     private void AdjustDockedRow()
     {
@@ -462,8 +516,8 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
         }
 
-        // (b) text↔widget gap compression (users #7a/#11b/#12a): anchor-based on the
-        // prompt's serialized text/widget fields — see the method doc and CompressPromptGap.
+        // (b) text↔widget gap compression (users #7a/#11b/#12a/#13a): leaf-rect shifts of
+        // the serialized widget rects only — see the method doc and CompressPromptGap.
         string gapNote = CompressPromptGap(root);
 
         VRLog.Info("WorldUI", $"DECISION DOCK: row adjusted — {styled} widget background(s) antique-tinted " +
@@ -471,83 +525,101 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
-    /// USER #12a gap mechanism (no classification): the active prompt's KNOWN text block
-    /// and actionable widgets (<see cref="ResolvePromptAnchors"/>, the game's serialized
-    /// fields) define the geometry directly. For each widget, the subtree to move is the
-    /// widget-side direct child of the deepest ancestor shared with the text (the fork
-    /// node where the text branch and that widget's branch separate) — moving it never
-    /// moves the text, and moving whole fork children keeps each option column's internal
-    /// layout intact. The visible gap is glyph-true text bottom (TMP textBounds) minus
-    /// the topmost VISIBLE Graphic of the moving branches (widget rects are authored
-    /// spanning whole columns and lie about where the drawn button starts); every branch
-    /// is shifted up by (gap − <see cref="WorldUIConfig.DecisionRowGapPx"/>), recorded in
-    /// <see cref="_shiftedRects"/> for restore. Returns the log fragment describing what
-    /// moved (element names + px) or why nothing did.
+    /// USER #13a gap mechanism (leaf rects only — see <see cref="AdjustDockedRow"/> for
+    /// why the fork-node rounds failed): the actionable widgets' OWN root rects come
+    /// from the game's serialized fields (<see cref="ResolvePromptWidgets"/>); the
+    /// header text is any TMP in the row OUTSIDE every widget rect whose glyphs sit
+    /// above the widget band (glyph-true — dialog labels are authored in rects far
+    /// taller than their glyphs, and the take-damage Selectable rects span their whole
+    /// option columns, so authored rects lie on both sides). The visible gap is the
+    /// lowest such header line's glyph bottom minus the topmost VISIBLE widget graphic;
+    /// every widget rect is shifted up by (gap − <see cref="WorldUIConfig.DecisionRowGapPx"/>),
+    /// recorded in <see cref="_shiftedRects"/> for restore. A LayoutGroup on a moved
+    /// widget's direct parent is disabled while docked (recorded in
+    /// <see cref="_disabledLayoutGroups"/>) so it cannot re-assert the authored
+    /// position on a rebuild. The tray's grab bar hangs ABOVE the decision zone and is
+    /// handled purely by placement (<see cref="Place"/>'s clearance guard) — nothing in
+    /// the row is suppressed. Returns the log fragment naming every moved rect (px) and
+    /// every disabled layout component, or why nothing moved.
     /// </summary>
     private string CompressPromptGap(RectTransform root)
     {
-        TMP_Text? text = ResolvePromptAnchors(WidgetScratch);
-        if (text == null || WidgetScratch.Count == 0)
-            return ", gap: no known text/widget anchors for this prompt — layout untouched.";
-        Transform tt = text.transform;
-        if (ReferenceEquals(tt, root) || !tt.IsChildOf(root))
-            return $", gap: prompt text '{text.name}' is not part of the docked row — nothing to compress.";
-
-        MoveUnitScratch.Clear();
-        for (int i = 0; i < WidgetScratch.Count; i++)
+        ResolvePromptWidgets(WidgetRectScratch);
+        for (int i = WidgetRectScratch.Count - 1; i >= 0; i--)
         {
-            Transform w = WidgetScratch[i];
-            if (w == null || !w.IsChildOf(root))
-                continue;
-            if (tt.IsChildOf(w) || w.IsChildOf(tt))
-                return $", gap: text '{text.name}' and widget '{w.name}' share a branch — cannot separate, layout untouched.";
-            Transform? fork = SharedAncestor(w, tt);
-            if (fork == null)
-                continue; // different hierarchies (should not happen inside one row)
-            Transform unit = w;
-            while (unit.parent != null && !ReferenceEquals(unit.parent, fork))
-                unit = unit.parent;
-            if (unit is RectTransform urt && !MoveUnitScratch.Contains(urt))
-                MoveUnitScratch.Add(urt);
+            RectTransform w = WidgetRectScratch[i];
+            if (w == null || ReferenceEquals(w, root) || !w.IsChildOf(root))
+                WidgetRectScratch.RemoveAt(i);
         }
-        if (MoveUnitScratch.Count == 0)
-            return ", gap: no movable widget branch found under the docked row — layout untouched.";
+        if (WidgetRectScratch.Count == 0)
+            return ", gap: no known widget rects for this prompt — layout untouched.";
 
         float widgetTop = float.MinValue;
-        for (int i = 0; i < MoveUnitScratch.Count; i++)
-            widgetTop = Mathf.Max(widgetTop, VisualTopIn(root, MoveUnitScratch[i]));
-        float textBottom = GlyphEdgeIn(root, text, top: false);
+        for (int i = 0; i < WidgetRectScratch.Count; i++)
+            widgetTop = Mathf.Max(widgetTop, VisualTopIn(root, WidgetRectScratch[i]));
+        if (widgetTop <= float.MinValue)
+            return ", gap: widget rects have no visible graphics — layout untouched.";
+
+        // Header text: glyph-true BOTTOM of the LOWEST text line above the widget band.
+        TextScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, TextScratch);
+        TMP_Text? header = null;
+        float textBottom = float.MaxValue;
+        for (int i = 0; i < TextScratch.Count; i++)
+        {
+            TMP_Text label = TextScratch[i];
+            if (label == null || IsUnderAnyWidget(label.transform))
+                continue; // widget labels ('Receive Damage' → 'Text', toggle captions) never anchor the gap
+            float bottom = GlyphEdgeIn(root, label, top: false);
+            if (bottom < widgetTop)
+                continue; // beside/below the widgets — not a header line
+            if (bottom < textBottom)
+            {
+                textBottom = bottom;
+                header = label;
+            }
+        }
+        if (header == null)
+            return ", gap: no prompt text above the widgets — layout untouched.";
+
         float gap = textBottom - widgetTop;
         float gapTarget = Mathf.Clamp(WorldUIConfig.DecisionRowGapPx.Value, 0f, 60f);
         if (gap <= gapTarget + RowGapMinDeltaPx)
             return $", text↔widget gap {gap:F0}px already ≤ target {gapTarget:F0}px — untouched.";
 
         float delta = gap - gapTarget;
-        var names = new System.Text.StringBuilder(64);
-        for (int i = 0; i < MoveUnitScratch.Count; i++)
+        var moved = new System.Text.StringBuilder(96);
+        var layouts = new System.Text.StringBuilder();
+        for (int i = 0; i < WidgetRectScratch.Count; i++)
         {
-            RectTransform unit = MoveUnitScratch[i];
-            // Express the root-space px delta in the unit's parent space (scale-safe).
-            Transform parent = unit.parent != null ? unit.parent : root;
+            RectTransform w = WidgetRectScratch[i];
+            // A LayoutGroup on the DIRECT parent owns this child's anchoredPosition and
+            // would re-assert it on its next rebuild — stand it down while docked.
+            Transform parent = w.parent != null ? w.parent : root;
+            DisableFightingLayout(parent, layouts);
+            // Express the root-space px delta in the widget's parent space (scale-safe).
             float localY = parent.InverseTransformVector(root.TransformVector(new Vector3(0f, delta, 0f))).y;
-            _shiftedRects.Add((unit, unit.anchoredPosition));
-            unit.anchoredPosition += new Vector2(0f, localY);
-            if (names.Length > 0)
-                names.Append(", ");
-            names.Append('\'').Append(unit.name).Append('\'');
+            _shiftedRects.Add((w, w.anchoredPosition));
+            w.anchoredPosition += new Vector2(0f, localY);
+            if (moved.Length > 0)
+                moved.Append(", ");
+            moved.Append('\'').Append(w.name).Append('\'');
         }
-        return $", text↔widget gap {gap:F0}px → {gapTarget:F0}px: moved {names} up by {delta:F0}px " +
-               "([WorldUI] DecisionRowGapPx).";
+        string layoutNote = layouts.Length > 0
+            ? $"; layout component(s) disabled while docked: {layouts}"
+            : string.Empty;
+        return $", text '{header.name}'↔widget gap {gap:F0}px → {gapTarget:F0}px: widget rect(s) {moved} " +
+               $"moved up by {delta:F0}px ([WorldUI] DecisionRowGapPx){layoutNote}.";
     }
 
     /// <summary>
-    /// The active prompt's prompt-text label and actionable widget transforms, straight
-    /// from the game's own serialized fields (no structural guessing): TakeDamagePanel's
-    /// takeDamageText ("Erleide entweder Schaden…") + burn toggles/take-damage button,
-    /// YesNoDialog's descriptionText + yes/no buttons, DialogPopup's contentText + pooled
-    /// option buttons. Null text or empty widget list → the caller logs and no-ops.
+    /// The active prompt's actionable widget ROOT RECTS, straight from the game's own
+    /// serialized fields (no structural guessing): TakeDamagePanel's two burn toggles +
+    /// take-damage button, YesNoDialog's yes/no buttons, DialogPopup's pooled option
+    /// buttons. These are the ONLY rects the gap fix ever moves — leaf displacement,
+    /// never a shared ancestor (user #13a). Empty list → the caller logs and no-ops.
     /// </summary>
-    private TMP_Text? ResolvePromptAnchors(List<Transform> widgets)
+    private void ResolvePromptWidgets(List<RectTransform> widgets)
     {
         widgets.Clear();
         switch (_active?.Name)
@@ -558,71 +630,74 @@ internal sealed class DecisionDockSurface : WorldSurface
                     ? Singleton<TakeDamagePanel>.Instance
                     : null;
                 if (p == null)
-                    return null;
-                if (p.burnAvailableCardsToggle != null)
-                    widgets.Add(p.burnAvailableCardsToggle.transform);
-                if (p.burnDiscardedCardsToggle != null)
-                    widgets.Add(p.burnDiscardedCardsToggle.transform);
-                if (p.takeDamageButton != null)
-                    widgets.Add(p.takeDamageButton.transform);
-                return p.takeDamageText;
+                    return;
+                AddWidgetRect(widgets, p.burnAvailableCardsToggle != null ? p.burnAvailableCardsToggle.transform : null);
+                AddWidgetRect(widgets, p.burnDiscardedCardsToggle != null ? p.burnDiscardedCardsToggle.transform : null);
+                AddWidgetRect(widgets, p.takeDamageButton != null ? p.takeDamageButton.transform : null);
+                return;
             }
             case "YesNoDialog":
             {
                 YesNoDialog? d = CardsGameApi.ShortRestDialog();
                 if (d == null)
-                    return null;
-                if (d.yesButton != null)
-                    widgets.Add(d.yesButton.transform);
-                if (d.noButton != null)
-                    widgets.Add(d.noButton.transform);
-                return d.descriptionText;
+                    return;
+                AddWidgetRect(widgets, d.yesButton != null ? d.yesButton.transform : null);
+                AddWidgetRect(widgets, d.noButton != null ? d.noButton.transform : null);
+                return;
             }
             case "DialogPopup":
             {
                 UIManager? m = UIManager.Instance;
                 DialogPopup? d = m != null ? m.dialogPopup : null;
-                if (d == null)
-                    return null;
-                List<InputButton>? buttons = d.optionButtons;
-                if (buttons != null)
+                List<InputButton>? buttons = d != null ? d.optionButtons : null;
+                if (buttons == null)
+                    return;
+                for (int i = 0; i < buttons.Count; i++)
                 {
-                    for (int i = 0; i < buttons.Count; i++)
-                    {
-                        InputButton ib = buttons[i];
-                        if (ib != null && ib.gameObject.activeInHierarchy && ib.ExtendedButton != null)
-                            widgets.Add(ib.ExtendedButton.transform);
-                    }
+                    InputButton ib = buttons[i];
+                    if (ib != null && ib.gameObject.activeInHierarchy && ib.ExtendedButton != null)
+                        AddWidgetRect(widgets, ib.ExtendedButton.transform);
                 }
-                return d.contentText;
+                return;
             }
-            default:
-                return null;
         }
     }
 
-    /// <summary>Deepest common ancestor of two transforms (depth-walk, null-tolerant).</summary>
-    private static Transform? SharedAncestor(Transform? a, Transform? b)
+    private static void AddWidgetRect(List<RectTransform> widgets, Transform? t)
     {
-        if (a == null || b == null)
-            return null;
-        int da = DepthOf(a), db = DepthOf(b);
-        while (da > db) { a = a!.parent; da--; }
-        while (db > da) { b = b!.parent; db--; }
-        while (a != null && b != null && !ReferenceEquals(a, b))
+        if (t is RectTransform rt && !widgets.Contains(rt))
+            widgets.Add(rt);
+    }
+
+    /// <summary>True when <paramref name="t"/> is one of the resolved widget rects or inside one.</summary>
+    private static bool IsUnderAnyWidget(Transform t)
+    {
+        for (int i = 0; i < WidgetRectScratch.Count; i++)
         {
-            a = a.parent;
-            b = b.parent;
+            RectTransform w = WidgetRectScratch[i];
+            if (w != null && t.IsChildOf(w)) // IsChildOf is also true for t == w
+                return true;
         }
-        return a != null && ReferenceEquals(a, b) ? a : null;
+        return false;
     }
 
-    private static int DepthOf(Transform t)
+    /// <summary>
+    /// Component-disable an enabled <see cref="LayoutGroup"/> on a moved widget's direct
+    /// parent (only the direct parent can own the widget's anchoredPosition) — recorded
+    /// in <see cref="_disabledLayoutGroups"/>, re-enabled by
+    /// <see cref="RestoreRowAdjustments"/> on undock so the game's 2D layout rebuilds
+    /// exactly as authored.
+    /// </summary>
+    private void DisableFightingLayout(Transform parent, System.Text.StringBuilder note)
     {
-        int d = 0;
-        for (Transform? p = t.parent; p != null; p = p.parent)
-            d++;
-        return d;
+        LayoutGroup? group = parent.GetComponent<LayoutGroup>();
+        if (group == null || !group.enabled || _disabledLayoutGroups.Contains(group))
+            return;
+        group.enabled = false;
+        _disabledLayoutGroups.Add(group);
+        if (note.Length > 0)
+            note.Append(", ");
+        note.Append('\'').Append(group.GetType().Name).Append(" on ").Append(parent.name).Append('\'');
     }
 
     /// <summary>
@@ -678,7 +753,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         return edge;
     }
 
-    /// <summary>Undo <see cref="AdjustDockedRow"/> — colours and positions back to the game's own values.</summary>
+    /// <summary>Undo <see cref="AdjustDockedRow"/> — colours, positions and layout components back to the game's own values.</summary>
     private void RestoreRowAdjustments()
     {
         for (int i = 0; i < _tintedGraphics.Count; i++)
@@ -693,6 +768,42 @@ internal sealed class DecisionDockSurface : WorldSurface
                 _shiftedRects[i].rt.anchoredPosition = _shiftedRects[i].anchoredPos;
         }
         _shiftedRects.Clear();
+        for (int i = 0; i < _disabledLayoutGroups.Count; i++)
+        {
+            if (_disabledLayoutGroups[i] != null)
+                _disabledLayoutGroups[i].enabled = true; // its next rebuild restores the authored layout
+        }
+        _disabledLayoutGroups.Clear();
+    }
+
+    // ---- deliberate poke press-mode (user #13b) -------------------------------------------
+
+    /// <summary>
+    /// USER #13b: decision buttons take the DELIBERATE v1 poke press — plane contact
+    /// only ARMS (pressed visual + light haptic), the click fires on the conscious
+    /// WITHDRAWAL back past ReleaseDepth, and sweep-throughs/side-exits cancel silently
+    /// — while every other converted surface keeps the v3 push-in depth-fire
+    /// (PokePressDepthMm). The dock tags its host canvas in
+    /// <see cref="Hands.Interact.DeliberatePokeSurfaces"/> per dock; the interactor
+    /// reads [WorldUI] DecisionPokeDeliberate LIVE, so that config is a pure escape
+    /// hatch (false → decision buttons press like everything else, no re-dock needed).
+    /// </summary>
+    private void RegisterDeliberateCanvas()
+    {
+        Canvas? host = Panel?.HostCanvas;
+        if (host == null)
+            return;
+        _deliberateCanvas = host;
+        Hands.Interact.DeliberatePokeSurfaces.Register(host, $"decision dock '{_active?.Name}'");
+    }
+
+    private void UnregisterDeliberateCanvas()
+    {
+        if (_deliberateCanvas is not null)
+        {
+            Hands.Interact.DeliberatePokeSurfaces.Unregister(_deliberateCanvas);
+            _deliberateCanvas = null;
+        }
     }
 
     // ---- window-remainder suppression (HandSuppression pattern; nothing destroyed) -----
@@ -787,6 +898,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         if (WorldUIConfig.DecisionRowGapPx != null)
             WorldUIConfig.DecisionRowGapPx.SettingChanged -= OnRowGapSettingChanged; // user #11b live-apply
         bool hadPanel = Panel != null;
+        UnregisterDeliberateCanvas();
         base.Shutdown(); // releases the conversion → row back in its 2D home
         if (hadPanel)
         {

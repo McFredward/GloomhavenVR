@@ -100,6 +100,16 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> PokePressDepthMm = null!;
 
+    /// <summary>
+    /// User #13b: decision-dock buttons use the DELIBERATE v1 poke press — contact only
+    /// arms (pressed visual), the click fires on the conscious WITHDRAWAL back out of
+    /// the plane, sweep-throughs cancel silently. Read live per press by
+    /// <c>Hands.Interact.PokeInteractor</c> for canvases the decision dock registered
+    /// in <c>Hands.Interact.DeliberatePokeSurfaces</c>; every other surface keeps the
+    /// <see cref="PokePressDepthMm"/> push-in behaviour.
+    /// </summary>
+    internal static ConfigEntry<bool> DecisionPokeDeliberate = null!;
+
     /// <summary>Click delivery: "execute" (ExecuteEvents, default) | "virtualmouse" | "both".</summary>
     internal static ConfigEntry<string> ClickMode = null!;
 
@@ -332,6 +342,16 @@ internal static class WorldUIConfig
             "without making deliberate presses tedious. 0 = legacy instant click on plane " +
             "contact. Laser clicks are unaffected. Range 0-30.",
             new AcceptableValueRange<float>(0f, 30f)));
+        DecisionPokeDeliberate = _file.Bind("WorldUI", "DecisionPokeDeliberate", true,
+            "DECISION buttons (the docked take-damage burn choice, the burn-confirm dialog, " +
+            "the short-rest Ja/Nein) demand a DELIBERATE physical press: touching the button " +
+            "only ARMS it (pressed visual + light haptic tick); the click fires when the " +
+            "fingertip is consciously WITHDRAWN back out of the plane past the release depth; " +
+            "sweeping the hand through the button or leaving it sideways cancels silently — " +
+            "no click, no penalty. Guards the costly, irreversible decision prompts against " +
+            "accidental instant triggers. Applies ONLY to the physical poke on decision-dock " +
+            "buttons; every other converted surface keeps the PokePressDepthMm push-in press, " +
+            "and laser clicks are unaffected. Off = decision buttons press like everything else.");
         ClickMode = _file.Bind("WorldUI", "ClickMode", "execute",
             "How a latched click on the floating screen is delivered. 'execute' (default): " +
             "directly via uGUI ExecuteEvents on the raycast target — the same mechanism the " +
