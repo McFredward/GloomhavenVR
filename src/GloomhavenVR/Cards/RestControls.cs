@@ -26,6 +26,12 @@ internal sealed class RestControls
     private PlayTray.BoardButton? _longButton;
     private bool _locHooked;
 
+    // Issue 3 (rest-button relevance visibility): last-logged visibility of each keycap, so the
+    // hide/appear flips are logged edge-triggered (once per change) rather than per frame. Seeded
+    // true — the keycaps are built visible, so the first "not relevant" tick logs the hide.
+    private bool _lastShortVisible = true;
+    private bool _lastLongVisible = true;
+
     /// <summary>Raised on press; CardsDriver queues the actual game call.</summary>
     internal System.Action? ShortRestRequested;
     internal System.Action? LongRestRequested;
@@ -135,16 +141,24 @@ internal sealed class RestControls
         _longButton = null;
     }
 
-    /// <summary>Refresh availability/selected state + short-button visibility (per frame while the tray shows).</summary>
+    /// <summary>
+    /// Refresh each rest keycap's RELEVANCE visibility + availability/selected state (per frame
+    /// while the tray shows). Issue 3 (user): the short/long-rest buttons must DISAPPEAR when a
+    /// rest isn't a relevant option — exactly like the played cards clear during the action phase
+    /// / enemy turns. The <see cref="PlayTray.BoardButton.SetVisible"/> flip animates via the
+    /// button worker.
+    /// </summary>
     internal void TickStatus(CardsHandUI? hand)
     {
-        // Item 1: the native "Kurze Rast" widget NO LONGER docks (it undocked/redocked as
-        // the game toggled it, flickering against this round button). The round short-rest
-        // disc is now the SOLE short-rest control and is ALWAYS shown — no dock gate, no
-        // flicker (TrayControlDockSurface.ShortRestDocked is permanently false). Long rest
-        // never had a discrete uGUI widget, so it was always mod-drawn.
-        _shortButton?.SetVisible(true);
-
+        // A rest is only OFFERED during the card-SELECTION phase (SelectAbilityCardsOrLongRest),
+        // and the game distinguishes short vs long availability independently — so each keycap
+        // follows its OWN availability signal (CardsGameApi.CanShortRest / CanLongRest, both of
+        // which already gate on the selection phase and return false during action/enemy turns,
+        // mirroring the card board's IsActionTurn clear). A keycap stays up while its rest is
+        // SELECTED / mid-choice (|| …Selected) so it does not vanish the instant it is chosen —
+        // its accent then reads as the commitment. Item 1 note kept: the native "Kurze Rast"
+        // widget never docks (TrayControlDockSurface.ShortRestDocked permanently false), so this
+        // mod keycap is the sole short-rest control; long rest never had a discrete uGUI widget.
         bool canShort = false, canLong = false, shortSelected = false, longSelected = false;
         if (hand != null)
         {
@@ -153,6 +167,21 @@ internal sealed class RestControls
             shortSelected = CardsGameApi.IsShortRestSelected(hand);
             longSelected = CardsGameApi.IsLongRestSelected(hand);
         }
+
+        bool shortVisible = canShort || shortSelected;
+        bool longVisible = canLong || longSelected;
+        if (shortVisible != _lastShortVisible || longVisible != _lastLongVisible)
+        {
+            _lastShortVisible = shortVisible;
+            _lastLongVisible = longVisible;
+            Core.VRLog.Info("Cards", $"Rest buttons visibility: short={shortVisible} " +
+                                     $"(canShort={canShort}, selected={shortSelected}), long={longVisible} " +
+                                     $"(canLong={canLong}, selected={longSelected}) — hidden when a rest " +
+                                     "isn't offered (action phase / enemy turns).");
+        }
+
+        _shortButton?.SetVisible(shortVisible);
+        _longButton?.SetVisible(longVisible);
         _shortButton?.SetState(canShort, accent: shortSelected);
         _longButton?.SetState(canLong, accent: longSelected);
     }

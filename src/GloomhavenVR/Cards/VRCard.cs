@@ -947,6 +947,71 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Unscaled seconds of release glide remaining (0 = none). See <see cref="OnRelease"/>.</summary>
     private float _releaseGlide;
 
+    // ---------------------------------------------------------------- fly-to-pile --
+
+    // Issue 5 (user): when the control board is cleared, a just-played round card must NOT simply
+    // vanish — it flies into its destination pile (burned → burnt stack, discarded → discard
+    // stack). CardsDriver launches this in place of the instant park; the card animates in WORLD
+    // space (position + scale, ease-out) on UNSCALED time (card phases pause timeScale), then the
+    // completion callback parks/hides it as before. Purely VR presentation — the game's own 2D pile
+    // state is untouched. A flying card is out of every zone/hover/grab path.
+    private bool _flying;
+    private Vector3 _flyFromPos;
+    private Quaternion _flyFromRot;
+    private Vector3 _flyFromScale;
+    private Vector3 _flyToPos;
+    private Vector3 _flyToScale;
+    private float _flyElapsed;
+    private float _flyDuration;
+    private Action? _flyDone;
+
+    /// <summary>True while this card is animating into a pile (see <see cref="FlyToPile"/>).</summary>
+    internal bool IsFlying => _flying;
+
+    /// <summary>
+    /// Issue 5: fly this card from its current world pose into a pile stack over
+    /// <paramref name="duration"/> unscaled seconds, shrinking to <paramref name="targetWorldWidth"/>
+    /// (the pile slab's on-screen width), then invoke <paramref name="onComplete"/> (CardsDriver
+    /// parks/hides it there). No-op-safe to call while active/visible; a held card is never flown
+    /// (CardsDriver only launches this on cleared, un-held round cards). Rotation is held constant —
+    /// the card slides in flat, as it sat on the board.
+    /// </summary>
+    internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Action onComplete)
+    {
+        _flying = true;
+        _flyElapsed = 0f;
+        _flyDuration = Mathf.Max(0.05f, duration);
+        _flyFromPos = transform.position;
+        _flyFromRot = transform.rotation;
+        _flyFromScale = transform.localScale;
+        _flyToPos = targetWorldPos;
+        // Convert the wanted on-screen width into a LOCAL scale under the current parent, so the
+        // card ends roughly the size of a pile slab regardless of the board's live diorama scale.
+        float parentLossy = transform.parent != null ? transform.parent.lossyScale.x : 1f;
+        float w = CardsConfig.CardWidth.Value;
+        float targetLocal = (parentLossy > 1e-5f && w > 1e-5f)
+            ? targetWorldWidth / (parentLossy * w)
+            : transform.localScale.x;
+        _flyToScale = Vector3.one * Mathf.Max(1e-4f, targetLocal);
+        _flyDone = onComplete;
+        // Drop every hover/grab affordance — a flying card makes no promises.
+        Grabbable = false;
+        _popped = false;
+        _laserPopped = false;
+        _pokeHover = false;
+        _handPopSuppressed = false;
+        _pop = 0f;
+        _releaseGlide = 0f;
+        _instantNext = false;
+    }
+
+    /// <summary>Cancel any in-flight fly-to-pile (teardown / re-adoption). Does NOT run the callback.</summary>
+    private void CancelFly()
+    {
+        _flying = false;
+        _flyDone = null;
+    }
+
     public override void OnRelease(VRHand hand, Vector3 velocity)
     {
         // Glide-back, not teleport: base.OnRelease → DetachFromHand restores the PRE-GRAB
@@ -1061,7 +1126,29 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
         if (IsHeld)
         {
+            _flying = false; // a re-grab mid-flight wins — the hand owns the pose now
             TickHeldPose();
+            return;
+        }
+
+        // Issue 5: fly-to-pile animation owns the transform while it runs (unscaled, ease-out on
+        // world position + scale). On arrival the completion callback parks/hides the card.
+        if (_flying)
+        {
+            float fdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
+            _flyElapsed += fdt;
+            float ft = _flyDuration > 0f ? Mathf.Clamp01(_flyElapsed / _flyDuration) : 1f;
+            float e = 1f - (1f - ft) * (1f - ft); // ease-out
+            transform.position = Vector3.Lerp(_flyFromPos, _flyToPos, e);
+            transform.rotation = _flyFromRot;
+            transform.localScale = Vector3.Lerp(_flyFromScale, _flyToScale, e);
+            if (ft >= 1f)
+            {
+                _flying = false;
+                Action? done = _flyDone;
+                _flyDone = null;
+                done?.Invoke();
+            }
             return;
         }
 
@@ -1137,6 +1224,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _handPopSuppressed = false; // arbitration flags never outlive a pooled/parked card
         _pop = 0f;
         _releaseGlide = 0f;
+        CancelFly(); // a parked/pooled card is never mid-flight
     }
 
     private void OnDestroy()

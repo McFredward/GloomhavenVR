@@ -42,6 +42,14 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly List<VRCard> _fakeCards = new(12);
     private int _activeSignature = int.MinValue; // change-gate for the active-card set (feature 6)
 
+    // Issue 5 (fly-to-pile): the round cards docked in the PREVIOUS rebuild (a snapshot of
+    // _halfBuffer), so the park sweep can tell a just-cleared PLAYED card from any other parked
+    // card and fly it into its destination pile. _flyingToPile holds the cards mid-flight so the
+    // sweep leaves them untouched (no re-park, no re-launch — the fly runs exactly once per card).
+    private readonly HashSet<VRCard> _lastHalfCards = new();
+    private readonly HashSet<VRCard> _flyingToPile = new();
+    private const float FlyToPileSeconds = 0.4f;
+
     private bool _dirty;
     private bool _modalInputBlocked; // menu-open gate: while set, cards are inert + card/board laser picks are off
     // Item 4: previous VRMode transition, to detect the laundered ModalUI→TableIdle→HalfSelection
@@ -584,6 +592,8 @@ internal sealed class CardsDriver : MonoBehaviour
         ClearActiveHover();
         ClearInitiativeTodo(); // item 6: clear any lingering initiative to-do glow on teardown
         _liveGrabs.Clear();
+        _flyingToPile.Clear(); // issue 5: no fly survives a driver teardown
+        _lastHalfCards.Clear();
         _fanOriginCards.Clear();
         _fanOrder.Clear();
         _insertGap = -1;
@@ -698,6 +708,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _fanOriginCards.Clear();
         ClearFanInsertion();
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
+        _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
+        _lastHalfCards.Clear();
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
         if (_browseHand == hand)
@@ -731,6 +743,8 @@ internal sealed class CardsDriver : MonoBehaviour
                 _shortRestPresented = null;
             }
             _tray.RemoveCard(card);
+            _flyingToPile.Remove(card); // recycled mid-flight: drop the stale fly ref (card dies)
+            _lastHalfCards.Remove(card);
             _liveGrabs.Remove(card); // recycled mid-grab: its release must not route a drop
             if (_fanOriginCards.Remove(card) && ReferenceEquals(_insertHighlightCard, card))
                 ClearFanInsertion(); // reorder subject recycled under us
@@ -2385,6 +2399,11 @@ internal sealed class CardsDriver : MonoBehaviour
         CardHandMode mode = CardsGameApi.Mode(hand);
         CardsGameApi.GetCards(hand, _widgetBuffer);
 
+        // Issue 5: snapshot the PREVIOUS rebuild's docked round cards BEFORE clearing, so the park
+        // sweep below can recognise a just-cleared played card and fly it into its pile.
+        _lastHalfCards.Clear();
+        _lastHalfCards.UnionWith(_halfBuffer);
+
         _fanBuffer.Clear();
         _halfBuffer.Clear();
 
@@ -2581,6 +2600,10 @@ internal sealed class CardsDriver : MonoBehaviour
             VRCard card = _factory.All[i];
             if (card == null || card.IsHeld)
                 continue;
+            // Issue 5: a card mid-flight into a pile owns its own transform until it arrives —
+            // never re-zone, re-home or re-park it (that would teleport it out of the animation).
+            if (card.IsFlying)
+                continue;
             bool inFan = _fanBuffer.Contains(card);
             bool inHalf = _halfBuffer.Contains(card);
             bool inTray = _tray.SlotOf(card) >= 0;
@@ -2617,7 +2640,14 @@ internal sealed class CardsDriver : MonoBehaviour
                 ClearActiveHighlight(card); // clear any stale active-region highlight on reused cards
 
             if (!inFan && !inHalf && !inTray && !inBrowse && !inField && !inShortRest && !inActive)
-                _factory.Park(card);
+            {
+                // Issue 5: a just-cleared PLAYED round card flies into its destination pile
+                // (burned → burnt, discarded → discard) instead of vanishing; everything else
+                // parks instantly as before. TryStartFlyToPile returns true only when it launched
+                // the animation — the fly's completion callback parks the card on arrival.
+                if (!TryStartFlyToPile(hand, card))
+                    _factory.Park(card);
+            }
         }
 
         // Hand reorder (Stage A): apply the persisted VR order to the real hand fan only —
@@ -2669,6 +2699,75 @@ internal sealed class CardsDriver : MonoBehaviour
                     into.Add(card);
             }
         }
+    }
+
+    // ---------------------------------------------------------------- fly-to-pile (issue 5) --
+
+    /// <summary>
+    /// Issue 5 (user): animate a just-cleared PLAYED round card flying into its destination pile
+    /// instead of instantly vanishing. Launched from the Rebuild park sweep for a card that was
+    /// docked as a round card in the PREVIOUS rebuild (<see cref="_lastHalfCards"/>) and is now
+    /// leaving every zone — i.e. the board is clearing at the end of this character's own action
+    /// turn (the <c>IsActionTurn</c> gate flipped false). The fate is read from the game's own
+    /// model piles (<see cref="PileFateOf"/>): a burned/lost card flies to the BURNT stack, every
+    /// other (incl. unclear) card to the DISCARD stack. Returns true only when the fly was actually
+    /// launched — the caller then skips the instant park; the fly's completion callback parks the
+    /// card on arrival. Returns false (→ instant hide fallback) when the card isn't a cleared round
+    /// card, is already flying, isn't visible, or the target pile is off / not built.
+    /// </summary>
+    private bool TryStartFlyToPile(CardsHandUI hand, VRCard card)
+    {
+        if (card.GameCard == null || card.IsFlying)
+            return false;
+        if (!_lastHalfCards.Contains(card))
+            return false; // only the round cards docked last rebuild — never a fan/browse/etc. card
+        if (!card.gameObject.activeInHierarchy)
+            return false; // already parked/pooled — nothing to animate from
+
+        PileKind fate = PileFateOf(hand, card);
+        if (!_piles.TryGetPileWorld(fate, out Vector3 worldPos, out float slabWidth))
+            return false; // pile offscreen / not built → fall back to the instant hide
+
+        _flyingToPile.Add(card);
+        VRCard flying = card;
+        PileKind dest = fate;
+        card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, () =>
+        {
+            _flyingToPile.Remove(flying);
+            _factory.Park(flying);
+            VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the {dest} pile — parked.");
+        });
+        VRLog.Info("Cards", $"Fly-to-pile: '{card.name}' → {fate} pile ({FlyToPileSeconds:F2}s) — played " +
+                            "round card cleared from the board (VR presentation only; game pile state untouched).");
+        return true;
+    }
+
+    /// <summary>
+    /// Issue 5: the destination pile for a cleared played card, from the game's AUTHORITATIVE
+    /// model piles. A card sitting in the character's LOST or PERMANENTLY-LOST list is a burned
+    /// card (BURNT stack); anything else — a normal discard, or a card whose fate is not yet
+    /// resolved in the model (still in the round pile) — defaults to the DISCARD stack, the fate a
+    /// non-lost ability card always ends at (task: "cards whose fate is unclear default to
+    /// discard"). Read-only: no game state is touched.
+    /// </summary>
+    private static PileKind PileFateOf(CardsHandUI hand, VRCard card)
+    {
+        AbilityCardUI? widget = card.GameCard;
+        CAbilityCard? ac = widget != null ? widget.AbilityCard : null;
+        // The card's OWN owner (AbilityCardUI.PlayerActor) is authoritative — in a two-character
+        // sequential turn a card cleared during the OTHER character's turn belongs to a different
+        // actor than the currently-presented hand, so its lost/discard fate must be read from its
+        // own character's piles. Fall back to the presented hand if the widget has no owner.
+        CPlayerActor? actor = widget != null ? widget.PlayerActor : null;
+        if (actor == null && hand != null)
+            actor = hand.PlayerActor;
+        if (ac != null && actor != null)
+        {
+            CCharacterClass klass = actor.CharacterClass;
+            if (klass.LostAbilityCards.Contains(ac) || klass.PermanentlyLostAbilityCards.Contains(ac))
+                return PileKind.Burnt;
+        }
+        return PileKind.Discard;
     }
 
     private readonly HashSet<VRCard> _hooked = new();

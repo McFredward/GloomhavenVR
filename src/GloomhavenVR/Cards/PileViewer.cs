@@ -51,6 +51,33 @@ internal sealed class PileViewer
 
     internal bool IsBuilt => _discard != null;
 
+    /// <summary>
+    /// Issue 5 (fly-to-pile): world placement of one pile stack, for animating a just-cleared
+    /// played card INTO its destination stack. <paramref name="worldPos"/> is the stack centre;
+    /// <paramref name="slabWorldWidth"/> is the on-screen width of a slab in the stack
+    /// (<see cref="PileStack.SlabFactor"/> × the card width, at the stack's live world scale) —
+    /// the fly shrinks the card toward this so it reads as slotting into the pile. Returns false
+    /// when the requested stack isn't built or is hidden (piles off / no hand): the caller then
+    /// falls back to the instant hide.
+    /// </summary>
+    internal bool TryGetPileWorld(PileKind kind, out Vector3 worldPos, out float slabWorldWidth)
+    {
+        worldPos = Vector3.zero;
+        slabWorldWidth = 0f;
+        PileStack? stack = kind switch
+        {
+            PileKind.Discard => _discard,
+            PileKind.Burnt => _burnt,
+            PileKind.Items => _items,
+            _ => _discard,
+        };
+        if (stack == null || !stack.gameObject.activeInHierarchy)
+            return false;
+        worldPos = stack.transform.position;
+        slabWorldWidth = stack.transform.lossyScale.x * CardsConfig.CardWidth.Value * PileStack.SlabFactor;
+        return true;
+    }
+
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>Local caption for one pile (real game loc keys with safe English fallbacks).</summary>
@@ -290,7 +317,7 @@ internal sealed class PileViewer
 
         // Slab footprint: 0.62× card size — reads as a mini pile without crowding
         // the 0.10 m column budget (PlayTray.BuildMounts collision math).
-        private const float SlabFactor = 0.62f;
+        internal const float SlabFactor = 0.62f;
 
         internal static PileStack Create(Transform mount, PileKind kind, Color color,
             string caption, PileViewer owner, Vector3 localPos)
