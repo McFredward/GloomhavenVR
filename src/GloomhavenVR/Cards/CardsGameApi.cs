@@ -1434,6 +1434,81 @@ internal static class CardsGameApi
         return false;
     }
 
+    // ------------------------------------------------ action-phase select guard --
+
+    /// <summary>
+    /// USER-BUG (action-phase deadlock): during the <c>ActionSelection</c> phase the docked
+    /// control-board cards belong to <c>Choreographer.CurrentActor</c>, and the game SILENTLY
+    /// refuses every card half whose owner is not that actor
+    /// (<c>PhaseType == ActionSelection &amp;&amp; CurrentActor != playerActor</c>,
+    /// FullAbilityCard.cs:635). If the player laser-clicks ANOTHER of their characters' initiative
+    /// avatars, the human-click seam re-points the SELECTED actor (and the mod re-docks that other
+    /// actor's cards), whose halves are then unclickable — so NO action can be chosen and the
+    /// action board DEADLOCKS (the exact reported bug).
+    ///
+    /// Returns true when such a select must be REJECTED like an enemy click. All of:
+    /// <list type="bullet">
+    /// <item>the clicked actor is a <see cref="CPlayerActor"/> (enemies fall through — the game
+    /// plays its own invalid feedback and handles them);</item>
+    /// <item>we are in the action phase (<c>ActionSelection</c> or <c>Action</c>) — the ONLY phase
+    /// where re-pointing the docked cards deadlocks; during card <c>SelectAbilityCardsOrLongRest</c>
+    /// switching between your characters is legitimate and never guarded;</item>
+    /// <item>a player's own turn is actually running (<c>CurrentActor</c> is a player), and the
+    /// clicked actor is a DIFFERENT player than the acting one (re-selecting the acting actor is
+    /// fine);</item>
+    /// <item>MP: it is genuinely the local player's own action turn and the clicked character is
+    /// one they control — a remote turn / remotely-controlled portrait falls through so the game's
+    /// own networked handling is never disturbed.</item>
+    /// </list>
+    /// Read-only. Deliberately NOT reached by the mod's own programmatic drive
+    /// (<see cref="SelectActor"/> / take-damage) — that calls <c>InitiativeTrack.Select</c>
+    /// DIRECTLY, whereas this guard only sits on the HUMAN avatar-click seam
+    /// (<c>InitiativeTrackPlayerAvatar.OnClick</c>), so last round's attacked-actor select still
+    /// works. Verified: <c>public CActor CurrentActor</c> (Choreographer.cs:490),
+    /// <c>CPhase.PhaseType.ActionSelection/Action</c> (CPhase.cs:16-17),
+    /// <c>CPlayerActor.IsUnderMyControl</c>.
+    /// </summary>
+    internal static bool IsActionPhaseNonCurrentPlayerSelect(CActor? clicked)
+    {
+        if (!(clicked is CPlayerActor clickedPlayer))
+            return false; // enemies / non-players — the game handles those
+        CPhase.PhaseType phase = PhaseManager.PhaseType;
+        if (phase != CPhase.PhaseType.ActionSelection && phase != CPhase.PhaseType.Action)
+            return false; // only the action phase deadlocks; card selection may switch chars
+        Choreographer c = Choreographer.s_Choreographer;
+        if (c == null || !(c.CurrentActor is CPlayerActor current))
+            return false; // no player is acting — nothing to protect
+        if (ReferenceEquals(clickedPlayer, current))
+            return false; // re-selecting the acting actor itself is fine
+        if (FFSNetwork.IsOnline && (!current.IsUnderMyControl || !clickedPlayer.IsUnderMyControl))
+            return false; // never interfere with a remote turn / remote portrait
+        return true;
+    }
+
+    /// <summary>
+    /// Reject a non-current player select during the action phase (see
+    /// <see cref="IsActionPhaseNonCurrentPlayerSelect"/>): play the game's OWN invalid-click SFX —
+    /// <c>UIInfoTools.InvalidOptionAudioItem</c> (its backing field
+    /// <c>generalAudioButtonProfile.nonInteractableMouseDownAudioItem</c>, UIInfoTools.cs:467), the
+    /// very sound <c>FullAbilityCard.OnAbilityClick</c> plays when it refuses an illegal card click
+    /// (FullAbilityCard.cs:625) and the shared UI "invalid option" cue used across the game's shops,
+    /// perks and waypoints — routed through <c>AudioControllerUtils.PlaySound(id, optional: true)</c>,
+    /// which itself validates the id via <c>AudioController.IsValidAudioID</c>
+    /// (AudioControllerUtils.cs:17). The caller's Harmony prefix then SKIPS the original select, so
+    /// the current actor stays selected and the action board stays usable. Returns true (rejected)
+    /// for call-site readability.
+    /// </summary>
+    internal static bool RejectActionPhaseSelect(CActor clicked)
+    {
+        UIInfoTools tools = UIInfoTools.Instance;
+        if (tools != null)
+            AudioControllerUtils.PlaySound(tools.InvalidOptionAudioItem, optional: true);
+        VRLog.Info("Cards", $"Action-phase select REJECTED: '{ActorLabel(clicked)}' is not the acting actor " +
+            $"'{(CurrentTurnActor() is CActor cur ? ActorLabel(cur) : "?")}' — kept current selected, " +
+            "played the game's invalid-click SFX (docked-card owner-lock deadlock guard).");
+        return true;
+    }
+
     // ---------------------------------------------------------------- card piles --
 
     /// <summary>
