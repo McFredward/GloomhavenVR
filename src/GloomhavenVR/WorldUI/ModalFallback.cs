@@ -2304,15 +2304,18 @@ internal static class ModalFallback
     private const float SecondaryForegroundMeters = 0.14f;
 
     /// <summary>
-    /// BOARD-SAFE SPAWN CLAMP (user request B): steepest allowed DOWNWARD placement angle
-    /// (degrees below eye level) for the head→panel direction. Dialogs open while the player
-    /// looks down at the board, so the raw-gaze placement routinely landed the window inside /
-    /// below the board plane; past this angle the direction is clamped back up and the window
-    /// pulled slightly toward the head. Matches the spirit of
-    /// <see cref="PanelPlacement.MinPitchDeg"/> (−30°), a little tighter because modals are
-    /// larger than the settings panel.
+    /// BOARD-SAFE SPAWN CLAMP (user request B; tightened for the board-cover fix): steepest
+    /// allowed DOWNWARD placement angle (degrees below eye level) for the head→panel direction.
+    /// Info/actor windows (and dialogs) open while the player looks DOWN at the control board, so
+    /// raw-gaze placement landed the window LOW — right where the board sits — and the board
+    /// covered it at spawn (the reported issue). Clamping the placement direction to this shallow
+    /// pitch biases the window UP toward eye level so it lands in the readable view ABOVE the
+    /// board's near edge; past this angle the direction is clamped and the window pulled slightly
+    /// toward the head. Well inside <see cref="PanelPlacement.MinPitchDeg"/> (−30°) — modals are
+    /// larger than the settings panel and must clear the board, so they sit closer to eye level
+    /// (was 25°, which still landed a window ~0.5 m×scale below eye, i.e. down at the board).
     /// </summary>
-    private const float MaxSpawnPitchDeg = 25f;
+    private const float MaxSpawnPitchDeg = 15f;
 
     /// <summary>Request B: distance factor applied when the steep-gaze pitch clamp engages —
     /// the window is PULLED TOWARD THE HEAD so it stays near where the player is looking
@@ -2320,19 +2323,25 @@ internal static class ModalFallback
     private const float SteepGazePullFactor = 0.85f;
 
     /// <summary>
-    /// Request B: minimum height of a freshly spawned modal's CENTER above the board/table
-    /// plane, real meters × diorama scale. The board reference is the camera orbit focus
-    /// (<c>CameraController.FocusPoint</c>) — the exact table-plane anchor
-    /// <see cref="PanelLayout"/> measures all slot heights from (0.02–0.55 m above it).
-    /// 0.35 m keeps the bottom edge of even a tall results window clear of the board
-    /// standees/walls so the window is never buried in the geometry.
+    /// Request B (board-cover fix): height of the board/table's TOP edge above the orbit-focus
+    /// plane (<c>CameraController.FocusPoint</c>, the anchor <see cref="PanelLayout"/> measures all
+    /// slot heights from — slots sit 0.02–0.55 m above it), real meters × diorama scale. The board
+    /// floor clamp raises a freshly spawned modal so its BOTTOM edge (center − half-height) sits
+    /// this far above the focus plane PLUS the window's own half-height — i.e. the window bottom
+    /// clears the board's top edge with margin, instead of only its pivot clearing the plane.
+    /// Accounting for the window height is the actual fix: a TALL window (results / actor info)
+    /// whose CENTER was above the old fixed 0.35 m offset still hung its bottom DOWN into the board,
+    /// so the board covered it. Now the taller the window, the higher its center is floored.
     /// </summary>
-    private const float MinBoardClearanceMeters = 0.35f;
+    private const float BoardTopClearanceMeters = 0.30f;
 
-    /// <summary>Request B: the board floor never raises a window above eye level + this margin
-    /// (degenerate case: table plane above the head, e.g. seated under a standing-height
-    /// diorama) — at eye level the window is readable, which is the actual goal.</summary>
-    private const float MaxAboveEyeMeters = 0.05f;
+    /// <summary>Request B: the board floor / overlap raise never lifts a window above eye level +
+    /// this margin — still BELOW the top of the head, so the window stays in comfortable view and
+    /// is never pushed overhead. A little headroom (was 0.05 m) lets a tall window rise far enough
+    /// to clear a tall board's top edge before this cap wins; at/near eye level the window is
+    /// readable, which is the actual goal (readability always beats full board clearance in the
+    /// degenerate case of a table plane above the head).</summary>
+    private const float MaxAboveEyeMeters = 0.10f;
 
     /// <summary>Request B: max upward tilt (top toward the player, degrees) applied when the
     /// clamp raised/pulled the window while the player looks steeply down — so the raised
@@ -2367,12 +2376,14 @@ internal static class ModalFallback
     ///    <see cref="MaxSpawnPitchDeg"/> below eye level (the player is reading the board),
     ///    the direction is clamped to that pitch and the distance shortened by
     ///    <see cref="SteepGazePullFactor"/> (pulled toward the head).
-    /// 2. BOARD-PLANE floor — the position's Y is raised to table plane +
-    ///    <see cref="MinBoardClearanceMeters"/> × scale (capped at eye level +
-    ///    <see cref="MaxAboveEyeMeters"/> so the readability goal always wins).
+    /// 2. BOARD-PLANE floor — the position's Y is raised so the window's BOTTOM edge
+    ///    (center − half-height) clears the board's top edge: table plane +
+    ///    <see cref="BoardTopClearanceMeters"/> × scale + the window's half-height (capped at eye
+    ///    level + <see cref="MaxAboveEyeMeters"/> so the readability goal always wins). Passing the
+    ///    half-height is what keeps a tall window from hanging its bottom down into the board.
     /// Returns the human-readable clamp reason, or null when the pose passed through unchanged.
     /// </summary>
-    private static string? ClampSpawnPose(Transform head, ref Vector3 pos, float scale)
+    private static string? ClampSpawnPose(Transform head, ref Vector3 pos, float scale, Vector2 half)
     {
         string? reason = null;
         Vector3 headPos = head.position;
@@ -2403,17 +2414,21 @@ internal static class ModalFallback
             }
         }
 
-        // 2. Board-plane floor: the window must never sit below/inside the table surface.
+        // 2. Board-plane floor: the window's BOTTOM edge (center − half-height) must clear the
+        //    board's TOP edge — not just its pivot the plane — so a tall window is never buried in
+        //    the board. Raise the CENTER to boardTop + half-height; cap near eye level so it never
+        //    rises overhead (readability wins in the degenerate table-above-head case).
         if (TryGetBoardPlaneY(out float boardY))
         {
-            float floorY = boardY + MinBoardClearanceMeters * scale;
+            float floorY = boardY + BoardTopClearanceMeters * scale + half.y;
             float eyeCap = headPos.y + MaxAboveEyeMeters * scale;
             float minY = Mathf.Min(floorY, eyeCap); // readability wins in the degenerate case
             if (pos.y < minY)
             {
-                string floor = $"raised y {pos.y:F2} → {minY:F2} (board plane {boardY:F2} + " +
-                               $"{MinBoardClearanceMeters:F2} m × scale {scale:F2}" +
-                               (minY < floorY ? ", capped at eye level" : "") + ")";
+                string floor = $"raised y {pos.y:F2} → {minY:F2} so its bottom clears the board top " +
+                               $"(board plane {boardY:F2} + top-clear {BoardTopClearanceMeters:F2} m × scale " +
+                               $"{scale:F2} + half-height {half.y:F2}" +
+                               (minY < floorY ? ", capped near eye level" : "") + ")";
                 reason = reason == null ? floor : $"{reason}; {floor}";
                 pos.y = minY;
             }
@@ -2724,7 +2739,7 @@ internal static class ModalFallback
         // Request B: never below/inside the board plane, never down a steep gaze (see
         // ClampSpawnPose — spawn/refloat/recall only, never per frame).
         Vector3 rawPos = pos;
-        string? clampReason = ClampSpawnPose(h, ref pos, scale);
+        string? clampReason = ClampSpawnPose(h, ref pos, scale, halfSize);
 
         // User request A: never spawn INSIDE the control board or another open modal —
         // raise / swing laterally toward free space (spawn/refloat/recall only, never per
@@ -2772,6 +2787,10 @@ internal static class ModalFallback
 
         // Request B diagnostic: ONE line per spawn/refloat/recall (this method is never called
         // per frame) stating the clamp decision — original pose → clamped pose, reason.
+        bool haveBoard = TryGetBoardPlaneY(out float by);
+        // Board-top clearance actually applied: the CENTER floor that keeps the window BOTTOM above
+        // the board top (boardY + top-clear×scale + half-height), capped near eye level.
+        float boardTopFloorY = haveBoard ? by + BoardTopClearanceMeters * scale + halfSize.y : float.NaN;
         VRLog.Info("WorldUI", "MODAL SPAWN CLAMP: pose " +
                               $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
                               $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +
@@ -2781,7 +2800,10 @@ internal static class ModalFallback
                               (overlapNote == null
                                   ? " OVERLAP: none."
                                   : $" OVERLAP: {overlapNote}.") +
-                              $" boardPlaneY={(TryGetBoardPlaneY(out float by) ? by.ToString("F2") : "n/a")}, " +
+                              $" boardPlaneY={(haveBoard ? by.ToString("F2") : "n/a")}, " +
+                              $"boardTopClear={BoardTopClearanceMeters:F2}m+halfH{halfSize.y:F2} " +
+                              $"(window-bottom floorY={(haveBoard ? boardTopFloorY.ToString("F2") : "n/a")}, " +
+                              $"eyeCap +{MaxAboveEyeMeters:F2}m, maxPitch {MaxSpawnPitchDeg:F0}°), " +
                               $"scale={scale:F2}, stagger={staggerIndex}.");
         return true;
     }
