@@ -3176,6 +3176,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // (CardsDriver → Press(hand, "laser")) never pass through this and stay immediate.
         private bool _depthArmed = true;
 
+        // Press DEBOUNCE (user: keycaps double-trigger like the pile stacks used to — port the
+        // exact PileStack.OnPoke fix here). After a press commits, no second press fires until
+        // the fingertip has both (a) retracted past PressRearmFraction so _depthArmed re-arms
+        // AND (b) waited out this shared cooldown — killing the retract/re-entry and the
+        // PokeInteractor hover-flicker (exit+enter inside one physical poke) re-fire the
+        // hysteresis alone could not. The laser path (Press "laser") is cooldown-debounced too
+        // (cross-path poke+laser double-fire), but never dwelled. Composes with the depth-fire:
+        // the depth-fire at ~90% travel is still the press event; this only blocks the re-fire.
+        private float _nextPressTime;
+
         // Dust-dissolve hide / quick scale-in show (user #7). The logical hide is INSTANT
         // (collider off, poke state dropped); only the visuals shrink out for
         // ButtonTuning.DissolveSeconds while the pooled dust burst plays.
@@ -3630,7 +3640,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             {
                 if (follow >= WorldUI.ButtonTuning.PressFireFraction)
                 {
-                    if (_depthArmed)
+                    // DEBOUNCE (user): fire only when re-armed (cap fully retracted past the
+                    // hysteresis since the last press) AND the shared cooldown has elapsed —
+                    // a retract-then-push or a hover flicker inside the same poke can no longer
+                    // machine-gun a second press. Press() re-checks the cooldown and stamps it.
+                    if (_depthArmed && Time.unscaledTime >= _nextPressTime)
                     {
                         _depthArmed = false;
                         Press(_hoverHand, "poke-depth");
@@ -3813,6 +3827,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                                     "(accidental press right after handling cards, test #19).");
                 return;
             }
+            // DEBOUNCE (user): one press per physical poke/click. The depth-fire pre-checks this
+            // window (so a valid poke-depth always passes here and re-stamps it); the laser path
+            // arrives straight here and is cooldown-debounced too, so a retract/re-entry, a
+            // hover flicker, or a poke+laser inside the same window cannot fire twice.
+            if (Time.unscaledTime < _nextPressTime)
+            {
+                VRLog.Debug("Cards", $"Board: {name} press DEBOUNCED (source={source}, {hand.Side}) — " +
+                                     $"within the {WorldUI.ButtonTuning.PokePressCooldownSeconds:F2}s press cooldown.");
+                return;
+            }
+            _nextPressTime = Time.unscaledTime + WorldUI.ButtonTuning.PokePressCooldownSeconds;
             _press = 1f;
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Board: {name} pressed (source={source}, {hand.Side}).");
