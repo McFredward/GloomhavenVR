@@ -264,6 +264,20 @@ internal sealed class FlatScreen
     private Vector3 _pokePressPoint; // world, on the screen plane
     private Vector2 _pokePressPixel; // RT pixel of the poke press (re-warped while latched)
 
+    // ---- execute-mode drag session (flat-menu sliders / scrollbars / scroll-rects) ----------
+    /// <summary>Distinct pointer id for the flat-menu drag (clear of mouse -1..-3 and the poke/laser ids).</summary>
+    private const int ScreenDragPointerId = -120;
+    /// <summary>Minimum spacing of the flat-menu drag begin/end log lines.</summary>
+    private const float ScreenDragLogSeconds = 0.5f;
+
+    private UnityEngine.EventSystems.PointerEventData? _screenDragData;
+    private GameObject? _screenDragPress;   // object that took pointerDown (pointerUp target)
+    private GameObject? _screenDragTarget;  // IDragHandler under the press (Slider/Scrollbar/ScrollRect)
+    private bool _screenDragActive;         // a down+drag session is live
+    private bool _screenDragBegun;          // beginDrag already fired
+    private Vector2 _screenDragLastPos;     // last dispatched pointer pixel (delta + pointerUp position)
+    private float _lastScreenDragLog = float.NegativeInfinity;
+
     /// <summary>One captured backbuffer camera + everything needed to restore it.</summary>
     private sealed class CapturedCamera
     {
@@ -1570,6 +1584,7 @@ internal sealed class FlatScreen
             VirtualMouse.Release();
             _pressing = false;
             _latched = false;
+            EndScreenDrag();
         }
         if (_pokePressing)
             EndPoke("screen hidden");
@@ -1841,14 +1856,30 @@ internal sealed class FlatScreen
                 else if (Time.unscaledTime - _dragOverSince >= WorldUIConfig.DragUnlockSeconds.Value)
                 {
                     _latched = false;
-                    // Drags always run through the virtual mouse; in execute mode the
-                    // button wasn't pressed yet — press it now at the latched pixel so
-                    // the drag starts where the press landed.
-                    if (!_vmPressed)
+                    // Deliberate drag. virtualmouse/both modes press-and-follow the
+                    // virtual-mouse device; execute mode (the default) drives uGUI drag
+                    // events directly. The VM path never moved a menu slider on hardware:
+                    // the virtual-mouse BUTTON edges do not survive the input module
+                    // (test #7 — the very reason clicks default to ExecuteEvents), so a
+                    // held VM "drag" carried no pressed state, uGUI started no drag, and
+                    // the slider handle never followed — only the DirectClick on release
+                    // ever set a value (user report: sliders in the MAIN MENU can only be
+                    // clicked, never dragged, so 0 is unreachable). The ExecuteEvents drag
+                    // below moves Sliders/Scrollbars/ScrollRects the same way the in-game
+                    // world-space menus do (Hands.Interact.UguiPointer).
+                    if (WorldUIConfig.VirtualMouseButtons)
                     {
-                        VirtualMouse.WarpTo(_latchedPixel);
-                        VirtualMouse.Press();
-                        _vmPressed = true;
+                        if (!_vmPressed)
+                        {
+                            VirtualMouse.WarpTo(_latchedPixel);
+                            VirtualMouse.Press();
+                            _vmPressed = true;
+                        }
+                    }
+                    else
+                    {
+                        BeginScreenDrag(_latchedPixel);
+                        UpdateScreenDrag(pixel); // catch the drag up to the current ray at once
                     }
                     VRLog.Info("WorldUI", $"FlatScreen pointer: click latch OPENED → drag " +
                                           $"(ray {angle:F1}° off the press direction for " +
@@ -1866,6 +1897,12 @@ internal sealed class FlatScreen
         // reclaimed and the queued-event stream alive during a held press.
         bool frozen = _pressing && _latched;
         VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
+
+        // Execute-mode drag (default ClickMode): once the latch has opened, drive the
+        // uGUI IDragHandler under the press so sliders/scrollbars/scroll-rects follow
+        // the ray continuously — down/up/click alone never move a Slider handle.
+        if (_screenDragActive)
+            UpdateScreenDrag(pixel);
 
         // Single convergent visual (test #7): the beam is CLAMPED to this exact world
         // point and the RayInteractor's reticle shows there — no separate FlatScreen
@@ -1912,6 +1949,10 @@ internal sealed class FlatScreen
                 VirtualMouse.Release();
                 _vmPressed = false;
             }
+            // End any execute-mode drag first (endDrag + pointerUp). A drag opened the
+            // latch, so _latched is false here and DirectClick does not double-fire —
+            // the two paths are mutually exclusive (tap → DirectClick; drag → EndScreenDrag).
+            EndScreenDrag();
             if (_latched && WorldUIConfig.ExecuteClicks)
                 DirectClick(_latchedPixel);
             VRLog.Info("WorldUI", $"FlatScreen pointer: trigger RELEASE at RT pixel " +
@@ -1948,6 +1989,7 @@ internal sealed class FlatScreen
             _pressing = false;
             _latched = false;
             VirtualMouse.Release();
+            EndScreenDrag();
         }
 
         string side = other.Side == HandSide.Left ? "Left" : "Right";
@@ -2009,11 +2051,21 @@ internal sealed class FlatScreen
                    > PokeDragUnlockMeters * PokeDragUnlockMeters * scale * scale)
             {
                 _pokeLatched = false;
-                if (!_vmPressed) // execute mode: start the VM drag at the press pixel
+                // Same drag split as the trigger-ray path: execute mode (default) drives
+                // uGUI drag events (sliders/scrollbars follow); virtualmouse/both press
+                // the VM device. The VM path never moved a slider (test #7 button edges).
+                if (WorldUIConfig.VirtualMouseButtons)
                 {
-                    VirtualMouse.WarpTo(_pokePressPixel);
-                    VirtualMouse.Press();
-                    _vmPressed = true;
+                    if (!_vmPressed)
+                    {
+                        VirtualMouse.WarpTo(_pokePressPixel);
+                        VirtualMouse.Press();
+                        _vmPressed = true;
+                    }
+                }
+                else
+                {
+                    BeginScreenDrag(_pokePressPixel);
                 }
                 VRLog.Info("WorldUI", "FlatScreen poke: latch OPENED → drag (fingertip slid " +
                                       $">{PokeDragUnlockMeters * 1000f:F0} mm laterally).");
@@ -2027,7 +2079,10 @@ internal sealed class FlatScreen
             {
                 float px = (Mathf.Clamp(local.x, -0.5f, 0.5f) + 0.5f) * _rt.width;
                 float py = (Mathf.Clamp(local.y, -0.5f, 0.5f) + 0.5f) * _rt.height;
-                VirtualMouse.WarpTo(new Vector2(px, py));
+                var p = new Vector2(px, py);
+                VirtualMouse.WarpTo(p);
+                if (_screenDragActive)
+                    UpdateScreenDrag(p);
             }
             return;
         }
@@ -2084,6 +2139,8 @@ internal sealed class FlatScreen
             VirtualMouse.Release();
             _vmPressed = false;
         }
+        // End any execute-mode drag (endDrag + pointerUp); no-op for a plain latched tap.
+        EndScreenDrag();
         // reason == null is the normal withdraw → deliver the click; any named reason
         // (hand lost, poke disabled) is an abort.
         if (_pokeLatched && reason == null && WorldUIConfig.ExecuteClicks)
@@ -2104,6 +2161,7 @@ internal sealed class FlatScreen
                 VirtualMouse.Release();
                 _vmPressed = false;
             }
+            EndScreenDrag();
             VRLog.Info("WorldUI", "FlatScreen pointer: press released (ray left the screen / pose lost).");
         }
     }
@@ -2170,6 +2228,142 @@ internal sealed class FlatScreen
             VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): top hit " +
                                   $"'{top.gameObject.name}' has no IPointerClickHandler.");
         }
+    }
+
+    // ---- execute-mode drag delivery (flat-menu sliders / scrollbars / scroll-rects) --------
+
+    /// <summary>
+    /// Begin an ExecuteEvents drag session at the press pixel — the click latch has just
+    /// opened into a deliberate drag. A uGUI <see cref="UnityEngine.UI.Slider"/> handle,
+    /// scrollbar or scroll-rect moves ONLY through <c>IDragHandler.OnDrag</c>; the
+    /// <see cref="DirectClick"/> down/up/click sets a value at the press pixel but can
+    /// never fine-adjust it or reach an extreme the press pixel is not on (drag a volume
+    /// slider to 0). Mirrors <see cref="Hands.Interact.UguiPointer"/> for the whole-screen
+    /// composite: hits come from <c>EventSystem.RaycastAll</c> at the RT pixel (= the
+    /// game's real screen pixel), exactly like <see cref="DirectClick"/>, so
+    /// <c>pointerPressRaycast.module.eventCamera</c> (the UICamera) resolves the slider's
+    /// local point correctly. pointerDown + <c>initializePotentialDrag</c> here;
+    /// <see cref="UpdateScreenDrag"/> fires beginDrag/dragHandler as the pointer follows;
+    /// <see cref="EndScreenDrag"/> fires endDrag + pointerUp on release.
+    /// </summary>
+    private void BeginScreenDrag(Vector2 pixel)
+    {
+        if (_screenDragActive)
+            return;
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+        {
+            VRLog.Warn("WorldUI", "Flat-menu drag: no EventSystem — drag dropped (slider cannot follow).");
+            return;
+        }
+
+        var data = new UnityEngine.EventSystems.PointerEventData(es)
+        {
+            pointerId = ScreenDragPointerId,
+            position = pixel,
+            pressPosition = pixel,
+            button = UnityEngine.EventSystems.PointerEventData.InputButton.Left,
+            eligibleForClick = false,  // a deliberate drag is not a click
+            useDragThreshold = false,  // VR: begin dragging on the first move, no pixel threshold
+        };
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+        {
+            VRLog.Info("WorldUI", $"Flat-menu drag: nothing under the pointer at ({pixel.x:F0},{pixel.y:F0}) — no drag.");
+            return;
+        }
+
+        UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
+        data.pointerCurrentRaycast = data.pointerPressRaycast = top;
+
+        GameObject? pressTarget = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+            top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.pointerDownHandler);
+        _screenDragPress = pressTarget != null ? pressTarget : top.gameObject;
+        data.pointerPress = _screenDragPress;
+
+        _screenDragTarget = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler
+            <UnityEngine.EventSystems.IDragHandler>(top.gameObject);
+        data.pointerDrag = _screenDragTarget;
+        if (_screenDragTarget != null)
+            UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+                top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.initializePotentialDrag);
+
+        _screenDragData = data;
+        _screenDragActive = true;
+        _screenDragBegun = false;
+        _screenDragLastPos = pixel;
+    }
+
+    /// <summary>
+    /// Drive the active flat-menu drag as the pointer follows: update position + delta,
+    /// fire beginDrag on the first move (ScrollRect wants it; Slider/Scrollbar have no
+    /// IBeginDragHandler and simply ignore it) and dragHandler every tick thereafter.
+    /// No-op when nothing draggable sits under the press.
+    /// </summary>
+    private void UpdateScreenDrag(Vector2 pixel)
+    {
+        if (!_screenDragActive || _screenDragData == null || _screenDragTarget == null)
+        {
+            _screenDragLastPos = pixel;
+            return;
+        }
+        UnityEngine.EventSystems.PointerEventData data = _screenDragData;
+        data.delta = pixel - _screenDragLastPos;
+        data.position = pixel;
+        _screenDragLastPos = pixel;
+
+        if (!_screenDragBegun)
+        {
+            _screenDragBegun = true;
+            data.dragging = true;
+            UnityEngine.EventSystems.ExecuteEvents.Execute(
+                _screenDragTarget, data, UnityEngine.EventSystems.ExecuteEvents.beginDragHandler);
+            if (Time.unscaledTime - _lastScreenDragLog >= ScreenDragLogSeconds)
+            {
+                _lastScreenDragLog = Time.unscaledTime;
+                VRLog.Info("WorldUI", $"Flat-menu drag BEGIN on '{_screenDragTarget.name}' at " +
+                                      $"({pixel.x:F0},{pixel.y:F0}) — sliders/scrollbars now follow the " +
+                                      "pointer via uGUI OnDrag (not just the click on the press pixel).");
+            }
+        }
+        UnityEngine.EventSystems.ExecuteEvents.Execute(
+            _screenDragTarget, data, UnityEngine.EventSystems.ExecuteEvents.dragHandler);
+    }
+
+    /// <summary>
+    /// End the active flat-menu drag (endDrag + pointerUp at the last dispatched pixel);
+    /// a safe no-op when none is active. A drag is never a click (it opened the latch), so
+    /// no pointerClick is fired — matching the old virtual-mouse drag path (release only).
+    /// </summary>
+    private void EndScreenDrag()
+    {
+        if (!_screenDragActive)
+            return;
+        UnityEngine.EventSystems.PointerEventData? data = _screenDragData;
+        if (data != null)
+        {
+            data.position = _screenDragLastPos;
+            if (_screenDragPress != null)
+                UnityEngine.EventSystems.ExecuteEvents.Execute(
+                    _screenDragPress, data, UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
+            if (_screenDragBegun && _screenDragTarget != null)
+                UnityEngine.EventSystems.ExecuteEvents.Execute(
+                    _screenDragTarget, data, UnityEngine.EventSystems.ExecuteEvents.endDragHandler);
+            data.dragging = false;
+            data.pointerDrag = null;
+            data.pointerPress = null;
+        }
+        if (_screenDragBegun && Time.unscaledTime - _lastScreenDragLog >= ScreenDragLogSeconds)
+        {
+            _lastScreenDragLog = Time.unscaledTime;
+            VRLog.Info("WorldUI", $"Flat-menu drag END at ({_screenDragLastPos.x:F0},{_screenDragLastPos.y:F0}).");
+        }
+        _screenDragActive = false;
+        _screenDragBegun = false;
+        _screenDragPress = null;
+        _screenDragTarget = null;
+        _screenDragData = null;
     }
 
     /// <summary>
