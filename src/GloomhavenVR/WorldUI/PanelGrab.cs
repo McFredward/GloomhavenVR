@@ -238,6 +238,27 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             _handB = null;
             ReAnchor();
         }
+        // GRAB STATE heal (user bug A, structural): a slot must only stay engaged while
+        // that hand's grabber still holds THIS handle — the grabber sets Held BEFORE
+        // OnGrab, so during any legitimate hold the check is always true. A missed
+        // release (grabber healed a dead hold, hot reload, mode teardown ordering) would
+        // otherwise latch a stale slot: the phantom hand keeps carrying the window, and
+        // with BOTH slots stale CanGrab stays false forever (bar refuses every grab).
+        if (_handA != null && !ReferenceEquals(_handA.Grabber.Held, this))
+        {
+            VRLog.Warn(_logChannel, $"GRAB STATE heal: {_logName} dropped stale grip slot ({_handA.Side} no longer holds the bar).");
+            _handA = _handB;
+            _handB = null;
+            _laserCarry = false;
+            if (_handA != null) ReAnchor();
+            else _owner?.OnGrabFinished();
+        }
+        if (_handB != null && !ReferenceEquals(_handB.Grabber.Held, this))
+        {
+            VRLog.Warn(_logChannel, $"GRAB STATE heal: {_logName} dropped stale grip slot ({_handB.Side} no longer holds the bar).");
+            _handB = null;
+            ReAnchor();
+        }
         if (_handA == null)
             return;
 

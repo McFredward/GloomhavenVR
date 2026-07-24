@@ -49,7 +49,11 @@ internal sealed class RayGrabDriver
         // live effective state — Ray.Active is false while THIS hand already holds a
         // grabbable (including a laser-carry in progress), so we stop ray-testing and let
         // the Grabber run the hold/release; PanelGrabHandle.Update carries the window.
-        if (!_hand.Ray.Active || VRHands.Primary != _hand)
+        // User bug A (honest affordance): when the Grabber itself is policy-disabled,
+        // ForceGrab below would refuse anyway — hovering/tinting/buzzing the bar then
+        // PROMISED a grab that could never engage ("flickers and vibrates but won't
+        // grab"). No grab available ⇒ no grab affordance.
+        if (!_hand.Ray.Active || VRHands.Primary != _hand || !_hand.Grabber.Enabled)
         {
             ClearHover();
             return;

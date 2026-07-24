@@ -38,6 +38,10 @@ internal sealed class ProximityGrabber
     private string _grabLabel = "";
     private string _lastGrabLog = "";
 
+    // Refusal diagnostic throttle (user bug A: "won't grab" gave a silent log — every
+    // refused grab attempt now NAMES its gate, at most one line per second per hand).
+    private float _nextRefusalLogAt;
+
     internal ProximityGrabber(VRHand hand) => _hand = hand;
 
     /// <summary>The current grab candidate (highlighted), if any.</summary>
@@ -65,8 +69,22 @@ internal sealed class ProximityGrabber
 
     internal void Tick()
     {
-        if (!_enabled || !_hand.HasPose)
+        if (!_enabled)
+        {
+            // User bug A ("bars vibrate but won't grab", hardware log 4125-4193): the
+            // interactor being POLICY-OFF was completely silent while hover systems that
+            // do not consult it (RayGrabDriver tint/haptic) kept promising a grab. Name
+            // the refusal on every grab-intent edge so the next hardware log points at
+            // the mode mask instead of a ghost.
+            if (_hand.HasPose && (_hand.GripDown || _hand.TriggerDown))
+                LogRefusal($"interactor disabled by mode policy (mode={Core.Events.VRModeStateMachine.CurrentMode})");
             return;
+        }
+        if (!_hand.HasPose)
+            return;
+
+        if (Held != null && HealDeadHeld())
+            return; // healed a stuck hold this frame; resume normal grabbing next Tick
 
         if (Held != null)
         {
@@ -89,7 +107,14 @@ internal sealed class ProximityGrabber
         UpdateHighlight();
 
         if (Highlighted == null)
+        {
+            // Grab-intent edge with NO candidate: if a registered grabbable is within
+            // reach but was SKIPPED, name why (CanGrab gate / per-hand filter) —
+            // otherwise the refusal reads as "no grabbable in reach" in the log.
+            if (_hand.GripDown || _hand.TriggerDown)
+                LogNoCandidateRefusal();
             return;
+        }
 
         // Test #27: grip-only grabbables (world panels/boards) always take the GRIP
         // button regardless of [Cards] GrabButton — the tester found grip more
@@ -162,12 +187,133 @@ internal sealed class ProximityGrabber
     /// </summary>
     public bool ForceGrab(IGrabbable target, bool releaseOnTriggerUp = false)
     {
-        if (!_enabled || !_hand.HasPose || Held != null || target == null || !target.CanGrab)
+        // Refusal diagnostics (user bug A): the laser drivers (RayGrabDriver, fan pluck,
+        // figure pluck) silently swallowed a false return — the hardware log showed
+        // "LASER-CARRY armed" eleven times with no engage and no reason. Name the gate.
+        if (!_enabled)
+        {
+            LogRefusal($"ForceGrab refused — interactor disabled by mode policy (mode={Core.Events.VRModeStateMachine.CurrentMode})");
             return false;
+        }
+        if (!_hand.HasPose)
+            return false;
+        if (Held != null)
+        {
+            LogRefusal($"ForceGrab refused — already holding '{DescribeGrabbable(Held)}' ({_grabLabel})");
+            return false;
+        }
+        if (target == null)
+            return false;
+        if (!target.CanGrab)
+        {
+            LogRefusal($"ForceGrab refused — target '{DescribeGrabbable(target)}' CanGrab=false");
+            return false;
+        }
         if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+        {
+            LogRefusal($"ForceGrab refused — target '{DescribeGrabbable(target)}' AllowsHand({_hand.Side})=false");
             return false;
+        }
         BeginGrab(target, releaseOnTriggerUp, releaseOnTriggerUp ? "trigger" : "grip", "laser");
         return true;
+    }
+
+    /// <summary>
+    /// GRAB STATE self-heal (user bug A, structural): every path that ends a grab is
+    /// SUPPOSED to release through <see cref="Tick"/>/<see cref="CancelAll"/>, but a held
+    /// object can also die underneath the hold — destroyed with its window, re-parked to
+    /// the pool (SetActive(false) → OnDisable), or its per-hand filter can start refusing
+    /// this hand (arbitration/dominance change). A stale <see cref="Held"/> would then
+    /// refuse EVERY subsequent grab (and keep <c>RayInteractor.Active</c> false — laser
+    /// gone) while hover haptics elsewhere still fire. Re-derive validity every Tick and
+    /// force-release with a Warn instead of latching.
+    /// </summary>
+    private bool HealDeadHeld()
+    {
+        IGrabbable held = Held!;
+        bool destroyed = held is UnityEngine.Object obj && obj == null;
+        string? why = null;
+        if (destroyed)
+            why = "held object was destroyed";
+        else if (held is MonoBehaviour mb && !mb.isActiveAndEnabled)
+            why = $"held object '{mb.name}' was disabled/re-parked while held";
+        else if (held is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            why = $"held object '{DescribeGrabbable(held)}' no longer allows this hand";
+        if (why == null)
+            return false;
+
+        Held = null;
+        _releaseOnTriggerUp = false;
+        if (!destroyed)
+        {
+            try
+            {
+                held.OnRelease(_hand, Vector3.zero);
+            }
+            catch (Exception ex)
+            {
+                Core.VRLog.Warn("Interact", $"GRAB STATE heal: OnRelease threw during heal ({ex.GetType().Name}: {ex.Message}) — state cleared anyway.");
+            }
+        }
+        Core.VRLog.Warn("Interact", $"GRAB STATE heal: {_hand.Side} force-released ({_grabLabel}) — {why}. Grabs re-enabled.");
+        return true;
+    }
+
+    /// <summary>Stable display name for a grabbable (MonoBehaviour name when alive).</summary>
+    private static string DescribeGrabbable(IGrabbable target)
+    {
+        if (target is UnityEngine.Object obj)
+            return obj == null ? $"{target.GetType().Name} (destroyed)" : obj.name;
+        return target.GetType().Name;
+    }
+
+    /// <summary>Throttled (1/s per hand) refusal diagnostic — Info level so hardware logs carry it.</summary>
+    private void LogRefusal(string reason)
+    {
+        if (Time.unscaledTime < _nextRefusalLogAt)
+            return;
+        _nextRefusalLogAt = Time.unscaledTime + 1f;
+        Core.VRLog.Info("Interact", $"{_hand.Side} grab refused — {reason}.");
+    }
+
+    /// <summary>
+    /// Grab-intent edge with no highlight: scan for the nearest IN-REACH registered
+    /// grabbable that was skipped by a gate and log which gate ate it (throttled).
+    /// Runs only on GripDown/TriggerDown frames — never per-frame work.
+    /// </summary>
+    private void LogNoCandidateRefusal()
+    {
+        if (Time.unscaledTime < _nextRefusalLogAt)
+            return; // pre-check so the scan below is skipped while throttled
+
+        var entries = VRInteractables.Grabbables;
+        Vector3 palm = _hand.Rig.PalmCenter.position;
+        float reach = ReachMeters * _hand.WorldScale;
+        string? reason = null;
+        float nearest = float.MaxValue;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            Collider collider = entries[i].Collider;
+            if (collider == null || !collider.enabled || !collider.gameObject.activeInHierarchy)
+                continue;
+            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            if (dist > reach || dist >= nearest)
+                continue;
+            IGrabbable target = entries[i].Target;
+            if (!target.CanGrab)
+            {
+                nearest = dist;
+                reason = $"nearest in-reach grabbable '{DescribeGrabbable(target)}' has CanGrab=false";
+            }
+            else if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            {
+                nearest = dist;
+                reason = $"nearest in-reach grabbable '{DescribeGrabbable(target)}' refuses this hand (AllowsHand)";
+            }
+            // A target passing both gates would have been highlighted — not reachable here.
+        }
+        if (reason != null)
+            LogRefusal(reason);
     }
 
     internal void CancelAll()
