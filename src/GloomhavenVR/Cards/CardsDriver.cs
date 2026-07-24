@@ -154,6 +154,7 @@ internal sealed class CardsDriver : MonoBehaviour
     // size/diameter changes rebuild just the affected buttons.
     private bool _applyControlOffsets;   // rest + confirm/undo X/Y/Z offset + group spacing (instant)
     private bool _applyControlRebuild;   // rest diameter / confirm-undo size / button SHAPE (rebuild the buttons)
+    private int _restTuningVersion;      // last-seen ButtonTuning.Version — rest [RestButtons] W/H/D/Travel live-rebuild
     private bool _applyOverlayOffset;    // slot/wanted glow offset
     private bool _applyInitiativeOffset; // initiative-track mount position
     private bool _applyOrientation;      // board tilt / yaw / scale / pos-offset
@@ -276,9 +277,24 @@ internal sealed class CardsDriver : MonoBehaviour
             _rest.Destroy();
             _tray.RebuildAttachedControls(); // rebuilds Confirm/Undo AND purges the dead rest laser targets
             _rest.EnsureBuilt(_tray);
+            _restTuningVersion = WorldUI.ButtonTuning.Version; // this rebuild already reflects current [RestButtons] geometry
             VRLog.Info("Cards", $"Debug live-apply [{b}]: rebuilt Generic Confirm/Undo ({CardsConfig.GenericButtonShape(b).Value}, " +
                                 $"size {CardsConfig.ConfirmUndoSize(b).Value:F3} m) + Rest buttons ({CardsConfig.RestButtonShape(b).Value}, " +
                                 $"diameter {CardsConfig.RestButtonDiameter(b).Value:F3} m).");
+        }
+        // [RestButtons] geometry live-apply (W/H/D/Travel): the rest keycaps read ButtonTuning in
+        // EnsureBuilt, so a settings-panel stepper edit (ButtonTuning.Version bump) rebuilds JUST the
+        // rest caps on their existing anchors — no restart. This is a REST-ONLY rebuild on purpose:
+        // it must NOT route through PlayTray.RebuildAttachedControls (which would bump the tray's own
+        // _tuningVersion and starve PlayTray.ApplyButtonTuningIfChanged of the gear/follow dashboard
+        // rebuild). PurgeDeadLaserTargets drops the destroyed caps' stale laser entries; EnsureBuilt
+        // re-registers the fresh ones and logs the applied W/H/D/Travel.
+        else if (_restTuningVersion != WorldUI.ButtonTuning.Version)
+        {
+            _restTuningVersion = WorldUI.ButtonTuning.Version;
+            _rest.Destroy();
+            _tray.PurgeDeadLaserTargets();
+            _rest.EnsureBuilt(_tray);
         }
         if (_applyControlOffsets)
         {
