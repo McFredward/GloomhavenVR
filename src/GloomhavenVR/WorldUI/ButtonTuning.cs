@@ -163,11 +163,19 @@ internal static class ButtonTuning
     /// </summary>
     internal const float PokePressCooldownSeconds = 0.4f;
 
-    // ---- dissolve timing (user #7 — constants, not config) ---------------------------------
-    /// <summary>Seconds the cap shrinks out while the dust burst plays (logical hide is instant).</summary>
-    internal const float DissolveSeconds = 0.16f;
-    /// <summary>Seconds of the quick scale-in when a transient button appears.</summary>
-    internal const float AppearSeconds = 0.15f;
+    // ---- keycap appear/disappear animation ([ButtonAnim] — user: "APPEAR animation instead of
+    // popping in; the disappear should apply to ALL vanishing buttons"). Small live config: an
+    // enable toggle + the two durations, defaults matching the prior fast, subtle constants so the
+    // shipped feel is unchanged until edited. Consumed by BoardButton (Confirm/Undo/gear/Fixiert/
+    // rest) and the round-phase ButtonCluster caps. Durations clamp to a small floor (never 0 →
+    // no divide-by-zero in the shrink/scale ramps); to turn the effect OFF use Enable=false, which
+    // hides/shows the caps INSTANTLY (no dust, no scale-in). All LOCAL visuals — never synced. -----
+    internal const float DefaultDissolveSeconds = 0.16f; // authored shrink-out duration
+    internal const float DefaultAppearSeconds = 0.15f;   // authored scale-in duration
+    internal static ConfigEntry<bool>? AnimEnable;
+    internal static ConfigEntry<bool>? AnimAppearParticles;
+    internal static ConfigEntry<float>? AnimDissolveDuration;
+    internal static ConfigEntry<float>? AnimAppearDuration;
 
     internal static void Bind()
     {
@@ -302,6 +310,24 @@ internal static class ButtonTuning
         RestCapTintB = config.Bind("ButtonColors", "RestCapTintB", 1f,
             "Short/long REST keycap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
 
+        // ---- [ButtonAnim] — keycap appear/disappear animation (user: general dissolve + APPEAR) ----
+        AnimEnable = config.Bind("ButtonAnim", "Enable", true,
+            "Play the appear/disappear animation on the 3D keycaps (Confirm/Undo, gear/Fixiert, the " +
+            "short/long rest keycaps and the transient round-phase cluster buttons). ON: a vanishing " +
+            "button shrinks out with a face-colored dust burst, an appearing one scales in with a slight " +
+            "overshoot. OFF: buttons pop in/out instantly (no dust, no scale). Input is live immediately " +
+            "either way. Default true. Live.");
+        AnimAppearParticles = config.Bind("ButtonAnim", "AppearParticles", true,
+            "Emit a few converging 'assembling' dust particles when a keycap APPEARS (reuses the same " +
+            "pooled system as the disappear burst, in reverse). OFF = the scale-in alone. Default true. Live.");
+        AnimDissolveDuration = config.Bind("ButtonAnim", "DisappearSeconds", DefaultDissolveSeconds,
+            "Seconds the cap shrinks out while the dust burst plays when a keycap DISAPPEARS (the logical " +
+            "hide — input off, layout reflow — is instant regardless). Default 0.16. Live; clamped 0.05..1.0.");
+        AnimAppearDuration = config.Bind("ButtonAnim", "AppearSeconds", DefaultAppearSeconds,
+            "Seconds of the quick scale-in (from ~0.55 with a slight overshoot to 1.0) when a keycap " +
+            "APPEARS. Input/colliders are live from frame one — the animation is purely visual. Default " +
+            "0.15. Live; clamped 0.05..1.0.");
+
         MigrateLegacy(config);
 
         Hook(RoundOffsetX);
@@ -339,6 +365,7 @@ internal static class ButtonTuning
         Hook(DashCapTintR); Hook(DashCapTintG); Hook(DashCapTintB);
         Hook(ClusterCapTintR); Hook(ClusterCapTintG); Hook(ClusterCapTintB);
         Hook(RestCapTintR); Hook(RestCapTintG); Hook(RestCapTintB);
+        Hook(AnimEnable); Hook(AnimAppearParticles); Hook(AnimDissolveDuration); Hook(AnimAppearDuration);
     }
 
     /// <summary>
@@ -563,6 +590,37 @@ internal static class ButtonTuning
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
 
+    // ---- [ButtonAnim] live accessors (safe before Bind — fall back to the authored feel) --------
+
+    /// <summary>Whether the keycap appear/disappear animation plays (OFF = instant pop, no dust/scale).</summary>
+    internal static bool ButtonAnimEnabled => AnimEnable == null || AnimEnable.Value;
+
+    /// <summary>Whether the converging 'assembling' dust particles play on a keycap appear (needs
+    /// <see cref="ButtonAnimEnabled"/> too — the scale-in runs regardless while animation is on).</summary>
+    internal static bool AppearParticlesEnabled => ButtonAnimEnabled && (AnimAppearParticles == null || AnimAppearParticles.Value);
+
+    /// <summary>Seconds the cap shrinks out while the dust burst plays (logical hide is instant).
+    /// Floored at 0.05 so the shrink/scale ramps never divide by zero (use Enable=false for instant).</summary>
+    internal static float DissolveSeconds => Clamped(AnimDissolveDuration, DefaultDissolveSeconds, 0.05f, 1.0f);
+
+    /// <summary>Seconds of the quick scale-in when a keycap appears (floored at 0.05 — see above).</summary>
+    internal static float AppearSeconds => Clamped(AnimAppearDuration, DefaultAppearSeconds, 0.05f, 1.0f);
+
+    // Throttle so a relayout that shows/hides several caps in one frame logs once, not a storm.
+    private static float _nextAnimLogTime;
+
+    /// <summary>Throttled debug line when a keycap appear/disappear animation plays (user: "add a log
+    /// line when appear/disappear plays — button name, which anim"). At most one line per 0.4 s so a
+    /// multi-button relayout does not spam; the [WorldUI] debug channel.</summary>
+    internal static void LogAnim(string button, string anim)
+    {
+        float now = Time.unscaledTime;
+        if (now < _nextAnimLogTime)
+            return;
+        _nextAnimLogTime = now + 0.4f;
+        VRLog.Debug("WorldUI", $"Keycap anim: '{button}' plays {anim}.");
+    }
+
     /// <summary>One-line value dump for the "geometry config applied" log (all values numeric — no Auto).</summary>
     internal static string Describe()
     {
@@ -588,6 +646,7 @@ internal static class ButtonTuning
 internal static class ButtonDissolveFx
 {
     private const int BurstCount = 22;
+    private const int AppearCount = 12; // fewer, converging — a quick "assembling" shimmer
 
     private static ParticleSystem? _ps;
 
@@ -622,6 +681,42 @@ internal static class ButtonDissolveFx
                            + outNormal * 0.25f) * worldSize;
             ep.startLifetime = 0.22f + 0.16f * Random.value;
             ep.startSize = worldSize * (0.045f + 0.05f * Random.value);
+            ep.startColor = color;
+            _ps.Emit(ep, 1);
+        }
+    }
+
+    /// <summary>
+    /// Emit a quick converging 'assembling' shimmer for a button that APPEARS (user: an appear
+    /// animation instead of popping in) — the dissolve burst in reverse. A handful of face-colored
+    /// motes spawn on a ring around the cap and drift INWARD toward its center over a short lifetime,
+    /// fading as they arrive, so the cap reads as coalescing into place under the scale-in. Same
+    /// pooled world-space system, per-particle Emit — no per-frame allocation. Same args as
+    /// <see cref="Play"/>. Purely local visuals; never delays interactivity.
+    /// </summary>
+    internal static void PlayAppear(Vector3 center, Vector3 outNormal, float worldSize, Color color)
+    {
+        if (_ps == null)
+            BuildPool();
+        if (_ps == null)
+            return; // shader-less environment — appear degrades to the scale-in alone
+        color.a = 1f;
+        worldSize = Mathf.Clamp(worldSize, 0.01f, 0.5f);
+        var ep = new ParticleSystem.EmitParams();
+        for (int i = 0; i < AppearCount; i++)
+        {
+            Vector3 jitter = Random.insideUnitSphere;
+            Vector3 inPlane = Vector3.ProjectOnPlane(jitter, outNormal);
+            if (inPlane.sqrMagnitude < 1e-6f)
+                inPlane = Vector3.Cross(outNormal, Vector3.up);
+            inPlane.Normalize();
+            float ring = worldSize * (0.55f + 0.15f * Random.value);
+            ep.position = center + inPlane * ring + outNormal * (worldSize * 0.15f * Random.value);
+            // Converge inward toward the cap center, with a slight lift toward the face so the
+            // motes settle ONTO the cap rather than sinking through it.
+            ep.velocity = (-inPlane * (0.9f + 0.4f * Random.value) + outNormal * 0.15f) * worldSize;
+            ep.startLifetime = 0.12f + 0.08f * Random.value;
+            ep.startSize = worldSize * (0.04f + 0.04f * Random.value);
             ep.startColor = color;
             _ps.Emit(ep, 1);
         }
