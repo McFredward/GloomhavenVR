@@ -125,6 +125,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // and the generic per-board offset/size/spacing/shape rows all hide, like the other
         // ElementIsGlobalTuning elements). HandOffsets also hosts the global card-fan geometry.
         HandOffsets, FigureOffsets, WristOffsets,
+        // User 4 (2026-07): the [ButtonColors] keycap LABEL text + cap-FACE tint binds as their OWN
+        // "Knopf-Farben" element under the Tasten sub-category. GLOBAL (rides every board/cap), so it
+        // hides the board selector / per-board offset rows like the other ElementIsGlobalTuning
+        // elements. Live-applied automatically: writing a bind bumps ButtonTuning.Version and the
+        // NativeButtonSkin re-skins the caps (keycaps on the Version rebuild, cluster per-tick).
+        ButtonColors,
     }
 
     /// <summary>
@@ -174,8 +180,38 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
                 DebugElement.WallFade,
-                DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets },           // Debug
+                DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets,
+                DebugElement.ButtonColors },                                                                 // Debug
     };
+
+    /// <summary>
+    /// User 5b (2026-07): the ~20 Debug elements are too many to scan as one flat chooser, so they
+    /// cluster into a handful of SUB-CATEGORIES the user picks first, then picks the element within.
+    /// This is the SINGLE re-slice table (edit here to regroup). Every Debug element appears in
+    /// EXACTLY one sub-category, and the union equals <see cref="NavElements"/>[Debug] (minus the
+    /// merged-away BoardButtons). The chooser lists only the SELECTED sub-category's elements;
+    /// <see cref="CurrentElement()"/> then returns the selected element, so every per-element row/gate
+    /// (which keys off CurrentElement()) keeps working unchanged. Order matches <see cref="DebugSubCat"/>.
+    /// </summary>
+    private static readonly DebugElement[][] SubCatElements =
+    {
+        // Board & Layout — the board itself + every board-attached panel/widget/overlay geometry.
+        new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
+                DebugElement.Initiative, DebugElement.Readout, DebugElement.Pin, DebugElement.VRSettings },
+        // Karten & Stapel — the card piles, active-card grid, slot overlays, decision dock.
+        new[] { DebugElement.Piles, DebugElement.Active, DebugElement.Overlays, DebugElement.Decision },
+        // Tasten — every button group's geometry + the new Knopf-Farben (label/cap colours).
+        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
+                DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.ButtonColors },
+        // Hände/Offsets — the per-hand-style embodiment offsets folded in from the old top-level tabs.
+        new[] { DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets },
+        // Welt-Tuning — the developer-grade wall see-through fade fractions.
+        new[] { DebugElement.WallFade },
+    };
+
+    /// <summary>Debug sub-categories (user 5b) — the FIRST-level chooser inside the Debug pane.</summary>
+    private enum DebugSubCat { BoardLayout, KartenStapel, Tasten, Offsets, WeltTuning }
+    private const int DebugSubCatCount = 5;
 
     /// <summary>The element-BEARING category (Debug) exposes the in-pane board + element chooser.</summary>
     private static bool CategoryHasElements(NavCat c) => NavElements[(int)c].Length > 0;
@@ -184,8 +220,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private bool PerBoard() => CategoryHasElements(CurrentNav);
 
     private int _navCat;
-    /// <summary>Remembered element index PER category (nice-to-have persistence within a session).</summary>
-    private readonly int[] _categoryElement = new int[NavCatCount];
+    /// <summary>Selected Debug SUB-CATEGORY (user 5b): the first-level chooser inside the Debug pane.</summary>
+    private int _debugSubCat;
+    /// <summary>Remembered element index PER Debug sub-category (persistence within a session).</summary>
+    private readonly int[] _subCatElement = new int[DebugSubCatCount];
+    /// <summary>Sub-category ACCORDION state: true while the sub-category option rows are expanded.</summary>
+    private bool _subCatListOpen;
     /// <summary>Element ACCORDION state: true while the per-element option rows are expanded.</summary>
     private bool _elementListOpen;
     private readonly List<GameObject> _rows = new(64);          // every gated content row (teardown + show/hide)
@@ -201,15 +241,25 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private Func<bool>? _rowGate;
 
     private NavCat CurrentNav => (NavCat)_navCat;
-    private DebugElement[] CurrentCategoryElements => NavElements[_navCat];
 
-    /// <summary>The element the per-board steppers currently drive (the selected element of the current element-bearing category).</summary>
+    /// <summary>The selected Debug sub-category (clamped).</summary>
+    private DebugSubCat CurrentSubCat => (DebugSubCat)Mathf.Clamp(_debugSubCat, 0, DebugSubCatCount - 1);
+
+    /// <summary>
+    /// The elements the in-pane chooser lists: the SELECTED Debug sub-category's slice (user 5b).
+    /// Empty for the flat (non-element-bearing) categories, so the board + element choosers hide.
+    /// </summary>
+    private DebugElement[] CurrentSubCatElements =>
+        _navCat == (int)NavCat.Debug ? SubCatElements[Mathf.Clamp(_debugSubCat, 0, DebugSubCatCount - 1)]
+                                     : Array.Empty<DebugElement>();
+
+    /// <summary>The element the per-board steppers currently drive (the selected element of the current Debug sub-category).</summary>
     private DebugElement CurrentElement()
     {
-        DebugElement[] els = NavElements[_navCat];
+        DebugElement[] els = CurrentSubCatElements;
         if (els.Length == 0)
             return DebugElement.Board; // flat category: element rows are hidden anyway
-        int idx = Mathf.Clamp(_categoryElement[_navCat], 0, els.Length - 1);
+        int idx = Mathf.Clamp(_subCatElement[Mathf.Clamp(_debugSubCat, 0, DebugSubCatCount - 1)], 0, els.Length - 1);
         return els[idx];
     }
 
@@ -685,7 +735,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         _rowGate = null;
         var header = Row();
         TextMeshProUGUI crumb = Label(header, "", 18f, bold: true, flexible: true);
-        _refreshers.Add(() => crumb.text = "GloomhavenVR   ›   " + NavCatLabel(CurrentNav));
+        _refreshers.Add(() => crumb.text = "GloomhavenVR   ›   " + NavCatLabel(CurrentNav)
+            + (PerBoard() ? "   ›   " + DebugSubCatLabel(CurrentSubCat) : ""));
         Button(header, "X", 40f, () => SetOpen(false));
 
         // ---- Body: persistent category SIDEBAR | swappable CONTENT pane -----------
@@ -1018,7 +1069,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         (Button btn, TextMeshProUGUI txt) = Button(row, "", 0f, () =>
         {
             _navCat = idx;
-            _elementListOpen = false; // switching tabs collapses the element accordion
+            _subCatListOpen = false;  // switching tabs collapses both accordions
+            _elementListOpen = false;
             RefreshAll();
         }, flexible: true);
         var img = (Image)btn.targetGraphic;
@@ -1149,9 +1201,41 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // away under the dedicated "Debug" sidebar category (issue 2), which is the real
         // discoverability the user wanted.
 
+        // Sub-category chooser — ACCORDION (user 5b: cluster the ~20 Debug elements so the pane
+        // stays scannable). Shown for the whole Debug category; the header row shows the selected
+        // sub-category, pressing it expands one option row PER sub-category right below, pressing an
+        // option selects it (and resets the element chooser to that sub-category's first element).
+        // Plain uGUI buttons via the shared helpers, so poke AND laser keep working unchanged.
+        _rowGate = PerBoard;
+        var subCatRow = Row();
+        Label(subCatRow, "Bereich", 16f, flexible: true);
+        CycleButton(subCatRow, 170f,
+            () => DebugSubCatLabel(CurrentSubCat) + (_subCatListOpen ? " -" : " +"),
+            () => _subCatListOpen = !_subCatListOpen);
+
+        for (int i = 0; i < DebugSubCatCount; i++)
+        {
+            int idx = i; // capture per row
+            _rowGate = () => _subCatListOpen && PerBoard();
+            var subOptRow = Row(28f);
+            Label(subOptRow, "", 13f); // fixed 28px gutter — reads as an indented sub-row
+            (Button _, TextMeshProUGUI subOptText) = Button(subOptRow, "", 0f, () =>
+            {
+                _debugSubCat = idx;
+                _subCatListOpen = false; // select + collapse
+                _elementListOpen = false; // the element chooser now scopes to the new sub-category
+                RefreshAll();
+            }, flexible: true);
+            _refreshers.Add(() =>
+            {
+                bool selected = Mathf.Clamp(_debugSubCat, 0, DebugSubCatCount - 1) == idx;
+                subOptText.text = (selected ? "> " : "") + DebugSubCatLabel((DebugSubCat)idx);
+            });
+        }
+
         // Board cycle (Oak/Steel/Bronze) — the per-board element tuning edits the SELECTED
-        // board. Hidden for the GLOBAL ButtonTuning elements (Rundenknöpfe / Boardtasten /
-        // Zahnrad & Fixiert — their values ride every board).
+        // board. Hidden for the GLOBAL ButtonTuning elements (Rundenknöpfe / Zahnrad & Fixiert /
+        // Knopf-Farben etc. — their values ride every board).
         _rowGate = () => PerBoard() && !ElementIsGlobalTuning(CurrentElement());
         var boardRow = Row();
         Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
@@ -1159,26 +1243,24 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
 
-        // Element chooser — ACCORDION (replaced the old cycle button, which needed up to
-        // N-1 clicks to reach an element once the categories grew): the header row shows
-        // the selected element; pressing it expands one option row PER element of the
-        // CURRENT category right below (the panel's ContentSizeFitter grows around them,
-        // exactly like every conditional debug row); pressing an option selects it and
-        // collapses the list. Hidden for global categories and for single-element
-        // categories (Board) where a chooser would be a no-op. Rows are plain uGUI
-        // buttons built by the shared helpers, so poke AND laser keep working unchanged.
-        _rowGate = () => PerBoard() && CurrentCategoryElements.Length > 1;
+        // Element chooser — ACCORDION scoped to the selected SUB-CATEGORY (user 5b): the header row
+        // shows the selected element; pressing it expands one option row PER element of the CURRENT
+        // SUB-CATEGORY right below (the panel's ContentSizeFitter grows around them, exactly like
+        // every conditional debug row); pressing an option selects it and collapses the list. Hidden
+        // for single-element sub-categories (Welt-Tuning) where a chooser would be a no-op. Plain uGUI
+        // buttons via the shared helpers, so poke AND laser keep working unchanged.
+        _rowGate = () => PerBoard() && CurrentSubCatElements.Length > 1;
         var elemRow = Row();
         Label(elemRow, Loc.Mod("element"), 16f, flexible: true);
         CycleButton(elemRow, 150f,
             () => DebugElementLabel(CurrentElement()) + (_elementListOpen ? " -" : " +"),
             () => _elementListOpen = !_elementListOpen);
 
-        // One option row per possible element slot (built once for the LARGEST category;
-        // each row's visibility predicate + label refresher re-scope it to the current
-        // category, so category switches never rebuild anything).
+        // One option row per possible element slot (built once for the LARGEST sub-category; each
+        // row's visibility predicate + label refresher re-scope it to the current sub-category, so
+        // sub-category switches never rebuild anything).
         int maxElements = 0;
-        foreach (DebugElement[] els in NavElements)
+        foreach (DebugElement[] els in SubCatElements)
         {
             if (els.Length > maxElements)
                 maxElements = els.Length;
@@ -1187,25 +1269,25 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         {
             int idx = i; // capture per row
             _rowGate = () => _elementListOpen && PerBoard()
-                             && CurrentCategoryElements.Length > 1
-                             && idx < CurrentCategoryElements.Length;
+                             && CurrentSubCatElements.Length > 1
+                             && idx < CurrentSubCatElements.Length;
             var optRow = Row(28f);
             Label(optRow, "", 13f); // fixed 28px gutter — reads as an indented sub-row
             (Button _, TextMeshProUGUI optText) = Button(optRow, "", 0f, () =>
             {
-                DebugElement[] els = CurrentCategoryElements;
+                DebugElement[] els = CurrentSubCatElements;
                 if (idx < els.Length)
-                    _categoryElement[_navCat] = idx;
+                    _subCatElement[Mathf.Clamp(_debugSubCat, 0, DebugSubCatCount - 1)] = idx;
                 _elementListOpen = false; // select + collapse
                 RefreshAll();
             }, flexible: true);
             _refreshers.Add(() =>
             {
-                DebugElement[] els = CurrentCategoryElements;
+                DebugElement[] els = CurrentSubCatElements;
                 if (idx >= els.Length)
                     return; // row is hidden by its predicate anyway
                 bool selected =
-                    Mathf.Clamp(_categoryElement[_navCat], 0, els.Length - 1) == idx;
+                    Mathf.Clamp(_subCatElement[Mathf.Clamp(_debugSubCat, 0, DebugSubCatCount - 1)], 0, els.Length - 1) == idx;
                 optText.text = (selected ? "> " : "") + DebugElementLabel(els[idx]);
             });
         }
@@ -1389,6 +1471,70 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddButtonTuningRow("Hub", ButtonTuning.RestTravel, 0.001f, 0.002f, 0.02f,
             v => $"{v * 1000f:0}mm", RestButtonTuningRowsVisible);
 
+        // Tasten → Knopf-Farben ([ButtonColors] — user 4): the keycap LABEL text colour + engrave
+        // outline + underlay shadow, and a per-category cap-FACE tint (default 1 = unchanged). Every
+        // row writes its ConfigEntry, which bumps ButtonTuning.Version → NativeButtonSkin re-skins the
+        // caps live (keycaps on the Version rebuild, cluster per-tick). Floats step 0.05 in 0..1.
+        _rowGate = ButtonColorRowsVisible;
+        Section("Text");
+        AddButtonTuningRow("Text Rot", ButtonTuning.LabelR, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Text Grün", ButtonTuning.LabelG, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Text Blau", ButtonTuning.LabelB, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddColorToggle("Kontur", ButtonTuning.LabelOutline);
+        AddButtonTuningRow("Kontur Rot", ButtonTuning.LabelOutlineR, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Kontur Grün", ButtonTuning.LabelOutlineG, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Kontur Blau", ButtonTuning.LabelOutlineB, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Konturbreite", ButtonTuning.LabelOutlineW, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddColorToggle("Schatten", ButtonTuning.LabelUnderlay);
+
+        _rowGate = ButtonColorRowsVisible;
+        Section("Kappen");
+        AddButtonTuningRow("Board-Kappe Rot", ButtonTuning.BoardCapTintR, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Board-Kappe Grün", ButtonTuning.BoardCapTintG, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Board-Kappe Blau", ButtonTuning.BoardCapTintB, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Zahnrad-Kappe Rot", ButtonTuning.DashCapTintR, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Zahnrad-Kappe Grün", ButtonTuning.DashCapTintG, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Zahnrad-Kappe Blau", ButtonTuning.DashCapTintB, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Zugleiste-Kappe Rot", ButtonTuning.ClusterCapTintR, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Zugleiste-Kappe Grün", ButtonTuning.ClusterCapTintG, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Zugleiste-Kappe Blau", ButtonTuning.ClusterCapTintB, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Rast-Kappe Rot", ButtonTuning.RestCapTintR, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Rast-Kappe Grün", ButtonTuning.RestCapTintG, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+        AddButtonTuningRow("Rast-Kappe Blau", ButtonTuning.RestCapTintB, 0.05f, 0f, 1f,
+            v => $"{v:0.00}", ButtonColorRowsVisible);
+    }
+
+    /// <summary>
+    /// Knopf-Farben boolean row ([ButtonColors] LabelOutline / LabelUnderlay). Writing the entry
+    /// bumps ButtonTuning.Version so NativeButtonSkin re-skins the caps live. Skipped if the bind
+    /// failed (config dir unwritable). Shown while Debug → Knopf-Farben is selected.
+    /// </summary>
+    private void AddColorToggle(string label, ConfigEntry<bool>? entry)
+    {
+        if (entry == null)
+            return;
+        _rowGate = ButtonColorRowsVisible;
+        var row = Row();
+        Label(row, label, 16f, flexible: true);
+        ToggleButton(row, () => entry.Value, v => entry.Value = v);
     }
 
     /// <summary>Elements that expose a Size/Scale stepper (Rest disc, Generic side, Active/Pile scale, Board scale, the two docks + the cluster).</summary>
@@ -1478,7 +1624,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private static bool ElementIsGlobalTuning(DebugElement e) =>
         e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade
-        or DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets;
+        or DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets
+        or DebugElement.ButtonColors;
 
     /// <summary>
     /// The per-HAND-STYLE Debug elements folded in from the former top-level tabs (2026-07). They
@@ -1523,6 +1670,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>Visibility of the wall-fade fraction rows: Debug → Wandüberblendung element selected.</summary>
     private bool WallFadeRowsVisible() =>
         _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.WallFade;
+
+    /// <summary>Visibility of the [ButtonColors] rows: Debug → Knopf-Farben element selected.</summary>
+    private bool ButtonColorRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.ButtonColors;
 
     /// <summary>
     /// ButtonTuning stepper row bound directly to a live <see cref="ConfigEntry{T}"/> (mm
@@ -1877,7 +2028,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.HandOffsets => "Hände-Offsets",
         DebugElement.FigureOffsets => "Figuren-Offsets",
         DebugElement.WristOffsets => Loc.Mod("cat_wrist"),
+        // User 4: the keycap label/cap colour rows.
+        DebugElement.ButtonColors => "Knopf-Farben",
         _ => e.ToString(),
+    };
+
+    /// <summary>German name of a Debug sub-category (user 5b) — the sub-category chooser readout.</summary>
+    private static string DebugSubCatLabel(DebugSubCat s) => s switch
+    {
+        DebugSubCat.BoardLayout => "Board & Layout",
+        DebugSubCat.KartenStapel => "Karten & Stapel",
+        DebugSubCat.Tasten => "Tasten",
+        DebugSubCat.Offsets => "Hände/Offsets",
+        DebugSubCat.WeltTuning => "Welt-Tuning",
+        _ => s.ToString(),
     };
 
     /// <summary>Localized cap-shape name (the Shape cycle readout).</summary>
@@ -2023,6 +2187,36 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 ResetTuningF(WallFadeTuning.OffFraction);
                 ResetTuningF(WallFadeTuning.ExitDwellMoved);
                 ResetTuningF(WallFadeTuning.ExitDwellStationary);
+                break;
+            }
+            case DebugElement.ButtonColors:
+            {
+                // GLOBAL [ButtonColors] (user 4): restore the label text/outline/underlay + every
+                // per-category cap-face tint to their authored defaults (= today's look). Writing each
+                // entry bumps ButtonTuning.Version so the re-skin fires live.
+                ResetTuningF(ButtonTuning.LabelR);
+                ResetTuningF(ButtonTuning.LabelG);
+                ResetTuningF(ButtonTuning.LabelB);
+                if (ButtonTuning.LabelOutline != null)
+                    ButtonTuning.LabelOutline.Value = (bool)ButtonTuning.LabelOutline.DefaultValue;
+                ResetTuningF(ButtonTuning.LabelOutlineR);
+                ResetTuningF(ButtonTuning.LabelOutlineG);
+                ResetTuningF(ButtonTuning.LabelOutlineB);
+                ResetTuningF(ButtonTuning.LabelOutlineW);
+                if (ButtonTuning.LabelUnderlay != null)
+                    ButtonTuning.LabelUnderlay.Value = (bool)ButtonTuning.LabelUnderlay.DefaultValue;
+                ResetTuningF(ButtonTuning.BoardCapTintR);
+                ResetTuningF(ButtonTuning.BoardCapTintG);
+                ResetTuningF(ButtonTuning.BoardCapTintB);
+                ResetTuningF(ButtonTuning.DashCapTintR);
+                ResetTuningF(ButtonTuning.DashCapTintG);
+                ResetTuningF(ButtonTuning.DashCapTintB);
+                ResetTuningF(ButtonTuning.ClusterCapTintR);
+                ResetTuningF(ButtonTuning.ClusterCapTintG);
+                ResetTuningF(ButtonTuning.ClusterCapTintB);
+                ResetTuningF(ButtonTuning.RestCapTintR);
+                ResetTuningF(ButtonTuning.RestCapTintG);
+                ResetTuningF(ButtonTuning.RestCapTintB);
                 break;
             }
         }
