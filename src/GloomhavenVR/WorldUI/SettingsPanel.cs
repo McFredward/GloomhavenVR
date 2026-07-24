@@ -1250,7 +1250,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             d =>
             {
                 ConfigEntry<float> e = WorldUIConfig.DecisionRowGapPx;
-                e.Value = Mathf.Clamp(e.Value + d * 2f, 0f, 60f);
+                e.Value = Mathf.Clamp(e.Value + d * 4f, 0f, 120f);
             });
 
         // Piles-only BROWSE-fan anchor rows (shown only when Element == Piles): live-tune where
@@ -1333,6 +1333,17 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
         AddButtonTuningRow("Hub", ButtonTuning.DashTravel, 0.001f, 0.002f, 0.02f,
             v => $"{v * 1000f:0}mm", BoardDashboardRowsVisible);
+
+        // Tasten → Ruhetasten ([RestButtons] — short/long rest keycaps; square caps use
+        // W/H, round discs keep the per-board diameter row above; depth/travel both shapes).
+        AddButtonTuningRow("Breite", ButtonTuning.RestWidth, 0.005f, 0.02f, 0.20f,
+            v => $"{v * 1000f:0}mm", RestButtonTuningRowsVisible);
+        AddButtonTuningRow("Höhe", ButtonTuning.RestHeight, 0.005f, 0.015f, 0.20f,
+            v => $"{v * 1000f:0}mm", RestButtonTuningRowsVisible);
+        AddButtonTuningRow("Tiefe", ButtonTuning.RestDepth, 0.002f, 0.006f, 0.08f,
+            v => $"{v * 1000f:0}mm", RestButtonTuningRowsVisible);
+        AddButtonTuningRow("Hub", ButtonTuning.RestTravel, 0.001f, 0.002f, 0.02f,
+            v => $"{v * 1000f:0}mm", RestButtonTuningRowsVisible);
 
     }
 
@@ -1429,6 +1440,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>Visibility of the [BoardDashboard] rows: Tasten → Zahnrad &amp; Fixiert element selected.</summary>
     private bool BoardDashboardRowsVisible() =>
         _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.BoardDashboard;
+
+    /// <summary>Visibility of the [RestButtons] geometry rows: Tasten → Ruhetasten element selected.</summary>
+    private bool RestButtonTuningRowsVisible() =>
+        _navCat == (int)NavCat.Tasten && CurrentElement() == DebugElement.Rest;
 
     /// <summary>
     /// ButtonTuning stepper row bound directly to a live <see cref="ConfigEntry{T}"/> (mm
@@ -1825,6 +1840,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 CardsConfig.RestButtonDiameter(b).Value = (float)CardsConfig.RestButtonDiameter(b).DefaultValue;
                 CardsConfig.RestButtonSpacing(b).Value = (float)CardsConfig.RestButtonSpacing(b).DefaultValue;
                 CardsConfig.RestButtonShape(b).Value = (ButtonShape)CardsConfig.RestButtonShape(b).DefaultValue;
+                // GLOBAL [RestButtons] square-cap geometry (W/H/D/Travel), edited from this element.
+                ResetTuningF(ButtonTuning.RestWidth);
+                ResetTuningF(ButtonTuning.RestHeight);
+                ResetTuningF(ButtonTuning.RestDepth);
+                ResetTuningF(ButtonTuning.RestTravel);
                 break;
             }
             case DebugElement.Generic:
