@@ -146,8 +146,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>
     /// Mount for the WorldUI turn-flow ButtonCluster (Undo | Ready | Skip — the
     /// game's live mid-turn buttons incl. "skip movement"/"end turn" states), docked
-    /// under the card slots (test #19). Pose-follow like the other mounts (the
-    /// cluster is never re-parented under the tray). Null until built.
+    /// beside the right-hand pads (test #19). Since the lag fix the cluster is
+    /// RIGIDLY parented under <see cref="Root"/> (it is MOD-owned geometry, so the
+    /// mount-seam reversibility rule for game-owned canvases does not apply; the
+    /// cluster detects its own destruction on a tray teardown and rebuilds) — this
+    /// mount now only supplies the docked rotation/scale frame at attach time.
+    /// Null until built.
     /// </summary>
     internal Transform? ButtonClusterMount => _clusterMount;
 
@@ -761,24 +765,27 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Item 5 (user): pin/gear were built NON-boxy (flat quad, no walls) while Confirm/Undo
         // pass boxy:true — that is why "Fixiert"/"Einstellungen" showed no walls but "Fortfahren"
         // did. Build them as the same beveled keycaps (thickness ≈ SquareCapThickness).
-        // User #9 (ButtonTuning): the square-cap width/height/depth overrides apply to these
-        // keycaps too — 0 keeps the authored 0.068/0.062 × 0.030 × 0.030 geometry.
+        // Category split (user: "every value applies ONLY to its own category"): the gear +
+        // follow plates read the [BoardDashboard] set EXCLUSIVELY — per-button widths (they
+        // are authored 0.062 vs 0.068), shared height/depth/travel. Numeric defaults ARE the
+        // authored 0.062|0.068 × 0.030 × 0.030 / 4 mm geometry (no 0=Auto sentinel any more).
         WorldUI.ButtonTuning.Bind();
-        float capDepth = WorldUI.ButtonTuning.DepthOr(0.03f);
+        float capDepth = WorldUI.ButtonTuning.DashboardDepth;
+        float capTravel = WorldUI.ButtonTuning.DashboardTravel;
         _followToggle = BoardButton.Create(_followAnchor,
-            new Vector2(WorldUI.ButtonTuning.WidthOr(0.068f), WorldUI.ButtonTuning.HeightOr(0.030f)),
+            new Vector2(WorldUI.ButtonTuning.DashboardPinWidth, WorldUI.ButtonTuning.DashboardHeight),
             new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
             Core.Loc.Mod("follow"), ToggleFollow,
-            thickness: capDepth, boxy: true);
+            thickness: capDepth, boxy: true, travel: capTravel);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
         _gear = BoardButton.Create(_gearAnchor,
-            new Vector2(WorldUI.ButtonTuning.WidthOr(0.062f), WorldUI.ButtonTuning.HeightOr(0.030f)),
+            new Vector2(WorldUI.ButtonTuning.DashboardGearWidth, WorldUI.ButtonTuning.DashboardHeight),
             new Color(0.37f, 0.36f, 0.38f), // T4: aged pewter (near-neutral, hint of cool)
             Core.Loc.Mod("set"),
             () => WorldUI.SettingsPanel.RequestToggle(),
-            thickness: capDepth, boxy: true); // Item 5: beveled keycap walls like Confirm/Undo
+            thickness: capDepth, boxy: true, travel: capTravel); // Item 5: beveled keycap walls like Confirm/Undo
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
     }
@@ -1356,10 +1363,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>
     /// ButtonTuning live-apply, checked once per <see cref="TickStatus"/> tick: a geometry
-    /// entry changed (width/height/depth/shape — anything the pull-based
+    /// entry changed (width/height/depth/travel — anything the pull-based
     /// <see cref="WorldUI.ButtonTuning.Version"/> counter covers) → rebuild the affected
-    /// keycaps in place on their existing anchors. Travel is read live per frame and needs
-    /// no rebuild, but rides the same event harmlessly.
+    /// keycaps in place on their existing anchors; the rebuild bakes each category's own
+    /// travel per instance ([BoardButtons] Confirm/Undo, [BoardDashboard] gear/pin).
     /// </summary>
     private int _tuningVersion;
 
@@ -2431,14 +2438,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
 
-        // User #9 (ButtonTuning): square caps take independent WIDTH/HEIGHT (rectangular
-        // keycaps) and DEPTH overrides; 0 = the per-board authored size above. Round caps
-        // keep the authored diameter (the square-cap geometry group does not apply).
+        // Category split (user: "every value applies ONLY to its own category"): the
+        // Confirm/Undo keycaps read the [BoardButtons] set EXCLUSIVELY — independent
+        // WIDTH/HEIGHT (rectangular keycaps), DEPTH and TRAVEL, all with the authored
+        // numeric defaults (0.073 × 0.073 × 0.036 / 4 mm — no 0=Auto sentinel any more).
+        // Round caps keep the per-board authored diameter (the square set does not apply).
         WorldUI.ButtonTuning.Bind();
         var rectSize = round
             ? new Vector2(side, side)
-            : new Vector2(WorldUI.ButtonTuning.WidthOr(side), WorldUI.ButtonTuning.HeightOr(side));
-        float capDepth = WorldUI.ButtonTuning.DepthOr(SquareCapThickness);
+            : new Vector2(WorldUI.ButtonTuning.BoardCapWidth, WorldUI.ButtonTuning.BoardCapHeight);
+        float capDepth = WorldUI.ButtonTuning.BoardCapDepth;
+        float capTravel = WorldUI.ButtonTuning.BoardCapTravel;
 
         // Initial labels are overwritten by the live game-widget label each TickStatus
         // (ConfirmLabel()/UndoLabel()); route the fallback literals through the game keys.
@@ -2446,7 +2456,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.35f, 0.46f, 0.28f), // T4: muted sage green — antique, still clearly "go"
             Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
-            round: round, diameter: side, thickness: capDepth, boxy: !round);
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
@@ -2455,7 +2465,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.44f, 0.31f, 0.20f), // T4: worn leather brown (kept — already antique)
             Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
-            round: round, diameter: side, thickness: capDepth, boxy: !round);
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
@@ -3150,11 +3160,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         private const float CapTravel = 0.004f;
 
         /// <summary>
-        /// Live press travel (user #9: configurable cap sink depth — also the distance the
-        /// fingertip must push for the depth-fire press). Authored 4 mm unless the
-        /// <see cref="WorldUI.ButtonTuning"/> Travel entry overrides it.
+        /// Per-instance press travel (user #9: configurable cap sink depth — also the
+        /// distance the fingertip must push for the depth-fire press). Authored 4 mm;
+        /// the CATEGORY-split ButtonTuning consumers pass their own section's Travel at
+        /// <see cref="Create"/> (Confirm/Undo → [BoardButtons], gear/pin → [BoardDashboard])
+        /// and rebuild on a config change, so a value never leaks across categories —
+        /// uncategorized BoardButtons (rest discs) keep the authored constant.
         /// </summary>
-        private static float Travel => WorldUI.ButtonTuning.TravelOr(CapTravel);
+        private float Travel { get; set; } = CapTravel;
 
         // Depth-fire press (user #6): fingertip contact no longer fires — the finger-follow
         // machinery fires exactly when the cap reaches PressFireFraction (~90%) of its full
@@ -3195,7 +3208,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick,
             bool round = false, float diameter = 0f, float thickness = 0.01f,
-            bool overlay = false, bool boxy = false)
+            bool overlay = false, bool boxy = false, float travel = CapTravel)
         {
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
@@ -3413,6 +3426,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             button._cap = cap.transform;
             button._accentColor = accent;
             button.Collider = box;
+            button.Travel = travel; // per-category press travel (category split; rest discs keep the authored default)
             button.UpdateColor(); // seat the initial (disabled) native/procedural face tint
             return button;
         }
