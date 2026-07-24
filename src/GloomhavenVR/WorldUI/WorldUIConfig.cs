@@ -39,6 +39,10 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> FlatScreen = null!;
     internal static ConfigEntry<bool> Tooltips = null!;
 
+    /// <summary>User #7c: enable/disable the action-phase element/ability explanation hints
+    /// (the world-space tooltip presentation). Wired to the in-VR settings panel; read live.</summary>
+    internal static ConfigEntry<bool> ActionElementHints = null!;
+
     // ---- behavior ----------------------------------------------------------------------
     /// <summary>Keep the game in mouse mode so `Game` (not `Game_gamepad`) scenes load.</summary>
     internal static ConfigEntry<bool> ForceMouseMode = null!;
@@ -261,6 +265,13 @@ internal static class WorldUIConfig
             "Floating 2D screen mirroring the UICamera for menus/merchant/level-up + ray pointer.");
         Tooltips = _file.Bind("WorldUI", "Tooltips", true,
             "Re-anchor the game's tooltip canvas in world space near the poking fingertip.");
+        ActionElementHints = _file.Bind("WorldUI", "ActionElementHints", true,
+            "Show the game's action-phase element/ability explanation hint (the card-action " +
+            "tooltip) as a world-space panel pinned to the control board's TOP-LEFT corner " +
+            "while a scenario runs. A short hover grace keeps it from flickering away on tiny " +
+            "movements off the hovered element. Off = the hint is never flipped to world space " +
+            "and never shown in VR (the vanilla 2D menu tooltip is unaffected). Wired to the " +
+            "in-VR settings panel and read live, so toggling takes effect without a restart.");
 
         ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", true,
             "Keep InputManager in mouse mode while VR runs so the 'Game' (not 'Game_gamepad') " +
@@ -467,6 +478,9 @@ internal static class WorldUIConfig
             "DEV: apply the real canvas conversions in dev mode without an HMD (this moves the " +
             "game's 2D panels into world space — the desktop view changes accordingly).");
     }
+
+    /// <summary>User #7c: whether the world-space action-element hint presentation is enabled (read live).</summary>
+    internal static bool ActionElementHintsEnabled => ActionElementHints.Value;
 
     /// <summary>True while WorldUI physicalization should be applied to live game UI.</summary>
     internal static bool ConversionActive =>
