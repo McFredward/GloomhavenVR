@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Video;
 using UnityEngine.XR;
 
@@ -174,6 +175,34 @@ namespace GloomhavenVR.WorldUI;
 /// already dominate — the shift's two full-RT blits per frame are far cheaper than
 /// the camera renders they replace. No per-frame allocations: mirror sync is field
 /// copies; records allocate only when a NEW camera is first mirrored.
+///
+/// BLACK-BASE FALLBACK — LEFT-EYE MIRROR (hardware log build e6e6bffa1: the CampaignMap
+/// read BLACK in the LEFT eye, greyish in the RIGHT): the left eye normally shows the
+/// GAME cameras' own render (the base RT), which the desktop mirror and the mono
+/// fallback also use. That render can come out BLACK when the game camera runs a
+/// camera image effect / post-processing stack (OnRenderImage) that fails once its
+/// <c>targetTexture</c> is redirected onto our RT — a Unity image-effect-to-RT gotcha.
+/// The 3D map scene ('MapCamera', perspective, mask 0xF00FFE37) is the first such
+/// camera the screen ever captures (the menu's game cameras render nothing / only a
+/// camera-plane video, so they never hit it). The bare mod MIRROR — a plain camera
+/// with NO image-effect component — renders the raw scene fine (the greyish, ungraded
+/// right eye), which is the proof the geometry is in view and capturable.
+///
+/// So when the base RT reads black while a 3D background camera is actively rendering,
+/// the LEFT eye is driven by a bare mod mirror too (a zero-offset clone of the source,
+/// into <see cref="_rtLeft"/>) — both eyes then show the raw scene with the SAME
+/// per-eye parallax the menu has (left at the source pose, right offset + convergence-
+/// shifted), so the map reads as a 3D window instead of a black void. The only cost is
+/// the game camera's own post-fx grading on that scene (already lost — it rendered
+/// black) plus one extra scene render while engaged. Detection is a throttled, 8x8-
+/// downsampled, ASYNC non-black probe of the base RT (<see cref="AsyncGPUReadback"/> —
+/// no GPU stall) requiring several consecutive black reads, so no currently-working
+/// scene (menu video, guildmaster town whose camera has no breaking effect) is ever
+/// switched. Engagement is sticky for the scene (the game base RT stays black) and
+/// re-arms on the next captured-stack release. [WorldUI] ScreenLeftMirrorFallback off
+/// = legacy (black left eye if the game camera renders black). NOTE: this covers the
+/// STEREO path; with StereoScreen off the mono single-RT path still shows the game
+/// camera's (black) render — the default is stereo on.
 /// </summary>
 internal sealed class FlatScreenStereo
 {
@@ -214,6 +243,17 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<float>? s_parallaxScale;
     private static ConfigEntry<bool>? s_videoDepthLayer;
     private static ConfigEntry<float>? s_videoDepth;
+    private static ConfigEntry<bool>? s_leftMirrorFallback;
+
+    // ---- black-base fallback (class doc BLACK-BASE FALLBACK) --------------------------------
+    /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
+    private const int BlackProbeSize = 8;
+    /// <summary>Frames between async non-black probes of the base RT (while not yet engaged).</summary>
+    private const int BlackProbeIntervalFrames = 30;
+    /// <summary>Consecutive all-black probe results before the left-eye mirror engages (transient guard).</summary>
+    private const int BlackConsecutiveToEngage = 3;
+    /// <summary>Max 0..255 channel value still counted as "black" (guards a near-black graded frame).</summary>
+    private const int BlackChannelThreshold = 6;
 
     /// <summary>One mod-owned mirror camera shadowing a captured game camera into the right RT.</summary>
     private sealed class MirrorEntry
@@ -222,6 +262,11 @@ internal sealed class FlatScreenStereo
         public Camera Mirror = null!;
         public Transform MirrorTransform = null!;
         public GameObject Go = null!;
+        // Left-eye mirror (class doc BLACK-BASE FALLBACK) — created lazily only once the
+        // base RT is found to render black; a zero-offset bare clone of the source.
+        public Camera? MirrorLeft;
+        public Transform? MirrorLeftTransform;
+        public GameObject? GoLeft;
         /// <summary>
         /// Camera-plane VideoPlayer bound to the source (video depth shift trigger) —
         /// hosted on its GO or targeting it via targetCamera; discovered at mirror
@@ -249,6 +294,23 @@ internal sealed class FlatScreenStereo
     private RenderTexture? _rtLeftShifted;
     private RenderTexture? _leftRt;
     private Material? _quadMaterial;
+
+    // ---- black-base fallback (class doc BLACK-BASE FALLBACK) --------------------------------
+    /// <summary>Left-eye mirror output while <see cref="_leftMirrorMode"/> — bare mod render of the raw scene.</summary>
+    private RenderTexture? _rtLeft;
+    /// <summary>Small RT the base RT is downsampled into for the async non-black probe.</summary>
+    private RenderTexture? _probeRt;
+    /// <summary>True once the base RT was found black — the left eye is driven by mod mirrors, not the game render.</summary>
+    private bool _leftMirrorMode;
+    /// <summary>Left-shifted RT creation failed this activation → no left-mirror fallback (avoid retry spam).</summary>
+    private bool _leftMirrorFailed;
+    private int _blackProbeFrame = int.MinValue;
+    private int _blackConsecutive;
+    /// <summary>True while an async base-RT probe is in flight (one at a time).</summary>
+    private bool _probePending;
+    /// <summary>Bumped on teardown/scene release so a late async probe callback ignores stale results.</summary>
+    private int _probeGen;
+    private int _probeReqGen;
 
     private bool _active;
     private bool _hooked;
@@ -353,6 +415,15 @@ internal sealed class FlatScreenStereo
             "comfortable while depth differences inside the captured scene grow this many " +
             "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
             "geometry; clamped to 1-60.");
+        s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", true,
+            "Rescue the LEFT eye when a captured 3D scene renders BLACK into the screen's " +
+            "render texture (the campaign map: its camera runs a post-processing/image effect " +
+            "that fails once its target is redirected onto our RT, so its own render is black " +
+            "while the mod mirror renders the raw scene fine). When the base RT is detected " +
+            "black, the left eye is driven by a bare mod mirror too, so both eyes show the 3D " +
+            "scene with parallax instead of one black eye. Costs that scene's own colour " +
+            "grading (already lost — it was black) plus one extra render while engaged. " +
+            "Off = legacy (black left eye if the game camera renders black).");
     }
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
@@ -403,6 +474,13 @@ internal sealed class FlatScreenStereo
             };
             _rtRight.Create();
         }
+
+        // Left-eye mirror RT tracks the base RT's dimensions (class doc BLACK-BASE
+        // FALLBACK); only kept alive while engaged.
+        if (_rtLeft != null && (_rtLeft.width != leftRt!.width || _rtLeft.height != leftRt.height))
+            ReleaseLeftRt();
+        if (_leftMirrorMode && _rtLeft == null)
+            EnsureLeftRt();
 
         if (!_active)
         {
@@ -468,6 +546,13 @@ internal sealed class FlatScreenStereo
             _quadMaterial.mainTexture = _leftRt;
         ReleaseRightRt();
         ReleaseShiftRt();
+        ReleaseLeftRt();
+        ReleaseProbeRt();
+        _probeGen++;                 // invalidate any in-flight probe callback
+        _probePending = false;
+        _leftMirrorMode = false;
+        _leftMirrorFailed = false;
+        _blackConsecutive = 0;
         if (_root != null)
         {
             Object.Destroy(_root);
@@ -500,6 +585,60 @@ internal sealed class FlatScreenStereo
         _rtLeftShifted.Release();
         Object.Destroy(_rtLeftShifted);
         _rtLeftShifted = null;
+    }
+
+    // ---- black-base fallback: left-eye mirror (class doc BLACK-BASE FALLBACK) ----------------
+
+    /// <summary>Create the left-eye mirror RT matching the base RT (returns false on failure).</summary>
+    private bool EnsureLeftRt()
+    {
+        if (_leftRt == null)
+            return false;
+        if (_rtLeft != null
+            && (_rtLeft.width != _leftRt.width || _rtLeft.height != _leftRt.height))
+            ReleaseLeftRt();
+        if (_rtLeft == null)
+        {
+            var rt = new RenderTexture(_leftRt.width, _leftRt.height, 24)
+            {
+                name = "GloomhavenVR.FlatScreenRT.Left",
+                antiAliasing = 1,
+            };
+            if (!rt.Create())
+            {
+                Object.Destroy(rt);
+                return false;
+            }
+            _rtLeft = rt;
+            ClearOpaqueBlack(_rtLeft); // fresh RT color is undefined — no garbage before the first render
+        }
+        return true;
+    }
+
+    private void ReleaseLeftRt()
+    {
+        if (_rtLeft == null)
+            return;
+        _rtLeft.Release();
+        Object.Destroy(_rtLeft);
+        _rtLeft = null;
+    }
+
+    private void ReleaseProbeRt()
+    {
+        if (_probeRt == null)
+            return;
+        _probeRt.Release();
+        Object.Destroy(_probeRt);
+        _probeRt = null;
+    }
+
+    private static void ClearOpaqueBlack(RenderTexture rt)
+    {
+        RenderTexture? previous = RenderTexture.active;
+        RenderTexture.active = rt;
+        GL.Clear(clearDepth: true, clearColor: true, backgroundColor: new Color(0f, 0f, 0f, 1f));
+        RenderTexture.active = previous;
     }
 
     // ---- per-tick stack sync ---------------------------------------------------------------
@@ -661,6 +800,35 @@ internal sealed class FlatScreenStereo
         if (_sepScene > 0f && _convScene > 1e-4f)
             proj.m02 -= proj.m00 * (_sepScene / _convScene);
         mirror.projectionMatrix = proj;
+
+        // Left-eye mirror (class doc BLACK-BASE FALLBACK): a zero-offset bare clone of
+        // the source, so the LEFT eye no longer depends on the game camera's own
+        // (black) render into the base RT. Same fields as the right mirror; NO eye
+        // offset and the source's UNMODIFIED projection — it sits exactly where the
+        // game camera did, keeping the left↔right baseline = _sepScene and the
+        // convergence carried entirely by the right eye's asymmetric frustum.
+        if (_leftMirrorMode && _rtLeft != null)
+        {
+            EnsureLeftMirror(entry);
+            Camera lm = entry.MirrorLeft!;
+            entry.MirrorLeftTransform!.SetPositionAndRotation(st.position, st.rotation);
+            lm.clearFlags = source.clearFlags;
+            lm.backgroundColor = source.backgroundColor;
+            lm.cullingMask = source.cullingMask & ~VRLayers.ModLayerMask;
+            lm.depth = source.depth;
+            lm.rect = source.rect;
+            lm.nearClipPlane = source.nearClipPlane;
+            lm.farClipPlane = source.farClipPlane;
+            lm.orthographic = source.orthographic;
+            lm.orthographicSize = source.orthographicSize;
+            lm.fieldOfView = source.fieldOfView;
+            lm.allowHDR = source.allowHDR;
+            lm.allowMSAA = source.allowMSAA;
+            lm.useOcclusionCulling = source.useOcclusionCulling;
+            lm.projectionMatrix = source.projectionMatrix;
+            if (lm.targetTexture != _rtLeft)
+                lm.targetTexture = _rtLeft;
+        }
     }
 
     /// <summary>
@@ -744,13 +912,29 @@ internal sealed class FlatScreenStereo
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
 
+        bool anyMirrorRendering = false;
         for (int i = 0; i < _mirrors.Count; i++)
         {
             MirrorEntry entry = _mirrors[i];
             bool want = entry.SourceOn && !suspend && !shift;
             if (entry.Mirror.enabled != want)
                 entry.Mirror.enabled = want;
+            if (want)
+                anyMirrorRendering = true;
+
+            // Left mirror follows the same gate, additionally gated on the fallback.
+            if (entry.MirrorLeft != null)
+            {
+                bool wantLeft = want && _leftMirrorMode;
+                if (entry.MirrorLeft.enabled != wantLeft)
+                    entry.MirrorLeft.enabled = wantLeft;
+            }
         }
+
+        // Black-base probe (class doc BLACK-BASE FALLBACK): a 3D background camera is
+        // actively rendering (mirrors on) but the game's own render may be black —
+        // check the base RT and engage the left-eye mirror if so.
+        TickBlackProbe(anyMirrorRendering);
     }
 
     /// <summary>
@@ -788,6 +972,123 @@ internal sealed class FlatScreenStereo
         return true;
     }
 
+    // ---- black-base fallback: probe + engage (class doc BLACK-BASE FALLBACK) -----------------
+
+    /// <summary>
+    /// Throttled ASYNC non-black probe of the base RT. Runs only while a 3D background
+    /// camera is actively rendering (so the base RT SHOULD hold scene content) and the
+    /// fallback is not yet engaged/failed; a stall-free downsample-then-readback that,
+    /// after several consecutive all-black results, drives the left eye from mod
+    /// mirrors instead of the game camera's (black) render.
+    /// </summary>
+    private void TickBlackProbe(bool anyMirrorRendering)
+    {
+        if (_leftMirrorMode || _leftMirrorFailed || !(s_leftMirrorFallback?.Value ?? true))
+            return;
+        if (!anyMirrorRendering || _leftRt == null || _probePending)
+            return;
+        if (_blackProbeFrame != int.MinValue
+            && Time.frameCount - _blackProbeFrame < BlackProbeIntervalFrames)
+            return;
+        _blackProbeFrame = Time.frameCount;
+
+        if (_probeRt == null)
+        {
+            _probeRt = new RenderTexture(BlackProbeSize, BlackProbeSize, 0)
+            {
+                name = "GloomhavenVR.FlatScreenRT.BlackProbe",
+                antiAliasing = 1,
+            };
+            if (!_probeRt.Create())
+            {
+                ReleaseProbeRt();
+                return;
+            }
+        }
+
+        // Bilinear downsample to NxN, then read those few texels back off-thread.
+        Graphics.Blit(_leftRt, _probeRt);
+        _probePending = true;
+        _probeReqGen = _probeGen;
+        AsyncGPUReadback.Request(_probeRt, 0, TextureFormat.RGBA32, OnBlackProbe);
+    }
+
+    private void OnBlackProbe(AsyncGPUReadbackRequest req)
+    {
+        _probePending = false;
+        // Ignore results from a torn-down / superseded activation.
+        if (!_active || _leftMirrorMode || _probeReqGen != _probeGen || req.hasError)
+            return;
+
+        var data = req.GetData<Color32>();
+        int maxChannel = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            Color32 c = data[i];
+            int m = c.r;
+            if (c.g > m) m = c.g;
+            if (c.b > m) m = c.b;
+            if (m > maxChannel)
+                maxChannel = m;
+        }
+
+        if (maxChannel <= BlackChannelThreshold)
+        {
+            _blackConsecutive++;
+            if (_blackConsecutive >= BlackConsecutiveToEngage)
+                EngageLeftMirror(maxChannel);
+        }
+        else
+        {
+            _blackConsecutive = 0;
+        }
+    }
+
+    /// <summary>
+    /// The base RT reads black while a 3D background camera renders — switch the LEFT
+    /// eye to a bare mod mirror (created + rendered on the next sweep). Sticky for the
+    /// scene (the game render stays black); re-arms on the next stack release.
+    /// </summary>
+    private void EngageLeftMirror(int maxChannel)
+    {
+        if (_leftMirrorMode)
+            return;
+        if (!EnsureLeftRt())
+        {
+            _leftMirrorFailed = true;
+            VRLog.Warn("WorldUI", "Black-base fallback: left-eye mirror RT creation failed — " +
+                                  "left eye stays on the game render (may be black). Retries next activation.");
+            return;
+        }
+        _leftMirrorMode = true;
+        VRLog.Info("WorldUI", $"Black-base fallback ENGAGED: the screen's base RenderTexture reads " +
+                              $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
+                              "3D background camera renders — the game camera's own render is black (an image " +
+                              "effect that fails on a redirected targetTexture, e.g. the campaign MapCamera). " +
+                              "The LEFT eye now renders from a bare mod mirror too, so both eyes show the 3D " +
+                              "scene with parallax (map reads as a 3D window; the scene's own colour grading is " +
+                              "lost — it was black). Re-arms on the next scene change.");
+    }
+
+    /// <summary>Create the lazily-allocated left-eye mirror camera for this entry (bare, disabled).</summary>
+    private void EnsureLeftMirror(MirrorEntry entry)
+    {
+        if (entry.MirrorLeft != null || _root == null || _rtLeft == null)
+            return;
+        var go = new GameObject("GloomhavenVR.StereoMirrorL." + entry.Source.name);
+        go.transform.SetParent(_root.transform, worldPositionStays: false);
+        var cam = go.AddComponent<Camera>();
+        cam.enabled = false;                            // EndStackSync flips it on
+        cam.stereoTargetEye = StereoTargetEyeMask.None; // VRCameraPolicy-invisible by construction
+        cam.targetTexture = _rtLeft;
+        XRDevice.DisableAutoXRCameraTracking(cam, true);
+        entry.MirrorLeft = cam;
+        entry.MirrorLeftTransform = go.transform;
+        entry.GoLeft = go;
+        VRLog.Info("WorldUI", $"Black-base fallback: left-eye mirror created for '{entry.Source.name}' " +
+                              "(zero offset, unmodified projection — the left eye of the 3D pair).");
+    }
+
     /// <summary>Destroy all mirrors (captured stack released — scene change / hide). Cheap to rebuild.</summary>
     internal void ReleaseMirrors()
     {
@@ -795,6 +1096,19 @@ internal sealed class FlatScreenStereo
             DestroyMirrorAt(i);
         _mirrors.Clear();
         _bySource.Clear();
+
+        // Re-arm the black-base fallback for the next scene (class doc BLACK-BASE
+        // FALLBACK): the evidence (a black base RT) belongs to the scene we just left.
+        // The RT is kept (dimensions re-checked in Tick); a late probe callback is
+        // invalidated by the generation bump.
+        if (_leftMirrorMode || _blackConsecutive != 0)
+        {
+            _leftMirrorMode = false;
+            _blackConsecutive = 0;
+            _probeGen++;
+            _probePending = false;
+            ReleaseLeftRt();
+        }
     }
 
     private void DestroyMirrorAt(int index)
@@ -804,6 +1118,8 @@ internal sealed class FlatScreenStereo
         _bySource.Remove(entry.Source);
         if (entry.Go != null)
             Object.Destroy(entry.Go);
+        if (entry.GoLeft != null)
+            Object.Destroy(entry.GoLeft);
         _mirrors.RemoveAt(index);
     }
 
@@ -936,14 +1252,18 @@ internal sealed class FlatScreenStereo
         }
 
         // Target per eye: suspension → left RT for both; video depth shift → the
-        // per-eye shifted copies; otherwise left RT / mirror-rendered right RT.
+        // per-eye shifted copies; otherwise the mirror-rendered right RT and, for the
+        // left eye, the base RT — or the LEFT MIRROR RT while the black-base fallback
+        // is engaged (class doc BLACK-BASE FALLBACK; the game render is black there).
         RenderTexture? target;
         if (_videoSuspended)
             target = _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
+        else if (right)
+            target = _rtRight != null ? _rtRight : _leftRt;
         else
-            target = right && _rtRight != null ? _rtRight : _leftRt;
+            target = _leftMirrorMode && _rtLeft != null ? _rtLeft : _leftRt;
         if (target != null && !ReferenceEquals(mat.mainTexture, target))
             mat.mainTexture = target;
     }
