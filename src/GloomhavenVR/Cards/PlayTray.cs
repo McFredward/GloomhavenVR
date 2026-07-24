@@ -776,7 +776,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Vector2(WorldUI.ButtonTuning.DashboardPinWidth, WorldUI.ButtonTuning.DashboardHeight),
             new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
             Core.Loc.Mod("follow"), ToggleFollow,
-            thickness: capDepth, boxy: true, travel: capTravel);
+            thickness: capDepth, boxy: true, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard);
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
@@ -785,7 +786,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.37f, 0.36f, 0.38f), // T4: aged pewter (near-neutral, hint of cool)
             Core.Loc.Mod("set"),
             () => WorldUI.SettingsPanel.RequestToggle(),
-            thickness: capDepth, boxy: true, travel: capTravel); // Item 5: beveled keycap walls like Confirm/Undo
+            thickness: capDepth, boxy: true, travel: capTravel, // Item 5: beveled keycap walls like Confirm/Undo
+            capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard);
         _gear.SetState(true, accent: false);
         RegisterLaserTarget(_gear.Collider!, _gear);
     }
@@ -2456,7 +2458,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.35f, 0.46f, 0.28f), // T4: muted sage green — antique, still clearly "go"
             Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
-            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel);
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
@@ -2465,7 +2468,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             new Color(0.44f, 0.31f, 0.20f), // T4: worn leather brown (kept — already antique)
             Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
-            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel);
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
@@ -3102,6 +3106,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         private TextMeshPro? _label;
         private Transform? _cap;
         private Color _accentColor;
+        /// <summary>USER DEBUG OPTION: [ButtonColors] per-category cap-FACE tint (multiplier, default
+        /// white = unchanged) — set once at <see cref="Create"/> from the button's category. Applied
+        /// to every state colour AND the native sprite face so the user can darken this cap group.</summary>
+        private Color _capTint = Color.white;
         private bool _enabledState;
         private bool _accent;
         private bool _confirmed;
@@ -3218,7 +3226,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick,
             bool round = false, float diameter = 0f, float thickness = 0.01f,
-            bool overlay = false, bool boxy = false, float travel = CapTravel)
+            bool overlay = false, bool boxy = false, float travel = CapTravel,
+            WorldUI.ButtonTuning.CapCategory capCategory = WorldUI.ButtonTuning.CapCategory.Rest)
         {
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
@@ -3435,6 +3444,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             button._label = tmp;
             button._cap = cap.transform;
             button._accentColor = accent;
+            // USER DEBUG OPTION: this button's [ButtonColors] cap-face tint (default white = no
+            // change). Applied to every state colour (StateColor) and the native sprite face
+            // (UpdateColor). The category defaults to Rest so RestControls — which does not pass
+            // one — picks up the rest tint; Confirm/Undo pass Board, gear/follow pass Dashboard.
+            WorldUI.ButtonTuning.Bind();
+            button._capTint = WorldUI.ButtonTuning.CapTint(capCategory);
             button.Collider = box;
             button.Travel = travel; // per-category press travel (category split; rest discs keep the authored default)
             button.UpdateColor(); // seat the initial (disabled) native/procedural face tint
@@ -3536,9 +3551,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             : _capMaterial != null ? _capMaterial.color
             : StateColor();
 
-        /// <summary>Resting cap color for the current state (procedural fallback; dwell ramps AWAY from this).</summary>
+        /// <summary>Resting cap color for the current state (procedural fallback; dwell ramps AWAY
+        /// from this). USER DEBUG OPTION: the shared state palette is multiplied by this button's
+        /// per-category <see cref="_capTint"/> (default white = unchanged).</summary>
         private Color StateColor() =>
-            !_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor;
+            (!_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor)
+            * _capTint;
 
         /// <summary>Native-skin face state for the current button state (test #25 item 3).</summary>
         private WorldUI.NativeButtonSkin.FaceState FaceState() =>
@@ -3551,6 +3569,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             if (_capFace != null)
             {
                 WorldUI.NativeButtonSkin.Apply(_capFace, FaceState());
+                // USER DEBUG OPTION: tint the native sprite face too (the beige/brass button art
+                // the user reads white text on) — default white leaves the sampled sprite as-is.
+                _capFace.color *= _capTint;
                 return;
             }
             if (_capMaterial == null)
@@ -3769,7 +3790,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 _cap.localPosition = pos;
             }
             if (_capFace != null)
-                _capFace.color = Color.Lerp(WorldUI.NativeButtonSkin.ColorFor(FaceState()), DwellChargeColor, progress);
+                // USER DEBUG OPTION: tint the native face (default white = unchanged); StateColor is
+                // already tinted, so the procedural branch below needs no extra multiply.
+                _capFace.color = Color.Lerp(WorldUI.NativeButtonSkin.ColorFor(FaceState()) * _capTint, DwellChargeColor, progress);
             else if (_capMaterial != null)
                 SetCapColor(Color.Lerp(StateColor(), DwellChargeColor, progress));
 
