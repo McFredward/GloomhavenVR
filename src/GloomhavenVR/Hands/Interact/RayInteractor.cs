@@ -76,6 +76,19 @@ internal sealed class RayInteractor : IPickProvider
     /// </summary>
     public bool HasFreshUiHit => _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
 
+    /// <summary>
+    /// Distance along the aim ray to the nearest card in the OPEN hand fan, or +inf when
+    /// the fan is closed or the ray misses it. Recomputed each <see cref="Tick"/> from
+    /// <see cref="Cards.CardFan.Current"/>'s geometric card rects (the same test the fan
+    /// pluck uses). The board pick below, <see cref="RayUguiDriver"/> and
+    /// <see cref="RayGrabDriver"/> treat it as an OCCLUDER: a board/hex/menu target farther
+    /// than this sits BEHIND the hand of cards and is rejected (user issue: the laser
+    /// selected things visible THROUGH the fan — hex tiles, a floated window's grab bar).
+    /// The fan's OWN card interactions are unaffected — they route through CardsDriver's
+    /// independent fan raycast, never this physics pick.
+    /// </summary>
+    public float FanOccluderDistance { get; private set; } = float.PositiveInfinity;
+
     // Constant ANGULAR size for the ray visuals (P6, hardware test #8): the reticle
     // used to scale with the rig's WorldScale — zooming the diorama out grew the dot
     // enormously (and doubly so: localScale under an already rig-scaled parent).
@@ -191,6 +204,7 @@ internal sealed class RayInteractor : IPickProvider
         if (!active)
         {
             _current.HasHit = false;
+            FanOccluderDistance = float.PositiveInfinity;
             return;
         }
 
@@ -213,6 +227,17 @@ internal sealed class RayInteractor : IPickProvider
         _current.Origin = origin;
         _current.Direction = direction;
 
+        // Fan occlusion (user issue): the off-hand's raised card fan sits between the
+        // pointing hand and the board/menu. Its cards live on the mod render layer — which
+        // the physics pick Mask ignores — and the geometric fan pluck is CardsDriver's job,
+        // so the board/hex/menu pick would sail straight THROUGH the hand of cards and
+        // select whatever is visible behind it (a hex tile, a floated window's grab bar).
+        // Measure the nearest fan-card hit along THIS ray up front; the board pick below and
+        // the two far drivers (RayUgui, RayGrab) reject any target that sits BEHIND it. +inf
+        // when the fan is closed or the ray misses it, so pointing over/around the fan (or
+        // with no fan raised) never blocks.
+        FanOccluderDistance = ComputeFanOccluder(origin, direction, maxDistance);
+
         // Modal input-block (menu open): while a modal window floats
         // (ModalFallback.WindowModalActive) or we are in ModalUI, the ray PICK must not hit
         // non-modal targets. Board hexes, cards and tray buttons all live on physics
@@ -223,10 +248,21 @@ internal sealed class RayInteractor : IPickProvider
         UpdateModalPickBlock();
         if (!_modalPickBlocked && Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, Mask))
         {
-            _current.HasHit = true;
-            _current.HitPoint = hit.point;
-            _current.HitDistance = hit.distance;
-            _current.HitCollider = hit.collider;
+            if (hit.distance > FanOccluderDistance + FanOcclusionEpsilonMeters * scale)
+            {
+                // The raised card fan is clearly nearer along the ray — this board/hex/
+                // furniture target is behind the hand of cards; drop it (no pick-through).
+                _current.HasHit = false;
+                _current.HitCollider = null;
+                NoteFanOcclusion($"board target '{hit.collider.name}'", hit.distance);
+            }
+            else
+            {
+                _current.HasHit = true;
+                _current.HitPoint = hit.point;
+                _current.HitDistance = hit.distance;
+                _current.HitCollider = hit.collider;
+            }
         }
         else
         {
@@ -486,6 +522,43 @@ internal sealed class RayInteractor : IPickProvider
             _laser.gameObject.SetActive(active);
         if (_reticle != null && !active)
             _reticle.gameObject.SetActive(false);
+    }
+
+    // ---- fan occlusion -----------------------------------------------------------------
+
+    /// <summary>A fan card nearer than a target by more than this occludes it (meters, scale 1).</summary>
+    private const float FanOcclusionEpsilonMeters = 0.005f;
+
+    private static float s_nextFanOcclusionLogAt;
+
+    /// <summary>
+    /// Nearest OPEN-fan card hit along the ray, or +inf (fan closed / ray misses it). Same
+    /// geometric card-rect test the fan pluck uses (no sticky bias) — the nearest card along
+    /// the ray is the topmost by construction. NOT a physics query: fan cards are trigger
+    /// colliders on the mod layer, invisible to the pick Mask.
+    /// </summary>
+    private static float ComputeFanOccluder(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        Cards.CardFan? fan = Cards.CardFan.Current;
+        if (fan == null)
+            return float.PositiveInfinity;
+        return fan.TryRaycast(origin, direction, null, out _, out _, out float dist) && dist <= maxDistance
+            ? dist
+            : float.PositiveInfinity;
+    }
+
+    /// <summary>
+    /// Throttled note (shared across both hands and every target kind) that the raised card
+    /// fan occluded a would-be pick BEHIND it — names the blocked target so a hardware log
+    /// shows the fix engaging. Called from the board pick here and the far uGUI/grab drivers.
+    /// </summary>
+    public void NoteFanOcclusion(string blockedTarget, float targetDistance)
+    {
+        if (Time.unscaledTime < s_nextFanOcclusionLogAt)
+            return;
+        s_nextFanOcclusionLogAt = Time.unscaledTime + 1f;
+        Core.VRLog.Info("Hands", $"{_hand.Side} ray occluded by the raised card fan — blocked {blockedTarget} " +
+                                 $"(sits {targetDistance:F2} m out, behind a fan card at {FanOccluderDistance:F2} m).");
     }
 
     internal void DestroyVisuals()

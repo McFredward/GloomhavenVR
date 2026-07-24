@@ -114,6 +114,16 @@ internal sealed class RayGrabDriver
             return;
         }
 
+        // Fan occlusion (user issue): the off-hand's raised card fan blocks the grab bar
+        // BEHIND it — pointing THROUGH the hand of cards must not drag a window's bar
+        // visible past them. Uses the ray's precomputed nearest fan-card distance.
+        if (_hand.Ray.FanOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
+        {
+            _hand.Ray.NoteFanOcclusion($"panel grab bar '{best.name}'", bestDist);
+            ClearHover();
+            return;
+        }
+
         // Hover: tint the bar + clamp the visible beam to the hit point (mirror board laser).
         if (!ReferenceEquals(best, _hovered))
         {

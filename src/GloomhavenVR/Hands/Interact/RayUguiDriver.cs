@@ -129,6 +129,15 @@ internal sealed class RayUguiDriver
         if (best != null && pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
             best = null;
 
+        // Fan occlusion (user issue): the off-hand's raised card fan blocks a UI hit BEHIND
+        // it — the laser must not click a floated window/panel visible THROUGH the hand of
+        // cards. Mirrors the physics rule using the ray's precomputed nearest fan-card distance.
+        if (best != null && _hand.Ray.FanOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
+        {
+            _hand.Ray.NoteFanOcclusion($"uGUI panel '{best.name}'", bestDist);
+            best = null;
+        }
+
         if (!ReferenceEquals(best, _canvas))
         {
             _pointer.Cancel();
