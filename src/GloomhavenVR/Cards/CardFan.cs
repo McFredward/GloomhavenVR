@@ -88,6 +88,9 @@ internal sealed class CardFan
         // this frame via the Relayout blend at t=0, then Tick flies them out). 0 = instant.
         _openElapsed = CardsConfig.FanOpenDuration.Value > 0f ? 0f : -1f;
         Relayout(instant: true);
+        // Seed the live-preview baseline so the first Tick doesn't fire a spurious relayout; any
+        // config edited WHILE the fan was closed is already reflected by this Open's Relayout.
+        _lastFanParamSig = FanParamSignature();
     }
 
     internal void Close()
@@ -433,6 +436,7 @@ internal sealed class CardFan
         // Fan-out reveal: advance the open animation and re-blend the homes every frame
         // (Relayout applies the collapsed→slot lerp while _openElapsed >= 0). dt is capped
         // so a hitch cannot teleport the cards; unscaled so a paused game still animates.
+        bool wasOpening = _openElapsed >= 0f;
         if (_openElapsed >= 0f)
         {
             _openElapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f);
@@ -441,6 +445,39 @@ internal sealed class CardFan
             {
                 _openElapsed = -1f;
                 Relayout(instant: false); // hand the (identical) homes back to the normal per-card lerp
+            }
+        }
+
+        // Real-time fan-tuning preview: while the fan is STEADILY open (not mid-reveal — the reveal
+        // relayouts itself every frame with the live config), re-lay it out the instant any
+        // steady-layout Fan param changes, so debug-menu/cfg edits show without a close+reopen. The
+        // relayout uses instant:false (VRCard lerps each card to its new home) and Relayout skips
+        // any card being plucked (IsHeld) + preserves the hover split — so this never stomps a grab
+        // or fights the reveal/collapse animation. Allocation-free: one float compare per frame.
+        if (wasOpening)
+        {
+            _lastFanParamSig = FanParamSignature(); // keep the baseline fresh through the reveal
+        }
+        else
+        {
+            float sig = FanParamSignature();
+            if (sig != _lastFanParamSig) // NaN seed compares unequal → first steady frame just baselines
+            {
+                bool firstSeed = float.IsNaN(_lastFanParamSig);
+                _lastFanParamSig = sig;
+                if (!firstSeed)
+                {
+                    Relayout(instant: false);
+                    float now = Time.unscaledTime;
+                    if (now - _paramLogTime > 0.5f) // throttled: confirm a live re-layout fired
+                    {
+                        _paramLogTime = now;
+                        Core.VRLog.Info("Cards",
+                            $"Fan live re-layout: params changed (n={_cards.Count}) " +
+                            $"edgeDepth={SideDepth(0, _cards.Count) * 1000f:F1}mm " +
+                            $"curve={CardsConfig.FanSideDepthCurve.Value:F3}m");
+                    }
+                }
             }
         }
 
@@ -677,29 +714,77 @@ internal sealed class CardFan
     /// <summary>Throttle clock for the depth-curvature diagnostic (unscaled seconds of the last line).</summary>
     private float _curveLogTime;
 
+    // ---- Real-time fan-tuning preview (self-contained, allocation-free) ----
+    // The settings panel edits the GLOBAL Fan config while the fan is OPEN, but Relayout only ran
+    // on open / card-set change, so a stepper edit only showed after closing + reopening the fan.
+    // Tick now watches a cheap SIGNATURE of every STEADY-layout Fan param each frame and re-lays
+    // the open fan out the instant any of them changes — so edits (step / arc / radius / split /
+    // curvature / power / min-cards / arch / tilt / fill / card width) preview LIVE. The signature
+    // is a weighted float sum (FanParamSignature); distinct multipliers make a same-sum collision
+    // between realistic slider values vanishingly unlikely, and the relayout is idempotent, so a
+    // rare miss/extra costs nothing. NaN seed = "recompute baseline, don't relayout" (set on Open
+    // and refreshed every frame of the fan-out reveal, which relayouts itself already).
+
+    /// <summary>Last-seen fan-param signature (NaN = uninitialised — reseeded without a relayout).</summary>
+    private float _lastFanParamSig = float.NaN;
+
+    /// <summary>Throttle clock for the live re-layout diagnostic (unscaled seconds of the last line).</summary>
+    private float _paramLogTime;
+
     /// <summary>
-    /// Depth curvature: how far card <paramref name="i"/> of a hand of <paramref name="n"/> recedes
-    /// AWAY from the viewer along the fan's local forward axis (+Z, since the fan faces the head with
-    /// -Z), so a full hand bows into depth like a real held fan — the center card sits nearest and the
-    /// edge cards fall back. Quadratic (<see cref="CardsConfig.FanCurvePower"/>) in the card's
-    /// fraction-from-center (0 at the middle, 1 at the outermost), scaled to
-    /// <see cref="CardsConfig.FanSideDepthCurve"/> metres at the edge and ramped by hand size (flat at
-    /// or below <see cref="CardsConfig.FanCurveMinCards"/>, full at <see cref="CardsConfig.FanMaxHandForCurve"/>)
+    /// Allocation-free weighted signature of every Fan config value that changes the STEADY layout
+    /// (<see cref="Relayout"/> + <see cref="SideDepth"/> + <see cref="SplitOffset"/>). Any edit to one
+    /// term moves the sum, so Tick can detect a live tuning change with a single float compare. Animation
+    /// durations (open/close/stagger), the gaze bias, the pop distance and the palm/follow params are
+    /// EXCLUDED on purpose — they are already read live every frame (facing / follow / pop) or only matter
+    /// mid-animation, so they need no relayout.
+    /// </summary>
+    private float FanParamSignature()
+    {
+        float s = 0f;
+        s += CardsConfig.FanEffectiveRadius.Value * 7.1f;
+        s += CardsConfig.FanArcSweepDegrees.Value * 3.3f;
+        s += CardsConfig.FanPerCardStepDegrees.Value * 13.7f;
+        s += CardsConfig.CardWidth.Value * 101.3f;
+        s += CardsConfig.FanFlatCurvatureFactor.Value * 5.9f;
+        s += CardsConfig.FanTiltFactor.Value * 17.3f;
+        s += CardsConfig.FanMaxHandForCurve.Value * 2.7f;
+        s += (CardsConfig.FanCurveByFill.Value ? 23.1f : 0f);
+        s += CardsConfig.FanSplitMultiplier.Value * 211.7f;
+        s += CardsConfig.FanSplitFalloff.Value * 19.9f;
+        s += CardsConfig.FanHoverSplitScale.Value * 29.3f;
+        s += CardsConfig.FanSideDepthCurve.Value * 307.1f;
+        s += CardsConfig.FanCurvePower.Value * 11.1f;
+        s += CardsConfig.FanCurveMinCards.Value * 6.1f;
+        return s;
+    }
+
+    /// <summary>
+    /// Depth curvature: the SIGNED bow of card <paramref name="i"/> of a hand of <paramref name="n"/>
+    /// along the fan's local forward axis (fan-local +Z is AWAY from the viewer, since the fan faces the
+    /// head with -Z), so a full hand bows into depth like a real held fan. A POSITIVE
+    /// <see cref="CardsConfig.FanSideDepthCurve"/> recedes the edge cards AWAY from the viewer (center
+    /// nearest); a NEGATIVE value bows them the OTHER way, TOWARD the viewer (center furthest). Quadratic
+    /// (<see cref="CardsConfig.FanCurvePower"/>) in the card's fraction-from-center (0 at the middle, 1 at
+    /// the outermost — always ≥ 0, so the SIGN comes purely from the curve value), scaled to
+    /// FanSideDepthCurve metres at the edge and ramped by hand size (flat at or below
+    /// <see cref="CardsConfig.FanCurveMinCards"/>, full at <see cref="CardsConfig.FanMaxHandForCurve"/>)
     /// so a small hand stays nearly flat. Returns 0 when disabled / a tiny hand. Live-read each layout.
     ///
-    /// NOTE (raycast/collider safety): this shifts ONLY each card's local Z, never its rotation. The
-    /// pluck raycast (<see cref="TryRaycast"/>) builds its per-card plane from the LIVE card transform
-    /// (<c>t.position</c>/<c>t.forward</c>) and its rect from <c>InverseTransformPoint</c> (Z-independent
-    /// for the X/Y bounds), so the ray follows the moved card automatically and the hit rect is unchanged;
-    /// the shrunken grab colliders (<see cref="VRCard.SetColliderRegion"/>) ride the transform likewise.
+    /// NOTE (raycast/collider safety, either sign): this shifts ONLY each card's local Z, never its
+    /// rotation. The pluck raycast (<see cref="TryRaycast"/>) builds its per-card plane from the LIVE card
+    /// transform (<c>t.position</c>/<c>t.forward</c>) and its rect from <c>InverseTransformPoint</c>
+    /// (Z-independent for the X/Y bounds), so the ray follows the moved card automatically — toward or
+    /// away — and the hit rect is unchanged; the shrunken grab colliders
+    /// (<see cref="VRCard.SetColliderRegion"/>) ride the transform likewise.
     /// </summary>
     private static float SideDepth(int i, int n)
     {
         if (n < 2)
             return 0f;
         float curve = CardsConfig.FanSideDepthCurve.Value;
-        if (curve <= 0f)
-            return 0f;
+        if (curve == 0f)
+            return 0f; // exactly flat; negative curve bows the edges TOWARD the viewer (handled below)
         int lo = Mathf.Clamp(CardsConfig.FanCurveMinCards.Value, 1, 64);
         if (n <= lo)
             return 0f; // small hand: stay flat

@@ -308,9 +308,10 @@ internal static class CardsConfig
     /// </summary>
     internal static ConfigEntry<Vector3> BrowseFanOffset = null!;
 
-    /// <summary>Fan depth curvature (global): max recession in real meters of the OUTERMOST card AWAY
-    /// from the viewer (fan-local +Z) so a full hand bows into depth like a real held fan — center
-    /// card nearest, edge cards fall back. 0 = flat (the old billboarded sheet).</summary>
+    /// <summary>Fan depth curvature (global): signed max bow in real meters of the OUTERMOST card along
+    /// the fan-local forward axis so a full hand bows into depth like a real held fan. POSITIVE = edge
+    /// cards recede AWAY from the viewer (fan-local +Z, center card nearest); NEGATIVE = edge cards bow
+    /// TOWARD the viewer (the other direction). 0 = flat (the old billboarded sheet).</summary>
     internal static ConfigEntry<float> FanSideDepthCurve = null!;
 
     /// <summary>Fan depth curvature (global): exponent of the fraction-from-center curve. 2 = quadratic
@@ -821,13 +822,15 @@ internal static class CardsConfig
         // ---- Fan DEPTH curvature + gaze-bias toggle (in-VR debug 'Fan' category) ----
         FanSideDepthCurve = _file.Bind("Cards", "FanSideDepthCurve", 0.035f,
             new ConfigDescription(
-                "Hand fan (global): DEPTH CURVATURE — how far (real meters) the OUTERMOST card recedes " +
-                "AWAY from the viewer along the fan's forward axis, so a full hand bows into depth like " +
-                "a real held fan (center card nearest, edge cards fall back). Recession is quadratic " +
-                "(FanCurvePower) in each card's distance from center and ramps in with hand size " +
-                "(flat below FanCurveMinCards, full at FanMaxHandForCurve). Grab/hover raycasting " +
-                "tracks the moved cards automatically. 0 = flat (the old billboarded sheet).",
-                new AcceptableValueRange<float>(0f, 0.12f)));
+                "Hand fan (global): DEPTH CURVATURE — signed bow (real meters) of the OUTERMOST card " +
+                "along the fan's forward axis, so a full hand bows into depth like a real held fan. " +
+                "POSITIVE = edge cards recede AWAY from the viewer (center card nearest, edges fall " +
+                "back); NEGATIVE = edge cards bow the OTHER way, TOWARD the viewer (center furthest). " +
+                "The bow is quadratic (FanCurvePower) in each card's distance from center and ramps in " +
+                "with hand size (flat below FanCurveMinCards, full at FanMaxHandForCurve). Grab/hover " +
+                "raycasting tracks the moved cards automatically either sign. 0 = flat (the old " +
+                "billboarded sheet).",
+                new AcceptableValueRange<float>(-0.12f, 0.12f)));
         FanCurvePower = _file.Bind("Cards", "FanCurvePower", 2f,
             new ConfigDescription(
                 "Hand fan (global): depth-curvature exponent applied to each card's fraction-from-center " +
