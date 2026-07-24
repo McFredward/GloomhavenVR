@@ -1037,6 +1037,107 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _flyDone = null;
     }
 
+    // ---------------------------------------------------------- appear / disappear (issue 2) --
+
+    // Issue 2 (user): "nothing should ever just appear or disappear without a corresponding
+    // animation." When the control board's docked action cards clear/re-populate on a character/
+    // turn switch they used to POP in/out instantly. A cleared card that is NOT flying to a pile
+    // (issue 1 owns those) plays a quick scale-down + face fade before it is parked; a freshly
+    // docked card scales+fades IN instead of popping from nothing. Both run on UNSCALED time (card
+    // phases pause timeScale) and hold position/rotation constant (no slide, no reorient). Purely
+    // VR presentation. A held/flying card is never appear/disappear-animated (the hand / fly owns
+    // the pose); the two are mutually exclusive with the fly (CardsDriver only Vanishes cards the
+    // fly-to-pile path declined), so a card is never double-animated.
+    internal const float DockVanishSeconds = 0.18f;
+    internal const float DockAppearSeconds = 0.15f;
+
+    private bool _vanishing;
+    private float _vanishElapsed;
+    private Vector3 _vanishFromScale;
+    private Action? _vanishDone;
+
+    private bool _appearing;
+    private float _appearElapsed;
+
+    private CanvasGroup? _faceGroup;
+
+    /// <summary>True while this card is playing the disappear (scale-down + fade) before it parks.</summary>
+    internal bool IsVanishing => _vanishing;
+
+    /// <summary>
+    /// Fade the adopted face art (a lazy <see cref="CanvasGroup"/> on our world-space face canvas).
+    /// The opaque backing slab does not fade — the simultaneous scale toward/from zero hides it —
+    /// so no shared game/card material is ever touched. Reset to 1 whenever an animation ends or the
+    /// card is disabled (pool-safe).
+    /// </summary>
+    private void SetVisualAlpha(float alpha)
+    {
+        if (_canvas == null)
+            return;
+        if (_faceGroup == null)
+        {
+            _faceGroup = _canvas.GetComponent<CanvasGroup>();
+            if (_faceGroup == null)
+                _faceGroup = _canvas.gameObject.AddComponent<CanvasGroup>();
+        }
+        _faceGroup.alpha = Mathf.Clamp01(alpha);
+    }
+
+    /// <summary>
+    /// Issue 2 DISAPPEAR: shrink + fade this docked card out over <see cref="DockVanishSeconds"/>,
+    /// then invoke <paramref name="onComplete"/> (CardsDriver parks/hides it). No-op-restart while
+    /// already vanishing; a held/flying card cannot vanish (the callback still runs so the caller's
+    /// park bookkeeping is not stranded). Rotation and position are held constant — the card shrinks
+    /// exactly where it sat, it never slides or reorients.
+    /// </summary>
+    internal void Vanish(Action onComplete)
+    {
+        if (_vanishing)
+            return;
+        if (IsHeld || _flying)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+        _vanishing = true;
+        _appearing = false;
+        _vanishElapsed = 0f;
+        _vanishFromScale = transform.localScale;
+        _vanishDone = onComplete;
+        // A vanishing card makes no promises — drop every hover/grab affordance.
+        Grabbable = false;
+        _popped = false;
+        _laserPopped = false;
+        _pokeHover = false;
+        _handPopSuppressed = false;
+        _pop = 0f;
+        _releaseGlide = 0f;
+        _instantNext = false;
+    }
+
+    /// <summary>
+    /// Issue 2 APPEAR: scale + fade this docked card IN over <see cref="DockAppearSeconds"/> instead
+    /// of popping from nothing. Snaps position/rotation to the current home immediately (no slide from
+    /// the pool origin) and starts from zero scale / zero alpha THIS instant so there is never a
+    /// full-size flash before the first animated frame. Called by CardsDriver right after the layout
+    /// asserts the card's home. No-op for a held/flying card.
+    /// </summary>
+    internal void PlayAppear()
+    {
+        if (IsHeld || _flying)
+            return;
+        _appearing = true;
+        _vanishing = false;
+        _vanishDone = null;
+        _appearElapsed = 0f;
+        _instantNext = false;
+        // Seed the start pose NOW so no full-scale frame renders before Update's first appear tick.
+        transform.localPosition = _homePos;
+        transform.localRotation = _homeRot;
+        transform.localScale = Vector3.zero;
+        SetVisualAlpha(0f);
+    }
+
     public override void OnRelease(VRHand hand, Vector3 velocity)
     {
         // Glide-back, not teleport: base.OnRelease → DetachFromHand restores the PRE-GRAB
@@ -1179,6 +1280,47 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             return;
         }
 
+        // Issue 2 DISAPPEAR: shrink + fade out where the card sits (unscaled time, position/rotation
+        // held), then park via the completion callback. Owns the transform while it runs.
+        if (_vanishing)
+        {
+            float vdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fly anim
+            _vanishElapsed += vdt;
+            float vt = DockVanishSeconds > 0f ? Mathf.Clamp01(_vanishElapsed / DockVanishSeconds) : 1f;
+            float e = vt * vt; // ease-in shrink
+            transform.localScale = Vector3.Lerp(_vanishFromScale, Vector3.zero, e);
+            SetVisualAlpha(1f - vt);
+            if (vt >= 1f)
+            {
+                _vanishing = false;
+                Action? done = _vanishDone;
+                _vanishDone = null;
+                SetVisualAlpha(1f); // reset for the pooled card's next life (it is about to hide)
+                done?.Invoke();
+            }
+            return;
+        }
+
+        // Issue 2 APPEAR: grow + fade in toward the home pose (position/rotation snapped, scale eased
+        // 0→home) so the docked card never pops from nothing. Unscaled time; ends fully opaque.
+        if (_appearing)
+        {
+            float adt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            _appearElapsed += adt;
+            float at = DockAppearSeconds > 0f ? Mathf.Clamp01(_appearElapsed / DockAppearSeconds) : 1f;
+            float e = 1f - (1f - at) * (1f - at); // ease-out grow
+            transform.localPosition = _homePos;
+            transform.localRotation = _homeRot;
+            transform.localScale = Vector3.one * (_homeScale * e);
+            SetVisualAlpha(at);
+            if (at >= 1f)
+            {
+                _appearing = false;
+                SetVisualAlpha(1f);
+            }
+            return;
+        }
+
         float dt = Time.deltaTime;
         // Release glide window: run the home-lerp on UNSCALED time for a beat after a
         // release so the glide-back plays even while the game pauses simulation time.
@@ -1252,6 +1394,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _pop = 0f;
         _releaseGlide = 0f;
         CancelFly(); // a parked/pooled card is never mid-flight
+        // Issue 2: a parked/pooled card carries no half-finished appear/disappear into its next life.
+        _vanishing = false;
+        _vanishDone = null;
+        _appearing = false;
+        SetVisualAlpha(1f);
     }
 
     private void OnDestroy()

@@ -50,6 +50,23 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly HashSet<VRCard> _flyingToPile = new();
     private const float FlyToPileSeconds = 0.4f;
 
+    // Issue 1 (fly-to-pile "suddenly somewhere else" glitch): the last-known WORLD pose of every
+    // adopted card while it was still visible in a zone, keyed by its game widget. When a card is
+    // burned via damage its live VR card is often already parked (position lost) or recycled by the
+    // time TickBurnToPile sees it in the burnt pile — the old fallback then flew a slab FROM THE
+    // DISCARD PILE, i.e. it teleported to a different place first (the glitch). Now the fallback
+    // slab starts from this recorded true position/rotation instead, holding that orientation for
+    // the whole flight; with no recorded pose the animation is skipped (never a teleport).
+    private readonly Dictionary<AbilityCardUI, Vector3> _lastCardWorldPos = new(16);
+    private readonly Dictionary<AbilityCardUI, Quaternion> _lastCardWorldRot = new(16);
+
+    // Issue 2 (character/turn switch board cards must not pop): suppress the docked-card appear/
+    // disappear animation for exactly the first Rebuild after a fresh board build / teardown (the
+    // scenario-load "no storm" guard, same philosophy as the buttons' _everShown). Set true on
+    // enable / board switch / hand teardown; cleared at the end of each Rebuild so every LATER
+    // change (the actual character/turn switches) animates.
+    private bool _dockAnimSuppressed = true;
+
     // Issue B (user): a card burned via the TAKE-DAMAGE decision ("burn available/discarded
     // card") is a different flow from the turn-clear round-card sweep above — the game moves it
     // straight into the character's Lost pile and recycles the widget, so it just vanished with no
@@ -605,6 +622,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _liveGrabs.Clear();
         _flyingToPile.Clear(); // issue 5: no fly survives a driver teardown
         _lastHalfCards.Clear();
+        _lastCardWorldPos.Clear(); // issue 1
+        _lastCardWorldRot.Clear();
         _burnWatchHand = null; // issue B
         _knownBurntWidgets.Clear();
         _fanOriginCards.Clear();
@@ -723,6 +742,9 @@ internal sealed class CardsDriver : MonoBehaviour
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
+        _lastCardWorldPos.Clear(); // issue 1: last-known poses die with the hand's cards
+        _lastCardWorldRot.Clear();
+        _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
         _burnWatchHand = null; // issue B: re-baseline the burnt set for the next hand
         _knownBurntWidgets.Clear();
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
@@ -739,6 +761,13 @@ internal sealed class CardsDriver : MonoBehaviour
         VRCard? card = _factory.Find(widget);
         if (card != null)
         {
+            // Issue 1: capture the card's true world pose BEFORE it is destroyed, so a damage-burn
+            // that lands this widget in the burnt pile can still fly a slab from where it really was.
+            if (card.GameCard != null && card.gameObject.activeInHierarchy)
+            {
+                _lastCardWorldPos[widget] = card.transform.position;
+                _lastCardWorldRot[widget] = card.transform.rotation;
+            }
             if (ReferenceEquals(card, _laserHover))
                 ClearLaserHover();
             if (ReferenceEquals(card, _browseHover))
@@ -2365,6 +2394,7 @@ internal sealed class CardsDriver : MonoBehaviour
         // the EXACT same location (Rebuild re-applies it after EnsureBuilt instead of PlaceAtHead).
         _hasSwitchPose = _tray.TryCapturePose(out _switchPos, out _switchRot, out _switchScale);
         _tray.Destroy();
+        _dockAnimSuppressed = true; // issue 2: the rebuilt board re-populates its cards silently (no storm)
         _dirty = true;
     }
 
@@ -2622,8 +2652,17 @@ internal sealed class CardsDriver : MonoBehaviour
                 continue;
             // Issue 5: a card mid-flight into a pile owns its own transform until it arrives —
             // never re-zone, re-home or re-park it (that would teleport it out of the animation).
-            if (card.IsFlying)
+            // Issue 2: a card mid-disappear likewise owns its transform until it parks itself — the
+            // park sweep must not re-park it (double-hide) while it shrinks out.
+            if (card.IsFlying || card.IsVanishing)
                 continue;
+            // Issue 1: remember every visible card's true world pose so a later damage-burn can fly
+            // its slab from where the card ACTUALLY was, never from a teleported pile position.
+            if (card.GameCard != null && card.gameObject.activeInHierarchy)
+            {
+                _lastCardWorldPos[card.GameCard] = card.transform.position;
+                _lastCardWorldRot[card.GameCard] = card.transform.rotation;
+            }
             bool inFan = _fanBuffer.Contains(card);
             bool inHalf = _halfBuffer.Contains(card);
             bool inTray = _tray.SlotOf(card) >= 0;
@@ -2665,8 +2704,28 @@ internal sealed class CardsDriver : MonoBehaviour
                 // (burned → burnt, discarded → discard) instead of vanishing; everything else
                 // parks instantly as before. TryStartFlyToPile returns true only when it launched
                 // the animation — the fly's completion callback parks the card on arrival.
-                if (!TryStartFlyToPile(hand, card))
+                if (TryStartFlyToPile(hand, card))
+                {
+                    // fly-to-pile owns this card — never also vanish it (no double animation).
+                }
+                // Issue 2: a docked action card that CLEARS on a character/turn switch (it was in
+                // last rebuild's half set) but is NOT flying to a pile used to POP away — now it
+                // shrinks + fades out, then parks. Everything else (fan close, browse/active, pool
+                // return) keeps its own instant park / own animation. Suppressed on the first
+                // rebuild after a board build so the scenario-load population never storms.
+                else if (!_dockAnimSuppressed && _lastHalfCards.Contains(card)
+                         && card.gameObject.activeInHierarchy)
+                {
+                    VRCard vanishing = card;
+                    card.Vanish(() => _factory.Park(vanishing));
+                    VRLog.Info("Cards", $"Card disappear: '{card.name}' (docked action card cleared on a " +
+                                        $"character/turn switch) — scale-down + fade ({VRCard.DockVanishSeconds:F2}s), " +
+                                        "then parked (not flying to a pile).");
+                }
+                else
+                {
                     _factory.Park(card);
+                }
             }
         }
 
@@ -2680,6 +2739,28 @@ internal sealed class CardsDriver : MonoBehaviour
         _half.SetVisible(halfVisible);
         if (halfVisible)
             _half.SetCards(_halfBuffer);
+
+        // Issue 2 APPEAR: a docked action card that just (re-)appeared for the new/active character
+        // — now in the half set but NOT in it last rebuild — scales + fades in instead of popping
+        // from nothing. Runs AFTER _half.SetCards so each card's home pose is already asserted (the
+        // appear grows toward it). Suppressed on the first rebuild after a board build (no storm).
+        // A card flying to a pile is never docked here, so the two never collide (no double anim).
+        if (halfVisible && !_dockAnimSuppressed)
+        {
+            for (int i = 0; i < _halfBuffer.Count; i++)
+            {
+                VRCard card = _halfBuffer[i];
+                if (card == null || card.IsHeld || card.IsFlying || _lastHalfCards.Contains(card))
+                    continue;
+                card.PlayAppear();
+                VRLog.Info("Cards", $"Card appear: '{card.name}' (docked action card shown for the new/active " +
+                                    $"character) — scale-in + fade ({VRCard.DockAppearSeconds:F2}s) instead of a pop.");
+            }
+        }
+
+        // Issue 2 "no storm" guard: the first Rebuild after a board build / teardown populated the
+        // board silently; every later change (the real character/turn switches) now animates.
+        _dockAnimSuppressed = false;
 
         VRLog.Debug("Cards", $"Rebuild: mode={mode} fan={_fanBuffer.Count} tray={trayVisible} half={_halfBuffer.Count}.");
     }
@@ -2865,6 +2946,8 @@ internal sealed class CardsDriver : MonoBehaviour
 
         if (!ownedElsewhere && card != null && card.GameCard != null && card.gameObject.activeInHierarchy)
         {
+            // Ideal: the real VR card is still live at its true board position — fly IT (face and
+            // all), from where it actually sits, orientation held for the whole flight (FlyToPile).
             float arcHeight = Vector3.Distance(card.transform.position, burntPos) * VRCard.FlyArcHeightFraction;
             _flyingToPile.Add(card);
             VRCard flying = card;
@@ -2874,28 +2957,42 @@ internal sealed class CardsDriver : MonoBehaviour
                 _factory.Park(flying);
                 VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the Burnt pile — parked.");
             });
-            VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: '{card.name}' → Burnt pile ({FlyToPileSeconds:F2}s, " +
-                                $"arc {arcHeight:F3} m over the board) — real VR card (VR presentation only; " +
-                                "game pile state untouched).");
+            _lastCardWorldPos.Remove(widget); // consumed
+            _lastCardWorldRot.Remove(widget);
+            VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: '{card.name}' from {card.transform.position} → Burnt " +
+                                $"pile ({FlyToPileSeconds:F2}s, arc {arcHeight:F3} m over the board) — real VR card " +
+                                "(VR presentation only; game pile state untouched).");
             return;
         }
 
         if (ownedElsewhere)
             return; // the turn-clear sweep (or a live grab) is already animating this exact card
 
-        // No usable live VR card: fly a transient card-back slab from the discard pile (a card
-        // moving between piles reads clearly) so the burn is still visible feedback.
+        // Issue 1: the live VR card is already parked (position lost) or recycled, so fly a transient
+        // card-back slab from the burned card's LAST-KNOWN world pose — NEVER from the discard pile
+        // (that teleport to a different place first was the user's "glitched over the pile then
+        // appeared somewhere else" bug). Keep that recorded rotation constant for the whole flight so
+        // the card stays equally oriented. With no recorded pose there is genuinely nowhere to fly
+        // from, so the animation is SKIPPED (no teleporting slab).
+        bool hasFrom = _lastCardWorldPos.TryGetValue(widget, out Vector3 fromPos);
+        Quaternion fromRot = _lastCardWorldRot.TryGetValue(widget, out Quaternion r) ? r : Quaternion.identity;
+        _lastCardWorldPos.Remove(widget); // consumed either way
+        _lastCardWorldRot.Remove(widget);
+        if (!hasFrom)
+        {
+            VRLog.Info("Cards", $"Damage-burn of '{CardsGameApi.CardName(widget)}' → Burnt pile: NO last-known VR " +
+                                "position for the burned widget — animation skipped (never teleport a slab to a " +
+                                "different place; the game pile state is unchanged).");
+            return;
+        }
         Transform? anchor = AnchorParent();
         if (anchor == null)
             return;
-        Vector3 fromPos = _piles.TryGetPileWorld(PileKind.Discard, out Vector3 discardPos, out _)
-            ? discardPos
-            : burntPos + arcUp * (0.12f * anchor.lossyScale.x); // no discard stack: drop in from just above
         float slabArc = Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction;
-        BurnSlab.Launch(anchor, fromPos, burntPos, slabWidth, FlyToPileSeconds, arcUp);
-        VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: transient card-back slab → Burnt pile ({FlyToPileSeconds:F2}s, " +
-                            $"arc {slabArc:F3} m over the board) — no live VR card for the burned widget " +
-                            "(LIMITATION: fallback slab feedback).");
+        BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp);
+        VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: transient card-back slab from {fromPos} (the burned card's " +
+                            $"true last position) → Burnt pile ({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the " +
+                            "board), orientation held — no live VR card for the burned widget.");
     }
 
     /// <summary>
@@ -2916,7 +3013,7 @@ internal sealed class CardsDriver : MonoBehaviour
         private Vector3 _fromScale;
         private Vector3 _toScale;
 
-        internal static void Launch(Transform anchor, Vector3 fromWorld, Vector3 toWorld,
+        internal static void Launch(Transform anchor, Vector3 fromWorld, Quaternion fixedRot, Vector3 toWorld,
             float targetWorldWidth, float duration, Vector3 worldUp)
         {
             float w = CardsConfig.CardWidth.Value;
@@ -2948,10 +3045,9 @@ internal sealed class CardsDriver : MonoBehaviour
 
             go.transform.position = fromWorld;
             go.transform.localScale = slab._fromScale;
-            // Face flat toward the board up (same convention as the pile slabs' rest orientation).
-            Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
-            if (head != null)
-                go.transform.rotation = Quaternion.LookRotation((fromWorld - head.transform.position).normalized, slab._up);
+            // Issue 1: hold the burned card's LAST-KNOWN orientation for the whole flight — the card
+            // must stay equally oriented, never snap to a billboard or the pile's orientation.
+            go.transform.rotation = fixedRot;
         }
 
         private void Update()
