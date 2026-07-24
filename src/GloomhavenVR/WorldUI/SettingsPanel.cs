@@ -118,6 +118,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // the new "Debug" section as their OWN global element (like RoundButtons). GLOBAL —
         // no per-board offset/board selector.
         WallFade,
+        // Per-style embodiment tuning (2026-07, user: "I count ALL offsets including Hände,
+        // Figuren, Handgelenk as Debug"): the former top-level Hände / Figuren / Handgelenk
+        // categories became Debug elements. Each carries its OWN "Stil" cycle + "gilt pro Stil"
+        // note + the per-STYLE steppers (per HAND STYLE, NOT per board — so the board selector
+        // and the generic per-board offset/size/spacing/shape rows all hide, like the other
+        // ElementIsGlobalTuning elements). HandOffsets also hosts the global card-fan geometry.
+        HandOffsets, FigureOffsets, WristOffsets,
     }
 
     /// <summary>
@@ -129,11 +136,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// Element chooser (the existing accordion) over the many board-attached elements; every other
     /// category is a flat scannable list. Order matches <see cref="NavElements"/>.
     /// </summary>
-    // Issue 2 (2026-07): the two element-BEARING tuning tabs (Tasten + Board) plus the wall-fade
-    // fractions were consolidated into ONE new top-level "Debug" category so the default sidebar
-    // shows only genuinely user-facing categories. Debug is the sole element-bearing category now.
-    private enum NavCat { Welt, Anzeige, Waende, Avatar, Haende, Figuren, Handgelenk, Debug }
-    private const int NavCatCount = 8;
+    // Issue 2 (2026-07): the element-BEARING tuning tabs plus the wall-fade fractions were
+    // consolidated into ONE top-level "Debug" category. 2026-07 follow-up (user: "I count ALL
+    // offsets as Debug — Debug should hold the individual sub-items one by one; the normal-user
+    // choices belong OUTSIDE Debug, but no single-setting tab either"): the per-style Hände /
+    // Figuren / Handgelenk tabs also folded INTO Debug as elements, and the one-row "Wände" tab
+    // folded its user-facing see-through toggle into "Anzeige". What remains is a short, scannable
+    // top-level list of genuinely user-facing tabs (Welt / Anzeige / Avatar) plus the single Debug
+    // tab that holds ALL the deep per-element tuning. Debug is the sole element-bearing category.
+    private enum NavCat { Welt, Anzeige, Avatar, Debug }
+    private const int NavCatCount = 4;
 
     /// <summary>
     /// SINGLE source of truth for category → board-attached elements (re-slice by editing this
@@ -149,22 +161,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         Array.Empty<DebugElement>(),                                                                          // Welt
         Array.Empty<DebugElement>(),                                                                          // Anzeige
-        Array.Empty<DebugElement>(),                                                                          // Wände
         Array.Empty<DebugElement>(),                                                                          // Avatar
-        Array.Empty<DebugElement>(),                                                                          // Hände
-        Array.Empty<DebugElement>(),                                                                          // Figuren
-        Array.Empty<DebugElement>(),                                                                          // Handgelenk
-        // Debug (issue 2): the union of the former Board (panels/widgets) + Tasten (button geometry)
-        // elements, plus the wall-fade fractions as one global WallFade element. Issue 6: the former
-        // standalone BoardButtons element is GONE — its [BoardButtons] rectangle W/H/D/Travel rows now
-        // live under Generic (the SAME physical Confirm/Undo caps), so "Generisch" exposes the exact
-        // side lengths. Board is element 0 so the Debug pane opens on the whole-board tuning.
+        // Debug (issue 2 + 2026-07 fold-in): the union of the former Board (panels/widgets) + Tasten
+        // (button geometry) elements, the wall-fade fractions as one global WallFade element, AND the
+        // former per-style top-level tabs — Hände-Offsets / Figuren-Offsets / Handgelenk — now Debug
+        // elements you open one by one. Issue 6: the former standalone BoardButtons element is GONE —
+        // its [BoardButtons] rectangle W/H/D/Travel rows now live under Generic (the SAME physical
+        // Confirm/Undo caps). Board is element 0 so the Debug pane opens on the whole-board tuning.
         new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
                 DebugElement.Initiative, DebugElement.Piles, DebugElement.Active,
                 DebugElement.Overlays, DebugElement.Readout, DebugElement.VRSettings, DebugElement.Pin,
                 DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
-                DebugElement.WallFade },                                                                      // Debug
+                DebugElement.WallFade,
+                DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets },           // Debug
     };
 
     /// <summary>The element-BEARING category (Debug) exposes the in-pane board + element chooser.</summary>
@@ -803,6 +813,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
             v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
 
+        // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
+        // view-dependent wall fade run (it follows the HMD); OFF (default) keeps walls solid.
+        // Applies LIVE — the Harmony postfix consults the entry every frame. USER-FACING, and the
+        // old single-toggle "Wände" tab is gone (2026-07), so this normal-user switch now lives here
+        // in "Anzeige"; the developer-grade fade FRACTIONS live under Debug → Wandüberblendung.
+        Toggle("Wände durchsichtig",
+            () => Plugin.WallFade.Value,
+            v => Plugin.WallFade.Value = v);
+
         // User 7c: action-phase element hints (the tooltip parked at the board's top-left)
         // on/off. Live: WorldTooltips.LateTick reads WorldUIConfig.ActionElementHints every tick.
         Toggle("Element-Hinweise",
@@ -831,21 +850,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => CardsConfig.Board.Value.ToString(),
             () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
 
-        // ===== Wände — nur der Nutzer-Schalter (die Feineinstellung liegt jetzt unter Debug) =====
-        GateCat(NavCat.Waende);
-
-        // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
-        // view-dependent wall fade run (it follows the HMD); OFF (default) keeps walls solid.
-        // Applies LIVE — the Harmony postfix consults the entry every frame. USER-FACING (issue 2),
-        // so the on/off toggle stays in this default category.
-        Toggle("Wände durchsichtig",
-            () => Plugin.WallFade.Value,
-            v => Plugin.WallFade.Value = v);
-
         // Wall-fade thresholds (live [WallFade] config — WallSegmentFade re-reads the clamped
-        // accessors every evaluation tick). Issue 2: developer-grade fractions, so each row now
-        // gates itself to Debug → Wandüberblendung (WallFadeRowsVisible) rather than this category —
-        // the build order here is irrelevant since every row registers its own gate.
+        // accessors every evaluation tick). Issue 2: developer-grade fractions, so each row gates
+        // itself to Debug → Wandüberblendung (WallFadeRowsVisible). Built here in the content column
+        // for convenience; the build order is irrelevant since every row registers its own gate. The
+        // user-facing on/off toggle moved up into "Anzeige" (the one-row "Wände" tab is gone).
         WallFadeTuning.Bind();
         AddWallFadeRow("Einblenden", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
             v => $"{v * 100f:0}%");
@@ -883,16 +892,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(remoteBoardsRow, Loc.Mod("remote_boards"), 16f, flexible: true);
         CycleButton(remoteBoardsRow, 150f, RemoteBoardsLabel, CycleRemoteBoards);
 
-        // ===== Hände (pro Stil) + Kartenfächer =====
-        BuildHandsCategory();
+        // ===== Debug elements folded in from the former top-level per-style tabs =====
+        // These build into the CONTENT column (still set from the GateCat sections above) but each
+        // row gates itself to Debug → its element (Hände-Offsets / Figuren-Offsets / Handgelenk), so
+        // they only appear when that Debug element is selected. Build order is irrelevant.
+        BuildHandsCategory();   // Debug → Hände-Offsets (per-style seat + card-fan geometry)
+        BuildFiguresCategory(); // Debug → Figuren-Offsets (per-style held-mini pose)
+        BuildWristCategory();   // Debug → Handgelenk (per-style wrist-HUD pose)
 
-        // ===== Figuren (pro Stil) =====
-        BuildFiguresCategory();
-
-        // ===== Handgelenk (pro Stil) =====
-        BuildWristCategory();
-
-        // ===== Debug — the sole element-bearing tuning tab (board panels + button geometry + fade) =====
+        // ===== Debug — the sole element-bearing tuning tab (board panels + button geometry + fade + per-style) =====
         BuildElementTuning();
 
         _rowParent = null;
@@ -933,11 +941,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         NavCat.Welt => "Welt",
         NavCat.Anzeige => Loc.Mod("display"),
-        NavCat.Waende => "Wände",
         NavCat.Avatar => Loc.Mod("avatar"),
-        NavCat.Haende => Loc.Mod("hands"),
-        NavCat.Figuren => Loc.Mod("cat_figures"),
-        NavCat.Handgelenk => Loc.Mod("cat_wrist"),
         NavCat.Debug => "Debug",
         _ => c.ToString(),
     };
@@ -1032,35 +1036,36 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     // ---- per-style categories (Hände / Figuren / Handgelenk) ----------------------------------
 
     /// <summary>
-    /// HANDS category (GLOBAL, both hands; per HAND STYLE) + the card-fan geometry. Each row
+    /// Debug → Hände-Offsets (GLOBAL, both hands; per HAND STYLE) + the card-fan geometry. Each row
     /// edits the style CURRENTLY worn; the "Stil" row cycles it right here so all three sets are
-    /// reachable without leaving the tab. Live: VRHand.SyncVisualOffset re-reads the ACTIVE
+    /// reachable without leaving the element. Live: VRHand.SyncVisualOffset re-reads the ACTIVE
     /// style's entries every frame (a style switch re-seats/rescales instantly too).
     /// </summary>
     private void BuildHandsCategory()
     {
-        GateCat(NavCat.Haende);
         HandsConfig.Bind(); // idempotent — so the seat rows work even if the Hands module has not inited
+        _rowGate = HandOffsetRowsVisible;
         var handsStyleRow = Row();
         Label(handsStyleRow, "Stil", 16f, flexible: true);
         CycleButton(handsStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        _rowGate = HandOffsetRowsVisible;
         var handsNote = Row(18f);
         Label(handsNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
 
         AddStyleStepper(Loc.Mod("size"), () => Plugin.HandStyleScale, 0.02f, 0.2f, 3f,
-            v => $"{v:0.00}x", NavCat.Haende);
+            v => $"{v:0.00}x", HandOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("hand_x"), () => HandsConfig.StyleSeatLateral, 0.002f, -0.3f, 0.3f,
-            v => $"{v * 1000f:0}mm", NavCat.Haende);
+            v => $"{v * 1000f:0}mm", HandOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("hand_y"), () => HandsConfig.StyleSeatVertical, 0.002f, -0.3f, 0.3f,
-            v => $"{v * 1000f:0}mm", NavCat.Haende);
+            v => $"{v * 1000f:0}mm", HandOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("hand_z"), () => HandsConfig.StyleSeatForward, 0.002f, -0.3f, 0.3f,
-            v => $"{v * 1000f:0}mm", NavCat.Haende);
+            v => $"{v * 1000f:0}mm", HandOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("hand_pitch"), () => HandsConfig.StyleSeatPitch, 1f, -90f, 90f,
-            v => $"{v:0}°", NavCat.Haende);
+            v => $"{v:0}°", HandOffsetRowsVisible);
 
-        // Card fan geometry ([Cards] fan entries, GLOBAL) — a labeled sub-section of Hände.
+        // Card fan geometry ([Cards] fan entries, GLOBAL) — a labeled sub-section of Hände-Offsets.
         // Live-applied by CardsDriver (relayout) so tuning updates the open fan immediately.
-        GateCat(NavCat.Haende);
+        _rowGate = HandOffsetRowsVisible;
         Section(Loc.Mod("cat_fan"));
         AddFanStepper(Loc.Mod("fan_step"), CardsConfig.FanPerCardStepDegrees, 1f, 2f, 40f, v => $"{v:0}°");
         AddFanStepper(Loc.Mod("fan_arc"), CardsConfig.FanArcSweepDegrees, 1f, 20f, 180f, v => $"{v:0}°");
@@ -1074,46 +1079,48 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     }
 
     /// <summary>
-    /// FIGURES category (GLOBAL across boards; per HAND STYLE): the HELD board-figure pose docked
-    /// between thumb and index of the hand MESH (geometry differs per style). Live: FigureGrabConfig
-    /// re-poses the held mini immediately. "Aufrecht" is a global MODE toggle.
+    /// Debug → Figuren-Offsets (GLOBAL across boards; per HAND STYLE): the HELD board-figure pose
+    /// docked between thumb and index of the hand MESH (geometry differs per style). Live:
+    /// FigureGrabConfig re-poses the held mini immediately. "Aufrecht" is a global MODE toggle.
     /// </summary>
     private void BuildFiguresCategory()
     {
-        GateCat(NavCat.Figuren);
         FigureGrabConfig.Bind();
+        _rowGate = FigureOffsetRowsVisible;
         var figStyleRow = Row();
         Label(figStyleRow, "Stil", 16f, flexible: true);
         CycleButton(figStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        _rowGate = FigureOffsetRowsVisible;
         var figNote = Row(18f);
         Label(figNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
 
         AddFigureToggle(Loc.Mod("fig_upright"), FigureGrabConfig.HeldUpright);
         AddStyleStepper(Loc.Mod("fig_x"), () => FigureGrabConfig.StyleHeldOffsetSide, 0.002f,
-            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", NavCat.Figuren);
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", FigureOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("fig_y"), () => FigureGrabConfig.StyleHeldOffsetUp, 0.002f,
-            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", NavCat.Figuren);
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", FigureOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("fig_z"), () => FigureGrabConfig.StyleHeldOffsetForward, 0.002f,
-            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", NavCat.Figuren);
+            -0.2f, 0.2f, v => $"{v * 1000f:0}mm", FigureOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("fig_tilt"), () => FigureGrabConfig.StyleHeldTiltDegrees, 5f,
-            -180f, 180f, v => $"{v:0}°", NavCat.Figuren);
+            -180f, 180f, v => $"{v:0}°", FigureOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("fig_yaw"), () => FigureGrabConfig.StyleHeldFaceYawDegrees, 5f,
-            -180f, 180f, v => $"{v:0}°", NavCat.Figuren);
+            -180f, 180f, v => $"{v:0}°", FigureOffsetRowsVisible);
         AddStyleStepper(Loc.Mod("fig_scale"), () => FigureGrabConfig.StyleHeldScale, 0.1f,
-            0.2f, 5f, v => $"{v:0.00}x", NavCat.Figuren);
+            0.2f, 5f, v => $"{v:0.00}x", FigureOffsetRowsVisible);
     }
 
     /// <summary>
-    /// WRIST category (per HAND STYLE): the wrist overview HUD's TILT (pitch/yaw/roll) and POSITION
-    /// offset (X/Y/Z). The accessors read/write the ACTIVE hand style's [WristHud] entry, and
+    /// Debug → Handgelenk (per HAND STYLE): the wrist overview HUD's TILT (pitch/yaw/roll) and
+    /// POSITION offset (X/Y/Z). The accessors read/write the ACTIVE hand style's [WristHud] entry, and
     /// WristHud re-applies every Tick — so both a nudge and a style switch move the HUD immediately.
     /// </summary>
     private void BuildWristCategory()
     {
-        GateCat(NavCat.Handgelenk);
+        _rowGate = WristRowsVisible;
         var wristStyleRow = Row();
         Label(wristStyleRow, "Stil", 16f, flexible: true);
         CycleButton(wristStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+        _rowGate = WristRowsVisible;
         var wristNote = Row(18f);
         Label(wristNote, "Alle Werte gelten pro Stil", 12f, flexible: true);
 
@@ -1293,8 +1300,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         AddBrowseOffsetStepper("Browse Y", 1);
         AddBrowseOffsetStepper("Browse Z", 2);
 
-        // Reset element (element-bearing categories only — resets the selected element).
-        _rowGate = PerBoard;
+        // Reset element (element-bearing categories only — resets the selected element). Hidden for
+        // the per-style folded-in elements (Hände-Offsets / Figuren-Offsets / Handgelenk): they carry
+        // no per-board offset entry to reset and never had a reset control as top-level tabs.
+        _rowGate = () => PerBoard() && !ElementIsPerStyle(CurrentElement());
         var actionRow = Row();
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
@@ -1463,10 +1472,33 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>
     /// The GLOBAL ButtonTuning elements (per-board board selector is hidden for them).
     /// WallFade is global too (the wall-fade fractions ride no board). BoardButtons is no longer a
-    /// standalone element (issue 6 — merged into Generic), so it is not listed.
+    /// standalone element (issue 6 — merged into Generic), so it is not listed. The three per-STYLE
+    /// elements (Hände-Offsets / Figuren-Offsets / Handgelenk) are not per-board either, so they hide
+    /// the board selector too.
     /// </summary>
     private static bool ElementIsGlobalTuning(DebugElement e) =>
-        e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade;
+        e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade
+        or DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets;
+
+    /// <summary>
+    /// The per-HAND-STYLE Debug elements folded in from the former top-level tabs (2026-07). They
+    /// carry NO per-board offset entry and NO generic size/spacing/shape rows, so the shared reset
+    /// button (which resets a per-board element) hides for them — they never had a reset as tabs.
+    /// </summary>
+    private static bool ElementIsPerStyle(DebugElement e) =>
+        e is DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets;
+
+    /// <summary>Visibility of the per-style Hände-Offsets rows: Debug → Hände-Offsets element selected.</summary>
+    private bool HandOffsetRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.HandOffsets;
+
+    /// <summary>Visibility of the per-style Figuren-Offsets rows: Debug → Figuren-Offsets element selected.</summary>
+    private bool FigureOffsetRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.FigureOffsets;
+
+    /// <summary>Visibility of the per-style wrist-HUD rows: Debug → Handgelenk element selected.</summary>
+    private bool WristRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.WristOffsets;
 
     /// <summary>Visibility of the [RoundButtons] rows: Debug → Rundenknöpfe element selected.</summary>
     private bool RoundButtonRowsVisible() =>
@@ -1517,12 +1549,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>
     /// Card-fan stepper bound to a global fan <see cref="ConfigEntry{T}"/>. Writing the entry
     /// persists (BepInEx) and live-applies (CardsDriver relayouts the open fan). Clamped to
-    /// [min,max]. Shown under the Hände tab (Kartenfächer sub-section).
+    /// [min,max]. Shown under Debug → Hände-Offsets (Kartenfächer sub-section).
     /// </summary>
     private void AddFanStepper(string label, ConfigEntry<float> entry, float step, float min, float max,
         Func<float, string> format)
     {
-        _rowGate = () => _navCat == (int)NavCat.Haende;
+        _rowGate = HandOffsetRowsVisible;
         var row = Row();
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
@@ -1532,18 +1564,19 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
     /// <summary>
     /// Per-STYLE stepper row: drives the entry of the style CURRENTLY worn (indexed by
-    /// [Hands] HandStyle into the given per-style entry array), so the tab only ever shows
-    /// the active style's values — the Hands tab (scale + the four seat controls), the
-    /// Figures tab (held-mini pose) and any future per-style group all go through here.
+    /// [Hands] HandStyle into the given per-style entry array), so the element only ever shows
+    /// the active style's values — Debug → Hände-Offsets (scale + the four seat controls),
+    /// Debug → Figuren-Offsets (held-mini pose) and any future per-style group all go through here.
     /// Writing persists (BepInEx) and live-applies (VRHand.SyncVisualOffset re-reads per
-    /// frame; FigureGrabConfig re-poses via SettingChanged). Shown only under the given
-    /// category's tab; shows "—" while the config is not bound yet.
+    /// frame; FigureGrabConfig re-poses via SettingChanged). Shown while the given
+    /// <paramref name="visible"/> predicate says its Debug element is selected; shows "—" while the
+    /// config is not bound yet.
     /// </summary>
     private void AddStyleStepper(string label, Func<ConfigEntry<float>[]?> entries, float step,
         float min, float max, Func<float, string> format,
-        NavCat category = NavCat.Haende)
+        Func<bool> visible)
     {
-        _rowGate = () => _navCat == (int)category;
+        _rowGate = visible;
         var row = Row();
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
@@ -1588,7 +1621,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private void AddWristStepper(string label, Func<float> get, Action<float> set, float step,
         Func<float, string> format)
     {
-        _rowGate = () => _navCat == (int)NavCat.Handgelenk;
+        _rowGate = WristRowsVisible;
         var row = Row();
         Label(row, label, 16f, flexible: true);
         MiniStepper(row,
@@ -1599,7 +1632,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// <summary>Held-figure boolean row (e.g. Upright) — same live-apply/persist path as the steppers.</summary>
     private void AddFigureToggle(string label, ConfigEntry<bool> entry)
     {
-        _rowGate = () => _navCat == (int)NavCat.Figuren;
+        _rowGate = FigureOffsetRowsVisible;
         var row = Row();
         Label(row, label, 16f, flexible: true);
         ToggleButton(row, () => entry.Value, v => entry.Value = v);
@@ -1840,6 +1873,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.BoardButtons => "Boardtasten (Bestätigen/Rückgängig)",
         DebugElement.BoardDashboard => "Zahnrad & Fixiert",
         DebugElement.WallFade => "Wandüberblendung",
+        // Per-style elements folded in from the former top-level tabs (2026-07).
+        DebugElement.HandOffsets => "Hände-Offsets",
+        DebugElement.FigureOffsets => "Figuren-Offsets",
+        DebugElement.WristOffsets => Loc.Mod("cat_wrist"),
         _ => e.ToString(),
     };
 
