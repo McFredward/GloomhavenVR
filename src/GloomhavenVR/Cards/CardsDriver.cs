@@ -50,6 +50,17 @@ internal sealed class CardsDriver : MonoBehaviour
     private readonly HashSet<VRCard> _flyingToPile = new();
     private const float FlyToPileSeconds = 0.4f;
 
+    // Issue B (user): a card burned via the TAKE-DAMAGE decision ("burn available/discarded
+    // card") is a different flow from the turn-clear round-card sweep above — the game moves it
+    // straight into the character's Lost pile and recycles the widget, so it just vanished with no
+    // VR animation. TickBurnToPile watches the burnt pile's widget set per hand; any card newly
+    // added there that the turn-clear path did NOT already claim flies to the BURNT stack with the
+    // same over-the-board arc. _knownBurntWidgets is the previous-tick baseline (re-seeded on a
+    // hand change so a hand's pre-existing burnt cards never animate retroactively).
+    private readonly List<AbilityCardUI> _burntWidgetBuffer = new(8);
+    private readonly HashSet<AbilityCardUI> _knownBurntWidgets = new();
+    private CardsHandUI? _burnWatchHand;
+
     private bool _dirty;
     private bool _modalInputBlocked; // menu-open gate: while set, cards are inert + card/board laser picks are off
     // Item 4: previous VRMode transition, to detect the laundered ModalUI→TableIdle→HalfSelection
@@ -594,6 +605,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _liveGrabs.Clear();
         _flyingToPile.Clear(); // issue 5: no fly survives a driver teardown
         _lastHalfCards.Clear();
+        _burnWatchHand = null; // issue B
+        _knownBurntWidgets.Clear();
         _fanOriginCards.Clear();
         _fanOrder.Clear();
         _insertGap = -1;
@@ -710,6 +723,8 @@ internal sealed class CardsDriver : MonoBehaviour
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
+        _burnWatchHand = null; // issue B: re-baseline the burnt set for the next hand
+        _knownBurntWidgets.Clear();
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
         if (_browseHand == hand)
@@ -925,6 +940,11 @@ internal sealed class CardsDriver : MonoBehaviour
             _rest.TickStatus(_fakeActive ? null : hand);
             _piles.TickStatus(_fakeActive ? null : hand);
             PollActive(_fakeActive ? null : hand); // feature 6: rebuild the active area when its set changes
+            TickBurnToPile(_fakeActive ? null : hand); // issue B: fly damage-burned cards into the burnt pile
+        }
+        else
+        {
+            _burnWatchHand = null; // tray hidden — re-baseline the burnt set when it returns
         }
         UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
@@ -2728,17 +2748,20 @@ internal sealed class CardsDriver : MonoBehaviour
         if (!_piles.TryGetPileWorld(fate, out Vector3 worldPos, out float slabWidth))
             return false; // pile offscreen / not built → fall back to the instant hide
 
+        Vector3 arcUp = BoardUp();
+        float arcHeight = Vector3.Distance(card.transform.position, worldPos) * VRCard.FlyArcHeightFraction;
         _flyingToPile.Add(card);
         VRCard flying = card;
         PileKind dest = fate;
-        card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, () =>
+        card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
             _flyingToPile.Remove(flying);
             _factory.Park(flying);
             VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the {dest} pile — parked.");
         });
-        VRLog.Info("Cards", $"Fly-to-pile: '{card.name}' → {fate} pile ({FlyToPileSeconds:F2}s) — played " +
-                            "round card cleared from the board (VR presentation only; game pile state untouched).");
+        VRLog.Info("Cards", $"Fly-to-pile [turn-clear]: '{card.name}' → {fate} pile ({FlyToPileSeconds:F2}s, " +
+                            $"arc {arcHeight:F3} m over the board) — played round card cleared from the board " +
+                            "(VR presentation only; game pile state untouched).");
         return true;
     }
 
@@ -2768,6 +2791,179 @@ internal sealed class CardsDriver : MonoBehaviour
                 return PileKind.Burnt;
         }
         return PileKind.Discard;
+    }
+
+    /// <summary>
+    /// Issue A/B: the board's UP axis in world space — the direction a fly-to-pile bows so it arcs
+    /// OVER the (possibly tilted) control board. Falls back to world-up before the tray exists.
+    /// </summary>
+    private Vector3 BoardUp() => _tray.Root != null ? _tray.Root.up : Vector3.up;
+
+    /// <summary>
+    /// Issue B (user, "when I burned a card due to damage I didn't perceive the animation"):
+    /// watch the acting hand's BURNT pile membership each tick and animate any card that newly
+    /// entered it — the take-damage burn ("burn available / discarded card") and any other
+    /// lose-to-burnt path — flying into the burnt stack with the same over-the-board arc as the
+    /// turn-clear sweep. The turn-clear round-card fly (<see cref="TryStartFlyToPile"/>) already
+    /// owns its cards, so this skips anything it is handling (held / flying / in
+    /// <see cref="_lastHalfCards"/>) — no double animation. A hand change re-seeds the baseline
+    /// silently so a hand's already-burnt cards never animate retroactively.
+    /// </summary>
+    private void TickBurnToPile(CardsHandUI? hand)
+    {
+        if (hand == null)
+        {
+            _burnWatchHand = null;
+            return;
+        }
+        CardsGameApi.GetPileWidgets(hand, burnt: true, _burntWidgetBuffer);
+
+        // Re-baseline on a hand change (or first sight): record the current burnt set WITHOUT
+        // animating — only cards that cross into it from here on are freshly burned.
+        if (!ReferenceEquals(hand, _burnWatchHand))
+        {
+            _burnWatchHand = hand;
+            _knownBurntWidgets.Clear();
+            for (int i = 0; i < _burntWidgetBuffer.Count; i++)
+                if (_burntWidgetBuffer[i] != null)
+                    _knownBurntWidgets.Add(_burntWidgetBuffer[i]);
+            return;
+        }
+
+        for (int i = 0; i < _burntWidgetBuffer.Count; i++)
+        {
+            AbilityCardUI widget = _burntWidgetBuffer[i];
+            if (widget == null || _knownBurntWidgets.Contains(widget))
+                continue;
+            TryAnimateBurn(widget); // newly entered the burnt pile this tick
+        }
+
+        // The rebuilt baseline both records the new arrivals (so they animate exactly once) and
+        // drops any that left (a recovered lost card), so a re-burn later animates again.
+        _knownBurntWidgets.Clear();
+        for (int i = 0; i < _burntWidgetBuffer.Count; i++)
+            if (_burntWidgetBuffer[i] != null)
+                _knownBurntWidgets.Add(_burntWidgetBuffer[i]);
+    }
+
+    /// <summary>
+    /// Fly one freshly-burned card into the burnt pile. Prefers the card's LIVE VR representation
+    /// (the fan card selected in the LoseCard step) so the very card the player burned flies; if
+    /// no usable VR card exists at that instant (already parked/recycled, or a discard-pile source
+    /// with no live fan card), a transient card-back slab flies from the discard pile to the burnt
+    /// pile so the user still SEES the card go. Skips cards the turn-clear sweep already owns.
+    /// </summary>
+    private void TryAnimateBurn(AbilityCardUI widget)
+    {
+        if (!_piles.TryGetPileWorld(PileKind.Burnt, out Vector3 burntPos, out float slabWidth))
+            return; // burnt pile off / not built — no destination to fly to
+
+        Vector3 arcUp = BoardUp();
+        VRCard? card = _factory.Find(widget);
+        bool ownedElsewhere = card != null
+            && (card.IsHeld || card.IsFlying || _flyingToPile.Contains(card) || _lastHalfCards.Contains(card));
+
+        if (!ownedElsewhere && card != null && card.GameCard != null && card.gameObject.activeInHierarchy)
+        {
+            float arcHeight = Vector3.Distance(card.transform.position, burntPos) * VRCard.FlyArcHeightFraction;
+            _flyingToPile.Add(card);
+            VRCard flying = card;
+            card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
+            {
+                _flyingToPile.Remove(flying);
+                _factory.Park(flying);
+                VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the Burnt pile — parked.");
+            });
+            VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: '{card.name}' → Burnt pile ({FlyToPileSeconds:F2}s, " +
+                                $"arc {arcHeight:F3} m over the board) — real VR card (VR presentation only; " +
+                                "game pile state untouched).");
+            return;
+        }
+
+        if (ownedElsewhere)
+            return; // the turn-clear sweep (or a live grab) is already animating this exact card
+
+        // No usable live VR card: fly a transient card-back slab from the discard pile (a card
+        // moving between piles reads clearly) so the burn is still visible feedback.
+        Transform? anchor = AnchorParent();
+        if (anchor == null)
+            return;
+        Vector3 fromPos = _piles.TryGetPileWorld(PileKind.Discard, out Vector3 discardPos, out _)
+            ? discardPos
+            : burntPos + arcUp * (0.12f * anchor.lossyScale.x); // no discard stack: drop in from just above
+        float slabArc = Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction;
+        BurnSlab.Launch(anchor, fromPos, burntPos, slabWidth, FlyToPileSeconds, arcUp);
+        VRLog.Info("Cards", $"Fly-to-pile [damage-burn]: transient card-back slab → Burnt pile ({FlyToPileSeconds:F2}s, " +
+                            $"arc {slabArc:F3} m over the board) — no live VR card for the burned widget " +
+                            "(LIMITATION: fallback slab feedback).");
+    }
+
+    /// <summary>
+    /// Transient card-back slab for the burn fallback (issue B): a pooled-free, self-destructing
+    /// mini card that flies from a source into the burnt pile with the SAME over-the-board arc as
+    /// <see cref="VRCard.FlyToPile"/>, then removes itself. Used only when the burned card has no
+    /// live VR representation to fly. Parented under the cards anchor so it shares the diorama
+    /// scale; works in world space on unscaled time (card phases pause timeScale).
+    /// </summary>
+    private sealed class BurnSlab : MonoBehaviour
+    {
+        private Vector3 _from;
+        private Vector3 _to;
+        private Vector3 _up;
+        private float _height;
+        private float _elapsed;
+        private float _duration;
+        private Vector3 _fromScale;
+        private Vector3 _toScale;
+
+        internal static void Launch(Transform anchor, Vector3 fromWorld, Vector3 toWorld,
+            float targetWorldWidth, float duration, Vector3 worldUp)
+        {
+            float w = CardsConfig.CardWidth.Value;
+            float h = CardsConfig.CardHeight;
+
+            var go = new GameObject("BurnSlab");
+            go.transform.SetParent(anchor, worldPositionStays: false);
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = CardMesh.Get(w, h);
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = new[] { CardMesh.CreateEdgeMaterial(), CardMesh.CreateBackMaterial() };
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            Core.VRLayers.Apply(go);
+
+            float parentLossy = anchor.lossyScale.x;
+            float startLocal = 1f; // full card size at the source
+            float endLocal = (parentLossy > 1e-5f && w > 1e-5f)
+                ? targetWorldWidth / (parentLossy * w)
+                : 0.5f;
+
+            var slab = go.AddComponent<BurnSlab>();
+            slab._from = fromWorld;
+            slab._to = toWorld;
+            slab._up = worldUp.sqrMagnitude > 1e-6f ? worldUp.normalized : Vector3.up;
+            slab._height = Vector3.Distance(fromWorld, toWorld) * VRCard.FlyArcHeightFraction;
+            slab._duration = Mathf.Max(0.05f, duration);
+            slab._fromScale = Vector3.one * startLocal;
+            slab._toScale = Vector3.one * Mathf.Max(1e-4f, endLocal);
+
+            go.transform.position = fromWorld;
+            go.transform.localScale = slab._fromScale;
+            // Face flat toward the board up (same convention as the pile slabs' rest orientation).
+            Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
+            if (head != null)
+                go.transform.rotation = Quaternion.LookRotation((fromWorld - head.transform.position).normalized, slab._up);
+        }
+
+        private void Update()
+        {
+            _elapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
+            float ft = _duration > 0f ? Mathf.Clamp01(_elapsed / _duration) : 1f;
+            float e = 1f - (1f - ft) * (1f - ft); // ease-out on the base slide
+            transform.position = Vector3.Lerp(_from, _to, e) + VRCard.FlyArcOffset(ft, _up, _height);
+            transform.localScale = Vector3.Lerp(_fromScale, _toScale, e);
+            if (ft >= 1f)
+                Destroy(gameObject);
+        }
     }
 
     private readonly HashSet<VRCard> _hooked = new();

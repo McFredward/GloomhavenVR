@@ -961,9 +961,30 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private Vector3 _flyFromScale;
     private Vector3 _flyToPos;
     private Vector3 _flyToScale;
+    private Vector3 _flyArcUp;
+    private float _flyArcHeight;
     private float _flyElapsed;
     private float _flyDuration;
     private Action? _flyDone;
+
+    /// <summary>
+    /// Issue A (user): the straight-line fly-to-pile passed THROUGH the control board. The
+    /// flight now bows UP along the board's up axis so the card arcs OVER the board into the
+    /// pile. The lift is a fraction of the travel distance (world meters), so it scales with
+    /// the board's diorama scale automatically (a bigger board → longer world travel → taller
+    /// arc), landing the peak in the ~0.1–0.2 m range at the default board scale. Zero at both
+    /// ends (parabola peaking at the temporal midpoint).
+    /// </summary>
+    internal const float FlyArcHeightFraction = 0.35f;
+
+    /// <summary>
+    /// Parabolic lift offset along <paramref name="up"/> for a fly-to-pile at LINEAR progress
+    /// <paramref name="linearT"/> (0..1): <c>height · 4 · t · (1−t)</c> — zero at both ends,
+    /// peaking at <paramref name="height"/> when t = 0.5. Shared by <see cref="FlyToPile"/> and
+    /// the transient burn-slab fallback so both arcs match exactly (user issue: same arc).
+    /// </summary>
+    internal static Vector3 FlyArcOffset(float linearT, Vector3 up, float height) =>
+        up * (height * 4f * linearT * (1f - linearT));
 
     /// <summary>True while this card is animating into a pile (see <see cref="FlyToPile"/>).</summary>
     internal bool IsFlying => _flying;
@@ -974,9 +995,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// (the pile slab's on-screen width), then invoke <paramref name="onComplete"/> (CardsDriver
     /// parks/hides it there). No-op-safe to call while active/visible; a held card is never flown
     /// (CardsDriver only launches this on cleared, un-held round cards). Rotation is held constant —
-    /// the card slides in flat, as it sat on the board.
+    /// the card slides in flat, as it sat on the board. The flight bows UP along
+    /// <paramref name="arcUp"/> (the board's up axis, so it works when the board is tilted) so the
+    /// card arcs OVER the board instead of passing through it — see <see cref="FlyArcOffset"/>.
     /// </summary>
-    internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Action onComplete)
+    internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Vector3 arcUp, Action onComplete)
     {
         _flying = true;
         _flyElapsed = 0f;
@@ -985,6 +1008,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _flyFromRot = transform.rotation;
         _flyFromScale = transform.localScale;
         _flyToPos = targetWorldPos;
+        _flyArcUp = arcUp.sqrMagnitude > 1e-6f ? arcUp.normalized : Vector3.up;
+        _flyArcHeight = Vector3.Distance(_flyFromPos, _flyToPos) * FlyArcHeightFraction;
         // Convert the wanted on-screen width into a LOCAL scale under the current parent, so the
         // card ends roughly the size of a pile slab regardless of the board's live diorama scale.
         float parentLossy = transform.parent != null ? transform.parent.lossyScale.x : 1f;
@@ -1138,8 +1163,10 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             float fdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
             _flyElapsed += fdt;
             float ft = _flyDuration > 0f ? Mathf.Clamp01(_flyElapsed / _flyDuration) : 1f;
-            float e = 1f - (1f - ft) * (1f - ft); // ease-out
-            transform.position = Vector3.Lerp(_flyFromPos, _flyToPos, e);
+            float e = 1f - (1f - ft) * (1f - ft); // ease-out on the base slide
+            // Position eases toward the pile; the arc offset uses LINEAR ft so the lift peaks at
+            // the temporal midpoint and is zero at both ends (the card bows OVER the board).
+            transform.position = Vector3.Lerp(_flyFromPos, _flyToPos, e) + FlyArcOffset(ft, _flyArcUp, _flyArcHeight);
             transform.rotation = _flyFromRot;
             transform.localScale = Vector3.Lerp(_flyFromScale, _flyToScale, e);
             if (ft >= 1f)
