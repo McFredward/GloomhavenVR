@@ -628,6 +628,9 @@ internal sealed class ItemsPile
         private bool _fingerPopped;
         private bool _laserPopped;
         private float _pop; // smoothed 0..1
+        // Actual rendered card size (item aspect) — set by TryHostRealCard, drives the backing + collider.
+        private float _faceWidth;
+        private float _faceHeight;
 
         private static bool s_loggedRealCard;
 
@@ -640,41 +643,51 @@ internal sealed class ItemsPile
             var go = new GameObject($"ItemChip_{Name(item)}");
             go.transform.SetParent(parent, worldPositionStays: false);
 
-            // Thin dark card BODY behind the face (reads as a card even before async art loads).
-            var backing = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            backing.name = "Backing";
-            Object.Destroy(backing.GetComponent<Collider>());
-            backing.transform.SetParent(go.transform, worldPositionStays: false);
-            backing.transform.localScale = new Vector3(w, h, 0.0022f);
-            backing.transform.localPosition = new Vector3(0f, 0f, 0.0012f); // behind the face (+Z away from viewer)
-            var backRenderer = backing.GetComponent<MeshRenderer>();
-            Shader? backShader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
-            Core.VRLayers.Apply(backing); // mod-owned backing on the mod layer (recursion-safe: no children)
+            // #2: the grab collider MUST exist on this GameObject BEFORE the GrabbableBehaviour (ItemChip)
+            // is added — GrabbableBehaviour.Awake caches GetComponent<Collider>() and, finding none, warned
+            // and never armed grab, so the laser/trigger pluck was dead (only the collider-free finger
+            // sweep worked). Add it first with a placeholder size; it's resized to the real card below.
+            var box = go.AddComponent<BoxCollider>();
+            box.isTrigger = true;
 
             var chip = go.AddComponent<ItemChip>();
             chip.snapToHand = true; // taken INTO the hand to read
             chip.State = state;
             chip.Item = item;
             chip._owner = owner;
+            chip._box = box;
 
-            // Requirement 1: host the REAL ItemCardUI face. Fall back to a colored slab + name if
-            // the game's item-card pool is unavailable (out of scenario / missing bundle).
+            // Requirement 1: host the REAL ItemCardUI face. Fall back to a colored slab + name if the
+            // game's item-card pool is unavailable. Hosting measures the item card's real (near-square)
+            // size into chip._faceWidth/_faceHeight so the body + collider match it (no black bars).
             bool realCard = chip.TryHostRealCard(item, go.transform, w, h, state);
+            float cw = chip._faceWidth > 0.001f ? chip._faceWidth : w;
+            float ch = chip._faceHeight > 0.001f ? chip._faceHeight : h;
+
+            // Thin dark card BODY behind the face, sized to the ACTUAL card (item aspect) — the same dark
+            // body the other cards use, just cropped to the item card's shape (no top/bottom bars).
+            var backing = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            backing.name = "Backing";
+            Object.Destroy(backing.GetComponent<Collider>());
+            backing.transform.SetParent(go.transform, worldPositionStays: false);
+            backing.transform.localScale = new Vector3(cw, ch, 0.0022f);
+            backing.transform.localPosition = new Vector3(0f, 0f, 0.0012f); // behind the face (+Z away from viewer)
+            var backRenderer = backing.GetComponent<MeshRenderer>();
+            Shader? backShader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+            Core.VRLayers.Apply(backing); // mod-owned backing on the mod layer (recursion-safe: no children)
             if (!realCard)
             {
                 if (backShader != null)
                     backRenderer.sharedMaterial = new Material(backShader) { color = FaceColor(state) };
-                BuildFallbackFace(go.transform, item, w, h, state);
+                BuildFallbackFace(go.transform, item, cw, ch, state);
             }
             else if (backShader != null)
             {
                 backRenderer.sharedMaterial = new Material(backShader) { color = new Color(0.10f, 0.09f, 0.08f) };
             }
 
-            var box = go.AddComponent<BoxCollider>();
-            box.size = new Vector3(w + 0.006f, h + 0.006f, 0.02f);
-            box.isTrigger = true;
-            chip._box = box;
+            // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
+            box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
             // NOTE: do NOT VRLayers.Apply(go) — it recurses into the hosted ItemCardUI, which is a
             // GAME-owned canvas that must keep its authored UI layer (reversibility rule; it renders
             // via the VR camera's UI-layer bit owned by CanvasConversion). The mod-owned pieces
@@ -753,10 +766,16 @@ internal sealed class ItemsPile
                 var cardRect = cardGo.transform as RectTransform;
                 Vector2 native = cardRect != null ? cardRect.rect.size : Vector2.zero;
                 if (native.x < 1f || native.y < 1f)
-                    native = new Vector2(300f, 440f); // sane fallback if the rect isn't measurable yet
+                    native = new Vector2(300f, 300f); // near-square fallback (item cards are ~square)
                 canvasRect.sizeDelta = native;
                 float fit = Mathf.Min(w / native.x, h / native.y);
                 canvasRect.localScale = new Vector3(fit, fit, fit);
+                // #1: item cards are NEAR-SQUARE, not the tall ability rect — fitting them into the w×h
+                // ability box left black backing bars top/bottom. Record the ACTUAL rendered card size so
+                // Create sizes the backing slab + grab collider to match it exactly (no bars; the dark
+                // body is the same as the other cards, just cropped to the item card's shape).
+                _faceWidth = native.x * fit;
+                _faceHeight = native.y * fit;
                 if (cardRect != null)
                 {
                     cardRect.anchorMin = cardRect.anchorMax = cardRect.pivot = new Vector2(0.5f, 0.5f);
