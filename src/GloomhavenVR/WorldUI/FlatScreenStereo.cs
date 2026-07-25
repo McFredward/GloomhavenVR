@@ -1528,18 +1528,23 @@ internal sealed class FlatScreenStereo
             return false;
         }
 
-        Bounds b = mesh.bounds; // LOCAL bounds — valid even when the mesh is isReadable=false
+        // Use the renderer's WORLD-space AABB, not the mesh's LOCAL bounds: the map GameObject carries a
+        // large NON-UNIFORM scale (local size ~12.7x15.85 → world ~190x237, and a different Y scale), so
+        // placing quads from local bounds under that transform dropped them off the map plane → off-frustum
+        // → black RT. The map mesh is FIXED in world space (only the camera pans/zooms), so world-space
+        // quads at the world footprint are correct and need no parenting.
+        Bounds b = _worldMapRenderer.bounds; // WORLD AABB (center + size), robust vs the map's scale
         _mapQuadBounds = b;
         int layer = ResolveMapQuadLayer();
 
         var root = new GameObject("GloomhavenVR.MapMirrorQuads");
-        // Parent to the map renderer's transform (identity local TRS) so the quads sit at the mesh's
-        // world position and track it if it ever moves — the game object itself is never modified
-        // (rendering-only, reversible: our child is destroyed on release).
-        root.transform.SetParent(_worldMapRenderer.transform, worldPositionStays: false);
-        root.transform.localPosition = Vector3.zero;
-        root.transform.localRotation = Quaternion.identity;
+        // World-space, unparented at origin identity → the quad meshes (built in WORLD coords by
+        // MapUvToLocal from the world bounds) render exactly at the map's world footprint. Survives scene
+        // loads via DontDestroyOnLoad; destroyed on release / renderer change.
+        root.transform.SetParent(null);
+        root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
         root.transform.localScale = Vector3.one;
+        Object.DontDestroyOnLoad(root);
         root.layer = layer;
 
         var meshes = new Mesh[4];
