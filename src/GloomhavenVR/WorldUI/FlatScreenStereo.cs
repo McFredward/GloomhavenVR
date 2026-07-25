@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -194,17 +195,34 @@ namespace GloomhavenVR.WorldUI;
 ///       background but a BLACK map region, and driving the left eye from an identical
 ///       mirror simply made BOTH eyes black over the map.
 ///
-/// FIX: when the base RT is detected black while a 3D background camera renders, the mod
-/// renders the map scene ITSELF — a zero-offset bare clone of the source camera with a
-/// WIDENED culling mask (all layers minus the mod layer, so the parchment layer is always
-/// included) and no image effect — into <see cref="_rtLeft"/>. That mod render is
-/// guaranteed non-black. Both eyes are then driven from it through the VIDEO DEPTH SHIFT
-/// path (both eyes = ±UV-shifted copies of _rtLeft, converged at the screen), giving the
-/// map the same 3D-window parallax the menu video gets — the KNOWN-WORKING stereo route,
-/// not a geometry mirror pair. If the shift path is unavailable (VideoDepthLayer off /
-/// VideoDepth 0 / shifted-RT failure) both eyes fall back to _rtLeft MONOSCOPICALLY —
-/// non-black either way (correctness first, 3D second). Cost: the scene's own colour
-/// grading (already lost — it was black) plus one extra scene render while engaged.
+/// ROOT CAUSE (attempt #3, decompiled-confirmed): the CampaignMap camera carries a stack of
+/// CAMERA IMAGE EFFECTS that the menu/guildmaster scenes do not — VolumetricFog + its
+/// VolumetricFogPreT/PosT OnRenderImage passes (ThirdParty/VolumetricFogAndMist), the custom
+/// GraphicEffects OnRenderImage (LowGraphicEffects, blits through _lowPostProcessShader), and PPv2
+/// PostProcessLayer. When the camera's targetTexture is redirected onto our RT, one of these
+/// OnRenderImage / command-buffer blits paints the WHOLE redirected RT black (a missing/failed post
+/// shader on this platform fits the observed "brief flash at load, then black"). This is why ONLY
+/// the campaign map goes black; the earlier layer-exclusion theory was wrong (attempt #2 widening
+/// the mask changed nothing).
+///
+/// FIX (STEP-2, effect strip): when the base RT is detected black, DISABLE those image-effect
+/// Behaviours on the captured camera (restored verbatim on release) so the camera renders its RAW
+/// geometry straight into the base RT — non-black. An engaged async probe confirms recovery
+/// (<see cref="_baseRecovered"/>); both eyes then show the game's own render MONOSCOPICALLY (real
+/// map, only the scene's colour grading dropped — it was black anyway). Gated behind the black
+/// probe, so no working scene (menu video, guildmaster) is ever touched.
+///
+/// FALLBACK (retained, no regression): if stripping does NOT recover the base RT (some other
+/// mechanism blacks it), the mod still renders the map ITSELF — a zero-offset bare clone of the
+/// source camera with a WIDENED culling mask (all layers minus the mod layer) and no image effect —
+/// into <see cref="_rtLeft"/>, driven to both eyes through the VIDEO DEPTH SHIFT path (or _rtLeft
+/// MONO if the shift path is unavailable). This is the attempt #1/#2 behaviour, kept as a safety net.
+///
+/// DIAGNOSTICS (STEP-1): while engaged, an async probe round-robins the base RT (recovery check) and
+/// the mod RTs (_rtLeft clone, _rtRight, _rtLeftShifted) and logs each max channel — definitively
+/// localising any remaining black to CAPTURE vs COMPOSITE — and a one-shot MAP SETUP dump logs each
+/// captured camera's render path / clear / command-buffer counts / image-effect inventory plus the
+/// decompiled MapChoreographer.worldMap geometry (active, layer, MeshRenderer shaders).
 ///
 /// Detection is a throttled, 8x8-downsampled, ASYNC non-black probe of the base RT
 /// (<see cref="AsyncGPUReadback"/> — no GPU stall) requiring several consecutive black
@@ -288,6 +306,12 @@ internal sealed class FlatScreenStereo
         public bool Synced;
         public bool SourceOn;
         public bool VideoActive;
+        // Map base capture (class doc MAP BASE CAPTURE): image-effect Behaviours we disabled
+        // on the SOURCE camera so its raw render reaches the base RT non-black (the CampaignMap
+        // camera's VolumetricFog/GraphicEffects/PostProcessLayer OnRenderImage chain blits black
+        // into the redirected RT). Re-enabled verbatim on release.
+        public bool EffectsStripped;
+        public List<Behaviour>? DisabledEffects;
     }
 
     private readonly List<MirrorEntry> _mirrors = new(8);
@@ -328,6 +352,22 @@ internal sealed class FlatScreenStereo
     /// <summary>Bumped on teardown/scene release so a late async probe callback ignores stale results.</summary>
     private int _probeGen;
     private int _probeReqGen;
+    /// <summary>
+    /// STEP-2 FIX (effect strip): true once the base RT probes NON-black WHILE map base capture is
+    /// engaged — i.e. stripping the captured camera's image effects recovered the game render. Both
+    /// eyes then show the base RT MONO (real map, its colour grading dropped) instead of the bare
+    /// clone; if it never recovers, the clone/shift path (below) stays in charge — no regression.
+    /// </summary>
+    private bool _baseRecovered;
+    /// <summary>Frame the engaged diagnostic probe last ran (cycles base RT / _rtLeft / _rtRight / shifted).</summary>
+    private int _engagedProbeFrame = int.MinValue;
+    /// <summary>Round-robin index of the engaged diagnostic probe target.</summary>
+    private int _engagedProbeIndex;
+    /// <summary>Label + is-base flag of the in-flight engaged probe (read by the callback).</summary>
+    private string _engagedProbeLabel = "";
+    private bool _engagedProbeIsBase;
+    /// <summary>One-shot rich map render-setup diagnostic guard (per engagement).</summary>
+    private bool _mapSetupLogged;
 
     private bool _active;
     private bool _hooked;
@@ -554,6 +594,7 @@ internal sealed class FlatScreenStereo
     /// <summary>Full teardown: mirrors, mod RTs, render hook; quad texture back to the left RT.</summary>
     internal void Deactivate(string reason)
     {
+        RestoreAllEffects();
         ReleaseMirrors();
         if (_hooked)
         {
@@ -570,6 +611,8 @@ internal sealed class FlatScreenStereo
         _probePending = false;
         _mapBaseCapture = false;
         _mapBaseCaptureFailed = false;
+        _baseRecovered = false;
+        _mapSetupLogged = false;
         _blackConsecutive = 0;
         if (_root != null)
         {
@@ -776,6 +819,19 @@ internal sealed class FlatScreenStereo
                 LogLateVideo(entry.Video, source, "component appeared on the camera's GameObject");
         }
         entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video, source);
+
+        // STEP-2 FIX (class doc MAP BASE CAPTURE, effect strip): once map base capture engages,
+        // disable the SOURCE camera's image-effect Behaviours (VolumetricFog + its Pre/Post
+        // OnRenderImage passes, GraphicEffects, PostProcessLayer — decompiled: the CampaignMap
+        // camera carries all of these). One of their OnRenderImage/command-buffer blits paints the
+        // whole redirected RT BLACK; with them off the camera renders its raw geometry straight into
+        // the base RT (non-black). Restored verbatim on release. Gated behind the black probe, so no
+        // working scene (menu video / guildmaster) is ever touched.
+        if (_mapBaseCapture)
+            StripSourceEffects(entry, source);
+        else if (entry.EffectsStripped)
+            RestoreSourceEffects(entry);
+
         if (!entry.SourceOn)
             return; // mirror gets disabled in EndStackSync; nothing to copy
 
@@ -892,6 +948,11 @@ internal sealed class FlatScreenStereo
         // MAP BASE CAPTURE (class doc): the map's effect-less mesh is rendered by our own
         // widened-mask camera into _rtLeft; routing it through the SAME shift path the
         // menu video uses gives both eyes a non-black 3D-window map (task step 3).
+        // STEP-2 FIX: once the effect strip has recovered the base RT (it probes non-black WHILE
+        // engaged), the game camera's OWN raw render is usable — both eyes show it MONO (real map,
+        // colour grading dropped) via the suspension path, no bare clone needed. Until then the
+        // clone/shift path below stays in charge (no regression).
+        bool mapMono = _mapBaseCapture && _baseRecovered;
         bool depthLayer = s_videoDepthLayer?.Value ?? true;
         string? shiftSource = videoSource ?? (_mapBaseCapture ? "map base capture" : null);
         bool shift = false;
@@ -900,6 +961,12 @@ internal sealed class FlatScreenStereo
         if (_introGuard)
         {
             suspend = true;
+        }
+        else if (mapMono)
+        {
+            // Base RT recovered by the effect strip — force the mono suspension onto it.
+            suspend = true;
+            suspendWhy = "map base RT recovered by the image-effect strip (mono from the game render)";
         }
         else if (anyVideo || _mapBaseCapture)
         {
@@ -937,7 +1004,8 @@ internal sealed class FlatScreenStereo
                       "verified-identical)."
                     : "Stereo screen SUSPENDED — the depth shift is unavailable " +
                       $"({suspendWhy}); both eyes show the " +
-                      (_mapBaseCapture ? "mod map render (_rtLeft, mono non-black)" : "left RT") +
+                      (_baseRecovered ? "recovered game render (base RT, mono non-black)"
+                       : _mapBaseCapture ? "mod map render (_rtLeft, mono non-black)" : "left RT") +
                       " until it resumes.")
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
@@ -958,7 +1026,8 @@ internal sealed class FlatScreenStereo
             // eyes. Without this it would go dark exactly when the shift needs it.
             if (entry.MirrorLeft != null)
             {
-                bool wantLeft = entry.SourceOn && _mapBaseCapture;
+                // Not needed once the effect strip recovered the base RT (mono reads the game render).
+                bool wantLeft = entry.SourceOn && _mapBaseCapture && !_baseRecovered;
                 if (entry.MirrorLeft.enabled != wantLeft)
                     entry.MirrorLeft.enabled = wantLeft;
             }
@@ -968,6 +1037,11 @@ internal sealed class FlatScreenStereo
         // actively rendering (mirrors on) but the game's own render may be black —
         // check the base RT and engage map base capture if so.
         TickBlackProbe(anyMirrorRendering);
+
+        // STEP-1 diagnostics + effect-strip recovery: while engaged, keep probing the base RT
+        // (did the strip make it non-black? → _baseRecovered) and the mod RTs (is the clone / are
+        // the eye RTs black? → capture-vs-composite), logging each channel for the next hardware log.
+        TickEngagedProbe();
     }
 
     /// <summary>
@@ -1096,6 +1170,8 @@ internal sealed class FlatScreenStereo
             return;
         }
         _mapBaseCapture = true;
+        _baseRecovered = false;
+        LogMapRenderSetup(maxChannel);
         VRLog.Info("WorldUI", $"MAP BASE CAPTURE ENGAGED: the screen's base RenderTexture reads " +
                               $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
                               "3D background camera renders. Decompiled evidence: the campaign map parchment is " +
@@ -1128,6 +1204,255 @@ internal sealed class FlatScreenStereo
                               "into _rtLeft; the depth-shift path drives both eyes from it).");
     }
 
+    // ---- map base capture: image-effect strip (STEP-2 FIX) ---------------------------------
+
+    /// <summary>Type-name fragments of the game's camera image effects (case-insensitive).</summary>
+    private static readonly string[] EffectTypeKeywords =
+        { "PostProcess", "Fog", "Bloom", "Antialias", "Vignette", "Tonemap", "ColorGrad" };
+
+    /// <summary>
+    /// A component that hooks the camera's image pipeline: declares an
+    /// <c>OnRenderImage(RenderTexture,RenderTexture)</c> (GraphicEffects, VolumetricFogPre/PosT,
+    /// Bloom_RFX4), or is a known post/fog/AA effect by type name (PPv2 PostProcessLayer and the
+    /// VolumetricFog core drive the pipeline via COMMAND BUFFERS, not OnRenderImage, so the name
+    /// match catches them). Decompiled evidence: the CampaignMap camera carries all of these.
+    /// </summary>
+    private static bool IsImageEffect(System.Type t)
+    {
+        if (t.GetMethod("OnRenderImage",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, new[] { typeof(RenderTexture), typeof(RenderTexture) }, null) != null)
+            return true;
+        string n = t.Name;
+        for (int i = 0; i < EffectTypeKeywords.Length; i++)
+            if (n.IndexOf(EffectTypeKeywords[i], System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Disable the source camera's image-effect Behaviours so its RAW render reaches the base RT
+    /// (the effects' OnRenderImage/command-buffer blits paint the redirected RT black). One-shot per
+    /// entry; restored verbatim by <see cref="RestoreSourceEffects"/>.
+    /// </summary>
+    private void StripSourceEffects(MirrorEntry entry, Camera source)
+    {
+        if (entry.EffectsStripped || source == null)
+            return;
+        entry.EffectsStripped = true;
+        List<Behaviour> disabled = entry.DisabledEffects ??= new List<Behaviour>(4);
+        disabled.Clear();
+        string names = "";
+        MonoBehaviour[] comps = source.GetComponents<MonoBehaviour>();
+        for (int i = 0; i < comps.Length; i++)
+        {
+            MonoBehaviour c = comps[i];
+            if (c == null || !c.enabled || !IsImageEffect(c.GetType()))
+                continue;
+            c.enabled = false;
+            disabled.Add(c);
+            names += (names.Length > 0 ? ", " : "") + c.GetType().Name;
+        }
+        VRLog.Info("WorldUI", $"Map base capture: stripped {disabled.Count} image-effect component(s) " +
+                              $"from '{source.name}' [{(names.Length > 0 ? names : "none found")}] so its raw " +
+                              "render reaches the base RT. If NONE were found, a plain clone should already " +
+                              "reproduce the map — the break is elsewhere (see the MAP probe lines). Restored on release.");
+    }
+
+    /// <summary>Re-enable the image effects we disabled on this entry's source camera.</summary>
+    private void RestoreSourceEffects(MirrorEntry entry)
+    {
+        if (!entry.EffectsStripped)
+            return;
+        entry.EffectsStripped = false;
+        List<Behaviour>? disabled = entry.DisabledEffects;
+        if (disabled == null)
+            return;
+        int restored = 0;
+        for (int i = 0; i < disabled.Count; i++)
+        {
+            Behaviour b = disabled[i];
+            if (b != null)
+            {
+                b.enabled = true;
+                restored++;
+            }
+        }
+        if (restored > 0)
+            VRLog.Info("WorldUI", $"Map base capture: restored {restored} image-effect component(s)" +
+                                  (entry.Source != null ? $" on '{entry.Source.name}'." : " (source gone)."));
+        disabled.Clear();
+    }
+
+    /// <summary>Re-enable stripped effects on every live entry (teardown/deactivate).</summary>
+    private void RestoreAllEffects()
+    {
+        for (int i = 0; i < _mirrors.Count; i++)
+            RestoreSourceEffects(_mirrors[i]);
+    }
+
+    // ---- map base capture: engaged diagnostic probe (STEP-1) -------------------------------
+
+    /// <summary>
+    /// While map base capture is engaged, round-robin an async non-black probe over the base RT
+    /// (recovery check → <see cref="_baseRecovered"/>) and the mod RTs (<see cref="_rtLeft"/> clone,
+    /// <see cref="_rtRight"/>, <see cref="_rtLeftShifted"/>) so the next hardware log localises the
+    /// black to CAPTURE (a mod RT is black) vs COMPOSITE (all non-black yet the screen is black).
+    /// </summary>
+    private void TickEngagedProbe()
+    {
+        if (!_mapBaseCapture || _leftRt == null || _probePending)
+            return;
+        if (_engagedProbeFrame != int.MinValue
+            && Time.frameCount - _engagedProbeFrame < BlackProbeIntervalFrames)
+            return;
+        _engagedProbeFrame = Time.frameCount;
+
+        RenderTexture? rt;
+        string label;
+        bool isBase;
+        switch (_engagedProbeIndex % 4)
+        {
+            case 0: rt = _leftRt; label = "base RT (game render)"; isBase = true; break;
+            case 1: rt = _rtLeft; label = "_rtLeft (mod map clone)"; isBase = false; break;
+            case 2: rt = _rtRight; label = "_rtRight (right eye)"; isBase = false; break;
+            default: rt = _rtLeftShifted; label = "_rtLeftShifted (left eye)"; isBase = false; break;
+        }
+        _engagedProbeIndex++;
+        if (rt == null)
+            return;
+
+        if (_probeRt == null)
+        {
+            _probeRt = new RenderTexture(BlackProbeSize, BlackProbeSize, 0)
+            {
+                name = "GloomhavenVR.FlatScreenRT.BlackProbe",
+                antiAliasing = 1,
+            };
+            if (!_probeRt.Create())
+            {
+                ReleaseProbeRt();
+                return;
+            }
+        }
+
+        Graphics.Blit(rt, _probeRt);
+        _engagedProbeLabel = label;
+        _engagedProbeIsBase = isBase;
+        _probePending = true;
+        _probeReqGen = _probeGen;
+        AsyncGPUReadback.Request(_probeRt, 0, TextureFormat.RGBA32, OnEngagedProbe);
+    }
+
+    private void OnEngagedProbe(AsyncGPUReadbackRequest req)
+    {
+        _probePending = false;
+        if (!_active || !_mapBaseCapture || _probeReqGen != _probeGen || req.hasError)
+            return;
+
+        var data = req.GetData<Color32>();
+        int maxChannel = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            Color32 c = data[i];
+            int m = c.r;
+            if (c.g > m) m = c.g;
+            if (c.b > m) m = c.b;
+            if (m > maxChannel)
+                maxChannel = m;
+        }
+
+        VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max channel {maxChannel}/255 " +
+                              $"({BlackProbeSize}x{BlackProbeSize} downsample).");
+
+        if (_engagedProbeIsBase && !_baseRecovered && maxChannel > BlackChannelThreshold)
+        {
+            _baseRecovered = true;
+            VRLog.Info("WorldUI", $"MAP BASE RECOVERED: the base RT now reads NON-black (max channel " +
+                                  $"{maxChannel}/255) after the image-effect strip — both eyes switch to the " +
+                                  "game's own raw render MONO (real map; the scene's colour grading is dropped). " +
+                                  "If the map is STILL black on hardware, the strip did not cover the offending " +
+                                  "effect (the MAP SETUP line lists what is on the camera); the per-RT MAP probe " +
+                                  "lines localise capture-vs-composite.");
+        }
+    }
+
+    // ---- map base capture: one-shot render-setup diagnostic (STEP-1b) ----------------------
+
+    /// <summary>
+    /// Log, once per engagement, exactly what draws the map: each captured 3D source camera's render
+    /// path / clear / HDR / target / command-buffer counts / image-effect inventory, and the
+    /// decompiled <c>MapChoreographer.worldMap</c> geometry (active, layer, MeshRenderer shaders).
+    /// </summary>
+    private void LogMapRenderSetup(int baseMaxChannel)
+    {
+        if (_mapSetupLogged)
+            return;
+        _mapSetupLogged = true;
+
+        VRLog.Info("WorldUI", $"MAP SETUP — base RT probed black (max channel {baseMaxChannel}/255); " +
+                              "dumping the map's real render setup so the next log is conclusive.");
+        for (int i = 0; i < _mirrors.Count; i++)
+        {
+            Camera cam = _mirrors[i].Source;
+            if (cam == null)
+                continue;
+            int cbFwdBefore = cam.GetCommandBuffers(CameraEvent.BeforeForwardOpaque).Length;
+            int cbFwdAfter = cam.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length;
+            int cbImgFx = cam.GetCommandBuffers(CameraEvent.BeforeImageEffectsOpaque).Length;
+            int cbEvery = cam.GetCommandBuffers(CameraEvent.AfterEverything).Length;
+            string effects = "";
+            MonoBehaviour[] comps = cam.GetComponents<MonoBehaviour>();
+            for (int j = 0; j < comps.Length; j++)
+            {
+                MonoBehaviour c = comps[j];
+                if (c == null)
+                    continue;
+                System.Type t = c.GetType();
+                if (IsImageEffect(t))
+                    effects += (effects.Length > 0 ? ", " : "") + t.Name + (c.enabled ? "" : "(off)");
+            }
+            VRLog.Info("WorldUI", $"MAP SETUP cam '{cam.name}': renderingPath {cam.renderingPath}/actual " +
+                                  $"{cam.actualRenderingPath}, clear {cam.clearFlags}, HDR {cam.allowHDR}, " +
+                                  $"target '{(cam.targetTexture != null ? cam.targetTexture.name : "<none>")}', " +
+                                  $"mask 0x{cam.cullingMask:X8}, cmdBuffers fwdOpaque {cbFwdBefore}/{cbFwdAfter} " +
+                                  $"imgFxOpaque {cbImgFx} everything {cbEvery}; image effects: " +
+                                  $"[{(effects.Length > 0 ? effects : "none")}].");
+        }
+
+        LogWorldMapSetup();
+    }
+
+    /// <summary>Reflect the decompiled campaign-map parchment (MapChoreographer.worldMap, publicized).</summary>
+    private static void LogWorldMapSetup()
+    {
+        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
+        if (choreo == null)
+        {
+            VRLog.Info("WorldUI", "MAP SETUP: no MapChoreographer in the scene (map render setup unavailable).");
+            return;
+        }
+        GameObject worldMap = choreo.worldMap; // publicized private serialized field
+        if (worldMap == null)
+        {
+            VRLog.Info("WorldUI", "MAP SETUP: MapChoreographer.worldMap is null.");
+            return;
+        }
+        VRLog.Info("WorldUI", $"MAP SETUP worldMap '{worldMap.name}': activeInHierarchy {worldMap.activeInHierarchy}, " +
+                              $"layer {worldMap.layer} ('{LayerMask.LayerToName(worldMap.layer)}').");
+        MeshRenderer[] rends = worldMap.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
+        VRLog.Info("WorldUI", $"MAP SETUP worldMap has {rends.Length} MeshRenderer(s) in its hierarchy.");
+        int limit = Mathf.Min(rends.Length, 8);
+        for (int i = 0; i < limit; i++)
+        {
+            MeshRenderer r = rends[i];
+            Material m = r.sharedMaterial;
+            VRLog.Info("WorldUI", $"MAP SETUP   renderer '{r.name}': enabled {r.enabled}, isVisible {r.isVisible}, " +
+                                  $"layer {r.gameObject.layer} ('{LayerMask.LayerToName(r.gameObject.layer)}'), " +
+                                  $"shader '{(m != null && m.shader != null ? m.shader.name : "<none>")}'.");
+        }
+    }
+
     /// <summary>Destroy all mirrors (captured stack released — scene change / hide). Cheap to rebuild.</summary>
     internal void ReleaseMirrors()
     {
@@ -1143,6 +1468,8 @@ internal sealed class FlatScreenStereo
         if (_mapBaseCapture || _blackConsecutive != 0)
         {
             _mapBaseCapture = false;
+            _baseRecovered = false;
+            _mapSetupLogged = false;
             _blackConsecutive = 0;
             _probeGen++;
             _probePending = false;
@@ -1153,6 +1480,9 @@ internal sealed class FlatScreenStereo
     private void DestroyMirrorAt(int index)
     {
         MirrorEntry entry = _mirrors[index];
+        // Re-enable any image effects we disabled on the (surviving) source camera before dropping
+        // the entry — a Unity fake-null source is already gone, its components with it.
+        RestoreSourceEffects(entry);
         // Unity fake-null: the managed key survives Destroy — Remove still works.
         _bySource.Remove(entry.Source);
         if (entry.Go != null)
@@ -1302,7 +1632,9 @@ internal sealed class FlatScreenStereo
         // through the shift/mono path instead of the base RT).
         RenderTexture? target;
         if (_videoSuspended)
-            target = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
+            // Base recovered by the effect strip → the game render (base RT); else the mod clone
+            // (_rtLeft) while the map base capture is engaged; else the plain left RT.
+            target = _mapBaseCapture && !_baseRecovered && _rtLeft != null ? _rtLeft : _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
         else if (right)
