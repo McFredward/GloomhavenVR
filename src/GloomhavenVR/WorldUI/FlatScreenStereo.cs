@@ -403,6 +403,8 @@ internal sealed class FlatScreenStereo
     private bool _activeMapIsCity;
     /// <summary>Unlit Sprites/Default override materials (one per submesh, _MainTex = the submesh's albedo).</summary>
     private Material[]? _worldMapOverrideMats;
+    /// <summary>The renderer the current override materials were built for (rebuild on a world↔city switch).</summary>
+    private Renderer? _overrideMatsRenderer;
     /// <summary>The originals swapped OUT for the current override (re-captured live each apply; restored in onPostRender).</summary>
     private Material[]? _worldMapOriginalMats;
     /// <summary>True while the override is currently on the worldMap renderer (between our onPreRender and onPostRender).</summary>
@@ -1361,6 +1363,22 @@ internal sealed class FlatScreenStereo
         return true;
     }
 
+    /// <summary>VR map controls: right-stick Y zooms (FOV). Pan (trigger-drag) is wired separately.</summary>
+    private void TickMapInput()
+    {
+        if (!_mapBaseCapture)
+            return;
+        var rh = GloomhavenVR.Hands.VRHands.Right;
+        if (rh == null || !rh.HasPose)
+            return;
+        float zy = rh.Thumbstick.y;
+        if (Mathf.Abs(zy) > MapStickDeadzone && _mapZoomFov > 1f)
+        {
+            // Stick UP (y>0) → zoom IN (smaller FOV); clamped to the map's zoom range.
+            _mapZoomFov = Mathf.Clamp(_mapZoomFov - zy * MapZoomSpeed * Time.deltaTime, MapZoomMinFov, MapZoomMaxFov);
+        }
+    }
+
     /// <summary>
     /// Replicate the game's map-camera pose (CameraController.RefreshFocusPosition) so our forward camera
     /// frames the map exactly like flat (the mod prefix-skips CameraController.LateUpdate in VR, so the
@@ -1410,6 +1428,7 @@ internal sealed class FlatScreenStereo
         }
 
         Camera cam = _mapAlbedoCam!;
+        TickMapInput(); // right-stick zoom (updates _mapZoomFov before the pose is computed)
         _mapSourceCam = mapSource; // OnPreRenderCamera captures its render-time matrices for our camera
         // Copy the game map camera's live world pose (the captured matrices override this before culling).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
@@ -1619,6 +1638,8 @@ internal sealed class FlatScreenStereo
     private const bool MapDriveGameCamera = true;
     private const float MapZoomMinFov = 20f;
     private const float MapZoomMaxFov = 75f;
+    private const float MapZoomSpeed = 55f;   // FOV degrees/sec at full right-stick deflection
+    private const float MapStickDeadzone = 0.15f;
     /// <summary>Mod-managed map zoom (FOV); the game's own zoom LateUpdate is prefix-skipped in VR.</summary>
     private float _mapZoomFov;
     private Vector3 _mapDrivenPos, _mapDrivenLook;
@@ -2528,10 +2549,13 @@ internal sealed class FlatScreenStereo
             return false;
 
         Material[] orig = _worldMapRenderer.sharedMaterials;
-        // Cached — rebuild only when the submesh set changes (world↔city switch handled by ReleaseAlbedo).
-        if (_worldMapOverrideMats != null && _worldMapOverrideMats.Length == orig.Length)
+        // Cached — but rebuild when the ACTIVE RENDERER changes (world↔city): both maps have 4 submeshes,
+        // so a length-only check kept the world textures/UVs on the city mesh (city showed world content).
+        if (_worldMapOverrideMats != null && ReferenceEquals(_overrideMatsRenderer, _worldMapRenderer)
+            && _worldMapOverrideMats.Length == orig.Length)
             return true;
         DestroyOverrideMaterials();
+        _overrideMatsRenderer = _worldMapRenderer;
 
         Shader? sh = MapUnlitShader();
         if (sh == null)
