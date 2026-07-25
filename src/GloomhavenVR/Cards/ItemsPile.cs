@@ -48,6 +48,28 @@ internal sealed class ItemsPile
     private const float ZStagger = 0.004f;
     private const float HandPalmOffset = 0.16f;
 
+    // Shared board-top anchor (requirement 2): the poke-toggle item fan opens at the SAME
+    // spot above the control board as the discard/burnt PileBrowser (mirror of
+    // PileBrowser.BoardFloatHeight / BoardFloatProudZ / BoardAnchorBase, kept in lockstep so
+    // all three pile fans open in one place). The root parents under the board root
+    // (PlayTray.Current.Root) so it inherits the board's live pose + scale.
+    private const float BoardFloatHeight = 0.26f;
+    private const float BoardFloatProudZ = -0.05f;
+    private static Vector3 BoardAnchorBase =>
+        new(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+
+    // Dynamic USE slot (requirement 3): a highlighted drop target floating just above the
+    // board top, BELOW the hanging fan, board-local so it rides the board's pose/scale. It
+    // only appears while an ACTIVATABLE item chip is in hand; releasing that chip onto/near
+    // this pad uses the item. Kept clear of the fan body (the fan pivot sits at
+    // BoardTopLocalY + BoardFloatHeight; the pad sits well below it, near the board edge).
+    private const float UseSlotFloatHeight = 0.08f;
+    private const float UseSlotProudZ = -0.06f;
+    private static Vector3 UseSlotBase =>
+        new(0f, PlayTray.BoardTopLocalY + UseSlotFloatHeight, UseSlotProudZ);
+    /// <summary>Drop-to-use capture radius (world metres at board scale 1; scaled by the board's live scale).</summary>
+    private const float UseSlotRadius = 0.13f;
+
     private readonly List<ItemChip> _chips = new(12);
     private Transform? _root;
     private TextMeshPro? _title;
@@ -55,6 +77,12 @@ internal sealed class ItemsPile
     private VRHand? _followHand;
     private CardsHandUI? _hand;
     private string _signature = string.Empty; // last-built inventory state, for cheap live refresh
+    private bool _boardAnchored; // poke-toggle fan parented under the board root (mirrors PileBrowser)
+
+    // The dynamic use slot + its highlight material (created lazily under the board root,
+    // shown only while an activatable chip is held — see SetUseSlotVisible / OnChipReleased).
+    private Transform? _useSlot;
+    private bool _useSlotVisible;
 
     internal bool IsOpen { get; private set; }
     internal bool IsHandHeld => _followHand != null;
@@ -107,8 +135,15 @@ internal sealed class ItemsPile
         _hand = hand;
         EnsureRoot();
         _followHand = followHand;
+        // Requirement 2: the poke-toggle fan anchors under the board root at the shared
+        // board-top spot (same as the discard/burnt PileBrowser), so the three pile fans
+        // open in one place and this fan inherits the board's live pose + scale. A held
+        // (grabbed) fan still follows the grabbing hand; no board → head-relative fallback.
+        Transform? boardRoot = followHand == null ? PlayTray.Current?.Root : null;
+        _boardAnchored = boardRoot != null;
         Transform parent = followHand != null ? followHand.Rig.PalmCenter
-                                              : (_anchor != null ? _anchor : _root!.parent);
+                         : boardRoot != null ? boardRoot
+                         : (_anchor != null ? _anchor : _root!.parent);
         if (parent != null && _root!.parent != parent)
             _root.SetParent(parent, worldPositionStays: false);
         _root!.gameObject.SetActive(true);
@@ -117,9 +152,11 @@ internal sealed class ItemsPile
         Populate(hand);
         if (followHand != null)
             Tick(hand); // seat by the holding hand immediately
+        else if (boardRoot != null)
+            PlaceAboveBoard(); // float above the board, inherit its scale (mirror PileBrowser)
         else
-            PlaceAtHead();
-        VRLog.Info("Cards", $"Items pile browse OPEN ({(followHand != null ? "held in hand" : "toggled")}, " +
+            PlaceAtHead(); // no board — head-relative fallback
+        VRLog.Info("Cards", $"Items pile browse OPEN ({(followHand != null ? "held in hand" : boardRoot != null ? "board-anchored" : "toggled")}, " +
                             $"{_chips.Count} item(s)).");
     }
 
@@ -129,6 +166,8 @@ internal sealed class ItemsPile
             return;
         IsOpen = false;
         _followHand = null;
+        _boardAnchored = false;
+        SetUseSlotVisible(false); // never leave a use pad floating once the fan is gone
         ClearChips();
         _signature = string.Empty;
         if (_root != null)
@@ -141,7 +180,14 @@ internal sealed class ItemsPile
         ClearChips();
         IsOpen = false;
         _followHand = null;
+        _boardAnchored = false;
         _hand = null;
+        if (_useSlot != null)
+        {
+            Object.DestroyImmediate(_useSlot.gameObject);
+            _useSlot = null;
+        }
+        _useSlotVisible = false;
         if (_root != null)
         {
             Object.DestroyImmediate(_root.gameObject);
@@ -193,17 +239,44 @@ internal sealed class ItemsPile
                 Populate(hand);
         }
 
-        if (_followHand == null || _root == null)
+        // Requirement 3: the dynamic USE slot appears ONLY while an activatable item chip is
+        // in hand, and rides the board-local anchor (re-read each frame so a live BrowseFanOffset
+        // tune moves it with the fan) while billboarding toward the head like the fan.
+        SetUseSlotVisible(HeldActivatableChip() != null);
+        if (_useSlot != null && _useSlotVisible)
+        {
+            _useSlot.localPosition = UseSlotBase + CardsConfig.BrowseFanOffset.Value;
+            FaceHead(_useSlot);
+        }
+
+        // Fan facing/position: HELD → float above the palm; BOARD-ANCHORED → re-read the shared
+        // board anchor (+ live BrowseFanOffset). Either way billboard toward the head (ISSUE #7).
+        if (_root == null)
             return;
-        _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
+        if (_followHand != null)
+        {
+            _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
+            FaceHead(_root);
+        }
+        else if (_boardAnchored)
+        {
+            _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
+            FaceHead(_root);
+        }
+    }
+
+    /// <summary>Billboard a transform to face the head (mirror of PileBrowser.Tick's facing math).</summary>
+    private static void FaceHead(Transform t)
+    {
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
-        Vector3 away = _root.position - head.transform.position;
+        Vector3 away = t.position - head.transform.position;
         if (away.sqrMagnitude < 1e-6f)
             return;
-        _root.rotation = Quaternion.LookRotation(away.normalized, Vector3.up)
-                         * Quaternion.Euler(-12f, 0f, 0f);
+        // +Z points away from the viewer (uGUI/sprites read from -Z); tilt back a touch.
+        t.rotation = Quaternion.LookRotation(away.normalized, Vector3.up)
+                     * Quaternion.Euler(-12f, 0f, 0f);
     }
 
     private bool AnyHeld()
@@ -235,7 +308,7 @@ internal sealed class ItemsPile
             CItem item = items[i];
             if (item == null)
                 continue;
-            ItemChip chip = ItemChip.Create(_root, item);
+            ItemChip chip = ItemChip.Create(this, _root, item);
             _chips.Add(chip);
         }
         _signature = Signature(hand);
@@ -275,7 +348,24 @@ internal sealed class ItemsPile
 
     // ------------------------------------------------------------------ placement --
 
-    /// <summary>Fixed head-relative reading pose (mirrors PileBrowser.PlaceAtHead).</summary>
+    /// <summary>
+    /// Shared board-top reading pose (requirement 2, mirror of PileBrowser.PlaceAboveBoard):
+    /// float the fan at the SAME spot above the control board the discard/burnt fans use —
+    /// <see cref="BoardAnchorBase"/> plus the debug-menu-tunable <see cref="CardsConfig.BrowseFanOffset"/>.
+    /// The root is a child of the board root (set in <see cref="Open"/>), so this board-LOCAL
+    /// offset inherits the board's live scale + pose; <see cref="Tick"/> re-reads it and
+    /// billboards the facing toward the head each frame.
+    /// </summary>
+    private void PlaceAboveBoard()
+    {
+        if (_root == null)
+            return;
+        _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
+        _root.localRotation = Quaternion.identity; // Tick billboards the WORLD rotation each frame
+        FaceHead(_root); // face the head immediately (no first-frame flash of the un-billboarded arc)
+    }
+
+    /// <summary>Fixed head-relative reading pose (fallback when no control board exists).</summary>
     private void PlaceAtHead()
     {
         if (_root == null)
@@ -332,6 +422,139 @@ internal sealed class ItemsPile
         }
     }
 
+    // ------------------------------------------------------------------ use slot --
+
+    /// <summary>
+    /// The single held chip that can actually be USED (requirement 3): non-passive AND in a
+    /// Useable/Selected slot state — the EXACT predicate <c>UseItemService.UseItem</c> enforces
+    /// before it will act, so the pad never appears for an item the service would reject
+    /// (spent/consumed/passive/equipped items just return to their fan home on release).
+    /// </summary>
+    private ItemChip? HeldActivatableChip()
+    {
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c != null && c.Holder != null && c.IsActivatable)
+                return c;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Show/hide the dynamic use pad. Lazily built under the board root the first time it is
+    /// needed (no board → no pad). Idempotent and allocation-free once built.
+    /// </summary>
+    private void SetUseSlotVisible(bool visible)
+    {
+        if (visible)
+        {
+            EnsureUseSlot();
+            if (_useSlot == null)
+                return;
+            if (!_useSlot.gameObject.activeSelf)
+                _useSlot.gameObject.SetActive(true);
+            _useSlotVisible = true;
+        }
+        else
+        {
+            _useSlotVisible = false;
+            if (_useSlot != null && _useSlot.gameObject.activeSelf)
+                _useSlot.gameObject.SetActive(false);
+        }
+    }
+
+    /// <summary>
+    /// Build the use pad once, parented under the board root so it rides the board's pose/scale
+    /// (the same anchor family the fan uses). A card-sized glowing quad + a localized "USE"
+    /// caption, styled like the other board markers; starts hidden (Tick toggles it).
+    /// </summary>
+    private void EnsureUseSlot()
+    {
+        if (_useSlot != null)
+            return;
+        Transform? boardRoot = PlayTray.Current?.Root;
+        if (boardRoot == null)
+            return; // no board — the drop-to-use pad only exists in the board layout
+
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+
+        var go = new GameObject("GloomhavenVR.ItemUseSlot");
+        go.transform.SetParent(boardRoot, worldPositionStays: false);
+        go.transform.localPosition = UseSlotBase + CardsConfig.BrowseFanOffset.Value;
+
+        var pad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        pad.name = "Pad";
+        Object.Destroy(pad.GetComponent<Collider>());
+        pad.transform.SetParent(go.transform, worldPositionStays: false);
+        pad.transform.localScale = new Vector3(w * 1.15f, h * 1.15f, 1f);
+        pad.transform.localPosition = new Vector3(0f, 0f, 0.001f);
+        var padRenderer = pad.GetComponent<MeshRenderer>();
+        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Standard");
+        if (shader != null)
+            // Warm gold, translucent — reads as an inviting "drop here to use" highlight without
+            // masking the board behind it (Sprites/Default is unlit + alpha-blended, VR-cheap).
+            padRenderer.sharedMaterial = new Material(shader) { color = new Color(1f, 0.82f, 0.35f, 0.5f) };
+
+        var labelGo = new GameObject("Label");
+        labelGo.transform.SetParent(go.transform, worldPositionStays: false);
+        labelGo.transform.localPosition = new Vector3(0f, 0f, -0.002f); // viewer side (-Z)
+        var label = labelGo.AddComponent<TextMeshPro>();
+        // "USE" — localized from the game's own use-item bar key with a safe English fallback.
+        label.text = Core.Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = new Color(0.15f, 0.10f, 0.03f);
+        WorldUI.NativeButtonSkin.ApplyFont(label);
+        Core.TmpFit.Fit(label, w * 0.9f, h * 0.5f, maxFontSize: 0.14f, wrap: false);
+
+        Core.VRLayers.Apply(go);
+        go.SetActive(false);
+        _useSlot = go.transform;
+    }
+
+    /// <summary>
+    /// Requirement 3: a just-released chip is offered to the use pad. If the chip is activatable
+    /// and was dropped onto/near the pad, use it via the game's own <c>UseItemService</c> (which
+    /// owns ALL multiplayer sync — ItemToken + GameActionType.UseItem — and re-validates the
+    /// item itself). Otherwise this is a no-op and the chip simply returns to its fan home (the
+    /// base <c>GrabbableBehaviour</c> restore already ran). Never mutates inventory directly.
+    /// </summary>
+    internal void OnChipReleased(ItemChip chip, Vector3 dropWorldPos, VRHand vrHand)
+    {
+        if (chip == null || !chip.IsActivatable || !_useSlotVisible || _useSlot == null)
+            return;
+
+        // Proximity test in world space (parenting-independent): capture radius scales with the
+        // board so the pad stays the same on-screen size at any board scale.
+        float scale = _useSlot.lossyScale.x;
+        float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
+        if ((dropWorldPos - _useSlot.position).sqrMagnitude > radius * radius)
+            return; // dropped away from the pad — nothing to do
+
+        CPlayerActor? actor = _hand != null ? _hand.PlayerActor : null;
+        if (actor == null || chip.Item == null)
+            return;
+
+        try
+        {
+            // UseItemService handles the online GameAction send + local execution; passive/
+            // non-usable items are rejected inside it (belt-and-braces with IsActivatable).
+            new UseItemService(actor).UseItem(chip.Item);
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Cards", $"Item use failed for '{chip.name}': {e.Message}");
+            return;
+        }
+
+        vrHand.SendHaptic(HapticPreset.ClickPulse);
+        VRLog.Info("Cards", $"Item '{chip.name}' USED via drop-to-use pad ({vrHand.Side}). " +
+                            "Fan will rebuild when the item re-classifies (Spent/Consumed).");
+        // Hide the pad now; the fan re-classifies the chip on the next state-change refresh.
+        SetUseSlotVisible(false);
+    }
+
     // ================================================================== item chip ==
 
     /// <summary>
@@ -347,12 +570,22 @@ internal sealed class ItemsPile
 
         internal Visual State { get; private set; }
 
+        /// <summary>The live inventory item this chip represents (read-only — the ONLY write is the
+        /// single <c>UseItemService.UseItem</c> call the owner makes on a drop-to-use).</summary>
+        internal CItem? Item { get; private set; }
+
+        /// <summary>True when this item can actually be USED right now (requirement 3): non-passive
+        /// AND Useable/Selected — the exact gate <c>UseItemService.UseItem</c> enforces. Drives the
+        /// dynamic use pad's visibility and the drop-to-use.</summary>
+        internal bool IsActivatable { get; private set; }
+
+        private ItemsPile? _owner; // for the drop-to-use callback on release
         private Vector3 _homePos;
         private Quaternion _homeRot;
         private Material? _faceMaterial;
         private GameObject? _plume; // consumed-item smoke, destroyed with the chip
 
-        internal static ItemChip Create(Transform parent, CItem item)
+        internal static ItemChip Create(ItemsPile owner, Transform parent, CItem item)
         {
             Visual state = Classify(item);
             float w = CardsConfig.CardWidth.Value;
@@ -361,7 +594,7 @@ internal sealed class ItemsPile
             var go = new GameObject($"ItemChip_{Name(item)}");
             go.transform.SetParent(parent, worldPositionStays: false);
 
-            // Face slab (a thin card). +Z points away from the viewer (uGUI reads from -Z).
+            // Face slab (a thin card). +Z points away from the viewer (uGUI/sprites read from -Z).
             var slab = GameObject.CreatePrimitive(PrimitiveType.Cube);
             slab.name = "Face";
             Object.Destroy(slab.GetComponent<Collider>());
@@ -377,17 +610,45 @@ internal sealed class ItemsPile
                 renderer.sharedMaterial = faceMaterial;
             }
 
-            // Item name on the viewer face (readable in hand — requirement 4).
+            // Requirement 1: render the item's REAL art on the face. GetItemConfig(...).miniIcon is
+            // a SYNCHRONOUS Sprite (no addressable async), drawn via a SpriteRenderer so the sprite's
+            // own atlas UV rect is honoured (a raw material.mainTexture would show the whole atlas).
+            // The parchment/spent/consumed FaceColor stays as the background tint BEHIND the icon.
+            Sprite? icon = TryGetIcon(item);
+            bool hasIcon = icon != null;
+            if (hasIcon)
+            {
+                var iconGo = new GameObject("Icon");
+                iconGo.transform.SetParent(go.transform, worldPositionStays: false);
+                // Upper region of the face; name drops to a bottom strip (below) so they never overlap.
+                iconGo.transform.localPosition = new Vector3(0f, h * 0.14f, -0.0018f);
+                var sr = iconGo.AddComponent<SpriteRenderer>();
+                sr.sprite = icon;
+                // Consumed items are ashen: desaturate the art so it reads as spent/burnt.
+                if (state == Visual.Consumed)
+                    sr.color = new Color(0.62f, 0.60f, 0.58f);
+                // Fit the sprite (aspect-preserving) into the icon region.
+                Vector2 size = icon!.bounds.size;
+                if (size.x > 1e-4f && size.y > 1e-4f)
+                {
+                    float s = Mathf.Min(w * 0.82f / size.x, h * 0.56f / size.y);
+                    iconGo.transform.localScale = Vector3.one * s;
+                }
+            }
+
+            // Item name on the viewer face (readable in hand — requirement 4). With an icon the name
+            // sits in a bottom strip under the art; without one it keeps the centered full-face fit.
             var nameGo = new GameObject("Name");
             nameGo.transform.SetParent(go.transform, worldPositionStays: false);
-            nameGo.transform.localPosition = new Vector3(0f, 0f, -0.0025f);
+            nameGo.transform.localPosition = new Vector3(0f, hasIcon ? -h * 0.36f : 0f, -0.0025f);
             var nameTmp = nameGo.AddComponent<TextMeshPro>();
             nameTmp.text = Name(item);
             nameTmp.alignment = TextAlignmentOptions.Center;
             nameTmp.color = state == Visual.Consumed ? new Color(0.75f, 0.72f, 0.7f)
                                                      : new Color(0.12f, 0.10f, 0.07f);
             WorldUI.NativeButtonSkin.ApplyFont(nameTmp);
-            Core.TmpFit.Fit(nameTmp, w * 0.88f, h * 0.82f, maxFontSize: 0.16f, wrap: true);
+            Core.TmpFit.Fit(nameTmp, w * (hasIcon ? 0.9f : 0.88f), h * (hasIcon ? 0.24f : 0.82f),
+                            maxFontSize: 0.16f, wrap: true);
 
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(w + 0.006f, h + 0.006f, 0.02f);
@@ -396,6 +657,13 @@ internal sealed class ItemsPile
             var chip = go.AddComponent<ItemChip>();
             chip.snapToHand = true; // taken INTO the hand to read
             chip.State = state;
+            chip.Item = item;
+            chip._owner = owner;
+            // Mirror UseItemService.UseItem's own accept gate EXACTLY so the pad never lies.
+            chip.IsActivatable = item.YMLData != null
+                && item.YMLData.Trigger != CItem.EItemTrigger.PassiveEffect
+                && (item.SlotState == CItem.EItemSlotState.Useable
+                    || item.SlotState == CItem.EItemSlotState.Selected);
             chip._faceMaterial = faceMaterial;
             Core.VRLayers.Apply(go);
 
@@ -404,6 +672,34 @@ internal sealed class ItemsPile
                 chip._plume = BurnCardFx.SpawnConsumedPlume(go.transform);
 
             return chip;
+        }
+
+        /// <summary>
+        /// Resolve the item's face art SYNCHRONOUSLY (requirement 1): <c>UIInfoTools.GetItemConfig</c>
+        /// keyed on <c>YMLData.Art</c> returns an <c>ItemConfigUI</c> whose <c>miniIcon</c> is a plain
+        /// <see cref="Sprite"/> — no addressable/async load (unlike <c>BackgroundImage</c>). Fully
+        /// null-guarded: a missing tools singleton / config / icon falls back to the colored face.
+        /// </summary>
+        private static Sprite? TryGetIcon(CItem item)
+        {
+            if (item == null || item.YMLData == null)
+                return null;
+            string? art = item.YMLData.Art;
+            if (string.IsNullOrEmpty(art))
+                return null;
+            if (!Singleton<UIInfoTools>.IsInitialized)
+                return null;
+            UIInfoTools tools = Singleton<UIInfoTools>.Instance;
+            if (tools == null)
+                return null;
+            try
+            {
+                return tools.GetItemConfig(art)?.miniIcon;
+            }
+            catch
+            {
+                return null; // GetItemConfig touches SceneController YML — guard a mid-load call
+            }
         }
 
         /// <summary>Seat the chip in its arc slot (its "home" the base restores it to on release).</summary>
@@ -434,6 +730,20 @@ internal sealed class ItemsPile
             base.OnGrab(hand); // snaps to the reading pose
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Item chip '{name}' taken into hand ({hand.Side}) — readable (state {State}).");
+        }
+
+        /// <summary>
+        /// Requirement 3 (drop-to-use): capture the drop location BEFORE the base restores the chip
+        /// to its fan home, then offer it to the owner's use pad. The base restore always runs, so a
+        /// chip dropped anywhere else (or a non-activatable chip) simply returns to the fan as before.
+        /// </summary>
+        public override void OnRelease(VRHand hand, Vector3 velocity)
+        {
+            // While held (snapToHand) the chip sits at the hand's grab anchor, so its world position
+            // IS the drop point. Capture it before base.OnRelease re-parents it back to the fan.
+            Vector3 dropWorldPos = transform.position;
+            base.OnRelease(hand, velocity); // detach + restore fan home
+            _owner?.OnChipReleased(this, dropWorldPos, hand);
         }
 
         protected override void OnDisable()
