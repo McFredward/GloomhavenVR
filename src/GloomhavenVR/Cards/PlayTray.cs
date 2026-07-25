@@ -101,6 +101,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private BoardButton? _undo;
     private Transform? _confirmAnchor;
     private Transform? _undoAnchor;
+
+    // Items rework (requirement 3): the ITEM-USE clip-in slot — a card-sized recess UNDER the
+    // board next to the Confirm/Undo decision buttons. Built once (hidden), shown live by
+    // ItemsPile only while the local player holds a usable item card on their own turn; dropping
+    // that card into the recess USES it. Its glow pulses like the wanted-slot hint.
+    private Transform? _itemUseSlot;
+    private Material? _itemUseSlotGlow;
     private bool _placed;
     private bool _wantVisible;
     private bool _placementDeferLogged;
@@ -334,6 +341,18 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             LaserTargets.Add(new LaserTarget(collider, target));
     }
 
+    /// <summary>
+    /// Remove a laser target by collider (items rework): the item-browse chips register their
+    /// colliders as laser targets while the fan is open and unregister on close/rebuild, so the
+    /// transient chips never leak stale entries into <see cref="LaserTargets"/>. No-op if absent.
+    /// </summary>
+    internal void UnregisterLaserTarget(Collider collider)
+    {
+        if (collider == null)
+            return;
+        LaserTargets.RemoveAll(t => ReferenceEquals(t.Collider, collider));
+    }
+
     // ------------------------------------------------------------------ lifecycle --
 
     internal void EnsureBuilt(VRCardFactory factory, Transform anchorParent)
@@ -449,6 +468,7 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         BuildSlotHighlights();
         BuildWantedHighlights();
         BuildButtons(confirmAnchor, undoAnchor);
+        BuildItemUseSlot();
         BuildHandle();
         BuildDashboardControls();
         BuildRoundReadout();
@@ -891,6 +911,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _undo = null;
         _confirmAnchor = null; // child of _root, destroyed with it
         _undoAnchor = null;
+        _itemUseSlot = null; // child of _root, destroyed with it
+        _itemUseSlotGlow = null;
         _handle = null; // child of _root, destroyed with it
         _followToggle = null;
         _gear = null;
@@ -1300,6 +1322,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
 
     /// <summary>Item C: fixed base local position of the shared DECISION DOCK mount (hangs below the board).</summary>
     private static Vector3 DecisionMountBase => new(0f, -0.29f, -0.020f);
+
+    /// <summary>
+    /// Fixed base local position of the ITEM-USE clip-in slot (items rework, requirement 3):
+    /// UNDER the board's bottom edge in the right (Confirm/Undo) column, proud toward the player.
+    /// The per-board <see cref="CardsConfig.ItemUseSlotOffset"/> adds on top (debug-menu tunable).
+    /// </summary>
+    private static Vector3 ItemUseSlotBase => new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
 
     /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
     private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
@@ -1838,6 +1867,100 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             quad.SetActive(false);
             _wantedHighlights[i] = quad;
         }
+    }
+
+    // ------------------------------------------------------------------ item-use slot --
+
+    /// <summary>
+    /// Build the ITEM-USE clip-in slot (items rework, requirement 3): a card-sized recess
+    /// UNDER the board next to the Confirm/Undo buttons — a gold Frame + darker inner + a
+    /// pulsing "drop here" glow + a localized "USE" caption. Positioned at
+    /// <see cref="ItemUseSlotBase"/> + the per-board <see cref="CardsConfig.ItemUseSlotOffset"/>
+    /// (debug-menu tunable, live-applied via <see cref="SetItemUseSlotOffset"/>). Built ONCE and
+    /// starts HIDDEN — <see cref="ItemsPile"/> shows it live only while the local player holds a
+    /// usable item card on their own turn, then reads <see cref="ItemUseSlotTransform"/> to
+    /// detect a drop-in. Mirrors the procedural slot recess so it reads as a real card slot.
+    /// </summary>
+    private void BuildItemUseSlot()
+    {
+        if (_root == null)
+            return;
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+
+        var go = new GameObject("GloomhavenVR.ItemUseSlot");
+        go.transform.SetParent(_root, worldPositionStays: false);
+        go.transform.localPosition = ItemUseSlotBase + CardsConfig.ItemUseSlotOffset(CardsConfig.CurrentBoard).Value;
+        go.transform.localRotation = _boardFaceFrame; // face the player like the slots / decision buttons
+
+        // Gold frame + darker inner (mirror of the procedural Slot1/Slot2 recess look).
+        var frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        frame.name = "Frame";
+        Object.Destroy(frame.GetComponent<Collider>());
+        frame.transform.SetParent(go.transform, worldPositionStays: false);
+        frame.transform.localScale = new Vector3(w * 1.12f, h * 1.12f, 1f);
+        frame.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+        Tint(frame, new Color(0.55f, 0.45f, 0.22f));
+
+        var inner = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        inner.name = "FrameInner";
+        Object.Destroy(inner.GetComponent<Collider>());
+        inner.transform.SetParent(go.transform, worldPositionStays: false);
+        inner.transform.localScale = new Vector3(w * 1.04f, h * 1.04f, 1f);
+        inner.transform.localPosition = new Vector3(0f, 0f, 0.003f);
+        Tint(inner, new Color(0.12f, 0.10f, 0.08f));
+
+        // Pulsing warm "drop here to use" glow rim (self-animated, no PlayTray Update).
+        var glow = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        glow.name = "Glow";
+        Object.Destroy(glow.GetComponent<Collider>());
+        glow.transform.SetParent(go.transform, worldPositionStays: false);
+        glow.transform.localScale = new Vector3(w * 1.28f, h * 1.28f, 1f);
+        glow.transform.localPosition = new Vector3(0f, 0f, 0.0035f); // between frame and inner, proud
+        var glowRenderer = glow.GetComponent<MeshRenderer>();
+        var glowColor = new Color(1f, 0.82f, 0.35f, 0.8f); // warm gold — the inviting "use" highlight
+        _itemUseSlotGlow = MakeGlowMaterial(glowColor);
+        if (_itemUseSlotGlow != null)
+            glowRenderer.sharedMaterial = _itemUseSlotGlow;
+        glow.AddComponent<SlotPulse>().Init(glowRenderer, glowColor);
+
+        var labelGo = new GameObject("Label");
+        labelGo.transform.SetParent(go.transform, worldPositionStays: false);
+        labelGo.transform.localPosition = new Vector3(0f, 0f, -0.002f); // viewer side (-Z)
+        var label = labelGo.AddComponent<TextMeshPro>();
+        // "USE" — localized from the game's own use-item bar key, safe English fallback, uppercased.
+        label.text = Core.Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = new Color(1f, 0.92f, 0.72f);
+        WorldUI.NativeButtonSkin.ApplyFont(label);
+        Core.TmpFit.Fit(label, w * 0.9f, h * 0.5f, maxFontSize: 0.16f, wrap: false);
+
+        Core.VRLayers.Apply(go);
+        go.SetActive(false); // ItemsPile toggles it live via SetItemUseSlotVisible
+        _itemUseSlot = go.transform;
+    }
+
+    /// <summary>
+    /// The ITEM-USE clip-in slot transform (world pose read by <see cref="ItemsPile"/> for the
+    /// drop-in proximity test). Null before the board is built / after teardown.
+    /// </summary>
+    internal Transform? ItemUseSlotTransform => _itemUseSlot;
+
+    /// <summary>Show/hide the item-use slot (idempotent). Driven live by <see cref="ItemsPile"/>'s gate.</summary>
+    internal void SetItemUseSlotVisible(bool visible)
+    {
+        if (_itemUseSlot != null && _itemUseSlot.gameObject.activeSelf != visible)
+            _itemUseSlot.gameObject.SetActive(visible);
+    }
+
+    /// <summary>
+    /// Live-apply (debug menu / cfg edit): move the item-use slot to <see cref="ItemUseSlotBase"/>
+    /// + the new per-board offset (instant). Mirrors <see cref="SetConfirmUndoOffset"/>.
+    /// </summary>
+    internal void SetItemUseSlotOffset(Vector3 offset)
+    {
+        if (_itemUseSlot != null)
+            _itemUseSlot.localPosition = ItemUseSlotBase + offset;
     }
 
     /// <summary>

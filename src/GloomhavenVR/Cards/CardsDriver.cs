@@ -223,6 +223,7 @@ internal sealed class CardsDriver : MonoBehaviour
             {
                 CardsConfig.RestButtonOffset(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.ConfirmUndoOffset(b).SettingChanged += OnControlOffsetChanged;
+                CardsConfig.ItemUseSlotOffset(b).SettingChanged += OnControlOffsetChanged;   // item-use slot = in-place move
                 CardsConfig.RestButtonSpacing(b).SettingChanged += OnControlOffsetChanged;   // spacing = in-place move
                 CardsConfig.GenericButtonSpacing(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged += OnControlSizeChanged;
@@ -258,6 +259,7 @@ internal sealed class CardsDriver : MonoBehaviour
             {
                 CardsConfig.RestButtonOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ConfirmUndoOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.ItemUseSlotOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.GenericButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged -= OnControlSizeChanged;
@@ -348,9 +350,11 @@ internal sealed class CardsDriver : MonoBehaviour
             _applyControlOffsets = false;
             _rest.SetOffset(CardsConfig.RestButtonOffset(b).Value, CardsConfig.RestButtonSpacing(b).Value);
             _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(b).Value, CardsConfig.GenericButtonSpacing(b).Value);
+            _tray.SetItemUseSlotOffset(CardsConfig.ItemUseSlotOffset(b).Value); // items rework: move the use slot in place
             VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset(b).Value} " +
                                 $"(spacing {CardsConfig.RestButtonSpacing(b).Value:F3} m), confirm/undo offset " +
-                                $"{CardsConfig.ConfirmUndoOffset(b).Value} (spacing {CardsConfig.GenericButtonSpacing(b).Value:F3} m).");
+                                $"{CardsConfig.ConfirmUndoOffset(b).Value} (spacing {CardsConfig.GenericButtonSpacing(b).Value:F3} m), " +
+                                $"item-use slot offset {CardsConfig.ItemUseSlotOffset(b).Value}.");
         }
         if (_applyOverlayOffset)
         {
