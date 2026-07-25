@@ -342,6 +342,8 @@ internal sealed class FlatScreenStereo
     private readonly Camera.CameraCallback _preRenderHook;
     /// <summary>onPostRender hook: restores the worldMap material override after the mod albedo camera renders.</summary>
     private readonly Camera.CameraCallback _postRenderHook;
+    /// <summary>onPreCull hook: applies the captured game-map matrices to the mirror camera BEFORE its culling (culling with the stale grazing matrices was culling the map quads out → black).</summary>
+    private readonly Camera.CameraCallback _preCullHook;
 
     private GameObject? _root;
     private RenderTexture? _rtRight;
@@ -510,6 +512,7 @@ internal sealed class FlatScreenStereo
     {
         _preRenderHook = OnPreRenderCamera; // cached delegate — one allocation, ever
         _postRenderHook = OnPostRenderCamera; // worldMap material-override restore
+        _preCullHook = OnPreCullCamera; // apply map matrices before the mirror camera's culling
         BindConfig();
     }
 
@@ -770,6 +773,7 @@ internal sealed class FlatScreenStereo
             _active = true;
             if (!_hooked)
             {
+                Camera.onPreCull += _preCullHook; // map matrices BEFORE culling (else quads culled out)
                 Camera.onPreRender += _preRenderHook;
                 Camera.onPostRender += _postRenderHook; // worldMap override restore
                 _hooked = true;
@@ -824,6 +828,7 @@ internal sealed class FlatScreenStereo
         ReleaseMirrors();
         if (_hooked)
         {
+            Camera.onPreCull -= _preCullHook;
             Camera.onPreRender -= _preRenderHook;
             Camera.onPostRender -= _postRenderHook;
             _hooked = false;
@@ -2693,6 +2698,22 @@ internal sealed class FlatScreenStereo
     /// ALSO: for the mod albedo camera (campaign map), this is where the unlit worldMap
     /// material override is swapped ON (restored in <see cref="OnPostRenderCamera"/>).
     /// </summary>
+    /// <summary>
+    /// Apply the captured game-map view+projection to the mirror camera BEFORE its culling runs. Unity
+    /// culls using the camera's matrices at onPreCull time; if we only fixed them in onPreRender (after
+    /// culling), the map quads were culled OUT against the stale grazing matrices → nothing drawn → black.
+    /// </summary>
+    private void OnPreCullCamera(Camera cam)
+    {
+        if (!_active)
+            return;
+        if (_mapAlbedoCam != null && cam == _mapAlbedoCam && _capMapValid)
+        {
+            cam.worldToCameraMatrix = _capMapView;
+            cam.projectionMatrix = _capMapProj;
+        }
+    }
+
     private void OnPreRenderCamera(Camera cam)
     {
         if (!_active)
