@@ -300,6 +300,10 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<float>? s_mapExposure;
     /// <summary>Diagnostic: sweep per-effect strip subsets and log each base-RT mean (see MAP EFFECT DIAG).</summary>
     private static ConfigEntry<bool>? s_mapEffectDiag;
+    /// <summary>COLORSPACE FIX: create the base + eye RTs sRGB so the map's linear lit output is gamma-encoded on store (see MapSrgbFix config).</summary>
+    private static ConfigEntry<bool>? s_mapSrgbFix;
+    /// <summary>SECONDARY: gamma-encode the recovered map on the stable eye RT when MapSrgbFix is off (see MapGammaCorrect config).</summary>
+    private static ConfigEntry<bool>? s_mapGammaCorrect;
     /// <summary>
     /// Default map exposure gain — 1.0 = OFF / no-op (task step 1 revert). The map's brightness must
     /// come from correct LIGHTING (the forced-Forward render, class doc FORWARD LIGHTING), NOT a post
@@ -406,6 +410,8 @@ internal sealed class FlatScreenStereo
     private readonly List<MirrorEntry> _mirrors = new(8);
     private readonly Dictionary<Camera, MirrorEntry> _bySource = new();
     private readonly Camera.CameraCallback _preRenderHook;
+    /// <summary>STEP-1c earliest-capture probe: fires right after a captured map camera renders into the base RT.</summary>
+    private readonly Camera.CameraCallback _postRenderHook;
 
     private GameObject? _root;
     private RenderTexture? _rtRight;
@@ -478,6 +484,23 @@ internal sealed class FlatScreenStereo
     private bool _engagedProbeIsBase;
     /// <summary>One-shot rich map render-setup diagnostic guard (per engagement).</summary>
     private bool _mapSetupLogged;
+
+    // ---- STEP-1 colorspace measurement + map-area probes (leading hypothesis: Linear/sRGB) ----
+    /// <summary>One-shot colorspace-facts log guard (per activation) — STEP-1a.</summary>
+    private bool _colorspaceLogged;
+    private const int CenterProbeIntervalFrames = 30;
+    /// <summary>Central fraction of the base RT the map-area probe samples (away from UI/corners).</summary>
+    private const float CenterProbeRegion = 0.5f;
+    private RenderTexture? _centerProbeRt;
+    private bool _centerProbePending;
+    private int _centerProbeReqGen;
+    private int _centerProbeFrame = int.MinValue;
+    private const int EarliestProbeIntervalFrames = 45;
+    private RenderTexture? _earliestProbeRt;
+    private bool _earliestProbePending;
+    private int _earliestProbeReqGen;
+    private int _earliestProbeFrame = int.MinValue;
+    private string _earliestProbeCam = "";
 
     // ---- selective strip controller (STEP-2 FIX) -------------------------------------------
     /// <summary>The strip PLAN currently reconciled onto every captured source camera each tick.</summary>
@@ -573,6 +596,7 @@ internal sealed class FlatScreenStereo
     public FlatScreenStereo()
     {
         _preRenderHook = OnPreRenderCamera; // cached delegate — one allocation, ever
+        _postRenderHook = OnPostRenderCamera; // STEP-1c earliest-capture probe hook
         BindConfig();
     }
 
@@ -642,11 +666,69 @@ internal sealed class FlatScreenStereo
             "and which brightens it. The eyes stay on the mod's own non-black map render during the " +
             "sweep, which then settles on the safe strip-all + MapExposure fix. Off (default) = the " +
             "adaptive fix runs directly (keep Beautify; strip it + apply MapExposure only if it blacks).");
+        s_mapSrgbFix = file.Bind("WorldUI", "MapSrgbFix", true,
+            "COLORSPACE FIX (default ON): create the flat-screen's base + eye RenderTextures with sRGB " +
+            "read/write. The project renders in LINEAR colorspace; a plain (non-sRGB) RT stores the map " +
+            "camera's LINEAR lit output RAW, so the redirected map displays ~2.2x too dark (base mean " +
+            "~20/255, a grey-brown murk) even though the same map renders BRIGHT straight to the sRGB " +
+            "game backbuffer. sRGB=True makes the GPU gamma-encode the linear colour on store (and " +
+            "decode on sample), so the captured map matches its bright native render. Applies to the " +
+            "MAP/background base RT and the mirror eye RTs only — the UI glass RT is left untouched so " +
+            "the 2D UI is not overbrightened. Off = pre-fix behaviour (dark map).");
+        s_mapGammaCorrect = file.Bind("WorldUI", "MapGammaCorrect", true,
+            "SECONDARY colorspace fallback (default ON): when MapSrgbFix is OFF, still gamma-encode the " +
+            "recovered map on the STABLE eye RT (the both-eyes copy used once the map base capture " +
+            "recovers) by making that RT sRGB, so a linear->sRGB encode happens on the blit into it. " +
+            "MapSrgbFix (the base-RT sRGB fix) is the primary, complete fix and takes precedence; this " +
+            "only lifts the narrow recovered-map path when the primary fix is disabled.");
     }
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
     private static float ParallaxScale => Mathf.Clamp(s_parallaxScale?.Value ?? 6f, 1f, 60f);
+
+    /// <summary>[WorldUI] MapSrgbFix — base + eye RTs are created sRGB (the primary colorspace fix).</summary>
+    internal static bool MapSrgbFixOn => s_mapSrgbFix?.Value ?? true;
+
+    /// <summary>[WorldUI] MapGammaCorrect — secondary gamma-on-stable-eye fallback when MapSrgbFix is off.</summary>
+    internal static bool MapGammaCorrectOn => s_mapGammaCorrect?.Value ?? true;
+
+    /// <summary>
+    /// COLORSPACE FIX factory (class doc / MapSrgbFix): create a colour RenderTexture for the
+    /// flat-screen map/eye path, sRGB read/write when [WorldUI] MapSrgbFix (default ON) — in a
+    /// LINEAR project this gamma-encodes the map camera's linear lit output on store so the
+    /// redirected map matches its bright native (sRGB-backbuffer) render instead of storing raw
+    /// (~2.2x too dark). <paramref name="gammaFallback"/> RTs (the both-eyes stable RT) are ALSO
+    /// sRGB when only [WorldUI] MapGammaCorrect is on, so their linear->sRGB blit still brightens
+    /// the recovered map. Off on both = RenderTextureReadWrite.Default (pre-fix behaviour).
+    /// </summary>
+    internal static RenderTexture CreateColorRt(int width, int height, int depth, string name, bool gammaFallback = false)
+    {
+        bool srgb = MapSrgbFixOn || (gammaFallback && MapGammaCorrectOn);
+        RenderTextureReadWrite rw = srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Default;
+        return new RenderTexture(width, height, depth, RenderTextureFormat.Default, rw)
+        {
+            name = name,
+            antiAliasing = 1,
+        };
+    }
+
+    /// <summary>Human-readable colorspace facts of an RT (STEP-1a): format, graphicsFormat, sRGB flag, depth.</summary>
+    internal static string DescribeRt(RenderTexture? rt)
+    {
+        if (rt == null)
+            return "null";
+        bool srgb = UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(rt.graphicsFormat);
+        return $"'{rt.name}' {rt.width}x{rt.height} fmt {rt.format}/{rt.graphicsFormat} sRGB={srgb} depth={rt.depth} aa={rt.antiAliasing}";
+    }
+
+    /// <summary>sRGB (gamma) encode of an 0..255 linear channel value — the brightness the fix yields.</summary>
+    private static int SrgbEncode(int linear255)
+    {
+        float x = Mathf.Clamp01(linear255 / 255f);
+        float e = x <= 0.0031308f ? x * 12.92f : 1.055f * Mathf.Pow(x, 1f / 2.4f) - 0.055f;
+        return Mathf.Clamp(Mathf.RoundToInt(e * 255f), 0, 255);
+    }
 
     private static bool WantActive(RenderTexture? leftRt) =>
         leftRt != null
@@ -685,11 +767,10 @@ internal sealed class FlatScreenStereo
         }
         if (_rtRight == null)
         {
-            _rtRight = new RenderTexture(leftRt!.width, leftRt.height, 24)
-            {
-                name = "GloomhavenVR.FlatScreenRT.Right",
-                antiAliasing = 1,
-            };
+            // COLORSPACE FIX: sRGB when [WorldUI] MapSrgbFix — the mirror cameras render the
+            // map's LINEAR lit output into this RT, so it must gamma-encode on store to match
+            // the left (base) RT; else the right eye stays dark while the left is corrected.
+            _rtRight = CreateColorRt(leftRt!.width, leftRt.height, 24, "GloomhavenVR.FlatScreenRT.Right");
             _rtRight.Create();
         }
 
@@ -706,8 +787,10 @@ internal sealed class FlatScreenStereo
             if (!_hooked)
             {
                 Camera.onPreRender += _preRenderHook;
+                Camera.onPostRender += _postRenderHook; // STEP-1c earliest-capture probe
                 _hooked = true;
             }
+            _colorspaceLogged = false; // re-log colorspace facts per activation (STEP-1a)
             _eyeObsCount = 0; // re-log the observed eye-pass pattern per activation
             _shiftRtFailed = false; // a failed shifted RT gets a fresh chance per activation
             VRLog.Info("WorldUI", "STEREO SCREEN ACTIVE — flat screen renders per eye " +
@@ -730,6 +813,8 @@ internal sealed class FlatScreenStereo
         _convScene = Mathf.Max(MinConvergenceMeters,
             WorldUIConfig.ScreenDistance.Value) * scale * parallax;
         _videoShiftUv = ComputeVideoShiftUv();
+
+        LogColorspaceFacts(); // STEP-1a: confirm Linear/sRGB once per activation, RTs now exist
     }
 
     /// <summary>
@@ -759,6 +844,7 @@ internal sealed class FlatScreenStereo
         if (_hooked)
         {
             Camera.onPreRender -= _preRenderHook;
+            Camera.onPostRender -= _postRenderHook;
             _hooked = false;
         }
         if (_quadMaterial != null && _leftRt != null && _quadMaterial.mainTexture != _leftRt)
@@ -768,8 +854,13 @@ internal sealed class FlatScreenStereo
         ReleaseLeftRt();
         ReleaseStableRt();
         ReleaseProbeRt();
-        _probeGen++;                 // invalidate any in-flight probe callback
+        ReleaseCenterProbeRt();
+        ReleaseEarliestProbeRt();
+        _probeGen++;                 // invalidate any in-flight probe callback (incl. center/earliest)
         _probePending = false;
+        _centerProbePending = false;
+        _earliestProbePending = false;
+        _colorspaceLogged = false;
         _mapBaseCapture = false;
         _mapBaseCaptureFailed = false;
         _baseRecovered = false;
@@ -834,11 +925,9 @@ internal sealed class FlatScreenStereo
             ReleaseLeftRt();
         if (_rtLeft == null)
         {
-            var rt = new RenderTexture(_leftRt.width, _leftRt.height, 24)
-            {
-                name = "GloomhavenVR.FlatScreenRT.Left",
-                antiAliasing = 1,
-            };
+            // COLORSPACE FIX: sRGB when [WorldUI] MapSrgbFix — the widened-mask map clone renders
+            // its LINEAR lit output here, gamma-encoded on store like the base RT.
+            var rt = CreateColorRt(_leftRt.width, _leftRt.height, 24, "GloomhavenVR.FlatScreenRT.Left");
             if (!rt.Create())
             {
                 Object.Destroy(rt);
@@ -875,11 +964,10 @@ internal sealed class FlatScreenStereo
             ReleaseStableRt();
         if (_rtStable == null)
         {
-            var rt = new RenderTexture(_leftRt.width, _leftRt.height, 0)
-            {
-                name = "GloomhavenVR.FlatScreenRT.EyeStable",
-                antiAliasing = 1,
-            };
+            // COLORSPACE FIX: sRGB when MapSrgbFix OR (fallback) MapGammaCorrect — BOTH eyes sample
+            // this RT in the recovered map path, and the Graphics.Blit from the (possibly linear)
+            // base RT into an sRGB stable RT gamma-encodes the recovered map for the gamma fallback.
+            var rt = CreateColorRt(_leftRt.width, _leftRt.height, 0, "GloomhavenVR.FlatScreenRT.EyeStable", gammaFallback: true);
             if (!rt.Create())
             {
                 Object.Destroy(rt);
@@ -909,6 +997,192 @@ internal sealed class FlatScreenStereo
         _probeRt.Release();
         Object.Destroy(_probeRt);
         _probeRt = null;
+    }
+
+    private void ReleaseCenterProbeRt()
+    {
+        if (_centerProbeRt == null)
+            return;
+        _centerProbeRt.Release();
+        Object.Destroy(_centerProbeRt);
+        _centerProbeRt = null;
+    }
+
+    private void ReleaseEarliestProbeRt()
+    {
+        if (_earliestProbeRt == null)
+            return;
+        _earliestProbeRt.Release();
+        Object.Destroy(_earliestProbeRt);
+        _earliestProbeRt = null;
+    }
+
+    // ---- STEP-1a: colorspace facts (leading hypothesis: Linear project + non-sRGB base RT) ------
+
+    /// <summary>
+    /// Once per activation, log the decisive colorspace facts: the project's active colorspace,
+    /// the base RT's + eye RTs' format/graphicsFormat/sRGB flag/depth, the head camera's allowHDR
+    /// and its XR eye-texture descriptor (the "eye texture sRGB=False" the hypothesis rests on).
+    /// A Linear project writing the map camera's linear lit output into a non-sRGB base RT stores
+    /// it raw ⇒ ~2.2x too dark; sRGB=True encodes on store (bright, matches the game backbuffer).
+    /// </summary>
+    private void LogColorspaceFacts()
+    {
+        if (_colorspaceLogged)
+            return;
+        _colorspaceLogged = true;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        RenderTextureDescriptor eye = UnityEngine.XR.XRSettings.eyeTextureDesc;
+        VRLog.Info("WorldUI",
+            $"COLORSPACE facts (STEP-1a) — QualitySettings.activeColorSpace {QualitySettings.activeColorSpace}; " +
+            $"MapSrgbFix {MapSrgbFixOn}, MapGammaCorrect {MapGammaCorrectOn}. " +
+            $"base RT {DescribeRt(_leftRt)}; right RT {DescribeRt(_rtRight)}; stable eye RT {DescribeRt(_rtStable)}; " +
+            $"shifted RT {DescribeRt(_rtLeftShifted)}; probe RT {DescribeRt(_probeRt)}. " +
+            $"head camera allowHDR {(head != null ? head.allowHDR.ToString() : "n/a")}, " +
+            $"targetTexture {(head != null && head.targetTexture != null ? DescribeRt(head.targetTexture) : "<backbuffer/XR eye>")}; " +
+            $"XR eyeTextureDesc {eye.width}x{eye.height} fmt {eye.graphicsFormat} sRGB={eye.sRGB}. " +
+            "LINEAR project + non-sRGB base RT ⇒ the map's linear lit output is stored RAW (dark); " +
+            "sRGB=True on the base/eye RTs encodes it on store (bright — the MapSrgbFix path).");
+    }
+
+    // ---- STEP-1b: map-area CENTER-region probe of the base RT (always-on) -----------------------
+
+    /// <summary>
+    /// Throttled async probe of the CENTER region of the base RT (the parchment area, away from the
+    /// UI/corners). Runs ALWAYS while active — the dark-but-not-black map never trips the black
+    /// watchdog, so this is the only probe that measures the map area in the normal path. Logs the
+    /// center mean/min/max + per-channel AND the sRGB-encoded value the fix yields, so one log shows
+    /// both BEFORE (raw) and AFTER (predicted / actual once the base RT is sRGB) the correction.
+    /// </summary>
+    private void TickCenterProbe()
+    {
+        if (!_active || _leftRt == null || _centerProbePending)
+            return;
+        if (_centerProbeFrame != int.MinValue
+            && Time.frameCount - _centerProbeFrame < CenterProbeIntervalFrames)
+            return;
+        _centerProbeFrame = Time.frameCount;
+
+        // The probe RT matches the base RT's sRGB so the downsample blit preserves DISPLAYED
+        // brightness (a non-sRGB probe would decode-then-store-raw and mis-read a bright sRGB base).
+        if (_centerProbeRt == null)
+        {
+            _centerProbeRt = CreateColorRt(BlackProbeSize, BlackProbeSize, 0, "GloomhavenVR.FlatScreenRT.CenterProbe");
+            if (!_centerProbeRt.Create())
+            {
+                ReleaseCenterProbeRt();
+                return;
+            }
+        }
+
+        float scale = CenterProbeRegion;
+        float offset = (1f - CenterProbeRegion) * 0.5f;
+        Graphics.Blit(_leftRt, _centerProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
+        _centerProbePending = true;
+        _centerProbeReqGen = _probeGen;
+        AsyncGPUReadback.Request(_centerProbeRt, 0, TextureFormat.RGBA32, OnCenterProbe);
+    }
+
+    private void OnCenterProbe(AsyncGPUReadbackRequest req)
+    {
+        _centerProbePending = false;
+        if (!_active || _centerProbeReqGen != _probeGen || req.hasError)
+            return;
+
+        var data = req.GetData<Color32>();
+        int n = Mathf.Max(1, data.Length);
+        long sum = 0, rSum = 0, gSum = 0, bSum = 0;
+        int min = 255, max = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            Color32 c = data[i];
+            int m = c.r;
+            if (c.g > m) m = c.g;
+            if (c.b > m) m = c.b;
+            if (m < min) min = m;
+            if (m > max) max = m;
+            sum += m; rSum += c.r; gSum += c.g; bSum += c.b;
+        }
+        int mean = (int)(sum / n);
+        int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
+        bool srgb = _leftRt != null
+            && UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(_leftRt.graphicsFormat);
+        VRLog.Info("WorldUI",
+            $"MAP CENTER probe (central {CenterProbeRegion * 100f:F0}% of base RT): mean {mean}/255 " +
+            $"(r{rMean} g{gMean} b{bMean}), min {min}, max {max} ({BlackProbeSize}x{BlackProbeSize} downsample); " +
+            $"base RT sRGB={srgb}, MapSrgbFix {MapSrgbFixOn}. " +
+            (srgb
+                ? "sRGB=True ⇒ this mean IS the displayed (gamma-encoded) brightness — the map should read bright."
+                : $"sRGB=False (raw-linear store) ⇒ dark; the MapSrgbFix would sRGB-encode it to ~{SrgbEncode(mean)}/255."));
+    }
+
+    // ---- STEP-1c: earliest-capture probe (right after the map camera renders into the base RT) ---
+
+    /// <summary>
+    /// Camera.onPostRender hook: the instant a CAPTURED background (map) camera finishes rendering
+    /// into the base RT, probe the base RT's CENTER region. Compared against the end-of-frame
+    /// <see cref="TickCenterProbe"/> reading, this localises the darkness: BRIGHT here but DARK at
+    /// end-of-frame ⇒ OUR later compositing darkens it (pivot the fix to the composite/blit gamma);
+    /// DARK already here ⇒ the camera→RT write is the darkener (colorspace — the MapSrgbFix path).
+    /// </summary>
+    private void OnPostRenderCamera(Camera cam)
+    {
+        if (!_active || _leftRt == null || _earliestProbePending || cam == null)
+            return;
+        if (cam.targetTexture != _leftRt || !_bySource.ContainsKey(cam))
+            return; // only a captured 3D camera rendering into the base RT (the map camera among them)
+        if (_earliestProbeFrame != int.MinValue
+            && Time.frameCount - _earliestProbeFrame < EarliestProbeIntervalFrames)
+            return;
+        _earliestProbeFrame = Time.frameCount;
+
+        if (_earliestProbeRt == null)
+        {
+            _earliestProbeRt = CreateColorRt(BlackProbeSize, BlackProbeSize, 0, "GloomhavenVR.FlatScreenRT.EarliestProbe");
+            if (!_earliestProbeRt.Create())
+            {
+                ReleaseEarliestProbeRt();
+                return;
+            }
+        }
+
+        float scale = CenterProbeRegion;
+        float offset = (1f - CenterProbeRegion) * 0.5f;
+        // Runs inside the camera render stack (onPostRender) — save/restore the active RT so the
+        // next camera's target is untouched (mirrors the in-render blits in OnPreRenderCamera).
+        RenderTexture? previous = RenderTexture.active;
+        Graphics.Blit(_leftRt, _earliestProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
+        RenderTexture.active = previous;
+        _earliestProbeCam = cam.name;
+        _earliestProbePending = true;
+        _earliestProbeReqGen = _probeGen;
+        AsyncGPUReadback.Request(_earliestProbeRt, 0, TextureFormat.RGBA32, OnEarliestProbe);
+    }
+
+    private void OnEarliestProbe(AsyncGPUReadbackRequest req)
+    {
+        _earliestProbePending = false;
+        if (!_active || _earliestProbeReqGen != _probeGen || req.hasError)
+            return;
+
+        var data = req.GetData<Color32>();
+        int n = Mathf.Max(1, data.Length);
+        long sum = 0, rSum = 0, gSum = 0, bSum = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            Color32 c = data[i];
+            int m = c.r;
+            if (c.g > m) m = c.g;
+            if (c.b > m) m = c.b;
+            sum += m; rSum += c.r; gSum += c.g; bSum += c.b;
+        }
+        int mean = (int)(sum / n);
+        int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
+        VRLog.Info("WorldUI",
+            $"MAP EARLIEST probe (base RT center right after '{_earliestProbeCam}' onPostRender): " +
+            $"mean {mean}/255 (r{rMean} g{gMean} b{bMean}) — compare to the MAP CENTER (end-of-frame) probe: " +
+            "bright here + dark there ⇒ our compositing darkens it (pivot to composite gamma); dark here " +
+            "⇒ the camera→RT write is the darkener (colorspace — MapSrgbFix).");
     }
 
     private static void ClearOpaqueBlack(RenderTexture rt)
@@ -1269,6 +1543,11 @@ internal sealed class FlatScreenStereo
         // (did the strip make it non-black? → _baseRecovered) and the mod RTs (is the clone / are
         // the eye RTs black? → capture-vs-composite), logging each channel for the next hardware log.
         TickEngagedProbe();
+
+        // STEP-1b: map-area (CENTER-region) probe of the base RT — runs ALWAYS (the dark-not-black
+        // map never trips the black watchdog, so the engaged probes above never fire for it). This
+        // measures the parchment area specifically and logs the sRGB-encoded value the fix yields.
+        TickCenterProbe();
     }
 
     /// <summary>
@@ -1288,10 +1567,9 @@ internal sealed class FlatScreenStereo
         }
         if (_rtLeftShifted == null)
         {
-            var rt = new RenderTexture(_leftRt.width, _leftRt.height, 0)
-            {
-                name = "GloomhavenVR.FlatScreenRT.LeftShifted",
-            };
+            // COLORSPACE FIX: sRGB when [WorldUI] MapSrgbFix — the shift blits copy the (sRGB) shift
+            // source into this left-eye target, so it must match to preserve the corrected brightness.
+            var rt = CreateColorRt(_leftRt.width, _leftRt.height, 0, "GloomhavenVR.FlatScreenRT.LeftShifted");
             if (!rt.Create())
             {
                 Object.Destroy(rt);
