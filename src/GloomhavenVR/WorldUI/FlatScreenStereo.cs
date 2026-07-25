@@ -1232,6 +1232,7 @@ internal sealed class FlatScreenStereo
                 ? $"{colors.Length} verts, colour[0] = (r{colors[0].r:F2} g{colors[0].g:F2} b{colors[0].b:F2} a{colors[0].a:F2})"
                 : "NONE (no vertex-colour channel — default white; a dim result then means the albedo texture itself is dark, not vertex-colour)";
             VRLog.Info("WorldUI", $"MAP ALBEDO vertex colours: {sample}. Forcing white so Sprites/Default shows the parchment albedo at full brightness (MAP ALBEDO probe mean should rise from ~43 if vertex colour was the darkener).");
+            LogWorldMapUvs(mesh);
         }
 
         if (colors.Length == 0)
@@ -1252,6 +1253,39 @@ internal sealed class FlatScreenStereo
         System.Array.Copy(white, whitened, white.Length);
         mesh.colors = whitened;
         _worldMapWhitened = true;
+    }
+
+    /// <summary>
+    /// Log the worldMap mesh's UV channels (once). A flat, detail-less albedo render means
+    /// Sprites/Default (uv0) is sampling degenerately — either uv0 is missing/degenerate (the
+    /// parchment is on uv1/uv2, which Sprites/Default cannot reach → needs a custom-channel shader),
+    /// or the ST is off. This prints each channel's vert count and 0..1 bounds to disambiguate.
+    /// </summary>
+    private void LogWorldMapUvs(Mesh mesh)
+    {
+        var uv0 = new System.Collections.Generic.List<Vector2>();
+        var uv1 = new System.Collections.Generic.List<Vector2>();
+        var uv2 = new System.Collections.Generic.List<Vector2>();
+        mesh.GetUVs(0, uv0);
+        mesh.GetUVs(1, uv1);
+        mesh.GetUVs(2, uv2);
+        VRLog.Info("WorldUI", $"MAP ALBEDO UVs: verts {mesh.vertexCount}, submeshes {mesh.subMeshCount}; " +
+                              $"uv0 {UvBounds(uv0)}; uv1 {UvBounds(uv1)}; uv2 {UvBounds(uv2)}. " +
+                              "Sprites/Default samples uv0 — if uv0 is degenerate/tiny but uv1 spans ~0..1, the parchment is on uv1 and needs a custom shader.");
+    }
+
+    private static string UvBounds(System.Collections.Generic.List<Vector2> uv)
+    {
+        if (uv == null || uv.Count == 0)
+            return "NONE";
+        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+        for (int i = 0; i < uv.Count; i++)
+        {
+            Vector2 v = uv[i];
+            if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
+            if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
+        }
+        return $"{uv.Count} [x {minX:F3}..{maxX:F3}, y {minY:F3}..{maxY:F3}]";
     }
 
     /// <summary>Restore the worldMap mesh's original vertex colours (game state untouched on release).</summary>
@@ -1306,15 +1340,33 @@ internal sealed class FlatScreenStereo
                     prop = "mainTexture";
             }
             var m = new Material(sh) { name = "GloomhavenVR.MapAlbedo." + i };
+            Vector2 scale = Vector2.one, offset = Vector2.zero;
             if (tex != null)
             {
                 m.mainTexture = tex; // Sprites/Default samples _MainTex
+                // Copy the source's tiling/offset — a flat, detail-less result means Sprites/Default
+                // (default ST 1,1,0,0) is sampling the wrong region; the Amplify material may carry a
+                // non-default _MainTex_ST. Read from whichever property held the albedo.
+                string stProp = prop == "_Alb" ? "_Alb_ST" : "_MainTex_ST";
+                if (o != null && o.HasProperty(stProp))
+                {
+                    Vector4 st = o.GetVector(stProp);
+                    scale = new Vector2(st.x, st.y);
+                    offset = new Vector2(st.z, st.w);
+                }
+                else if (o != null)
+                {
+                    scale = o.mainTextureScale;
+                    offset = o.mainTextureOffset;
+                }
+                m.mainTextureScale = scale;
+                m.mainTextureOffset = offset;
                 withTex++;
             }
             overrides[i] = m;
             if (!_albedoMaterialsLogged)
                 facts += $"\n  material[{i}] '{(o != null ? o.name : "<null>")}': albedo from {prop}"
-                         + (tex != null ? $" = '{tex.name}' {tex.width}x{tex.height}" : " (none)");
+                         + (tex != null ? $" = '{tex.name}' {tex.width}x{tex.height} ST scale({scale.x:F3},{scale.y:F3}) offset({offset.x:F3},{offset.y:F3})" : " (none)");
         }
         _worldMapOverrideMats = overrides;
         _worldMapOriginalMats = orig;
