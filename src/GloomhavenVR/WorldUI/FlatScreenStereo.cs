@@ -2592,7 +2592,14 @@ internal sealed class FlatScreenStereo
             Shader? sh = Shader.Find("Unlit/Transparent") ?? Shader.Find("Sprites/Default");
             if (sh == null) { VRLog.Warn("WorldUI", "MAP ICONS: no unlit/sprite shader found — icons skipped."); _decalTypeMissing = true; return; }
             _iconMat = new Material(sh) { name = "GloomhavenVR.MapIconMat" };
-            VRLog.Info("WorldUI", $"MAP ICONS: icon material shader = '{sh.name}'.");
+            // Draw AFTER the wind/cloud particles. In flat the wind is world-space particles on
+            // the Default sorting layer (queue ~3000) and the location icons are UI-canvas markers
+            // painted LAST, on top — the wind never obscures them. Our map mesh writes depth but the
+            // particles and our icons do NOT, so overlap is decided purely by render-queue draw ORDER,
+            // not depth. Forcing the icons to the Overlay queue (4000 > particles' 3000) reproduces the
+            // flat layering: icons always on top, the wind drifts subtly underneath (no thick bands).
+            _iconMat.renderQueue = 4000;
+            VRLog.Info("WorldUI", $"MAP ICONS: icon material shader = '{sh.name}' (renderQueue={_iconMat.renderQueue}, drawn over the wind particles).");
         }
         _iconMpb ??= new MaterialPropertyBlock();
         if (_decalTypeMissing) return;
