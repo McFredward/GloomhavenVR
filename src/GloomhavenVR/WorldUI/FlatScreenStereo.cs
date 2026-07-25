@@ -279,6 +279,12 @@ internal sealed class FlatScreenStereo
     private const int BlackProbeSize = 8;
     /// <summary>Frames between async non-black probes of the base RT (while not yet engaged).</summary>
     private const int BlackProbeIntervalFrames = 30;
+    /// <summary>
+    /// Frames between base/stable-eye probes ONCE the base RT is recovered — faster than
+    /// the initial 4-way round robin because this cadence also feeds the hold-last-non-black
+    /// gate for the stable eye blit (a slow verdict would let a black base blip through).
+    /// </summary>
+    private const int RecoveredProbeIntervalFrames = 6;
     /// <summary>Consecutive all-black probe results before map base capture engages (transient guard).</summary>
     private const int BlackConsecutiveToEngage = 3;
     /// <summary>Max 0..255 channel value still counted as "black" (guards a near-black graded frame).</summary>
@@ -359,6 +365,27 @@ internal sealed class FlatScreenStereo
     /// clone; if it never recovers, the clone/shift path (below) stays in charge — no regression.
     /// </summary>
     private bool _baseRecovered;
+    /// <summary>
+    /// STABLE EYE RT (map base capture, recovered — the routing/oscillation fix): the recovered
+    /// game render lives in the SHARED base RT (<see cref="_leftRt"/>), whose per-camera
+    /// clear/redraw makes it oscillate (hardware log build 5b9d4bdc1: 13↔253↔138↔194 across
+    /// frames). Rather than driving the eyes off that shared, flickering RT, the recovered base
+    /// is blitted into this mod-owned RT WHILE the async base probe reads NON-black
+    /// (hold-last-non-black — a black blip freezes the last good copy instead of showing black),
+    /// and BOTH eyes sample THIS steady RT. Probed directly so the log proves the eye RT is
+    /// non-black (the old <see cref="_rtRight"/>/<see cref="_rtLeftShifted"/> probes read the
+    /// INERT mirror/shift RTs in this path — never what the eyes sample — which mislocalised the
+    /// bug to the eyes when the base was actually reaching them).
+    /// </summary>
+    private RenderTexture? _rtStable;
+    /// <summary>Last base-RT async probe verdict (drives the hold-last-non-black stable blit).</summary>
+    private bool _baseNonBlack;
+    /// <summary>True once <see cref="_rtStable"/> holds at least one non-black copy of the base render.</summary>
+    private bool _stableHasContent;
+    /// <summary>Frame the stable-eye blit last ran (once per frame, head pre-render).</summary>
+    private int _stableBlitFrame = -1;
+    /// <summary>One-shot RT-identity check log for the recovered stable-eye path.</summary>
+    private bool _stableIdentityLogged;
     /// <summary>Frame the engaged diagnostic probe last ran (cycles base RT / _rtLeft / _rtRight / shifted).</summary>
     private int _engagedProbeFrame = int.MinValue;
     /// <summary>Round-robin index of the engaged diagnostic probe target.</summary>
@@ -606,12 +633,16 @@ internal sealed class FlatScreenStereo
         ReleaseRightRt();
         ReleaseShiftRt();
         ReleaseLeftRt();
+        ReleaseStableRt();
         ReleaseProbeRt();
         _probeGen++;                 // invalidate any in-flight probe callback
         _probePending = false;
         _mapBaseCapture = false;
         _mapBaseCaptureFailed = false;
         _baseRecovered = false;
+        _baseNonBlack = false;
+        _stableIdentityLogged = false;
+        _stableBlitFrame = -1;
         _mapSetupLogged = false;
         _blackConsecutive = 0;
         if (_root != null)
@@ -683,6 +714,49 @@ internal sealed class FlatScreenStereo
         _rtLeft.Release();
         Object.Destroy(_rtLeft);
         _rtLeft = null;
+    }
+
+    // ---- stable eye RT (map base capture recovered — routing/oscillation fix) ---------------
+
+    /// <summary>
+    /// Ensure the stable eye RT exists and matches the base RT's dimensions. The eyes
+    /// sample THIS (a hold-last-non-black copy of the recovered base render) instead of
+    /// the shared, oscillating base RT. Colour-only (no depth) — it is a flat blit target.
+    /// </summary>
+    private bool EnsureStableRt()
+    {
+        if (_leftRt == null)
+            return false;
+        if (_rtStable != null
+            && (_rtStable.width != _leftRt.width || _rtStable.height != _leftRt.height))
+            ReleaseStableRt();
+        if (_rtStable == null)
+        {
+            var rt = new RenderTexture(_leftRt.width, _leftRt.height, 0)
+            {
+                name = "GloomhavenVR.FlatScreenRT.EyeStable",
+                antiAliasing = 1,
+            };
+            if (!rt.Create())
+            {
+                Object.Destroy(rt);
+                return false;
+            }
+            _rtStable = rt;
+            ClearOpaqueBlack(_rtStable); // fresh RT color is undefined — no garbage before the first hold
+            _stableHasContent = false;
+        }
+        return true;
+    }
+
+    private void ReleaseStableRt()
+    {
+        if (_rtStable == null)
+            return;
+        _rtStable.Release();
+        Object.Destroy(_rtStable);
+        _rtStable = null;
+        _stableHasContent = false;
     }
 
     private void ReleaseProbeRt()
@@ -1171,6 +1245,9 @@ internal sealed class FlatScreenStereo
         }
         _mapBaseCapture = true;
         _baseRecovered = false;
+        _baseNonBlack = false;
+        _stableIdentityLogged = false;
+        ReleaseStableRt(); // a stale hold from a previous engagement must not leak into this one
         LogMapRenderSetup(maxChannel);
         VRLog.Info("WorldUI", $"MAP BASE CAPTURE ENGAGED: the screen's base RenderTexture reads " +
                               $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
@@ -1303,20 +1380,36 @@ internal sealed class FlatScreenStereo
     {
         if (!_mapBaseCapture || _leftRt == null || _probePending)
             return;
+        int interval = _baseRecovered ? RecoveredProbeIntervalFrames : BlackProbeIntervalFrames;
         if (_engagedProbeFrame != int.MinValue
-            && Time.frameCount - _engagedProbeFrame < BlackProbeIntervalFrames)
+            && Time.frameCount - _engagedProbeFrame < interval)
             return;
         _engagedProbeFrame = Time.frameCount;
 
         RenderTexture? rt;
         string label;
         bool isBase;
-        switch (_engagedProbeIndex % 4)
+        if (_baseRecovered)
         {
-            case 0: rt = _leftRt; label = "base RT (game render)"; isBase = true; break;
-            case 1: rt = _rtLeft; label = "_rtLeft (mod map clone)"; isBase = false; break;
-            case 2: rt = _rtRight; label = "_rtRight (right eye)"; isBase = false; break;
-            default: rt = _rtLeftShifted; label = "_rtLeftShifted (left eye)"; isBase = false; break;
+            // Recovered mono: only the base RT (the recovery/blit SOURCE) and the stable
+            // eye RT (what BOTH eyes actually sample) are meaningful — the clone, right and
+            // shifted RTs are inert in this path, so probing them only misled. Alternate the
+            // two live RTs so the log proves the eye RT is non-black AND keeps the base
+            // verdict (_baseNonBlack) fresh for the hold-last-non-black blit gate.
+            if ((_engagedProbeIndex & 1) == 0)
+            { rt = _leftRt; label = "base RT (game render)"; isBase = true; }
+            else
+            { rt = _rtStable; label = "eye RT (stable, both eyes)"; isBase = false; }
+        }
+        else
+        {
+            switch (_engagedProbeIndex % 4)
+            {
+                case 0: rt = _leftRt; label = "base RT (game render)"; isBase = true; break;
+                case 1: rt = _rtLeft; label = "_rtLeft (mod map clone)"; isBase = false; break;
+                case 2: rt = _rtRight; label = "_rtRight (right eye)"; isBase = false; break;
+                default: rt = _rtLeftShifted; label = "_rtLeftShifted (left eye)"; isBase = false; break;
+            }
         }
         _engagedProbeIndex++;
         if (rt == null)
@@ -1365,16 +1458,43 @@ internal sealed class FlatScreenStereo
         VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max channel {maxChannel}/255 " +
                               $"({BlackProbeSize}x{BlackProbeSize} downsample).");
 
-        if (_engagedProbeIsBase && !_baseRecovered && maxChannel > BlackChannelThreshold)
+        if (_engagedProbeIsBase)
         {
-            _baseRecovered = true;
-            VRLog.Info("WorldUI", $"MAP BASE RECOVERED: the base RT now reads NON-black (max channel " +
-                                  $"{maxChannel}/255) after the image-effect strip — both eyes switch to the " +
-                                  "game's own raw render MONO (real map; the scene's colour grading is dropped). " +
-                                  "If the map is STILL black on hardware, the strip did not cover the offending " +
-                                  "effect (the MAP SETUP line lists what is on the camera); the per-RT MAP probe " +
-                                  "lines localise capture-vs-composite.");
+            // Feed the hold-last-non-black gate: only copy the base into the stable eye RT
+            // while it reads non-black, so a black base blip freezes the last good copy.
+            _baseNonBlack = maxChannel > BlackChannelThreshold;
+            if (!_baseRecovered && _baseNonBlack)
+            {
+                _baseRecovered = true;
+                // The base is non-black RIGHT NOW — arm the stable blit immediately so the
+                // first eye pass after recovery already copies a good frame (no fallback flash).
+                _baseNonBlack = true;
+                VRLog.Info("WorldUI", $"MAP BASE RECOVERED: the base RT now reads NON-black (max channel " +
+                                      $"{maxChannel}/255) after the image-effect strip — both eyes are driven from a " +
+                                      "STABLE mod-owned eye RT (a hold-last-non-black copy of the game's own raw " +
+                                      "render; real map, scene colour grading dropped) instead of the shared, " +
+                                      "oscillating base RT. The 'eye RT (stable, both eyes)' probe below reports " +
+                                      "what the eyes actually sample; if THAT is non-black the map reaches both eyes.");
+            }
         }
+    }
+
+    /// <summary>
+    /// One-shot RT-identity check for the recovered stable-eye path (task step 3): proves in the
+    /// log whether the RT the base probe reads (<see cref="_leftRt"/>) is the SAME object the quad
+    /// samples (<c>_quadMaterial.mainTexture</c>) and names the stable eye RT the eyes now sample —
+    /// by name + instance id, so a topology mismatch is unambiguous next log.
+    /// </summary>
+    private void LogStableIdentity()
+    {
+        Material? mat = _quadMaterial;
+        Texture? quadTex = mat != null ? mat.mainTexture : null;
+        VRLog.Info("WorldUI", "MAP identity check — base RT (probe source) '" +
+                              $"{(_leftRt != null ? _leftRt.name : "null")}'#{(_leftRt != null ? _leftRt.GetInstanceID() : 0)}; " +
+                              $"quad.mainTexture '{(quadTex != null ? quadTex.name : "null")}'#{(quadTex != null ? quadTex.GetInstanceID() : 0)}; " +
+                              $"stable eye RT '{(_rtStable != null ? _rtStable.name : "null")}'#{(_rtStable != null ? _rtStable.GetInstanceID() : 0)}. " +
+                              "Both eyes are driven from the stable eye RT (a hold-last-non-black copy of the base render); " +
+                              "the 'eye RT (stable, both eyes)' probe reports what they sample.");
     }
 
     // ---- map base capture: one-shot render-setup diagnostic (STEP-1b) ----------------------
@@ -1469,11 +1589,14 @@ internal sealed class FlatScreenStereo
         {
             _mapBaseCapture = false;
             _baseRecovered = false;
+            _baseNonBlack = false;
+            _stableIdentityLogged = false;
             _mapSetupLogged = false;
             _blackConsecutive = 0;
             _probeGen++;
             _probePending = false;
             ReleaseLeftRt();
+            ReleaseStableRt();
         }
     }
 
@@ -1588,6 +1711,31 @@ internal sealed class FlatScreenStereo
             RenderTexture.active = previous;
         }
 
+        // STABLE EYE RT (map base capture recovered — the routing/oscillation fix): the recovered
+        // game render lives in the SHARED base RT (_leftRt), whose per-camera clear/redraw makes it
+        // oscillate (log build 5b9d4bdc1: base RT 13↔253↔138↔194 frame-to-frame). Copy it into the
+        // mod-owned stable RT WHILE the async base probe reads non-black (hold-last-non-black — a
+        // black blip freezes the last good copy instead of showing black), and drive BOTH eyes from
+        // that steady RT below. One blit per frame; gated behind the recovery so no working scene
+        // (menu video / guildmaster) and no non-recovered clone path is touched.
+        if (_videoSuspended && _mapBaseCapture && _baseRecovered
+            && _stableBlitFrame != Time.frameCount && _leftRt != null)
+        {
+            _stableBlitFrame = Time.frameCount;
+            if (EnsureStableRt() && _baseNonBlack && _rtStable != null)
+            {
+                RenderTexture? previous = RenderTexture.active;
+                Graphics.Blit(_leftRt, _rtStable);
+                RenderTexture.active = previous;
+                _stableHasContent = true;
+            }
+            if (!_stableIdentityLogged)
+            {
+                _stableIdentityLogged = true;
+                LogStableIdentity();
+            }
+        }
+
         Camera.MonoOrStereoscopicEye eye = cam.stereoActiveEye;
         bool right;
         if (eye == Camera.MonoOrStereoscopicEye.Right)
@@ -1632,9 +1780,16 @@ internal sealed class FlatScreenStereo
         // through the shift/mono path instead of the base RT).
         RenderTexture? target;
         if (_videoSuspended)
-            // Base recovered by the effect strip → the game render (base RT); else the mod clone
-            // (_rtLeft) while the map base capture is engaged; else the plain left RT.
-            target = _mapBaseCapture && !_baseRecovered && _rtLeft != null ? _rtLeft : _leftRt;
+        {
+            // Base recovered by the effect strip → the STABLE eye RT (hold-last-non-black copy of
+            // the game render — decoupled from the oscillating shared base RT; falls back to the
+            // base RT itself only for the first frame before the first hold lands). Else the mod
+            // clone (_rtLeft) while the map base capture is engaged; else the plain left RT.
+            if (_mapBaseCapture && _baseRecovered)
+                target = _stableHasContent && _rtStable != null ? _rtStable : _leftRt;
+            else
+                target = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
+        }
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
         else if (right)
