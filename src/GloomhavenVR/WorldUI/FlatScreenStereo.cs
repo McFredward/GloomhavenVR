@@ -267,6 +267,10 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<float>? s_mapAlbedoAmbient;
     /// <summary>MAP ALBEDO — add a mod directional light during our forward render (default ON) so normal-mapped parchment relief is revealed (in case the map detail is lit relief, not flat albedo).</summary>
     private static ConfigEntry<bool>? s_mapAlbedoLight;
+    /// <summary>MAP TEX BLIT (MapCaptureMode 2): orientation knobs for the 2x2 GH_CampaignMap texture blit.</summary>
+    private static ConfigEntry<bool>? s_mapTexFlipX;
+    private static ConfigEntry<bool>? s_mapTexFlipY;
+    private static ConfigEntry<bool>? s_mapTexSwapDiag;
 
     // ---- map capture MODE + passive-deferred image-effect strip (live) ---------------------
     /// <summary>MAP CAPTURE MODE (default 1): 0 = albedo camera (mod forward render), 1 = passive-deferred (keep the game MapCamera deferred + redirected, strip its image effects). Read LIVE.</summary>
@@ -604,6 +608,14 @@ internal sealed class FlatScreenStereo
             "(SSAO) image effect. Live.");
         s_mapStripPostProcess = file.Bind("WorldUI", "MapStripPostProcess", true,
             "Passive-deferred (MapCaptureMode 1): disable the MapCamera's PostProcessLayer component. Live.");
+        s_mapTexFlipX = file.Bind("WorldUI", "MapTexFlipX", false,
+            "Texture-blit map (MapCaptureMode 2): mirror the map horizontally. Live.");
+        s_mapTexFlipY = file.Bind("WorldUI", "MapTexFlipY", true,
+            "Texture-blit map (MapCaptureMode 2): mirror the map vertically (default ON — RT origin is " +
+            "bottom-left, textures are top-left). Live.");
+        s_mapTexSwapDiag = file.Bind("WorldUI", "MapTexSwapDiag", false,
+            "Texture-blit map (MapCaptureMode 2): swap the NE/SW quadrants if the map reads mirrored " +
+            "along the diagonal. Live.");
         s_mapStripAllImageEffects = file.Bind("WorldUI", "MapStripAllImageEffects", false,
             "Passive-deferred (MapCaptureMode 1): when ON, disable EVERY MonoBehaviour on the MapCamera " +
             "that declares an OnRenderImage method (reflection), overriding the individual strip toggles. " +
@@ -657,8 +669,12 @@ internal sealed class FlatScreenStereo
     /// <summary>[WorldUI] MapAlbedoLight — add a mod directional light during the map's forward render.</summary>
     internal static bool MapAlbedoLightOn => s_mapAlbedoLight?.Value ?? true;
 
-    /// <summary>[WorldUI] MapCaptureMode — 0 = albedo camera (mod forward render), 1 = passive-deferred (strip the game MapCamera's image effects). Read live, clamped 0..1.</summary>
-    internal static int MapCaptureMode => Mathf.Clamp(s_mapCaptureMode?.Value ?? 1, 0, 1);
+    /// <summary>[WorldUI] MapCaptureMode — 0 = albedo camera, 1 = passive-deferred, 2 = texture blit (draw the map's own GH_CampaignMap textures 2x2 into the base RT). Read live, clamped 0..2.</summary>
+    internal static int MapCaptureMode => Mathf.Clamp(s_mapCaptureMode?.Value ?? 2, 0, 2);
+    /// <summary>[WorldUI] MapTexFlipX/Y/Swap — orientation of the 2x2 texture-blit map (mode 2), tunable live.</summary>
+    internal static bool MapTexFlipX => s_mapTexFlipX?.Value ?? false;
+    internal static bool MapTexFlipY => s_mapTexFlipY?.Value ?? true;
+    internal static bool MapTexSwapDiag => s_mapTexSwapDiag?.Value ?? false;
     /// <summary>[WorldUI] MapStripBeautify — passive-deferred: disable the MapCamera's Beautify effect.</summary>
     internal static bool MapStripBeautify => s_mapStripBeautify?.Value ?? true;
     /// <summary>[WorldUI] MapStripVolumetricFog — passive-deferred: disable the MapCamera's VolumetricFog effects.</summary>
@@ -1129,8 +1145,10 @@ internal sealed class FlatScreenStereo
         }
         else
         {
-            // Mode 0 / not engaged: restore any effects a prior mode-1 pass disabled, then run the
-            // mod forward albedo camera (a no-op that just keeps it disabled when not engaged).
+            // Mode 0 (albedo) / 2 (texture blit) / not engaged: restore any effects a prior mode-1
+            // pass disabled, then run the mod camera. In mode 2 the camera just clears the base RT and
+            // its OnPostRender draws the map's own GH_CampaignMap textures 2x2 into it (the parchment
+            // detail lives in those textures — the deferred render never yields it in an off-screen RT).
             RestoreStrippedEffects();
             ReconcileAlbedoCamera(mapSource);
         }
@@ -1306,6 +1324,13 @@ internal sealed class FlatScreenStereo
         // Render whatever the game camera sees PLUS the parchment's own layer (its material override
         // guarantees the mesh draws), never the mod layer (our quad/hands — feedback).
         cam.cullingMask = (mapSource.cullingMask | (1 << _worldMapLayer)) & ~VRLayers.ModLayerMask;
+        // Mode 2 (texture blit): the camera draws NOTHING (mask 0) — it only clears the base RT to
+        // black; its OnPostRender then draws the map's own GH_CampaignMap textures 2x2 into it.
+        if (MapCaptureMode == 2)
+        {
+            cam.cullingMask = 0;
+            cam.backgroundColor = Color.black;
+        }
         // Just above the game MapCamera so Unity composites us LAST into the base RT (we overwrite
         // its dark render); still below the head camera, so the quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
@@ -1336,6 +1361,95 @@ internal sealed class FlatScreenStereo
                                   $"{submeshes} submeshes; forward mod camera (depth {cam.depth:F1}, cloned from " +
                                   $"'{mapSource.name}') → base RT, parchment drawn unlit from its albedo texture.");
         }
+    }
+
+    // ---- texture blit (MapCaptureMode 2): draw the map's own textures 2x2 into the base RT ----
+
+    /// <summary>Gathered GH_CampaignMap quadrant textures: [0]=01(NW) [1]=02(NE) [2]=03(SW) [3]=04(SE).</summary>
+    private Texture[]? _mapQuadTextures;
+    private bool _mapTexLogged;
+
+    /// <summary>
+    /// Read the four <c>GH_CampaignMap_0N</c> quadrant textures off the worldMap renderer's materials
+    /// (by the number in the material name). The parchment DETAIL lives in these 4096² textures — the
+    /// deferred render never yields it into an off-screen RT, so mode 2 shows the textures directly.
+    /// </summary>
+    private void GatherMapTextures()
+    {
+        if (_mapQuadTextures != null || _worldMapRenderer == null)
+            return;
+        var quads = new Texture[4];
+        Material[] mats = _worldMapRenderer.sharedMaterials;
+        var sb = new System.Text.StringBuilder();
+        foreach (Material m in mats)
+        {
+            if (m == null)
+                continue;
+            Texture? tex = (m.HasProperty("_MainTex") ? m.GetTexture("_MainTex") : null) ?? m.mainTexture;
+            if (tex == null)
+                continue;
+            // Parse the quadrant index from "GH_CampaignMap_0N..." (1..4 → array 0..3).
+            int idx = -1;
+            string n = m.name;
+            for (int k = 0; k + 1 < n.Length; k++)
+            {
+                if (n[k] == '0' && n[k + 1] >= '1' && n[k + 1] <= '4')
+                {
+                    idx = (n[k + 1] - '1');
+                    break;
+                }
+            }
+            if (idx >= 0 && idx < 4 && quads[idx] == null)
+            {
+                quads[idx] = tex;
+                sb.Append($"\n  quad[{idx}] (0{idx + 1}) = '{tex.name}' {tex.width}x{tex.height} from '{m.name}'");
+            }
+        }
+        _mapQuadTextures = quads;
+        if (!_mapTexLogged)
+        {
+            _mapTexLogged = true;
+            int have = 0;
+            for (int i = 0; i < 4; i++) if (quads[i] != null) have++;
+            VRLog.Info("WorldUI", $"MAP TEX BLIT (MapCaptureMode 2): {have}/4 quadrant textures gathered — " +
+                                  "drawn 2x2 into the base RT (NW=01 top-left, NE=02, SW=03, SE=04). Tune " +
+                                  "orientation with MapTexFlipX/MapTexFlipY/MapTexSwapDiag (live)." + sb);
+        }
+    }
+
+    /// <summary>
+    /// Draw the four quadrant textures into the base RT in a 2x2 grid (called from the mod camera's
+    /// OnPostRender, when the base RT is the active target and has just been cleared to black). Uses
+    /// <see cref="Graphics.DrawTexture"/> — GPU draw, no readable texture needed. Orientation knobs
+    /// (flip X/Y, diagonal swap) let us correct mirroring/rotation live without a rebuild.
+    /// </summary>
+    private void BlitMapQuadrants()
+    {
+        if (_mapQuadTextures == null || _leftRt == null)
+            return;
+        int w = _leftRt.width, h = _leftRt.height;
+        int hw = w / 2, hh = h / 2;
+
+        // Base grid cells in DrawTexture pixel space (LoadPixelMatrix → origin top-left, y down):
+        // index 0=NW,1=NE,2=SW,3=SE. Column = idx&1, row = idx>>1.
+        bool flipX = MapTexFlipX, flipY = MapTexFlipY, swap = MapTexSwapDiag;
+
+        GL.PushMatrix();
+        GL.LoadPixelMatrix(0, w, h, 0);
+        for (int idx = 0; idx < 4; idx++)
+        {
+            Texture? tex = _mapQuadTextures[idx];
+            if (tex == null)
+                continue;
+            int col = idx & 1;          // 0 = left, 1 = right
+            int row = (idx >> 1) & 1;    // 0 = top,  1 = bottom
+            if (flipX) col = 1 - col;
+            if (flipY) row = 1 - row;
+            if (swap && (idx == 1 || idx == 2)) { col = 1 - col; row = 1 - row; }
+            var rect = new Rect(col * hw, row * hh, hw, hh);
+            Graphics.DrawTexture(rect, tex);
+        }
+        GL.PopMatrix();
     }
 
     // ---- passive-deferred capture (MapCaptureMode 1) ----------------------------------------
@@ -1503,6 +1617,15 @@ internal sealed class FlatScreenStereo
                                       "(the map stays black). Retrying each tick while the map is showing.");
             }
             return false;
+        }
+
+        // Mode 2 (texture blit): we only need the renderer (for its GH_CampaignMap textures) + the
+        // clearing camera; gather the 4 quadrant textures once. No override materials / mesh.
+        if (MapCaptureMode == 2)
+        {
+            GatherMapTextures();
+            EnsureAlbedoCamera();
+            return _mapAlbedoCam != null;
         }
 
         // With the original Amplify material (default), the mesh is unreadable so there is nothing to
@@ -2042,6 +2165,8 @@ internal sealed class FlatScreenStereo
             Object.Destroy(_mapAlbedoLight.gameObject);
             _mapAlbedoLight = null;
         }
+        _mapQuadTextures = null;
+        _mapTexLogged = false;
         _worldMapRenderer = null;
         _worldMapLayer = -1;
         _albedoMaterialsLogged = false;
@@ -2328,6 +2453,8 @@ internal sealed class FlatScreenStereo
             return;
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
         {
+            if (MapCaptureMode == 2)
+                BlitMapQuadrants(); // camera cleared the base RT; now draw the map textures 2x2
             RestoreWorldMapOverride();
             RestoreAmbientAfterMapRender();
         }
