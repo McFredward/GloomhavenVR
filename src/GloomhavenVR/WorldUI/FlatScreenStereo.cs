@@ -1445,6 +1445,8 @@ internal sealed class FlatScreenStereo
 
         var data = req.GetData<Color32>();
         int maxChannel = 0;
+        long sum = 0;
+        int litTexels = 0; // texels whose max channel clears the black threshold
         for (int i = 0; i < data.Length; i++)
         {
             Color32 c = data[i];
@@ -1453,10 +1455,18 @@ internal sealed class FlatScreenStereo
             if (c.b > m) m = c.b;
             if (m > maxChannel)
                 maxChannel = m;
+            sum += m;
+            if (m > BlackChannelThreshold)
+                litTexels++;
         }
-
-        VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max channel {maxChannel}/255 " +
-                              $"({BlackProbeSize}x{BlackProbeSize} downsample).");
+        // MEAN + lit-fraction disambiguate "one bright pixel fooling MAX" from a genuinely
+        // filled frame: a black map area with a single bright UI corner reads high MAX but
+        // near-zero MEAN and tiny lit-fraction.
+        int mean = data.Length > 0 ? (int)(sum / data.Length) : 0;
+        int litPct = data.Length > 0 ? litTexels * 100 / data.Length : 0;
+        VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max {maxChannel}/255, mean {mean}/255, " +
+                              $"lit {litPct}% ({BlackProbeSize}x{BlackProbeSize} downsample) — " +
+                              "low mean + low lit% with high max ⇒ map area still black, only a stray bright texel.");
 
         if (_engagedProbeIsBase)
         {
