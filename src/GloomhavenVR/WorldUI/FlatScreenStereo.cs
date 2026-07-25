@@ -2382,8 +2382,7 @@ internal sealed class FlatScreenStereo
         if (choreo.m_ScenariosParent != null) roots.Add(choreo.m_ScenariosParent.transform);
         if (choreo.m_VillagesParent != null) roots.Add(choreo.m_VillagesParent.transform);
         if (_activeMapGo != null && _activeMapGo.transform.parent != null) roots.Add(_activeMapGo.transform.parent);
-        var groups = new Dictionary<string, int>();
-        var examples = new Dictionary<string, string>();
+        var sb = new StringBuilder();
         int total = 0;
         foreach (Transform root in roots)
         {
@@ -2391,31 +2390,30 @@ internal sealed class FlatScreenStereo
             {
                 if (r == _worldMapRenderer) continue;
                 total++;
-                Material? m = r.sharedMaterial;
-                string shader = m != null && m.shader != null ? m.shader.name : "<none>";
-                string albProp = "none";
-                if (m != null)
-                {
-                    if (m.HasProperty("_Alb") && m.GetTexture("_Alb") != null) albProp = "_Alb";
-                    else if (m.HasProperty("_MainTex") && m.GetTexture("_MainTex") != null) albProp = "_MainTex";
-                    else if (m.HasProperty("_BaseMap") && m.GetTexture("_BaseMap") != null) albProp = "_BaseMap";
-                    else if (m.mainTexture != null) albProp = "mainTexture";
-                }
                 bool inMask = (cullingMask & (1 << r.gameObject.layer)) != 0;
-                string key = $"{r.GetType().Name} L{r.gameObject.layer}({LayerMask.LayerToName(r.gameObject.layer)}) mask={inMask} shader='{shader}' alb={albProp}";
-                groups.TryGetValue(key, out int c); groups[key] = c + 1;
-                if (!examples.ContainsKey(key))
+                sb.Append($"\n  {r.name} [{r.GetType().Name}] L{r.gameObject.layer} mask={inMask} enabled={r.enabled} " +
+                          $"worldPos={r.transform.position} boundsSize={r.bounds.size}");
+                Material[] mats = r.sharedMaterials;
+                sb.Append($" sharedMats={mats.Length}");
+                for (int i = 0; i < mats.Length; i++)
                 {
-                    Texture? tex = m != null && albProp != "none" ? (albProp == "mainTexture" ? m.mainTexture : m.GetTexture(albProp)) : null;
-                    examples[key] = $"{r.name} enabled={r.enabled} tex='{(tex != null ? tex.name : "null")}'";
+                    Material? m = mats[i];
+                    if (m == null) { sb.Append($" [{i}]=null"); continue; }
+                    string sh = m.shader != null ? m.shader.name : "<noshader>";
+                    Texture? mt = m.mainTexture;
+                    string alb = "none";
+                    if (m.HasProperty("_Alb") && m.GetTexture("_Alb") != null) alb = "_Alb:" + m.GetTexture("_Alb")!.name;
+                    else if (m.HasProperty("_MainTex") && m.GetTexture("_MainTex") != null) alb = "_MainTex:" + m.GetTexture("_MainTex")!.name;
+                    else if (mt != null) alb = "main:" + mt.name;
+                    sb.Append($" [{i}]shader='{sh}' alb={alb} color={(m.HasProperty("_Color") ? m.GetColor("_Color").ToString() : "-")}");
                 }
+                // MeshFilter mesh (for the icon geometry)
+                var mf = r.GetComponent<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null)
+                    sb.Append($" mesh='{mf.sharedMesh.name}' verts={mf.sharedMesh.vertexCount}");
             }
         }
-        var sb = new StringBuilder();
-        sb.Append($"MAP SCENE renderers ({total} under scenario/village/map parents; forwardMask=0x{cullingMask:X8}):");
-        foreach (var kv in groups)
-            sb.Append($"\n  [{kv.Value}x] {kv.Key} — e.g. {examples[kv.Key]}");
-        VRLog.Info("WorldUI", sb.ToString());
+        VRLog.Info("WorldUI", $"MAP SCENE renderers [{total} total] (forwardMask=0x{cullingMask:X8}):" + sb.ToString());
     }
 
     private bool BuildOverrideMaterials()
