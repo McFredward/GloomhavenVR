@@ -1785,6 +1785,12 @@ internal sealed class FlatScreenStereo
     private Mesh? _iconQuad;
     private Material? _iconMat;
     private MaterialPropertyBlock? _iconMpb;
+    /// <summary>Command buffer that draws the location icons AFTER the wind, on a freshly CLEARED depth
+    /// buffer — so the wind/cloud particles (which write depth) can never occlude the icons. Render-queue
+    /// ordering alone was not enough: the cloud particles have ZWrite on and, drifting above the icon
+    /// plane, depth-rejected the icons wherever a cloud passed (the "wind streak through the icon").</summary>
+    private CommandBuffer? _iconCmd;
+    private Camera? _iconCmdCam;
     // ---- wind/cloud particle dimming (drifting streaks over the map) ----
     // The map's Wind/Clouds ambiance particles render as thick, over-prominent translucent streaks in our
     // forward capture (the game's map camera post-processes/masks them; ours doesn't). We KEEP the wind but
@@ -2756,6 +2762,20 @@ internal sealed class FlatScreenStereo
             VRLog.Info("WorldUI", $"MAP ICONS: icon material shader = '{sh.name}' (renderQueue={_iconMat.renderQueue}, drawn over the wind particles).");
         }
         _iconMpb ??= new MaterialPropertyBlock();
+        // Draw the icons through a command buffer at AfterForwardAlpha (after the wind) that first CLEARS the
+        // depth buffer, so a cloud particle's depth can never reject an icon. Rebuilt every frame (icons move
+        // with pan/zoom). Attached to the current map camera; re-attached if the camera instance changes.
+        if (_iconCmd == null)
+            _iconCmd = new CommandBuffer { name = "GloomhavenVR.MapIcons" };
+        if (!ReferenceEquals(_iconCmdCam, mapCam))
+        {
+            if (_iconCmdCam != null)
+                _iconCmdCam.RemoveCommandBuffer(CameraEvent.AfterForwardAlpha, _iconCmd);
+            mapCam.AddCommandBuffer(CameraEvent.AfterForwardAlpha, _iconCmd);
+            _iconCmdCam = mapCam;
+        }
+        _iconCmd.Clear();
+        _iconCmd.ClearRenderTarget(true, false, Color.clear); // clear DEPTH only → icons ignore the wind's depth
         if (_decalTypeMissing) return;
         if (_decalType == null)
         {
@@ -2797,7 +2817,7 @@ internal sealed class FlatScreenStereo
                     mpb.SetTexture(IconMainTex, tex);
                     mpb.SetColor(IconColor, Color.white);
                 }
-                Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, rot, scale), _iconMat, d.gameObject.layer, mapCam, 0, mpb);
+                _iconCmd.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, rot, scale), _iconMat, 0, 0, mpb);
                 nDrawn++;
                 if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
                 {
@@ -3080,6 +3100,9 @@ internal sealed class FlatScreenStereo
         _albedoMaterialsLogged = false;
         _albedoWarned = false;
         _overrideApplied = false;
+        if (_iconCmd != null && _iconCmdCam != null)
+            _iconCmdCam.RemoveCommandBuffer(CameraEvent.AfterForwardAlpha, _iconCmd);
+        _iconCmdCam = null; // camera is being torn down; re-attach on next engage
         if (_mapAlbedoGo != null)
         {
             Object.Destroy(_mapAlbedoGo);
