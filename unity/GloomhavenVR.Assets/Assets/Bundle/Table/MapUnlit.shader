@@ -8,14 +8,15 @@
 // FORWARD camera and a temporary MATERIAL OVERRIDE using THIS shader (scoped to that one
 // render; the game's own mesh/materials are never mutated — multiplayer-safe).
 //
-// The mesh is isReadable=false and carries NO CPU-readable / usable UVs (the Amplify
-// shader derives them from vertex POSITION on the GPU). So this shader computes the UV
-// on the GPU from the OBJECT-space vertex position: the parchment is a flat plane in its
-// local X–Z (local bounds ~12.70 x 0.18 x 15.85 — Y is the thin axis), so
-//     uv = (objPos.xz - _LocalMin.xz) / _LocalSize.xz
-// maps the whole mesh to 0..1. Each of the four quadrant submeshes (GH_CampaignMap_01..04
-// → NW/NE/SW/SE) carries its own 4096² albedo, so the per-material _UvScale=(2,2) +
-// _UvOffset remap the mesh-wide 0..1 down to that quadrant's own 0..1 (uv*scale + offset).
+// UV SOURCE (verified on hardware, build 20f8f79c0): the mesh DOES carry real UV channels
+// — HasVertexAttribute reported TexCoord0/1/2 = dim2 (isReadable=false only blocks CPU
+// DATA access, not the channel's existence). So this shader samples the mesh's OWN UV
+// (default TexCoord0) directly — pixel-perfect, and it tracks the game's pan/zoom for free
+// because the UVs are per-vertex. Each of the four quadrant submeshes (GH_CampaignMap_01..04)
+// carries its own 4096² albedo and its own 0..1 UV, so NO per-quadrant remap is needed.
+//   _UvChannel selects 0/1/2 (TexCoord0/1/2) at runtime from the mod DLL — no rebuild needed
+//   to try another channel if albedo turns out to live on UV1/UV2.
+//   _UvScale/_UvOffset are an optional identity-by-default fine-tune (uv*scale+offset).
 //
 // Being a bundled shader, it compiles INTO gloomhavenvr.bundle so it is always present at
 // runtime (a bundled material referencing a built-in shader is the pink-material trap).
@@ -28,15 +29,16 @@ Shader "GloomhavenVR/MapUnlit"
     Properties
     {
         _MainTex ("Albedo (this quadrant)", 2D) = "white" {}
-        // The parchment mesh's LOCAL bounds (meshFilter.sharedMesh.bounds): min and size.
-        // Only .xz are used (the plane); .y is the thin/normal axis.
-        _LocalMin ("Local bounds min (xyz)", Vector) = (0,0,0,0)
-        _LocalSize ("Local bounds size (xyz)", Vector) = (1,1,1,0)
-        // Per-quadrant remap of the mesh-wide 0..1 UV to this submesh's own texture 0..1.
+        // UV channel select: 0 = TexCoord0 (default), 1 = TexCoord1, 2 = TexCoord2.
+        _UvChannel ("UV channel (0/1/2)", Float) = 0
+        // Optional identity-by-default fine-tune of the chosen UV (uv * scale + offset).
         _UvScale ("UV scale (xy)", Vector) = (1,1,0,0)
         _UvOffset ("UV offset (xy)", Vector) = (0,0,0,0)
         // Brightness multiplier (later tuning). Textures are DXT1/opaque, so alpha is forced 1.
         _Bright ("Brightness", Float) = 1
+        // ---- retained (unused by the UV path) so old material.SetVector calls stay harmless ----
+        _LocalMin ("Local bounds min (xyz) [unused]", Vector) = (0,0,0,0)
+        _LocalSize ("Local bounds size (xyz) [unused]", Vector) = (1,1,1,0)
     }
     SubShader
     {
@@ -54,33 +56,42 @@ Shader "GloomhavenVR/MapUnlit"
             struct appdata
             {
                 float4 vertex : POSITION;
+                float2 uv0 : TEXCOORD0;
+                float2 uv1 : TEXCOORD1;
+                float2 uv2 : TEXCOORD2;
             };
             struct v2f
             {
                 float4 pos : SV_POSITION;
-                float3 obj : TEXCOORD0; // object-space position (UV is derived from this)
+                float2 uv0 : TEXCOORD0;
+                float2 uv1 : TEXCOORD1;
+                float2 uv2 : TEXCOORD2;
             };
 
             sampler2D _MainTex;
-            float4 _LocalMin;
-            float4 _LocalSize;
+            float _UvChannel;
             float4 _UvScale;
             float4 _UvOffset;
             float _Bright;
+            float4 _LocalMin;   // unused (kept for SetVector compatibility)
+            float4 _LocalSize;  // unused
 
             v2f vert (appdata v)
             {
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
-                o.obj = v.vertex.xyz; // pass OBJECT-space position through
+                o.uv0 = v.uv0;
+                o.uv1 = v.uv1;
+                o.uv2 = v.uv2;
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
-                // Map the local X–Z plane to 0..1 over the whole mesh, then remap to this
-                // submesh's quadrant.
-                float2 uv = (i.obj.xz - _LocalMin.xz) / _LocalSize.xz;
+                // Pick the UV channel the game's albedo is authored on (default TexCoord0).
+                float2 uv = i.uv0;
+                if (_UvChannel > 1.5)      uv = i.uv2;
+                else if (_UvChannel > 0.5) uv = i.uv1;
                 uv = uv * _UvScale.xy + _UvOffset.xy;
                 fixed3 col = tex2D(_MainTex, uv).rgb * _Bright;
                 // Force opaque — the quadrant textures are DXT1 (no meaningful alpha).

@@ -1437,8 +1437,13 @@ internal sealed class FlatScreenStereo
     // screenshot this fixes orientation (which screen direction is +u / +v), the covered range, and the
     // per-submesh seam layout, from which the exact _UvScale/_UvOffset (or a needed flip) is computed.
     // Set to false to restore the real map textures.
-    private const bool MapUvDebug = true;
+    private const bool MapUvDebug = false;
     private Texture2D? _uvDebugTex;
+    // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
+    // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
+    // HARD-CODED (not the persisted MapUvChannel config, which may hold a stale value) and drives
+    // MapUnlit's _UvChannel, so trying another channel is a one-line change, no bundle rebuild.
+    private const float MapUnlitUvChannel = 0f;
     /// <summary>One-shot guard for the MAP MESH layout / material-ST dump.</summary>
     private bool _meshLayoutLogged;
 
@@ -2287,14 +2292,11 @@ internal sealed class FlatScreenStereo
             }
 
             var m = new Material(sh) { name = "GloomhavenVR.MapUnlit." + i };
-            m.SetVector("_LocalMin", new Vector4(_mapLocalMin.x, _mapLocalMin.y, _mapLocalMin.z, 0f));
-            m.SetVector("_LocalSize", new Vector4(_mapLocalSize.x, _mapLocalSize.y, _mapLocalSize.z, 0f));
-            // DIAGNOSTIC: disable the per-quadrant remap (scale 1, offset 0) — map the mesh-wide 0..1 UV
-            // straight into each texture. If detail now appears, the quadrant remap (uv*2) was clamping the
-            // UV to a flat edge; if it stays a flat uniform brown, the object-space UV itself is not varying
-            // (mesh bounds / object-position problem), which needs a different fix.
+            // Sample the mesh's OWN UV (the mesh carries real TexCoord0/1/2 — verified 20f8f79c0).
+            // Each quadrant submesh's UV already runs 0..1 over its own texture, so scale=1/offset=0.
             Vector2 uvScale = Vector2.one;
             Vector2 uvOffset = Vector2.zero;
+            m.SetFloat("_UvChannel", MapUnlitUvChannel);
             m.SetVector("_UvScale", new Vector4(uvScale.x, uvScale.y, 0f, 0f));
             m.SetVector("_UvOffset", new Vector4(uvOffset.x, uvOffset.y, 0f, 0f));
             m.SetFloat("_Bright", 1f);
