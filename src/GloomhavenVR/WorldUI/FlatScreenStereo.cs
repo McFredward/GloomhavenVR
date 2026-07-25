@@ -1339,7 +1339,10 @@ internal sealed class FlatScreenStereo
         // Copy the game map camera's live world pose (pan follows the camera transform).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
         cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = Color.black; // the parchment quads fill the frame; edges clear to black
+        // DIAGNOSTIC clear = dark purple (not black): if the base RT probe shows this tint, the mirror
+        // camera IS rendering (so a black map = the quads are invisible: frustum / layer / texture alpha);
+        // if the probe stays 0/black, the mirror camera is not rendering at all / is overwritten.
+        cam.backgroundColor = new Color(0.20f, 0f, 0.30f, 1f);
         // See ONLY our dedicated map-quad layer — never the game/mod layers (no feedback, no game geometry).
         cam.cullingMask = 1 << _mapQuadLayer;
         // Just above the game map camera so Unity composites us LAST into the base RT (we overwrite its
