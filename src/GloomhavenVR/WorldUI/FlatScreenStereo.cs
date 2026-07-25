@@ -1424,6 +1424,7 @@ internal sealed class FlatScreenStereo
         // those layers render nothing in a forward camera (their deferred materials have no forward pass);
         // only the parchment draws, because we override ITS materials with the forward MapUnlit shader.
         cam.cullingMask = mapSource.cullingMask;
+        LogMapSceneRenderers(mapSource.cullingMask);
         // Just above the game map camera so Unity composites us LAST into the base RT (we overwrite its
         // black deferred render); still below the head camera, so the screen quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
@@ -2358,6 +2359,65 @@ internal sealed class FlatScreenStereo
         return t;
     }
 
+    /// <summary>One-shot guard for the MAP SCENE renderers enumeration.</summary>
+    private bool _mapSceneRenderersLogged;
+
+    /// <summary>
+    /// Enumerate the 3D map-decoration renderers (location decals, city model, indicators, paths) under
+    /// MapChoreographer's scenario/village parents so we can see WHY they don't appear in our forward
+    /// render (they draw via the deferred map camera). Logs type/layer/shader/albedo-property grouped.
+    /// </summary>
+    private void LogMapSceneRenderers(int cullingMask)
+    {
+        if (_mapSceneRenderersLogged)
+            return;
+        _mapSceneRenderersLogged = true;
+        var choreo = Object.FindObjectOfType<MapChoreographer>();
+        if (choreo == null)
+        {
+            VRLog.Info("WorldUI", "MAP SCENE renderers: no MapChoreographer found.");
+            return;
+        }
+        var roots = new List<Transform>();
+        if (choreo.m_ScenariosParent != null) roots.Add(choreo.m_ScenariosParent.transform);
+        if (choreo.m_VillagesParent != null) roots.Add(choreo.m_VillagesParent.transform);
+        if (_activeMapGo != null && _activeMapGo.transform.parent != null) roots.Add(_activeMapGo.transform.parent);
+        var groups = new Dictionary<string, int>();
+        var examples = new Dictionary<string, string>();
+        int total = 0;
+        foreach (Transform root in roots)
+        {
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(includeInactive: false))
+            {
+                if (r == _worldMapRenderer) continue;
+                total++;
+                Material? m = r.sharedMaterial;
+                string shader = m != null && m.shader != null ? m.shader.name : "<none>";
+                string albProp = "none";
+                if (m != null)
+                {
+                    if (m.HasProperty("_Alb") && m.GetTexture("_Alb") != null) albProp = "_Alb";
+                    else if (m.HasProperty("_MainTex") && m.GetTexture("_MainTex") != null) albProp = "_MainTex";
+                    else if (m.HasProperty("_BaseMap") && m.GetTexture("_BaseMap") != null) albProp = "_BaseMap";
+                    else if (m.mainTexture != null) albProp = "mainTexture";
+                }
+                bool inMask = (cullingMask & (1 << r.gameObject.layer)) != 0;
+                string key = $"{r.GetType().Name} L{r.gameObject.layer}({LayerMask.LayerToName(r.gameObject.layer)}) mask={inMask} shader='{shader}' alb={albProp}";
+                groups.TryGetValue(key, out int c); groups[key] = c + 1;
+                if (!examples.ContainsKey(key))
+                {
+                    Texture? tex = m != null && albProp != "none" ? (albProp == "mainTexture" ? m.mainTexture : m.GetTexture(albProp)) : null;
+                    examples[key] = $"{r.name} enabled={r.enabled} tex='{(tex != null ? tex.name : "null")}'";
+                }
+            }
+        }
+        var sb = new StringBuilder();
+        sb.Append($"MAP SCENE renderers ({total} under scenario/village/map parents; forwardMask=0x{cullingMask:X8}):");
+        foreach (var kv in groups)
+            sb.Append($"\n  [{kv.Value}x] {kv.Key} — e.g. {examples[kv.Key]}");
+        VRLog.Info("WorldUI", sb.ToString());
+    }
+
     private bool BuildOverrideMaterials()
     {
         if (_worldMapRenderer == null)
@@ -2632,6 +2692,7 @@ internal sealed class FlatScreenStereo
         _mapPoseLogged = false;
         _mapDrivenValid = false;
         _mapZoomFov = 0f;
+        _mapSceneRenderersLogged = false;
         _ndcLogCount = 0;
         _ndcLastLogFrame = int.MinValue;
         _capLogged = false;
