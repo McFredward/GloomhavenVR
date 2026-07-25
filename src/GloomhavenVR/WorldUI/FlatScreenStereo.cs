@@ -1374,14 +1374,23 @@ internal sealed class FlatScreenStereo
         if (!_mapMirrorGeomLogged)
         {
             _mapMirrorGeomLogged = true;
-            Vector3 gcp = mapSource.transform.position;
-            Vector3 qw = _mapQuadsGo != null ? _mapQuadsGo.transform.position : Vector3.zero;
             Bounds wb = _worldMapRenderer != null ? _worldMapRenderer.bounds : default;
-            VRLog.Info("WorldUI", $"MAP MIRROR GEOM: game cam pos {gcp}, fwd {mapSource.transform.forward}, " +
-                                  $"ortho={mapSource.orthographic}; quad-root world pos {qw}; map renderer world bounds " +
-                                  $"center {wb.center} size {wb.size}; quad layer {_mapQuadLayer}. If the quad root is far " +
-                                  "from the renderer bounds center, parenting/placement is off; if the game cam doesn't " +
-                                  "point at the bounds, the view copy is the issue.");
+            // Frustum check: are the map's world corners inside the MIRROR camera's view? (z>0 = in front,
+            // x/y in [0,1] = on-screen). The mirror already renders (purple clear confirmed), so this tells
+            // us whether the quads are simply OUT OF VIEW vs present-but-invisible (texture alpha).
+            Vector3 c = wb.center; Vector3 e = wb.extents;
+            Vector3 v0 = cam.WorldToViewportPoint(new Vector3(c.x - e.x, c.y, c.z - e.z));
+            Vector3 v1 = cam.WorldToViewportPoint(new Vector3(c.x + e.x, c.y, c.z - e.z));
+            Vector3 v2 = cam.WorldToViewportPoint(new Vector3(c.x + e.x, c.y, c.z + e.z));
+            Vector3 v3 = cam.WorldToViewportPoint(new Vector3(c.x - e.x, c.y, c.z + e.z));
+            Vector3 vc = cam.WorldToViewportPoint(c);
+            Texture? t0 = _mapQuadTextures != null ? _mapQuadTextures[0] : null;
+            string tfmt = t0 != null ? $"{(t0 as Texture2D)?.format.ToString() ?? "?"}/{t0.graphicsFormat}" : "none";
+            VRLog.Info("WorldUI", $"MAP MIRROR GEOM: mirror cam viewport of the map corners — " +
+                                  $"C{Fmt(vc)} | NW{Fmt(v3)} NE{Fmt(v2)} SW{Fmt(v0)} SE{Fmt(v1)} " +
+                                  "(z>0 & x,y in 0..1 = on-screen). map world bounds center " +
+                                  $"{wb.center} size {wb.size}; tex0 fmt {tfmt}. All z<0 / off-range ⇒ quads out of " +
+                                  "the mirror's frustum (view/projection copy wrong); on-screen ⇒ present but invisible (texture alpha / blend).");
         }
 
         if (!_mapMirrorLogged)
@@ -1627,6 +1636,9 @@ internal sealed class FlatScreenStereo
     /// hard-coded knobs (<see cref="MapQuadFlipU"/>/<see cref="MapQuadFlipV"/>/<see cref="MapQuadSwapAxes"/>)
     /// remap the axes so a mirrored/rotated screenshot is fixed by flipping one bool and rebuilding.
     /// </summary>
+    /// <summary>Compact viewport-point formatter for the frustum diagnostic (x,y in 0..1 on-screen; z = world depth).</summary>
+    private static string Fmt(Vector3 vp) => $"(x{vp.x:F2} y{vp.y:F2} z{vp.z:F1})";
+
     private static Vector3 MapUvToLocal(float uFull, float vFull, Bounds b)
     {
         float u = uFull - 0.5f; // -0.5..0.5
