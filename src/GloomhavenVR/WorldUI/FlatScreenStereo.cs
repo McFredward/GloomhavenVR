@@ -1629,7 +1629,7 @@ internal sealed class FlatScreenStereo
     /// forward map camera (the game's decals are deferred and never light into our RT).</summary>
     private const bool MapDrawIcons = true;
     /// <summary>DIAGNOSTIC: draw solid magenta quads instead of the icon texture to prove geometry renders.</summary>
-    private const bool MapIconsSolidTest = true;
+    private const bool MapIconsSolidTest = false;
     private Mesh? _iconQuad;
     private Material? _iconMat;
     private MaterialPropertyBlock? _iconMpb;
@@ -2456,9 +2456,11 @@ internal sealed class FlatScreenStereo
         }
         if (_iconMat == null)
         {
-            Shader? sh = Shader.Find("Sprites/Default"); // built-in, forward, alpha-blended, Cull Off
-            if (sh == null) return;
+            // Straight-alpha unlit transparent; fall back to Sprites/Default (premultiplied, still works).
+            Shader? sh = Shader.Find("Unlit/Transparent") ?? Shader.Find("Sprites/Default");
+            if (sh == null) { VRLog.Warn("WorldUI", "MAP ICONS: no unlit/sprite shader found — icons skipped."); _decalTypeMissing = true; return; }
             _iconMat = new Material(sh) { name = "GloomhavenVR.MapIconMat" };
+            VRLog.Info("WorldUI", $"MAP ICONS: icon material shader = '{sh.name}'.");
         }
         _iconMpb ??= new MaterialPropertyBlock();
         if (_decalTypeMissing) return;
@@ -2487,19 +2489,18 @@ internal sealed class FlatScreenStereo
                 Bounds b = rend.bounds;
                 var pos = new Vector3(b.center.x, planeY, b.center.z);
                 var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
+                var mpb = new MaterialPropertyBlock(); // fresh per draw (rule out shared-MPB capture issues)
                 if (MapIconsSolidTest)
                 {
-                    // DIAGNOSTIC: solid opaque magenta quad (white tex, ignore icon alpha) to prove the
-                    // quad geometry actually renders in our camera regardless of the icon texture.
-                    _iconMpb.SetTexture(IconMainTex, Texture2D.whiteTexture);
-                    _iconMpb.SetColor(IconColor, new Color(1f, 0f, 1f, 1f));
+                    mpb.SetTexture(IconMainTex, Texture2D.whiteTexture);
+                    mpb.SetColor(IconColor, new Color(1f, 0f, 1f, 1f));
                 }
                 else
                 {
-                    _iconMpb.SetTexture(IconMainTex, tex);
-                    _iconMpb.SetColor(IconColor, cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white);
+                    mpb.SetTexture(IconMainTex, tex);
+                    mpb.SetColor(IconColor, Color.white);
                 }
-                Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, _iconMpb);
+                Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, mpb);
                 nDrawn++;
                 if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
                 {
