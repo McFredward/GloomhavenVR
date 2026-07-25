@@ -1146,14 +1146,14 @@ internal sealed class FlatScreenStereo
         // MapCamera rendering its detailed deferred map into the base RT and merely strips its image
         // effects; mode 0 (albedo camera) drives the mod forward render. The map display routing
         // (both eyes = base RT, above) is identical for both modes.
-        // DEFERRED-STENCIL FIX (fresh start): the base RT now carries a stencil buffer, so the game
-        // MapCamera's DeferredShading render should resolve its LIT, DETAILED map straight into it via
-        // the normal FlatScreen redirect — exactly like every other (forward) screen. So DROP all the
-        // map-special machinery (albedo camera / material override / effect strip / texture blit): just
-        // make sure none of it is active and let the plain redirect show the real animated map.
+        // Deferred→our-RT is a hard wall (the game's DeferredShading map camera renders pure black into
+        // any off-screen RT we own, stencil or not; only Forward content captures — proven by the
+        // Forward character portraits). So show the map from its OWN textures: a mod camera clears the
+        // base RT and its OnPostRender draws the 4 GH_CampaignMap quadrant textures 2x2 into it. Forced
+        // on (independent of the persisted MapCaptureMode) — the animated markers / laser interaction
+        // ride on the separate working UI glass RT on top.
         RestoreStrippedEffects();
-        if (_mapAlbedoCam != null && _mapAlbedoCam.enabled)
-            _mapAlbedoCam.enabled = false;
+        ReconcileAlbedoCamera(mapSource);
 
         bool anyMirrorRendering = false;
         for (int i = 0; i < _mirrors.Count; i++)
@@ -1326,13 +1326,10 @@ internal sealed class FlatScreenStereo
         // Render whatever the game camera sees PLUS the parchment's own layer (its material override
         // guarantees the mesh draws), never the mod layer (our quad/hands — feedback).
         cam.cullingMask = (mapSource.cullingMask | (1 << _worldMapLayer)) & ~VRLayers.ModLayerMask;
-        // Mode 2 (texture blit): the camera draws NOTHING (mask 0) — it only clears the base RT to
-        // black; its OnPostRender then draws the map's own GH_CampaignMap textures 2x2 into it.
-        if (MapCaptureMode == 2)
-        {
-            cam.cullingMask = 0;
-            cam.backgroundColor = Color.black;
-        }
+        // Texture-blit map: the camera draws NOTHING (mask 0) — it only clears the base RT to black;
+        // its OnPostRender then draws the map's own GH_CampaignMap textures 2x2 into it.
+        cam.cullingMask = 0;
+        cam.backgroundColor = Color.black;
         // Just above the game MapCamera so Unity composites us LAST into the base RT (we overwrite
         // its dark render); still below the head camera, so the quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
@@ -1621,33 +1618,10 @@ internal sealed class FlatScreenStereo
             return false;
         }
 
-        // Mode 2 (texture blit): we only need the renderer (for its GH_CampaignMap textures) + the
-        // clearing camera; gather the 4 quadrant textures once. No override materials / mesh.
-        if (MapCaptureMode == 2)
-        {
-            GatherMapTextures();
-            EnsureAlbedoCamera();
-            return _mapAlbedoCam != null;
-        }
-
-        // With the original Amplify material (default), the mesh is unreadable so there is nothing to
-        // build on the CPU — our forward camera just renders the mesh as-is (GPU computes UVs).
-        if (!MapAlbedoUseOriginalMat)
-        {
-            if (_worldMapOverrideMats == null && !BuildOverrideMaterials())
-                return false;
-            EnsureCorrectedMesh();
-        }
-        else if (!_albedoMaterialsLogged)
-        {
-            _albedoMaterialsLogged = true;
-            MeshFilter? mf0 = _worldMapRenderer!.GetComponent<MeshFilter>();
-            Mesh? m0 = mf0 != null ? mf0.sharedMesh : null;
-            VRLog.Info("WorldUI", $"MAP ALBEDO RENDER: using the ORIGINAL Amplify material — worldMap mesh " +
-                                  $"'{(m0 != null ? m0.name : "?")}' isReadable={(m0 != null ? m0.isReadable.ToString() : "?")} " +
-                                  "(unreadable ⇒ no CPU UV/override possible; the forward camera renders the mesh with its own shader, which computes UVs on the GPU).");
-        }
-
+        // Texture-blit map: we only need the renderer (for its GH_CampaignMap textures) + the clearing
+        // camera; gather the 4 quadrant textures once. No override materials / mesh (the mesh is
+        // unreadable and its deferred render never yields detail in an off-screen RT).
+        GatherMapTextures();
         EnsureAlbedoCamera();
         return _mapAlbedoCam != null;
     }
@@ -2455,8 +2429,7 @@ internal sealed class FlatScreenStereo
             return;
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
         {
-            if (MapCaptureMode == 2)
-                BlitMapQuadrants(); // camera cleared the base RT; now draw the map textures 2x2
+            BlitMapQuadrants(); // camera cleared the base RT; now draw the map textures 2x2
             RestoreWorldMapOverride();
             RestoreAmbientAfterMapRender();
         }
