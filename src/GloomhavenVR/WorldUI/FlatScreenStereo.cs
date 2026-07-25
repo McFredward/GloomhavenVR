@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Reflection;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -177,105 +176,46 @@ namespace GloomhavenVR.WorldUI;
 /// the camera renders they replace. No per-frame allocations: mirror sync is field
 /// copies; records allocate only when a NEW camera is first mirrored.
 ///
-/// MAP BASE CAPTURE (hardware log builds e6e6bffa1 → 892455e8a: the CampaignMap read
-/// BLACK where the map should be). WHAT ACTUALLY DRAWS THE MAP (decompiled, confirmed):
-/// the campaign map parchment is ORDINARY MESH GEOMETRY — MapChoreographer.worldMap, a
-/// MeshRenderer with GH_WorldMap_01..04 materials — NOT an image effect, command buffer,
-/// render-texture, or screen-space canvas. So the earlier "the map is a post-processing
-/// effect a mirror can't reproduce" theory was WRONG.
+/// MAP ALBEDO RENDER (the campaign world map read BLACK on the flat screen — the
+/// 9-times-failed bug). WHAT ACTUALLY DRAWS THE MAP (decompiled, confirmed): the
+/// campaign map parchment is ORDINARY MESH GEOMETRY — <c>MapChoreographer.worldMap</c>,
+/// a GameObject with a <c>MeshRenderer</c> whose submesh materials are named
+/// <c>GH_WorldMap_01..04</c> (+ <c>_New</c> variants). Each material stores the
+/// parchment ALBEDO texture directly — in property <c>_Alb</c> for the <c>_New</c>
+/// materials, <c>_MainTex</c> otherwise — so the map does NOT need scene lighting to
+/// look right: a top-down painted map is essentially correct rendered UNLIT.
 ///
-/// Why every earlier attempt still went black — TWO independent causes, both now covered:
-///   (1) The game 'MapCamera' (perspective, mask 0xF00FFE37, depth −1) renders ALL-BLACK
-///       into the base RT once its <c>targetTexture</c> is redirected onto our RT (log
-///       max channel 1/255). So the LEFT eye / mono / desktop, which read the base RT,
-///       are black.
-///   (2) MapCamera's mask 0xF00FFE37 EXCLUDES the parchment's layer (excluded layers:
-///       3,6,7,8,20-27). The first attempt's rescue mirror copied that same mask, so it
-///       too skipped the parchment — the RIGHT eye showed the greyish NON-parchment
-///       background but a BLACK map region, and driving the left eye from an identical
-///       mirror simply made BOTH eyes black over the map.
+/// THE FIX: while the campaign map is showing (detected by the reliable black-probe
+/// below — the game 'MapCamera' renders BLACK into any RenderTexture we own), a
+/// mod-owned FORWARD camera we fully control renders the worldMap mesh straight into
+/// the flat-screen base RT (<see cref="_leftRt"/>, = FlatScreen's <c>_rt</c>). It is
+/// cloned from the game MapCamera's transform + projection + mask (plus the worldMap
+/// layer), given a solid dark clear, and a depth just ABOVE the game MapCamera so it
+/// OWNS the base RT's final content each frame (the game camera's dark render is
+/// overwritten). The parchment is drawn UNLIT via a temporary MATERIAL OVERRIDE: one
+/// <c>Sprites/Default</c> material per submesh whose <c>_MainTex</c> is the original
+/// material's albedo (<c>_Alb</c> ?? <c>_MainTex</c> ?? <c>mainTexture</c>). The
+/// override is swapped onto the worldMap MeshRenderer in the mod camera's onPreRender
+/// and restored in its onPostRender — scoped to exactly our render, so the game's own
+/// state is untouched (rendering-only, MULTIPLAYER-SAFE). The base RT then reads
+/// bright, and the mono suspension drives BOTH eyes from it.
 ///
-/// ROOT CAUSE (attempt #3, decompiled-confirmed): the CampaignMap camera carries a stack of
-/// CAMERA IMAGE EFFECTS that the menu/guildmaster scenes do not — VolumetricFog + its
-/// VolumetricFogPreT/PosT OnRenderImage passes (ThirdParty/VolumetricFogAndMist), the custom
-/// GraphicEffects OnRenderImage (LowGraphicEffects, blits through _lowPostProcessShader), and PPv2
-/// PostProcessLayer. When the camera's targetTexture is redirected onto our RT, one of these
-/// OnRenderImage / command-buffer blits paints the WHOLE redirected RT black (a missing/failed post
-/// shader on this platform fits the observed "brief flash at load, then black"). This is why ONLY
-/// the campaign map goes black; the earlier layer-exclusion theory was wrong (attempt #2 widening
-/// the mask changed nothing).
-///
-/// ROOT CAUSE (attempt #6, DEFINITIVE — decompiled + hardware-log confirmed): the campaign 'MapCamera'
-/// renders <c>RenderingPath.DeferredShading</c>, and the map parchment uses the Amplify PBR shader
-/// <c>Amp_Basic_N_MRAO</c>. A DEFERRED surface rendered into a REDIRECTED targetTexture never gets its
-/// deferred lighting / G-buffer resolved — so even with ALL image effects stripped the base RT reads
-/// mean ~21/255: the geometry draws but UNLIT (a dark brown murk). Stripping effects cannot fix this,
-/// and a global exposure gain (attempt #5) just overexposed the surrounding UI while the map stayed a
-/// murky brown — the WRONG lever.
-///
-/// FIX (attempt #7, DEFAULT — MAP BACKBUFFER GRAB, [WorldUI] MapBackbufferGrab, default ON): stop fighting
-/// the redirect entirely. Hardware log (build 9b119624f) settled it: <c>QualitySettings.activeColorSpace</c>
-/// is <c>Gamma</c> (so the whole sRGB/Linear colorspace hypothesis — MapSrgbFix — is a NO-OP and is dead),
-/// the earliest-capture probe right after MapCamera onPostRender is ALREADY dark (mean ~12), forcing Forward
-/// does NOT help (Amp_Basic_N_MRAO has no usable forward pass), and the map renders BRIGHT ONLY on the native
-/// backbuffer (it flashes up bright for one frame before the redirect kicks in). Conclusion: this scene's
-/// deferred lighting + Beautify (camera CommandBuffers, Decalicious decals, VolumetricFog) resolve ONLY to the
-/// real backbuffer, never to an off-screen RenderTexture, regardless of camera or rendering path. So: when the
-/// map base capture engages (the SAME reliable black-probe detection), FlatScreen LEAVES the game MapCamera on
-/// its native backbuffer (<c>targetTexture = null</c> — the bright full deferred+Beautify render; MapCamera is
-/// a mono stereo=None camera, so it renders to the desktop game-window backbuffer, not the XR eye swapchain),
-/// and attaches a <c>CommandBuffer</c> at <c>CameraEvent.AfterImageEffects</c> that blits
-/// <c>BuiltinRenderTextureType.CameraTarget</c> (the finished image) into the base RT (<see cref="_leftRt"/>,
-/// = FlatScreen's <c>_rt</c>). The engaged/center probes then read that base RT bright and set
-/// <see cref="_baseRecovered"/>, so the existing MONO/stable-eye path drives BOTH eyes from the grabbed RT —
-/// exactly the native look. NO forced Forward, NO effect strip, NO mod clone camera, NO exposure gain, NO sRGB
-/// RT (all created plain Default). The mod HeadCamera (depth 0+) then clears the eye and draws the quad, so the
-/// MapCamera's direct-to-backbuffer render is harmless (overwritten) — the CommandBuffer grabbed it first.
-/// Rendering-only, multiplayer-safe (no game state touched). Everything below (attempt #6 and earlier) is the
-/// LEGACY path, kept reachable with [WorldUI] MapBackbufferGrab OFF for safety.
-///
-/// FIX (attempt #6, FORCED FORWARD — LEGACY, grab OFF): when map base capture engages, the source MapCamera's
-/// <c>renderingPath</c> is forced to <c>RenderingPath.Forward</c> (original saved, restored on
-/// release). In Forward the <c>Amp_Basic_N_MRAO</c> shader runs its ForwardBase/ForwardAdd passes and
-/// writes the LIT colour DIRECTLY into the target RT — no deferred G-buffer resolve needed — so the
-/// parchment renders bright/correct WITHOUT any exposure hack and WITHOUT touching the UI. The strip
-/// plan still runs, adaptively (<see cref="StripWhat"/>):
-///   1. First KEEP Beautify and strip everything else (<see cref="StripWhat.AllButToneMap"/>). With
-///      Forward lighting the base RT should recover NON-black and BRIGHT (expected mean >100) — the
-///      base-RT probe mean is the success signal. NO manual exposure.
-///   2. If keeping Beautify blacks the forward render, strip it too (<see cref="StripWhat.All"/>) —
-///      Forward still lights the raw map, so still no exposure gain.
-///   3. ROBUSTNESS: if the forward render is BLACK or MAGENTA (the shader has no supported forward
-///      pass), fall back to the proven DEFERRED + strip-all path with the [WorldUI] MapExposure gain
-///      re-armed as a MANUAL last-resort knob (default 1x = no-op; applied to the MAP render only,
-///      never the UI). The mod's widened-mask clone (also forward) keeps both eyes non-black meanwhile.
-/// DIAGNOSTIC ([WorldUI] MapEffectDiag): sweeps the strip subsets one at a time (Fog / FogOfWar /
-/// SSAO / Beautify / all-but-Beautify / all) under the forced Forward path, logging each subset's
-/// base-RT mean + per-channel means, so a hardware log pinpoints which effect blacks the RT and which
-/// (with Forward) brightens it. The eyes stay on the mod's own non-black map clone during the sweep.
-/// All gated behind the black probe, so no working scene (menu video, guildmaster) is ever touched;
-/// effects AND the rendering path are restored verbatim on release.
-///
-/// FALLBACK (retained, no regression): if stripping does NOT recover the base RT (some other
-/// mechanism blacks it), the mod still renders the map ITSELF — a zero-offset bare clone of the
-/// source camera with a WIDENED culling mask (all layers minus the mod layer) and no image effect —
-/// into <see cref="_rtLeft"/>, driven to both eyes through the VIDEO DEPTH SHIFT path (or _rtLeft
-/// MONO if the shift path is unavailable). This is the attempt #1/#2 behaviour, kept as a safety net.
-///
-/// DIAGNOSTICS (STEP-1): while engaged, an async probe round-robins the base RT (recovery check) and
-/// the mod RTs (_rtLeft clone, _rtRight, _rtLeftShifted) and logs each max channel — definitively
-/// localising any remaining black to CAPTURE vs COMPOSITE — and a one-shot MAP SETUP dump logs each
-/// captured camera's render path / clear / command-buffer counts / image-effect inventory plus the
-/// decompiled MapChoreographer.worldMap geometry (active, layer, MeshRenderer shaders).
+/// EVERY RT-CAPTURE PATH IS PROVEN DEAD (do not re-attempt): redirecting the game
+/// deferred MapCamera's targetTexture onto our RT gives flat unlit murk (a deferred
+/// surface is never G-buffer-lit into a redirected off-screen RT); forcing the
+/// camera to Forward draws nothing (the map's Amplify <c>Amp_Basic_N_MRAO</c> shader
+/// has no usable forward pass); stripping image effects and sRGB/colorspace fixes
+/// changed nothing (the rig renders in Gamma colorspace); and a CameraTarget
+/// backbuffer grab reads pure black under active MULTIPASS XR. The albedo render
+/// sidesteps all of that by never relying on the map's own lighting.
 ///
 /// Detection is a throttled, 8x8-downsampled, ASYNC non-black probe of the base RT
 /// (<see cref="AsyncGPUReadback"/> — no GPU stall) requiring several consecutive black
 /// reads, so no currently-working scene (menu video, guildmaster town whose camera
 /// renders fine) is ever switched. Engagement is sticky for the scene (the game base RT
 /// stays black) and re-arms on the next captured-stack release. [WorldUI]
-/// ScreenLeftMirrorFallback off = legacy (black map if the game camera renders black).
-/// NOTE: this covers the STEREO path; with StereoScreen off the mono single-RT path
-/// still shows the game camera's (black) render — the default is stereo on.
+/// ScreenLeftMirrorFallback off = legacy (black map if the game camera renders black);
+/// [WorldUI] MapAlbedoRender off = detect but do not render (base RT left as-is).
 /// </summary>
 internal sealed class FlatScreenStereo
 {
@@ -317,78 +257,22 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<bool>? s_videoDepthLayer;
     private static ConfigEntry<float>? s_videoDepth;
     private static ConfigEntry<bool>? s_leftMirrorFallback;
-    /// <summary>Manual exposure gain applied to the raw (Beautify-stripped) map render — see MAP EXPOSURE.</summary>
-    private static ConfigEntry<float>? s_mapExposure;
-    /// <summary>Diagnostic: sweep per-effect strip subsets and log each base-RT mean (see MAP EFFECT DIAG).</summary>
-    private static ConfigEntry<bool>? s_mapEffectDiag;
-    /// <summary>COLORSPACE FIX: create the base + eye RTs sRGB so the map's linear lit output is gamma-encoded on store (see MapSrgbFix config).</summary>
-    private static ConfigEntry<bool>? s_mapSrgbFix;
-    /// <summary>SECONDARY: gamma-encode the recovered map on the stable eye RT when MapSrgbFix is off (see MapGammaCorrect config).</summary>
-    private static ConfigEntry<bool>? s_mapGammaCorrect;
-    /// <summary>BACKBUFFER GRAB (default ON): capture the campaign map from the real backbuffer via a CommandBuffer instead of redirecting the deferred MapCamera onto an off-screen RT (see MapBackbufferGrab config, class doc MAP BACKBUFFER GRAB).</summary>
-    private static ConfigEntry<bool>? s_mapBackbufferGrab;
-    /// <summary>
-    /// Default map exposure gain — 1.0 = OFF / no-op (task step 1 revert). The map's brightness must
-    /// come from correct LIGHTING (the forced-Forward render, class doc FORWARD LIGHTING), NOT a post
-    /// gain. This knob is a manual LAST RESORT: it applies ONLY on the deferred fallback path
-    /// (<see cref="_manualExposure"/>, when forcing Forward failed) and ONLY to the map render — never
-    /// the UI composite. At 1.0 it multiplies by one, so no brightness blit changes anything.
-    /// </summary>
-    private const float DefaultMapExposure = 1.0f;
+    /// <summary>MAP ALBEDO RENDER (default ON): render the campaign map parchment unlit via a mod forward camera (see MapAlbedoRender config, class doc MAP ALBEDO RENDER).</summary>
+    private static ConfigEntry<bool>? s_mapAlbedoRender;
 
-    // ---- map base capture (class doc MAP BASE CAPTURE) -------------------------------------
+    // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
     private const int BlackProbeSize = 8;
     /// <summary>Frames between async non-black probes of the base RT (while not yet engaged).</summary>
     private const int BlackProbeIntervalFrames = 30;
-    /// <summary>
-    /// Frames between base/stable-eye probes ONCE the base RT is recovered — faster than
-    /// the initial 4-way round robin because this cadence also feeds the hold-last-non-black
-    /// gate for the stable eye blit (a slow verdict would let a black base blip through).
-    /// </summary>
-    private const int RecoveredProbeIntervalFrames = 6;
     /// <summary>Consecutive all-black probe results before map base capture engages (transient guard).</summary>
     private const int BlackConsecutiveToEngage = 3;
     /// <summary>Max 0..255 channel value still counted as "black" (guards a near-black graded frame).</summary>
     private const int BlackChannelThreshold = 6;
-
-    // ---- selective effect strip (STEP-2 FIX / SELECTIVE STRIP) ------------------------------
-    /// <summary>
-    /// Which categories of the MapCamera's image effects a strip PLAN disables. The CampaignMap
-    /// camera carries (decompiled): VolumetricFog(off), VolumetricFogPosT (plain copy while fog is
-    /// off), FogOfWarController (inert — only a Start() that toggles the fog per game mode),
-    /// ScreenSpaceAmbientOcclusion (depth-based darkening), Beautify (the TONEMAP / exposure /
-    /// colour-grade BRIGHTENER), PostProcessLayer(off). The two ACTIVE transformers are SSAO and
-    /// Beautify. The fix keeps <see cref="ToneMap"/> (Beautify) and strips only what blacks the RT.
-    /// </summary>
-    [System.Flags]
-    private enum StripWhat
-    {
-        None = 0,
-        Fog = 1,       // VolumetricFog / VolumetricFogPosT / PreT
-        FogOfWar = 2,  // FogOfWarController (inert in Campaign)
-        Ssao = 4,      // ScreenSpaceAmbientOcclusion
-        ToneMap = 8,   // Beautify / Tonemap / ColorGrade — the brightener (kept when possible)
-        Other = 16,    // any other image effect (Bloom, PPv2 PostProcessLayer, GraphicEffects, ...)
-        AllButToneMap = Fog | FogOfWar | Ssao | Other,
-        All = Fog | FogOfWar | Ssao | ToneMap | Other,
-    }
-
-    /// <summary>Consecutive BLACK base-RT probes while keeping Beautify before we strip it too (adaptive).</summary>
-    private const int EscalateBlackProbes = 3;
-    /// <summary>Engaged base-RT probes spent on each diagnostic strip subset before advancing.</summary>
-    private const int DiagProbesPerStep = 3;
-
-    /// <summary>Diagnostic sweep sequence (STEP-1): one strip subset per step, base-RT mean logged each.</summary>
-    private static readonly (StripWhat Mask, string Name)[] DiagPlans =
-    {
-        (StripWhat.Fog, "strip Fog only"),
-        (StripWhat.FogOfWar, "strip FogOfWar only"),
-        (StripWhat.Ssao, "strip SSAO only"),
-        (StripWhat.ToneMap, "strip Beautify(tonemap) only"),
-        (StripWhat.AllButToneMap, "strip all EXCEPT Beautify (keep tonemap)"),
-        (StripWhat.All, "strip ALL"),
-    };
+    /// <summary>Frames between the once-per-second base-RT center probe (MAP ALBEDO probe line).</summary>
+    private const int AlbedoProbeIntervalFrames = 60;
+    /// <summary>Central fraction of the base RT the map-area probe samples (away from UI/corners).</summary>
+    private const float AlbedoProbeRegion = 0.5f;
 
     /// <summary>One mod-owned mirror camera shadowing a captured game camera into the right RT.</summary>
     private sealed class MirrorEntry
@@ -397,11 +281,6 @@ internal sealed class FlatScreenStereo
         public Camera Mirror = null!;
         public Transform MirrorTransform = null!;
         public GameObject Go = null!;
-        // Map base-capture camera (class doc MAP BASE CAPTURE) — created lazily only once the
-        // base RT is found to render black; a zero-offset bare clone of the source.
-        public Camera? MirrorLeft;
-        public Transform? MirrorLeftTransform;
-        public GameObject? GoLeft;
         /// <summary>
         /// Camera-plane VideoPlayer bound to the source (video depth shift trigger) —
         /// hosted on its GO or targeting it via targetCamera; discovered at mirror
@@ -412,28 +291,12 @@ internal sealed class FlatScreenStereo
         public bool Synced;
         public bool SourceOn;
         public bool VideoActive;
-        // Map base capture (class doc MAP BASE CAPTURE / SELECTIVE STRIP): the image-effect
-        // Behaviours we currently hold DISABLED on the SOURCE camera so its render reaches the base
-        // RT non-black. The active strip PLAN is a subset (keep the Beautify tonemap when possible;
-        // strip only the effect that blacks the redirected RT). Re-enabled verbatim on release.
-        public List<Behaviour>? DisabledEffects;
-        /// <summary>Strip mask last reconciled onto this source (-1 = none applied) — idempotency gate.</summary>
-        public int AppliedStripMask = -1;
-        // Map base capture FORWARD FIX (class doc / task): the campaign 'MapCamera' renders
-        // DeferredShading, and a deferred surface rendered into our redirected RT never gets its
-        // lighting resolved (the parchment reads near-black, base mean ~21). While map base capture
-        // is engaged we force the SOURCE camera to Forward so the map shader's ForwardBase/Add passes
-        // write the LIT colour straight into the base RT. The original path is saved here and restored
-        // verbatim on release.
-        public RenderingPath OriginalRenderingPath;
-        /// <summary>True while WE hold this source camera forced to Forward (idempotency + restore gate).</summary>
-        public bool RenderingPathForced;
     }
 
     private readonly List<MirrorEntry> _mirrors = new(8);
     private readonly Dictionary<Camera, MirrorEntry> _bySource = new();
     private readonly Camera.CameraCallback _preRenderHook;
-    /// <summary>STEP-1c earliest-capture probe: fires right after a captured map camera renders into the base RT.</summary>
+    /// <summary>onPostRender hook: restores the worldMap material override after the mod albedo camera renders.</summary>
     private readonly Camera.CameraCallback _postRenderHook;
 
     private GameObject? _root;
@@ -448,21 +311,11 @@ internal sealed class FlatScreenStereo
     private RenderTexture? _leftRt;
     private Material? _quadMaterial;
 
-    // ---- map base capture (class doc MAP BASE CAPTURE) -------------------------------------
-    /// <summary>
-    /// The mod's own render of the map scene while <see cref="_mapBaseCapture"/> — a bare
-    /// clone of the base 3D camera rendered with a WIDENED culling mask (all layers minus
-    /// the mod layer) so it captures the map parchment even though the game MapCamera's own
-    /// mask (0xF00FFE37) excludes that layer. Fed into the video depth-shift path so both
-    /// eyes show this non-black map (class doc MAP BASE CAPTURE).
-    /// </summary>
-    private RenderTexture? _rtLeft;
+    // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
     /// <summary>Small RT the base RT is downsampled into for the async non-black probe.</summary>
     private RenderTexture? _probeRt;
-    /// <summary>True once the base RT was found black — both eyes are driven by the mod's own widened-mask map render, not the game render.</summary>
+    /// <summary>True once the base RT was found black — the mod albedo camera renders the map parchment into the base RT.</summary>
     private bool _mapBaseCapture;
-    /// <summary>Map-base-capture RT creation failed this activation → stay on the game render (avoid retry spam).</summary>
-    private bool _mapBaseCaptureFailed;
     private int _blackProbeFrame = int.MinValue;
     private int _blackConsecutive;
     /// <summary>True while an async base-RT probe is in flight (one at a time).</summary>
@@ -470,96 +323,33 @@ internal sealed class FlatScreenStereo
     /// <summary>Bumped on teardown/scene release so a late async probe callback ignores stale results.</summary>
     private int _probeGen;
     private int _probeReqGen;
-    /// <summary>
-    /// STEP-2 FIX (effect strip): true once the base RT probes NON-black WHILE map base capture is
-    /// engaged — i.e. stripping the captured camera's image effects recovered the game render. Both
-    /// eyes then show the base RT MONO (real map, its colour grading dropped) instead of the bare
-    /// clone; if it never recovers, the clone/shift path (below) stays in charge — no regression.
-    /// </summary>
-    private bool _baseRecovered;
-    /// <summary>
-    /// STABLE EYE RT (map base capture, recovered — the routing/oscillation fix): the recovered
-    /// game render lives in the SHARED base RT (<see cref="_leftRt"/>), whose per-camera
-    /// clear/redraw makes it oscillate (hardware log build 5b9d4bdc1: 13↔253↔138↔194 across
-    /// frames). Rather than driving the eyes off that shared, flickering RT, the recovered base
-    /// is blitted into this mod-owned RT WHILE the async base probe reads NON-black
-    /// (hold-last-non-black — a black blip freezes the last good copy instead of showing black),
-    /// and BOTH eyes sample THIS steady RT. Probed directly so the log proves the eye RT is
-    /// non-black (the old <see cref="_rtRight"/>/<see cref="_rtLeftShifted"/> probes read the
-    /// INERT mirror/shift RTs in this path — never what the eyes sample — which mislocalised the
-    /// bug to the eyes when the base was actually reaching them).
-    /// </summary>
-    private RenderTexture? _rtStable;
-    /// <summary>Last base-RT async probe verdict (drives the hold-last-non-black stable blit).</summary>
-    private bool _baseNonBlack;
-    /// <summary>True once <see cref="_rtStable"/> holds at least one non-black copy of the base render.</summary>
-    private bool _stableHasContent;
-    /// <summary>Frame the stable-eye blit last ran (once per frame, head pre-render).</summary>
-    private int _stableBlitFrame = -1;
-    /// <summary>One-shot RT-identity check log for the recovered stable-eye path.</summary>
-    private bool _stableIdentityLogged;
-    /// <summary>Frame the engaged diagnostic probe last ran (cycles base RT / _rtLeft / _rtRight / shifted).</summary>
-    private int _engagedProbeFrame = int.MinValue;
-    /// <summary>Round-robin index of the engaged diagnostic probe target.</summary>
-    private int _engagedProbeIndex;
-    /// <summary>Label + is-base flag of the in-flight engaged probe (read by the callback).</summary>
-    private string _engagedProbeLabel = "";
-    private bool _engagedProbeIsBase;
-    /// <summary>One-shot rich map render-setup diagnostic guard (per engagement).</summary>
-    private bool _mapSetupLogged;
 
-    // ---- STEP-1 colorspace measurement + map-area probes (leading hypothesis: Linear/sRGB) ----
-    /// <summary>One-shot colorspace-facts log guard (per activation) — STEP-1a.</summary>
-    private bool _colorspaceLogged;
-    /// <summary>Frames between center-region base-RT probes — ~once per second (low-spam; the MAP GRAB probe line rides this cadence).</summary>
-    private const int CenterProbeIntervalFrames = 60;
-    /// <summary>Central fraction of the base RT the map-area probe samples (away from UI/corners).</summary>
-    private const float CenterProbeRegion = 0.5f;
-    private RenderTexture? _centerProbeRt;
-    private bool _centerProbePending;
-    private int _centerProbeReqGen;
-    private int _centerProbeFrame = int.MinValue;
-    private const int EarliestProbeIntervalFrames = 45;
-    private RenderTexture? _earliestProbeRt;
-    private bool _earliestProbePending;
-    private int _earliestProbeReqGen;
-    private int _earliestProbeFrame = int.MinValue;
-    private string _earliestProbeCam = "";
-
-    // ---- selective strip controller (STEP-2 FIX) -------------------------------------------
-    /// <summary>The strip PLAN currently reconciled onto every captured source camera each tick.</summary>
-    private StripWhat _stripMask;
-    /// <summary>
-    /// True once the fix has stripped the Beautify tonemap too (it was the effect blacking the base
-    /// RT) — the eyes then sample a MANUALLY exposure-gained copy of the raw render (MapExposure).
-    /// False while Beautify is kept (its own tonemap already brightens the base RT).
-    /// </summary>
-    private bool _manualExposure;
-    /// <summary>
-    /// THE REAL FIX (task / class doc FORWARD LIGHTING): true while the captured map source
-    /// camera(s) are forced to <see cref="RenderingPath.Forward"/> so the deferred parchment gets
-    /// LIT into the redirected base RT (no exposure hack). Set on engage; cleared (→ deferred + strip
-    /// + the manual MapExposure knob as a last resort) only if forward renders black/magenta.
-    /// </summary>
-    private bool _forwardForced;
-    /// <summary>Forward rendering was tried and abandoned this engagement (renders black/magenta) — deferred fallback, no retry.</summary>
-    private bool _forwardFailed;
-    /// <summary>Consecutive black/magenta base-RT probes since forward strip-all — drives the deferred fallback.</summary>
-    private int _forwardBlackProbes;
-    /// <summary>Consecutive black base-RT probes at the current plan (drives the adaptive escalation).</summary>
-    private int _baseBlackProbes;
-    /// <summary>Diagnostic sweep step (-1 = not sweeping); indexes <see cref="DiagPlans"/>.</summary>
-    private int _diagStep = -1;
-    /// <summary>Base-RT probes spent on the current diagnostic step.</summary>
-    private int _diagStepProbes;
-    /// <summary>True once the diagnostic sweep has finished and settled on the safe strip-all + gain fix.</summary>
-    private bool _diagDone;
-    /// <summary>MAP BACKBUFFER GRAB: consecutive center probes reading dark (&lt;25 mean) since engage — drives the one-shot "grab failed" hint.</summary>
-    private int _grabDarkProbes;
-    /// <summary>Lazily-built exposure-gain blit material (MapExposure); Overlay shader, opaque overwrite.</summary>
-    private Material? _gainMaterial;
-    private bool _gainMaterialWarned;
-    private static readonly int GainColorId = Shader.PropertyToID("_Color");
+    // ---- map albedo render (class doc MAP ALBEDO RENDER) ------------------------------------
+    /// <summary>Mod-owned forward camera that renders the worldMap parchment (unlit, albedo) into the base RT.</summary>
+    private Camera? _mapAlbedoCam;
+    private GameObject? _mapAlbedoGo;
+    private Transform? _mapAlbedoTransform;
+    /// <summary>The campaign map parchment MeshRenderer (MapChoreographer.worldMap, GH_WorldMap materials).</summary>
+    private MeshRenderer? _worldMapRenderer;
+    /// <summary>worldMap layer bit index — force-included in the albedo camera's culling mask.</summary>
+    private int _worldMapLayer = -1;
+    /// <summary>Unlit Sprites/Default override materials (one per submesh, _MainTex = the submesh's albedo).</summary>
+    private Material[]? _worldMapOverrideMats;
+    /// <summary>The originals swapped OUT for the current override (re-captured live each apply; restored in onPostRender).</summary>
+    private Material[]? _worldMapOriginalMats;
+    /// <summary>True while the override is currently on the worldMap renderer (between our onPreRender and onPostRender).</summary>
+    private bool _overrideApplied;
+    /// <summary>One-shot log guard: the discovered material/albedo facts (per engagement).</summary>
+    private bool _albedoMaterialsLogged;
+    /// <summary>One-shot log guard: the MAP ALBEDO RENDER ENGAGED line (per engagement).</summary>
+    private bool _albedoEngagedLogged;
+    /// <summary>One-shot WARN guard: worldMap not found / no usable albedo (per engagement).</summary>
+    private bool _albedoWarned;
+    /// <summary>Base-RT center probe (MAP ALBEDO probe line) — once-per-second success/failure readout.</summary>
+    private RenderTexture? _albedoProbeRt;
+    private bool _albedoProbePending;
+    private int _albedoProbeReqGen;
+    private int _albedoProbeFrame = int.MinValue;
 
     private bool _active;
     private bool _hooked;
@@ -611,18 +401,19 @@ internal sealed class FlatScreenStereo
     internal bool Active => _active;
 
     /// <summary>
-    /// True while both eye passes show the LEFT RT (video fallback / intro guard).
-    /// <see cref="FlatScreen"/> reads this after <see cref="EndStackSync"/> to fold
-    /// the UI back into the left RT while the single suspended image must carry
-    /// everything (its SCREEN LAYER SPLIT class doc). The video depth SHIFT is NOT a
-    /// suspension: the split keeps routing and the glass UI stays in front.
+    /// True while both eye passes show the LEFT RT (video fallback / intro guard /
+    /// campaign-map albedo render). <see cref="FlatScreen"/> reads this after
+    /// <see cref="EndStackSync"/> to fold the UI back into the left RT while the single
+    /// suspended image must carry everything (its SCREEN LAYER SPLIT class doc). The
+    /// video depth SHIFT is NOT a suspension: the split keeps routing and the glass UI
+    /// stays in front.
     /// </summary>
     internal bool Suspended => _videoSuspended;
 
     public FlatScreenStereo()
     {
         _preRenderHook = OnPreRenderCamera; // cached delegate — one allocation, ever
-        _postRenderHook = OnPostRenderCamera; // STEP-1c earliest-capture probe hook
+        _postRenderHook = OnPostRenderCamera; // worldMap material-override restore
         BindConfig();
     }
 
@@ -666,117 +457,54 @@ internal sealed class FlatScreenStereo
             "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
             "geometry; clamped to 1-60.");
         s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", true,
-            "Rescue the map when a captured 3D scene renders BLACK into the screen's render " +
-            "texture (the campaign map: the game MapCamera renders all-black once its target " +
-            "is redirected onto our RT, AND its culling mask excludes the map parchment's " +
-            "layer). When the base RT is detected black, the mod renders the map scene itself " +
-            "with a WIDENED culling mask into its own texture and drives BOTH eyes from it " +
-            "through the depth-shift path — a non-black 3D-window map (mono non-black if the " +
-            "shift is unavailable) instead of a black void. Costs that scene's own colour " +
-            "grading (already lost — it was black) plus one extra render while engaged. " +
-            "Off = legacy (black map if the game camera renders black).");
-        s_mapExposure = file.Bind("WorldUI", "MapExposure", DefaultMapExposure,
-            "MANUAL LAST-RESORT exposure gain for the campaign map, default 1 = OFF. The map's " +
-            "brightness normally comes from correct LIGHTING: the map base capture forces the " +
-            "MapCamera to Forward rendering so its deferred parchment gets lit into the screen's " +
-            "render texture. This gain is applied ONLY if forcing Forward failed (the shader has no " +
-            "forward pass) AND Beautify then had to be stripped, leaving the raw deferred map dark " +
-            "(~21/255) — a per-pixel multiply on the MAP render (never the UI) lifts it. Leave at 1 " +
-            "unless the log shows the deferred fallback engaged and the map is dark; then 3–5 is a " +
-            "sensible boost. Clamped 1–16.");
-        s_mapEffectDiag = file.Bind("WorldUI", "MapEffectDiag", false,
-            "DIAGNOSTIC: when the campaign map's base render texture is black, sweep the MapCamera's " +
-            "image effects one strip-subset at a time (Fog only, FogOfWar only, SSAO only, Beautify " +
-            "only, all-but-Beautify, all) for a few probe cycles each, logging the resulting base-RT " +
-            "mean/max/lit per subset — so a hardware log reveals exactly which effect blacks the RT " +
-            "and which brightens it. The eyes stay on the mod's own non-black map render during the " +
-            "sweep, which then settles on the safe strip-all + MapExposure fix. Off (default) = the " +
-            "adaptive fix runs directly (keep Beautify; strip it + apply MapExposure only if it blacks).");
-        s_mapSrgbFix = file.Bind("WorldUI", "MapSrgbFix", true,
-            "COLORSPACE FIX (default ON): create the flat-screen's base + eye RenderTextures with sRGB " +
-            "read/write. The project renders in LINEAR colorspace; a plain (non-sRGB) RT stores the map " +
-            "camera's LINEAR lit output RAW, so the redirected map displays ~2.2x too dark (base mean " +
-            "~20/255, a grey-brown murk) even though the same map renders BRIGHT straight to the sRGB " +
-            "game backbuffer. sRGB=True makes the GPU gamma-encode the linear colour on store (and " +
-            "decode on sample), so the captured map matches its bright native render. Applies to the " +
-            "MAP/background base RT and the mirror eye RTs only — the UI glass RT is left untouched so " +
-            "the 2D UI is not overbrightened. Off = pre-fix behaviour (dark map).");
-        s_mapGammaCorrect = file.Bind("WorldUI", "MapGammaCorrect", true,
-            "SECONDARY colorspace fallback (default ON): when MapSrgbFix is OFF, still gamma-encode the " +
-            "recovered map on the STABLE eye RT (the both-eyes copy used once the map base capture " +
-            "recovers) by making that RT sRGB, so a linear->sRGB encode happens on the blit into it. " +
-            "MapSrgbFix (the base-RT sRGB fix) is the primary, complete fix and takes precedence; this " +
-            "only lifts the narrow recovered-map path when the primary fix is disabled.");
-        s_mapBackbufferGrab = file.Bind("WorldUI", "MapBackbufferGrab", true,
-            "THE MAP FIX (default ON): capture the campaign world map from the REAL backbuffer via a " +
-            "CommandBuffer instead of redirecting the deferred MapCamera onto an off-screen RenderTexture. " +
-            "Hardware fact (build 9b119624f): the scene's deferred lighting + Beautify resolve ONLY to the " +
-            "native backbuffer — redirecting the MapCamera's targetTexture (or a forced-Forward clone) onto " +
-            "any RT yields a flat dark grey-brown (base mean ~12/255), because deferred G-buffer lighting is " +
-            "never resolved into an off-screen target and the map shader Amp_Basic_N_MRAO has no usable " +
-            "forward pass. With this ON the MapCamera is LEFT on its native backbuffer (targetTexture=null, " +
-            "full bright deferred+Beautify render), and a CommandBuffer at CameraEvent.AfterImageEffects " +
-            "blits BuiltinRenderTextureType.CameraTarget into the flat-screen base RT the display samples — " +
-            "so the screen shows the exact bright native map. The mod HeadCamera then overwrites the " +
-            "backbuffer with the eye quad, so the MapCamera's direct-to-backbuffer render is harmless. Off = " +
-            "the legacy forced-Forward / effect-strip redirect path (proven to render dark; kept for safety).");
+            "Rescue the campaign map when it renders BLACK into the screen's render texture " +
+            "(the game MapCamera renders all-black once its target is redirected onto our RT — " +
+            "the map's deferred Amplify parchment shader is never lit into an off-screen " +
+            "RenderTexture). When the base RT is detected black, the mod renders the map " +
+            "parchment itself (see MapAlbedoRender) instead of showing a black void. Off = " +
+            "legacy (black map if the game camera renders black).");
+        s_mapAlbedoRender = file.Bind("WorldUI", "MapAlbedoRender", true,
+            "THE MAP FIX (default ON): render the campaign world map's parchment UNLIT via a " +
+            "mod-owned FORWARD camera we fully control, sampling the parchment's own albedo " +
+            "texture. The map is ordinary mesh geometry (MapChoreographer.worldMap, GH_WorldMap " +
+            "materials whose albedo lives in _Alb / _MainTex), but its deferred Amplify shader is " +
+            "never lit into any RenderTexture we own and its backbuffer is unreadable under XR — " +
+            "so instead of capturing the game's render, the mod draws the worldMap mesh straight " +
+            "into the flat-screen base RT with a temporary Sprites/Default material per submesh " +
+            "(albedo → _MainTex), swapped on only for our render and restored the same frame " +
+            "(rendering-only, multiplayer-safe). A top-down painted map reads correct unlit. Off " +
+            "= detect the black map but leave the base RT as-is (black).");
     }
 
-    /// <summary>[WorldUI] MapBackbufferGrab — capture the map from the native backbuffer via a CommandBuffer (class doc MAP BACKBUFFER GRAB).</summary>
-    internal static bool MapBackbufferGrabOn => s_mapBackbufferGrab?.Value ?? true;
-
-    /// <summary>True while the campaign-map base capture is engaged (drives FlatScreen's backbuffer-grab of the MapCamera).</summary>
-    internal bool MapBaseCaptureEngaged => _mapBaseCapture;
+    /// <summary>[WorldUI] MapAlbedoRender — render the map parchment unlit via a mod forward camera (class doc MAP ALBEDO RENDER).</summary>
+    internal static bool MapAlbedoRenderOn => s_mapAlbedoRender?.Value ?? true;
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
     private static float ParallaxScale => Mathf.Clamp(s_parallaxScale?.Value ?? 6f, 1f, 60f);
 
-    /// <summary>[WorldUI] MapSrgbFix — base + eye RTs are created sRGB (the primary colorspace fix).</summary>
-    internal static bool MapSrgbFixOn => s_mapSrgbFix?.Value ?? true;
-
-    /// <summary>[WorldUI] MapGammaCorrect — secondary gamma-on-stable-eye fallback when MapSrgbFix is off.</summary>
-    internal static bool MapGammaCorrectOn => s_mapGammaCorrect?.Value ?? true;
-
     /// <summary>
-    /// COLORSPACE FIX factory (class doc / MapSrgbFix): create a colour RenderTexture for the
-    /// flat-screen map/eye path, sRGB read/write when [WorldUI] MapSrgbFix (default ON) — in a
-    /// LINEAR project this gamma-encodes the map camera's linear lit output on store so the
-    /// redirected map matches its bright native (sRGB-backbuffer) render instead of storing raw
-    /// (~2.2x too dark). <paramref name="gammaFallback"/> RTs (the both-eyes stable RT) are ALSO
-    /// sRGB when only [WorldUI] MapGammaCorrect is on, so their linear->sRGB blit still brightens
-    /// the recovered map. Off on both = RenderTextureReadWrite.Default (pre-fix behaviour).
+    /// Colour RenderTexture factory for the flat-screen map/eye path — plain
+    /// <c>RenderTextureReadWrite.Default</c>. (The sRGB/colorspace fix was proven a
+    /// no-op: the rig renders in Gamma colorspace, so sRGB read/write yields sRGB=False
+    /// regardless.)
     /// </summary>
-    internal static RenderTexture CreateColorRt(int width, int height, int depth, string name, bool gammaFallback = false)
+    internal static RenderTexture CreateColorRt(int width, int height, int depth, string name)
     {
-        // MAP BACKBUFFER GRAB (default ON): the sRGB read/write hypothesis is a proven NO-OP on the test
-        // rig — QualitySettings.activeColorSpace is Gamma there (build 9b119624f), so RenderTextureReadWrite.sRGB
-        // yields sRGB=False regardless. Under the grab path the RT just receives an already-correct backbuffer
-        // copy, so create it plain Default; the legacy sRGB/gamma levers remain reachable with the grab OFF.
-        bool srgb = !MapBackbufferGrabOn && (MapSrgbFixOn || (gammaFallback && MapGammaCorrectOn));
-        RenderTextureReadWrite rw = srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Default;
-        return new RenderTexture(width, height, depth, RenderTextureFormat.Default, rw)
+        return new RenderTexture(width, height, depth, RenderTextureFormat.Default, RenderTextureReadWrite.Default)
         {
             name = name,
             antiAliasing = 1,
         };
     }
 
-    /// <summary>Human-readable colorspace facts of an RT (STEP-1a): format, graphicsFormat, sRGB flag, depth.</summary>
+    /// <summary>Human-readable facts of an RT (format, graphicsFormat, sRGB flag, depth) for the setup logs.</summary>
     internal static string DescribeRt(RenderTexture? rt)
     {
         if (rt == null)
             return "null";
         bool srgb = UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(rt.graphicsFormat);
         return $"'{rt.name}' {rt.width}x{rt.height} fmt {rt.format}/{rt.graphicsFormat} sRGB={srgb} depth={rt.depth} aa={rt.antiAliasing}";
-    }
-
-    /// <summary>sRGB (gamma) encode of an 0..255 linear channel value — the brightness the fix yields.</summary>
-    private static int SrgbEncode(int linear255)
-    {
-        float x = Mathf.Clamp01(linear255 / 255f);
-        float e = x <= 0.0031308f ? x * 12.92f : 1.055f * Mathf.Pow(x, 1f / 2.4f) - 0.055f;
-        return Mathf.Clamp(Mathf.RoundToInt(e * 255f), 0, 255);
     }
 
     private static bool WantActive(RenderTexture? leftRt) =>
@@ -816,22 +544,9 @@ internal sealed class FlatScreenStereo
         }
         if (_rtRight == null)
         {
-            // COLORSPACE FIX: sRGB when [WorldUI] MapSrgbFix — the mirror cameras render the
-            // map's LINEAR lit output into this RT, so it must gamma-encode on store to match
-            // the left (base) RT; else the right eye stays dark while the left is corrected.
             _rtRight = CreateColorRt(leftRt!.width, leftRt.height, 24, "GloomhavenVR.FlatScreenRT.Right");
             _rtRight.Create();
         }
-
-        // Map base-capture RT tracks the base RT's dimensions (class doc MAP BASE
-        // CAPTURE); only kept alive while engaged.
-        if (_rtLeft != null && (_rtLeft.width != leftRt!.width || _rtLeft.height != leftRt.height))
-            ReleaseLeftRt();
-        // The mod-owned clone RT (_rtLeft) is only used by the LEGACY forward/clone path. Under the
-        // backbuffer grab (default) the map is fed straight into the base RT from the native backbuffer,
-        // so no clone camera / clone RT is created at all.
-        if (_mapBaseCapture && !MapBackbufferGrabOn && _rtLeft == null)
-            EnsureLeftRt();
 
         if (!_active)
         {
@@ -839,10 +554,9 @@ internal sealed class FlatScreenStereo
             if (!_hooked)
             {
                 Camera.onPreRender += _preRenderHook;
-                Camera.onPostRender += _postRenderHook; // STEP-1c earliest-capture probe
+                Camera.onPostRender += _postRenderHook; // worldMap override restore
                 _hooked = true;
             }
-            _colorspaceLogged = false; // re-log colorspace facts per activation (STEP-1a)
             _eyeObsCount = 0; // re-log the observed eye-pass pattern per activation
             _shiftRtFailed = false; // a failed shifted RT gets a fresh chance per activation
             VRLog.Info("WorldUI", "STEREO SCREEN ACTIVE — flat screen renders per eye " +
@@ -865,8 +579,6 @@ internal sealed class FlatScreenStereo
         _convScene = Mathf.Max(MinConvergenceMeters,
             WorldUIConfig.ScreenDistance.Value) * scale * parallax;
         _videoShiftUv = ComputeVideoShiftUv();
-
-        LogColorspaceFacts(); // STEP-1a: confirm Linear/sRGB once per activation, RTs now exist
     }
 
     /// <summary>
@@ -891,7 +603,7 @@ internal sealed class FlatScreenStereo
     /// <summary>Full teardown: mirrors, mod RTs, render hook; quad texture back to the left RT.</summary>
     internal void Deactivate(string reason)
     {
-        RestoreAllEffects();
+        ReleaseAlbedo();
         ReleaseMirrors();
         if (_hooked)
         {
@@ -903,35 +615,13 @@ internal sealed class FlatScreenStereo
             _quadMaterial.mainTexture = _leftRt;
         ReleaseRightRt();
         ReleaseShiftRt();
-        ReleaseLeftRt();
-        ReleaseStableRt();
         ReleaseProbeRt();
-        ReleaseCenterProbeRt();
-        ReleaseEarliestProbeRt();
-        _probeGen++;                 // invalidate any in-flight probe callback (incl. center/earliest)
+        ReleaseAlbedoProbeRt();
+        _probeGen++;                 // invalidate any in-flight probe callback
         _probePending = false;
-        _centerProbePending = false;
-        _earliestProbePending = false;
-        _colorspaceLogged = false;
+        _albedoProbePending = false;
         _mapBaseCapture = false;
-        _mapBaseCaptureFailed = false;
-        _baseRecovered = false;
-        _baseNonBlack = false;
-        _stableIdentityLogged = false;
-        _stableBlitFrame = -1;
-        _mapSetupLogged = false;
         _blackConsecutive = 0;
-        _stripMask = StripWhat.None;
-        _manualExposure = false;
-        _forwardForced = false;
-        _forwardFailed = false;
-        _forwardBlackProbes = 0;
-        _baseBlackProbes = 0;
-        _diagStep = -1;
-        _diagStepProbes = 0;
-        _diagDone = false;
-        _grabDarkProbes = 0;
-        ReleaseGainMaterial();
         if (_root != null)
         {
             Object.Destroy(_root);
@@ -966,83 +656,6 @@ internal sealed class FlatScreenStereo
         _rtLeftShifted = null;
     }
 
-    // ---- map base capture: RT (class doc MAP BASE CAPTURE) ---------------------------------
-
-    /// <summary>Create the map base-capture RT matching the base RT (returns false on failure).</summary>
-    private bool EnsureLeftRt()
-    {
-        if (_leftRt == null)
-            return false;
-        if (_rtLeft != null
-            && (_rtLeft.width != _leftRt.width || _rtLeft.height != _leftRt.height))
-            ReleaseLeftRt();
-        if (_rtLeft == null)
-        {
-            // COLORSPACE FIX: sRGB when [WorldUI] MapSrgbFix — the widened-mask map clone renders
-            // its LINEAR lit output here, gamma-encoded on store like the base RT.
-            var rt = CreateColorRt(_leftRt.width, _leftRt.height, 24, "GloomhavenVR.FlatScreenRT.Left");
-            if (!rt.Create())
-            {
-                Object.Destroy(rt);
-                return false;
-            }
-            _rtLeft = rt;
-            ClearOpaqueBlack(_rtLeft); // fresh RT color is undefined — no garbage before the first render
-        }
-        return true;
-    }
-
-    private void ReleaseLeftRt()
-    {
-        if (_rtLeft == null)
-            return;
-        _rtLeft.Release();
-        Object.Destroy(_rtLeft);
-        _rtLeft = null;
-    }
-
-    // ---- stable eye RT (map base capture recovered — routing/oscillation fix) ---------------
-
-    /// <summary>
-    /// Ensure the stable eye RT exists and matches the base RT's dimensions. The eyes
-    /// sample THIS (a hold-last-non-black copy of the recovered base render) instead of
-    /// the shared, oscillating base RT. Colour-only (no depth) — it is a flat blit target.
-    /// </summary>
-    private bool EnsureStableRt()
-    {
-        if (_leftRt == null)
-            return false;
-        if (_rtStable != null
-            && (_rtStable.width != _leftRt.width || _rtStable.height != _leftRt.height))
-            ReleaseStableRt();
-        if (_rtStable == null)
-        {
-            // COLORSPACE FIX: sRGB when MapSrgbFix OR (fallback) MapGammaCorrect — BOTH eyes sample
-            // this RT in the recovered map path, and the Graphics.Blit from the (possibly linear)
-            // base RT into an sRGB stable RT gamma-encodes the recovered map for the gamma fallback.
-            var rt = CreateColorRt(_leftRt.width, _leftRt.height, 0, "GloomhavenVR.FlatScreenRT.EyeStable", gammaFallback: true);
-            if (!rt.Create())
-            {
-                Object.Destroy(rt);
-                return false;
-            }
-            _rtStable = rt;
-            ClearOpaqueBlack(_rtStable); // fresh RT color is undefined — no garbage before the first hold
-            _stableHasContent = false;
-        }
-        return true;
-    }
-
-    private void ReleaseStableRt()
-    {
-        if (_rtStable == null)
-            return;
-        _rtStable.Release();
-        Object.Destroy(_rtStable);
-        _rtStable = null;
-        _stableHasContent = false;
-    }
-
     private void ReleaseProbeRt()
     {
         if (_probeRt == null)
@@ -1052,222 +665,13 @@ internal sealed class FlatScreenStereo
         _probeRt = null;
     }
 
-    private void ReleaseCenterProbeRt()
+    private void ReleaseAlbedoProbeRt()
     {
-        if (_centerProbeRt == null)
+        if (_albedoProbeRt == null)
             return;
-        _centerProbeRt.Release();
-        Object.Destroy(_centerProbeRt);
-        _centerProbeRt = null;
-    }
-
-    private void ReleaseEarliestProbeRt()
-    {
-        if (_earliestProbeRt == null)
-            return;
-        _earliestProbeRt.Release();
-        Object.Destroy(_earliestProbeRt);
-        _earliestProbeRt = null;
-    }
-
-    // ---- STEP-1a: colorspace facts (leading hypothesis: Linear project + non-sRGB base RT) ------
-
-    /// <summary>
-    /// Once per activation, log the decisive colorspace facts: the project's active colorspace,
-    /// the base RT's + eye RTs' format/graphicsFormat/sRGB flag/depth, the head camera's allowHDR
-    /// and its XR eye-texture descriptor (the "eye texture sRGB=False" the hypothesis rests on).
-    /// A Linear project writing the map camera's linear lit output into a non-sRGB base RT stores
-    /// it raw ⇒ ~2.2x too dark; sRGB=True encodes on store (bright, matches the game backbuffer).
-    /// </summary>
-    private void LogColorspaceFacts()
-    {
-        if (_colorspaceLogged)
-            return;
-        _colorspaceLogged = true;
-        Camera? head = Rig.VRRigDriver.HeadCamera;
-        RenderTextureDescriptor eye = UnityEngine.XR.XRSettings.eyeTextureDesc;
-        VRLog.Info("WorldUI",
-            $"COLORSPACE facts (STEP-1a) — QualitySettings.activeColorSpace {QualitySettings.activeColorSpace}; " +
-            $"MapSrgbFix {MapSrgbFixOn}, MapGammaCorrect {MapGammaCorrectOn}. " +
-            $"base RT {DescribeRt(_leftRt)}; right RT {DescribeRt(_rtRight)}; stable eye RT {DescribeRt(_rtStable)}; " +
-            $"shifted RT {DescribeRt(_rtLeftShifted)}; probe RT {DescribeRt(_probeRt)}. " +
-            $"head camera allowHDR {(head != null ? head.allowHDR.ToString() : "n/a")}, " +
-            $"targetTexture {(head != null && head.targetTexture != null ? DescribeRt(head.targetTexture) : "<backbuffer/XR eye>")}; " +
-            $"XR eyeTextureDesc {eye.width}x{eye.height} fmt {eye.graphicsFormat} sRGB={eye.sRGB}. " +
-            "LINEAR project + non-sRGB base RT ⇒ the map's linear lit output is stored RAW (dark); " +
-            "sRGB=True on the base/eye RTs encodes it on store (bright — the MapSrgbFix path).");
-    }
-
-    // ---- STEP-1b: map-area CENTER-region probe of the base RT (always-on) -----------------------
-
-    /// <summary>
-    /// Throttled async probe of the CENTER region of the base RT (the parchment area, away from the
-    /// UI/corners). Runs ALWAYS while active — the dark-but-not-black map never trips the black
-    /// watchdog, so this is the only probe that measures the map area in the normal path. Logs the
-    /// center mean/min/max + per-channel AND the sRGB-encoded value the fix yields, so one log shows
-    /// both BEFORE (raw) and AFTER (predicted / actual once the base RT is sRGB) the correction.
-    /// </summary>
-    private void TickCenterProbe()
-    {
-        if (!_active || _leftRt == null || _centerProbePending)
-            return;
-        if (_centerProbeFrame != int.MinValue
-            && Time.frameCount - _centerProbeFrame < CenterProbeIntervalFrames)
-            return;
-        _centerProbeFrame = Time.frameCount;
-
-        // The probe RT matches the base RT's sRGB so the downsample blit preserves DISPLAYED
-        // brightness (a non-sRGB probe would decode-then-store-raw and mis-read a bright sRGB base).
-        if (_centerProbeRt == null)
-        {
-            _centerProbeRt = CreateColorRt(BlackProbeSize, BlackProbeSize, 0, "GloomhavenVR.FlatScreenRT.CenterProbe");
-            if (!_centerProbeRt.Create())
-            {
-                ReleaseCenterProbeRt();
-                return;
-            }
-        }
-
-        float scale = CenterProbeRegion;
-        float offset = (1f - CenterProbeRegion) * 0.5f;
-        Graphics.Blit(_leftRt, _centerProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
-        _centerProbePending = true;
-        _centerProbeReqGen = _probeGen;
-        AsyncGPUReadback.Request(_centerProbeRt, 0, TextureFormat.RGBA32, OnCenterProbe);
-    }
-
-    private void OnCenterProbe(AsyncGPUReadbackRequest req)
-    {
-        _centerProbePending = false;
-        if (!_active || _centerProbeReqGen != _probeGen || req.hasError)
-            return;
-
-        var data = req.GetData<Color32>();
-        int n = Mathf.Max(1, data.Length);
-        long sum = 0, rSum = 0, gSum = 0, bSum = 0;
-        int min = 255, max = 0;
-        for (int i = 0; i < data.Length; i++)
-        {
-            Color32 c = data[i];
-            int m = c.r;
-            if (c.g > m) m = c.g;
-            if (c.b > m) m = c.b;
-            if (m < min) min = m;
-            if (m > max) max = m;
-            sum += m; rSum += c.r; gSum += c.g; bSum += c.b;
-        }
-        int mean = (int)(sum / n);
-        int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
-
-        // MAP BACKBUFFER GRAB: this center region of the base RT is exactly what the CommandBuffer copied
-        // from the native backbuffer — a single decisive line tells us success/failure (task logging spec).
-        if (_mapBaseCapture && MapBackbufferGrabOn)
-        {
-            VRLog.Info("WorldUI",
-                $"MAP GRAB probe: grabbed RT center mean {mean}/255 (r{rMean} g{gMean} b{bMean}), max {max} — " +
-                ">50 ⇒ bright native map captured; ~12 flat ⇒ grab failed (CameraTarget empty / wrong event).");
-            // If it stays dark for a few seconds, surface a decisive diagnostic hint ONCE (no auto-fallback —
-            // we want to see the real result on the next hardware log).
-            if (mean < 25)
-            {
-                if (++_grabDarkProbes == 3)
-                    VRLog.Warn("WorldUI", "MAP GRAB still dark — CameraTarget may be empty at " +
-                                          "AfterImageEffects; try CameraEvent.AfterEverything or verify " +
-                                          "MapCamera.targetTexture is null (the redirect must be released).");
-            }
-            else
-            {
-                _grabDarkProbes = 0;
-            }
-            return;
-        }
-
-        bool srgb = _leftRt != null
-            && UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(_leftRt.graphicsFormat);
-        VRLog.Info("WorldUI",
-            $"MAP CENTER probe (central {CenterProbeRegion * 100f:F0}% of base RT): mean {mean}/255 " +
-            $"(r{rMean} g{gMean} b{bMean}), min {min}, max {max} ({BlackProbeSize}x{BlackProbeSize} downsample); " +
-            $"base RT sRGB={srgb}, MapSrgbFix {MapSrgbFixOn}. " +
-            (srgb
-                ? "sRGB=True ⇒ this mean IS the displayed (gamma-encoded) brightness — the map should read bright."
-                : $"sRGB=False (raw-linear store) ⇒ dark; the MapSrgbFix would sRGB-encode it to ~{SrgbEncode(mean)}/255."));
-    }
-
-    // ---- STEP-1c: earliest-capture probe (right after the map camera renders into the base RT) ---
-
-    /// <summary>
-    /// Camera.onPostRender hook: the instant a CAPTURED background (map) camera finishes rendering
-    /// into the base RT, probe the base RT's CENTER region. Compared against the end-of-frame
-    /// <see cref="TickCenterProbe"/> reading, this localises the darkness: BRIGHT here but DARK at
-    /// end-of-frame ⇒ OUR later compositing darkens it (pivot the fix to the composite/blit gamma);
-    /// DARK already here ⇒ the camera→RT write is the darkener (colorspace — the MapSrgbFix path).
-    /// </summary>
-    private void OnPostRenderCamera(Camera cam)
-    {
-        if (!_active || _leftRt == null || _earliestProbePending || cam == null)
-            return;
-        if (cam.targetTexture != _leftRt || !_bySource.ContainsKey(cam))
-            return; // only a captured 3D camera rendering into the base RT (the map camera among them)
-        if (_earliestProbeFrame != int.MinValue
-            && Time.frameCount - _earliestProbeFrame < EarliestProbeIntervalFrames)
-            return;
-        _earliestProbeFrame = Time.frameCount;
-
-        if (_earliestProbeRt == null)
-        {
-            _earliestProbeRt = CreateColorRt(BlackProbeSize, BlackProbeSize, 0, "GloomhavenVR.FlatScreenRT.EarliestProbe");
-            if (!_earliestProbeRt.Create())
-            {
-                ReleaseEarliestProbeRt();
-                return;
-            }
-        }
-
-        float scale = CenterProbeRegion;
-        float offset = (1f - CenterProbeRegion) * 0.5f;
-        // Runs inside the camera render stack (onPostRender) — save/restore the active RT so the
-        // next camera's target is untouched (mirrors the in-render blits in OnPreRenderCamera).
-        RenderTexture? previous = RenderTexture.active;
-        Graphics.Blit(_leftRt, _earliestProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
-        RenderTexture.active = previous;
-        _earliestProbeCam = cam.name;
-        _earliestProbePending = true;
-        _earliestProbeReqGen = _probeGen;
-        AsyncGPUReadback.Request(_earliestProbeRt, 0, TextureFormat.RGBA32, OnEarliestProbe);
-    }
-
-    private void OnEarliestProbe(AsyncGPUReadbackRequest req)
-    {
-        _earliestProbePending = false;
-        if (!_active || _earliestProbeReqGen != _probeGen || req.hasError)
-            return;
-
-        var data = req.GetData<Color32>();
-        int n = Mathf.Max(1, data.Length);
-        long sum = 0, rSum = 0, gSum = 0, bSum = 0;
-        for (int i = 0; i < data.Length; i++)
-        {
-            Color32 c = data[i];
-            int m = c.r;
-            if (c.g > m) m = c.g;
-            if (c.b > m) m = c.b;
-            sum += m; rSum += c.r; gSum += c.g; bSum += c.b;
-        }
-        int mean = (int)(sum / n);
-        int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
-        VRLog.Info("WorldUI",
-            $"MAP EARLIEST probe (base RT center right after '{_earliestProbeCam}' onPostRender): " +
-            $"mean {mean}/255 (r{rMean} g{gMean} b{bMean}) — compare to the MAP CENTER (end-of-frame) probe: " +
-            "bright here + dark there ⇒ our compositing darkens it (pivot to composite gamma); dark here " +
-            "⇒ the camera→RT write is the darkener (colorspace — MapSrgbFix).");
-    }
-
-    private static void ClearOpaqueBlack(RenderTexture rt)
-    {
-        RenderTexture? previous = RenderTexture.active;
-        RenderTexture.active = rt;
-        GL.Clear(clearDepth: true, clearColor: true, backgroundColor: new Color(0f, 0f, 0f, 1f));
-        RenderTexture.active = previous;
+        _albedoProbeRt.Release();
+        Object.Destroy(_albedoProbeRt);
+        _albedoProbeRt = null;
     }
 
     // ---- per-tick stack sync ---------------------------------------------------------------
@@ -1388,28 +792,6 @@ internal sealed class FlatScreenStereo
         }
         entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video, source);
 
-        // STEP-2 FIX (class doc MAP BASE CAPTURE, SELECTIVE STRIP): once map base capture engages,
-        // reconcile the SOURCE camera's image effects to the current strip PLAN (_stripMask). The
-        // adaptive fix keeps the Beautify tonemap and strips only the effect that blacks the
-        // redirected RT; it escalates to stripping Beautify too (+ MapExposure gain) only if keeping
-        // it left the base RT black. Restored verbatim on release. Gated behind the black probe, so
-        // no working scene (menu video / guildmaster) is ever touched.
-        if (_mapBaseCapture && !MapBackbufferGrabOn)
-        {
-            // LEGACY REDIRECT PATH (grab OFF): force the source map camera to Forward so its deferred
-            // surface is LIT into the redirected base RT. Undone here if the fix falls back to deferred.
-            if (_forwardForced)
-                ForceForwardOnSource(entry, source);
-            else if (entry.RenderingPathForced)
-                RestoreSourceRenderingPath(entry);
-            ApplyStripPlan(entry, source, _stripMask);
-        }
-        else if (entry.AppliedStripMask >= 0 || entry.RenderingPathForced)
-            // MAP BACKBUFFER GRAB (default) leaves the source camera completely untouched (it renders its
-            // native bright backbuffer image, grabbed by FlatScreen's CommandBuffer) — restore any effects/
-            // rendering-path override a previous legacy engagement left on it.
-            RestoreSourceEffects(entry);
-
         if (!entry.SourceOn)
             return; // mirror gets disabled in EndStackSync; nothing to copy
 
@@ -1452,44 +834,6 @@ internal sealed class FlatScreenStereo
         if (_sepScene > 0f && _convScene > 1e-4f)
             proj.m02 -= proj.m00 * (_sepScene / _convScene);
         mirror.projectionMatrix = proj;
-
-        // MAP BASE CAPTURE (class doc): a zero-offset bare clone of the source rendered
-        // with a WIDENED culling mask into the mod's own RT (_rtLeft), which the video
-        // depth-shift path then samples for BOTH eyes. The map parchment is ordinary mesh
-        // geometry (decompiled MapChoreographer.worldMap, GH_WorldMap materials) sitting on
-        // a layer the game MapCamera's mask (0xF00FFE37) EXCLUDES — so copying the source
-        // mask (the first attempt) reproduced a BLACK map region. Rendering all layers
-        // except the mod layer captures the parchment regardless of which layer it is on;
-        // the source's UNMODIFIED projection keeps the map framed exactly as the game did.
-        if (_mapBaseCapture && _rtLeft != null)
-        {
-            EnsureLeftMirror(entry);
-            Camera lm = entry.MirrorLeft!;
-            entry.MirrorLeftTransform!.SetPositionAndRotation(st.position, st.rotation);
-            lm.clearFlags = source.clearFlags;
-            lm.backgroundColor = source.backgroundColor;
-            // WIDENED mask (all layers minus the mod layer) — the core fix: the game
-            // MapCamera excludes the parchment's layer, so a source-mask clone renders it
-            // black. Our own camera has no image effect either, so the redirect breakage
-            // that blacks the game render into the base RT cannot affect it.
-            lm.cullingMask = ~VRLayers.ModLayerMask;
-            lm.depth = source.depth;
-            lm.rect = source.rect;
-            lm.nearClipPlane = source.nearClipPlane;
-            lm.farClipPlane = source.farClipPlane;
-            lm.orthographic = source.orthographic;
-            lm.orthographicSize = source.orthographicSize;
-            lm.fieldOfView = source.fieldOfView;
-            lm.allowHDR = source.allowHDR;
-            lm.allowMSAA = source.allowMSAA;
-            lm.useOcclusionCulling = source.useOcclusionCulling;
-            // Match the forward fix on the mod's own clone too, so the not-yet-recovered fallback
-            // render is LIT as well (a deferred clone would be just as dark as the game render).
-            lm.renderingPath = _forwardForced ? RenderingPath.Forward : source.renderingPath;
-            lm.projectionMatrix = source.projectionMatrix;
-            if (lm.targetTexture != _rtLeft)
-                lm.targetTexture = _rtLeft;
-        }
     }
 
     /// <summary>
@@ -1505,6 +849,7 @@ internal sealed class FlatScreenStereo
 
         bool anyVideo = false;
         string? videoSource = null;
+        Camera? mapSource = null; // lowest-depth live 3D source (= the game MapCamera) for the albedo clone
         for (int i = _mirrors.Count - 1; i >= 0; i--)
         {
             MirrorEntry entry = _mirrors[i];
@@ -1518,24 +863,18 @@ internal sealed class FlatScreenStereo
                 anyVideo = true;
                 videoSource = entry.Source.name;
             }
+            if (entry.SourceOn && (mapSource == null || entry.Source.depth < mapSource.depth))
+                mapSource = entry.Source;
         }
 
-        // Decision (class doc): the intro guard forces the suspension outright —
-        // zero shift, the intro must remain verified-identical. Otherwise an active
-        // camera-plane video OR the map base capture engages the uniform shift; if the
-        // shift path is unavailable (kill switch / zero depth / no shifted RT) the
-        // suspension fallback takes over — never one-eyed, never black (the mod's own
-        // map render / the vanilla player keeps feeding the shift source either way).
-        // MAP BASE CAPTURE (class doc): the map's effect-less mesh is rendered by our own
-        // widened-mask camera into _rtLeft; routing it through the SAME shift path the
-        // menu video uses gives both eyes a non-black 3D-window map (task step 3).
-        // STEP-2 FIX: once the effect strip has recovered the base RT (it probes non-black WHILE
-        // engaged), the game camera's OWN raw render is usable — both eyes show it MONO (real map,
-        // colour grading dropped) via the suspension path, no bare clone needed. Until then the
-        // clone/shift path below stays in charge (no regression).
-        bool mapMono = _mapBaseCapture && _baseRecovered;
+        // Decision (class doc): the intro guard forces the suspension outright — zero
+        // shift, the intro must remain verified-identical. The campaign-map albedo
+        // render (class doc MAP ALBEDO RENDER) also drives BOTH eyes MONO from the base
+        // RT — the mod albedo camera fills it bright, no per-eye parallax. Otherwise an
+        // active camera-plane video engages the uniform depth shift; if the shift path
+        // is unavailable (kill switch / zero depth / no shifted RT) the suspension
+        // fallback takes over — never one-eyed, never black.
         bool depthLayer = s_videoDepthLayer?.Value ?? true;
-        string? shiftSource = videoSource ?? (_mapBaseCapture ? "map base capture" : null);
         bool shift = false;
         bool suspend = false;
         string? suspendWhy = null;
@@ -1543,13 +882,12 @@ internal sealed class FlatScreenStereo
         {
             suspend = true;
         }
-        else if (mapMono)
+        else if (_mapBaseCapture)
         {
-            // Base RT recovered by the effect strip — force the mono suspension onto it.
             suspend = true;
-            suspendWhy = "map base RT recovered by the image-effect strip (mono from the game render)";
+            suspendWhy = "campaign map — parchment albedo rendered into the base RT (mono)";
         }
-        else if (anyVideo || _mapBaseCapture)
+        else if (anyVideo)
         {
             if (!depthLayer)
                 suspendWhy = "VideoDepthLayer disabled";
@@ -1566,13 +904,11 @@ internal sealed class FlatScreenStereo
         {
             _videoShift = shift;
             VRLog.Info("WorldUI", shift
-                ? $"Depth shift ENGAGED for '{shiftSource}': shift source untouched (mod map " +
-                  "render into _rtLeft for the map base capture; vanilla camera-plane video into " +
-                  "the left RT otherwise); mirrors off, both eyes show shifted copies of it " +
-                  $"(±{_videoShiftUv:F4} UV, {VideoOverscan:F2}x overscan) — the background/map " +
+                ? $"Depth shift ENGAGED for '{videoSource}': the vanilla camera-plane video keeps " +
+                  "rendering into the left RT untouched; mirrors off, both eyes show shifted copies " +
+                  $"of it (±{_videoShiftUv:F4} UV, {VideoOverscan:F2}x overscan) — the background " +
                   "reads behind the glass UI."
-                : "Depth shift RELEASED — no camera-plane video / map base capture active; " +
-                  "per-eye mirror parallax re-engages.");
+                : "Depth shift RELEASED — no camera-plane video active; per-eye mirror parallax re-engages.");
         }
 
         if (suspend != _videoSuspended)
@@ -1583,13 +919,17 @@ internal sealed class FlatScreenStereo
                     ? "Stereo screen SUSPENDED — intro guard: pre-menu scenes force identical " +
                       "eyes (both eyes = left RT, zero shift; the intro must remain " +
                       "verified-identical)."
-                    : "Stereo screen SUSPENDED — the depth shift is unavailable " +
-                      $"({suspendWhy}); both eyes show the " +
-                      (_baseRecovered ? "recovered game render (base RT, mono non-black)"
-                       : _mapBaseCapture ? "mod map render (_rtLeft, mono non-black)" : "left RT") +
-                      " until it resumes.")
+                    : _mapBaseCapture
+                        ? "Stereo screen SUSPENDED — campaign map albedo render: both eyes show the " +
+                          "base RT (the mod forward camera draws the parchment unlit into it)."
+                        : "Stereo screen SUSPENDED — the depth shift is unavailable " +
+                          $"({suspendWhy}); both eyes show the left RT until it resumes.")
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
+
+        // Campaign-map albedo render (class doc MAP ALBEDO RENDER): configure + enable the mod
+        // forward camera so it OWNS the base RT's final content this frame; disable it otherwise.
+        ReconcileAlbedoCamera(mapSource);
 
         bool anyMirrorRendering = false;
         for (int i = 0; i < _mirrors.Count; i++)
@@ -1600,34 +940,15 @@ internal sealed class FlatScreenStereo
                 entry.Mirror.enabled = want;
             if (want)
                 anyMirrorRendering = true;
-
-            // The map base-capture camera renders whenever the fallback is engaged and its
-            // source is on — INDEPENDENT of the parallax-mirror gate (which is off while the
-            // shift runs): it fills _rtLeft, the very source the shift then samples for both
-            // eyes. Without this it would go dark exactly when the shift needs it.
-            if (entry.MirrorLeft != null)
-            {
-                // Not needed once the effect strip recovered the base RT (mono reads the game render).
-                bool wantLeft = entry.SourceOn && _mapBaseCapture && !_baseRecovered;
-                if (entry.MirrorLeft.enabled != wantLeft)
-                    entry.MirrorLeft.enabled = wantLeft;
-            }
         }
 
-        // Map base-capture probe (class doc MAP BASE CAPTURE): a 3D background camera is
-        // actively rendering (mirrors on) but the game's own render may be black —
-        // check the base RT and engage map base capture if so.
+        // Map base-capture probe (class doc MAP ALBEDO RENDER): a 3D background camera is
+        // actively rendering (mirrors on) but the game's own render may be black — check
+        // the base RT and engage the albedo render if so.
         TickBlackProbe(anyMirrorRendering);
 
-        // STEP-1 diagnostics + effect-strip recovery: while engaged, keep probing the base RT
-        // (did the strip make it non-black? → _baseRecovered) and the mod RTs (is the clone / are
-        // the eye RTs black? → capture-vs-composite), logging each channel for the next hardware log.
-        TickEngagedProbe();
-
-        // STEP-1b: map-area (CENTER-region) probe of the base RT — runs ALWAYS (the dark-not-black
-        // map never trips the black watchdog, so the engaged probes above never fire for it). This
-        // measures the parchment area specifically and logs the sRGB-encoded value the fix yields.
-        TickCenterProbe();
+        // Once-per-second base-RT center probe — the MAP ALBEDO success/failure readout.
+        TickAlbedoProbe();
     }
 
     /// <summary>
@@ -1647,8 +968,6 @@ internal sealed class FlatScreenStereo
         }
         if (_rtLeftShifted == null)
         {
-            // COLORSPACE FIX: sRGB when [WorldUI] MapSrgbFix — the shift blits copy the (sRGB) shift
-            // source into this left-eye target, so it must match to preserve the corrected brightness.
             var rt = CreateColorRt(_leftRt.width, _leftRt.height, 0, "GloomhavenVR.FlatScreenRT.LeftShifted");
             if (!rt.Create())
             {
@@ -1664,18 +983,18 @@ internal sealed class FlatScreenStereo
         return true;
     }
 
-    // ---- map base capture: probe + engage (class doc MAP BASE CAPTURE) ----------------------
+    // ---- map base capture: probe + engage (class doc MAP ALBEDO RENDER) ---------------------
 
     /// <summary>
     /// Throttled ASYNC non-black probe of the base RT. Runs only while a 3D background
     /// camera is actively rendering (so the base RT SHOULD hold scene content) and the
-    /// fallback is not yet engaged/failed; a stall-free downsample-then-readback that,
-    /// after several consecutive all-black results, drives the left eye from mod
-    /// mirrors instead of the game camera's (black) render.
+    /// albedo render is not yet engaged; a stall-free downsample-then-readback that,
+    /// after several consecutive all-black results, engages the mod albedo render of
+    /// the campaign map.
     /// </summary>
     private void TickBlackProbe(bool anyMirrorRendering)
     {
-        if (_mapBaseCapture || _mapBaseCaptureFailed || !(s_leftMirrorFallback?.Value ?? true))
+        if (_mapBaseCapture || !(s_leftMirrorFallback?.Value ?? true))
             return;
         if (!anyMirrorRendering || _leftRt == null || _probePending)
             return;
@@ -1728,7 +1047,7 @@ internal sealed class FlatScreenStereo
         {
             _blackConsecutive++;
             if (_blackConsecutive >= BlackConsecutiveToEngage)
-                EngageLeftMirror(maxChannel);
+                EngageMapAlbedo(maxChannel);
         }
         else
         {
@@ -1737,704 +1056,362 @@ internal sealed class FlatScreenStereo
     }
 
     /// <summary>
-    /// The base RT reads black while a 3D background camera renders — engage MAP BASE
-    /// CAPTURE: the mod renders the map scene itself with a WIDENED culling mask into
-    /// _rtLeft (created + rendered on the next sweep) and routes it through the depth-shift
-    /// path for both eyes. Sticky for the scene (the game render stays black); re-arms on
-    /// the next stack release.
+    /// The base RT reads black while a 3D background camera renders — engage MAP ALBEDO
+    /// RENDER: the mod's own forward camera renders the worldMap parchment (unlit, from
+    /// its albedo texture) into the base RT, and both eyes are driven from it (mono).
+    /// Sticky for the scene; re-arms on the next stack release.
     /// </summary>
-    private void EngageLeftMirror(int maxChannel)
+    private void EngageMapAlbedo(int maxChannel)
     {
         if (_mapBaseCapture)
             return;
-
-        // MAP BACKBUFFER GRAB (default, class doc): the base RT reads black because the deferred MapCamera
-        // was redirected onto it. Instead of fighting the redirect (forced Forward / effect strip / clone),
-        // engage the grab: FlatScreen leaves the MapCamera on its NATIVE backbuffer and a CommandBuffer at
-        // AfterImageEffects blits the finished bright image into this base RT. No clone RT, no source-camera
-        // changes here; the engaged/center probes below read the grabbed base RT and drive both eyes from it.
-        if (MapBackbufferGrabOn)
-        {
-            _mapBaseCapture = true;
-            _baseRecovered = false;
-            _baseNonBlack = false;
-            _stableIdentityLogged = false;
-            _forwardForced = false;      // never force Forward under the grab
-            _forwardFailed = false;
-            _manualExposure = false;     // the grabbed image is already correctly bright
-            _stripMask = StripWhat.None; // never strip effects under the grab
-            _diagStep = -1;
-            _diagStepProbes = 0;
-            _diagDone = true;
-            _grabDarkProbes = 0;
-            ReleaseStableRt();           // a stale hold from a previous engagement must not leak in
-            LogMapRenderSetup(maxChannel);
-            VRLog.Info("WorldUI", "MAP BACKBUFFER GRAB ENGAGED: MapCamera left on native backbuffer " +
-                                  "(targetTexture=null); CommandBuffer AfterImageEffects blits CameraTarget " +
-                                  "→ " + (_leftRt != null ? _leftRt.name : "base RT") + ". This captures the " +
-                                  "fully-lit deferred+Beautify image (the bright native render) instead of the " +
-                                  "dark off-screen redirect. Base RT reads BLACK now (max channel " +
-                                  $"{maxChannel}/255) — expect the MAP GRAB probe below to jump to a bright mean " +
-                                  "(>50) once the grab lands. Re-arms on the next scene change.");
-            return;
-        }
-
-        if (!EnsureLeftRt())
-        {
-            _mapBaseCaptureFailed = true;
-            VRLog.Warn("WorldUI", "Map base capture: capture RT creation failed — " +
-                                  "both eyes stay on the game render (may be black). Retries next activation.");
-            return;
-        }
         _mapBaseCapture = true;
-        _baseRecovered = false;
-        _baseNonBlack = false;
-        _stableIdentityLogged = false;
-        _baseBlackProbes = 0;
-        _manualExposure = false;
-        // THE REAL FIX (task): begin with the source map camera forced to Forward so its deferred
-        // parchment is lit into the base RT — no exposure hack. Cleared to a deferred fallback only
-        // if forward renders black/magenta (SyncCamera applies/restores the path per source).
-        _forwardForced = true;
-        _forwardFailed = false;
-        _forwardBlackProbes = 0;
-        ReleaseStableRt(); // a stale hold from a previous engagement must not leak into this one
-
-        // Strip controller (STEP-2 FIX): the diagnostic sweeps per-effect subsets; the adaptive fix
-        // starts by KEEPING Beautify (strip everything else) — so if the blacker was SSAO/fog the
-        // base RT recovers BRIGHT (Beautify still tone-maps it) and no manual exposure is needed.
-        if (s_mapEffectDiag?.Value ?? false)
-        {
-            _diagStep = 0;
-            _diagStepProbes = 0;
-            _diagDone = false;
-            _stripMask = DiagPlans[0].Mask;
-            VRLog.Info("WorldUI", $"MAP EFFECT DIAG: sweeping {DiagPlans.Length} strip subsets " +
-                                  $"({DiagProbesPerStep} base probes each) — step 1/{DiagPlans.Length} " +
-                                  $"[{DiagPlans[0].Name}]. Watch the following 'MAP probe [base RT ...]' " +
-                                  "mean values to see which effect blacks vs brightens the map.");
-        }
-        else
-        {
-            _diagStep = -1;
-            _diagDone = true;
-            _stripMask = StripWhat.AllButToneMap;
-        }
-        LogMapRenderSetup(maxChannel);
-        VRLog.Info("WorldUI", $"MAP BASE CAPTURE ENGAGED: the screen's base RenderTexture reads " +
-                              $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
-                              "3D background camera renders. Decompiled evidence: the campaign map parchment is " +
-                              "ordinary mesh geometry (MapChoreographer.worldMap, GH_WorldMap materials) rendered by " +
-                              "the DeferredShading 'MapCamera' — and a deferred surface's lighting is NOT resolved " +
-                              "into a redirected targetTexture (base mean ~21, unlit murk). THE REAL FIX (task): the " +
-                              "source MapCamera is now forced to Forward rendering so the map shader's ForwardBase/Add " +
-                              "passes write the LIT colour directly into the base RT — expected base mean to jump well " +
-                              "above 21 (>100) with NO exposure gain. Beautify is kept first; stripped only if it " +
-                              "blacks the forward render. If Forward renders black/magenta (no forward pass) the fix " +
-                              "falls back to Deferred + strip + the manual MapExposure knob, and the mod's own " +
-                              "WIDENED-mask clone into _rtLeft (also forward) drives both eyes meanwhile — never " +
-                              "black. Re-arms on the next scene change.");
+        _albedoEngagedLogged = false;
+        _albedoMaterialsLogged = false;
+        _albedoWarned = false;
+        VRLog.Info("WorldUI", $"MAP ALBEDO detection: the screen's base RenderTexture reads BLACK " +
+                              $"(max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a 3D " +
+                              "background camera renders — the campaign map's deferred parchment shader will not " +
+                              "light into any RenderTexture we own. Engaging the mod forward albedo render of " +
+                              "MapChoreographer.worldMap into the base RT. Re-arms on the next scene change.");
     }
 
-    /// <summary>Create the lazily-allocated map base-capture camera for this entry (bare, disabled).</summary>
-    private void EnsureLeftMirror(MirrorEntry entry)
-    {
-        if (entry.MirrorLeft != null || _root == null || _rtLeft == null)
-            return;
-        var go = new GameObject("GloomhavenVR.MapBaseCapture." + entry.Source.name);
-        go.transform.SetParent(_root.transform, worldPositionStays: false);
-        var cam = go.AddComponent<Camera>();
-        cam.enabled = false;                            // EndStackSync flips it on
-        cam.stereoTargetEye = StereoTargetEyeMask.None; // VRCameraPolicy-invisible by construction
-        cam.targetTexture = _rtLeft;
-        XRDevice.DisableAutoXRCameraTracking(cam, true);
-        entry.MirrorLeft = cam;
-        entry.MirrorLeftTransform = go.transform;
-        entry.GoLeft = go;
-        VRLog.Info("WorldUI", $"Map base capture: capture camera created for '{entry.Source.name}' " +
-                              "(zero offset, unmodified projection, WIDENED culling mask — renders the map " +
-                              "into _rtLeft; the depth-shift path drives both eyes from it).");
-    }
-
-    // ---- map base capture: image-effect strip (STEP-2 FIX) ---------------------------------
-
-    /// <summary>Type-name fragments of the game's camera image effects (case-insensitive).</summary>
-    private static readonly string[] EffectTypeKeywords =
-        { "PostProcess", "Fog", "Bloom", "Antialias", "Vignette", "Tonemap", "ColorGrad" };
+    // ---- map albedo render: camera + material override (class doc MAP ALBEDO RENDER) --------
 
     /// <summary>
-    /// A component that hooks the camera's image pipeline: declares an
-    /// <c>OnRenderImage(RenderTexture,RenderTexture)</c> (GraphicEffects, VolumetricFogPre/PosT,
-    /// Bloom_RFX4), or is a known post/fog/AA effect by type name (PPv2 PostProcessLayer and the
-    /// VolumetricFog core drive the pipeline via COMMAND BUFFERS, not OnRenderImage, so the name
-    /// match catches them). Decompiled evidence: the CampaignMap camera carries all of these.
+    /// Configure + enable the mod forward albedo camera so it renders the worldMap parchment into
+    /// the base RT this frame; disable it whenever the map capture is not engaged / not ready.
+    /// Cloned from <paramref name="mapSource"/> (the game MapCamera) with a depth just above it, so
+    /// Unity renders it LAST among base-RT cameras and it OWNS the base RT's final content.
     /// </summary>
-    private static bool IsImageEffect(System.Type t)
+    private void ReconcileAlbedoCamera(Camera? mapSource)
     {
-        if (t.GetMethod("OnRenderImage",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null, new[] { typeof(RenderTexture), typeof(RenderTexture) }, null) != null)
-            return true;
-        string n = t.Name;
-        for (int i = 0; i < EffectTypeKeywords.Length; i++)
-            if (n.IndexOf(EffectTypeKeywords[i], System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-        return false;
-    }
-
-    /// <summary>Classify a camera image effect into a <see cref="StripWhat"/> category (by type name).</summary>
-    private static StripWhat ClassifyEffect(System.Type t)
-    {
-        string n = t.Name;
-        if (n.IndexOf("Beautify", System.StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("Tonemap", System.StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("ColorGrad", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return StripWhat.ToneMap;
-        if (n.IndexOf("AmbientOcclusion", System.StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("SSAO", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return StripWhat.Ssao;
-        if (n.IndexOf("FogOfWar", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return StripWhat.FogOfWar; // must precede the generic "Fog" test (FogOfWar contains "Fog")
-        if (n.IndexOf("Fog", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return StripWhat.Fog;
-        return StripWhat.Other;
-    }
-
-    /// <summary>Reconcile the source camera's image effects to the desired strip PLAN (idempotent).</summary>
-    private void ApplyStripPlan(MirrorEntry entry, Camera source, StripWhat mask)
-    {
-        if (source == null || entry.AppliedStripMask == (int)mask)
-            return; // GetComponents runs only when the plan actually changes (rare)
-        List<Behaviour> held = entry.DisabledEffects ??= new List<Behaviour>(6);
-        string disabledNames = "", reenabledNames = "";
-        MonoBehaviour[] comps = source.GetComponents<MonoBehaviour>();
-        for (int i = 0; i < comps.Length; i++)
+        if (!_mapBaseCapture || mapSource == null || !EnsureAlbedoReady())
         {
-            MonoBehaviour c = comps[i];
-            if (c == null || !IsImageEffect(c.GetType()))
-                continue;
-            bool wantDisabled = (mask & ClassifyEffect(c.GetType())) != 0;
-            bool weHold = held.Contains(c);
-            if (wantDisabled)
+            if (_mapAlbedoCam != null && _mapAlbedoCam.enabled)
+                _mapAlbedoCam.enabled = false;
+            return;
+        }
+
+        Camera cam = _mapAlbedoCam!;
+        _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        // Neutral dark clear (sample the game camera's background) — the parchment fills the frame.
+        cam.backgroundColor = mapSource.backgroundColor;
+        // Render whatever the game camera sees PLUS the parchment's own layer (its material override
+        // guarantees the mesh draws), never the mod layer (our quad/hands — feedback).
+        cam.cullingMask = (mapSource.cullingMask | (1 << _worldMapLayer)) & ~VRLayers.ModLayerMask;
+        // Just above the game MapCamera so Unity composites us LAST into the base RT (we overwrite
+        // its dark render); still below the head camera, so the quad samples this frame's result.
+        cam.depth = mapSource.depth + 0.1f;
+        cam.rect = mapSource.rect;
+        cam.nearClipPlane = mapSource.nearClipPlane;
+        cam.farClipPlane = mapSource.farClipPlane;
+        cam.orthographic = mapSource.orthographic;
+        cam.orthographicSize = mapSource.orthographicSize;
+        cam.fieldOfView = mapSource.fieldOfView;
+        cam.allowHDR = mapSource.allowHDR;
+        cam.allowMSAA = mapSource.allowMSAA;
+        cam.useOcclusionCulling = mapSource.useOcclusionCulling;
+        // Forward — the material override is an unlit forward shader (Sprites/Default); no deferred
+        // G-buffer resolve is needed or wanted (that is the whole point — the deferred map never lit).
+        cam.renderingPath = RenderingPath.Forward;
+        cam.projectionMatrix = mapSource.projectionMatrix;
+        if (cam.targetTexture != _leftRt)
+            cam.targetTexture = _leftRt;
+        if (!cam.enabled)
+            cam.enabled = true;
+
+        if (!_albedoEngagedLogged)
+        {
+            _albedoEngagedLogged = true;
+            int submeshes = _worldMapOverrideMats != null ? _worldMapOverrideMats.Length : 0;
+            VRLog.Info("WorldUI", $"MAP ALBEDO RENDER ENGAGED: worldMap MeshRenderer " +
+                                  $"'{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' found with " +
+                                  $"{submeshes} submeshes; forward mod camera (depth {cam.depth:F1}, cloned from " +
+                                  $"'{mapSource.name}') → base RT, parchment drawn unlit from its albedo texture.");
+        }
+    }
+
+    /// <summary>
+    /// Ensure the worldMap renderer, override materials and mod camera all exist for the albedo
+    /// render (built lazily once the map capture is engaged; retried each tick until the scene's
+    /// worldMap is available). Returns false (with a one-shot WARN) if the map is not renderable.
+    /// </summary>
+    private bool EnsureAlbedoReady()
+    {
+        if (!MapAlbedoRenderOn || _root == null || _leftRt == null)
+            return false;
+
+        if (_worldMapRenderer == null && !FindWorldMapRenderer())
+        {
+            if (!_albedoWarned)
             {
-                // Only touch — and track — effects WE flip off. An effect the game already
-                // disabled itself (e.g. the off VolumetricFog core) is left alone and never
-                // added to held, so it is never wrongly re-enabled on a later plan/restore.
-                if (c.enabled)
+                _albedoWarned = true;
+                VRLog.Warn("WorldUI", "MAP ALBEDO RENDER: no MapChoreographer.worldMap MeshRenderer with a " +
+                                      "GH_WorldMap material found in the scene — the base RT is left as-is " +
+                                      "(the map stays black). Retrying each tick while the map is showing.");
+            }
+            return false;
+        }
+
+        if (_worldMapOverrideMats == null && !BuildOverrideMaterials())
+            return false;
+
+        EnsureAlbedoCamera();
+        return _mapAlbedoCam != null;
+    }
+
+    /// <summary>Reflect the decompiled campaign-map parchment renderer (MapChoreographer.worldMap, publicized).</summary>
+    private bool FindWorldMapRenderer()
+    {
+        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
+        if (choreo == null)
+            return false;
+        GameObject worldMap = choreo.worldMap; // publicized private serialized field
+        if (worldMap == null)
+            return false;
+
+        MeshRenderer[] rends = worldMap.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
+        MeshRenderer? found = null;
+        for (int i = 0; i < rends.Length && found == null; i++)
+        {
+            Material[] mats = rends[i].sharedMaterials;
+            for (int j = 0; j < mats.Length; j++)
+            {
+                if (mats[j] != null && mats[j].name.IndexOf("GH_WorldMap", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    c.enabled = false;
-                    if (!weHold)
-                        held.Add(c);
-                    disabledNames += (disabledNames.Length > 0 ? ", " : "") + c.GetType().Name;
+                    found = rends[i];
+                    break;
                 }
             }
-            else if (weHold)
-            {
-                // We disabled it earlier but the new plan keeps it — restore only what WE touched
-                // (an effect the GAME disabled itself was never added to held).
-                if (!c.enabled)
-                {
-                    c.enabled = true;
-                    reenabledNames += (reenabledNames.Length > 0 ? ", " : "") + c.GetType().Name;
-                }
-                held.Remove(c);
-            }
         }
-        entry.AppliedStripMask = (int)mask;
-        if (disabledNames.Length > 0 || reenabledNames.Length > 0)
-            VRLog.Info("WorldUI", $"Map base capture strip plan [{StripMaskName(mask)}] on '{source.name}': " +
-                                  $"disabled [{(disabledNames.Length > 0 ? disabledNames : "none")}], " +
-                                  $"re-enabled [{(reenabledNames.Length > 0 ? reenabledNames : "none")}].");
+        // Fallback: the parchment renderer is directly on the worldMap GO (decompiled
+        // MapChoreographer uses worldMap.GetComponent<MeshRenderer>()).
+        if (found == null)
+            found = worldMap.GetComponent<MeshRenderer>();
+        if (found == null)
+            return false;
+
+        _worldMapRenderer = found;
+        _worldMapLayer = found.gameObject.layer;
+        return true;
     }
 
     /// <summary>
-    /// Force this source map camera to Forward rendering (task: THE REAL FIX) so its deferred
-    /// parchment gets LIT into the redirected base RT. Idempotent — the original path is saved once
-    /// and restored verbatim on release / fallback.
+    /// Build one <c>Sprites/Default</c> override material per worldMap submesh with its parchment
+    /// albedo (<c>_Alb</c> ?? <c>_MainTex</c> ?? <c>mainTexture</c>) as <c>_MainTex</c>. Logs the
+    /// discovered material facts once (name + which property held the albedo + texture + size).
+    /// Returns false (one-shot WARN) if no submesh yielded a usable albedo texture.
     /// </summary>
-    private void ForceForwardOnSource(MirrorEntry entry, Camera source)
+    private bool BuildOverrideMaterials()
     {
-        if (source == null)
-            return;
-        if (!entry.RenderingPathForced)
-        {
-            entry.OriginalRenderingPath = source.renderingPath;
-            entry.RenderingPathForced = true;
-            VRLog.Info("WorldUI", $"MAP forward fix: '{source.name}' renderingPath forced " +
-                                  $"{entry.OriginalRenderingPath} → Forward — a Deferred surface is not lit " +
-                                  "into a redirected targetTexture (base mean ~21); Forward runs the map " +
-                                  "shader's ForwardBase/Add passes and writes the LIT colour directly.");
-        }
-        if (source.renderingPath != RenderingPath.Forward) // re-assert (game code may rewrite it)
-            source.renderingPath = RenderingPath.Forward;
-    }
-
-    /// <summary>Restore a source camera's original renderingPath (fallback to deferred / release).</summary>
-    private void RestoreSourceRenderingPath(MirrorEntry entry)
-    {
-        if (!entry.RenderingPathForced)
-            return;
-        entry.RenderingPathForced = false;
-        if (entry.Source != null)
-        {
-            entry.Source.renderingPath = entry.OriginalRenderingPath;
-            VRLog.Info("WorldUI", $"MAP forward fix: '{entry.Source.name}' renderingPath restored to " +
-                                  $"{entry.OriginalRenderingPath}.");
-        }
-    }
-
-    /// <summary>Re-enable every image effect we still hold disabled on this entry's source camera.</summary>
-    private void RestoreSourceEffects(MirrorEntry entry)
-    {
-        RestoreSourceRenderingPath(entry); // undo the forward force alongside the strip
-        entry.AppliedStripMask = -1;
-        List<Behaviour>? disabled = entry.DisabledEffects;
-        if (disabled == null || disabled.Count == 0)
-            return;
-        int restored = 0;
-        for (int i = 0; i < disabled.Count; i++)
-        {
-            Behaviour b = disabled[i];
-            if (b != null)
-            {
-                b.enabled = true;
-                restored++;
-            }
-        }
-        if (restored > 0)
-            VRLog.Info("WorldUI", $"Map base capture: restored {restored} image-effect component(s)" +
-                                  (entry.Source != null ? $" on '{entry.Source.name}'." : " (source gone)."));
-        disabled.Clear();
-    }
-
-    private static string StripMaskName(StripWhat mask)
-    {
-        if (mask == StripWhat.None) return "none";
-        if (mask == StripWhat.All) return "ALL";
-        if (mask == StripWhat.AllButToneMap) return "all-but-Beautify";
-        string s = "";
-        if ((mask & StripWhat.Fog) != 0) s += (s.Length > 0 ? "|" : "") + "Fog";
-        if ((mask & StripWhat.FogOfWar) != 0) s += (s.Length > 0 ? "|" : "") + "FogOfWar";
-        if ((mask & StripWhat.Ssao) != 0) s += (s.Length > 0 ? "|" : "") + "SSAO";
-        if ((mask & StripWhat.ToneMap) != 0) s += (s.Length > 0 ? "|" : "") + "Beautify";
-        if ((mask & StripWhat.Other) != 0) s += (s.Length > 0 ? "|" : "") + "Other";
-        return s;
-    }
-
-    // ---- map exposure gain (STEP-2 FIX, manual tonemap fallback) ----------------------------
-
-    /// <summary>
-    /// Exposure-gain blit: a per-pixel multiply (MapExposure) that lifts the raw, unlit map render
-    /// (Beautify stripped → mean ~21/255) to a bright, readable level. Uses the mod's bundled
-    /// <c>GloomhavenVR/Overlay</c> shader (<c>tex2D(_MainTex) * _Color</c>; on the D3D11 target
-    /// <c>fixed4</c> is full float, so _Color &gt; 1 gives a true gain in a SINGLE blit), forced to
-    /// an opaque overwrite. Falls back to a plain copy if the shader is unavailable (dark but never
-    /// black). Only used while <see cref="_manualExposure"/> (Beautify could not be kept).
-    /// </summary>
-    private void BlitWithGain(RenderTexture src, RenderTexture dst)
-    {
-        Material? m = GainMaterial();
-        if (m == null)
-        {
-            Graphics.Blit(src, dst); // no gain shader — dark map, but non-black (never regress to black)
-            return;
-        }
-        float g = Mathf.Clamp(s_mapExposure?.Value ?? DefaultMapExposure, 1f, 16f);
-        m.SetColor(GainColorId, new Color(g, g, g, 1f));
-        Graphics.Blit(src, dst, m);
-    }
-
-    private Material? GainMaterial()
-    {
-        if (_gainMaterial != null)
-            return _gainMaterial;
-        Shader? sh = Cards.PlayTray.OverlayShader()
-                     ?? Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        if (_worldMapRenderer == null)
+            return false;
+        Shader? sh = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
         if (sh == null)
         {
-            if (!_gainMaterialWarned)
+            if (!_albedoWarned)
             {
-                _gainMaterialWarned = true;
-                VRLog.Warn("WorldUI", "Map exposure: no gain shader available (bundle absent, no " +
-                                      "Sprites/Default) — the recovered map stays at its raw (dark) exposure.");
+                _albedoWarned = true;
+                VRLog.Warn("WorldUI", "MAP ALBEDO RENDER: neither Sprites/Default nor UI/Default is present — " +
+                                      "cannot build an unlit override; the base RT is left as-is (map black).");
             }
-            return null;
+            return false;
         }
-        var mat = new Material(sh) { name = "GloomhavenVR.MapExposureGain" };
-        // Opaque overwrite, depth-agnostic (fullscreen blit): tex * _Color straight into the RT.
-        if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
-        if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
-        if (mat.HasProperty("_ZTest")) mat.SetFloat("_ZTest", (float)CompareFunction.Always);
-        if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
-        if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", (float)CullMode.Off);
-        _gainMaterial = mat;
-        VRLog.Info("WorldUI", $"Map exposure: gain blit material created (shader '{sh.name}') — the raw " +
-                              "Beautify-stripped map render is multiplied by [WorldUI] MapExposure before the eyes.");
-        return _gainMaterial;
+
+        Material[] orig = _worldMapRenderer.sharedMaterials;
+        var overrides = new Material[orig.Length];
+        int withTex = 0;
+        string facts = "";
+        for (int i = 0; i < orig.Length; i++)
+        {
+            Material o = orig[i];
+            Texture? tex = null;
+            string prop = "NONE";
+            if (o != null)
+            {
+                if (o.HasProperty("_Alb") && (tex = o.GetTexture("_Alb")) != null)
+                    prop = "_Alb";
+                else if (o.HasProperty("_MainTex") && (tex = o.GetTexture("_MainTex")) != null)
+                    prop = "_MainTex";
+                else if ((tex = o.mainTexture) != null)
+                    prop = "mainTexture";
+            }
+            var m = new Material(sh) { name = "GloomhavenVR.MapAlbedo." + i };
+            if (tex != null)
+            {
+                m.mainTexture = tex; // Sprites/Default samples _MainTex
+                withTex++;
+            }
+            overrides[i] = m;
+            if (!_albedoMaterialsLogged)
+                facts += $"\n  material[{i}] '{(o != null ? o.name : "<null>")}': albedo from {prop}"
+                         + (tex != null ? $" = '{tex.name}' {tex.width}x{tex.height}" : " (none)");
+        }
+        _worldMapOverrideMats = overrides;
+        _worldMapOriginalMats = orig;
+
+        if (!_albedoMaterialsLogged)
+        {
+            _albedoMaterialsLogged = true;
+            VRLog.Info("WorldUI", $"MAP ALBEDO materials ({orig.Length} submesh(es), {withTex} with a texture):{facts}");
+        }
+
+        if (withTex == 0)
+        {
+            if (!_albedoWarned)
+            {
+                _albedoWarned = true;
+                VRLog.Warn("WorldUI", "MAP ALBEDO RENDER: no worldMap submesh material exposed an albedo texture " +
+                                      "(_Alb / _MainTex / mainTexture all null) — the base RT is left as-is (map black).");
+            }
+            // Drop the useless overrides so a later rebuild (materials populated) can retry.
+            DestroyOverrideMaterials();
+            return false;
+        }
+        return true;
     }
 
-    private void ReleaseGainMaterial()
+    /// <summary>Create the mod-owned albedo camera (bare, disabled; flipped on by ReconcileAlbedoCamera).</summary>
+    private void EnsureAlbedoCamera()
     {
-        if (_gainMaterial == null)
+        if (_mapAlbedoCam != null || _root == null)
             return;
-        Object.Destroy(_gainMaterial);
-        _gainMaterial = null;
+        var go = new GameObject("GloomhavenVR.MapAlbedoCamera");
+        go.transform.SetParent(_root.transform, worldPositionStays: false);
+        var cam = go.AddComponent<Camera>();
+        cam.enabled = false;                            // ReconcileAlbedoCamera flips it on
+        cam.stereoTargetEye = StereoTargetEyeMask.None; // VRCameraPolicy-invisible by construction
+        cam.targetTexture = _leftRt;
+        XRDevice.DisableAutoXRCameraTracking(cam, true);
+        _mapAlbedoCam = cam;
+        _mapAlbedoGo = go;
+        _mapAlbedoTransform = go.transform;
     }
 
-    /// <summary>Re-enable stripped effects on every live entry (teardown/deactivate).</summary>
-    private void RestoreAllEffects()
+    /// <summary>Swap the unlit override onto the worldMap renderer just before our albedo camera renders it.</summary>
+    private void ApplyWorldMapOverride()
     {
-        for (int i = 0; i < _mirrors.Count; i++)
-            RestoreSourceEffects(_mirrors[i]);
+        if (_overrideApplied || _worldMapRenderer == null || _worldMapOverrideMats == null)
+            return;
+        // Re-capture the live originals each time so the restore always puts back exactly what the
+        // game currently has (a submesh count change invalidates our override — skip + rebuild).
+        Material[] current = _worldMapRenderer.sharedMaterials;
+        if (current.Length != _worldMapOverrideMats.Length)
+        {
+            DestroyOverrideMaterials(); // stale — EnsureAlbedoReady rebuilds next tick
+            return;
+        }
+        _worldMapOriginalMats = current;
+        _worldMapRenderer.sharedMaterials = _worldMapOverrideMats;
+        _overrideApplied = true;
     }
 
-    // ---- map base capture: engaged diagnostic probe (STEP-1) -------------------------------
+    /// <summary>Restore the worldMap renderer's original materials right after our albedo camera renders (game state untouched).</summary>
+    private void RestoreWorldMapOverride()
+    {
+        if (!_overrideApplied)
+            return;
+        _overrideApplied = false;
+        if (_worldMapRenderer != null && _worldMapOriginalMats != null)
+            _worldMapRenderer.sharedMaterials = _worldMapOriginalMats;
+    }
+
+    private void DestroyOverrideMaterials()
+    {
+        if (_worldMapOverrideMats != null)
+        {
+            for (int i = 0; i < _worldMapOverrideMats.Length; i++)
+                if (_worldMapOverrideMats[i] != null)
+                    Object.Destroy(_worldMapOverrideMats[i]);
+            _worldMapOverrideMats = null;
+        }
+        _worldMapOriginalMats = null;
+    }
+
+    /// <summary>Tear down the whole albedo render (restore game materials, destroy overrides + mod camera).</summary>
+    private void ReleaseAlbedo()
+    {
+        RestoreWorldMapOverride(); // never leave the override on the game renderer
+        DestroyOverrideMaterials();
+        _worldMapRenderer = null;
+        _worldMapLayer = -1;
+        _albedoMaterialsLogged = false;
+        _albedoEngagedLogged = false;
+        _albedoWarned = false;
+        _overrideApplied = false;
+        if (_mapAlbedoGo != null)
+        {
+            Object.Destroy(_mapAlbedoGo);
+            _mapAlbedoGo = null;
+            _mapAlbedoCam = null;
+            _mapAlbedoTransform = null;
+        }
+    }
+
+    // ---- map albedo render: once-per-second base-RT probe (MAP ALBEDO probe line) ------------
 
     /// <summary>
-    /// While map base capture is engaged, round-robin an async non-black probe over the base RT
-    /// (recovery check → <see cref="_baseRecovered"/>) and the mod RTs (<see cref="_rtLeft"/> clone,
-    /// <see cref="_rtRight"/>, <see cref="_rtLeftShifted"/>) so the next hardware log localises the
-    /// black to CAPTURE (a mod RT is black) vs COMPOSITE (all non-black yet the screen is black).
+    /// Throttled async probe of the CENTER region of the base RT while the albedo render is engaged —
+    /// a single decisive line reporting whether the parchment landed bright (mean &gt; 50) or the base
+    /// RT is still failing (~0 black / ~12 dark murk).
     /// </summary>
-    private void TickEngagedProbe()
+    private void TickAlbedoProbe()
     {
-        if (!_mapBaseCapture || _leftRt == null || _probePending)
+        if (!_mapBaseCapture || !_active || _leftRt == null || _albedoProbePending)
             return;
-        int interval = _baseRecovered ? RecoveredProbeIntervalFrames : BlackProbeIntervalFrames;
-        if (_engagedProbeFrame != int.MinValue
-            && Time.frameCount - _engagedProbeFrame < interval)
+        if (_albedoProbeFrame != int.MinValue
+            && Time.frameCount - _albedoProbeFrame < AlbedoProbeIntervalFrames)
             return;
-        _engagedProbeFrame = Time.frameCount;
+        _albedoProbeFrame = Time.frameCount;
 
-        RenderTexture? rt;
-        string label;
-        bool isBase;
-        if (!_baseRecovered)
+        if (_albedoProbeRt == null)
         {
-            // Not yet recovered (diagnostic sweep OR adaptive pre-recovery): probe the BASE RT every
-            // cycle so each strip plan gets prompt, attributable mean readings — driving the diagnostic
-            // step advance and the adaptive escalation quickly. The eyes stay on the mod's own
-            // (non-black) map clone throughout, so a black base RT never reaches them. Composite is
-            // already solved (task), so the inert clone/right/shifted RTs are no longer round-robined.
-            rt = _leftRt;
-            label = $"base RT (game render), plan [{StripMaskName(_stripMask)}]";
-            isBase = true;
-        }
-        else if ((_engagedProbeIndex & 1) == 0)
-        {
-            // Recovered: the base RT (recovery/blit SOURCE) and the stable eye RT (what BOTH eyes
-            // actually sample) are the only meaningful targets — alternate them so the log proves the
-            // eye RT is non-black AND keeps the base verdict fresh for the hold-last-non-black gate.
-            rt = _leftRt;
-            label = $"base RT (game render), plan [{StripMaskName(_stripMask)}]";
-            isBase = true;
-        }
-        else
-        {
-            rt = _rtStable;
-            label = "eye RT (stable, both eyes)";
-            isBase = false;
-        }
-        _engagedProbeIndex++;
-        if (rt == null)
-            return;
-
-        if (_probeRt == null)
-        {
-            _probeRt = new RenderTexture(BlackProbeSize, BlackProbeSize, 0)
+            _albedoProbeRt = new RenderTexture(BlackProbeSize, BlackProbeSize, 0)
             {
-                name = "GloomhavenVR.FlatScreenRT.BlackProbe",
+                name = "GloomhavenVR.FlatScreenRT.AlbedoProbe",
                 antiAliasing = 1,
             };
-            if (!_probeRt.Create())
+            if (!_albedoProbeRt.Create())
             {
-                ReleaseProbeRt();
+                ReleaseAlbedoProbeRt();
                 return;
             }
         }
 
-        Graphics.Blit(rt, _probeRt);
-        _engagedProbeLabel = label;
-        _engagedProbeIsBase = isBase;
-        _probePending = true;
-        _probeReqGen = _probeGen;
-        AsyncGPUReadback.Request(_probeRt, 0, TextureFormat.RGBA32, OnEngagedProbe);
+        float scale = AlbedoProbeRegion;
+        float offset = (1f - AlbedoProbeRegion) * 0.5f;
+        Graphics.Blit(_leftRt, _albedoProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
+        _albedoProbePending = true;
+        _albedoProbeReqGen = _probeGen;
+        AsyncGPUReadback.Request(_albedoProbeRt, 0, TextureFormat.RGBA32, OnAlbedoProbe);
     }
 
-    private void OnEngagedProbe(AsyncGPUReadbackRequest req)
+    private void OnAlbedoProbe(AsyncGPUReadbackRequest req)
     {
-        _probePending = false;
-        if (!_active || !_mapBaseCapture || _probeReqGen != _probeGen || req.hasError)
+        _albedoProbePending = false;
+        if (!_active || !_mapBaseCapture || _albedoProbeReqGen != _probeGen || req.hasError)
             return;
 
         var data = req.GetData<Color32>();
-        int maxChannel = 0;
+        int n = Mathf.Max(1, data.Length);
         long sum = 0, rSum = 0, gSum = 0, bSum = 0;
-        int litTexels = 0; // texels whose max channel clears the black threshold
+        int max = 0;
         for (int i = 0; i < data.Length; i++)
         {
             Color32 c = data[i];
             int m = c.r;
             if (c.g > m) m = c.g;
             if (c.b > m) m = c.b;
-            if (m > maxChannel)
-                maxChannel = m;
-            sum += m;
-            rSum += c.r; gSum += c.g; bSum += c.b;
-            if (m > BlackChannelThreshold)
-                litTexels++;
+            if (m > max) max = m;
+            sum += m; rSum += c.r; gSum += c.g; bSum += c.b;
         }
-        // MEAN + lit-fraction disambiguate "one bright pixel fooling MAX" from a genuinely
-        // filled frame: a black map area with a single bright UI corner reads high MAX but
-        // near-zero MEAN and tiny lit-fraction.
-        int n = Mathf.Max(1, data.Length);
         int mean = (int)(sum / n);
         int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
-        int litPct = litTexels * 100 / n;
-        // Magenta = an unsupported/missing forward pass (task robustness): R+B high, G starved.
-        bool magenta = mean > 40 && rMean > 60 && bMean > 60 && gMean * 4 < rMean + bMean;
-        // Under the backbuffer grab the once/sec MAP GRAB line (OnCenterProbe) is the canonical brightness
-        // report; suppress this second per-probe line there to keep the log low-spam (the grab probe still
-        // runs to drive _baseNonBlack/_baseRecovered — the display routing — it just does not double-log).
-        if (!MapBackbufferGrabOn)
-            VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max {maxChannel}/255, mean {mean}/255 " +
-                              $"(r{rMean} g{gMean} b{bMean}), lit {litPct}% ({BlackProbeSize}x{BlackProbeSize} " +
-                              $"downsample), path {(_forwardForced ? "Forward(forced)" : _forwardFailed ? "Deferred(forward-failed)" : "Deferred")}" +
-                              $"{(magenta ? " — MAGENTA (no forward pass?)" : "")} — low mean + low lit% with high " +
-                              "max ⇒ map area still black, only a stray bright texel.");
-
-        if (_engagedProbeIsBase)
-        {
-            // Feed the hold-last-non-black gate: only copy the base into the stable eye RT
-            // while it reads non-black, so a black base blip freezes the last good copy.
-            // Magenta is treated as NOT usable content (it is a shader error, not a lit map).
-            _baseNonBlack = maxChannel > BlackChannelThreshold && !magenta;
-
-            // MAP BACKBUFFER GRAB: the base RT is fed by the CommandBuffer copy of the fully-lit native
-            // backbuffer (FlatScreen), NOT a redirected deferred render — so a non-black read means the
-            // grab landed. Mark it recovered (drives the mono/stable eye path — both eyes show the grabbed
-            // map) and skip the entire legacy forward/strip/magenta ladder below.
-            if (MapBackbufferGrabOn)
-            {
-                if (_baseNonBlack && !_baseRecovered)
-                {
-                    _baseRecovered = true;
-                    VRLog.Info("WorldUI", $"MAP BACKBUFFER GRAB RECOVERED: base RT (fed by the " +
-                                          $"AfterImageEffects CameraTarget blit) reads NON-black (max {maxChannel}/255, " +
-                                          $"mean {mean}/255) — the bright native deferred+Beautify map was captured. " +
-                                          "Both eyes now show it via the stable eye RT (mono, exactly the native look).");
-                }
-                return;
-            }
-
-            if (!_diagDone)
-            {
-                // DIAGNOSTIC sweep (STEP-1): hold each strip subset for a few base probes, then
-                // advance. The per-subset base means logged above localise which effect blacks vs
-                // brightens the redirected RT. The eyes stay on the mod's own (non-black) map clone
-                // throughout — _baseRecovered is never set while sweeping — so nothing goes black.
-                if (++_diagStepProbes >= DiagProbesPerStep)
-                {
-                    _diagStepProbes = 0;
-                    _diagStep++;
-                    if (_diagStep < DiagPlans.Length)
-                    {
-                        _stripMask = DiagPlans[_diagStep].Mask;
-                        VRLog.Info("WorldUI", $"MAP EFFECT DIAG: step {_diagStep + 1}/{DiagPlans.Length} " +
-                                              $"[{DiagPlans[_diagStep].Name}] — mask {StripMaskName(_stripMask)}.");
-                    }
-                    else
-                    {
-                        // Sweep done — settle on the adaptive forward fix (keep Beautify first, strip it
-                        // only if it blacks the forward render). Manual exposure stays OFF while forward
-                        // supplies the lighting; it re-arms only on the deferred fallback below.
-                        _diagDone = true;
-                        _stripMask = StripWhat.AllButToneMap;
-                        _manualExposure = false;
-                        _baseBlackProbes = 0;
-                        _forwardBlackProbes = 0;
-                        VRLog.Info("WorldUI", "MAP EFFECT DIAG complete — settling on the forced-Forward fix " +
-                                              "(keep Beautify; strip it only if it blacks the forward render; no " +
-                                              "exposure gain). Compare the per-subset base means above: the subset " +
-                                              "with the HIGHEST base mean under Forward names the lit map.");
-                    }
-                }
-                return; // do not run the adaptive recovery decision while sweeping
-            }
-
-            // ADAPTIVE FORWARD FIX (task). Ladder while not yet recovered:
-            //   Forward + keep Beautify  →(black)→  Forward + strip Beautify
-            //                             →(black/magenta)→  DEFERRED fallback + strip-all + MapExposure knob
-            // Recovery = a non-black, non-magenta base RT: with Forward the parchment is LIT by
-            // construction (expected mean >100), so NO exposure gain. The deferred fallback is only
-            // reached if the shader has no forward pass, and even then the gain is a manual knob
-            // (default 1x = no-op) — it never touches the UI.
-            if (_baseNonBlack)
-            {
-                if (!_baseRecovered)
-                {
-                    _baseRecovered = true;
-                    VRLog.Info("WorldUI", $"MAP BASE RECOVERED: base RT reads NON-black (max {maxChannel}/255, " +
-                                          $"mean {mean}/255) — renderingPath {(_forwardForced ? "Forward (forced — the map is now LIT by its forward passes)" : "Deferred (forward fell back)")}, " +
-                                          $"strip plan [{StripMaskName(_stripMask)}], " +
-                                          (_manualExposure
-                                              ? "manual MapExposure gain ON (deferred fallback — the raw map is dark; watch the 'eye RT (stable)' mean)."
-                                              : "no exposure gain (brightness comes from lighting; the base mean IS the success signal).") +
-                                          " Both eyes are driven from a STABLE hold-last-non-black eye RT.");
-                }
-            }
-            else if (!_baseRecovered && _forwardForced && magenta)
-            {
-                // Forward render is MAGENTA (Amp_Basic_N_MRAO has no supported forward pass) — stripping
-                // more will not help. Fall back to the deferred + strip + manual-exposure path.
-                if (++_forwardBlackProbes >= EscalateBlackProbes)
-                    FallBackFromForward($"forward render is MAGENTA (max {maxChannel}/255, g{gMean}) — no forward pass");
-            }
-            else if (!_baseRecovered && _stripMask == StripWhat.AllButToneMap)
-            {
-                // Keeping Beautify left the base RT black → Beautify itself blacks the (forward or
-                // deferred) render. Strip it too; on the forward path the lighting still brightens it
-                // (no gain), on the deferred fallback re-arm the manual exposure knob.
-                if (++_baseBlackProbes >= EscalateBlackProbes)
-                {
-                    _stripMask = StripWhat.All;
-                    _manualExposure = !_forwardForced;
-                    _baseBlackProbes = 0;
-                    _forwardBlackProbes = 0;
-                    VRLog.Info("WorldUI", $"MAP fix escalated: keeping Beautify left the base RT BLACK " +
-                                          $"(max {maxChannel}/255) over {EscalateBlackProbes} probes — Beautify blacks " +
-                                          $"the redirected RT, so it is now stripped too " +
-                                          (_forwardForced ? "(Forward still lights the raw map — no exposure gain)."
-                                                          : "and the raw map is brightened with the MapExposure knob."));
-                }
-            }
-            else if (!_baseRecovered && _forwardForced && _stripMask == StripWhat.All)
-            {
-                // Forward + strip-all and STILL black → the map shader has no usable forward pass.
-                // Fall back to deferred (the mod's widened-mask clone keeps both eyes non-black meanwhile).
-                if (++_forwardBlackProbes >= EscalateBlackProbes)
-                    FallBackFromForward($"forward strip-all still renders the base RT BLACK (max {maxChannel}/255)");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Forcing Forward did not light the map (the shader rendered BLACK or MAGENTA) — abandon it for
-    /// this engagement and revert to the proven DEFERRED + strip-all path, with the manual MapExposure
-    /// knob re-armed (default 1x = no-op) so the operator can lift the dark deferred render if needed.
-    /// SyncCamera restores each source camera's original renderingPath on the next sweep.
-    /// </summary>
-    private void FallBackFromForward(string why)
-    {
-        if (!_forwardForced)
-            return;
-        _forwardForced = false;
-        _forwardFailed = true;
-        _forwardBlackProbes = 0;
-        _stripMask = StripWhat.All;
-        _manualExposure = true;
-        _baseBlackProbes = 0;
-        VRLog.Warn("WorldUI", $"MAP forward fix FAILED ({why}) — reverting to DeferredShading + strip-all + " +
-                              "the manual [WorldUI] MapExposure knob (default 1x = no-op; raise it if the log " +
-                              "shows the deferred map dark). The mod's widened-mask clone keeps both eyes " +
-                              "non-black meanwhile. NEXT HYPOTHESIS if the deferred map is still dark: the base " +
-                              "RT lacks the HDR/depth buffer deferred needs to resolve lighting — try an HDR " +
-                              "base RT, or accept the map is uncapturable via redirect and show it through a " +
-                              "dedicated mod render pass.");
-    }
-
-    /// <summary>
-    /// One-shot RT-identity check for the recovered stable-eye path (task step 3): proves in the
-    /// log whether the RT the base probe reads (<see cref="_leftRt"/>) is the SAME object the quad
-    /// samples (<c>_quadMaterial.mainTexture</c>) and names the stable eye RT the eyes now sample —
-    /// by name + instance id, so a topology mismatch is unambiguous next log.
-    /// </summary>
-    private void LogStableIdentity()
-    {
-        Material? mat = _quadMaterial;
-        Texture? quadTex = mat != null ? mat.mainTexture : null;
-        VRLog.Info("WorldUI", "MAP identity check — base RT (probe source) '" +
-                              $"{(_leftRt != null ? _leftRt.name : "null")}'#{(_leftRt != null ? _leftRt.GetInstanceID() : 0)}; " +
-                              $"quad.mainTexture '{(quadTex != null ? quadTex.name : "null")}'#{(quadTex != null ? quadTex.GetInstanceID() : 0)}; " +
-                              $"stable eye RT '{(_rtStable != null ? _rtStable.name : "null")}'#{(_rtStable != null ? _rtStable.GetInstanceID() : 0)}. " +
-                              "Both eyes are driven from the stable eye RT (a hold-last-non-black copy of the base render); " +
-                              "the 'eye RT (stable, both eyes)' probe reports what they sample.");
-    }
-
-    // ---- map base capture: one-shot render-setup diagnostic (STEP-1b) ----------------------
-
-    /// <summary>
-    /// Log, once per engagement, exactly what draws the map: each captured 3D source camera's render
-    /// path / clear / HDR / target / command-buffer counts / image-effect inventory, and the
-    /// decompiled <c>MapChoreographer.worldMap</c> geometry (active, layer, MeshRenderer shaders).
-    /// </summary>
-    private void LogMapRenderSetup(int baseMaxChannel)
-    {
-        if (_mapSetupLogged)
-            return;
-        _mapSetupLogged = true;
-
-        VRLog.Info("WorldUI", $"MAP SETUP — base RT probed black (max channel {baseMaxChannel}/255); " +
-                              "dumping the map's real render setup so the next log is conclusive.");
-        for (int i = 0; i < _mirrors.Count; i++)
-        {
-            Camera cam = _mirrors[i].Source;
-            if (cam == null)
-                continue;
-            int cbFwdBefore = cam.GetCommandBuffers(CameraEvent.BeforeForwardOpaque).Length;
-            int cbFwdAfter = cam.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length;
-            int cbImgFx = cam.GetCommandBuffers(CameraEvent.BeforeImageEffectsOpaque).Length;
-            int cbEvery = cam.GetCommandBuffers(CameraEvent.AfterEverything).Length;
-            string effects = "";
-            MonoBehaviour[] comps = cam.GetComponents<MonoBehaviour>();
-            for (int j = 0; j < comps.Length; j++)
-            {
-                MonoBehaviour c = comps[j];
-                if (c == null)
-                    continue;
-                System.Type t = c.GetType();
-                if (IsImageEffect(t))
-                    effects += (effects.Length > 0 ? ", " : "") + t.Name + (c.enabled ? "" : "(off)");
-            }
-            VRLog.Info("WorldUI", $"MAP SETUP cam '{cam.name}': renderingPath {cam.renderingPath}/actual " +
-                                  $"{cam.actualRenderingPath}, clear {cam.clearFlags}, HDR {cam.allowHDR}, " +
-                                  $"target '{(cam.targetTexture != null ? cam.targetTexture.name : "<none>")}', " +
-                                  $"mask 0x{cam.cullingMask:X8}, cmdBuffers fwdOpaque {cbFwdBefore}/{cbFwdAfter} " +
-                                  $"imgFxOpaque {cbImgFx} everything {cbEvery}; image effects: " +
-                                  $"[{(effects.Length > 0 ? effects : "none")}].");
-        }
-
-        LogWorldMapSetup();
-    }
-
-    /// <summary>Reflect the decompiled campaign-map parchment (MapChoreographer.worldMap, publicized).</summary>
-    private static void LogWorldMapSetup()
-    {
-        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
-        if (choreo == null)
-        {
-            VRLog.Info("WorldUI", "MAP SETUP: no MapChoreographer in the scene (map render setup unavailable).");
-            return;
-        }
-        GameObject worldMap = choreo.worldMap; // publicized private serialized field
-        if (worldMap == null)
-        {
-            VRLog.Info("WorldUI", "MAP SETUP: MapChoreographer.worldMap is null.");
-            return;
-        }
-        VRLog.Info("WorldUI", $"MAP SETUP worldMap '{worldMap.name}': activeInHierarchy {worldMap.activeInHierarchy}, " +
-                              $"layer {worldMap.layer} ('{LayerMask.LayerToName(worldMap.layer)}').");
-        MeshRenderer[] rends = worldMap.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
-        VRLog.Info("WorldUI", $"MAP SETUP worldMap has {rends.Length} MeshRenderer(s) in its hierarchy.");
-        int limit = Mathf.Min(rends.Length, 8);
-        for (int i = 0; i < limit; i++)
-        {
-            MeshRenderer r = rends[i];
-            Material m = r.sharedMaterial;
-            VRLog.Info("WorldUI", $"MAP SETUP   renderer '{r.name}': enabled {r.enabled}, isVisible {r.isVisible}, " +
-                                  $"layer {r.gameObject.layer} ('{LayerMask.LayerToName(r.gameObject.layer)}'), " +
-                                  $"shader '{(m != null && m.shader != null ? m.shader.name : "<none>")}'.");
-        }
+        VRLog.Info("WorldUI",
+            $"MAP ALBEDO probe: base RT center mean {mean}/255 (r{rMean} g{gMean} b{bMean}), max {max} — " +
+            ">50 ⇒ parchment visible; ~0/~12 ⇒ still failing.");
     }
 
     /// <summary>Destroy all mirrors (captured stack released — scene change / hide). Cheap to rebuild.</summary>
@@ -2445,47 +1422,28 @@ internal sealed class FlatScreenStereo
         _mirrors.Clear();
         _bySource.Clear();
 
-        // Re-arm map base capture for the next scene (class doc MAP BASE
-        // CAPTURE): the evidence (a black base RT) belongs to the scene we just left.
-        // The RT is kept (dimensions re-checked in Tick); a late probe callback is
+        // Re-arm map albedo render for the next scene (class doc MAP ALBEDO RENDER): the
+        // evidence (a black base RT) belongs to the scene we just left, and the worldMap
+        // renderer/overrides reference textures from it. A late probe callback is
         // invalidated by the generation bump.
         if (_mapBaseCapture || _blackConsecutive != 0)
         {
             _mapBaseCapture = false;
-            _baseRecovered = false;
-            _baseNonBlack = false;
-            _stableIdentityLogged = false;
-            _mapSetupLogged = false;
             _blackConsecutive = 0;
-            _stripMask = StripWhat.None;
-            _manualExposure = false;
-            _forwardForced = false;
-            _forwardFailed = false;
-            _forwardBlackProbes = 0;
-            _baseBlackProbes = 0;
-            _diagStep = -1;
-            _diagStepProbes = 0;
-            _diagDone = false;
-            _grabDarkProbes = 0;
             _probeGen++;
             _probePending = false;
-            ReleaseLeftRt();
-            ReleaseStableRt();
+            _albedoProbePending = false;
+            ReleaseAlbedo();
         }
     }
 
     private void DestroyMirrorAt(int index)
     {
         MirrorEntry entry = _mirrors[index];
-        // Re-enable any image effects we disabled on the (surviving) source camera before dropping
-        // the entry — a Unity fake-null source is already gone, its components with it.
-        RestoreSourceEffects(entry);
         // Unity fake-null: the managed key survives Destroy — Remove still works.
         _bySource.Remove(entry.Source);
         if (entry.Go != null)
             Object.Destroy(entry.Go);
-        if (entry.GoLeft != null)
-            Object.Destroy(entry.GoLeft);
         _mirrors.RemoveAt(index);
     }
 
@@ -2551,11 +1509,18 @@ internal sealed class FlatScreenStereo
     /// SHIFT — the freshest possible copy, one pair of blits per frame).
     /// Nothing is restored afterwards — the desktop mirror blits the left RT
     /// directly and every pass re-asserts its own texture.
+    /// ALSO: for the mod albedo camera (campaign map), this is where the unlit worldMap
+    /// material override is swapped ON (restored in <see cref="OnPostRenderCamera"/>).
     /// </summary>
     private void OnPreRenderCamera(Camera cam)
     {
         if (!_active)
             return;
+        if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
+        {
+            ApplyWorldMapOverride();
+            return;
+        }
         Camera? head = Rig.VRRigDriver.HeadCamera;
         if (head == null || cam != head)
             return;
@@ -2563,12 +1528,8 @@ internal sealed class FlatScreenStereo
         if (mat == null)
             return;
 
-        // Shift source: the mod's own map render (_rtLeft) while the map base capture is
-        // engaged — the game's base RT is black there; the camera-plane video's left RT
-        // otherwise (class doc MAP BASE CAPTURE / VIDEO DEPTH SHIFT).
-        RenderTexture? shiftSrc = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
         if (_videoShift && _shiftBlitFrame != Time.frameCount
-            && shiftSrc != null && _rtRight != null && _rtLeftShifted != null)
+            && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
         {
             _shiftBlitFrame = Time.frameCount;
             // Behind-the-screen (uncrossed) disparity displaces each eye's IMAGE
@@ -2580,40 +1541,9 @@ internal sealed class FlatScreenStereo
             float shift = _videoShiftUv;
             var scale = new Vector2(zoom, zoom);
             RenderTexture? previous = RenderTexture.active;
-            Graphics.Blit(shiftSrc, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
-            Graphics.Blit(shiftSrc, _rtRight, scale, new Vector2(margin - shift, margin));
+            Graphics.Blit(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
+            Graphics.Blit(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
             RenderTexture.active = previous;
-        }
-
-        // STABLE EYE RT (map base capture recovered — the routing/oscillation fix): the recovered
-        // game render lives in the SHARED base RT (_leftRt), whose per-camera clear/redraw makes it
-        // oscillate (log build 5b9d4bdc1: base RT 13↔253↔138↔194 frame-to-frame). Copy it into the
-        // mod-owned stable RT WHILE the async base probe reads non-black (hold-last-non-black — a
-        // black blip freezes the last good copy instead of showing black), and drive BOTH eyes from
-        // that steady RT below. One blit per frame; gated behind the recovery so no working scene
-        // (menu video / guildmaster) and no non-recovered clone path is touched.
-        if (_videoSuspended && _mapBaseCapture && _baseRecovered
-            && _stableBlitFrame != Time.frameCount && _leftRt != null)
-        {
-            _stableBlitFrame = Time.frameCount;
-            if (EnsureStableRt() && _baseNonBlack && _rtStable != null)
-            {
-                RenderTexture? previous = RenderTexture.active;
-                // MANUAL EXPOSURE (Beautify stripped): the raw map render is dark (mean ~21/255), so
-                // multiply it up by [WorldUI] MapExposure before the eyes. When Beautify was kept its
-                // own tonemap already brightened the base RT — a plain copy then.
-                if (_manualExposure)
-                    BlitWithGain(_leftRt, _rtStable);
-                else
-                    Graphics.Blit(_leftRt, _rtStable);
-                RenderTexture.active = previous;
-                _stableHasContent = true;
-            }
-            if (!_stableIdentityLogged)
-            {
-                _stableIdentityLogged = true;
-                LogStableIdentity();
-            }
         }
 
         Camera.MonoOrStereoscopicEye eye = cam.stereoActiveEye;
@@ -2652,32 +1582,30 @@ internal sealed class FlatScreenStereo
                                           : "using pass-parity fallback where Mono is reported."));
         }
 
-        // Target per eye: suspension → the shift source for both (the mod map render
-        // _rtLeft while the map base capture is engaged so the mono fallback is non-black,
-        // else the left RT); depth shift → the per-eye shifted copies; otherwise the
-        // mirror-rendered right RT and, for the left eye, the base RT (class doc MAP BASE
-        // CAPTURE — the game render is black there, which is why base capture routes
-        // through the shift/mono path instead of the base RT).
+        // Target per eye: suspension (intro guard / video-unavailable / campaign-map albedo)
+        // → the left RT for BOTH eyes (for the map it now holds the mod's bright parchment
+        // render); depth shift → the per-eye shifted copies; otherwise the mirror-rendered
+        // right RT and, for the left eye, the left RT.
         RenderTexture? target;
         if (_videoSuspended)
-        {
-            // Base recovered by the effect strip → the STABLE eye RT (hold-last-non-black copy of
-            // the game render — decoupled from the oscillating shared base RT; falls back to the
-            // base RT itself only for the first frame before the first hold lands). Else the mod
-            // clone (_rtLeft) while the map base capture is engaged; else the plain left RT.
-            if (_mapBaseCapture && _baseRecovered)
-                target = _stableHasContent && _rtStable != null ? _rtStable : _leftRt;
-            else
-                target = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
-        }
+            target = _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
         else if (right)
             target = _rtRight != null ? _rtRight : _leftRt;
         else
-            target = _mapBaseCapture && _rtLeft != null ? _rtLeft : _leftRt;
+            target = _leftRt;
         if (target != null && !ReferenceEquals(mat.mainTexture, target))
             mat.mainTexture = target;
+    }
+
+    /// <summary>Head-camera post-render hook: restore the worldMap materials after the mod albedo camera rendered.</summary>
+    private void OnPostRenderCamera(Camera cam)
+    {
+        if (!_active)
+            return;
+        if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
+            RestoreWorldMapOverride();
     }
 
     // ---- IPD -------------------------------------------------------------------------------
