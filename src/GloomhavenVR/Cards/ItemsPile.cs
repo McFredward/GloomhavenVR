@@ -470,8 +470,13 @@ internal sealed class ItemsPile
 
         private static string Name(CItem item)
         {
-            string? n = item != null && item.YMLData != null ? item.YMLData.Name : null;
-            return string.IsNullOrEmpty(n) ? "?" : n!;
+            // item.YMLData.Name is a LOCALIZATION KEY, not display text — showing it raw is the "ItemName"
+            // bug. Resolve it exactly like the flat game (ItemCardUI.cs:231 LocalizationManager.GetTranslation)
+            // via the mod's Loc helper; fall back to the key only if there is no translation.
+            string? key = item != null && item.YMLData != null ? item.YMLData.Name : null;
+            if (string.IsNullOrEmpty(key))
+                return "?";
+            return Core.Loc.Game(key!, key!);
         }
     }
 }
