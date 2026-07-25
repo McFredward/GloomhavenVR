@@ -1394,6 +1394,25 @@ internal sealed class FlatScreenStereo
                                   "(z>0 & x,y in 0..1 = on-screen). map world bounds center " +
                                   $"{wb.center} size {wb.size}; tex0 fmt {tfmt}. All z<0 / off-range ⇒ quads out of " +
                                   "the mirror's frustum (view/projection copy wrong); on-screen ⇒ present but invisible (texture alpha / blend).");
+
+            // WHICH camera actually frames the map? mapSource (cloned 'MapCamera') puts the map centre BEHIND
+            // it — so it is NOT the camera that renders the visible map. Scan every camera and log which one's
+            // OWN view puts the map centre on-screen (z>0, x/y in 0..1); THAT is the camera to mirror.
+            int parchLayer = _worldMapRenderer != null ? _worldMapRenderer.gameObject.layer : -1;
+            var sb2 = new System.Text.StringBuilder();
+            Camera[] all = Camera.allCameras;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Camera k = all[i];
+                if (k == null) continue;
+                Vector3 kvc = k.WorldToViewportPoint(wb.center);
+                bool sees = parchLayer >= 0 && (k.cullingMask & (1 << parchLayer)) != 0;
+                bool onScreen = kvc.z > 0f && kvc.x > 0f && kvc.x < 1f && kvc.y > 0f && kvc.y < 1f;
+                sb2.Append($"\n  '{k.name}' pos{k.transform.position} depth{k.depth:F0} mask0x{k.cullingMask:X8} " +
+                           $"seesParchLayer{(sees ? "Y" : "n")} mapCtr{Fmt(kvc)}{(onScreen ? " <== ON-SCREEN" : "")}");
+            }
+            VRLog.Info("WorldUI", $"MAP CAMERA SCAN: parchment '{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' " +
+                                  $"layer {parchLayer}; {all.Length} cameras — the one marked ON-SCREEN (map centre in view) is the real map renderer to mirror:{sb2}");
         }
 
         if (!_mapMirrorLogged)
