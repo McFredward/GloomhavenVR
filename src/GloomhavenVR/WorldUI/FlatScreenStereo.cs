@@ -2179,10 +2179,12 @@ internal sealed class FlatScreenStereo
             var m = new Material(sh) { name = "GloomhavenVR.MapUnlit." + i };
             m.SetVector("_LocalMin", new Vector4(_mapLocalMin.x, _mapLocalMin.y, _mapLocalMin.z, 0f));
             m.SetVector("_LocalSize", new Vector4(_mapLocalSize.x, _mapLocalSize.y, _mapLocalSize.z, 0f));
-            // Per-quadrant remap: uv*2 + offset selects the quarter. A submesh whose material name has no
-            // 0N number maps the whole mesh 0..1 straight into its texture (scale 1, offset 0).
-            Vector2 uvScale = (q >= 0 && q < 4) ? new Vector2(2f, 2f) : Vector2.one;
-            Vector2 uvOffset = (q >= 0 && q < 4) ? MapQuadrantUvOffset[q] : Vector2.zero;
+            // DIAGNOSTIC: disable the per-quadrant remap (scale 1, offset 0) — map the mesh-wide 0..1 UV
+            // straight into each texture. If detail now appears, the quadrant remap (uv*2) was clamping the
+            // UV to a flat edge; if it stays a flat uniform brown, the object-space UV itself is not varying
+            // (mesh bounds / object-position problem), which needs a different fix.
+            Vector2 uvScale = Vector2.one;
+            Vector2 uvOffset = Vector2.zero;
             m.SetVector("_UvScale", new Vector4(uvScale.x, uvScale.y, 0f, 0f));
             m.SetVector("_UvOffset", new Vector4(uvOffset.x, uvOffset.y, 0f, 0f));
             m.SetFloat("_Bright", 1f);
