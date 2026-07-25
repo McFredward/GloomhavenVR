@@ -1304,6 +1304,7 @@ internal sealed class FlatScreenStereo
         _mapBaseCapture = true;
         _mapEngageFrame = Time.frameCount; // start the fast per-frame base-RT probe window
         _mapMirrorLogged = false;
+        _mapMirrorGeomLogged = false;
         _albedoMaterialsLogged = false;
         _albedoWarned = false;
         VRLog.Info("WorldUI", $"MAP ALBEDO detection: the screen's base RenderTexture reads BLACK " +
@@ -1358,10 +1359,27 @@ internal sealed class FlatScreenStereo
         // Copy the projection matrix VERBATIM — this carries the live zoom (FOV/ortho size) and any lens
         // shift, so our quads track the game's map exactly as the user pans/zooms.
         cam.projectionMatrix = mapSource.projectionMatrix;
+        // Copy the VIEW matrix verbatim too: the map CameraController may drive the camera via an explicit
+        // worldToCameraMatrix (not just the transform), so cloning only the transform can leave our quads
+        // outside the frustum → black RT. Copying worldToCameraMatrix replicates the exact game view.
+        cam.worldToCameraMatrix = mapSource.worldToCameraMatrix;
         if (cam.targetTexture != _leftRt)
             cam.targetTexture = _leftRt;
         if (!cam.enabled)
             cam.enabled = true;
+
+        if (!_mapMirrorGeomLogged)
+        {
+            _mapMirrorGeomLogged = true;
+            Vector3 gcp = mapSource.transform.position;
+            Vector3 qw = _mapQuadsGo != null ? _mapQuadsGo.transform.position : Vector3.zero;
+            Bounds wb = _worldMapRenderer != null ? _worldMapRenderer.bounds : default;
+            VRLog.Info("WorldUI", $"MAP MIRROR GEOM: game cam pos {gcp}, fwd {mapSource.transform.forward}, " +
+                                  $"ortho={mapSource.orthographic}; quad-root world pos {qw}; map renderer world bounds " +
+                                  $"center {wb.center} size {wb.size}; quad layer {_mapQuadLayer}. If the quad root is far " +
+                                  "from the renderer bounds center, parenting/placement is off; if the game cam doesn't " +
+                                  "point at the bounds, the view copy is the issue.");
+        }
 
         if (!_mapMirrorLogged)
         {
@@ -1421,6 +1439,7 @@ internal sealed class FlatScreenStereo
     private int _mapQuadCount;
     /// <summary>One-shot guard: the MAP MIRROR ENGAGED line (per engagement).</summary>
     private bool _mapMirrorLogged;
+    private bool _mapMirrorGeomLogged;
 
     /// <summary>
     /// Read the four <c>GH_CampaignMap_0N</c> quadrant textures off the worldMap renderer's materials
