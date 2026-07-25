@@ -1372,10 +1372,10 @@ internal sealed class FlatScreenStereo
         if (rh == null || !rh.HasPose)
             return;
         float zy = rh.Thumbstick.y;
-        if (Mathf.Abs(zy) > MapStickDeadzone && _mapZoomFov > 1f)
+        if (Mathf.Abs(zy) > MapStickDeadzone && _mapZoom > 0f)
         {
-            // Stick UP (y>0) → zoom IN (smaller FOV); clamped to the map's zoom range.
-            _mapZoomFov = Mathf.Clamp(_mapZoomFov - zy * MapZoomSpeed * Time.deltaTime, MapZoomMinFov, MapZoomMaxFov);
+            // Stick UP (y>0) → zoom IN (closer, smaller distance); exponential feels natural.
+            _mapZoom = Mathf.Clamp(_mapZoom * Mathf.Exp(-zy * MapZoomSpeed * Time.deltaTime), MapZoomDistMin, MapZoomDistMax);
         }
     }
 
@@ -1395,11 +1395,11 @@ internal sealed class FlatScreenStereo
         float radius = cc.m_CameraDefaultRadius;
         float baseH = cc.m_InitialCameraHeight;               // authored map-camera height (fixed ~80° pitch with radius)
         Vector3 diff = cc.m_CameraToFocalTargetDiff;          // horizontal offset, |diff| == radius
-        // ZOOM: we manage FOV ourselves (the game's LateUpdate zoom is prefix-skipped in VR, leaving
-        // m_Camera.fieldOfView stale at ~90). Seed from the game's target zoom, then the stick drives it.
-        if (_mapZoomFov <= 1f)
-            _mapZoomFov = Mathf.Clamp(cc.Zoom > 5f ? cc.Zoom : cc.m_DefaultFOV, MapZoomMinFov, MapZoomMaxFov);
-        fov = Mathf.Clamp(_mapZoomFov, MapZoomMinFov, MapZoomMaxFov);
+        // ZOOM: mod-managed distance multiplier (right-stick), fixed FOV. Dolly the camera along its view
+        // ray from the focal point — unlimited zoom range, no FOV distortion.
+        if (_mapZoom <= 0f)
+            _mapZoom = MapZoomDefault;
+        fov = MapFovConst;
         if (!_mapPoseLogged)
         {
             _mapPoseLogged = true;
@@ -1411,7 +1411,9 @@ internal sealed class FlatScreenStereo
         }
         if (radius < 0.5f || baseH < 0.5f || diff.sqrMagnitude < 0.01f)
             return false; // degenerate captured values → caller uses the top-down fallback
-        pos = focal + diff; pos.y = baseH;                    // fixed authored height/pitch; zoom is FOV-only
+        // Dolly along the view ray: scale the horizontal offset AND height by the zoom distance.
+        Vector3 hdiff = new Vector3(diff.x, 0f, diff.z) * _mapZoom;
+        pos = focal + hdiff; pos.y = baseH * _mapZoom;
         lookTarget = focal + Vector3.up * cc.m_FocusPointHeight;
         // Cache for driving the real game map camera (so its marker projection + click raycasts align).
         _mapDrivenPos = pos; _mapDrivenLook = lookTarget; _mapDrivenFov = fov; _mapDrivenValid = true;
@@ -1428,7 +1430,7 @@ internal sealed class FlatScreenStereo
         }
 
         Camera cam = _mapAlbedoCam!;
-        TickMapInput(); // right-stick zoom (updates _mapZoomFov before the pose is computed)
+        TickMapInput(); // right-stick zoom (updates _mapZoom before the pose is computed)
         _mapSourceCam = mapSource; // OnPreRenderCamera captures its render-time matrices for our camera
         // Copy the game map camera's live world pose (the captured matrices override this before culling).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
@@ -1636,12 +1638,15 @@ internal sealed class FlatScreenStereo
     /// pose so the game's marker projection + click raycasts (which use that camera) line up with our
     /// render. The VR rig only reads m_Camera as a build-time anchor (never follows it), so this is safe.</summary>
     private const bool MapDriveGameCamera = true;
-    private const float MapZoomMinFov = 20f;
-    private const float MapZoomMaxFov = 75f;
-    private const float MapZoomSpeed = 55f;   // FOV degrees/sec at full right-stick deflection
+    // DISTANCE-based zoom (dolly the camera along its view ray) — unlimited range, no FOV distortion.
+    private const float MapFovConst = 55f;      // fixed FOV; zoom changes distance, not FOV
+    private const float MapZoomDefault = 2.2f;  // opening zoom (higher = further out)
+    private const float MapZoomDistMin = 0.45f; // closest
+    private const float MapZoomDistMax = 9f;     // farthest (see the whole map)
+    private const float MapZoomSpeed = 1.6f;    // exp zoom rate per sec at full stick
     private const float MapStickDeadzone = 0.15f;
-    /// <summary>Mod-managed map zoom (FOV); the game's own zoom LateUpdate is prefix-skipped in VR.</summary>
-    private float _mapZoomFov;
+    /// <summary>Mod-managed map zoom as a distance multiplier (game's zoom LateUpdate is prefix-skipped in VR).</summary>
+    private float _mapZoom;
     private Vector3 _mapDrivenPos, _mapDrivenLook;
     private float _mapDrivenFov = 50f;
     private bool _mapDrivenValid;
@@ -2819,7 +2824,7 @@ internal sealed class FlatScreenStereo
         _mapTargetLogged = false;
         _mapPoseLogged = false;
         _mapDrivenValid = false;
-        _mapZoomFov = 0f;
+        _mapZoom = 0f;
         _mapSceneRenderersLogged = false;
         _mapIconsLogCount = 0;
         _ndcLogCount = 0;
