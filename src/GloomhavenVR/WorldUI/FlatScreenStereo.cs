@@ -1361,6 +1361,42 @@ internal sealed class FlatScreenStereo
         return true;
     }
 
+    /// <summary>
+    /// Replicate the game's map-camera pose (CameraController.RefreshFocusPosition) so our forward camera
+    /// frames the map exactly like flat (the mod prefix-skips CameraController.LateUpdate in VR, so the
+    /// game never positions its own map camera). pos = focal + horizontal radius offset, y from zoom;
+    /// look at focal + up*focusHeight. Returns false if the captured radius/height are degenerate.
+    /// </summary>
+    private bool TryComputeGameMapPose(out Vector3 pos, out Vector3 lookTarget, out float fov)
+    {
+        pos = Vector3.zero; lookTarget = Vector3.zero; fov = 60f;
+        CameraController? cc = CameraController.s_CameraController;
+        if (cc == null || cc.m_Camera == null)
+            return false;
+        Vector3 focal = cc.m_TargetFocalPoint; focal.y = 0f;
+        float radius = cc.m_CameraDefaultRadius;
+        float baseH = cc.m_InitialCameraHeight;
+        float zoomExtra = cc.m_ZoomOutExtraHeight;
+        float zoomF = cc.m_ZoomFactor;
+        float defZoomF = cc.m_DefaultZoomFactor;
+        Vector3 diff = cc.m_CameraToFocalTargetDiff;
+        fov = Mathf.Clamp(cc.m_Camera.fieldOfView, 15f, 90f);
+        if (!_mapPoseLogged)
+        {
+            _mapPoseLogged = true;
+            VRLog.Info("WorldUI", $"MAP POSE (CameraController): focal(target)={cc.m_TargetFocalPoint} FocusPoint={cc.FocusPoint} " +
+                                  $"radius={radius:F2} baseHeight={baseH:F2} zoomExtra={zoomExtra:F2} zoomF={zoomF:F3} defZoomF={defZoomF:F3} " +
+                                  $"diff={diff} |diff|={diff.magnitude:F2} fov={fov:F1} focusPtH={cc.m_FocusPointHeight:F2} " +
+                                  $"gameCamPos={cc.m_Camera.transform.position}.");
+        }
+        if (radius < 0.5f || baseH < 0.5f || diff.sqrMagnitude < 0.01f)
+            return false; // degenerate captured values → caller uses the top-down fallback
+        float height = baseH + Mathf.Max((zoomF - defZoomF) / Mathf.Max(1e-3f, 1f - defZoomF), 0f) * zoomExtra;
+        pos = focal + diff; pos.y = height;
+        lookTarget = focal + Vector3.up * cc.m_FocusPointHeight;
+        return true;
+    }
+
     private void ReconcileAlbedoCamera(Camera? mapSource)
     {
         if (!_mapBaseCapture || mapSource == null || !EnsureAlbedoReady())
@@ -1407,31 +1443,22 @@ internal sealed class FlatScreenStereo
             float planeY = wb.center.y;
             bool matched = false;
             if (MapMatchGameFraming
-                && TryMapPlaneHit(mapSource, 0.5f, 0.5f, planeY, out Vector3 center)
-                && TryMapPlaneHit(mapSource, 0.5f, 0f, planeY, out Vector3 bottom)
-                && TryMapPlaneHit(mapSource, 0.5f, 1f, planeY, out Vector3 top)
-                && TryMapPlaneHit(mapSource, 0f, 0.5f, planeY, out Vector3 left)
-                && TryMapPlaneHit(mapSource, 1f, 0.5f, planeY, out Vector3 right))
+                && TryComputeGameMapPose(out Vector3 gPos, out Vector3 gLook, out float gFov))
             {
-                float vHalf = (top - bottom).magnitude * 0.5f;
-                float hHalf = (right - left).magnitude * 0.5f;
-                float orthoSize = Mathf.Max(vHalf, hHalf / aspect);
-                Vector3 upDir = (top - bottom); upDir.y = 0f;
-                if (orthoSize > 0.01f && upDir.sqrMagnitude > 1e-6f)
-                {
-                    upDir.Normalize();
-                    float height = Mathf.Max(50f, orthoSize) + wb.size.y;
-                    _mapAlbedoTransform!.SetPositionAndRotation(new Vector3(center.x, planeY + height, center.z),
-                                                                Quaternion.LookRotation(Vector3.down, upDir));
-                    cam.orthographic = true;
-                    cam.orthographicSize = orthoSize;
-                    cam.aspect = aspect;
-                    cam.nearClipPlane = 0.1f;
-                    cam.farClipPlane = height + wb.size.y + 10f;
-                    cam.ResetWorldToCameraMatrix();
-                    cam.ResetProjectionMatrix();
-                    matched = true;
-                }
+                // Replicate the game's map-camera pose (CameraController.RefreshFocusPosition): a PERSPECTIVE
+                // camera above the party-token focal point at the captured radius/height, fixed ~80° pitch,
+                // FOV = the game's live zoom. Matches flat's pan/zoom/rotation 1:1 — and since the game's
+                // marker projection + click raycasts run through this same pose (patched to our camera),
+                // they line up. We drive OUR camera (not the game MapCamera, which the VR rig anchors to).
+                cam.orthographic = false;
+                cam.fieldOfView = gFov;
+                cam.aspect = aspect;
+                cam.nearClipPlane = 0.1f;
+                cam.farClipPlane = Mathf.Max(500f, gPos.y * 2f + 200f);
+                _mapAlbedoTransform!.SetPositionAndRotation(gPos, Quaternion.LookRotation((gLook - gPos).normalized, Vector3.up));
+                cam.ResetWorldToCameraMatrix();
+                cam.ResetProjectionMatrix();
+                matched = true;
             }
             if (!matched)
             {
@@ -1579,6 +1606,8 @@ internal sealed class FlatScreenStereo
     private Matrix4x4 _capMapProj;
     private bool _capMapValid;
     private bool _capLogged;
+    /// <summary>One-shot guard for the MAP POSE (CameraController fields) log.</summary>
+    private bool _mapPoseLogged;
     /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
     private int _ndcLogCount;
     private int _ndcLastLogFrame = int.MinValue;
@@ -2585,6 +2614,7 @@ internal sealed class FlatScreenStereo
         }
         ReleaseMapRt();
         _mapTargetLogged = false;
+        _mapPoseLogged = false;
         _ndcLogCount = 0;
         _ndcLastLogFrame = int.MinValue;
         _capLogged = false;
