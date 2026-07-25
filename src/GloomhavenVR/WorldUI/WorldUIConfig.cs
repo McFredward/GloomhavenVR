@@ -92,6 +92,9 @@ internal static class WorldUIConfig
     /// <summary>Disable the physical desktop mouse while VR runs so only the VR laser drives the pointer.</summary>
     internal static ConfigEntry<bool> SuppressPhysicalMouse = null!;
 
+    /// <summary>Opacity multiplier for the campaign map's Wind/Clouds ambiance particles (0 = invisible, 1 = full).</summary>
+    internal static ConfigEntry<float> MapWindOpacity = null!;
+
     /// <summary>Ray movement (degrees off the press direction) that opens the click latch into a drag.</summary>
     internal static ConfigEntry<float> DragUnlockDegrees = null!;
 
@@ -344,6 +347,11 @@ internal static class WorldUIConfig
             "While VR is running, disable the physical desktop mouse in the InputSystem so its " +
             "(stale) desktop position can no longer hover or select map/menu elements behind your " +
             "back — only the VR laser drives the pointer. The mouse is re-enabled when VR stops.");
+        MapWindOpacity = _file.Bind("WorldUI", "MapWindOpacity", 0.3f,
+            "Opacity of the campaign map's drifting Wind/Clouds ambiance particles (0..1). The game's " +
+            "flat map camera post-processes/masks these so they read as subtle; the VR forward capture " +
+            "does not, so at full strength they render as thick translucent streaks that smear across " +
+            "the location icons. 0.3 keeps a subtle drift; 1 = original strength; 0 = fully hidden.");
         DragUnlockDegrees = _file.Bind("WorldUI", "DragUnlockDegrees", 2.0f,
             "How far (degrees) the ray must move off its press direction to open the click " +
             "latch into a drag.");

@@ -1785,17 +1785,19 @@ internal sealed class FlatScreenStereo
     private Mesh? _iconQuad;
     private Material? _iconMat;
     private MaterialPropertyBlock? _iconMpb;
-    // ---- wind/cloud particle suppression (drifting streaks over the map) ----
-    /// <summary>Hide the map's Wind/Clouds ParticleSystems while it is shown in VR. In flat these
-    /// drift subtly and are masked out over explored areas by the fog-of-war _WorldMask (fed by
-    /// VFX_UseWorldMask); our forward capture has no such mask (campaign fog-of-war is disabled), so
-    /// they render as thick translucent streaks across the map and its icons. We disable their
-    /// renderers (reversibly) so the parchment stays clean — the static art/decals are unaffected.</summary>
-    private const bool MapSuppressWindParticles = true;
-    /// <summary>ParticleSystemRenderers we disabled (to re-enable on disengage). Never contains anything else.</summary>
-    private readonly System.Collections.Generic.List<Renderer> _suppressedWindRenderers = new();
+    // ---- wind/cloud particle dimming (drifting streaks over the map) ----
+    // The map's Wind/Clouds ambiance particles render as thick, over-prominent translucent streaks in our
+    // forward capture (the game's map camera post-processes/masks them; ours doesn't). We KEEP the wind but
+    // scale down its emitted alpha so it's subtle (user: keep it, just not thick streaks). Reversible.
+    /// <summary>Particle systems we dimmed + their ORIGINAL startColor (index-aligned), for exact restore.</summary>
+    private readonly System.Collections.Generic.List<ParticleSystem> _tunedWindParticles = new();
+    private readonly System.Collections.Generic.List<ParticleSystem.MinMaxGradient> _tunedWindOriginal = new();
     /// <summary>The map root we last scanned for wind particles (re-scan on world↔city switch).</summary>
     private GameObject? _windScannedRoot;
+    private int _windScanAttempts;
+    private int _windNextScanFrame;
+    private const int WindScanMaxAttempts = 20;   // retry window for late-spawning particles
+    private const int WindScanRetryFrames = 15;   // ~ every 15 frames until found (or attempts exhausted)
     private static readonly int IconMainTex = Shader.PropertyToID("_MainTex");
     private static readonly int IconColor = Shader.PropertyToID("_Color");
     // Decal type is in an unreferenced assembly (ThreeEyedGames Decalicious) — reach it via reflection.
@@ -2602,59 +2604,130 @@ internal sealed class FlatScreenStereo
     /// texture + tint come from the decal's CurrentMaterial (_MainTex/_Color); the footprint from its
     /// renderer bounds. Uses Graphics.DrawMesh(..., camera) so nothing else in the scene is affected.
     /// </summary>
-    /// <summary>Hide the active map's Wind/Clouds particle renderers so they don't streak across the
-    /// captured map. Scans once per map (world↔city); then cheaply re-asserts the disable each frame in
-    /// case a game state change re-enables them. Reversed on disengage via <see cref="RestoreWindParticles"/>.</summary>
-    private void SuppressMapWindParticles()
+    /// <summary>
+    /// Make the map's Wind/Clouds ambiance particles SUBTLE (not disabled — the user wants the wind kept)
+    /// by scaling down their emitted alpha. They render as thick, over-prominent translucent streaks in
+    /// our forward capture (the game's map camera post-processes/masks them; ours does not), and where a
+    /// streak crosses a location icon it draws a see-through smear across it. The particle GameObjects are
+    /// NOT children of the map root (a previous root-scoped scan found 0), so we search the whole scene by
+    /// ParticleSystemRenderer material name (Map_Ambiance_*Wind*/*Cloud*) — the reliable identifier from
+    /// the offline asset dump. We scale each system's MainModule startColor alpha (reversible: the original
+    /// is stored and restored on disengage / map switch), which fades both new and (over their lifetime)
+    /// existing particles. Waves and sparkles are left alone.
+    /// </summary>
+    private void TuneMapWindParticles()
     {
-        if (!MapSuppressWindParticles)
-            return;
-        if (!ReferenceEquals(_windScannedRoot, _activeMapGo))
+        // Committed once we've dimmed ≥1 system for the current map. The particle GameObjects can spawn a
+        // few frames AFTER the map is selected, so if a scan finds none we RETRY (throttled, bounded) rather
+        // than give up — otherwise a single early empty scan would miss the wind for the whole session.
+        bool mapChanged = !ReferenceEquals(_windScannedRoot, _activeMapGo);
+        if (mapChanged)
         {
-            RestoreWindParticles();          // re-enable the previous map's particles before scanning this one
+            RestoreWindParticles();          // restore the previous map's particles
             _windScannedRoot = _activeMapGo;
-            if (_activeMapGo != null)
-            {
-                foreach (ParticleSystem ps in _activeMapGo.GetComponentsInChildren<ParticleSystem>(true))
-                {
-                    string n = ps.gameObject.name;
-                    if (n.IndexOf("Wind", System.StringComparison.OrdinalIgnoreCase) < 0
-                        && n.IndexOf("Cloud", System.StringComparison.OrdinalIgnoreCase) < 0)
-                        continue;
-                    var r = ps.GetComponent<ParticleSystemRenderer>();
-                    if (r != null)
-                        _suppressedWindRenderers.Add(r);
-                }
-                VRLog.Info("WorldUI", $"MAP WIND: suppressed {_suppressedWindRenderers.Count} Wind/Clouds particle " +
-                                      $"renderer(s) on the {(_activeMapIsCity ? "CITY" : "WORLD")} map (no streaks over the map/icons).");
-            }
+            _windScanAttempts = 0;
+            _windNextScanFrame = 0;
         }
-        for (int i = 0; i < _suppressedWindRenderers.Count; i++)
+        bool committed = _tunedWindParticles.Count > 0;
+        if (committed || _windScanAttempts >= WindScanMaxAttempts || Time.frameCount < _windNextScanFrame)
+            return;
+        _windScanAttempts++;
+        _windNextScanFrame = Time.frameCount + WindScanRetryFrames;
         {
-            Renderer r = _suppressedWindRenderers[i];
-            if (r != null && r.enabled)
-                r.enabled = false;
+            float opacity = Mathf.Clamp01(WorldUIConfig.MapWindOpacity.Value);
+            int n = 0, scanned = 0;
+            var sampleNames = new System.Text.StringBuilder();
+            foreach (ParticleSystemRenderer r in Object.FindObjectsOfType<ParticleSystemRenderer>())
+            {
+                scanned++;
+                Material? m = r.sharedMaterial;
+                string mn = m != null ? m.name : "";
+                string gn = r.gameObject.name;
+                if (sampleNames.Length < 400)
+                    sampleNames.Append($"[go='{gn}' mat='{mn}'] ");
+                // Match on EITHER the material name OR the GameObject name (Wind*/Cloud*) — robust to
+                // material instancing / per-map renaming (a prior root-scoped, GO-name-only scan found 0).
+                bool isWind = mn.IndexOf("Wind", System.StringComparison.OrdinalIgnoreCase) >= 0
+                              || mn.IndexOf("Cloud", System.StringComparison.OrdinalIgnoreCase) >= 0
+                              || gn.IndexOf("Wind", System.StringComparison.OrdinalIgnoreCase) >= 0
+                              || gn.IndexOf("Cloud", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!isWind)
+                    continue;
+                var ps = r.GetComponent<ParticleSystem>();
+                if (ps == null)
+                    continue;
+                var main = ps.main;
+                _tunedWindParticles.Add(ps);
+                _tunedWindOriginal.Add(main.startColor);           // struct copy — the exact original
+                main.startColor = ScaleGradientAlpha(main.startColor, opacity);
+                n++;
+            }
+            VRLog.Info("WorldUI", $"MAP WIND: dimmed {n}/{scanned} Wind/Clouds ambiance particle system(s) to " +
+                                  $"{opacity:F2} alpha on the {(_activeMapIsCity ? "CITY" : "WORLD")} map " +
+                                  "(subtle wind, kept — not disabled)." +
+                                  (n == 0 ? $" NO MATCH — scene particle systems: {sampleNames}" : ""));
         }
     }
 
-    /// <summary>Re-enable every Wind/Clouds renderer we disabled (map disengage / world↔city switch).</summary>
+    /// <summary>Restore the original startColor of every particle system we dimmed (disengage / map switch).</summary>
     private void RestoreWindParticles()
     {
-        for (int i = 0; i < _suppressedWindRenderers.Count; i++)
+        for (int i = 0; i < _tunedWindParticles.Count; i++)
         {
-            Renderer r = _suppressedWindRenderers[i];
-            if (r != null && !r.enabled)
-                r.enabled = true;
+            ParticleSystem ps = _tunedWindParticles[i];
+            if (ps == null)
+                continue;
+            var main = ps.main;
+            main.startColor = _tunedWindOriginal[i];
         }
-        _suppressedWindRenderers.Clear();
+        _tunedWindParticles.Clear();
+        _tunedWindOriginal.Clear();
         _windScannedRoot = null;
+    }
+
+    /// <summary>Return a copy of a particle startColor gradient with its alpha scaled by <paramref name="f"/>,
+    /// preserving whatever mode it uses (constant / two colours / gradient / two gradients).</summary>
+    private static ParticleSystem.MinMaxGradient ScaleGradientAlpha(ParticleSystem.MinMaxGradient g, float f)
+    {
+        switch (g.mode)
+        {
+            case ParticleSystemGradientMode.Color:
+            {
+                Color c = g.color; c.a *= f;
+                return new ParticleSystem.MinMaxGradient(c);
+            }
+            case ParticleSystemGradientMode.TwoColors:
+            {
+                Color a = g.colorMin; a.a *= f;
+                Color b = g.colorMax; b.a *= f;
+                return new ParticleSystem.MinMaxGradient(a, b) { mode = ParticleSystemGradientMode.TwoColors };
+            }
+            case ParticleSystemGradientMode.Gradient:
+                return new ParticleSystem.MinMaxGradient(ScaleGradient(g.gradient, f));
+            case ParticleSystemGradientMode.TwoGradients:
+                return new ParticleSystem.MinMaxGradient(ScaleGradient(g.gradientMin, f), ScaleGradient(g.gradientMax, f))
+                    { mode = ParticleSystemGradientMode.TwoGradients };
+            default:
+                return g;
+        }
+    }
+
+    private static Gradient ScaleGradient(Gradient src, float f)
+    {
+        var ak = src.alphaKeys;
+        for (int i = 0; i < ak.Length; i++)
+            ak[i].alpha *= f;
+        var dst = new Gradient();
+        dst.SetKeys(src.colorKeys, ak);
+        dst.mode = src.mode;
+        return dst;
     }
 
     private void DrawMapIcons(Camera mapCam)
     {
         if (!MapDrawIcons || mapCam == null || _worldMapRenderer == null)
             return;
-        SuppressMapWindParticles(); // keep the drifting wind/cloud streaks out of the captured map
+        TuneMapWindParticles(); // keep the wind but make it subtle (no thick see-through streaks over icons)
         var choreo = Object.FindObjectOfType<MapChoreographer>();
         if (choreo == null)
             return;
