@@ -259,6 +259,8 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<bool>? s_leftMirrorFallback;
     /// <summary>MAP ALBEDO RENDER (default ON): render the campaign map parchment unlit via a mod forward camera (see MapAlbedoRender config, class doc MAP ALBEDO RENDER).</summary>
     private static ConfigEntry<bool>? s_mapAlbedoRender;
+    /// <summary>MAP ALBEDO — render the worldMap with its ORIGINAL Amplify material in our forward camera (default ON): the mesh is not CPU-readable (isReadable=false) so a Sprites/Default override cannot get UVs; the Amplify surface shader's auto forward pass computes UVs on the GPU. Off = the (dead) Sprites/Default override path.</summary>
+    private static ConfigEntry<bool>? s_mapAlbedoOriginalMat;
 
     // ---- map UV correction (class doc MAP ALBEDO RENDER, uv0 rebuild) — runtime-tunable ----
     /// <summary>uv0 source for the corrected worldMap mesh: 0 = auto (real UVs else positional), 1 = force real-UV channel, 2 = force positional.</summary>
@@ -511,6 +513,13 @@ internal sealed class FlatScreenStereo
             "(albedo → _MainTex), swapped on only for our render and restored the same frame " +
             "(rendering-only, multiplayer-safe). A top-down painted map reads correct unlit. Off " +
             "= detect the black map but leave the base RT as-is (black).");
+        s_mapAlbedoOriginalMat = file.Bind("WorldUI", "MapAlbedoOriginalMaterial", true,
+            "MAP UV FIX (default ON): the worldMap mesh is NOT CPU-readable (isReadable=false), so a " +
+            "Sprites/Default override cannot get its texture UVs (it rendered a flat detail-less " +
+            "colour). Instead, render the mesh with its ORIGINAL Amplify material in our forward " +
+            "camera — the surface shader's auto-generated forward pass computes the UVs on the GPU, " +
+            "so the parchment draws with correct detail (its forward-lit brightness applies). Off = " +
+            "the old (dead) Sprites/Default override path.");
 
         // Map UV correction knobs (class doc MAP ALBEDO RENDER). Read LIVE each time the corrected
         // worldMap mesh is rebuilt; a SettingChanged bumps s_uvConfigRevision so the rebuild happens
@@ -553,6 +562,8 @@ internal sealed class FlatScreenStereo
 
     /// <summary>[WorldUI] MapAlbedoRender — render the map parchment unlit via a mod forward camera (class doc MAP ALBEDO RENDER).</summary>
     internal static bool MapAlbedoRenderOn => s_mapAlbedoRender?.Value ?? true;
+    /// <summary>[WorldUI] MapAlbedoOriginalMaterial — render the worldMap with its own Amplify material (GPU-computed UVs) instead of the Sprites/Default override (dead: mesh is not CPU-readable).</summary>
+    internal static bool MapAlbedoUseOriginalMat => s_mapAlbedoOriginalMat?.Value ?? true;
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
@@ -1230,10 +1241,24 @@ internal sealed class FlatScreenStereo
             return false;
         }
 
-        if (_worldMapOverrideMats == null && !BuildOverrideMaterials())
-            return false;
+        // With the original Amplify material (default), the mesh is unreadable so there is nothing to
+        // build on the CPU — our forward camera just renders the mesh as-is (GPU computes UVs).
+        if (!MapAlbedoUseOriginalMat)
+        {
+            if (_worldMapOverrideMats == null && !BuildOverrideMaterials())
+                return false;
+            EnsureCorrectedMesh();
+        }
+        else if (!_albedoMaterialsLogged)
+        {
+            _albedoMaterialsLogged = true;
+            MeshFilter? mf0 = _worldMapRenderer!.GetComponent<MeshFilter>();
+            Mesh? m0 = mf0 != null ? mf0.sharedMesh : null;
+            VRLog.Info("WorldUI", $"MAP ALBEDO RENDER: using the ORIGINAL Amplify material — worldMap mesh " +
+                                  $"'{(m0 != null ? m0.name : "?")}' isReadable={(m0 != null ? m0.isReadable.ToString() : "?")} " +
+                                  "(unreadable ⇒ no CPU UV/override possible; the forward camera renders the mesh with its own shader, which computes UVs on the GPU).");
+        }
 
-        EnsureCorrectedMesh();
         EnsureAlbedoCamera();
         return _mapAlbedoCam != null;
     }
@@ -1686,6 +1711,10 @@ internal sealed class FlatScreenStereo
     /// <summary>Swap the unlit override onto the worldMap renderer just before our albedo camera renders it.</summary>
     private void ApplyWorldMapOverride()
     {
+        // Original-material path: render the mesh untouched with its own Amplify shader (GPU UVs) —
+        // no material or mesh swap (the mesh is unreadable anyway).
+        if (MapAlbedoUseOriginalMat)
+            return;
         if (_overrideApplied || _worldMapRenderer == null || _worldMapOverrideMats == null)
             return;
         // Re-capture the live originals each time so the restore always puts back exactly what the
