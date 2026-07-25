@@ -1425,7 +1425,6 @@ internal sealed class FlatScreenStereo
         // only the parchment draws, because we override ITS materials with the forward MapUnlit shader.
         cam.cullingMask = mapSource.cullingMask;
         LogMapSceneRenderers(mapSource.cullingMask);
-        DrawMapIcons(cam); // queue location icon quads for our forward camera this frame
         // Just above the game map camera so Unity composites us LAST into the base RT (we overwrite its
         // black deferred render); still below the head camera, so the screen quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
@@ -1629,6 +1628,8 @@ internal sealed class FlatScreenStereo
     /// <summary>Draw each MapLocation's decal icon as a textured quad flat on the map plane, ONLY in our
     /// forward map camera (the game's decals are deferred and never light into our RT).</summary>
     private const bool MapDrawIcons = true;
+    /// <summary>DIAGNOSTIC: draw solid magenta quads instead of the icon texture to prove geometry renders.</summary>
+    private const bool MapIconsSolidTest = true;
     private Mesh? _iconQuad;
     private Material? _iconMat;
     private MaterialPropertyBlock? _iconMpb;
@@ -2486,8 +2487,18 @@ internal sealed class FlatScreenStereo
                 Bounds b = rend.bounds;
                 var pos = new Vector3(b.center.x, planeY, b.center.z);
                 var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
-                _iconMpb.SetTexture(IconMainTex, tex);
-                _iconMpb.SetColor(IconColor, cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white);
+                if (MapIconsSolidTest)
+                {
+                    // DIAGNOSTIC: solid opaque magenta quad (white tex, ignore icon alpha) to prove the
+                    // quad geometry actually renders in our camera regardless of the icon texture.
+                    _iconMpb.SetTexture(IconMainTex, Texture2D.whiteTexture);
+                    _iconMpb.SetColor(IconColor, new Color(1f, 0f, 1f, 1f));
+                }
+                else
+                {
+                    _iconMpb.SetTexture(IconMainTex, tex);
+                    _iconMpb.SetColor(IconColor, cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white);
+                }
                 Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, _iconMpb);
                 nDrawn++;
                 if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
@@ -2988,6 +2999,8 @@ internal sealed class FlatScreenStereo
             cam.worldToCameraMatrix = _capMapView;
             cam.projectionMatrix = _capMapProj;
         }
+        if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
+            DrawMapIcons(cam); // queue location icon quads right before our camera renders (correct timing)
     }
 
     private void OnPreRenderCamera(Camera cam)
