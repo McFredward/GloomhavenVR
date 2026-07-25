@@ -1468,11 +1468,14 @@ internal sealed class FlatScreenStereo
     private const bool MapUvDebug = false;
     // DIAGNOSTIC: clear the map forward camera to bright magenta (see ReconcileAlbedoCamera).
     private const bool MapDiagClearColor = false;
+    // OFFLINE-PROVEN: the mesh's UV0 + the GH_CampaignMap_0N textures rasterize to the full correct map
+    // (scratchpad render). So UV0 is the albedo UV and the content is right — any runtime flatness is a
+    // framing/plumbing bug, tracked via the MAP RENDER NDC-extent diagnostic.
     // DIAGNOSTIC: assign each submesh a UV channel so one screenshot A/B-tests channels. TexCoord0 and
     // object-space projection both came back FLAT, so this now splits the visible mesh between the two
     // remaining candidates — TexCoord1 (submesh 0,2) and TexCoord2 (submesh 1,3), with the REAL texture:
     // wherever real map art appears, that channel is the albedo UV. (Pipeline confirmed working d92b15c4a.)
-    private const bool MapDiagPerSubmeshChannel = true;
+    private const bool MapDiagPerSubmeshChannel = false;
     // DIAGNOSTIC: skip the mesh override so only the camera clear renders (proved the pipeline works).
     private const bool MapDiagClearOnly = false;
     private Texture2D? _uvDebugTex;
@@ -1495,6 +1498,8 @@ internal sealed class FlatScreenStereo
     private Matrix4x4 _capMapProj;
     private bool _capMapValid;
     private bool _capLogged;
+    /// <summary>One-shot guard for the MAP RENDER NDC-extent diagnostic (per engagement).</summary>
+    private bool _ndcLogged;
 
     // ---- GloomhavenVR/MapUnlit shader (bundled — Shader.Find can't see bundle shaders, so probed
     // across the loaded AssetBundles, mirroring PlayTray.BoardLitShader). ----
@@ -2498,6 +2503,8 @@ internal sealed class FlatScreenStereo
         }
         ReleaseMapRt();
         _mapTargetLogged = false;
+        _ndcLogged = false;
+        _capLogged = false;
     }
 
     // ---- map albedo render: once-per-second base-RT probe (MAP ALBEDO probe line) ------------
@@ -2724,6 +2731,34 @@ internal sealed class FlatScreenStereo
                     VRLog.Info("WorldUI", "MAP RENDER render-time matrices applied to the forward camera " +
                                           "(captured from the game map camera's OnPreRender) — the real mesh tracks pan/zoom.");
                 }
+            }
+            // DIAGNOSTIC (once): project the parchment mesh's 8 local-bounds corners through the applied
+            // MVP and log their NDC extent. If x/y span most of [-1,1] the mesh fills the screen (full UV
+            // visible); if it clusters tiny, the framing is zoomed/degenerate (near-constant UV → flat) —
+            // which, given the mesh/texture/UV are proven-correct offline, would be the real bug.
+            if (!_ndcLogged && _worldMapRenderer != null)
+            {
+                _ndcLogged = true;
+                Matrix4x4 mvp = cam.projectionMatrix * cam.worldToCameraMatrix * _worldMapRenderer.localToWorldMatrix;
+                Vector3 mn = _mapLocalMin, sz = _mapLocalSize;
+                float nxMin = 1e9f, nxMax = -1e9f, nyMin = 1e9f, nyMax = -1e9f, nzMin = 1e9f, nzMax = -1e9f;
+                int behind = 0;
+                for (int c = 0; c < 8; c++)
+                {
+                    var lp = new Vector3(mn.x + ((c & 1) != 0 ? sz.x : 0f),
+                                         mn.y + ((c & 2) != 0 ? sz.y : 0f),
+                                         mn.z + ((c & 4) != 0 ? sz.z : 0f));
+                    Vector4 clip = mvp * new Vector4(lp.x, lp.y, lp.z, 1f);
+                    if (clip.w <= 0f) { behind++; continue; }
+                    float nx = clip.x / clip.w, ny = clip.y / clip.w, nz = clip.z / clip.w;
+                    nxMin = Mathf.Min(nxMin, nx); nxMax = Mathf.Max(nxMax, nx);
+                    nyMin = Mathf.Min(nyMin, ny); nyMax = Mathf.Max(nyMax, ny);
+                    nzMin = Mathf.Min(nzMin, nz); nzMax = Mathf.Max(nzMax, nz);
+                }
+                VRLog.Info("WorldUI", $"MAP RENDER NDC extent of mesh bounds: x[{nxMin:F2},{nxMax:F2}] y[{nyMin:F2},{nyMax:F2}] " +
+                                      $"z[{nzMin:F2},{nzMax:F2}] cornersBehind={behind}/8 " +
+                                      $"(localMin={_mapLocalMin} size={_mapLocalSize}, ortho={cam.orthographic}, " +
+                                      $"l2w.scale=({_worldMapRenderer.localToWorldMatrix.lossyScale}); full-screen ⇒ x,y span ~[-1,1]).");
             }
             ApplyWorldMapOverride();
             return;
