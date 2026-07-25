@@ -1305,6 +1305,8 @@ internal sealed class FlatScreenStereo
         _mapEngageFrame = Time.frameCount; // start the fast per-frame base-RT probe window
         _mapMirrorLogged = false;
         _mapMirrorGeomLogged = false;
+        _capLogged = false;
+        _capMapValid = false;
         _albedoMaterialsLogged = false;
         _albedoWarned = false;
         VRLog.Info("WorldUI", $"MAP ALBEDO detection: the screen's base RenderTexture reads BLACK " +
@@ -1336,6 +1338,7 @@ internal sealed class FlatScreenStereo
         }
 
         Camera cam = _mapAlbedoCam!;
+        _mapSourceCam = mapSource; // OnPreRenderCamera captures its render-time matrices for the mirror
         // Copy the game map camera's live world pose (pan follows the camera transform).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
         cam.clearFlags = CameraClearFlags.SolidColor;
@@ -1452,6 +1455,12 @@ internal sealed class FlatScreenStereo
     /// <summary>One-shot guard: the MAP MIRROR ENGAGED line (per engagement).</summary>
     private bool _mapMirrorLogged;
     private bool _mapMirrorGeomLogged;
+    /// <summary>The game map camera we mirror; used to capture its render-time view/projection in OnPreRenderCamera.</summary>
+    private Camera? _mapSourceCam;
+    private Matrix4x4 _capMapView;
+    private Matrix4x4 _capMapProj;
+    private bool _capMapValid;
+    private bool _capLogged;
 
     /// <summary>
     /// Read the four <c>GH_CampaignMap_0N</c> quadrant textures off the worldMap renderer's materials
@@ -2669,11 +2678,34 @@ internal sealed class FlatScreenStereo
     {
         if (!_active)
             return;
-        if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
-            // Map mirror: nothing to do here — the camera renders our own unlit world-space quads (no
-            // material/mesh override on the game renderer, no ambient boost). Kept as a fast early-out so
-            // the head-camera texture-swap logic below never runs for the mirror camera.
+        // Capture the GAME map camera's ACTUAL render-time view+projection (the CameraController sets them
+        // at render time, so the values read in Tick are stale/grazing — the map ends up off-frustum). The
+        // game map camera (depth -1) renders BEFORE our mirror (-0.9), so these are ready when the mirror runs.
+        if (_mapBaseCapture && _mapSourceCam != null && cam == _mapSourceCam)
+        {
+            _capMapView = cam.worldToCameraMatrix;
+            _capMapProj = cam.projectionMatrix;
+            _capMapValid = true;
             return;
+        }
+        if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
+        {
+            // Map mirror: apply the game camera's render-time matrices so our world-space quads project
+            // exactly like the game's map (pan/zoom tracked). Fall back to the Tick-time copy if not captured.
+            if (_capMapValid)
+            {
+                cam.worldToCameraMatrix = _capMapView;
+                cam.projectionMatrix = _capMapProj;
+                if (!_capLogged)
+                {
+                    _capLogged = true;
+                    Vector3 vc = cam.WorldToViewportPoint(_mapQuadBounds.center);
+                    VRLog.Info("WorldUI", $"MAP MIRROR render-time matrices applied: map center viewport {Fmt(vc)} " +
+                                          "(z>0 & x,y in 0..1 = now on-screen). Captured from the game map camera's OnPreRender.");
+                }
+            }
+            return;
+        }
         Camera? head = Rig.VRRigDriver.HeadCamera;
         if (head == null || cam != head)
             return;
