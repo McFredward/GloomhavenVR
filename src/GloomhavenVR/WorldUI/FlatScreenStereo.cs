@@ -205,12 +205,27 @@ namespace GloomhavenVR.WorldUI;
 /// the campaign map goes black; the earlier layer-exclusion theory was wrong (attempt #2 widening
 /// the mask changed nothing).
 ///
-/// FIX (STEP-2, effect strip): when the base RT is detected black, DISABLE those image-effect
-/// Behaviours on the captured camera (restored verbatim on release) so the camera renders its RAW
-/// geometry straight into the base RT — non-black. An engaged async probe confirms recovery
-/// (<see cref="_baseRecovered"/>); both eyes then show the game's own render MONOSCOPICALLY (real
-/// map, only the scene's colour grading dropped — it was black anyway). Gated behind the black
-/// probe, so no working scene (menu video, guildmaster) is ever touched.
+/// FIX (STEP-2, SELECTIVE STRIP + MAP EXPOSURE — attempt #5): the earlier all-effects strip made
+/// the base RT non-black but VERY DARK (async probe: max 253, mean 21/255, lit 100%) — the map
+/// geometry renders but UNLIT, because the strip also removed BEAUTIFY, the tonemap/exposure/colour-
+/// grade effect that makes the map bright and correct. The two ACTIVE image transformers on the
+/// CampaignMap camera are ScreenSpaceAmbientOcclusion and Beautify (VolumetricFog is off, its PosT
+/// pass is a plain copy, FogOfWarController is inert, PostProcessLayer is off — decompiled). The fix
+/// therefore strips effects INDIVIDUALLY (<see cref="StripWhat"/> plan) and is ADAPTIVE:
+///   1. First KEEP Beautify and strip everything else (<see cref="StripWhat.AllButToneMap"/>). If the
+///      blacker was SSAO/fog, the base RT recovers NON-black AND Beautify's own tonemap makes it
+///      BRIGHT — the base-RT probe reads a HIGH mean, the success signal. No manual exposure.
+///   2. If keeping Beautify leaves the base RT BLACK (Beautify's eye-adaptation is itself the blacker),
+///      escalate to stripping Beautify too and apply the mod's OWN exposure: a [WorldUI] MapExposure
+///      gain blit (Overlay-shader tex*_Color multiply) lifts the raw dark map (mean 21) to a bright
+///      level in the STABLE eye RT both eyes sample. The base RT then stays dark by design — the
+///      'eye RT (stable)' probe mean is the success signal instead.
+/// DIAGNOSTIC ([WorldUI] MapEffectDiag): sweeps the strip subsets one at a time (Fog / FogOfWar /
+/// SSAO / Beautify / all-but-Beautify / all), logging each subset's base-RT mean, so a hardware log
+/// pinpoints which effect blacks the RT and which brightens it. The eyes stay on the mod's own
+/// non-black map clone during the sweep, which then settles on the strip-all + MapExposure fix.
+/// All gated behind the black probe, so no working scene (menu video, guildmaster) is ever touched;
+/// effects are restored verbatim on release.
 ///
 /// FALLBACK (retained, no regression): if stripping does NOT recover the base RT (some other
 /// mechanism blacks it), the mod still renders the map ITSELF — a zero-offset bare clone of the
@@ -273,6 +288,12 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<bool>? s_videoDepthLayer;
     private static ConfigEntry<float>? s_videoDepth;
     private static ConfigEntry<bool>? s_leftMirrorFallback;
+    /// <summary>Manual exposure gain applied to the raw (Beautify-stripped) map render — see MAP EXPOSURE.</summary>
+    private static ConfigEntry<float>? s_mapExposure;
+    /// <summary>Diagnostic: sweep per-effect strip subsets and log each base-RT mean (see MAP EFFECT DIAG).</summary>
+    private static ConfigEntry<bool>? s_mapEffectDiag;
+    /// <summary>Default map exposure gain (a 3–5x boost lifts the unlit ~21/255 mean to a visible level).</summary>
+    private const float DefaultMapExposure = 4.0f;
 
     // ---- map base capture (class doc MAP BASE CAPTURE) -------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
@@ -289,6 +310,44 @@ internal sealed class FlatScreenStereo
     private const int BlackConsecutiveToEngage = 3;
     /// <summary>Max 0..255 channel value still counted as "black" (guards a near-black graded frame).</summary>
     private const int BlackChannelThreshold = 6;
+
+    // ---- selective effect strip (STEP-2 FIX / SELECTIVE STRIP) ------------------------------
+    /// <summary>
+    /// Which categories of the MapCamera's image effects a strip PLAN disables. The CampaignMap
+    /// camera carries (decompiled): VolumetricFog(off), VolumetricFogPosT (plain copy while fog is
+    /// off), FogOfWarController (inert — only a Start() that toggles the fog per game mode),
+    /// ScreenSpaceAmbientOcclusion (depth-based darkening), Beautify (the TONEMAP / exposure /
+    /// colour-grade BRIGHTENER), PostProcessLayer(off). The two ACTIVE transformers are SSAO and
+    /// Beautify. The fix keeps <see cref="ToneMap"/> (Beautify) and strips only what blacks the RT.
+    /// </summary>
+    [System.Flags]
+    private enum StripWhat
+    {
+        None = 0,
+        Fog = 1,       // VolumetricFog / VolumetricFogPosT / PreT
+        FogOfWar = 2,  // FogOfWarController (inert in Campaign)
+        Ssao = 4,      // ScreenSpaceAmbientOcclusion
+        ToneMap = 8,   // Beautify / Tonemap / ColorGrade — the brightener (kept when possible)
+        Other = 16,    // any other image effect (Bloom, PPv2 PostProcessLayer, GraphicEffects, ...)
+        AllButToneMap = Fog | FogOfWar | Ssao | Other,
+        All = Fog | FogOfWar | Ssao | ToneMap | Other,
+    }
+
+    /// <summary>Consecutive BLACK base-RT probes while keeping Beautify before we strip it too (adaptive).</summary>
+    private const int EscalateBlackProbes = 3;
+    /// <summary>Engaged base-RT probes spent on each diagnostic strip subset before advancing.</summary>
+    private const int DiagProbesPerStep = 3;
+
+    /// <summary>Diagnostic sweep sequence (STEP-1): one strip subset per step, base-RT mean logged each.</summary>
+    private static readonly (StripWhat Mask, string Name)[] DiagPlans =
+    {
+        (StripWhat.Fog, "strip Fog only"),
+        (StripWhat.FogOfWar, "strip FogOfWar only"),
+        (StripWhat.Ssao, "strip SSAO only"),
+        (StripWhat.ToneMap, "strip Beautify(tonemap) only"),
+        (StripWhat.AllButToneMap, "strip all EXCEPT Beautify (keep tonemap)"),
+        (StripWhat.All, "strip ALL"),
+    };
 
     /// <summary>One mod-owned mirror camera shadowing a captured game camera into the right RT.</summary>
     private sealed class MirrorEntry
@@ -312,12 +371,13 @@ internal sealed class FlatScreenStereo
         public bool Synced;
         public bool SourceOn;
         public bool VideoActive;
-        // Map base capture (class doc MAP BASE CAPTURE): image-effect Behaviours we disabled
-        // on the SOURCE camera so its raw render reaches the base RT non-black (the CampaignMap
-        // camera's VolumetricFog/GraphicEffects/PostProcessLayer OnRenderImage chain blits black
-        // into the redirected RT). Re-enabled verbatim on release.
-        public bool EffectsStripped;
+        // Map base capture (class doc MAP BASE CAPTURE / SELECTIVE STRIP): the image-effect
+        // Behaviours we currently hold DISABLED on the SOURCE camera so its render reaches the base
+        // RT non-black. The active strip PLAN is a subset (keep the Beautify tonemap when possible;
+        // strip only the effect that blacks the redirected RT). Re-enabled verbatim on release.
         public List<Behaviour>? DisabledEffects;
+        /// <summary>Strip mask last reconciled onto this source (-1 = none applied) — idempotency gate.</summary>
+        public int AppliedStripMask = -1;
     }
 
     private readonly List<MirrorEntry> _mirrors = new(8);
@@ -395,6 +455,28 @@ internal sealed class FlatScreenStereo
     private bool _engagedProbeIsBase;
     /// <summary>One-shot rich map render-setup diagnostic guard (per engagement).</summary>
     private bool _mapSetupLogged;
+
+    // ---- selective strip controller (STEP-2 FIX) -------------------------------------------
+    /// <summary>The strip PLAN currently reconciled onto every captured source camera each tick.</summary>
+    private StripWhat _stripMask;
+    /// <summary>
+    /// True once the fix has stripped the Beautify tonemap too (it was the effect blacking the base
+    /// RT) — the eyes then sample a MANUALLY exposure-gained copy of the raw render (MapExposure).
+    /// False while Beautify is kept (its own tonemap already brightens the base RT).
+    /// </summary>
+    private bool _manualExposure;
+    /// <summary>Consecutive black base-RT probes at the current plan (drives the adaptive escalation).</summary>
+    private int _baseBlackProbes;
+    /// <summary>Diagnostic sweep step (-1 = not sweeping); indexes <see cref="DiagPlans"/>.</summary>
+    private int _diagStep = -1;
+    /// <summary>Base-RT probes spent on the current diagnostic step.</summary>
+    private int _diagStepProbes;
+    /// <summary>True once the diagnostic sweep has finished and settled on the safe strip-all + gain fix.</summary>
+    private bool _diagDone;
+    /// <summary>Lazily-built exposure-gain blit material (MapExposure); Overlay shader, opaque overwrite.</summary>
+    private Material? _gainMaterial;
+    private bool _gainMaterialWarned;
+    private static readonly int GainColorId = Shader.PropertyToID("_Color");
 
     private bool _active;
     private bool _hooked;
@@ -509,6 +591,21 @@ internal sealed class FlatScreenStereo
             "shift is unavailable) instead of a black void. Costs that scene's own colour " +
             "grading (already lost — it was black) plus one extra render while engaged. " +
             "Off = legacy (black map if the game camera renders black).");
+        s_mapExposure = file.Bind("WorldUI", "MapExposure", DefaultMapExposure,
+            "Exposure gain applied to the campaign map ONLY when the map base capture had to strip " +
+            "the game's Beautify tonemap to stop it blacking the screen's render texture (the raw, " +
+            "unlit map otherwise reads very dark — mean ~21/255). A simple per-pixel multiply blit " +
+            "before the map reaches the eyes lifts it to a bright, readable level. Has no effect " +
+            "when Beautify could be kept (the map is already tone-mapped bright) or outside the " +
+            "campaign map. 1 = no gain; 3–5 is a sensible boost. Clamped 1–16.");
+        s_mapEffectDiag = file.Bind("WorldUI", "MapEffectDiag", false,
+            "DIAGNOSTIC: when the campaign map's base render texture is black, sweep the MapCamera's " +
+            "image effects one strip-subset at a time (Fog only, FogOfWar only, SSAO only, Beautify " +
+            "only, all-but-Beautify, all) for a few probe cycles each, logging the resulting base-RT " +
+            "mean/max/lit per subset — so a hardware log reveals exactly which effect blacks the RT " +
+            "and which brightens it. The eyes stay on the mod's own non-black map render during the " +
+            "sweep, which then settles on the safe strip-all + MapExposure fix. Off (default) = the " +
+            "adaptive fix runs directly (keep Beautify; strip it + apply MapExposure only if it blacks).");
     }
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
@@ -645,6 +742,13 @@ internal sealed class FlatScreenStereo
         _stableBlitFrame = -1;
         _mapSetupLogged = false;
         _blackConsecutive = 0;
+        _stripMask = StripWhat.None;
+        _manualExposure = false;
+        _baseBlackProbes = 0;
+        _diagStep = -1;
+        _diagStepProbes = 0;
+        _diagDone = false;
+        ReleaseGainMaterial();
         if (_root != null)
         {
             Object.Destroy(_root);
@@ -894,16 +998,15 @@ internal sealed class FlatScreenStereo
         }
         entry.VideoActive = entry.SourceOn && IsNearPlaneVideoActive(entry.Video, source);
 
-        // STEP-2 FIX (class doc MAP BASE CAPTURE, effect strip): once map base capture engages,
-        // disable the SOURCE camera's image-effect Behaviours (VolumetricFog + its Pre/Post
-        // OnRenderImage passes, GraphicEffects, PostProcessLayer — decompiled: the CampaignMap
-        // camera carries all of these). One of their OnRenderImage/command-buffer blits paints the
-        // whole redirected RT BLACK; with them off the camera renders its raw geometry straight into
-        // the base RT (non-black). Restored verbatim on release. Gated behind the black probe, so no
-        // working scene (menu video / guildmaster) is ever touched.
+        // STEP-2 FIX (class doc MAP BASE CAPTURE, SELECTIVE STRIP): once map base capture engages,
+        // reconcile the SOURCE camera's image effects to the current strip PLAN (_stripMask). The
+        // adaptive fix keeps the Beautify tonemap and strips only the effect that blacks the
+        // redirected RT; it escalates to stripping Beautify too (+ MapExposure gain) only if keeping
+        // it left the base RT black. Restored verbatim on release. Gated behind the black probe, so
+        // no working scene (menu video / guildmaster) is ever touched.
         if (_mapBaseCapture)
-            StripSourceEffects(entry, source);
-        else if (entry.EffectsStripped)
+            ApplyStripPlan(entry, source, _stripMask);
+        else if (entry.AppliedStripMask >= 0)
             RestoreSourceEffects(entry);
 
         if (!entry.SourceOn)
@@ -1247,7 +1350,30 @@ internal sealed class FlatScreenStereo
         _baseRecovered = false;
         _baseNonBlack = false;
         _stableIdentityLogged = false;
+        _baseBlackProbes = 0;
+        _manualExposure = false;
         ReleaseStableRt(); // a stale hold from a previous engagement must not leak into this one
+
+        // Strip controller (STEP-2 FIX): the diagnostic sweeps per-effect subsets; the adaptive fix
+        // starts by KEEPING Beautify (strip everything else) — so if the blacker was SSAO/fog the
+        // base RT recovers BRIGHT (Beautify still tone-maps it) and no manual exposure is needed.
+        if (s_mapEffectDiag?.Value ?? false)
+        {
+            _diagStep = 0;
+            _diagStepProbes = 0;
+            _diagDone = false;
+            _stripMask = DiagPlans[0].Mask;
+            VRLog.Info("WorldUI", $"MAP EFFECT DIAG: sweeping {DiagPlans.Length} strip subsets " +
+                                  $"({DiagProbesPerStep} base probes each) — step 1/{DiagPlans.Length} " +
+                                  $"[{DiagPlans[0].Name}]. Watch the following 'MAP probe [base RT ...]' " +
+                                  "mean values to see which effect blacks vs brightens the map.");
+        }
+        else
+        {
+            _diagStep = -1;
+            _diagDone = true;
+            _stripMask = StripWhat.AllButToneMap;
+        }
         LogMapRenderSetup(maxChannel);
         VRLog.Info("WorldUI", $"MAP BASE CAPTURE ENGAGED: the screen's base RenderTexture reads " +
                               $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
@@ -1307,43 +1433,77 @@ internal sealed class FlatScreenStereo
         return false;
     }
 
-    /// <summary>
-    /// Disable the source camera's image-effect Behaviours so its RAW render reaches the base RT
-    /// (the effects' OnRenderImage/command-buffer blits paint the redirected RT black). One-shot per
-    /// entry; restored verbatim by <see cref="RestoreSourceEffects"/>.
-    /// </summary>
-    private void StripSourceEffects(MirrorEntry entry, Camera source)
+    /// <summary>Classify a camera image effect into a <see cref="StripWhat"/> category (by type name).</summary>
+    private static StripWhat ClassifyEffect(System.Type t)
     {
-        if (entry.EffectsStripped || source == null)
-            return;
-        entry.EffectsStripped = true;
-        List<Behaviour> disabled = entry.DisabledEffects ??= new List<Behaviour>(4);
-        disabled.Clear();
-        string names = "";
+        string n = t.Name;
+        if (n.IndexOf("Beautify", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Tonemap", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ColorGrad", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return StripWhat.ToneMap;
+        if (n.IndexOf("AmbientOcclusion", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("SSAO", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return StripWhat.Ssao;
+        if (n.IndexOf("FogOfWar", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return StripWhat.FogOfWar; // must precede the generic "Fog" test (FogOfWar contains "Fog")
+        if (n.IndexOf("Fog", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return StripWhat.Fog;
+        return StripWhat.Other;
+    }
+
+    /// <summary>Reconcile the source camera's image effects to the desired strip PLAN (idempotent).</summary>
+    private void ApplyStripPlan(MirrorEntry entry, Camera source, StripWhat mask)
+    {
+        if (source == null || entry.AppliedStripMask == (int)mask)
+            return; // GetComponents runs only when the plan actually changes (rare)
+        List<Behaviour> held = entry.DisabledEffects ??= new List<Behaviour>(6);
+        string disabledNames = "", reenabledNames = "";
         MonoBehaviour[] comps = source.GetComponents<MonoBehaviour>();
         for (int i = 0; i < comps.Length; i++)
         {
             MonoBehaviour c = comps[i];
-            if (c == null || !c.enabled || !IsImageEffect(c.GetType()))
+            if (c == null || !IsImageEffect(c.GetType()))
                 continue;
-            c.enabled = false;
-            disabled.Add(c);
-            names += (names.Length > 0 ? ", " : "") + c.GetType().Name;
+            bool wantDisabled = (mask & ClassifyEffect(c.GetType())) != 0;
+            bool weHold = held.Contains(c);
+            if (wantDisabled)
+            {
+                // Only touch — and track — effects WE flip off. An effect the game already
+                // disabled itself (e.g. the off VolumetricFog core) is left alone and never
+                // added to held, so it is never wrongly re-enabled on a later plan/restore.
+                if (c.enabled)
+                {
+                    c.enabled = false;
+                    if (!weHold)
+                        held.Add(c);
+                    disabledNames += (disabledNames.Length > 0 ? ", " : "") + c.GetType().Name;
+                }
+            }
+            else if (weHold)
+            {
+                // We disabled it earlier but the new plan keeps it — restore only what WE touched
+                // (an effect the GAME disabled itself was never added to held).
+                if (!c.enabled)
+                {
+                    c.enabled = true;
+                    reenabledNames += (reenabledNames.Length > 0 ? ", " : "") + c.GetType().Name;
+                }
+                held.Remove(c);
+            }
         }
-        VRLog.Info("WorldUI", $"Map base capture: stripped {disabled.Count} image-effect component(s) " +
-                              $"from '{source.name}' [{(names.Length > 0 ? names : "none found")}] so its raw " +
-                              "render reaches the base RT. If NONE were found, a plain clone should already " +
-                              "reproduce the map — the break is elsewhere (see the MAP probe lines). Restored on release.");
+        entry.AppliedStripMask = (int)mask;
+        if (disabledNames.Length > 0 || reenabledNames.Length > 0)
+            VRLog.Info("WorldUI", $"Map base capture strip plan [{StripMaskName(mask)}] on '{source.name}': " +
+                                  $"disabled [{(disabledNames.Length > 0 ? disabledNames : "none")}], " +
+                                  $"re-enabled [{(reenabledNames.Length > 0 ? reenabledNames : "none")}].");
     }
 
-    /// <summary>Re-enable the image effects we disabled on this entry's source camera.</summary>
+    /// <summary>Re-enable every image effect we still hold disabled on this entry's source camera.</summary>
     private void RestoreSourceEffects(MirrorEntry entry)
     {
-        if (!entry.EffectsStripped)
-            return;
-        entry.EffectsStripped = false;
+        entry.AppliedStripMask = -1;
         List<Behaviour>? disabled = entry.DisabledEffects;
-        if (disabled == null)
+        if (disabled == null || disabled.Count == 0)
             return;
         int restored = 0;
         for (int i = 0; i < disabled.Count; i++)
@@ -1359,6 +1519,80 @@ internal sealed class FlatScreenStereo
             VRLog.Info("WorldUI", $"Map base capture: restored {restored} image-effect component(s)" +
                                   (entry.Source != null ? $" on '{entry.Source.name}'." : " (source gone)."));
         disabled.Clear();
+    }
+
+    private static string StripMaskName(StripWhat mask)
+    {
+        if (mask == StripWhat.None) return "none";
+        if (mask == StripWhat.All) return "ALL";
+        if (mask == StripWhat.AllButToneMap) return "all-but-Beautify";
+        string s = "";
+        if ((mask & StripWhat.Fog) != 0) s += (s.Length > 0 ? "|" : "") + "Fog";
+        if ((mask & StripWhat.FogOfWar) != 0) s += (s.Length > 0 ? "|" : "") + "FogOfWar";
+        if ((mask & StripWhat.Ssao) != 0) s += (s.Length > 0 ? "|" : "") + "SSAO";
+        if ((mask & StripWhat.ToneMap) != 0) s += (s.Length > 0 ? "|" : "") + "Beautify";
+        if ((mask & StripWhat.Other) != 0) s += (s.Length > 0 ? "|" : "") + "Other";
+        return s;
+    }
+
+    // ---- map exposure gain (STEP-2 FIX, manual tonemap fallback) ----------------------------
+
+    /// <summary>
+    /// Exposure-gain blit: a per-pixel multiply (MapExposure) that lifts the raw, unlit map render
+    /// (Beautify stripped → mean ~21/255) to a bright, readable level. Uses the mod's bundled
+    /// <c>GloomhavenVR/Overlay</c> shader (<c>tex2D(_MainTex) * _Color</c>; on the D3D11 target
+    /// <c>fixed4</c> is full float, so _Color &gt; 1 gives a true gain in a SINGLE blit), forced to
+    /// an opaque overwrite. Falls back to a plain copy if the shader is unavailable (dark but never
+    /// black). Only used while <see cref="_manualExposure"/> (Beautify could not be kept).
+    /// </summary>
+    private void BlitWithGain(RenderTexture src, RenderTexture dst)
+    {
+        Material? m = GainMaterial();
+        if (m == null)
+        {
+            Graphics.Blit(src, dst); // no gain shader — dark map, but non-black (never regress to black)
+            return;
+        }
+        float g = Mathf.Clamp(s_mapExposure?.Value ?? DefaultMapExposure, 1f, 16f);
+        m.SetColor(GainColorId, new Color(g, g, g, 1f));
+        Graphics.Blit(src, dst, m);
+    }
+
+    private Material? GainMaterial()
+    {
+        if (_gainMaterial != null)
+            return _gainMaterial;
+        Shader? sh = Cards.PlayTray.OverlayShader()
+                     ?? Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        if (sh == null)
+        {
+            if (!_gainMaterialWarned)
+            {
+                _gainMaterialWarned = true;
+                VRLog.Warn("WorldUI", "Map exposure: no gain shader available (bundle absent, no " +
+                                      "Sprites/Default) — the recovered map stays at its raw (dark) exposure.");
+            }
+            return null;
+        }
+        var mat = new Material(sh) { name = "GloomhavenVR.MapExposureGain" };
+        // Opaque overwrite, depth-agnostic (fullscreen blit): tex * _Color straight into the RT.
+        if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+        if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+        if (mat.HasProperty("_ZTest")) mat.SetFloat("_ZTest", (float)CompareFunction.Always);
+        if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+        if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", (float)CullMode.Off);
+        _gainMaterial = mat;
+        VRLog.Info("WorldUI", $"Map exposure: gain blit material created (shader '{sh.name}') — the raw " +
+                              "Beautify-stripped map render is multiplied by [WorldUI] MapExposure before the eyes.");
+        return _gainMaterial;
+    }
+
+    private void ReleaseGainMaterial()
+    {
+        if (_gainMaterial == null)
+            return;
+        Object.Destroy(_gainMaterial);
+        _gainMaterial = null;
     }
 
     /// <summary>Re-enable stripped effects on every live entry (teardown/deactivate).</summary>
@@ -1389,27 +1623,31 @@ internal sealed class FlatScreenStereo
         RenderTexture? rt;
         string label;
         bool isBase;
-        if (_baseRecovered)
+        if (!_baseRecovered)
         {
-            // Recovered mono: only the base RT (the recovery/blit SOURCE) and the stable
-            // eye RT (what BOTH eyes actually sample) are meaningful — the clone, right and
-            // shifted RTs are inert in this path, so probing them only misled. Alternate the
-            // two live RTs so the log proves the eye RT is non-black AND keeps the base
-            // verdict (_baseNonBlack) fresh for the hold-last-non-black blit gate.
-            if ((_engagedProbeIndex & 1) == 0)
-            { rt = _leftRt; label = "base RT (game render)"; isBase = true; }
-            else
-            { rt = _rtStable; label = "eye RT (stable, both eyes)"; isBase = false; }
+            // Not yet recovered (diagnostic sweep OR adaptive pre-recovery): probe the BASE RT every
+            // cycle so each strip plan gets prompt, attributable mean readings — driving the diagnostic
+            // step advance and the adaptive escalation quickly. The eyes stay on the mod's own
+            // (non-black) map clone throughout, so a black base RT never reaches them. Composite is
+            // already solved (task), so the inert clone/right/shifted RTs are no longer round-robined.
+            rt = _leftRt;
+            label = $"base RT (game render), plan [{StripMaskName(_stripMask)}]";
+            isBase = true;
+        }
+        else if ((_engagedProbeIndex & 1) == 0)
+        {
+            // Recovered: the base RT (recovery/blit SOURCE) and the stable eye RT (what BOTH eyes
+            // actually sample) are the only meaningful targets — alternate them so the log proves the
+            // eye RT is non-black AND keeps the base verdict fresh for the hold-last-non-black gate.
+            rt = _leftRt;
+            label = $"base RT (game render), plan [{StripMaskName(_stripMask)}]";
+            isBase = true;
         }
         else
         {
-            switch (_engagedProbeIndex % 4)
-            {
-                case 0: rt = _leftRt; label = "base RT (game render)"; isBase = true; break;
-                case 1: rt = _rtLeft; label = "_rtLeft (mod map clone)"; isBase = false; break;
-                case 2: rt = _rtRight; label = "_rtRight (right eye)"; isBase = false; break;
-                default: rt = _rtLeftShifted; label = "_rtLeftShifted (left eye)"; isBase = false; break;
-            }
+            rt = _rtStable;
+            label = "eye RT (stable, both eyes)";
+            isBase = false;
         }
         _engagedProbeIndex++;
         if (rt == null)
@@ -1473,18 +1711,70 @@ internal sealed class FlatScreenStereo
             // Feed the hold-last-non-black gate: only copy the base into the stable eye RT
             // while it reads non-black, so a black base blip freezes the last good copy.
             _baseNonBlack = maxChannel > BlackChannelThreshold;
-            if (!_baseRecovered && _baseNonBlack)
+
+            if (!_diagDone)
             {
-                _baseRecovered = true;
-                // The base is non-black RIGHT NOW — arm the stable blit immediately so the
-                // first eye pass after recovery already copies a good frame (no fallback flash).
-                _baseNonBlack = true;
-                VRLog.Info("WorldUI", $"MAP BASE RECOVERED: the base RT now reads NON-black (max channel " +
-                                      $"{maxChannel}/255) after the image-effect strip — both eyes are driven from a " +
-                                      "STABLE mod-owned eye RT (a hold-last-non-black copy of the game's own raw " +
-                                      "render; real map, scene colour grading dropped) instead of the shared, " +
-                                      "oscillating base RT. The 'eye RT (stable, both eyes)' probe below reports " +
-                                      "what the eyes actually sample; if THAT is non-black the map reaches both eyes.");
+                // DIAGNOSTIC sweep (STEP-1): hold each strip subset for a few base probes, then
+                // advance. The per-subset base means logged above localise which effect blacks vs
+                // brightens the redirected RT. The eyes stay on the mod's own (non-black) map clone
+                // throughout — _baseRecovered is never set while sweeping — so nothing goes black.
+                if (++_diagStepProbes >= DiagProbesPerStep)
+                {
+                    _diagStepProbes = 0;
+                    _diagStep++;
+                    if (_diagStep < DiagPlans.Length)
+                    {
+                        _stripMask = DiagPlans[_diagStep].Mask;
+                        VRLog.Info("WorldUI", $"MAP EFFECT DIAG: step {_diagStep + 1}/{DiagPlans.Length} " +
+                                              $"[{DiagPlans[_diagStep].Name}] — mask {StripMaskName(_stripMask)}.");
+                    }
+                    else
+                    {
+                        // Sweep done — settle on the robust strip-ALL + manual exposure fix.
+                        _diagDone = true;
+                        _stripMask = StripWhat.All;
+                        _manualExposure = true;
+                        _baseBlackProbes = 0;
+                        VRLog.Info("WorldUI", "MAP EFFECT DIAG complete — settling on strip-ALL + MapExposure " +
+                                              "gain. Compare the per-subset base means above: the subset whose base " +
+                                              "mean stayed LOW/black names the effect that BLACKS the RT; the subset " +
+                                              "with the HIGHEST mean names the BRIGHTENER (expected: Beautify).");
+                    }
+                }
+                return; // do not run the adaptive recovery decision while sweeping
+            }
+
+            // ADAPTIVE fix (strict two-phase): Beautify is KEPT first (strip everything else). If the
+            // base RT reads non-black, that plan won — Beautify's tonemap brightens it, no manual
+            // exposure. If it stays BLACK, Beautify itself is the blacker → strip it too + MapExposure.
+            if (_baseNonBlack)
+            {
+                if (!_baseRecovered)
+                {
+                    _baseRecovered = true;
+                    VRLog.Info("WorldUI", $"MAP BASE RECOVERED: base RT reads NON-black (max {maxChannel}/255, " +
+                                          $"mean {mean}/255) with strip plan [{StripMaskName(_stripMask)}] — " +
+                                          (_manualExposure
+                                              ? "Beautify STRIPPED, so the eyes sample a MapExposure-gained copy of the raw map (its base mean stays low by design; watch the 'eye RT (stable)' mean instead)."
+                                              : "Beautify KEPT, its own tonemap brightens the base RT (no manual exposure; the base mean IS the success signal).") +
+                                          " Both eyes are driven from a STABLE hold-last-non-black eye RT; the " +
+                                          "'eye RT (stable, both eyes)' probe reports what they actually sample.");
+                }
+            }
+            else if (!_baseRecovered && _stripMask == StripWhat.AllButToneMap)
+            {
+                // Keeping Beautify left the base RT black → Beautify's eye-adaptation/tonemap is the
+                // effect that blacks the redirected RT. Strip it too and brighten the raw map manually.
+                if (++_baseBlackProbes >= EscalateBlackProbes)
+                {
+                    _stripMask = StripWhat.All;
+                    _manualExposure = true;
+                    _baseBlackProbes = 0;
+                    VRLog.Info("WorldUI", $"MAP fix escalated: keeping Beautify left the base RT BLACK " +
+                                          $"(max {maxChannel}/255) over {EscalateBlackProbes} probes — Beautify itself " +
+                                          "blacks the redirected RT, so it is now stripped too and the raw map is " +
+                                          "brightened with the [WorldUI] MapExposure gain blit.");
+                }
             }
         }
     }
@@ -1603,6 +1893,12 @@ internal sealed class FlatScreenStereo
             _stableIdentityLogged = false;
             _mapSetupLogged = false;
             _blackConsecutive = 0;
+            _stripMask = StripWhat.None;
+            _manualExposure = false;
+            _baseBlackProbes = 0;
+            _diagStep = -1;
+            _diagStepProbes = 0;
+            _diagDone = false;
             _probeGen++;
             _probePending = false;
             ReleaseLeftRt();
@@ -1735,7 +2031,13 @@ internal sealed class FlatScreenStereo
             if (EnsureStableRt() && _baseNonBlack && _rtStable != null)
             {
                 RenderTexture? previous = RenderTexture.active;
-                Graphics.Blit(_leftRt, _rtStable);
+                // MANUAL EXPOSURE (Beautify stripped): the raw map render is dark (mean ~21/255), so
+                // multiply it up by [WorldUI] MapExposure before the eyes. When Beautify was kept its
+                // own tonemap already brightened the base RT — a plain copy then.
+                if (_manualExposure)
+                    BlitWithGain(_leftRt, _rtStable);
+                else
+                    Graphics.Blit(_leftRt, _rtStable);
                 RenderTexture.active = previous;
                 _stableHasContent = true;
             }
