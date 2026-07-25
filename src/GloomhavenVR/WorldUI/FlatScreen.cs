@@ -757,7 +757,9 @@ internal sealed class FlatScreen
         }
 
         // Glass RT: same dimensions as the background RT — the pointer pixel mapping
-        // and the quad UVs are shared between the two layers by construction.
+        // and the quad UVs are shared between the two layers by construction. Kept at
+        // DEFAULT read/write (NOT sRGB-corrected like the base RT): the 2D UI must not be
+        // overbrightened by MapSrgbFix — only the MAP/background base RT gets that fix.
         var uiRt = new RenderTexture(_rt!.width, _rt.height, 24)
         {
             name = "GloomhavenVR.FlatScreenRT.UI",
@@ -788,7 +790,8 @@ internal sealed class FlatScreen
         VRLog.Info("WorldUI", $"Screen layer split ENGAGED: UI cameras → transparent glass RT " +
                               $"({_uiRt.width}x{_uiRt.height}) on the screen quad (both eyes identical, " +
                               $"pointer plane); 3D cameras stay on the background RT shown " +
-                              $"{BackplaneGapMeters * 100f:F0} cm behind it.");
+                              $"{BackplaneGapMeters * 100f:F0} cm behind it. glass RT {FlatScreenStereo.DescribeRt(_uiRt)} " +
+                              "(default read/write — not sRGB-corrected, so the UI is not overbrightened).");
     }
 
     /// <summary>Create the background quad — or re-create it after an external destroy.</summary>
@@ -1515,12 +1518,18 @@ internal sealed class FlatScreen
     {
         if (_rt == null)
         {
-            _rt = new RenderTexture(Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24)
-            {
-                name = "GloomhavenVR.FlatScreenRT",
-                antiAliasing = 1,
-            };
+            // COLORSPACE FIX (leading hypothesis — [WorldUI] MapSrgbFix, default ON): create the base
+            // RT sRGB so the map camera's LINEAR lit output is gamma-encoded on store (bright, matching
+            // the game backbuffer) instead of stored raw (~2.2x too dark — the dark-map bug). The
+            // separate UI glass RT is deliberately NOT sRGB-corrected (it must not overbrighten the 2D
+            // UI). Off = pre-fix behaviour.
+            _rt = FlatScreenStereo.CreateColorRt(
+                Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24, "GloomhavenVR.FlatScreenRT");
             _rt.Create();
+            VRLog.Info("WorldUI", $"FlatScreen base RT created (STEP-1a/STEP-2): {FlatScreenStereo.DescribeRt(_rt)} " +
+                                  $"— MapSrgbFix {FlatScreenStereo.MapSrgbFixOn}, activeColorSpace {QualitySettings.activeColorSpace}. " +
+                                  "sRGB=True encodes the map camera's linear lit output on store so the redirected " +
+                                  "map matches its bright native render (expected center mean ~20 → ~80+).");
         }
 
         if (_quad == null)
