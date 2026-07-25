@@ -1638,6 +1638,7 @@ internal sealed class FlatScreenStereo
     private static System.Type? _decalType;
     private static System.Reflection.PropertyInfo? _decalCurMatProp;
     private bool _decalTypeMissing;
+    private int _mapIconsLogCount;
     /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
     private int _ndcLogCount;
     private int _ndcLastLogFrame = int.MinValue;
@@ -2467,15 +2468,18 @@ internal sealed class FlatScreenStereo
         }
         float planeY = _worldMapRenderer.bounds.center.y + 0.05f;
         var roots = new[] { choreo.m_ScenariosParent, choreo.m_VillagesParent };
+        int nDecals = 0, nNoMat = 0, nNoTex = 0, nDrawn = 0;
+        string firstDetail = "";
         foreach (GameObject? rootGo in roots)
         {
             if (rootGo == null) continue;
             foreach (Component d in rootGo.GetComponentsInChildren(_decalType, includeInactive: false))
             {
+                nDecals++;
                 Material? cm = _decalCurMatProp?.GetValue(d) as Material;
-                if (cm == null) continue;
+                if (cm == null) { nNoMat++; continue; }
                 Texture? tex = cm.HasProperty(IconMainTex) ? cm.GetTexture(IconMainTex) : cm.mainTexture;
-                if (tex == null) continue;
+                if (tex == null) { nNoTex++; if (firstDetail == "") firstDetail = $"noTex mat.shader='{(cm.shader != null ? cm.shader.name : "?")}' main='{(cm.mainTexture != null ? cm.mainTexture.name : "null")}'"; continue; }
                 var rend = d.GetComponent<Renderer>();
                 if (rend == null) continue;
                 Bounds b = rend.bounds;
@@ -2484,7 +2488,15 @@ internal sealed class FlatScreenStereo
                 _iconMpb.SetTexture(IconMainTex, tex);
                 _iconMpb.SetColor(IconColor, cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white);
                 Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, _iconMpb);
+                nDrawn++;
+                if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
+                    firstDetail = $"drawn tex='{tex.name}' shader='{(cm.shader != null ? cm.shader.name : "?")}' pos={pos} scale={scale} layer={d.gameObject.layer} camMask=0x{mapCam.cullingMask:X8}";
             }
+        }
+        if (_mapIconsLogCount < 5)
+        {
+            _mapIconsLogCount++;
+            VRLog.Info("WorldUI", $"MAP ICONS [{_mapIconsLogCount}]: decals={nDecals} noMat={nNoMat} noTex={nNoTex} drawn={nDrawn} iconMat='{(_iconMat != null ? _iconMat.shader.name : "null")}' planeY={planeY:F2} — first: {firstDetail}");
         }
     }
 
@@ -2763,6 +2775,7 @@ internal sealed class FlatScreenStereo
         _mapDrivenValid = false;
         _mapZoomFov = 0f;
         _mapSceneRenderersLogged = false;
+        _mapIconsLogCount = 0;
         _ndcLogCount = 0;
         _ndcLastLogFrame = int.MinValue;
         _capLogged = false;
