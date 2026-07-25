@@ -1425,6 +1425,7 @@ internal sealed class FlatScreenStereo
         // only the parchment draws, because we override ITS materials with the forward MapUnlit shader.
         cam.cullingMask = mapSource.cullingMask;
         LogMapSceneRenderers(mapSource.cullingMask);
+        DrawMapIcons(cam); // queue location icon quads for our forward camera this frame
         // Just above the game map camera so Unity composites us LAST into the base RT (we overwrite its
         // black deferred render); still below the head camera, so the screen quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
@@ -1624,6 +1625,19 @@ internal sealed class FlatScreenStereo
     private Vector3 _mapDrivenPos, _mapDrivenLook;
     private float _mapDrivenFov = 50f;
     private bool _mapDrivenValid;
+    // ---- map location icons (deferred Decalicious decals → forward quads in our camera) ----
+    /// <summary>Draw each MapLocation's decal icon as a textured quad flat on the map plane, ONLY in our
+    /// forward map camera (the game's decals are deferred and never light into our RT).</summary>
+    private const bool MapDrawIcons = true;
+    private Mesh? _iconQuad;
+    private Material? _iconMat;
+    private MaterialPropertyBlock? _iconMpb;
+    private static readonly int IconMainTex = Shader.PropertyToID("_MainTex");
+    private static readonly int IconColor = Shader.PropertyToID("_Color");
+    // Decal type is in an unreferenced assembly (ThreeEyedGames Decalicious) — reach it via reflection.
+    private static System.Type? _decalType;
+    private static System.Reflection.PropertyInfo? _decalCurMatProp;
+    private bool _decalTypeMissing;
     /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
     private int _ndcLogCount;
     private int _ndcLastLogFrame = int.MinValue;
@@ -2414,6 +2428,64 @@ internal sealed class FlatScreenStereo
             }
         }
         VRLog.Info("WorldUI", $"MAP SCENE renderers [{total} total] (forwardMask=0x{cullingMask:X8}):" + sb.ToString());
+    }
+
+    /// <summary>
+    /// Draw each active MapLocation's decal icon (a deferred Decalicious decal — invisible in our forward
+    /// render) as a textured quad flat on the map plane, queued ONLY for our forward map camera. The icon
+    /// texture + tint come from the decal's CurrentMaterial (_MainTex/_Color); the footprint from its
+    /// renderer bounds. Uses Graphics.DrawMesh(..., camera) so nothing else in the scene is affected.
+    /// </summary>
+    private void DrawMapIcons(Camera mapCam)
+    {
+        if (!MapDrawIcons || mapCam == null || _worldMapRenderer == null)
+            return;
+        var choreo = Object.FindObjectOfType<MapChoreographer>();
+        if (choreo == null)
+            return;
+        if (_iconQuad == null)
+        {
+            _iconQuad = new Mesh { name = "GloomhavenVR.MapIconQuad" };
+            _iconQuad.vertices = new[] { new Vector3(-0.5f, 0f, -0.5f), new Vector3(0.5f, 0f, -0.5f), new Vector3(-0.5f, 0f, 0.5f), new Vector3(0.5f, 0f, 0.5f) };
+            _iconQuad.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f) };
+            _iconQuad.triangles = new[] { 0, 2, 1, 2, 3, 1 };
+            _iconQuad.RecalculateBounds();
+        }
+        if (_iconMat == null)
+        {
+            Shader? sh = Shader.Find("Sprites/Default"); // built-in, forward, alpha-blended, Cull Off
+            if (sh == null) return;
+            _iconMat = new Material(sh) { name = "GloomhavenVR.MapIconMat" };
+        }
+        _iconMpb ??= new MaterialPropertyBlock();
+        if (_decalTypeMissing) return;
+        if (_decalType == null)
+        {
+            _decalType = HarmonyLib.AccessTools.TypeByName("Decal");
+            if (_decalType == null) { _decalTypeMissing = true; VRLog.Warn("WorldUI", "MAP ICONS: Decal type not found — icons skipped."); return; }
+            _decalCurMatProp = _decalType.GetProperty("CurrentMaterial");
+        }
+        float planeY = _worldMapRenderer.bounds.center.y + 0.05f;
+        var roots = new[] { choreo.m_ScenariosParent, choreo.m_VillagesParent };
+        foreach (GameObject? rootGo in roots)
+        {
+            if (rootGo == null) continue;
+            foreach (Component d in rootGo.GetComponentsInChildren(_decalType, includeInactive: false))
+            {
+                Material? cm = _decalCurMatProp?.GetValue(d) as Material;
+                if (cm == null) continue;
+                Texture? tex = cm.HasProperty(IconMainTex) ? cm.GetTexture(IconMainTex) : cm.mainTexture;
+                if (tex == null) continue;
+                var rend = d.GetComponent<Renderer>();
+                if (rend == null) continue;
+                Bounds b = rend.bounds;
+                var pos = new Vector3(b.center.x, planeY, b.center.z);
+                var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
+                _iconMpb.SetTexture(IconMainTex, tex);
+                _iconMpb.SetColor(IconColor, cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white);
+                Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, _iconMpb);
+            }
+        }
     }
 
     private bool BuildOverrideMaterials()
