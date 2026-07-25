@@ -2759,6 +2759,23 @@ internal sealed class FlatScreenStereo
                                       $"z[{nzMin:F2},{nzMax:F2}] cornersBehind={behind}/8 " +
                                       $"(localMin={_mapLocalMin} size={_mapLocalSize}, ortho={cam.orthographic}, " +
                                       $"l2w.scale=({_worldMapRenderer.localToWorldMatrix.lossyScale}); full-screen ⇒ x,y span ~[-1,1]).");
+                // Geometry dump to explain the grazing/off-screen projection: where the game map camera
+                // sits and points vs where the parchment mesh actually is in world space.
+                Vector3 camPos = cam.worldToCameraMatrix.inverse.GetColumn(3);
+                Vector3 camFwd = -(Vector3)cam.worldToCameraMatrix.GetRow(2); // -Z row = forward in world
+                Transform rt = _worldMapRenderer.transform;
+                Vector3 meshCenterWorld = _worldMapRenderer.bounds.center;
+                Vector3 toMesh = (meshCenterWorld - camPos);
+                float distToMesh = toMesh.magnitude;
+                float facing = Vector3.Dot(camFwd, toMesh.normalized);
+                Camera? src = _mapSourceCam;
+                VRLog.Info("WorldUI", $"MAP RENDER geometry: camPos={camPos} camFwd={camFwd}; " +
+                                      $"meshTransform pos={rt.position} euler={rt.eulerAngles} lossyScale={rt.lossyScale}; " +
+                                      $"rendererBoundsCenter={meshCenterWorld} rendererBoundsSize={_worldMapRenderer.bounds.size}; " +
+                                      $"cam→meshCenter dist={distToMesh:F2} facingDot={facing:F3} (1=dead ahead, <0=behind); " +
+                                      $"srcCam='{(src != null ? src.name : "null")}' srcPos={(src != null ? src.transform.position.ToString() : "?")} " +
+                                      $"srcEuler={(src != null ? src.transform.eulerAngles.ToString() : "?")} srcFOV={(src != null ? src.fieldOfView : 0f):F1} " +
+                                      $"srcOrtho={(src != null ? src.orthographic : false)} srcNear={(src != null ? src.nearClipPlane : 0f):F2} srcFar={(src != null ? src.farClipPlane : 0f):F1}.");
             }
             ApplyWorldMapOverride();
             return;
