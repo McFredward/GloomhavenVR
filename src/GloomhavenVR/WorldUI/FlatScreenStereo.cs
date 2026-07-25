@@ -261,6 +261,10 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<bool>? s_mapAlbedoRender;
     /// <summary>MAP ALBEDO — render the worldMap with its ORIGINAL Amplify material in our forward camera (default ON): the mesh is not CPU-readable (isReadable=false) so a Sprites/Default override cannot get UVs; the Amplify surface shader's auto forward pass computes UVs on the GPU. Off = the (dead) Sprites/Default override path.</summary>
     private static ConfigEntry<bool>? s_mapAlbedoOriginalMat;
+    /// <summary>MAP ALBEDO — ambient intensity forced during our forward render (default 4): the map's deferred lighting is never applied into our RT (the parchment stays at ~ambient ~12/255). A high flat ambient lets the Amplify forward pass show the albedo bright. 0 = leave the scene ambient untouched.</summary>
+    private static ConfigEntry<float>? s_mapAlbedoAmbient;
+    /// <summary>MAP ALBEDO — add a mod directional light during our forward render (default ON) so normal-mapped parchment relief is revealed (in case the map detail is lit relief, not flat albedo).</summary>
+    private static ConfigEntry<bool>? s_mapAlbedoLight;
 
     // ---- map UV correction (class doc MAP ALBEDO RENDER, uv0 rebuild) — runtime-tunable ----
     /// <summary>uv0 source for the corrected worldMap mesh: 0 = auto (real UVs else positional), 1 = force real-UV channel, 2 = force positional.</summary>
@@ -343,6 +347,13 @@ internal sealed class FlatScreenStereo
     private int _probeReqGen;
 
     // ---- map albedo render (class doc MAP ALBEDO RENDER) ------------------------------------
+    /// <summary>Mod directional light enabled only during the map's forward render (MapAlbedoLight).</summary>
+    private Light? _mapAlbedoLight;
+    /// <summary>Cached scene ambient, restored right after our forward render (we force a bright flat ambient during it).</summary>
+    private UnityEngine.Rendering.AmbientMode _ambSavedMode;
+    private Color _ambSavedLight;
+    private float _ambSavedIntensity;
+    private bool _ambBoosted;
     /// <summary>Mod-owned forward camera that renders the worldMap parchment (unlit, albedo) into the base RT.</summary>
     private Camera? _mapAlbedoCam;
     private GameObject? _mapAlbedoGo;
@@ -520,6 +531,15 @@ internal sealed class FlatScreenStereo
             "camera — the surface shader's auto-generated forward pass computes the UVs on the GPU, " +
             "so the parchment draws with correct detail (its forward-lit brightness applies). Off = " +
             "the old (dead) Sprites/Default override path.");
+        s_mapAlbedoAmbient = file.Bind("WorldUI", "MapAlbedoAmbient", 4.0f,
+            "MAP BRIGHTNESS (default 4): ambient intensity forced ONLY during the mod forward render " +
+            "of the map. The map's deferred scene lighting is never applied into our RT, so the " +
+            "parchment renders at bare ambient (~12/255, flat dark). A high flat white ambient lifts " +
+            "the Amplify forward pass so the albedo shows bright. Tune live; 0 = leave scene ambient.");
+        s_mapAlbedoLight = file.Bind("WorldUI", "MapAlbedoLight", true,
+            "MAP BRIGHTNESS (default ON): also add a mod directional light during the map's forward " +
+            "render, so if the map detail is normal-mapped relief (not flat albedo) the lighting " +
+            "reveals it. Off = ambient only.");
 
         // Map UV correction knobs (class doc MAP ALBEDO RENDER). Read LIVE each time the corrected
         // worldMap mesh is rebuilt; a SettingChanged bumps s_uvConfigRevision so the rebuild happens
@@ -564,6 +584,10 @@ internal sealed class FlatScreenStereo
     internal static bool MapAlbedoRenderOn => s_mapAlbedoRender?.Value ?? true;
     /// <summary>[WorldUI] MapAlbedoOriginalMaterial — render the worldMap with its own Amplify material (GPU-computed UVs) instead of the Sprites/Default override (dead: mesh is not CPU-readable).</summary>
     internal static bool MapAlbedoUseOriginalMat => s_mapAlbedoOriginalMat?.Value ?? true;
+    /// <summary>[WorldUI] MapAlbedoAmbient — ambient intensity forced during the map's forward render (0 = leave scene ambient).</summary>
+    internal static float MapAlbedoAmbient => Mathf.Max(0f, s_mapAlbedoAmbient?.Value ?? 4.0f);
+    /// <summary>[WorldUI] MapAlbedoLight — add a mod directional light during the map's forward render.</summary>
+    internal static bool MapAlbedoLightOn => s_mapAlbedoLight?.Value ?? true;
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
@@ -1769,8 +1793,14 @@ internal sealed class FlatScreenStereo
     private void ReleaseAlbedo()
     {
         RestoreWorldMapOverride(); // never leave the override materials/mesh on the game renderer
+        RestoreAmbientAfterMapRender(); // never leave the ambient boost / mod light on
         ReleaseCorrectedMesh();    // destroy the mod mesh copy; game mesh untouched
         DestroyOverrideMaterials();
+        if (_mapAlbedoLight != null)
+        {
+            Object.Destroy(_mapAlbedoLight.gameObject);
+            _mapAlbedoLight = null;
+        }
         _worldMapRenderer = null;
         _worldMapLayer = -1;
         _albedoMaterialsLogged = false;
@@ -1955,6 +1985,7 @@ internal sealed class FlatScreenStereo
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
         {
             ApplyWorldMapOverride();
+            BoostAmbientForMapRender();
             return;
         }
         Camera? head = Rig.VRRigDriver.HeadCamera;
@@ -2041,7 +2072,67 @@ internal sealed class FlatScreenStereo
         if (!_active)
             return;
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
+        {
             RestoreWorldMapOverride();
+            RestoreAmbientAfterMapRender();
+        }
+    }
+
+    /// <summary>
+    /// Force a bright flat ambient (and optionally a mod directional light) for ONLY the map's
+    /// forward render. The deferred scene lighting never reaches our RT, so the Amplify forward pass
+    /// otherwise renders the parchment at bare ambient (~12/255, flat dark). Restored immediately in
+    /// <see cref="RestoreAmbientAfterMapRender"/> — the game's own lighting is untouched.
+    /// </summary>
+    private void BoostAmbientForMapRender()
+    {
+        float amb = MapAlbedoAmbient;
+        if (amb > 0f)
+        {
+            _ambSavedMode = RenderSettings.ambientMode;
+            _ambSavedLight = RenderSettings.ambientLight;
+            _ambSavedIntensity = RenderSettings.ambientIntensity;
+            _ambBoosted = true;
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = Color.white;
+            RenderSettings.ambientIntensity = amb;
+        }
+
+        if (MapAlbedoLightOn)
+        {
+            EnsureMapLight();
+            if (_mapAlbedoLight != null)
+                _mapAlbedoLight.enabled = true;
+        }
+    }
+
+    private void RestoreAmbientAfterMapRender()
+    {
+        if (_ambBoosted)
+        {
+            RenderSettings.ambientMode = _ambSavedMode;
+            RenderSettings.ambientLight = _ambSavedLight;
+            RenderSettings.ambientIntensity = _ambSavedIntensity;
+            _ambBoosted = false;
+        }
+        if (_mapAlbedoLight != null)
+            _mapAlbedoLight.enabled = false;
+    }
+
+    /// <summary>Create the mod directional light (disabled; toggled around the map's forward render).</summary>
+    private void EnsureMapLight()
+    {
+        if (_mapAlbedoLight != null || _root == null)
+            return;
+        var go = new GameObject("GloomhavenVR.MapAlbedoLight");
+        go.transform.SetParent(_root.transform, worldPositionStays: false);
+        go.transform.rotation = Quaternion.Euler(50f, -30f, 0f); // gentle top-down key light
+        var l = go.AddComponent<Light>();
+        l.type = LightType.Directional;
+        l.color = Color.white;
+        l.intensity = 1.0f;
+        l.enabled = false;
+        _mapAlbedoLight = l;
     }
 
     // ---- IPD -------------------------------------------------------------------------------
