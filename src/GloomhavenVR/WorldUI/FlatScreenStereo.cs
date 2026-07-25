@@ -1498,8 +1498,9 @@ internal sealed class FlatScreenStereo
     private Matrix4x4 _capMapProj;
     private bool _capMapValid;
     private bool _capLogged;
-    /// <summary>One-shot guard for the MAP RENDER NDC-extent diagnostic (per engagement).</summary>
-    private bool _ndcLogged;
+    /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
+    private int _ndcLogCount;
+    private int _ndcLastLogFrame = int.MinValue;
 
     // ---- GloomhavenVR/MapUnlit shader (bundled — Shader.Find can't see bundle shaders, so probed
     // across the loaded AssetBundles, mirroring PlayTray.BoardLitShader). ----
@@ -2503,7 +2504,8 @@ internal sealed class FlatScreenStereo
         }
         ReleaseMapRt();
         _mapTargetLogged = false;
-        _ndcLogged = false;
+        _ndcLogCount = 0;
+        _ndcLastLogFrame = int.MinValue;
         _capLogged = false;
     }
 
@@ -2736,9 +2738,13 @@ internal sealed class FlatScreenStereo
             // MVP and log their NDC extent. If x/y span most of [-1,1] the mesh fills the screen (full UV
             // visible); if it clusters tiny, the framing is zoomed/degenerate (near-constant UV → flat) —
             // which, given the mesh/texture/UV are proven-correct offline, would be the real bug.
-            if (!_ndcLogged && _worldMapRenderer != null)
+            // Log at engage AND periodically for a while (the map has an open/zoom animation — the
+            // settled pose differs from the first frame). Up to ~6 samples, one every 90 frames.
+            if (_ndcLogCount < 6 && _worldMapRenderer != null
+                && (_ndcLogCount == 0 || Time.frameCount - _ndcLastLogFrame >= 90))
             {
-                _ndcLogged = true;
+                _ndcLogCount++;
+                _ndcLastLogFrame = Time.frameCount;
                 Matrix4x4 mvp = cam.projectionMatrix * cam.worldToCameraMatrix * _worldMapRenderer.localToWorldMatrix;
                 Vector3 mn = _mapLocalMin, sz = _mapLocalSize;
                 float nxMin = 1e9f, nxMax = -1e9f, nyMin = 1e9f, nyMax = -1e9f, nzMin = 1e9f, nzMax = -1e9f;
@@ -2755,7 +2761,7 @@ internal sealed class FlatScreenStereo
                     nyMin = Mathf.Min(nyMin, ny); nyMax = Mathf.Max(nyMax, ny);
                     nzMin = Mathf.Min(nzMin, nz); nzMax = Mathf.Max(nzMax, nz);
                 }
-                VRLog.Info("WorldUI", $"MAP RENDER NDC extent of mesh bounds: x[{nxMin:F2},{nxMax:F2}] y[{nyMin:F2},{nyMax:F2}] " +
+                VRLog.Info("WorldUI", $"MAP RENDER NDC extent [sample {_ndcLogCount} f{Time.frameCount}]: x[{nxMin:F2},{nxMax:F2}] y[{nyMin:F2},{nyMax:F2}] " +
                                       $"z[{nzMin:F2},{nzMax:F2}] cornersBehind={behind}/8 " +
                                       $"(localMin={_mapLocalMin} size={_mapLocalSize}, ortho={cam.orthographic}, " +
                                       $"l2w.scale=({_worldMapRenderer.localToWorldMatrix.lossyScale}); full-screen ⇒ x,y span ~[-1,1]).");
@@ -2769,7 +2775,7 @@ internal sealed class FlatScreenStereo
                 float distToMesh = toMesh.magnitude;
                 float facing = Vector3.Dot(camFwd, toMesh.normalized);
                 Camera? src = _mapSourceCam;
-                VRLog.Info("WorldUI", $"MAP RENDER geometry: camPos={camPos} camFwd={camFwd}; " +
+                VRLog.Info("WorldUI", $"MAP RENDER geometry [sample {_ndcLogCount}]: camPos={camPos} camFwd={camFwd}; " +
                                       $"meshTransform pos={rt.position} euler={rt.eulerAngles} lossyScale={rt.lossyScale}; " +
                                       $"rendererBoundsCenter={meshCenterWorld} rendererBoundsSize={_worldMapRenderer.bounds.size}; " +
                                       $"cam→meshCenter dist={distToMesh:F2} facingDot={facing:F3} (1=dead ahead, <0=behind); " +
