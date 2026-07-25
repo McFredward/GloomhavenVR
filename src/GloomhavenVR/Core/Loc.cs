@@ -233,6 +233,20 @@ internal static class Loc
         ["initiative"] = Pair("Initiative", "Initiative"),
         ["piles"] = Pair("Piles", "Stapel"),
         ["items"] = Pair("Items", "Gegenstände"),
+        ["item_use"] = Pair("Use item", "Gegenstand benutzen"),
+
+        // ---- Debug element / sub-category labels (previously hardcoded German) ----
+        ["round_buttons"] = Pair("Round-phase buttons", "Rundenknöpfe"),
+        ["board_buttons"] = Pair("Board buttons (Confirm/Undo)", "Boardtasten (Bestätigen/Rückgängig)"),
+        ["board_dashboard"] = Pair("Gear & Pin", "Zahnrad & Fixiert"),
+        ["wall_fade"] = Pair("Wall see-through", "Wandüberblendung"),
+        ["hand_offsets"] = Pair("Hand offsets", "Hände-Offsets"),
+        ["figure_offsets"] = Pair("Figure offsets", "Figuren-Offsets"),
+        ["button_colors"] = Pair("Button colors", "Knopf-Farben"),
+        ["subcat_board_layout"] = Pair("Board & Layout", "Board & Layout"),
+        ["subcat_cards_piles"] = Pair("Cards & Piles", "Karten & Stapel"),
+        ["subcat_offsets"] = Pair("Hands/Offsets", "Hände/Offsets"),
+        ["subcat_wall_seethrough"] = Pair("Wall see-through", "Wand-Durchsicht"),
 
         // ---- figure-grab debug tuning (item 2b) ----
         ["cat_figures"] = Pair("Figures", "Figuren"),

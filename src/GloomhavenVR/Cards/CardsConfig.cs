@@ -171,6 +171,10 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _restButtonDiameter = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _confirmUndoOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _confirmUndoSize = new ConfigEntry<float>[3];
+    // Item-use clip-in slot (items rework): a card-sized recess UNDER the board next to the
+    // Confirm/Undo decision buttons — dropping a held, usable item card into it USES the item.
+    // Per-board offset, mirrors ConfirmUndoOffset's binding/accessor/debug-menu wiring exactly.
+    private static readonly ConfigEntry<Vector3>[] _itemUseSlotOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _slotOverlayOffset = new ConfigEntry<Vector3>[3];
     // Item 1: the two slot overlays move together as a PAIR (Overlays element); this spacing
     // spreads them apart along the inter-slot (board long) axis — slot 0 by −½, slot 1 by +½.
@@ -554,6 +558,11 @@ internal static class CardsConfig
                 "the player (NEGATIVE = prouder). Seeded from Oak (ConfirmUndoInsetX −0.014, proud −5 mm).");
             _confirmUndoSize[i] = _file.Bind("Cards", $"ConfirmUndoSize_{board}", 0.073f,
                 $"[{board}] side length (meters) of the square Confirm/Undo buttons. Seeded from Oak (0.073).");
+            _itemUseSlotOffset[i] = _file.Bind("Cards", $"ItemUseSlotOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the ITEM-USE clip-in slot local position (on top of its fixed " +
+                "base UNDER the board next to the Confirm/Undo buttons), board-local meters. X/Y in plane, " +
+                "Z = proud depth toward the player (NEGATIVE = prouder). Drop a held usable item card into " +
+                "this slot to USE it. Seeded 0 (Oak).");
             _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the slot snap-glow / wanted-glow local position, board-local " +
                 "meters. X/Y in plane, Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 (Oak).");
@@ -889,6 +898,7 @@ internal static class CardsConfig
     internal static ConfigEntry<float> RestButtonDiameter(ControlBoard b) => _restButtonDiameter[(int)b];
     internal static ConfigEntry<Vector3> ConfirmUndoOffset(ControlBoard b) => _confirmUndoOffset[(int)b];
     internal static ConfigEntry<float> ConfirmUndoSize(ControlBoard b) => _confirmUndoSize[(int)b];
+    internal static ConfigEntry<Vector3> ItemUseSlotOffset(ControlBoard b) => _itemUseSlotOffset[(int)b];
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];

@@ -99,6 +99,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Objectives, Elements, VRSettings, Pin, Readout, Cluster,
         // Item C: the shared decision dock (text + buttons under the board).
         Decision,
+        // Items rework (requirement 3): the ITEM-USE clip-in slot under the board next to the
+        // Confirm/Undo buttons. Per-board offset only (no size/spacing/shape), so only the generic
+        // offset rows show — like the other pure-offset elements (Initiative, Readout, Pin, ...).
+        ItemUse,
         // Request C (2026-07): the transient round-phase buttons ("Bewegung überspringen",
         // "Angriff überspringen", …) as their OWN clearly-named element under the "Tasten"
         // category — the ButtonTuning [RoundButtons] geometry (offset X/Y/Z, shape, cap
@@ -179,6 +183,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 DebugElement.Overlays, DebugElement.Readout, DebugElement.VRSettings, DebugElement.Pin,
                 DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
+                DebugElement.ItemUse,
                 DebugElement.WallFade,
                 DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets,
                 DebugElement.ButtonColors },                                                                 // Debug
@@ -198,8 +203,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Board & Layout — the board itself + every board-attached panel/widget/overlay geometry.
         new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
                 DebugElement.Initiative, DebugElement.Readout, DebugElement.Pin, DebugElement.VRSettings },
-        // Karten & Stapel — the card piles, active-card grid, slot overlays, decision dock.
-        new[] { DebugElement.Piles, DebugElement.Active, DebugElement.Overlays, DebugElement.Decision },
+        // Karten & Stapel — the card piles, active-card grid, slot overlays, decision dock, item-use slot.
+        new[] { DebugElement.Piles, DebugElement.Active, DebugElement.Overlays, DebugElement.Decision, DebugElement.ItemUse },
         // Tasten — every button group's geometry + the new Knopf-Farben (label/cap colours).
         new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.ButtonColors },
@@ -1932,6 +1937,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             DebugElement.Readout => CardsConfig.ReadoutOffset(b),
             DebugElement.Cluster => CardsConfig.ClusterOffset(b),
             DebugElement.Decision => CardsConfig.DecisionOffset(b),
+            DebugElement.ItemUse => CardsConfig.ItemUseSlotOffset(b),
             _ => null,
         };
     }
@@ -2159,32 +2165,34 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.Readout => Loc.Mod("readout"),
         DebugElement.Cluster => Loc.Mod("cluster"),
         DebugElement.Decision => Loc.Mod("decision"),
-        // Request C: hardcoded German like the other ButtonTuning row labels ("Versatz X",
-        // "Kappengröße", …) — the round-phase skip buttons the user tunes here, plus the
-        // category-split board elements (Confirm/Undo keycaps; gear + Fixiert plates).
-        DebugElement.RoundButtons => "Rundenknöpfe",
-        DebugElement.BoardButtons => "Boardtasten (Bestätigen/Rückgängig)",
-        DebugElement.BoardDashboard => "Zahnrad & Fixiert",
-        DebugElement.WallFade => "Wandüberblendung",
+        // Items rework: the item-use clip-in slot.
+        DebugElement.ItemUse => Loc.Mod("item_use"),
+        // Fully localized (the whole mod is localized — no hardcoded strings): the round-phase
+        // skip buttons the user tunes here, plus the category-split board elements (Confirm/Undo
+        // keycaps; gear + Pin plates) and the per-style / colour rows.
+        DebugElement.RoundButtons => Loc.Mod("round_buttons"),
+        DebugElement.BoardButtons => Loc.Mod("board_buttons"),
+        DebugElement.BoardDashboard => Loc.Mod("board_dashboard"),
+        DebugElement.WallFade => Loc.Mod("wall_fade"),
         // Per-style elements folded in from the former top-level tabs (2026-07).
-        DebugElement.HandOffsets => "Hände-Offsets",
-        DebugElement.FigureOffsets => "Figuren-Offsets",
+        DebugElement.HandOffsets => Loc.Mod("hand_offsets"),
+        DebugElement.FigureOffsets => Loc.Mod("figure_offsets"),
         DebugElement.WristOffsets => Loc.Mod("cat_wrist"),
         // User 4: the keycap label/cap colour rows.
-        DebugElement.ButtonColors => "Knopf-Farben",
+        DebugElement.ButtonColors => Loc.Mod("button_colors"),
         _ => e.ToString(),
     };
 
     /// <summary>German name of a Debug sub-category (user 5b) — the sub-category chooser readout.</summary>
     private static string DebugSubCatLabel(DebugSubCat s) => s switch
     {
-        DebugSubCat.BoardLayout => "Board & Layout",
-        DebugSubCat.KartenStapel => "Karten & Stapel",
-        DebugSubCat.Tasten => "Tasten",
-        DebugSubCat.Offsets => "Hände/Offsets",
+        DebugSubCat.BoardLayout => Loc.Mod("subcat_board_layout"),
+        DebugSubCat.KartenStapel => Loc.Mod("subcat_cards_piles"),
+        DebugSubCat.Tasten => Loc.Mod("cat_buttons"),
+        DebugSubCat.Offsets => Loc.Mod("subcat_offsets"),
         // User 3: the old "Welt-Tuning" was misleading — this sub-category only holds the wall
         // see-through fade tuning, so it is named for what it actually controls.
-        DebugSubCat.WeltTuning => "Wand-Durchsicht",
+        DebugSubCat.WeltTuning => Loc.Mod("subcat_wall_seethrough"),
         _ => s.ToString(),
     };
 
