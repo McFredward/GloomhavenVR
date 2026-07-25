@@ -1349,7 +1349,12 @@ internal sealed class FlatScreenStereo
         // Copy the game map camera's live world pose (the captured matrices override this before culling).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
         cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = Color.black;
+        // DIAGNOSTIC (MapDiagClearColor): clear to bright MAGENTA instead of black. This is the
+        // unambiguous test of whether our forward render is the effective last writer of the shared
+        // base RT: if the map area shows magenta (with our mesh on top), our render LANDS and wins →
+        // the bug is the UV feeding MapUnlit. If it stays brown, our output does NOT survive (the
+        // deferred MapCamera co-writing _leftRt wins) → the fix is a private RT. Set false to restore.
+        cam.backgroundColor = MapDiagClearColor ? new Color(1f, 0f, 1f, 1f) : Color.black;
         // See the SAME layers the game map camera sees (includes the parchment layer). Other objects on
         // those layers render nothing in a forward camera (their deferred materials have no forward pass);
         // only the parchment draws, because we override ITS materials with the forward MapUnlit shader.
@@ -1437,7 +1442,13 @@ internal sealed class FlatScreenStereo
     // screenshot this fixes orientation (which screen direction is +u / +v), the covered range, and the
     // per-submesh seam layout, from which the exact _UvScale/_UvOffset (or a needed flip) is computed.
     // Set to false to restore the real map textures.
-    private const bool MapUvDebug = false;
+    private const bool MapUvDebug = true;
+    // DIAGNOSTIC: clear the map forward camera to bright magenta (see ReconcileAlbedoCamera) to test
+    // whether our render is the effective last writer of the shared base RT.
+    private const bool MapDiagClearColor = true;
+    // DIAGNOSTIC: assign each submesh a DIFFERENT UV channel (i % 3) so one screenshot reveals which
+    // mesh UV channel (TexCoord0/1/2) carries a real 0..1 texture UV (the others sample near-constant).
+    private const bool MapDiagPerSubmeshChannel = true;
     private Texture2D? _uvDebugTex;
     // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
     // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
@@ -2296,7 +2307,8 @@ internal sealed class FlatScreenStereo
             // Each quadrant submesh's UV already runs 0..1 over its own texture, so scale=1/offset=0.
             Vector2 uvScale = Vector2.one;
             Vector2 uvOffset = Vector2.zero;
-            m.SetFloat("_UvChannel", MapUnlitUvChannel);
+            float chan = MapDiagPerSubmeshChannel ? (i % 3) : MapUnlitUvChannel;
+            m.SetFloat("_UvChannel", chan);
             m.SetVector("_UvScale", new Vector4(uvScale.x, uvScale.y, 0f, 0f));
             m.SetVector("_UvOffset", new Vector4(uvOffset.x, uvOffset.y, 0f, 0f));
             m.SetFloat("_Bright", 1f);
@@ -2310,7 +2322,7 @@ internal sealed class FlatScreenStereo
                 facts += $"\n  submesh[{i}] '{(o != null ? o.name : "<null>")}' quadrant {(q >= 0 ? (q + 1).ToString("00") : "??")}"
                          + $": albedo from {prop}"
                          + (tex != null ? $" = '{tex.name}' {tex.width}x{tex.height}" : " (none)")
-                         + $", uvScale({uvScale.x:F0},{uvScale.y:F0}) uvOffset({uvOffset.x:F0},{uvOffset.y:F0})";
+                         + $", UvChannel={chan:F0} uvScale({uvScale.x:F0},{uvScale.y:F0}) uvOffset({uvOffset.x:F0},{uvOffset.y:F0})";
         }
         _worldMapOverrideMats = overrides;
         _worldMapOriginalMats = orig;
