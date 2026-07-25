@@ -1465,18 +1465,16 @@ internal sealed class FlatScreenStereo
     // screenshot this fixes orientation (which screen direction is +u / +v), the covered range, and the
     // per-submesh seam layout, from which the exact _UvScale/_UvOffset (or a needed flip) is computed.
     // Set to false to restore the real map textures.
-    private const bool MapUvDebug = true;
-    // DIAGNOSTIC: clear the map forward camera to bright magenta (see ReconcileAlbedoCamera) to test
-    // whether our render is the effective last writer of the shared base RT.
-    private const bool MapDiagClearColor = true;
-    // DIAGNOSTIC: assign each submesh a DIFFERENT UV channel (i % 3) so one screenshot reveals which
-    // mesh UV channel (TexCoord0/1/2) carries a real 0..1 texture UV (the others sample near-constant).
+    private const bool MapUvDebug = false;
+    // DIAGNOSTIC: clear the map forward camera to bright magenta (see ReconcileAlbedoCamera).
+    private const bool MapDiagClearColor = false;
+    // DIAGNOSTIC: assign each submesh a UV channel so one screenshot A/B-tests channels. TexCoord0 and
+    // object-space projection both came back FLAT, so this now splits the visible mesh between the two
+    // remaining candidates — TexCoord1 (submesh 0,2) and TexCoord2 (submesh 1,3), with the REAL texture:
+    // wherever real map art appears, that channel is the albedo UV. (Pipeline confirmed working d92b15c4a.)
     private const bool MapDiagPerSubmeshChannel = true;
-    // DIAGNOSTIC: skip the mesh material override entirely, so the forward camera draws NOTHING (the
-    // game's deferred material has no forward pass) and only the magenta clear remains. Screen magenta
-    // ⇒ our camera→private-RT→quad pipeline works end-to-end and the mesh was merely covering everything
-    // (UV problem). Screen brown ⇒ our camera output never reaches the quad (plumbing problem).
-    private const bool MapDiagClearOnly = true;
+    // DIAGNOSTIC: skip the mesh override so only the camera clear renders (proved the pipeline works).
+    private const bool MapDiagClearOnly = false;
     private Texture2D? _uvDebugTex;
     // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
     // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
@@ -2335,7 +2333,8 @@ internal sealed class FlatScreenStereo
             // Each quadrant submesh's UV already runs 0..1 over its own texture, so scale=1/offset=0.
             Vector2 uvScale = Vector2.one;
             Vector2 uvOffset = Vector2.zero;
-            float chan = MapDiagPerSubmeshChannel ? (i % 3) : MapUnlitUvChannel;
+            // A/B the two remaining UV channels across submeshes: even index → ch1, odd → ch2.
+            float chan = MapDiagPerSubmeshChannel ? ((i % 2 == 0) ? 1f : 2f) : MapUnlitUvChannel;
             m.SetFloat("_UvChannel", chan);
             m.SetVector("_UvScale", new Vector4(uvScale.x, uvScale.y, 0f, 0f));
             m.SetVector("_UvOffset", new Vector4(uvOffset.x, uvOffset.y, 0f, 0f));
