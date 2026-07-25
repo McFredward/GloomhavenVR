@@ -1439,6 +1439,8 @@ internal sealed class FlatScreenStereo
     // Set to false to restore the real map textures.
     private const bool MapUvDebug = true;
     private Texture2D? _uvDebugTex;
+    /// <summary>One-shot guard for the MAP MESH layout / material-ST dump.</summary>
+    private bool _meshLayoutLogged;
 
     /// <summary>One-shot guard: the MAP RENDER engaged line (per engagement).</summary>
     private bool _mapMirrorLogged;
@@ -2212,6 +2214,40 @@ internal sealed class FlatScreenStereo
             }
             return false;
         }
+        // GROUND-TRUTH probe (pure DLL): isReadable=false blocks CPU *data* access but NOT the vertex
+        // layout metadata — HasVertexAttribute/GetVertexAttributeDimension read the descriptor only. If
+        // the mesh carries a real TexCoord0, the whole object-space-position UV guessing is unnecessary:
+        // a shader sampling v.texcoord0 is pixel-perfect and tracks zoom for free. Log the full layout
+        // once, plus the original material's texture-ST (tiling/offset) which is what the game's Amplify
+        // shader would use to turn position/uv into a texture coordinate.
+        if (!_meshLayoutLogged)
+        {
+            _meshLayoutLogged = true;
+            var sb = new StringBuilder();
+            sb.Append($"MAP MESH layout: '{mesh.name}' verts={mesh.vertexCount} subMeshes={mesh.subMeshCount} isReadable={mesh.isReadable} bounds min({mesh.bounds.min.x:F2},{mesh.bounds.min.y:F2},{mesh.bounds.min.z:F2}) size({mesh.bounds.size.x:F2},{mesh.bounds.size.y:F2},{mesh.bounds.size.z:F2}); attributes:");
+            foreach (VertexAttribute va in new[]
+            {
+                VertexAttribute.Position, VertexAttribute.Normal, VertexAttribute.Tangent, VertexAttribute.Color,
+                VertexAttribute.TexCoord0, VertexAttribute.TexCoord1, VertexAttribute.TexCoord2, VertexAttribute.TexCoord3,
+            })
+            {
+                bool has = mesh.HasVertexAttribute(va);
+                sb.Append($" {va}={(has ? "dim" + mesh.GetVertexAttributeDimension(va) : "-")}");
+            }
+            // Dump the original submesh materials' texture-ST so we can see the game's UV tiling/offset.
+            for (int mi = 0; mi < orig.Length; mi++)
+            {
+                Material om = orig[mi];
+                if (om == null) continue;
+                Vector2 albS = om.HasProperty("_Alb") ? om.GetTextureScale("_Alb") : Vector2.zero;
+                Vector2 albO = om.HasProperty("_Alb") ? om.GetTextureOffset("_Alb") : Vector2.zero;
+                Vector2 mtS = om.HasProperty("_MainTex") ? om.GetTextureScale("_MainTex") : Vector2.zero;
+                Vector2 mtO = om.HasProperty("_MainTex") ? om.GetTextureOffset("_MainTex") : Vector2.zero;
+                sb.Append($"\n  mat[{mi}] '{om.name}' shader '{(om.shader != null ? om.shader.name : "<null>")}' _Alb_ST(scale {albS.x:F3},{albS.y:F3} off {albO.x:F3},{albO.y:F3}) _MainTex_ST(scale {mtS.x:F3},{mtS.y:F3} off {mtO.x:F3},{mtO.y:F3})");
+            }
+            VRLog.Info("WorldUI", sb.ToString());
+        }
+
         Bounds lb = mesh.bounds;
         _mapLocalMin = lb.min;
         _mapLocalSize = new Vector3(
