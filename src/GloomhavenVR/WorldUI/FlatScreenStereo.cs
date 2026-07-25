@@ -2449,6 +2449,7 @@ internal sealed class FlatScreenStereo
             _iconQuad = new Mesh { name = "GloomhavenVR.MapIconQuad" };
             _iconQuad.vertices = new[] { new Vector3(-0.5f, 0f, -0.5f), new Vector3(0.5f, 0f, -0.5f), new Vector3(-0.5f, 0f, 0.5f), new Vector3(0.5f, 0f, 0.5f) };
             _iconQuad.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f) };
+            _iconQuad.colors = new[] { Color.white, Color.white, Color.white, Color.white }; // Sprites/Default multiplies by vertex color
             _iconQuad.triangles = new[] { 0, 2, 1, 2, 3, 1 };
             _iconQuad.RecalculateBounds();
         }
@@ -2490,7 +2491,12 @@ internal sealed class FlatScreenStereo
                 Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, _iconMpb);
                 nDrawn++;
                 if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
-                    firstDetail = $"drawn tex='{tex.name}' shader='{(cm.shader != null ? cm.shader.name : "?")}' pos={pos} scale={scale} layer={d.gameObject.layer} camMask=0x{mapCam.cullingMask:X8}";
+                {
+                    Vector2 stS = cm.HasProperty(IconMainTex) ? cm.GetTextureScale(IconMainTex) : Vector2.one;
+                    Vector2 stO = cm.HasProperty(IconMainTex) ? cm.GetTextureOffset(IconMainTex) : Vector2.zero;
+                    Color col = cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white;
+                    firstDetail = $"drawn tex='{tex.name}' {tex.width}x{tex.height} shader='{(cm.shader != null ? cm.shader.name : "?")}' ST(scale {stS.x:F3},{stS.y:F3} off {stO.x:F3},{stO.y:F3}) color={col} pos={pos} scale={scale}";
+                }
             }
         }
         if (_mapIconsLogCount < 5)
