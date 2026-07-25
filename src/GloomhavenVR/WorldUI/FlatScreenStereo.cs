@@ -339,6 +339,14 @@ internal sealed class FlatScreenStereo
     private Material[]? _worldMapOriginalMats;
     /// <summary>True while the override is currently on the worldMap renderer (between our onPreRender and onPostRender).</summary>
     private bool _overrideApplied;
+    /// <summary>The worldMap mesh whose vertex colours we whitened (Sprites/Default multiplies texture × vertex colour; a dark/AO-baked vertex colour would dim the parchment — we neutralise it to white so the albedo shows at full brightness).</summary>
+    private Mesh? _worldMapMesh;
+    /// <summary>Original worldMap vertex colours, cached before whitening (restored on release). Null = the mesh had no colour channel (nothing to restore).</summary>
+    private Color[]? _worldMapOrigColors;
+    /// <summary>True once the worldMap mesh vertex colours have been forced white for the albedo render.</summary>
+    private bool _worldMapWhitened;
+    /// <summary>One-shot log guard: the discovered vertex-colour facts (per engagement).</summary>
+    private bool _worldMapColorsLogged;
     /// <summary>One-shot log guard: the discovered material/albedo facts (per engagement).</summary>
     private bool _albedoMaterialsLogged;
     /// <summary>One-shot log guard: the MAP ALBEDO RENDER ENGAGED line (per engagement).</summary>
@@ -1158,6 +1166,7 @@ internal sealed class FlatScreenStereo
         if (_worldMapOverrideMats == null && !BuildOverrideMaterials())
             return false;
 
+        WhitenWorldMapColors();
         EnsureAlbedoCamera();
         return _mapAlbedoCam != null;
     }
@@ -1196,6 +1205,64 @@ internal sealed class FlatScreenStereo
         _worldMapRenderer = found;
         _worldMapLayer = found.gameObject.layer;
         return true;
+    }
+
+    /// <summary>
+    /// Force the worldMap mesh's vertex colours to white for the albedo render. Sprites/Default
+    /// (our unlit override) multiplies texture × vertex colour, so a dark or AO-baked vertex colour
+    /// channel dims the parchment (the observed mean ~43 vs a bright 4096² albedo). Whitening lets
+    /// the albedo render at full brightness. Idempotent; the originals are cached and restored on
+    /// release. The game only renders this mesh into the base RT we overwrite, so this is invisible
+    /// to gameplay and multiplayer (rendering-only).
+    /// </summary>
+    private void WhitenWorldMapColors()
+    {
+        if (_worldMapWhitened || _worldMapRenderer == null)
+            return;
+        MeshFilter? mf = _worldMapRenderer.GetComponent<MeshFilter>();
+        Mesh? mesh = mf != null ? mf.sharedMesh : null;
+        if (mesh == null)
+            return;
+
+        Color[] colors = mesh.colors; // empty array when the mesh has no colour channel
+        if (!_worldMapColorsLogged)
+        {
+            _worldMapColorsLogged = true;
+            string sample = colors.Length > 0
+                ? $"{colors.Length} verts, colour[0] = (r{colors[0].r:F2} g{colors[0].g:F2} b{colors[0].b:F2} a{colors[0].a:F2})"
+                : "NONE (no vertex-colour channel — default white; a dim result then means the albedo texture itself is dark, not vertex-colour)";
+            VRLog.Info("WorldUI", $"MAP ALBEDO vertex colours: {sample}. Forcing white so Sprites/Default shows the parchment albedo at full brightness (MAP ALBEDO probe mean should rise from ~43 if vertex colour was the darkener).");
+        }
+
+        if (colors.Length == 0)
+        {
+            // No channel to darken — nothing to gain from whitening; leave the mesh untouched.
+            _worldMapWhitened = true;
+            _worldMapMesh = mesh;
+            _worldMapOrigColors = null;
+            return;
+        }
+
+        _worldMapMesh = mesh;
+        _worldMapOrigColors = colors;
+        var white = new Color[colors.Length];
+        for (int i = 0; i < white.Length; i++)
+            white[i] = Color.white;
+        var whitened = new Color[colors.Length];
+        System.Array.Copy(white, whitened, white.Length);
+        mesh.colors = whitened;
+        _worldMapWhitened = true;
+    }
+
+    /// <summary>Restore the worldMap mesh's original vertex colours (game state untouched on release).</summary>
+    private void RestoreWorldMapColors()
+    {
+        if (_worldMapMesh != null && _worldMapOrigColors != null)
+            _worldMapMesh.colors = _worldMapOrigColors;
+        _worldMapMesh = null;
+        _worldMapOrigColors = null;
+        _worldMapWhitened = false;
+        _worldMapColorsLogged = false;
     }
 
     /// <summary>
@@ -1334,6 +1401,7 @@ internal sealed class FlatScreenStereo
     private void ReleaseAlbedo()
     {
         RestoreWorldMapOverride(); // never leave the override on the game renderer
+        RestoreWorldMapColors();   // put the mesh's original vertex colours back
         DestroyOverrideMaterials();
         _worldMapRenderer = null;
         _worldMapLayer = -1;
