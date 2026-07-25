@@ -2470,7 +2470,9 @@ internal sealed class FlatScreenStereo
             if (_decalType == null) { _decalTypeMissing = true; VRLog.Warn("WorldUI", "MAP ICONS: Decal type not found — icons skipped."); return; }
             _decalCurMatProp = _decalType.GetProperty("CurrentMaterial");
         }
-        float planeY = _worldMapRenderer.bounds.center.y + 0.05f;
+        // Sit clearly ABOVE the parchment (its mesh is ~0.13 thick) so we never z-fight the animated
+        // foliage — that intersection caused transparent 'wind' bands sweeping through the icons.
+        float planeY = _worldMapRenderer.bounds.max.y + 0.10f;
         var roots = new[] { choreo.m_ScenariosParent, choreo.m_VillagesParent };
         int nDecals = 0, nNoMat = 0, nNoTex = 0, nDrawn = 0;
         string firstDetail = "";
@@ -2489,6 +2491,8 @@ internal sealed class FlatScreenStereo
                 Bounds b = rend.bounds;
                 var pos = new Vector3(b.center.x, planeY, b.center.z);
                 var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
+                // Orient the quad to the decal's yaw so the icon matches the game (our camera has a 90° yaw).
+                var rot = Quaternion.Euler(0f, d.transform.eulerAngles.y, 0f);
                 var mpb = new MaterialPropertyBlock(); // fresh per draw (rule out shared-MPB capture issues)
                 if (MapIconsSolidTest)
                 {
@@ -2500,14 +2504,14 @@ internal sealed class FlatScreenStereo
                     mpb.SetTexture(IconMainTex, tex);
                     mpb.SetColor(IconColor, Color.white);
                 }
-                Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, Quaternion.identity, scale), _iconMat, d.gameObject.layer, mapCam, 0, mpb);
+                Graphics.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, rot, scale), _iconMat, d.gameObject.layer, mapCam, 0, mpb);
                 nDrawn++;
                 if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
                 {
                     Vector2 stS = cm.HasProperty(IconMainTex) ? cm.GetTextureScale(IconMainTex) : Vector2.one;
                     Vector2 stO = cm.HasProperty(IconMainTex) ? cm.GetTextureOffset(IconMainTex) : Vector2.zero;
                     Color col = cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white;
-                    firstDetail = $"drawn tex='{tex.name}' {tex.width}x{tex.height} shader='{(cm.shader != null ? cm.shader.name : "?")}' ST(scale {stS.x:F3},{stS.y:F3} off {stO.x:F3},{stO.y:F3}) color={col} pos={pos} scale={scale}";
+                    firstDetail = $"drawn tex='{tex.name}' {tex.width}x{tex.height} shader='{(cm.shader != null ? cm.shader.name : "?")}' ST(scale {stS.x:F3},{stS.y:F3} off {stO.x:F3},{stO.y:F3}) color={col} pos={pos} scale={scale} decalEuler={d.transform.eulerAngles} active={(_activeMapIsCity ? "CITY" : "WORLD")}";
                 }
             }
         }
