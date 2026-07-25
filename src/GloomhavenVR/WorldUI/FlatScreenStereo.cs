@@ -360,6 +360,8 @@ internal sealed class FlatScreenStereo
     private RenderTexture? _probeRt;
     /// <summary>True once the base RT was found black — the mod albedo camera renders the map parchment into the base RT.</summary>
     private bool _mapBaseCapture;
+    /// <summary>One-shot guard for the "campaign map MONO (glass kept)" log (ISSUE 1).</summary>
+    private bool _mapMonoLogged;
     private int _blackProbeFrame = int.MinValue;
     private int _blackConsecutive;
     /// <summary>True while an async base-RT probe is in flight (one at a time).</summary>
@@ -380,8 +382,12 @@ internal sealed class FlatScreenStereo
     private Camera? _mapAlbedoCam;
     private GameObject? _mapAlbedoGo;
     private Transform? _mapAlbedoTransform;
-    /// <summary>The campaign map parchment MeshRenderer (MapChoreographer.worldMap, GH_WorldMap materials).</summary>
+    /// <summary>The active campaign map parchment MeshRenderer (MapChoreographer.worldMap OR cityMap — whichever is active).</summary>
     private MeshRenderer? _worldMapRenderer;
+    /// <summary>The active map GameObject the renderer/textures were gathered from (world OR city). Invalidates on a world↔city switch (ISSUE 3).</summary>
+    private GameObject? _activeMapGo;
+    /// <summary>True when the active map is the city map (ISSUE 3) — for logging.</summary>
+    private bool _activeMapIsCity;
     /// <summary>worldMap layer bit index — force-included in the albedo camera's culling mask.</summary>
     private int _worldMapLayer = -1;
     /// <summary>Unlit Sprites/Default override materials (one per submesh, _MainTex = the submesh's albedo).</summary>
@@ -1099,8 +1105,19 @@ internal sealed class FlatScreenStereo
         }
         else if (_mapBaseCapture)
         {
-            suspend = true;
-            suspendWhy = "campaign map — parchment albedo rendered into the base RT (mono)";
+            // Campaign map (ISSUE 1): the base RT carries the MONO map (texture blit). We must NOT
+            // suspend — suspension collapses the SCREEN LAYER SPLIT and drops the game's UI glass RT
+            // (markers, quest list, shields). Instead keep the split ROUTING (suspend stays false, so
+            // FlatScreen keeps UI cameras on the glass RT), and force BOTH eyes to the base RT in
+            // OnPreRenderCamera (mono; per-eye parallax is explicitly dropped for the map). The glass
+            // UI layer then composites over the mono map for both eyes.
+            if (!_mapMonoLogged)
+            {
+                _mapMonoLogged = true;
+                VRLog.Info("WorldUI", "Campaign map MONO (ISSUE 1): both eyes show the base RT (texture-blit " +
+                                      "map); the split stays ROUTING so the game UI/markers keep rendering on " +
+                                      "the glass RT and composite over the map — the map is NOT suspended.");
+            }
         }
         else if (anyVideo)
         {
@@ -1159,7 +1176,9 @@ internal sealed class FlatScreenStereo
         for (int i = 0; i < _mirrors.Count; i++)
         {
             MirrorEntry entry = _mirrors[i];
-            bool want = entry.SourceOn && !suspend && !shift;
+            // Map (ISSUE 1): both eyes are mono from the base RT, so the per-eye mirrors are
+            // pointless here — keep them off (the map albedo camera owns the base RT).
+            bool want = entry.SourceOn && !suspend && !shift && !_mapBaseCapture;
             if (entry.Mirror.enabled != want)
                 entry.Mirror.enabled = want;
             if (want)
@@ -1369,6 +1388,14 @@ internal sealed class FlatScreenStereo
     private bool _mapTexLogged;
 
     /// <summary>
+    /// ISSUE 2 — fraction of each 4096² quadrant texture that is a baked decorative parchment BORDER,
+    /// trimmed on the two INTERNAL edges of each quadrant so the four tiles form one continuous map
+    /// (the outer two edges keep their border, exactly like the game mesh UVs). Single hard-coded knob:
+    /// raise if ornate strips still show at the internal seams; lower toward 0 if map content is clipped.
+    /// </summary>
+    private const float MapBorderMargin = 0.045f;
+
+    /// <summary>
     /// Read the four <c>GH_CampaignMap_0N</c> quadrant textures off the worldMap renderer's materials
     /// (by the number in the material name). The parchment DETAIL lives in these 4096² textures — the
     /// deferred render never yields it into an off-screen RT, so mode 2 shows the textures directly.
@@ -1384,25 +1411,18 @@ internal sealed class FlatScreenStereo
         {
             if (m == null)
                 continue;
-            Texture? tex = (m.HasProperty("_MainTex") ? m.GetTexture("_MainTex") : null) ?? m.mainTexture;
+            // The quadrant index lives in the MATERIAL name's "0N" suffix (world: GH_CampaignMap_0N_MAT,
+            // city: GH_City*_0N). The albedo is on _Alb for the "_New" modded materials, else _MainTex.
+            int idx = QuadrantIndexFromName(m.name);
+            if (idx < 0 || idx >= 4 || quads[idx] != null)
+                continue;
+            Texture? tex = (m.HasProperty("_Alb") ? m.GetTexture("_Alb") : null)
+                           ?? (m.HasProperty("_MainTex") ? m.GetTexture("_MainTex") : null)
+                           ?? m.mainTexture;
             if (tex == null)
                 continue;
-            // Parse the quadrant index from "GH_CampaignMap_0N..." (1..4 → array 0..3).
-            int idx = -1;
-            string n = m.name;
-            for (int k = 0; k + 1 < n.Length; k++)
-            {
-                if (n[k] == '0' && n[k + 1] >= '1' && n[k + 1] <= '4')
-                {
-                    idx = (n[k + 1] - '1');
-                    break;
-                }
-            }
-            if (idx >= 0 && idx < 4 && quads[idx] == null)
-            {
-                quads[idx] = tex;
-                sb.Append($"\n  quad[{idx}] (0{idx + 1}) = '{tex.name}' {tex.width}x{tex.height} from '{m.name}'");
-            }
+            quads[idx] = tex;
+            sb.Append($"\n  quad[{idx}] (0{idx + 1}) = '{tex.name}' {tex.width}x{tex.height} from '{m.name}'");
         }
         _mapQuadTextures = quads;
         if (!_mapTexLogged)
@@ -1410,9 +1430,11 @@ internal sealed class FlatScreenStereo
             _mapTexLogged = true;
             int have = 0;
             for (int i = 0; i < 4; i++) if (quads[i] != null) have++;
-            VRLog.Info("WorldUI", $"MAP TEX BLIT (MapCaptureMode 2): {have}/4 quadrant textures gathered — " +
-                                  "drawn 2x2 into the base RT (NW=01 top-left, NE=02, SW=03, SE=04). Tune " +
-                                  "orientation with MapTexFlipX/MapTexFlipY/MapTexSwapDiag (live)." + sb);
+            VRLog.Info("WorldUI", $"MAP TEX BLIT ({(_activeMapIsCity ? "CITY" : "WORLD")} map): {have}/4 " +
+                                  "quadrant textures gathered off " +
+                                  $"'{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' — drawn 2x2 " +
+                                  "into the base RT (01=NW top-left, 02=NE top-right, 03=SW bottom-left, " +
+                                  $"04=SE bottom-right), internal edges cropped by margin {MapBorderMargin:P0}." + sb);
         }
     }
 
@@ -1429,9 +1451,21 @@ internal sealed class FlatScreenStereo
         int w = _leftRt.width, h = _leftRt.height;
         int hw = w / 2, hh = h / 2;
 
-        // Base grid cells in DrawTexture pixel space (LoadPixelMatrix → origin top-left, y down):
-        // index 0=NW,1=NE,2=SW,3=SE. Column = idx&1, row = idx>>1.
-        bool flipX = MapTexFlipX, flipY = MapTexFlipY, swap = MapTexSwapDiag;
+        // ISSUE 2 — HARD-CODED layout (config flip knobs are ignored; the persisted config traps them).
+        // Quadrant identity (from the material 0N suffix): 0=01 NW, 1=02 NE, 2=03 SW, 3=04 SE.
+        // Destination is DrawTexture pixel space via LoadPixelMatrix(0,w,h,0) → origin TOP-LEFT, y down,
+        // which is DrawTexture's own upper-left convention (so the texture draws upright). Natural grid:
+        //   col = idx&1  (0 = West/left, 1 = East/right),  row = idx>>1 (0 = North/top, 1 = South/bottom)
+        // → NW top-left, NE top-right, SW bottom-left, SE bottom-right = one continuous, North-up map.
+        //
+        // BORDER CROP: each quadrant carries a baked decorative border on all four edges; the two edges
+        // that face INTERNAL seams must be trimmed (the outer two stay). sourceRect is normalized UV with
+        // (0,0) BOTTOM-LEFT (y up), so screen-top(row0) trims the texture's bottom (v=0=South) edge, and
+        // screen-bottom(row1) trims the top (v=1=North) edge; West(col0) trims the right (u=1=East) edge,
+        // East(col1) trims the left (u=0=West) edge. All four quadrants scale identically per axis, so the
+        // inner content tiles seamlessly.
+        const float m = MapBorderMargin;
+        const float span = 1f - m;
 
         GL.PushMatrix();
         GL.LoadPixelMatrix(0, w, h, 0);
@@ -1440,13 +1474,15 @@ internal sealed class FlatScreenStereo
             Texture? tex = _mapQuadTextures[idx];
             if (tex == null)
                 continue;
-            int col = idx & 1;          // 0 = left, 1 = right
-            int row = (idx >> 1) & 1;    // 0 = top,  1 = bottom
-            if (flipX) col = 1 - col;
-            if (flipY) row = 1 - row;
-            if (swap && (idx == 1 || idx == 2)) { col = 1 - col; row = 1 - row; }
-            var rect = new Rect(col * hw, row * hh, hw, hh);
-            Graphics.DrawTexture(rect, tex);
+            int col = idx & 1;           // 0 = West (left), 1 = East (right)
+            int row = (idx >> 1) & 1;    // 0 = North (top), 1 = South (bottom)
+            var dst = new Rect(col * hw, row * hh, hw, hh);
+            // Internal-edge crop in UV (bottom-left origin): West keeps u∈[0,span], East u∈[m,1];
+            // North(top) keeps v∈[m,1] (trim South), South(bottom) keeps v∈[0,span] (trim North).
+            float sx = (col == 0) ? 0f : m;
+            float sy = (row == 0) ? m : 0f;
+            var src = new Rect(sx, sy, span, span);
+            Graphics.DrawTexture(dst, tex, src, 0, 0, 0, 0);
         }
         GL.PopMatrix();
     }
@@ -1606,6 +1642,10 @@ internal sealed class FlatScreenStereo
         if (!MapAlbedoRenderOn || _root == null || _leftRt == null)
             return false;
 
+        // ISSUE 3: detect a world↔city switch every tick (it does NOT change scene) and invalidate the
+        // cached renderer/textures so we re-find + re-gather off the now-active map object.
+        DetectActiveMap();
+
         if (_worldMapRenderer == null && !FindWorldMapRenderer())
         {
             if (!_albedoWarned)
@@ -1626,40 +1666,100 @@ internal sealed class FlatScreenStereo
         return _mapAlbedoCam != null;
     }
 
-    /// <summary>Reflect the decompiled campaign-map parchment renderer (MapChoreographer.worldMap, publicized).</summary>
-    private bool FindWorldMapRenderer()
+    /// <summary>
+    /// Resolve the ACTIVE campaign map GameObject (ISSUE 3): MapChoreographer toggles worldMap/cityMap
+    /// via SetActive when the player opens the city vs world map. Prefer whichever is activeInHierarchy;
+    /// fall back to UIGuildmasterHUD.CurrentMode, then to worldMap. Returns null if MapChoreographer is
+    /// absent. If the active map changed since the last gather, invalidate the cached renderer/textures
+    /// so the next EnsureAlbedoReady re-finds and re-gathers (a world↔city switch does NOT change scene,
+    /// so ReleaseAlbedo alone never fires).
+    /// </summary>
+    private void DetectActiveMap()
     {
         global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
         if (choreo == null)
-            return false;
-        GameObject worldMap = choreo.worldMap; // publicized private serialized field
-        if (worldMap == null)
+            return;
+        GameObject? world = choreo.worldMap; // publicized private serialized field
+        GameObject? city = choreo.cityMap;   // publicized private serialized field
+
+        GameObject? active = null;
+        bool isCity = false;
+        if (city != null && city.activeInHierarchy) { active = city; isCity = true; }
+        else if (world != null && world.activeInHierarchy) { active = world; isCity = false; }
+        else
+        {
+            // Neither is active in the hierarchy yet (mid-transition) — fall back to the HUD mode.
+            bool hudCity = global::Singleton<global::UIGuildmasterHUD>.IsInitialized
+                           && global::Singleton<global::UIGuildmasterHUD>.Instance.CurrentMode == global::EGuildmasterMode.City;
+            if (hudCity && city != null)
+            { active = city; isCity = true; }
+            else if (world != null)
+            { active = world; isCity = false; }
+            else if (city != null)
+            { active = city; isCity = true; }
+        }
+        if (active == null)
+            return;
+
+        if (!ReferenceEquals(active, _activeMapGo))
+        {
+            // Switched (world↔city, or first resolve): drop the stale renderer + textures so we re-gather.
+            _activeMapGo = active;
+            _activeMapIsCity = isCity;
+            _worldMapRenderer = null;
+            _mapQuadTextures = null;
+            _mapTexLogged = false;
+            VRLog.Info("WorldUI", $"MAP SELECT (ISSUE 3): active map = {(isCity ? "CITY" : "WORLD")} " +
+                                  $"('{active.name}') — renderer + quadrant textures will be re-gathered.");
+        }
+    }
+
+    /// <summary>Reflect the decompiled campaign-map parchment renderer off the ACTIVE map GO (ISSUE 3).</summary>
+    private bool FindWorldMapRenderer()
+    {
+        DetectActiveMap();
+        GameObject? mapGo = _activeMapGo;
+        if (mapGo == null)
             return false;
 
-        MeshRenderer[] rends = worldMap.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
+        // Find the renderer carrying the quadrant materials (name has a numeric 0N suffix, any prefix —
+        // GH_CampaignMap_0N_MAT for the world map, GH_City*_0N for the city map). Fall back to the GO's
+        // own MeshRenderer (the decompiled MapChoreographer uses worldMap.GetComponent<MeshRenderer>()).
+        MeshRenderer[] rends = mapGo.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
         MeshRenderer? found = null;
         for (int i = 0; i < rends.Length && found == null; i++)
         {
             Material[] mats = rends[i].sharedMaterials;
             for (int j = 0; j < mats.Length; j++)
             {
-                if (mats[j] != null && mats[j].name.IndexOf("GH_WorldMap", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                if (mats[j] != null && QuadrantIndexFromName(mats[j].name) >= 0)
                 {
                     found = rends[i];
                     break;
                 }
             }
         }
-        // Fallback: the parchment renderer is directly on the worldMap GO (decompiled
-        // MapChoreographer uses worldMap.GetComponent<MeshRenderer>()).
         if (found == null)
-            found = worldMap.GetComponent<MeshRenderer>();
+            found = mapGo.GetComponent<MeshRenderer>();
         if (found == null)
             return false;
 
         _worldMapRenderer = found;
         _worldMapLayer = found.gameObject.layer;
         return true;
+    }
+
+    /// <summary>Parse the quadrant index (0..3) from a material/texture name's "0N" suffix (N=1..4), or -1.</summary>
+    private static int QuadrantIndexFromName(string n)
+    {
+        if (string.IsNullOrEmpty(n))
+            return -1;
+        for (int k = 0; k + 1 < n.Length; k++)
+        {
+            if (n[k] == '0' && n[k + 1] >= '1' && n[k + 1] <= '4')
+                return n[k + 1] - '1';
+        }
+        return -1;
     }
 
     /// <summary>
@@ -2143,6 +2243,8 @@ internal sealed class FlatScreenStereo
         }
         _mapQuadTextures = null;
         _mapTexLogged = false;
+        _mapMonoLogged = false;
+        _activeMapGo = null;
         _worldMapRenderer = null;
         _worldMapLayer = -1;
         _albedoMaterialsLogged = false;
@@ -2410,7 +2512,9 @@ internal sealed class FlatScreenStereo
         // render); depth shift → the per-eye shifted copies; otherwise the mirror-rendered
         // right RT and, for the left eye, the left RT.
         RenderTexture? target;
-        if (_videoSuspended)
+        // Map (ISSUE 1): the map is not suspended (the split keeps routing so the UI glass survives),
+        // but it IS mono — force both eyes onto the base RT that carries the texture-blit map.
+        if (_videoSuspended || _mapBaseCapture)
             target = _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
