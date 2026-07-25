@@ -1375,21 +1375,47 @@ internal sealed class FlatScreenStereo
         // black deferred render); still below the head camera, so the screen quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
         cam.rect = mapSource.rect;
-        cam.nearClipPlane = mapSource.nearClipPlane;
-        cam.farClipPlane = mapSource.farClipPlane;
-        cam.orthographic = mapSource.orthographic;
-        cam.orthographicSize = mapSource.orthographicSize;
-        cam.fieldOfView = mapSource.fieldOfView;
         cam.allowHDR = mapSource.allowHDR;
         cam.allowMSAA = mapSource.allowMSAA;
         cam.useOcclusionCulling = mapSource.useOcclusionCulling;
         // Forward — MapUnlit is an unlit forward shader; no deferred resolve needed (and the game's
         // deferred parchment shader would never light into an off-screen RT we own).
         cam.renderingPath = RenderingPath.Forward;
-        // Seed the matrices from the game camera; OnPreCull/OnPreRender re-apply the captured render-time
-        // matrices (the map CameraController sets them at render time, so these Tick-time values are stale).
-        cam.projectionMatrix = mapSource.projectionMatrix;
-        cam.worldToCameraMatrix = mapSource.worldToCameraMatrix;
+        if (MapDiagTopDown && _worldMapRenderer != null)
+        {
+            // The game's MapCamera pose is degenerate for re-rendering (sits ~0.08u above the y≈0 190×237
+            // parchment plane → grazing → near-constant UV → flat). Since the mesh+UV+textures are proven
+            // correct offline, frame it ourselves: an ORTHOGRAPHIC top-down camera fitted to the mesh's
+            // world bounds. This validates the pipeline and makes the whole map visible (game pan/zoom
+            // matching comes after). Uses the transform + ortho projection (no captured game matrices).
+            Bounds wb = _worldMapRenderer.bounds;
+            Vector3 wc = wb.center;
+            float aspect = (_leftRt != null && _leftRt.height > 0) ? (float)_leftRt.width / _leftRt.height : 1.7778f;
+            float orthoSize = Mathf.Max(wb.size.z * 0.5f, (wb.size.x * 0.5f) / aspect) * 1.02f;
+            float height = wb.size.y * 0.5f + Mathf.Max(50f, orthoSize);
+            _mapAlbedoTransform!.SetPositionAndRotation(new Vector3(wc.x, wc.y + height, wc.z),
+                                                        Quaternion.Euler(90f, 0f, 0f));
+            cam.orthographic = true;
+            cam.orthographicSize = orthoSize;
+            cam.aspect = aspect;
+            cam.nearClipPlane = 0.1f;
+            cam.farClipPlane = height + wb.size.y + 10f;
+            cam.ResetWorldToCameraMatrix();
+            cam.ResetProjectionMatrix();
+            _capMapValid = false; // OnPreCull/OnPreRender must NOT overwrite with the game's grazing matrices
+        }
+        else
+        {
+            cam.nearClipPlane = mapSource.nearClipPlane;
+            cam.farClipPlane = mapSource.farClipPlane;
+            cam.orthographic = mapSource.orthographic;
+            cam.orthographicSize = mapSource.orthographicSize;
+            cam.fieldOfView = mapSource.fieldOfView;
+            // Seed the matrices from the game camera; OnPreCull/OnPreRender re-apply the captured
+            // render-time matrices (the map CameraController sets them at render time; Tick values stale).
+            cam.projectionMatrix = mapSource.projectionMatrix;
+            cam.worldToCameraMatrix = mapSource.worldToCameraMatrix;
+        }
         // Render into our PRIVATE map RT (nothing else writes it), NOT the shared base RT the deferred
         // MapCamera co-writes — so our forward render is the sole, surviving content.
         EnsureMapRt();
@@ -1478,6 +1504,11 @@ internal sealed class FlatScreenStereo
     private const bool MapDiagPerSubmeshChannel = false;
     // DIAGNOSTIC: skip the mesh override so only the camera clear renders (proved the pipeline works).
     private const bool MapDiagClearOnly = false;
+    // The captured game MapCamera pose is degenerate for re-rendering (grazes the y≈0 190×237 plane →
+    // flat). When true, frame the map ourselves with an orthographic top-down camera fitted to the mesh
+    // bounds (proven-correct content) — validates the pipeline + makes the whole map visible; game
+    // pan/zoom matching comes after. See ReconcileAlbedoCamera.
+    private const bool MapDiagTopDown = true;
     private Texture2D? _uvDebugTex;
     // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
     // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
@@ -2710,7 +2741,7 @@ internal sealed class FlatScreenStereo
         // Capture the GAME map camera's ACTUAL render-time view+projection (the CameraController sets them
         // at render time, so the values read in Tick are stale/grazing — the map ends up off-frustum). The
         // game map camera (depth -1) renders BEFORE our mirror (-0.9), so these are ready when the mirror runs.
-        if (_mapBaseCapture && _mapSourceCam != null && cam == _mapSourceCam)
+        if (!MapDiagTopDown && _mapBaseCapture && _mapSourceCam != null && cam == _mapSourceCam)
         {
             _capMapView = cam.worldToCameraMatrix;
             _capMapProj = cam.projectionMatrix;
