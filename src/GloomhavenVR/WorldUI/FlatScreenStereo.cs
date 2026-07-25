@@ -358,6 +358,15 @@ internal sealed class FlatScreenStereo
     private Material? _quadMaterial;
 
     // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
+    /// <summary>
+    /// PRIVATE map RenderTexture — the mod forward map camera (_mapAlbedoCam) renders EXCLUSIVELY into
+    /// this, and the screen quad samples it in map mode. This is the fix for the compositing loss: the
+    /// game's deferred MapCamera is force-pinned onto the SHARED base RT (_leftRt) by CaptureStack and
+    /// its dark murk out-competed our forward render there (magenta-clear test proved our output never
+    /// survived _leftRt). A dedicated RT nothing else writes makes our forward render the sole writer —
+    /// mirroring the working character-portrait path (a forward camera that exclusively owns its RT).
+    /// </summary>
+    private RenderTexture? _mapRt;
     /// <summary>Small RT the base RT is downsampled into for the async non-black probe.</summary>
     private RenderTexture? _probeRt;
     /// <summary>True once the base RT was found black — the mod albedo camera renders the map parchment into the base RT.</summary>
@@ -839,6 +848,7 @@ internal sealed class FlatScreenStereo
         ReleaseShiftRt();
         ReleaseProbeRt();
         ReleaseAlbedoProbeRt();
+        ReleaseMapRt();
         _probeGen++;                 // invalidate any in-flight probe callback
         _probePending = false;
         _albedoProbePending = false;
@@ -1378,8 +1388,12 @@ internal sealed class FlatScreenStereo
         // matrices (the map CameraController sets them at render time, so these Tick-time values are stale).
         cam.projectionMatrix = mapSource.projectionMatrix;
         cam.worldToCameraMatrix = mapSource.worldToCameraMatrix;
-        if (cam.targetTexture != _leftRt)
-            cam.targetTexture = _leftRt;
+        // Render into our PRIVATE map RT (nothing else writes it), NOT the shared base RT the deferred
+        // MapCamera co-writes — so our forward render is the sole, surviving content.
+        EnsureMapRt();
+        RenderTexture mapTarget = _mapRt != null ? _mapRt : _leftRt!;
+        if (cam.targetTexture != mapTarget)
+            cam.targetTexture = mapTarget;
         if (!cam.enabled)
             cam.enabled = true;
 
@@ -2360,11 +2374,37 @@ internal sealed class FlatScreenStereo
         var cam = go.AddComponent<Camera>();
         cam.enabled = false;                            // ReconcileAlbedoCamera flips it on
         cam.stereoTargetEye = StereoTargetEyeMask.None; // VRCameraPolicy-invisible by construction
-        cam.targetTexture = _leftRt;
+        EnsureMapRt();
+        cam.targetTexture = _mapRt != null ? _mapRt : _leftRt;
         XRDevice.DisableAutoXRCameraTracking(cam, true);
         _mapAlbedoCam = cam;
         _mapAlbedoGo = go;
         _mapAlbedoTransform = go.transform;
+    }
+
+    /// <summary>(Re)allocate the private map RT to match the base RT's size (the mod map camera's sole target).</summary>
+    private void EnsureMapRt()
+    {
+        if (_leftRt == null)
+            return;
+        if (_mapRt != null && (_mapRt.width != _leftRt.width || _mapRt.height != _leftRt.height))
+            ReleaseMapRt();
+        if (_mapRt == null)
+        {
+            _mapRt = CreateColorRt(_leftRt.width, _leftRt.height, 24, "GloomhavenVR.MapRT");
+            _mapRt.Create();
+        }
+    }
+
+    private void ReleaseMapRt()
+    {
+        if (_mapRt == null)
+            return;
+        if (_mapAlbedoCam != null && _mapAlbedoCam.targetTexture == _mapRt)
+            _mapAlbedoCam.targetTexture = null;
+        _mapRt.Release();
+        Object.Destroy(_mapRt);
+        _mapRt = null;
     }
 
     /// <summary>
@@ -2439,6 +2479,7 @@ internal sealed class FlatScreenStereo
             _mapAlbedoCam = null;
             _mapAlbedoTransform = null;
         }
+        ReleaseMapRt();
     }
 
     // ---- map albedo render: once-per-second base-RT probe (MAP ALBEDO probe line) ------------
@@ -2479,7 +2520,9 @@ internal sealed class FlatScreenStereo
 
         float scale = AlbedoProbeRegion;
         float offset = (1f - AlbedoProbeRegion) * 0.5f;
-        Graphics.Blit(_leftRt, _albedoProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
+        // Probe what the quad actually shows in map mode: the private map RT (our forward render).
+        RenderTexture probeSrc = (_mapBaseCapture && _mapRt != null) ? _mapRt : _leftRt;
+        Graphics.Blit(probeSrc, _albedoProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
         _albedoProbePending = true;
         _albedoProbeReqGen = _probeGen;
         AsyncGPUReadback.Request(_albedoProbeRt, 0, TextureFormat.RGBA32, OnAlbedoProbe);
@@ -2734,8 +2777,11 @@ internal sealed class FlatScreenStereo
         // right RT and, for the left eye, the left RT.
         RenderTexture? target;
         // Map (ISSUE 1): the map is not suspended (the split keeps routing so the UI glass survives),
-        // but it IS mono — force both eyes onto the base RT that carries the texture-blit map.
-        if (_videoSuspended || _mapBaseCapture)
+        // but it IS mono — force both eyes onto the PRIVATE map RT that carries the mod's forward render
+        // (falling back to the base RT if the private RT is unavailable).
+        if (_mapBaseCapture && _mapRt != null)
+            target = _mapRt;
+        else if (_videoSuspended || _mapBaseCapture)
             target = _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
             target = right ? _rtRight : _rtLeftShifted;
