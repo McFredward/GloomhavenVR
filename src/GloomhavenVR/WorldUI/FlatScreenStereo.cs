@@ -1390,8 +1390,30 @@ internal sealed class FlatScreenStereo
     // trigger keeps the latch closed → the existing click path selects the location under it.
 
     /// <summary>True while the campaign map is being rendered by our forward camera AND we have a valid
-    /// driven pose — the window in which pan/zoom apply. FlatScreen gates the pan gesture on this.</summary>
-    internal bool MapActive => _mapBaseCapture && _mapDrivenValid;
+    /// driven pose — the window in which pan/zoom apply. FlatScreen gates the pan gesture on this. Also
+    /// false while a scenario/story/encounter overlay is up (#2) so the map can't be panned behind it.</summary>
+    internal bool MapActive => _mapBaseCapture && _mapDrivenValid && !IsScenarioOverlayActive();
+
+    /// <summary>
+    /// #2: is a full-screen scenario intro / story dialogue / city-or-road ENCOUNTER overlay up? While one
+    /// is, the map must not stay visible behind it (screen should be filled) nor be pannable. Polls the
+    /// game's own overlay owners: UIEventPanel (road/city event card) and StoryController (scenario/level
+    /// story box, e.g. the "Schwarzgrab" card). Cheap; guarded so it never throws if a singleton is absent.
+    /// </summary>
+    private static bool IsScenarioOverlayActive()
+    {
+        try
+        {
+            if (global::Singleton<global::UIEventPanel>.IsInitialized
+                && global::Singleton<global::UIEventPanel>.Instance.IsOpen)
+                return true;
+            if (global::Singleton<global::StoryController>.IsInitialized
+                && global::Singleton<global::StoryController>.Instance.IsVisible)
+                return true;
+        }
+        catch { /* singleton not ready / type shape changed — treat as no overlay */ }
+        return false;
+    }
 
     /// <summary>True while a pan drag is actively moving the map (FlatScreen suppresses its click/hover).</summary>
     internal bool MapPanning => _mapPanning;
@@ -2828,10 +2850,31 @@ internal sealed class FlatScreenStereo
                 }
             }
         }
+        // #3: the party / current-location marker (MapChoreographer.m_PartyToken) is a world-space 3D
+        // mesh rendered in the normal forward pass — so our AfterForwardAlpha icons (drawn on cleared
+        // depth) land ON TOP of it and it looks like it's "behind" the quest/city icons. Re-draw its
+        // renderers into the SAME command buffer AFTER the icons so the party marker is always frontmost.
+        int nToken = 0;
+        var partyToken = choreo.m_PartyToken; // publicized serialized field
+        if (partyToken != null)
+        {
+            foreach (Renderer tr in partyToken.GetComponentsInChildren<Renderer>(includeInactive: false))
+            {
+                if (tr == null || !tr.enabled || tr.sharedMaterial == null)
+                    continue;
+                Material[] mats = tr.sharedMaterials;
+                for (int sm = 0; sm < mats.Length; sm++)
+                {
+                    if (mats[sm] == null) continue;
+                    _iconCmd.DrawRenderer(tr, mats[sm], sm, -1); // -1 = the material's own valid passes
+                    nToken++;
+                }
+            }
+        }
         if (_mapIconsLogCount < 5)
         {
             _mapIconsLogCount++;
-            VRLog.Info("WorldUI", $"MAP ICONS [{_mapIconsLogCount}]: decals={nDecals} noMat={nNoMat} noTex={nNoTex} drawn={nDrawn} iconMat='{(_iconMat != null ? _iconMat.shader.name : "null")}' planeY={planeY:F2} — first: {firstDetail}");
+            VRLog.Info("WorldUI", $"MAP ICONS [{_mapIconsLogCount}]: decals={nDecals} noMat={nNoMat} noTex={nNoTex} drawn={nDrawn} partyTokenRenderers={nToken} iconMat='{(_iconMat != null ? _iconMat.shader.name : "null")}' planeY={planeY:F2} — first: {firstDetail}");
         }
     }
 
@@ -3494,6 +3537,16 @@ internal sealed class FlatScreenStereo
         // → the left RT for BOTH eyes (for the map it now holds the mod's bright parchment
         // render); depth shift → the per-eye shifted copies; otherwise the mirror-rendered
         // right RT and, for the left eye, the left RT.
+        // #2: while a scenario/story/encounter overlay is up, do NOT show the map behind it — paint the
+        // background BLACK so the overlay fills the screen (atmosphere) and no map is visible at the edges.
+        // Map capture stays engaged (no re-detect thrash); it simply isn't shown until the overlay closes.
+        if (_mapBaseCapture && IsScenarioOverlayActive())
+        {
+            if (!ReferenceEquals(mat.mainTexture, Texture2D.blackTexture))
+                mat.mainTexture = Texture2D.blackTexture;
+            return;
+        }
+
         RenderTexture? target;
         // Map (ISSUE 1): the map is not suspended (the split keeps routing so the UI glass survives),
         // but it IS mono — force both eyes onto the PRIVATE map RT that carries the mod's forward render

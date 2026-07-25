@@ -570,12 +570,12 @@ internal static class CardsConfig
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
             _boardYaw[i] = _file.Bind("Cards", $"BoardYaw_{board}", 0f,
                 $"[{board}] extra board yaw ADDED on top of the grab-written TrayYaw, degrees. Seeded 0 (Oak).");
-            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 0.4f,
+            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 0.5f,
                 $"[{board}] board size MULTIPLIER applied on top of the grab-written TrayScale. " +
-                "Default 0.4: the board is rig-anchored, so its apparent size does not shrink with " +
-                "the table — with the default table scale now 2.5x (table reads 2.5x smaller than " +
-                "the old 1.0x default) the board default shrinks by the same ratio, 1.0 / 2.5 = 0.4, " +
-                "so it fits the default table again. Was seeded 1 (Oak) before the 2.5x table default.");
+                "Default 0.5: the board is rig-anchored, so its apparent size does not shrink with " +
+                "the table — the ~0.4 table-ratio default felt a touch small on first spawn, so the " +
+                "board opens slightly larger (0.5). Resize any time with the two-handed grab gesture " +
+                "(writes TrayScale); this is the per-board seed on top of that.");
             _boardPosOffset[i] = _file.Bind("Cards", $"BoardPosOffset_{board}", Vector3.zero,
                 $"[{board}] board position offset ADDED on top of the tray head-relative offset, real " +
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");

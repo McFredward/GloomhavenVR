@@ -171,6 +171,7 @@ internal sealed class CardsDriver : MonoBehaviour
         _piles.PokeToggled += OnPileTogglePoked;
         _piles.GrabOpened += OnPileGrabOpened;
         _piles.GrabReleased += OnPileGrabReleased;
+        _piles.ItemsOpening += () => CloseBrowser("items browse opened"); // one pile fan at a time (#6)
 
         _dirty = true;
     }

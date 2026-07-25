@@ -49,6 +49,11 @@ internal sealed class PileViewer
     /// <summary>Grabbed stack released — CardsDriver dismisses a held browse.</summary>
     internal System.Action<PileKind, VRHand>? GrabReleased;
 
+    /// <summary>The items browse is being opened — CardsDriver closes the discard/burnt ability browser so
+    /// only ONE pile fan is ever up (the discard/burnt→items direction already closes the items fan; this
+    /// is the missing items→discard/burnt direction).</summary>
+    internal System.Action? ItemsOpening;
+
     internal bool IsBuilt => _discard != null;
 
     /// <summary>
@@ -263,7 +268,10 @@ internal sealed class PileViewer
         if (kind == PileKind.Items)
         {
             if (_hand != null)
+            {
+                ItemsOpening?.Invoke(); // close the ability browser first — one pile fan at a time
                 _itemsBrowse.TogglePoke(_hand, hand);
+            }
             return;
         }
         _itemsBrowse.Close();
@@ -275,7 +283,10 @@ internal sealed class PileViewer
         if (kind == PileKind.Items)
         {
             if (_hand != null)
+            {
+                ItemsOpening?.Invoke(); // close the ability browser first — one pile fan at a time
                 _itemsBrowse.OpenHeld(_hand, hand);
+            }
             return;
         }
         _itemsBrowse.Close();
