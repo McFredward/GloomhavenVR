@@ -367,6 +367,8 @@ internal sealed class FlatScreenStereo
     /// mirroring the working character-portrait path (a forward camera that exclusively owns its RT).
     /// </summary>
     private RenderTexture? _mapRt;
+    /// <summary>One-shot guard for the MAP RENDER camera-target log (per engagement).</summary>
+    private bool _mapTargetLogged;
     /// <summary>Small RT the base RT is downsampled into for the async non-black probe.</summary>
     private RenderTexture? _probeRt;
     /// <summary>True once the base RT was found black — the mod albedo camera renders the map parchment into the base RT.</summary>
@@ -1396,6 +1398,13 @@ internal sealed class FlatScreenStereo
             cam.targetTexture = mapTarget;
         if (!cam.enabled)
             cam.enabled = true;
+        if (!_mapTargetLogged)
+        {
+            _mapTargetLogged = true;
+            VRLog.Info("WorldUI", $"MAP RENDER camera target = '{(cam.targetTexture != null ? cam.targetTexture.name : "null")}' " +
+                                  $"(private _mapRt={(_mapRt != null ? _mapRt.name : "null")}, base _leftRt={(_leftRt != null ? _leftRt.name : "null")}, " +
+                                  $"targetIsPrivate={cam.targetTexture == _mapRt}, clearOnlyDiag={MapDiagClearOnly}, clear={cam.backgroundColor})");
+        }
 
         if (!_mapMirrorLogged)
         {
@@ -1463,6 +1472,11 @@ internal sealed class FlatScreenStereo
     // DIAGNOSTIC: assign each submesh a DIFFERENT UV channel (i % 3) so one screenshot reveals which
     // mesh UV channel (TexCoord0/1/2) carries a real 0..1 texture UV (the others sample near-constant).
     private const bool MapDiagPerSubmeshChannel = true;
+    // DIAGNOSTIC: skip the mesh material override entirely, so the forward camera draws NOTHING (the
+    // game's deferred material has no forward pass) and only the magenta clear remains. Screen magenta
+    // ⇒ our camera→private-RT→quad pipeline works end-to-end and the mesh was merely covering everything
+    // (UV problem). Screen brown ⇒ our camera output never reaches the quad (plumbing problem).
+    private const bool MapDiagClearOnly = true;
     private Texture2D? _uvDebugTex;
     // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
     // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
@@ -2392,7 +2406,9 @@ internal sealed class FlatScreenStereo
         if (_mapRt == null)
         {
             _mapRt = CreateColorRt(_leftRt.width, _leftRt.height, 24, "GloomhavenVR.MapRT");
-            _mapRt.Create();
+            bool ok = _mapRt.Create();
+            VRLog.Info("WorldUI", $"MAP RENDER private RT allocated: created={ok} IsCreated={_mapRt.IsCreated()} " +
+                                  $"native={_mapRt.GetNativeTexturePtr()} {DescribeRt(_mapRt)} (base {DescribeRt(_leftRt)})");
         }
     }
 
@@ -2414,6 +2430,8 @@ internal sealed class FlatScreenStereo
     /// </summary>
     private void ApplyWorldMapOverride()
     {
+        if (MapDiagClearOnly)
+            return; // diagnostic: leave the game's deferred material on → nothing draws → magenta clear only
         if (_overrideApplied || _worldMapRenderer == null || _worldMapOverrideMats == null)
             return;
         // Re-capture the live originals each time so the restore always puts back exactly what the
@@ -2480,6 +2498,7 @@ internal sealed class FlatScreenStereo
             _mapAlbedoTransform = null;
         }
         ReleaseMapRt();
+        _mapTargetLogged = false;
     }
 
     // ---- map albedo render: once-per-second base-RT probe (MAP ALBEDO probe line) ------------
