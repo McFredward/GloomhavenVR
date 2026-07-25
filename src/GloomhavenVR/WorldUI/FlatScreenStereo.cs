@@ -698,11 +698,19 @@ internal sealed class FlatScreenStereo
     /// </summary>
     internal static RenderTexture CreateColorRt(int width, int height, int depth, string name)
     {
-        return new RenderTexture(width, height, depth, RenderTextureFormat.Default, RenderTextureReadWrite.Default)
+        var rt = new RenderTexture(width, height, depth, RenderTextureFormat.Default, RenderTextureReadWrite.Default)
         {
             name = name,
             antiAliasing = 1,
         };
+        // DEFERRED FIX: the game's map camera renders DeferredShading, and deferred lighting resolves
+        // through a STENCIL buffer (the light pass masks lit pixels via stencil). A plain depth RT (the
+        // rig reported depth=32 = 32-bit float depth, NO stencil) makes the deferred light pass fail →
+        // the map renders flat/dark into our RT while forward content (character portraits, combat)
+        // captures fine. Force a 24-bit depth + 8-bit stencil buffer whenever we ask for a depth buffer.
+        if (depth >= 24)
+            rt.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.D24_UNorm_S8_UInt;
+        return rt;
     }
 
     /// <summary>Human-readable facts of an RT (format, graphicsFormat, sRGB flag, depth) for the setup logs.</summary>
@@ -1138,20 +1146,14 @@ internal sealed class FlatScreenStereo
         // MapCamera rendering its detailed deferred map into the base RT and merely strips its image
         // effects; mode 0 (albedo camera) drives the mod forward render. The map display routing
         // (both eyes = base RT, above) is identical for both modes.
-        if (_mapBaseCapture && MapCaptureMode == 1)
-        {
-            // Passive-deferred: strip the game MapCamera's image effects, leave everything else alone.
-            ReconcileMapDeferred(mapSource);
-        }
-        else
-        {
-            // Mode 0 (albedo) / 2 (texture blit) / not engaged: restore any effects a prior mode-1
-            // pass disabled, then run the mod camera. In mode 2 the camera just clears the base RT and
-            // its OnPostRender draws the map's own GH_CampaignMap textures 2x2 into it (the parchment
-            // detail lives in those textures — the deferred render never yields it in an off-screen RT).
-            RestoreStrippedEffects();
-            ReconcileAlbedoCamera(mapSource);
-        }
+        // DEFERRED-STENCIL FIX (fresh start): the base RT now carries a stencil buffer, so the game
+        // MapCamera's DeferredShading render should resolve its LIT, DETAILED map straight into it via
+        // the normal FlatScreen redirect — exactly like every other (forward) screen. So DROP all the
+        // map-special machinery (albedo camera / material override / effect strip / texture blit): just
+        // make sure none of it is active and let the plain redirect show the real animated map.
+        RestoreStrippedEffects();
+        if (_mapAlbedoCam != null && _mapAlbedoCam.enabled)
+            _mapAlbedoCam.enabled = false;
 
         bool anyMirrorRendering = false;
         for (int i = 0; i < _mirrors.Count; i++)
