@@ -388,8 +388,6 @@ internal sealed class FlatScreenStereo
     private GameObject? _activeMapGo;
     /// <summary>True when the active map is the city map (ISSUE 3) — for logging.</summary>
     private bool _activeMapIsCity;
-    /// <summary>worldMap layer bit index — force-included in the albedo camera's culling mask.</summary>
-    private int _worldMapLayer = -1;
     /// <summary>Unlit Sprites/Default override materials (one per submesh, _MainTex = the submesh's albedo).</summary>
     private Material[]? _worldMapOverrideMats;
     /// <summary>The originals swapped OUT for the current override (re-captured live each apply; restored in onPostRender).</summary>
@@ -419,8 +417,6 @@ internal sealed class FlatScreenStereo
     private bool _worldMapColorsLogged;
     /// <summary>One-shot log guard: the discovered material/albedo facts (per engagement).</summary>
     private bool _albedoMaterialsLogged;
-    /// <summary>One-shot log guard: the MAP ALBEDO RENDER ENGAGED line (per engagement).</summary>
-    private bool _albedoEngagedLogged;
     /// <summary>One-shot WARN guard: worldMap not found / no usable albedo (per engagement).</summary>
     private bool _albedoWarned;
     /// <summary>Base-RT center probe (MAP ALBEDO probe line) — once-per-second success/failure readout.</summary>
@@ -1105,18 +1101,18 @@ internal sealed class FlatScreenStereo
         }
         else if (_mapBaseCapture)
         {
-            // Campaign map (ISSUE 1): the base RT carries the MONO map (texture blit). We must NOT
-            // suspend — suspension collapses the SCREEN LAYER SPLIT and drops the game's UI glass RT
+            // Campaign map: the base RT carries the MONO map (mirror camera + world-space quads). We must
+            // NOT suspend — suspension collapses the SCREEN LAYER SPLIT and drops the game's UI glass RT
             // (markers, quest list, shields). Instead keep the split ROUTING (suspend stays false, so
             // FlatScreen keeps UI cameras on the glass RT), and force BOTH eyes to the base RT in
-            // OnPreRenderCamera (mono; per-eye parallax is explicitly dropped for the map). The glass
-            // UI layer then composites over the mono map for both eyes.
+            // OnPreRenderCamera (mono; per-eye parallax is explicitly dropped for the map). Because the
+            // mirror camera matches the game map camera, the glass UI markers/laser align with the map.
             if (!_mapMonoLogged)
             {
                 _mapMonoLogged = true;
-                VRLog.Info("WorldUI", "Campaign map MONO (ISSUE 1): both eyes show the base RT (texture-blit " +
-                                      "map); the split stays ROUTING so the game UI/markers keep rendering on " +
-                                      "the glass RT and composite over the map — the map is NOT suspended.");
+                VRLog.Info("WorldUI", "Campaign map MONO: both eyes show the base RT (mirror-camera map); the " +
+                                      "split stays ROUTING so the game UI/markers keep rendering on the glass RT " +
+                                      "and composite over the map — the map is NOT suspended.");
             }
         }
         else if (anyVideo)
@@ -1159,16 +1155,13 @@ internal sealed class FlatScreenStereo
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
 
-        // Campaign-map capture (MapCaptureMode, read LIVE): mode 1 (passive-deferred) keeps the game
-        // MapCamera rendering its detailed deferred map into the base RT and merely strips its image
-        // effects; mode 0 (albedo camera) drives the mod forward render. The map display routing
-        // (both eyes = base RT, above) is identical for both modes.
-        // Deferred→our-RT is a hard wall (the game's DeferredShading map camera renders pure black into
-        // any off-screen RT we own, stencil or not; only Forward content captures — proven by the
-        // Forward character portraits). So show the map from its OWN textures: a mod camera clears the
-        // base RT and its OnPostRender draws the 4 GH_CampaignMap quadrant textures 2x2 into it. Forced
-        // on (independent of the persisted MapCaptureMode) — the animated markers / laser interaction
-        // ride on the separate working UI glass RT on top.
+        // Campaign-map MIRROR (class doc MAP MIRROR): deferred→our-RT is a hard wall (the game's
+        // DeferredShading map camera renders pure black into any off-screen RT we own, stencil or not;
+        // only Forward content captures — proven by the Forward character portraits). So show the map on
+        // OUR OWN world-space quads (textured with the map's GH_CampaignMap textures) placed at the map
+        // mesh's world position, viewed by a mirror camera that copies the game map camera every frame —
+        // it pans/zooms 1:1 with the game so the glass-RT markers/laser align. RestoreStrippedEffects
+        // clears any leftover passive-deferred image-effect strip from a prior mode.
         RestoreStrippedEffects();
         ReconcileAlbedoCamera(mapSource);
 
@@ -1310,7 +1303,7 @@ internal sealed class FlatScreenStereo
             return;
         _mapBaseCapture = true;
         _mapEngageFrame = Time.frameCount; // start the fast per-frame base-RT probe window
-        _albedoEngagedLogged = false;
+        _mapMirrorLogged = false;
         _albedoMaterialsLogged = false;
         _albedoWarned = false;
         VRLog.Info("WorldUI", $"MAP ALBEDO detection: the screen's base RenderTexture reads BLACK " +
@@ -1323,10 +1316,14 @@ internal sealed class FlatScreenStereo
     // ---- map albedo render: camera + material override (class doc MAP ALBEDO RENDER) --------
 
     /// <summary>
-    /// Configure + enable the mod forward albedo camera so it renders the worldMap parchment into
-    /// the base RT this frame; disable it whenever the map capture is not engaged / not ready.
-    /// Cloned from <paramref name="mapSource"/> (the game MapCamera) with a depth just above it, so
-    /// Unity renders it LAST among base-RT cameras and it OWNS the base RT's final content.
+    /// Configure + enable the mod MIRROR camera so it renders the world-space map quads into the base RT
+    /// this frame; disable it whenever the map capture is not engaged / not ready. The camera COPIES the
+    /// game map camera (<paramref name="mapSource"/>) every frame — world pose, projectionMatrix (this
+    /// carries the live pan/zoom), FOV, clip planes, ortho/size, rect — so our quads (sitting at the map
+    /// mesh's world position) project to exactly the same screen coordinates as the game's own map, and
+    /// the game's UI markers + laser (on the glass RT) align automatically. It sees ONLY the map-quad
+    /// layer, clears black, renders Forward, and sits at a depth just above the game map camera so it
+    /// OWNS the base RT's final content (the game camera's black deferred render is overwritten).
     /// </summary>
     private void ReconcileAlbedoCamera(Camera? mapSource)
     {
@@ -1338,19 +1335,14 @@ internal sealed class FlatScreenStereo
         }
 
         Camera cam = _mapAlbedoCam!;
+        // Copy the game map camera's live world pose (pan follows the camera transform).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
         cam.clearFlags = CameraClearFlags.SolidColor;
-        // Neutral dark clear (sample the game camera's background) — the parchment fills the frame.
-        cam.backgroundColor = mapSource.backgroundColor;
-        // Render whatever the game camera sees PLUS the parchment's own layer (its material override
-        // guarantees the mesh draws), never the mod layer (our quad/hands — feedback).
-        cam.cullingMask = (mapSource.cullingMask | (1 << _worldMapLayer)) & ~VRLayers.ModLayerMask;
-        // Texture-blit map: the camera draws NOTHING (mask 0) — it only clears the base RT to black;
-        // its OnPostRender then draws the map's own GH_CampaignMap textures 2x2 into it.
-        cam.cullingMask = 0;
-        cam.backgroundColor = Color.black;
-        // Just above the game MapCamera so Unity composites us LAST into the base RT (we overwrite
-        // its dark render); still below the head camera, so the quad samples this frame's result.
+        cam.backgroundColor = Color.black; // the parchment quads fill the frame; edges clear to black
+        // See ONLY our dedicated map-quad layer — never the game/mod layers (no feedback, no game geometry).
+        cam.cullingMask = 1 << _mapQuadLayer;
+        // Just above the game map camera so Unity composites us LAST into the base RT (we overwrite its
+        // black deferred render); still below the head camera, so the screen quad samples this frame's result.
         cam.depth = mapSource.depth + 0.1f;
         cam.rect = mapSource.rect;
         cam.nearClipPlane = mapSource.nearClipPlane;
@@ -1361,39 +1353,74 @@ internal sealed class FlatScreenStereo
         cam.allowHDR = mapSource.allowHDR;
         cam.allowMSAA = mapSource.allowMSAA;
         cam.useOcclusionCulling = mapSource.useOcclusionCulling;
-        // Forward — the material override is an unlit forward shader (Sprites/Default); no deferred
-        // G-buffer resolve is needed or wanted (that is the whole point — the deferred map never lit).
+        // Forward — our quads use an unlit forward shader (Sprites/Default); no deferred resolve needed.
         cam.renderingPath = RenderingPath.Forward;
+        // Copy the projection matrix VERBATIM — this carries the live zoom (FOV/ortho size) and any lens
+        // shift, so our quads track the game's map exactly as the user pans/zooms.
         cam.projectionMatrix = mapSource.projectionMatrix;
         if (cam.targetTexture != _leftRt)
             cam.targetTexture = _leftRt;
         if (!cam.enabled)
             cam.enabled = true;
 
-        if (!_albedoEngagedLogged)
+        if (!_mapMirrorLogged)
         {
-            _albedoEngagedLogged = true;
-            int submeshes = _worldMapOverrideMats != null ? _worldMapOverrideMats.Length : 0;
-            VRLog.Info("WorldUI", $"MAP ALBEDO RENDER ENGAGED: worldMap MeshRenderer " +
-                                  $"'{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' found with " +
-                                  $"{submeshes} submeshes; forward mod camera (depth {cam.depth:F1}, cloned from " +
-                                  $"'{mapSource.name}') → base RT, parchment drawn unlit from its albedo texture.");
+            _mapMirrorLogged = true;
+            Bounds b = _mapQuadBounds;
+            VRLog.Info("WorldUI", $"MAP MIRROR ENGAGED: active={(_activeMapIsCity ? "CITY" : "WORLD")} renderer " +
+                                  $"'{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' localBounds " +
+                                  $"center=({b.center.x:F2},{b.center.y:F2},{b.center.z:F2}) " +
+                                  $"size=({b.size.x:F2},{b.size.y:F2},{b.size.z:F2}) planeAxes=XZ; {_mapQuadCount} quads " +
+                                  $"built on layer {_mapQuadLayer}; mirror cam clones '{mapSource.name}' (depth {cam.depth:F1}, " +
+                                  $"proj copied each frame). Quadrant layout: NW=(−X,+Z) NE=(+X,+Z) SW=(−X,−Z) SE=(+X,−Z), " +
+                                  $"flipU={MapQuadFlipU} flipV={MapQuadFlipV} swapAxes={MapQuadSwapAxes}.");
         }
     }
 
-    // ---- texture blit (MapCaptureMode 2): draw the map's own textures 2x2 into the base RT ----
+    // ---- MAP MIRROR: world-space quads + a mirror camera that tracks the game map camera ----
+    // The map textures are drawn on OUR OWN flat geometry placed at the map mesh's real world
+    // position, viewed by a mod camera that copies the game map camera every frame. Because our
+    // geometry sits at the map's world location and our camera matches the game camera's
+    // transform + projection, the result pans/zooms EXACTLY with the game and lands at the same
+    // screen coordinates as the game's own map — so the game's UI markers (composited on the glass
+    // UI RT) and the laser align automatically. Forward rendering → captures into the base RT.
 
     /// <summary>Gathered GH_CampaignMap quadrant textures: [0]=01(NW) [1]=02(NE) [2]=03(SW) [3]=04(SE).</summary>
     private Texture[]? _mapQuadTextures;
     private bool _mapTexLogged;
 
-    /// <summary>
-    /// ISSUE 2 — fraction of each 4096² quadrant texture that is a baked decorative parchment BORDER,
-    /// trimmed on the two INTERNAL edges of each quadrant so the four tiles form one continuous map
-    /// (the outer two edges keep their border, exactly like the game mesh UVs). Single hard-coded knob:
-    /// raise if ornate strips still show at the internal seams; lower toward 0 if map content is clipped.
-    /// </summary>
-    private const float MapBorderMargin = 0.045f;
+    // ---- HARD-CODED quadrant layout (class doc MAP MIRROR). The four 0N textures tile the map's
+    // local X–Z rectangle. 01→NW, 02→NE, 03→SW, 04→SE (per decompiled MapChoreographer). The map's
+    // local +X/+Z axes are assumed to point East/North (texture painted North-up, East-right), so
+    // NW = (−X,+Z), NE = (+X,+Z), SW = (−X,−Z), SE = (+X,−Z). The three knobs below remap that if a
+    // hardware screenshot shows the map mirrored/rotated — flip ONE and rebuild (they are read by
+    // MapUvToLocal, logged on engage). NOT config knobs on purpose (persisted config traps them).
+    // NOTE: static readonly (not const) so the never-taken branch does not trip CS0162 while the defaults
+    // are false — flip any ONE of these in a single edit and rebuild; no persisted config knob.
+    /// <summary>Mirror the East/West assignment (uFull → −local): map reads left↔right swapped.</summary>
+    private static readonly bool MapQuadFlipU = false;
+    /// <summary>Mirror the North/South assignment (vFull → −local): map reads top↔bottom swapped.</summary>
+    private static readonly bool MapQuadFlipV = false;
+    /// <summary>Transpose the map: uFull drives local Z (not X) and vFull drives local X (fixes a 90° rotation).</summary>
+    private static readonly bool MapQuadSwapAxes = false;
+
+    // ---- map mirror quad geometry (built at the map mesh's world position, on a dedicated layer) ----
+    /// <summary>Dedicated layer for the map quads — rendered ONLY by the mirror camera (never the head/game cameras). Resolved once, distinct from VRLayers.ModLayer.</summary>
+    private int _mapQuadLayer = -1;
+    /// <summary>Parent of the four map quads, parented to the map renderer's transform so it tracks the map's world pose/scale.</summary>
+    private GameObject? _mapQuadsGo;
+    /// <summary>The four quad meshes (destroyed on release — no leaks).</summary>
+    private Mesh[]? _mapQuadMeshes;
+    /// <summary>The four Sprites/Default quad materials (_MainTex = the quadrant texture; destroyed on release).</summary>
+    private Material[]? _mapQuadMats;
+    /// <summary>The renderer the current quads were built for — a world↔city switch (renderer change) forces a rebuild.</summary>
+    private MeshRenderer? _mapQuadsBuiltFor;
+    /// <summary>Local mesh bounds the quads were built from (for the engage log).</summary>
+    private Bounds _mapQuadBounds;
+    /// <summary>Count of quads actually built (textures may be missing).</summary>
+    private int _mapQuadCount;
+    /// <summary>One-shot guard: the MAP MIRROR ENGAGED line (per engagement).</summary>
+    private bool _mapMirrorLogged;
 
     /// <summary>
     /// Read the four <c>GH_CampaignMap_0N</c> quadrant textures off the worldMap renderer's materials
@@ -1430,61 +1457,222 @@ internal sealed class FlatScreenStereo
             _mapTexLogged = true;
             int have = 0;
             for (int i = 0; i < 4; i++) if (quads[i] != null) have++;
-            VRLog.Info("WorldUI", $"MAP TEX BLIT ({(_activeMapIsCity ? "CITY" : "WORLD")} map): {have}/4 " +
+            VRLog.Info("WorldUI", $"MAP MIRROR textures ({(_activeMapIsCity ? "CITY" : "WORLD")} map): {have}/4 " +
                                   "quadrant textures gathered off " +
-                                  $"'{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' — drawn 2x2 " +
-                                  "into the base RT (01=NW top-left, 02=NE top-right, 03=SW bottom-left, " +
-                                  $"04=SE bottom-right), internal edges cropped by margin {MapBorderMargin:P0}." + sb);
+                                  $"'{(_worldMapRenderer != null ? _worldMapRenderer.name : "?")}' — mapped onto four " +
+                                  "world-space quads (01=NW, 02=NE, 03=SW, 04=SE) at the map mesh's world position." + sb);
         }
     }
 
     /// <summary>
-    /// Draw the four quadrant textures into the base RT in a 2x2 grid (called from the mod camera's
-    /// OnPostRender, when the base RT is the active target and has just been cleared to black). Uses
-    /// <see cref="Graphics.DrawTexture"/> — GPU draw, no readable texture needed. Orientation knobs
-    /// (flip X/Y, diagonal swap) let us correct mirroring/rotation live without a rebuild.
+    /// Build (or rebuild) the four world-space map quads at the map mesh's real world position, on the
+    /// dedicated <see cref="_mapQuadLayer"/> so ONLY the mirror camera sees them. The quads are children
+    /// of the map renderer's transform (identity local TRS), so they inherit the map's world
+    /// position/rotation/scale and MOVE with it. Each quad covers one quadrant of the mesh's LOCAL X–Z
+    /// bounds (mesh.bounds is available even when isReadable=false) and is textured with a
+    /// <c>Sprites/Default</c> material (unlit, opaque parchment, white vertex colours → full brightness).
+    /// Rebuilt when the active renderer changes (world↔city switch). Returns true once at least one quad
+    /// exists.
     /// </summary>
-    private void BlitMapQuadrants()
+    private bool EnsureMapQuads()
     {
-        if (_mapQuadTextures == null || _leftRt == null)
-            return;
-        int w = _leftRt.width, h = _leftRt.height;
-        int hw = w / 2, hh = h / 2;
+        if (_worldMapRenderer == null || _mapQuadTextures == null || _root == null)
+            return false;
 
-        // ISSUE 2 — HARD-CODED layout (config flip knobs are ignored; the persisted config traps them).
-        // Quadrant identity (from the material 0N suffix): 0=01 NW, 1=02 NE, 2=03 SW, 3=04 SE.
-        // Destination is DrawTexture pixel space via LoadPixelMatrix(0,w,h,0) → origin TOP-LEFT, y down,
-        // which is DrawTexture's own upper-left convention (so the texture draws upright). Natural grid:
-        //   col = idx&1  (0 = West/left, 1 = East/right),  row = idx>>1 (0 = North/top, 1 = South/bottom)
-        // → NW top-left, NE top-right, SW bottom-left, SE bottom-right = one continuous, North-up map.
-        //
-        // BORDER CROP: each quadrant carries a baked decorative border on all four edges; the two edges
-        // that face INTERNAL seams must be trimmed (the outer two stay). sourceRect is normalized UV with
-        // (0,0) BOTTOM-LEFT (y up), so screen-top(row0) trims the texture's bottom (v=0=South) edge, and
-        // screen-bottom(row1) trims the top (v=1=North) edge; West(col0) trims the right (u=1=East) edge,
-        // East(col1) trims the left (u=0=West) edge. All four quadrants scale identically per axis, so the
-        // inner content tiles seamlessly.
-        const float m = MapBorderMargin;
-        const float span = 1f - m;
+        // Rebuild only on a renderer change (world↔city) or first build.
+        if (_mapQuadsGo != null && ReferenceEquals(_mapQuadsBuiltFor, _worldMapRenderer))
+            return _mapQuadCount > 0;
+        ReleaseMapQuads();
 
-        GL.PushMatrix();
-        GL.LoadPixelMatrix(0, w, h, 0);
-        for (int idx = 0; idx < 4; idx++)
+        MeshFilter? mf = _worldMapRenderer.GetComponent<MeshFilter>();
+        Mesh? mesh = mf != null ? mf.sharedMesh : null;
+        if (mf == null || mesh == null)
         {
-            Texture? tex = _mapQuadTextures[idx];
+            if (!_albedoWarned)
+            {
+                _albedoWarned = true;
+                VRLog.Warn("WorldUI", "MAP MIRROR: the map renderer has no MeshFilter/sharedMesh — cannot " +
+                                      "size the quads to the map bounds; the base RT is left as-is (map black).");
+            }
+            return false;
+        }
+
+        Shader? sh = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        if (sh == null)
+        {
+            if (!_albedoWarned)
+            {
+                _albedoWarned = true;
+                VRLog.Warn("WorldUI", "MAP MIRROR: neither Sprites/Default nor UI/Default is present — " +
+                                      "cannot build the unlit map quads; the base RT is left as-is (map black).");
+            }
+            return false;
+        }
+
+        Bounds b = mesh.bounds; // LOCAL bounds — valid even when the mesh is isReadable=false
+        _mapQuadBounds = b;
+        int layer = ResolveMapQuadLayer();
+
+        var root = new GameObject("GloomhavenVR.MapMirrorQuads");
+        // Parent to the map renderer's transform (identity local TRS) so the quads sit at the mesh's
+        // world position and track it if it ever moves — the game object itself is never modified
+        // (rendering-only, reversible: our child is destroyed on release).
+        root.transform.SetParent(_worldMapRenderer.transform, worldPositionStays: false);
+        root.transform.localPosition = Vector3.zero;
+        root.transform.localRotation = Quaternion.identity;
+        root.transform.localScale = Vector3.one;
+        root.layer = layer;
+
+        var meshes = new Mesh[4];
+        var mats = new Material[4];
+        int built = 0;
+        for (int t = 0; t < 4; t++)
+        {
+            Texture? tex = _mapQuadTextures[t];
             if (tex == null)
                 continue;
-            int col = idx & 1;           // 0 = West (left), 1 = East (right)
-            int row = (idx >> 1) & 1;    // 0 = North (top), 1 = South (bottom)
-            var dst = new Rect(col * hw, row * hh, hw, hh);
-            // Internal-edge crop in UV (bottom-left origin): West keeps u∈[0,span], East u∈[m,1];
-            // North(top) keeps v∈[m,1] (trim South), South(bottom) keeps v∈[0,span] (trim North).
-            float sx = (col == 0) ? 0f : m;
-            float sy = (row == 0) ? m : 0f;
-            var src = new Rect(sx, sy, span, span);
-            Graphics.DrawTexture(dst, tex, src, 0, 0, 0, 0);
+            // Quadrant → map-UV cell (uFull right/East, vFull up/North): NW=left+North, NE=right+North,
+            // SW=left+South, SE=right+South. col = t&1 (0=left/West, 1=right/East); North = t<2.
+            int col = t & 1;
+            bool north = t < 2;
+            float uf0 = col * 0.5f, uf1 = uf0 + 0.5f;
+            float vf0 = north ? 0.5f : 0f, vf1 = vf0 + 0.5f;
+
+            Vector3 v00 = MapUvToLocal(uf0, vf0, b);
+            Vector3 v10 = MapUvToLocal(uf1, vf0, b);
+            Vector3 v11 = MapUvToLocal(uf1, vf1, b);
+            Vector3 v01 = MapUvToLocal(uf0, vf1, b);
+
+            var qm = new Mesh { name = "GloomhavenVR.MapMirrorQuad." + t };
+            qm.vertices = new[] { v00, v10, v11, v01 };
+            // Standard 0..1 UVs so each texture fills its quadrant upright.
+            qm.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f) };
+            // White vertex colours: Sprites/Default multiplies texture × vertex colour; without a colour
+            // channel some platforms read black. White guarantees the parchment at full brightness.
+            qm.colors = new[] { Color.white, Color.white, Color.white, Color.white };
+            qm.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+            qm.RecalculateBounds();
+
+            var mat = new Material(sh) { name = "GloomhavenVR.MapMirrorMat." + t, mainTexture = tex };
+
+            var go = new GameObject("GloomhavenVR.MapMirrorQuad." + t);
+            go.transform.SetParent(root.transform, worldPositionStays: false);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+            go.layer = layer;
+            go.AddComponent<MeshFilter>().sharedMesh = qm;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            mr.lightProbeUsage = LightProbeUsage.Off;
+            mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
+
+            meshes[t] = qm;
+            mats[t] = mat;
+            built++;
         }
-        GL.PopMatrix();
+
+        _mapQuadsGo = root;
+        _mapQuadMeshes = meshes;
+        _mapQuadMats = mats;
+        _mapQuadsBuiltFor = _worldMapRenderer;
+        _mapQuadCount = built;
+
+        if (built == 0)
+        {
+            if (!_albedoWarned)
+            {
+                _albedoWarned = true;
+                VRLog.Warn("WorldUI", "MAP MIRROR: no quadrant texture was available — no quads built; " +
+                                      "the base RT is left as-is (map black). Retrying on the next map change.");
+            }
+            ReleaseMapQuads();
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Map a normalized map-UV coordinate (uFull right/East 0..1, vFull up/North 0..1) to a point in the
+    /// map mesh's LOCAL space, flat at the bounds' Y centre (the map plane is local X–Z). The three
+    /// hard-coded knobs (<see cref="MapQuadFlipU"/>/<see cref="MapQuadFlipV"/>/<see cref="MapQuadSwapAxes"/>)
+    /// remap the axes so a mirrored/rotated screenshot is fixed by flipping one bool and rebuilding.
+    /// </summary>
+    private static Vector3 MapUvToLocal(float uFull, float vFull, Bounds b)
+    {
+        float u = uFull - 0.5f; // -0.5..0.5
+        float v = vFull - 0.5f;
+        if (MapQuadFlipU) u = -u;
+        if (MapQuadFlipV) v = -v;
+        float lx, lz;
+        if (!MapQuadSwapAxes)
+        {
+            lx = u * b.size.x; // uFull → local X (East)
+            lz = v * b.size.z; // vFull → local Z (North)
+        }
+        else
+        {
+            lx = v * b.size.x; // transposed
+            lz = u * b.size.z;
+        }
+        return new Vector3(b.center.x + lx, b.center.y, b.center.z + lz);
+    }
+
+    /// <summary>
+    /// Resolve the dedicated map-quad layer once: the first unnamed layer scanning DOWN from 31, skipping
+    /// <see cref="VRLayers.ModLayer"/> (which the head camera renders — we must NOT share it or the quads
+    /// would float in the VR world). No game camera renders an unnamed high layer, so ONLY our mirror
+    /// camera (mask = this layer) ever draws the quads. Falls back to Unity's traditionally-empty layer 3.
+    /// </summary>
+    private int ResolveMapQuadLayer()
+    {
+        if (_mapQuadLayer >= 0)
+            return _mapQuadLayer;
+        int mod = VRLayers.ModLayer;
+        for (int i = 31; i >= 8; i--)
+        {
+            if (i == mod)
+                continue;
+            if (string.IsNullOrEmpty(LayerMask.LayerToName(i)))
+            {
+                _mapQuadLayer = i;
+                VRLog.Info("WorldUI", $"MAP MIRROR layer resolved: {i} (dedicated, distinct from mod layer {mod}; " +
+                                      $"mask 0x{1 << i:X8}) — only the mirror camera renders it.");
+                return _mapQuadLayer;
+            }
+        }
+        _mapQuadLayer = 3; // Unity's first traditionally-empty built-in layer
+        VRLog.Warn("WorldUI", $"MAP MIRROR: no free unnamed layer (31→8 all named or the mod layer) — falling " +
+                              $"back to layer {_mapQuadLayer}; the map quads may leak into a camera that renders it.");
+        return _mapQuadLayer;
+    }
+
+    /// <summary>Destroy the map quads (GO, meshes, materials) — no leaked GameObjects/meshes/materials.</summary>
+    private void ReleaseMapQuads()
+    {
+        if (_mapQuadsGo != null)
+        {
+            Object.Destroy(_mapQuadsGo);
+            _mapQuadsGo = null;
+        }
+        if (_mapQuadMeshes != null)
+        {
+            for (int i = 0; i < _mapQuadMeshes.Length; i++)
+                if (_mapQuadMeshes[i] != null)
+                    Object.Destroy(_mapQuadMeshes[i]);
+            _mapQuadMeshes = null;
+        }
+        if (_mapQuadMats != null)
+        {
+            for (int i = 0; i < _mapQuadMats.Length; i++)
+                if (_mapQuadMats[i] != null)
+                    Object.Destroy(_mapQuadMats[i]);
+            _mapQuadMats = null;
+        }
+        _mapQuadsBuiltFor = null;
+        _mapQuadCount = 0;
     }
 
     // ---- passive-deferred capture (MapCaptureMode 1) ----------------------------------------
@@ -1658,10 +1846,13 @@ internal sealed class FlatScreenStereo
             return false;
         }
 
-        // Texture-blit map: we only need the renderer (for its GH_CampaignMap textures) + the clearing
-        // camera; gather the 4 quadrant textures once. No override materials / mesh (the mesh is
-        // unreadable and its deferred render never yields detail in an off-screen RT).
+        // Map mirror: gather the 4 quadrant textures off the renderer, build the world-space quads at the
+        // map mesh's world position (mesh.bounds is valid even when isReadable=false), and create the
+        // mirror camera. No override materials / mesh (the mesh is unreadable and its deferred render
+        // never yields detail in an off-screen RT — the quads carry the parchment instead).
         GatherMapTextures();
+        if (!EnsureMapQuads())
+            return false;
         EnsureAlbedoCamera();
         return _mapAlbedoCam != null;
     }
@@ -1745,7 +1936,6 @@ internal sealed class FlatScreenStereo
             return false;
 
         _worldMapRenderer = found;
-        _worldMapLayer = found.gameObject.layer;
         return true;
     }
 
@@ -2236,6 +2426,7 @@ internal sealed class FlatScreenStereo
         RestoreAmbientAfterMapRender(); // never leave the ambient boost / mod light on
         ReleaseCorrectedMesh();    // destroy the mod mesh copy; game mesh untouched
         DestroyOverrideMaterials();
+        ReleaseMapQuads();         // destroy the world-space map quads (GO/meshes/materials)
         if (_mapAlbedoLight != null)
         {
             Object.Destroy(_mapAlbedoLight.gameObject);
@@ -2244,11 +2435,10 @@ internal sealed class FlatScreenStereo
         _mapQuadTextures = null;
         _mapTexLogged = false;
         _mapMonoLogged = false;
+        _mapMirrorLogged = false;
         _activeMapGo = null;
         _worldMapRenderer = null;
-        _worldMapLayer = -1;
         _albedoMaterialsLogged = false;
-        _albedoEngagedLogged = false;
         _albedoWarned = false;
         _overrideApplied = false;
         if (_mapAlbedoGo != null)
@@ -2441,11 +2631,10 @@ internal sealed class FlatScreenStereo
         if (!_active)
             return;
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
-        {
-            ApplyWorldMapOverride();
-            BoostAmbientForMapRender();
+            // Map mirror: nothing to do here — the camera renders our own unlit world-space quads (no
+            // material/mesh override on the game renderer, no ambient boost). Kept as a fast early-out so
+            // the head-camera texture-swap logic below never runs for the mirror camera.
             return;
-        }
         Camera? head = Rig.VRRigDriver.HeadCamera;
         if (head == null || cam != head)
             return;
@@ -2526,17 +2715,13 @@ internal sealed class FlatScreenStereo
             mat.mainTexture = target;
     }
 
-    /// <summary>Head-camera post-render hook: restore the worldMap materials after the mod albedo camera rendered.</summary>
+    /// <summary>
+    /// Post-render hook — retained for the render-callback signature. The map mirror camera renders our
+    /// own world-space quads (no game-renderer material/mesh override to restore, no static blit), so
+    /// nothing is done here for it.
+    /// </summary>
     private void OnPostRenderCamera(Camera cam)
     {
-        if (!_active)
-            return;
-        if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
-        {
-            BlitMapQuadrants(); // camera cleared the base RT; now draw the map textures 2x2
-            RestoreWorldMapOverride();
-            RestoreAmbientAfterMapRender();
-        }
     }
 
     /// <summary>
