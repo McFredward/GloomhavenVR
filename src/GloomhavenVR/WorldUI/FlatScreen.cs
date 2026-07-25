@@ -291,17 +291,6 @@ internal sealed class FlatScreen
         public bool Demoted;
         /// <summary>UI-stack classification at capture time (class doc SCREEN LAYER SPLIT).</summary>
         public bool IsUi;
-        /// <summary>
-        /// MAP BACKBUFFER GRAB (class doc / <see cref="ReconcileBackbufferGrab"/>): true while this camera is
-        /// LEFT on its native backbuffer (targetTexture released, base-clear/demotion suppressed) and a
-        /// <see cref="GrabCb"/> copies its finished image into the base RT. Set only for 3D (non-UI) cameras
-        /// while the campaign-map base capture is engaged with [WorldUI] MapBackbufferGrab ON.
-        /// </summary>
-        public bool GrabExempt;
-        /// <summary>The AfterImageEffects CommandBuffer blitting this camera's CameraTarget into the base RT (grab), or null.</summary>
-        public CommandBuffer? GrabCb;
-        /// <summary>The RT <see cref="GrabCb"/> currently blits into — rebuilt if the base RT is recreated.</summary>
-        public RenderTexture? GrabCbTarget;
     }
 
     // Captured camera stack (I1, hardware test #5). The list is reused across
@@ -551,8 +540,6 @@ internal sealed class FlatScreen
                 continue;
             if (CapturedSet.TryGetValue(cam, out CapturedCamera known))
             {
-                if (known.GrabExempt)
-                    continue; // MAP BACKBUFFER GRAB: left on the native backbuffer — never re-redirect it.
                 RenderTexture? want = TargetFor(known);
                 if (want != null && cam.targetTexture != want) // game code rewrote it — re-assert
                     cam.targetTexture = want;
@@ -594,7 +581,6 @@ internal sealed class FlatScreen
         {
             if (_captured[i].Camera == null)
             {
-                DetachGrabCb(_captured[i]); // release any backbuffer-grab CommandBuffer (camera already gone)
                 if (_captured[i] == _base)
                     _base = null;
                 if (_captured[i] == _uiBase)
@@ -603,12 +589,6 @@ internal sealed class FlatScreen
                 _captured.RemoveAt(i);
             }
         }
-
-        // 2b. MAP BACKBUFFER GRAB (class doc): while the campaign-map base capture is engaged, leave the
-        // 3D (map) camera(s) on their NATIVE backbuffer and grab the finished bright image via a
-        // CommandBuffer — instead of the dark off-screen redirect. Runs before base selection so the
-        // grab-exempt cameras are excluded from the forced RT clear (native look preserved).
-        ReconcileBackbufferGrab();
 
         // 3. Per-stack base selection + clear policy.
         SelectBases();
@@ -678,93 +658,6 @@ internal sealed class FlatScreen
     }
 
     /// <summary>
-    /// MAP BACKBUFFER GRAB (class doc / [WorldUI] MapBackbufferGrab, default ON). Definitive fix for the
-    /// campaign world map rendering dark: the scene's deferred lighting + Beautify resolve ONLY to the
-    /// native backbuffer, so redirecting the deferred MapCamera onto our off-screen RT (or a forced-Forward
-    /// clone) yields a flat dark grey-brown. Instead, while <see cref="FlatScreenStereo.MapBaseCaptureEngaged"/>
-    /// (the same reliable black-probe detection), leave the 3D (map) camera(s) on their NATIVE backbuffer —
-    /// targetTexture released, base-clear/demotion suppressed — and attach a CommandBuffer at
-    /// <see cref="CameraEvent.AfterImageEffects"/> that blits <see cref="BuiltinRenderTextureType.CameraTarget"/>
-    /// (the fully-lit, Beautified final image) into the base RT the display path samples. The mod HeadCamera
-    /// (depth 0+) then overwrites the backbuffer with the eye quad, so the map camera's direct-to-backbuffer
-    /// render is harmless — the CommandBuffer already captured it. Rendering-only, multiplayer-safe (no game
-    /// state touched). Self-healing: it reconciles every sweep, so a flag flip or disengage restores the
-    /// normal redirect, and it re-arms on scene change with the base capture.
-    /// </summary>
-    private void ReconcileBackbufferGrab()
-    {
-        bool grab = FlatScreenStereo.MapBackbufferGrabOn && _stereo.MapBaseCaptureEngaged && _rt != null;
-        for (int i = 0; i < _captured.Count; i++)
-        {
-            CapturedCamera c = _captured[i];
-            Camera cam = c.Camera;
-            if (cam == null)
-                continue;
-
-            // Only 3D (background/map) cameras are grabbed — the UI stays on its own RT/glass path.
-            if (grab && !c.IsUi)
-            {
-                AttachGrabCb(c); // (re)attach the CameraTarget→base-RT blit, tracking the current base RT
-                if (cam.targetTexture != null)
-                    cam.targetTexture = null; // release the redirect → render the bright native image to the backbuffer
-                if (!c.GrabExempt)
-                {
-                    c.GrabExempt = true;
-                    // Drop the forced base clear so the map keeps its NATIVE clear (nothing visually altered).
-                    if (c.Demoted)
-                    {
-                        c.Demoted = false;
-                        cam.clearFlags = c.OriginalClearFlags;
-                    }
-                    cam.clearFlags = c.OriginalClearFlags;
-                    cam.backgroundColor = c.OriginalBackground;
-                    if (c == _base)
-                        _base = null; // SelectBases recomputes the RT base among the non-exempt cameras
-                    VRLog.Info("WorldUI", $"MAP BACKBUFFER GRAB: '{cam.name}' left on the native backbuffer " +
-                                          "(targetTexture released, native clear restored); CommandBuffer " +
-                                          "AfterImageEffects blits CameraTarget → the base RT. The fully-lit " +
-                                          "deferred+Beautify image is captured instead of the dark redirect.");
-                }
-            }
-            else if (c.GrabExempt)
-            {
-                // Grab disengaged (flag off / scene left / camera reclassified) — resume the normal redirect.
-                c.GrabExempt = false;
-                DetachGrabCb(c);
-                cam.targetTexture = TargetFor(c);
-                VRLog.Info("WorldUI", $"MAP BACKBUFFER GRAB released for '{cam.name}' — normal RT redirect resumed.");
-            }
-        }
-    }
-
-    /// <summary>Attach (or refresh) the backbuffer-grab CommandBuffer that blits this camera's CameraTarget into the current base RT.</summary>
-    private void AttachGrabCb(CapturedCamera c)
-    {
-        if (c.Camera == null || _rt == null)
-            return;
-        if (c.GrabCb != null && c.GrabCbTarget == _rt)
-            return; // already current
-        DetachGrabCb(c); // base RT was recreated (or a stale CB exists) — rebuild against the new target
-        var cb = new CommandBuffer { name = "GloomhavenVR.MapBackbufferGrab" };
-        cb.Blit(BuiltinRenderTextureType.CameraTarget, _rt);
-        c.Camera.AddCommandBuffer(CameraEvent.AfterImageEffects, cb);
-        c.GrabCb = cb;
-        c.GrabCbTarget = _rt;
-    }
-
-    /// <summary>Remove + release the backbuffer-grab CommandBuffer (safe if the camera is already destroyed).</summary>
-    private static void DetachGrabCb(CapturedCamera c)
-    {
-        if (c.GrabCb == null)
-            return;
-        if (c.Camera != null)
-            c.Camera.RemoveCommandBuffer(CameraEvent.AfterImageEffects, c.GrabCb);
-        c.GrabCb.Release();
-        c.GrabCb = null;
-        c.GrabCbTarget = null;
-    }
-
-    /// <summary>
     /// UI-stack classification (class doc SCREEN LAYER SPLIT): the cameras whose
     /// Screen-Space-Camera canvases hold the 2D UI. UICamera-tagged (CanvasManager
     /// binds every overlay canvas to the first such camera — PATCH-TARGETS §1.7) or
@@ -795,8 +688,6 @@ internal sealed class FlatScreen
         for (int i = 0; i < _captured.Count; i++)
         {
             CapturedCamera c = _captured[i];
-            if (c.GrabExempt)
-                continue; // MAP BACKBUFFER GRAB: renders to the native backbuffer, never a base of our RTs.
             if (c.IsUi && _splitRouting)
             {
                 if (newUiBase == null || c.Camera.depth < newUiBase.Camera.depth)
@@ -867,9 +758,7 @@ internal sealed class FlatScreen
         }
 
         // Glass RT: same dimensions as the background RT — the pointer pixel mapping
-        // and the quad UVs are shared between the two layers by construction. Kept at
-        // DEFAULT read/write (NOT sRGB-corrected like the base RT): the 2D UI must not be
-        // overbrightened by MapSrgbFix — only the MAP/background base RT gets that fix.
+        // and the quad UVs are shared between the two layers by construction.
         var uiRt = new RenderTexture(_rt!.width, _rt.height, 24)
         {
             name = "GloomhavenVR.FlatScreenRT.UI",
@@ -1076,8 +965,6 @@ internal sealed class FlatScreen
             Camera cam = c.Camera;
             if (cam == null)
                 continue;
-            if (c.GrabExempt)
-                continue; // MAP BACKBUFFER GRAB: native backbuffer render — its clear flags must stay vanilla.
 
             // Enabled-state transition diagnostics.
             bool enabled = cam.isActiveAndEnabled;
@@ -1149,11 +1036,9 @@ internal sealed class FlatScreen
         _stereo.ReleaseMirrors();
         for (int i = 0; i < _captured.Count; i++)
         {
-            DetachGrabCb(_captured[i]); // MAP BACKBUFFER GRAB: remove the CameraTarget→base-RT CommandBuffer
             Camera cam = _captured[i].Camera;
             if (cam == null)
                 continue;
-            _captured[i].GrabExempt = false;
             if (cam.targetTexture == _rt || (_uiRt != null && cam.targetTexture == _uiRt))
                 cam.targetTexture = null;
             // Only the stack bases (forced clears) and demoted overlays (SolidColor
@@ -1632,18 +1517,13 @@ internal sealed class FlatScreen
     {
         if (_rt == null)
         {
-            // COLORSPACE FIX (leading hypothesis — [WorldUI] MapSrgbFix, default ON): create the base
-            // RT sRGB so the map camera's LINEAR lit output is gamma-encoded on store (bright, matching
-            // the game backbuffer) instead of stored raw (~2.2x too dark — the dark-map bug). The
-            // separate UI glass RT is deliberately NOT sRGB-corrected (it must not overbrighten the 2D
-            // UI). Off = pre-fix behaviour.
+            // Plain colour RT (RenderTextureReadWrite.Default). The campaign map's darkness is NOT a
+            // colorspace issue (the rig renders in Gamma, so sRGB read/write is a no-op) — the map is
+            // rendered bright by the mod's own forward albedo camera (FlatScreenStereo MAP ALBEDO RENDER).
             _rt = FlatScreenStereo.CreateColorRt(
                 Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24, "GloomhavenVR.FlatScreenRT");
             _rt.Create();
-            VRLog.Info("WorldUI", $"FlatScreen base RT created (STEP-1a/STEP-2): {FlatScreenStereo.DescribeRt(_rt)} " +
-                                  $"— MapSrgbFix {FlatScreenStereo.MapSrgbFixOn}, activeColorSpace {QualitySettings.activeColorSpace}. " +
-                                  "sRGB=True encodes the map camera's linear lit output on store so the redirected " +
-                                  "map matches its bright native render (expected center mean ~20 → ~80+).");
+            VRLog.Info("WorldUI", $"FlatScreen base RT created: {FlatScreenStereo.DescribeRt(_rt)}.");
         }
 
         if (_quad == null)
