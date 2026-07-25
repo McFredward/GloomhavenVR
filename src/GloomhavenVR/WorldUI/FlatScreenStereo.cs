@@ -1347,6 +1347,20 @@ internal sealed class FlatScreenStereo
     /// parchment (whose materials we override with MapUnlit for exactly our render) draws. Clears black,
     /// sits at a depth just above the game map camera so it OWNS the base RT's final content.
     /// </summary>
+    /// <summary>Intersect the ray through camera viewport (u,v) with the horizontal plane y=planeY. False if parallel/behind.</summary>
+    private static bool TryMapPlaneHit(Camera cam, float u, float v, float planeY, out Vector3 hit)
+    {
+        hit = Vector3.zero;
+        Ray ray = cam.ViewportPointToRay(new Vector3(u, v, 0f));
+        if (Mathf.Abs(ray.direction.y) < 1e-5f)
+            return false;
+        float t = (planeY - ray.origin.y) / ray.direction.y;
+        if (t <= 0f || t > 1e5f)
+            return false;
+        hit = ray.origin + t * ray.direction;
+        return true;
+    }
+
     private void ReconcileAlbedoCamera(Camera? mapSource)
     {
         if (!_mapBaseCapture || mapSource == null || !EnsureAlbedoReady())
@@ -1383,25 +1397,58 @@ internal sealed class FlatScreenStereo
         cam.renderingPath = RenderingPath.Forward;
         if (MapDiagTopDown && _worldMapRenderer != null)
         {
-            // The game's MapCamera pose is degenerate for re-rendering (sits ~0.08u above the y≈0 190×237
-            // parchment plane → grazing → near-constant UV → flat). Since the mesh+UV+textures are proven
-            // correct offline, frame it ourselves: an ORTHOGRAPHIC top-down camera fitted to the mesh's
-            // world bounds. This validates the pipeline and makes the whole map visible (game pan/zoom
-            // matching comes after). Uses the transform + ortho projection (no captured game matrices).
+            // Frame the map ourselves with an ORTHOGRAPHIC top-down camera (the game's own MapCamera pose
+            // re-renders the mesh flat). To MATCH the game's live pan/zoom/rotation (so the game's on-map
+            // markers + click hit-testing, which use MapCamera world↔screen, line up), fit our ortho to the
+            // exact map-plane region the game camera currently sees: intersect the game camera's viewport
+            // rays with the parchment plane, then center + size + orient the ortho to that footprint.
             Bounds wb = _worldMapRenderer.bounds;
-            Vector3 wc = wb.center;
             float aspect = (_leftRt != null && _leftRt.height > 0) ? (float)_leftRt.width / _leftRt.height : 1.7778f;
-            float orthoSize = Mathf.Max(wb.size.z * 0.5f, (wb.size.x * 0.5f) / aspect) * 1.02f;
-            float height = wb.size.y * 0.5f + Mathf.Max(50f, orthoSize);
-            _mapAlbedoTransform!.SetPositionAndRotation(new Vector3(wc.x, wc.y + height, wc.z),
-                                                        Quaternion.Euler(90f, 0f, 0f));
-            cam.orthographic = true;
-            cam.orthographicSize = orthoSize;
-            cam.aspect = aspect;
-            cam.nearClipPlane = 0.1f;
-            cam.farClipPlane = height + wb.size.y + 10f;
-            cam.ResetWorldToCameraMatrix();
-            cam.ResetProjectionMatrix();
+            float planeY = wb.center.y;
+            bool matched = false;
+            if (MapMatchGameFraming
+                && TryMapPlaneHit(mapSource, 0.5f, 0.5f, planeY, out Vector3 center)
+                && TryMapPlaneHit(mapSource, 0.5f, 0f, planeY, out Vector3 bottom)
+                && TryMapPlaneHit(mapSource, 0.5f, 1f, planeY, out Vector3 top)
+                && TryMapPlaneHit(mapSource, 0f, 0.5f, planeY, out Vector3 left)
+                && TryMapPlaneHit(mapSource, 1f, 0.5f, planeY, out Vector3 right))
+            {
+                float vHalf = (top - bottom).magnitude * 0.5f;
+                float hHalf = (right - left).magnitude * 0.5f;
+                float orthoSize = Mathf.Max(vHalf, hHalf / aspect);
+                Vector3 upDir = (top - bottom); upDir.y = 0f;
+                if (orthoSize > 0.01f && upDir.sqrMagnitude > 1e-6f)
+                {
+                    upDir.Normalize();
+                    float height = Mathf.Max(50f, orthoSize) + wb.size.y;
+                    _mapAlbedoTransform!.SetPositionAndRotation(new Vector3(center.x, planeY + height, center.z),
+                                                                Quaternion.LookRotation(Vector3.down, upDir));
+                    cam.orthographic = true;
+                    cam.orthographicSize = orthoSize;
+                    cam.aspect = aspect;
+                    cam.nearClipPlane = 0.1f;
+                    cam.farClipPlane = height + wb.size.y + 10f;
+                    cam.ResetWorldToCameraMatrix();
+                    cam.ResetProjectionMatrix();
+                    matched = true;
+                }
+            }
+            if (!matched)
+            {
+                // Fallback: frame the whole mesh bounds top-down (whole map visible).
+                Vector3 wc = wb.center;
+                float orthoSize = Mathf.Max(wb.size.z * 0.5f, (wb.size.x * 0.5f) / aspect) * 1.02f;
+                float height = wb.size.y * 0.5f + Mathf.Max(50f, orthoSize);
+                _mapAlbedoTransform!.SetPositionAndRotation(new Vector3(wc.x, wc.y + height, wc.z),
+                                                            Quaternion.Euler(90f, 0f, 0f));
+                cam.orthographic = true;
+                cam.orthographicSize = orthoSize;
+                cam.aspect = aspect;
+                cam.nearClipPlane = 0.1f;
+                cam.farClipPlane = height + wb.size.y + 10f;
+                cam.ResetWorldToCameraMatrix();
+                cam.ResetProjectionMatrix();
+            }
             _capMapValid = false; // OnPreCull/OnPreRender must NOT overwrite with the game's grazing matrices
         }
         else
@@ -1509,6 +1556,9 @@ internal sealed class FlatScreenStereo
     // bounds (proven-correct content) — validates the pipeline + makes the whole map visible; game
     // pan/zoom matching comes after. See ReconcileAlbedoCamera.
     private const bool MapDiagTopDown = true;
+    // When true, the top-down ortho tracks the game camera's live map-plane footprint (pan/zoom/rotation)
+    // so the game's on-map markers + click hit-testing line up; false = static whole-map top-down.
+    private const bool MapMatchGameFraming = true;
     private Texture2D? _uvDebugTex;
     // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
     // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
@@ -2813,6 +2863,22 @@ internal sealed class FlatScreenStereo
                                       $"srcCam='{(src != null ? src.name : "null")}' srcPos={(src != null ? src.transform.position.ToString() : "?")} " +
                                       $"srcEuler={(src != null ? src.transform.eulerAngles.ToString() : "?")} srcFOV={(src != null ? src.fieldOfView : 0f):F1} " +
                                       $"srcOrtho={(src != null ? src.orthographic : false)} srcNear={(src != null ? src.nearClipPlane : 0f):F2} srcFar={(src != null ? src.farClipPlane : 0f):F1}.");
+                if (src != null)
+                {
+                    float planeY = _worldMapRenderer.bounds.center.y;
+                    Vector3 vpCenter = src.WorldToViewportPoint(meshCenterWorld);
+                    bool okC = TryMapPlaneHit(src, 0.5f, 0.5f, planeY, out Vector3 fCenter);
+                    bool okBL = TryMapPlaneHit(src, 0f, 0f, planeY, out Vector3 fBL);
+                    bool okTR = TryMapPlaneHit(src, 1f, 1f, planeY, out Vector3 fTR);
+                    bool okB = TryMapPlaneHit(src, 0.5f, 0f, planeY, out Vector3 fB);
+                    bool okT = TryMapPlaneHit(src, 0.5f, 1f, planeY, out Vector3 fT);
+                    float vExtent = (okB && okT) ? (fT - fB).magnitude : -1f;
+                    VRLog.Info("WorldUI", $"MAP RENDER game-cam footprint: WorldToViewport(meshCenter)={vpCenter} " +
+                                          $"(on-screen ⇒ x,y in [0,1] & z>0); planeY={planeY:F2}; " +
+                                          $"footprintCenter={(okC ? fCenter.ToString() : "MISS")} " +
+                                          $"BL={(okBL ? fBL.ToString() : "MISS")} TR={(okTR ? fTR.ToString() : "MISS")} " +
+                                          $"vExtent={vExtent:F2} (map is 190×237; small vExtent ⇒ zoomed region).");
+                }
             }
             ApplyWorldMapOverride();
             return;
