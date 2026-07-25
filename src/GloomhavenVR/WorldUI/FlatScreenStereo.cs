@@ -1427,6 +1427,19 @@ internal sealed class FlatScreenStereo
         new Vector2(-1f,  0f), // 3 = 04 = SE
     };
 
+    // ---- UV DIAGNOSTIC (pure DLL, no bundle rebuild) ----
+    // When true, every MapUnlit submesh samples a GENERATED "UV read-out" texture instead of its real
+    // albedo, with _UvScale=(1,1) _UvOffset=(0,0) so the RAW mesh-wide UV field is shown. The texture
+    // encodes the coordinate directly: R = u, G = v (continuous ramp), with a coarse 8×8 dark checker to
+    // count tiles, a thick white 0..1 border, a solid MAGENTA block at the (0,0) origin corner and a
+    // solid CYAN block at the (1,1) corner. wrapMode=Repeat, so any UV outside 0..1 shows a hard
+    // red/green wrap discontinuity — that pins where the 0..1 seams fall per quadrant. From one hardware
+    // screenshot this fixes orientation (which screen direction is +u / +v), the covered range, and the
+    // per-submesh seam layout, from which the exact _UvScale/_UvOffset (or a needed flip) is computed.
+    // Set to false to restore the real map textures.
+    private const bool MapUvDebug = true;
+    private Texture2D? _uvDebugTex;
+
     /// <summary>One-shot guard: the MAP RENDER engaged line (per engagement).</summary>
     private bool _mapMirrorLogged;
     /// <summary>The parchment mesh's LOCAL bounds min/size (meshFilter.sharedMesh.bounds) — the MapUnlit UV base.</summary>
@@ -2116,6 +2129,60 @@ internal sealed class FlatScreenStereo
     /// rebuilt when the renderer or its submesh count changes. Returns false (one-shot WARN) if the
     /// shader is missing or no submesh yielded a usable albedo texture.
     /// </summary>
+    /// <summary>
+    /// Build (once, cached) the UV read-out texture used by the <see cref="MapUvDebug"/> diagnostic.
+    /// Encodes the sampled UV directly as colour so a hardware screenshot reveals the object-space→UV
+    /// mapping: R = u, G = v, dark 8×8 checker to count tiles, white 0..1 border, MAGENTA block at the
+    /// (0,0) origin corner, CYAN block at the (1,1) corner. wrapMode = Repeat so out-of-range UV wraps
+    /// with a hard red/green discontinuity that pins the 0..1 seams.
+    /// </summary>
+    private Texture2D UvDebugTexture()
+    {
+        if (_uvDebugTex != null)
+            return _uvDebugTex;
+
+        const int N = 256;
+        const int cell = N / 8;   // 8×8 checker
+        const int mark = 40;      // corner marker size (px)
+        const int border = 6;     // white border thickness (px)
+        var px = new Color32[N * N];
+        for (int y = 0; y < N; y++)
+        {
+            for (int x = 0; x < N; x++)
+            {
+                byte r = (byte)(x * 255 / (N - 1)); // u ramp
+                byte g = (byte)(y * 255 / (N - 1)); // v ramp
+                byte b = 40;
+                // Coarse checker (darken alternate cells) to make the tile grid legible.
+                if ((((x / cell) + (y / cell)) & 1) == 1)
+                {
+                    r = (byte)(r * 55 / 100);
+                    g = (byte)(g * 55 / 100);
+                    b = 22;
+                }
+                // 0..1 border (white), origin marker (magenta), far corner marker (cyan).
+                if (x < border || x >= N - border || y < border || y >= N - border)
+                    px[y * N + x] = new Color32(255, 255, 255, 255);
+                else if (x < mark && y < mark)
+                    px[y * N + x] = new Color32(255, 0, 255, 255);       // (0,0) origin
+                else if (x >= N - mark && y >= N - mark)
+                    px[y * N + x] = new Color32(0, 255, 255, 255);       // (1,1) corner
+                else
+                    px[y * N + x] = new Color32(r, g, b, 255);
+            }
+        }
+        var t = new Texture2D(N, N, TextureFormat.RGBA32, false, false)
+        {
+            name = "GloomhavenVR.UvDebug",
+            wrapMode = TextureWrapMode.Repeat,
+            filterMode = FilterMode.Point,
+        };
+        t.SetPixels32(px);
+        t.Apply(false, false);
+        _uvDebugTex = t;
+        return t;
+    }
+
     private bool BuildOverrideMaterials()
     {
         if (_worldMapRenderer == null)
@@ -2175,6 +2242,13 @@ internal sealed class FlatScreenStereo
             // back to this submesh material's own albedo.
             if (q >= 0 && q < 4 && _mapQuadTextures != null && _mapQuadTextures[q] != null)
                 tex = _mapQuadTextures[q];
+
+            // UV DIAGNOSTIC: swap the real albedo for the generated UV read-out texture (see MapUvDebug).
+            if (MapUvDebug)
+            {
+                tex = UvDebugTexture();
+                prop = "UV-DEBUG";
+            }
 
             var m = new Material(sh) { name = "GloomhavenVR.MapUnlit." + i };
             m.SetVector("_LocalMin", new Vector4(_mapLocalMin.x, _mapLocalMin.y, _mapLocalMin.z, 0f));
