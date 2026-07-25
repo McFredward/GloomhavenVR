@@ -205,27 +205,35 @@ namespace GloomhavenVR.WorldUI;
 /// the campaign map goes black; the earlier layer-exclusion theory was wrong (attempt #2 widening
 /// the mask changed nothing).
 ///
-/// FIX (STEP-2, SELECTIVE STRIP + MAP EXPOSURE — attempt #5): the earlier all-effects strip made
-/// the base RT non-black but VERY DARK (async probe: max 253, mean 21/255, lit 100%) — the map
-/// geometry renders but UNLIT, because the strip also removed BEAUTIFY, the tonemap/exposure/colour-
-/// grade effect that makes the map bright and correct. The two ACTIVE image transformers on the
-/// CampaignMap camera are ScreenSpaceAmbientOcclusion and Beautify (VolumetricFog is off, its PosT
-/// pass is a plain copy, FogOfWarController is inert, PostProcessLayer is off — decompiled). The fix
-/// therefore strips effects INDIVIDUALLY (<see cref="StripWhat"/> plan) and is ADAPTIVE:
-///   1. First KEEP Beautify and strip everything else (<see cref="StripWhat.AllButToneMap"/>). If the
-///      blacker was SSAO/fog, the base RT recovers NON-black AND Beautify's own tonemap makes it
-///      BRIGHT — the base-RT probe reads a HIGH mean, the success signal. No manual exposure.
-///   2. If keeping Beautify leaves the base RT BLACK (Beautify's eye-adaptation is itself the blacker),
-///      escalate to stripping Beautify too and apply the mod's OWN exposure: a [WorldUI] MapExposure
-///      gain blit (Overlay-shader tex*_Color multiply) lifts the raw dark map (mean 21) to a bright
-///      level in the STABLE eye RT both eyes sample. The base RT then stays dark by design — the
-///      'eye RT (stable)' probe mean is the success signal instead.
+/// ROOT CAUSE (attempt #6, DEFINITIVE — decompiled + hardware-log confirmed): the campaign 'MapCamera'
+/// renders <c>RenderingPath.DeferredShading</c>, and the map parchment uses the Amplify PBR shader
+/// <c>Amp_Basic_N_MRAO</c>. A DEFERRED surface rendered into a REDIRECTED targetTexture never gets its
+/// deferred lighting / G-buffer resolved — so even with ALL image effects stripped the base RT reads
+/// mean ~21/255: the geometry draws but UNLIT (a dark brown murk). Stripping effects cannot fix this,
+/// and a global exposure gain (attempt #5) just overexposed the surrounding UI while the map stayed a
+/// murky brown — the WRONG lever.
+///
+/// FIX (attempt #6, FORCED FORWARD): when map base capture engages, the source MapCamera's
+/// <c>renderingPath</c> is forced to <c>RenderingPath.Forward</c> (original saved, restored on
+/// release). In Forward the <c>Amp_Basic_N_MRAO</c> shader runs its ForwardBase/ForwardAdd passes and
+/// writes the LIT colour DIRECTLY into the target RT — no deferred G-buffer resolve needed — so the
+/// parchment renders bright/correct WITHOUT any exposure hack and WITHOUT touching the UI. The strip
+/// plan still runs, adaptively (<see cref="StripWhat"/>):
+///   1. First KEEP Beautify and strip everything else (<see cref="StripWhat.AllButToneMap"/>). With
+///      Forward lighting the base RT should recover NON-black and BRIGHT (expected mean >100) — the
+///      base-RT probe mean is the success signal. NO manual exposure.
+///   2. If keeping Beautify blacks the forward render, strip it too (<see cref="StripWhat.All"/>) —
+///      Forward still lights the raw map, so still no exposure gain.
+///   3. ROBUSTNESS: if the forward render is BLACK or MAGENTA (the shader has no supported forward
+///      pass), fall back to the proven DEFERRED + strip-all path with the [WorldUI] MapExposure gain
+///      re-armed as a MANUAL last-resort knob (default 1x = no-op; applied to the MAP render only,
+///      never the UI). The mod's widened-mask clone (also forward) keeps both eyes non-black meanwhile.
 /// DIAGNOSTIC ([WorldUI] MapEffectDiag): sweeps the strip subsets one at a time (Fog / FogOfWar /
-/// SSAO / Beautify / all-but-Beautify / all), logging each subset's base-RT mean, so a hardware log
-/// pinpoints which effect blacks the RT and which brightens it. The eyes stay on the mod's own
-/// non-black map clone during the sweep, which then settles on the strip-all + MapExposure fix.
+/// SSAO / Beautify / all-but-Beautify / all) under the forced Forward path, logging each subset's
+/// base-RT mean + per-channel means, so a hardware log pinpoints which effect blacks the RT and which
+/// (with Forward) brightens it. The eyes stay on the mod's own non-black map clone during the sweep.
 /// All gated behind the black probe, so no working scene (menu video, guildmaster) is ever touched;
-/// effects are restored verbatim on release.
+/// effects AND the rendering path are restored verbatim on release.
 ///
 /// FALLBACK (retained, no regression): if stripping does NOT recover the base RT (some other
 /// mechanism blacks it), the mod still renders the map ITSELF — a zero-offset bare clone of the
@@ -292,8 +300,14 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<float>? s_mapExposure;
     /// <summary>Diagnostic: sweep per-effect strip subsets and log each base-RT mean (see MAP EFFECT DIAG).</summary>
     private static ConfigEntry<bool>? s_mapEffectDiag;
-    /// <summary>Default map exposure gain (a 3–5x boost lifts the unlit ~21/255 mean to a visible level).</summary>
-    private const float DefaultMapExposure = 4.0f;
+    /// <summary>
+    /// Default map exposure gain — 1.0 = OFF / no-op (task step 1 revert). The map's brightness must
+    /// come from correct LIGHTING (the forced-Forward render, class doc FORWARD LIGHTING), NOT a post
+    /// gain. This knob is a manual LAST RESORT: it applies ONLY on the deferred fallback path
+    /// (<see cref="_manualExposure"/>, when forcing Forward failed) and ONLY to the map render — never
+    /// the UI composite. At 1.0 it multiplies by one, so no brightness blit changes anything.
+    /// </summary>
+    private const float DefaultMapExposure = 1.0f;
 
     // ---- map base capture (class doc MAP BASE CAPTURE) -------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
@@ -378,6 +392,15 @@ internal sealed class FlatScreenStereo
         public List<Behaviour>? DisabledEffects;
         /// <summary>Strip mask last reconciled onto this source (-1 = none applied) — idempotency gate.</summary>
         public int AppliedStripMask = -1;
+        // Map base capture FORWARD FIX (class doc / task): the campaign 'MapCamera' renders
+        // DeferredShading, and a deferred surface rendered into our redirected RT never gets its
+        // lighting resolved (the parchment reads near-black, base mean ~21). While map base capture
+        // is engaged we force the SOURCE camera to Forward so the map shader's ForwardBase/Add passes
+        // write the LIT colour straight into the base RT. The original path is saved here and restored
+        // verbatim on release.
+        public RenderingPath OriginalRenderingPath;
+        /// <summary>True while WE hold this source camera forced to Forward (idempotency + restore gate).</summary>
+        public bool RenderingPathForced;
     }
 
     private readonly List<MirrorEntry> _mirrors = new(8);
@@ -465,6 +488,17 @@ internal sealed class FlatScreenStereo
     /// False while Beautify is kept (its own tonemap already brightens the base RT).
     /// </summary>
     private bool _manualExposure;
+    /// <summary>
+    /// THE REAL FIX (task / class doc FORWARD LIGHTING): true while the captured map source
+    /// camera(s) are forced to <see cref="RenderingPath.Forward"/> so the deferred parchment gets
+    /// LIT into the redirected base RT (no exposure hack). Set on engage; cleared (→ deferred + strip
+    /// + the manual MapExposure knob as a last resort) only if forward renders black/magenta.
+    /// </summary>
+    private bool _forwardForced;
+    /// <summary>Forward rendering was tried and abandoned this engagement (renders black/magenta) — deferred fallback, no retry.</summary>
+    private bool _forwardFailed;
+    /// <summary>Consecutive black/magenta base-RT probes since forward strip-all — drives the deferred fallback.</summary>
+    private int _forwardBlackProbes;
     /// <summary>Consecutive black base-RT probes at the current plan (drives the adaptive escalation).</summary>
     private int _baseBlackProbes;
     /// <summary>Diagnostic sweep step (-1 = not sweeping); indexes <see cref="DiagPlans"/>.</summary>
@@ -592,12 +626,14 @@ internal sealed class FlatScreenStereo
             "grading (already lost — it was black) plus one extra render while engaged. " +
             "Off = legacy (black map if the game camera renders black).");
         s_mapExposure = file.Bind("WorldUI", "MapExposure", DefaultMapExposure,
-            "Exposure gain applied to the campaign map ONLY when the map base capture had to strip " +
-            "the game's Beautify tonemap to stop it blacking the screen's render texture (the raw, " +
-            "unlit map otherwise reads very dark — mean ~21/255). A simple per-pixel multiply blit " +
-            "before the map reaches the eyes lifts it to a bright, readable level. Has no effect " +
-            "when Beautify could be kept (the map is already tone-mapped bright) or outside the " +
-            "campaign map. 1 = no gain; 3–5 is a sensible boost. Clamped 1–16.");
+            "MANUAL LAST-RESORT exposure gain for the campaign map, default 1 = OFF. The map's " +
+            "brightness normally comes from correct LIGHTING: the map base capture forces the " +
+            "MapCamera to Forward rendering so its deferred parchment gets lit into the screen's " +
+            "render texture. This gain is applied ONLY if forcing Forward failed (the shader has no " +
+            "forward pass) AND Beautify then had to be stripped, leaving the raw deferred map dark " +
+            "(~21/255) — a per-pixel multiply on the MAP render (never the UI) lifts it. Leave at 1 " +
+            "unless the log shows the deferred fallback engaged and the map is dark; then 3–5 is a " +
+            "sensible boost. Clamped 1–16.");
         s_mapEffectDiag = file.Bind("WorldUI", "MapEffectDiag", false,
             "DIAGNOSTIC: when the campaign map's base render texture is black, sweep the MapCamera's " +
             "image effects one strip-subset at a time (Fog only, FogOfWar only, SSAO only, Beautify " +
@@ -744,6 +780,9 @@ internal sealed class FlatScreenStereo
         _blackConsecutive = 0;
         _stripMask = StripWhat.None;
         _manualExposure = false;
+        _forwardForced = false;
+        _forwardFailed = false;
+        _forwardBlackProbes = 0;
         _baseBlackProbes = 0;
         _diagStep = -1;
         _diagStepProbes = 0;
@@ -1005,8 +1044,16 @@ internal sealed class FlatScreenStereo
         // it left the base RT black. Restored verbatim on release. Gated behind the black probe, so
         // no working scene (menu video / guildmaster) is ever touched.
         if (_mapBaseCapture)
+        {
+            // THE REAL FIX (task): force the source map camera to Forward so its deferred surface
+            // is LIT into the redirected base RT. Undone here if the fix later falls back to deferred.
+            if (_forwardForced)
+                ForceForwardOnSource(entry, source);
+            else if (entry.RenderingPathForced)
+                RestoreSourceRenderingPath(entry);
             ApplyStripPlan(entry, source, _stripMask);
-        else if (entry.AppliedStripMask >= 0)
+        }
+        else if (entry.AppliedStripMask >= 0 || entry.RenderingPathForced)
             RestoreSourceEffects(entry);
 
         if (!entry.SourceOn)
@@ -1082,6 +1129,9 @@ internal sealed class FlatScreenStereo
             lm.allowHDR = source.allowHDR;
             lm.allowMSAA = source.allowMSAA;
             lm.useOcclusionCulling = source.useOcclusionCulling;
+            // Match the forward fix on the mod's own clone too, so the not-yet-recovered fallback
+            // render is LIT as well (a deferred clone would be just as dark as the game render).
+            lm.renderingPath = _forwardForced ? RenderingPath.Forward : source.renderingPath;
             lm.projectionMatrix = source.projectionMatrix;
             if (lm.targetTexture != _rtLeft)
                 lm.targetTexture = _rtLeft;
@@ -1352,6 +1402,12 @@ internal sealed class FlatScreenStereo
         _stableIdentityLogged = false;
         _baseBlackProbes = 0;
         _manualExposure = false;
+        // THE REAL FIX (task): begin with the source map camera forced to Forward so its deferred
+        // parchment is lit into the base RT — no exposure hack. Cleared to a deferred fallback only
+        // if forward renders black/magenta (SyncCamera applies/restores the path per source).
+        _forwardForced = true;
+        _forwardFailed = false;
+        _forwardBlackProbes = 0;
         ReleaseStableRt(); // a stale hold from a previous engagement must not leak into this one
 
         // Strip controller (STEP-2 FIX): the diagnostic sweeps per-effect subsets; the adaptive fix
@@ -1378,13 +1434,16 @@ internal sealed class FlatScreenStereo
         VRLog.Info("WorldUI", $"MAP BASE CAPTURE ENGAGED: the screen's base RenderTexture reads " +
                               $"BLACK (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a " +
                               "3D background camera renders. Decompiled evidence: the campaign map parchment is " +
-                              "ordinary mesh geometry (MapChoreographer.worldMap, GH_WorldMap materials) on a layer " +
-                              "the game MapCamera's mask (0xF00FFE37) EXCLUDES, and MapCamera's own render into the " +
-                              "redirected base RT comes out all-black. The mod now renders the map itself with a " +
-                              "WIDENED culling mask (all layers minus the mod layer) into _rtLeft and drives BOTH " +
-                              "eyes from it through the depth-shift path (3D window; mono non-black if the shift is " +
-                              "unavailable). The scene's own colour grading is lost — it was black. Re-arms on the " +
-                              "next scene change.");
+                              "ordinary mesh geometry (MapChoreographer.worldMap, GH_WorldMap materials) rendered by " +
+                              "the DeferredShading 'MapCamera' — and a deferred surface's lighting is NOT resolved " +
+                              "into a redirected targetTexture (base mean ~21, unlit murk). THE REAL FIX (task): the " +
+                              "source MapCamera is now forced to Forward rendering so the map shader's ForwardBase/Add " +
+                              "passes write the LIT colour directly into the base RT — expected base mean to jump well " +
+                              "above 21 (>100) with NO exposure gain. Beautify is kept first; stripped only if it " +
+                              "blacks the forward render. If Forward renders black/magenta (no forward pass) the fix " +
+                              "falls back to Deferred + strip + the manual MapExposure knob, and the mod's own " +
+                              "WIDENED-mask clone into _rtLeft (also forward) drives both eyes meanwhile — never " +
+                              "black. Re-arms on the next scene change.");
     }
 
     /// <summary>Create the lazily-allocated map base-capture camera for this entry (bare, disabled).</summary>
@@ -1498,9 +1557,46 @@ internal sealed class FlatScreenStereo
                                   $"re-enabled [{(reenabledNames.Length > 0 ? reenabledNames : "none")}].");
     }
 
+    /// <summary>
+    /// Force this source map camera to Forward rendering (task: THE REAL FIX) so its deferred
+    /// parchment gets LIT into the redirected base RT. Idempotent — the original path is saved once
+    /// and restored verbatim on release / fallback.
+    /// </summary>
+    private void ForceForwardOnSource(MirrorEntry entry, Camera source)
+    {
+        if (source == null)
+            return;
+        if (!entry.RenderingPathForced)
+        {
+            entry.OriginalRenderingPath = source.renderingPath;
+            entry.RenderingPathForced = true;
+            VRLog.Info("WorldUI", $"MAP forward fix: '{source.name}' renderingPath forced " +
+                                  $"{entry.OriginalRenderingPath} → Forward — a Deferred surface is not lit " +
+                                  "into a redirected targetTexture (base mean ~21); Forward runs the map " +
+                                  "shader's ForwardBase/Add passes and writes the LIT colour directly.");
+        }
+        if (source.renderingPath != RenderingPath.Forward) // re-assert (game code may rewrite it)
+            source.renderingPath = RenderingPath.Forward;
+    }
+
+    /// <summary>Restore a source camera's original renderingPath (fallback to deferred / release).</summary>
+    private void RestoreSourceRenderingPath(MirrorEntry entry)
+    {
+        if (!entry.RenderingPathForced)
+            return;
+        entry.RenderingPathForced = false;
+        if (entry.Source != null)
+        {
+            entry.Source.renderingPath = entry.OriginalRenderingPath;
+            VRLog.Info("WorldUI", $"MAP forward fix: '{entry.Source.name}' renderingPath restored to " +
+                                  $"{entry.OriginalRenderingPath}.");
+        }
+    }
+
     /// <summary>Re-enable every image effect we still hold disabled on this entry's source camera.</summary>
     private void RestoreSourceEffects(MirrorEntry entry)
     {
+        RestoreSourceRenderingPath(entry); // undo the forward force alongside the strip
         entry.AppliedStripMask = -1;
         List<Behaviour>? disabled = entry.DisabledEffects;
         if (disabled == null || disabled.Count == 0)
@@ -1683,7 +1779,7 @@ internal sealed class FlatScreenStereo
 
         var data = req.GetData<Color32>();
         int maxChannel = 0;
-        long sum = 0;
+        long sum = 0, rSum = 0, gSum = 0, bSum = 0;
         int litTexels = 0; // texels whose max channel clears the black threshold
         for (int i = 0; i < data.Length; i++)
         {
@@ -1694,23 +1790,31 @@ internal sealed class FlatScreenStereo
             if (m > maxChannel)
                 maxChannel = m;
             sum += m;
+            rSum += c.r; gSum += c.g; bSum += c.b;
             if (m > BlackChannelThreshold)
                 litTexels++;
         }
         // MEAN + lit-fraction disambiguate "one bright pixel fooling MAX" from a genuinely
         // filled frame: a black map area with a single bright UI corner reads high MAX but
         // near-zero MEAN and tiny lit-fraction.
-        int mean = data.Length > 0 ? (int)(sum / data.Length) : 0;
-        int litPct = data.Length > 0 ? litTexels * 100 / data.Length : 0;
-        VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max {maxChannel}/255, mean {mean}/255, " +
-                              $"lit {litPct}% ({BlackProbeSize}x{BlackProbeSize} downsample) — " +
-                              "low mean + low lit% with high max ⇒ map area still black, only a stray bright texel.");
+        int n = Mathf.Max(1, data.Length);
+        int mean = (int)(sum / n);
+        int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
+        int litPct = litTexels * 100 / n;
+        // Magenta = an unsupported/missing forward pass (task robustness): R+B high, G starved.
+        bool magenta = mean > 40 && rMean > 60 && bMean > 60 && gMean * 4 < rMean + bMean;
+        VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max {maxChannel}/255, mean {mean}/255 " +
+                              $"(r{rMean} g{gMean} b{bMean}), lit {litPct}% ({BlackProbeSize}x{BlackProbeSize} " +
+                              $"downsample), path {(_forwardForced ? "Forward(forced)" : _forwardFailed ? "Deferred(forward-failed)" : "Deferred")}" +
+                              $"{(magenta ? " — MAGENTA (no forward pass?)" : "")} — low mean + low lit% with high " +
+                              "max ⇒ map area still black, only a stray bright texel.");
 
         if (_engagedProbeIsBase)
         {
             // Feed the hold-last-non-black gate: only copy the base into the stable eye RT
             // while it reads non-black, so a black base blip freezes the last good copy.
-            _baseNonBlack = maxChannel > BlackChannelThreshold;
+            // Magenta is treated as NOT usable content (it is a shader error, not a lit map).
+            _baseNonBlack = maxChannel > BlackChannelThreshold && !magenta;
 
             if (!_diagDone)
             {
@@ -1730,53 +1834,102 @@ internal sealed class FlatScreenStereo
                     }
                     else
                     {
-                        // Sweep done — settle on the robust strip-ALL + manual exposure fix.
+                        // Sweep done — settle on the adaptive forward fix (keep Beautify first, strip it
+                        // only if it blacks the forward render). Manual exposure stays OFF while forward
+                        // supplies the lighting; it re-arms only on the deferred fallback below.
                         _diagDone = true;
-                        _stripMask = StripWhat.All;
-                        _manualExposure = true;
+                        _stripMask = StripWhat.AllButToneMap;
+                        _manualExposure = false;
                         _baseBlackProbes = 0;
-                        VRLog.Info("WorldUI", "MAP EFFECT DIAG complete — settling on strip-ALL + MapExposure " +
-                                              "gain. Compare the per-subset base means above: the subset whose base " +
-                                              "mean stayed LOW/black names the effect that BLACKS the RT; the subset " +
-                                              "with the HIGHEST mean names the BRIGHTENER (expected: Beautify).");
+                        _forwardBlackProbes = 0;
+                        VRLog.Info("WorldUI", "MAP EFFECT DIAG complete — settling on the forced-Forward fix " +
+                                              "(keep Beautify; strip it only if it blacks the forward render; no " +
+                                              "exposure gain). Compare the per-subset base means above: the subset " +
+                                              "with the HIGHEST base mean under Forward names the lit map.");
                     }
                 }
                 return; // do not run the adaptive recovery decision while sweeping
             }
 
-            // ADAPTIVE fix (strict two-phase): Beautify is KEPT first (strip everything else). If the
-            // base RT reads non-black, that plan won — Beautify's tonemap brightens it, no manual
-            // exposure. If it stays BLACK, Beautify itself is the blacker → strip it too + MapExposure.
+            // ADAPTIVE FORWARD FIX (task). Ladder while not yet recovered:
+            //   Forward + keep Beautify  →(black)→  Forward + strip Beautify
+            //                             →(black/magenta)→  DEFERRED fallback + strip-all + MapExposure knob
+            // Recovery = a non-black, non-magenta base RT: with Forward the parchment is LIT by
+            // construction (expected mean >100), so NO exposure gain. The deferred fallback is only
+            // reached if the shader has no forward pass, and even then the gain is a manual knob
+            // (default 1x = no-op) — it never touches the UI.
             if (_baseNonBlack)
             {
                 if (!_baseRecovered)
                 {
                     _baseRecovered = true;
                     VRLog.Info("WorldUI", $"MAP BASE RECOVERED: base RT reads NON-black (max {maxChannel}/255, " +
-                                          $"mean {mean}/255) with strip plan [{StripMaskName(_stripMask)}] — " +
+                                          $"mean {mean}/255) — renderingPath {(_forwardForced ? "Forward (forced — the map is now LIT by its forward passes)" : "Deferred (forward fell back)")}, " +
+                                          $"strip plan [{StripMaskName(_stripMask)}], " +
                                           (_manualExposure
-                                              ? "Beautify STRIPPED, so the eyes sample a MapExposure-gained copy of the raw map (its base mean stays low by design; watch the 'eye RT (stable)' mean instead)."
-                                              : "Beautify KEPT, its own tonemap brightens the base RT (no manual exposure; the base mean IS the success signal).") +
-                                          " Both eyes are driven from a STABLE hold-last-non-black eye RT; the " +
-                                          "'eye RT (stable, both eyes)' probe reports what they actually sample.");
+                                              ? "manual MapExposure gain ON (deferred fallback — the raw map is dark; watch the 'eye RT (stable)' mean)."
+                                              : "no exposure gain (brightness comes from lighting; the base mean IS the success signal).") +
+                                          " Both eyes are driven from a STABLE hold-last-non-black eye RT.");
                 }
+            }
+            else if (!_baseRecovered && _forwardForced && magenta)
+            {
+                // Forward render is MAGENTA (Amp_Basic_N_MRAO has no supported forward pass) — stripping
+                // more will not help. Fall back to the deferred + strip + manual-exposure path.
+                if (++_forwardBlackProbes >= EscalateBlackProbes)
+                    FallBackFromForward($"forward render is MAGENTA (max {maxChannel}/255, g{gMean}) — no forward pass");
             }
             else if (!_baseRecovered && _stripMask == StripWhat.AllButToneMap)
             {
-                // Keeping Beautify left the base RT black → Beautify's eye-adaptation/tonemap is the
-                // effect that blacks the redirected RT. Strip it too and brighten the raw map manually.
+                // Keeping Beautify left the base RT black → Beautify itself blacks the (forward or
+                // deferred) render. Strip it too; on the forward path the lighting still brightens it
+                // (no gain), on the deferred fallback re-arm the manual exposure knob.
                 if (++_baseBlackProbes >= EscalateBlackProbes)
                 {
                     _stripMask = StripWhat.All;
-                    _manualExposure = true;
+                    _manualExposure = !_forwardForced;
                     _baseBlackProbes = 0;
+                    _forwardBlackProbes = 0;
                     VRLog.Info("WorldUI", $"MAP fix escalated: keeping Beautify left the base RT BLACK " +
-                                          $"(max {maxChannel}/255) over {EscalateBlackProbes} probes — Beautify itself " +
-                                          "blacks the redirected RT, so it is now stripped too and the raw map is " +
-                                          "brightened with the [WorldUI] MapExposure gain blit.");
+                                          $"(max {maxChannel}/255) over {EscalateBlackProbes} probes — Beautify blacks " +
+                                          $"the redirected RT, so it is now stripped too " +
+                                          (_forwardForced ? "(Forward still lights the raw map — no exposure gain)."
+                                                          : "and the raw map is brightened with the MapExposure knob."));
                 }
             }
+            else if (!_baseRecovered && _forwardForced && _stripMask == StripWhat.All)
+            {
+                // Forward + strip-all and STILL black → the map shader has no usable forward pass.
+                // Fall back to deferred (the mod's widened-mask clone keeps both eyes non-black meanwhile).
+                if (++_forwardBlackProbes >= EscalateBlackProbes)
+                    FallBackFromForward($"forward strip-all still renders the base RT BLACK (max {maxChannel}/255)");
+            }
         }
+    }
+
+    /// <summary>
+    /// Forcing Forward did not light the map (the shader rendered BLACK or MAGENTA) — abandon it for
+    /// this engagement and revert to the proven DEFERRED + strip-all path, with the manual MapExposure
+    /// knob re-armed (default 1x = no-op) so the operator can lift the dark deferred render if needed.
+    /// SyncCamera restores each source camera's original renderingPath on the next sweep.
+    /// </summary>
+    private void FallBackFromForward(string why)
+    {
+        if (!_forwardForced)
+            return;
+        _forwardForced = false;
+        _forwardFailed = true;
+        _forwardBlackProbes = 0;
+        _stripMask = StripWhat.All;
+        _manualExposure = true;
+        _baseBlackProbes = 0;
+        VRLog.Warn("WorldUI", $"MAP forward fix FAILED ({why}) — reverting to DeferredShading + strip-all + " +
+                              "the manual [WorldUI] MapExposure knob (default 1x = no-op; raise it if the log " +
+                              "shows the deferred map dark). The mod's widened-mask clone keeps both eyes " +
+                              "non-black meanwhile. NEXT HYPOTHESIS if the deferred map is still dark: the base " +
+                              "RT lacks the HDR/depth buffer deferred needs to resolve lighting — try an HDR " +
+                              "base RT, or accept the map is uncapturable via redirect and show it through a " +
+                              "dedicated mod render pass.");
     }
 
     /// <summary>
@@ -1895,6 +2048,9 @@ internal sealed class FlatScreenStereo
             _blackConsecutive = 0;
             _stripMask = StripWhat.None;
             _manualExposure = false;
+            _forwardForced = false;
+            _forwardFailed = false;
+            _forwardBlackProbes = 0;
             _baseBlackProbes = 0;
             _diagStep = -1;
             _diagStepProbes = 0;
