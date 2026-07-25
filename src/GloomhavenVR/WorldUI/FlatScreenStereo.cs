@@ -1371,11 +1371,13 @@ internal sealed class FlatScreenStereo
         var rh = GloomhavenVR.Hands.VRHands.Right;
         if (rh == null || !rh.HasPose)
             return;
+        if (_mapFov <= 0f)
+            _mapFov = MapDefaultFov;
         float zy = rh.Thumbstick.y;
-        if (Mathf.Abs(zy) > MapStickDeadzone && _mapZoom > 0f)
+        if (Mathf.Abs(zy) > MapStickDeadzone)
         {
-            // Stick UP (y>0) → zoom IN (closer, smaller distance); exponential feels natural.
-            _mapZoom = Mathf.Clamp(_mapZoom * Mathf.Exp(-zy * MapZoomSpeed * Time.deltaTime), MapZoomDistMin, MapZoomDistMax);
+            // Stick UP (y>0) → zoom IN → narrower FOV; DOWN → zoom OUT → wider FOV (matches flat's wheel).
+            _mapFov = Mathf.Clamp(_mapFov - zy * MapZoomSpeed * Time.deltaTime, MapMinFov, MapMaxFov);
         }
     }
 
@@ -1494,25 +1496,31 @@ internal sealed class FlatScreenStereo
         float radius = cc.m_CameraDefaultRadius;
         float baseH = cc.m_InitialCameraHeight;               // authored map-camera height (fixed ~80° pitch with radius)
         Vector3 diff = cc.m_CameraToFocalTargetDiff;          // horizontal offset, |diff| == radius
-        // ZOOM: mod-managed distance multiplier (right-stick), fixed FOV. Dolly the camera along its view
-        // ray from the focal point — unlimited zoom range, no FOV distortion.
-        if (_mapZoom <= 0f)
-            _mapZoom = MapZoomDefault;
-        fov = MapFovConst;
+        // ZOOM = CAMERA FOV, exactly like flat. The camera keeps the scene pose (fixed radius + height);
+        // only FOV changes, so the DEFAULT (world 60° / city 80°) frames the map 1:1 with the flat game.
+        float defFov = MapDefaultFov;
+        if (_mapFov <= 0f)
+            _mapFov = defFov;
+        fov = _mapFov;
         if (!_mapPoseLogged)
         {
             _mapPoseLogged = true;
-            VRLog.Info("WorldUI", $"MAP POSE (CameraController): focal(target)={cc.m_TargetFocalPoint} FocusPoint={cc.FocusPoint} " +
+            VRLog.Info("WorldUI", $"MAP POSE (CameraController): map={(_activeMapIsCity ? "CITY" : "WORLD")} focal(target)={cc.m_TargetFocalPoint} FocusPoint={cc.FocusPoint} " +
                                   $"radius={radius:F2} baseHeight={baseH:F2} zoomExtra={cc.m_ZoomOutExtraHeight:F2} " +
                                   $"gameZoom(target)={cc.Zoom:F1} defFOV={cc.m_DefaultFOV:F1} minFOV={cc.m_MinimumFOV:F1} " +
-                                  $"diff={diff} |diff|={diff.magnitude:F2} modFov={fov:F1} focusPtH={cc.m_FocusPointHeight:F2} " +
+                                  $"diff={diff} |diff|={diff.magnitude:F2} modFov={fov:F1} defaultFov={defFov:F0} focusPtH={cc.m_FocusPointHeight:F2} " +
                                   $"gameCamPos={cc.m_Camera.transform.position}.");
         }
         if (radius < 0.5f || baseH < 0.5f || diff.sqrMagnitude < 0.01f)
             return false; // degenerate captured values → caller uses the top-down fallback
-        // Dolly along the view ray: scale the horizontal offset AND height by the zoom distance.
-        Vector3 hdiff = new Vector3(diff.x, 0f, diff.z) * _mapZoom;
-        pos = focal + hdiff; pos.y = baseH * _mapZoom;
+        // Height ramp: flat holds y = m_InitialCameraHeight until you zoom OUT past the default, then adds
+        // up to ZoomOutExtraHeight (pull back-and-up). Replicate proportionally in FOV so zooming out past
+        // flat's range keeps pulling the camera up instead of only widening the lens.
+        float extraH = 0f;
+        if (_mapFov > defFov && MapMaxFov > defFov)
+            extraH = (_mapFov - defFov) / (MapMaxFov - defFov) * Mathf.Max(0f, cc.m_ZoomOutExtraHeight);
+        Vector3 hdiff = new Vector3(diff.x, 0f, diff.z); // fixed radius (flat pose — no dolly)
+        pos = focal + hdiff; pos.y = baseH + extraH;
         lookTarget = focal + Vector3.up * cc.m_FocusPointHeight;
         // Cache for driving the real game map camera (so its marker projection + click raycasts align).
         _mapDrivenPos = pos; _mapDrivenLook = lookTarget; _mapDrivenFov = fov; _mapDrivenValid = true;
@@ -1529,7 +1537,7 @@ internal sealed class FlatScreenStereo
         }
 
         Camera cam = _mapAlbedoCam!;
-        TickMapInput(); // right-stick zoom (updates _mapZoom before the pose is computed)
+        TickMapInput(); // right-stick zoom (updates _mapFov before the pose is computed)
         _mapSourceCam = mapSource; // OnPreRenderCamera captures its render-time matrices for our camera
         // Copy the game map camera's live world pose (the captured matrices override this before culling).
         _mapAlbedoTransform!.SetPositionAndRotation(mapSource.transform.position, mapSource.transform.rotation);
@@ -1737,15 +1745,27 @@ internal sealed class FlatScreenStereo
     /// pose so the game's marker projection + click raycasts (which use that camera) line up with our
     /// render. The VR rig only reads m_Camera as a build-time anchor (never follows it), so this is safe.</summary>
     private const bool MapDriveGameCamera = true;
-    // DISTANCE-based zoom (dolly the camera along its view ray) — unlimited range, no FOV distortion.
-    private const float MapFovConst = 55f;      // fixed FOV; zoom changes distance, not FOV
-    private const float MapZoomDefault = 2.2f;  // opening zoom (higher = further out)
-    private const float MapZoomDistMin = 0.45f; // closest
-    private const float MapZoomDistMax = 9f;     // farthest (see the whole map)
-    private const float MapZoomSpeed = 1.6f;    // exp zoom rate per sec at full stick
+    // FOV-based zoom, exactly like flat (the game's zoom IS camera FOV; MapChoreographer.SetMapConfig
+    // pushes MapConfig.DefaultFOV → ResetZoomTo → m_Camera.fieldOfView). Values extracted offline from
+    // the Campaign WorldMapConfig / CityMapConfig assets. The camera stays at the scene pose (fixed
+    // radius, height = m_InitialCameraHeight) and only FOV changes — so the DEFAULT frames 1:1 with flat.
+    private const float MapWorldDefaultFov = 60f; // WorldMapConfig.DefaultFOV (resting zoom at open)
+    private const float MapWorldMinFov = 50f;     // WorldMapConfig.MinimumFOV (most zoomed IN)
+    private const float MapCityDefaultFov = 80f;  // CityMapConfig.DefaultFOV
+    private const float MapCityMinFov = 70f;      // CityMapConfig.MinimumFOV
+    // The user wants to zoom OUT further than flat allows (flat MaxFOV is only 70/80). Extend the
+    // zoom-out clamp well past flat, and add camera height (ZoomOutExtraHeight) as FOV widens so it
+    // pulls back-and-up like flat's zoom-out, not just fisheyes in place.
+    private const float MapWorldMaxFov = 105f;
+    private const float MapCityMaxFov = 110f;
+    private const float MapZoomSpeed = 40f;       // deg/s at full stick (flat ZoomWheelSpeed = 40)
     private const float MapStickDeadzone = 0.15f;
-    /// <summary>Mod-managed map zoom as a distance multiplier (game's zoom LateUpdate is prefix-skipped in VR).</summary>
-    private float _mapZoom;
+    /// <summary>Mod-managed map zoom AS CAMERA FOV (the game's zoom LateUpdate is prefix-skipped in VR).
+    /// 0 = uninitialised → set to the active map's default FOV on the next pose. Reset on world↔city switch.</summary>
+    private float _mapFov;
+    private float MapDefaultFov => _activeMapIsCity ? MapCityDefaultFov : MapWorldDefaultFov;
+    private float MapMinFov => _activeMapIsCity ? MapCityMinFov : MapWorldMinFov;
+    private float MapMaxFov => _activeMapIsCity ? MapCityMaxFov : MapWorldMaxFov;
     private Vector3 _mapDrivenPos, _mapDrivenLook;
     private float _mapDrivenFov = 50f;
     private bool _mapDrivenValid;
@@ -2089,6 +2109,7 @@ internal sealed class FlatScreenStereo
             // Switched (world↔city, or first resolve): drop the stale renderer + textures so we re-gather.
             _activeMapGo = active;
             _activeMapIsCity = isCity;
+            _mapFov = 0f; // re-init zoom to the NEW map's default FOV (world 60 / city 80)
             _worldMapRenderer = null;
             _mapQuadTextures = null;
             _mapTexLogged = false;
@@ -2937,7 +2958,7 @@ internal sealed class FlatScreenStereo
         _mapTargetLogged = false;
         _mapPoseLogged = false;
         _mapDrivenValid = false;
-        _mapZoom = 0f;
+        _mapFov = 0f;
         _mapPanning = false;
         _mapPanLogged = false;
         _mapSceneRenderersLogged = false;
