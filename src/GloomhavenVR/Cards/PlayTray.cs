@@ -82,6 +82,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     internal static PlayTray? Current { get; private set; }
 
+    /// <summary>
+    /// The shared ability-card backing prefab (bundle <c>CardBacking.prefab</c>) the
+    /// <see cref="VRCardFactory"/> hands to <see cref="VRCard.Build"/> — captured in
+    /// <see cref="EnsureBuilt"/> so the item chips (<see cref="ItemsPile.ItemChip"/>) can reuse the
+    /// SAME card back the ability cards wear instead of a plain black slab. Null until the board is
+    /// built, or when the bundle prefab is unavailable (the item chip then falls back to the
+    /// procedural CardMesh backing, the same fallback VRCard uses).
+    /// </summary>
+    internal GameObject? CardBackingPrefab { get; private set; }
+
     private Transform? _root;
     private Transform? _anchorParent;
     private Transform? _initiativeMount;
@@ -377,6 +387,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _root = new GameObject("GloomhavenVR.PlayTray").transform;
         _root.SetParent(anchorParent, worldPositionStays: false);
         Current = this;
+        // Capture the shared card backing prefab so the item chips can wear the SAME card back the
+        // ability cards do (ItemsPile.ItemChip reads PlayTray.Current.CardBackingPrefab). Null-safe:
+        // the item chip falls back to the procedural CardMesh backing when the bundle prefab is absent.
+        CardBackingPrefab = factory.GetBackingPrefab();
         _boardDiagLogged = false; // re-log the board-facing ground truth for this fresh board
 
         Transform? confirmAnchor = null;
