@@ -632,7 +632,25 @@ internal sealed class ItemsPile
         private float _faceWidth;
         private float _faceHeight;
 
+        // FIX 1 (held pose) — the in-hand pinch target captured at grab time, in GrabAnchor-local
+        // space; TickHeldPose lerps toward it each frame while also billboarding the face to the head
+        // (mirror of VRCard._heldPos/_heldRot/_heldScale + VRCard.TickHeldPose).
+        private Vector3 _heldPos;
+        private Quaternion _heldRot = Quaternion.identity;
+        private float _heldScale = 1f;
+
+        /// <summary>FIX 1 — fraction of the card height between the bottom edge and the pinch anchor
+        /// (mirror of VRCard.PinchGripFraction): the fingers grip ~12 % up from the card bottom.</summary>
+        private const float PinchGripFraction = 0.12f;
+
+        /// <summary>FIX 2 — unscaled seconds the post-release home glide runs (mirror of
+        /// VRCard.ReleaseGlideSeconds): keeps the exponential home-lerp flying while the game may pause
+        /// simulation time. <see cref="_releaseGlide"/> counts it down; a re-grab cancels it.</summary>
+        private const float ReleaseGlideSeconds = 0.35f;
+        private float _releaseGlide;
+
         private static bool s_loggedRealCard;
+        private static bool s_loggedBacking; // one-line confirm of the backing source reused (FIX 3)
 
         internal static ItemChip Create(ItemsPile owner, Transform parent, CItem item)
         {
@@ -664,27 +682,30 @@ internal sealed class ItemsPile
             float cw = chip._faceWidth > 0.001f ? chip._faceWidth : w;
             float ch = chip._faceHeight > 0.001f ? chip._faceHeight : h;
 
-            // Thin dark card BODY behind the face, sized to the ACTUAL card (item aspect) — the same dark
-            // body the other cards use, just cropped to the item card's shape (no top/bottom bars).
-            var backing = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            backing.name = "Backing";
-            Object.Destroy(backing.GetComponent<Collider>());
-            backing.transform.SetParent(go.transform, worldPositionStays: false);
-            backing.transform.localScale = new Vector3(cw, ch, 0.0022f);
-            backing.transform.localPosition = new Vector3(0f, 0f, 0.0012f); // behind the face (+Z away from viewer)
-            var backRenderer = backing.GetComponent<MeshRenderer>();
-            Shader? backShader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
-            Core.VRLayers.Apply(backing); // mod-owned backing on the mod layer (recursion-safe: no children)
-            if (!realCard)
+            // FIX 3 — the card BODY behind the face. For a REAL item card, reuse the SAME backing the
+            // ability cards wear (bundle CardBacking.prefab handed out by PlayTray, or the procedural
+            // CardMesh fallback) so the item card's back matches the others instead of a plain black
+            // slab — cropped to the item card's near-square shape. The legacy colored cube slab is kept
+            // ONLY for the fallback (pool-unavailable) face so its icon/name still read on a tinted body.
+            GameObject? backing = realCard ? chip.BuildCardBacking(go.transform, cw, ch) : null;
+            if (backing == null)
             {
+                // Thin cube slab, sized to the ACTUAL card (item aspect): dark for a real card whose
+                // shared backing was unavailable, tinted FaceColor for the colored-slab fallback face.
+                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.name = "Backing";
+                Object.Destroy(cube.GetComponent<Collider>());
+                cube.transform.SetParent(go.transform, worldPositionStays: false);
+                cube.transform.localScale = new Vector3(cw, ch, 0.0022f);
+                cube.transform.localPosition = new Vector3(0f, 0f, 0.0012f); // behind the face (+Z away from viewer)
+                Shader? backShader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
                 if (backShader != null)
-                    backRenderer.sharedMaterial = new Material(backShader) { color = FaceColor(state) };
+                    cube.GetComponent<MeshRenderer>().sharedMaterial = new Material(backShader)
+                        { color = realCard ? new Color(0.10f, 0.09f, 0.08f) : FaceColor(state) };
+                Core.VRLayers.Apply(cube); // mod-owned backing on the mod layer (recursion-safe: no children)
+            }
+            if (!realCard)
                 BuildFallbackFace(go.transform, item, cw, ch, state);
-            }
-            else if (backShader != null)
-            {
-                backRenderer.sharedMaterial = new Material(backShader) { color = new Color(0.10f, 0.09f, 0.08f) };
-            }
 
             // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
             box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
@@ -714,6 +735,66 @@ internal sealed class ItemsPile
                                     $"for '{go.name}'.");
             }
             return chip;
+        }
+
+        /// <summary>
+        /// FIX 3 (back face — not black): build the chip's card BODY reusing the SAME backing the
+        /// ability cards use so the item card's back matches them. Prefers the bundle
+        /// <c>CardBacking.prefab</c> the <see cref="VRCardFactory"/> hands to <see cref="VRCard.Build"/>
+        /// (exposed via <see cref="PlayTray.CardBackingPrefab"/>); when the bundle prefab is
+        /// unavailable it falls back to the procedural <see cref="CardMesh"/> slab — the exact edge/back
+        /// materials VRCard's own procedural backing uses. Either way the body is sized to the item
+        /// card's near-square <paramref name="cw"/>×<paramref name="ch"/> shape (the same back, just
+        /// cropped). Returns null only if neither path can build (caller draws the legacy cube slab).
+        /// </summary>
+        private GameObject? BuildCardBacking(Transform parent, float cw, float ch)
+        {
+            try
+            {
+                GameObject? prefab = PlayTray.Current?.CardBackingPrefab;
+                GameObject backing;
+                string source;
+                if (prefab != null)
+                {
+                    backing = Object.Instantiate(prefab, parent, worldPositionStays: false);
+                    // The prefab is authored at the ability card w×h — crop it to the item's near-square
+                    // shape by scaling its authored (base) scale by cw/w and ch/h (same back, cropped).
+                    float w = CardsConfig.CardWidth.Value;
+                    float h = CardsConfig.CardHeight;
+                    Vector3 baseScale = backing.transform.localScale;
+                    if (w > 1e-5f && h > 1e-5f)
+                        backing.transform.localScale = new Vector3(
+                            baseScale.x * (cw / w), baseScale.y * (ch / h), baseScale.z);
+                    source = "bundle CardBacking.prefab (shared with the ability cards, via PlayTray)";
+                }
+                else
+                {
+                    // Procedural fallback: the SAME rounded slab + edge/back materials VRCard builds when
+                    // the bundle prefab is missing — sized directly to the item's near-square shape.
+                    backing = new GameObject("Backing");
+                    backing.transform.SetParent(parent, worldPositionStays: false);
+                    backing.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(cw, ch);
+                    var mr = backing.AddComponent<MeshRenderer>();
+                    mr.sharedMaterials = new[] { CardMesh.CreateEdgeMaterial(), CardMesh.CreateBackMaterial() };
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    source = "procedural CardMesh backing (same edge/back material as the ability cards)";
+                }
+                backing.name = "Backing";
+                backing.transform.localPosition = Vector3.zero; // face canvas sits a hair in front (-Z)
+                Core.VRLayers.Apply(backing); // mod-owned backing on the mod layer (no game children)
+                if (!s_loggedBacking)
+                {
+                    s_loggedBacking = true;
+                    VRLog.Info("Cards", $"ITEM CARD backing source: {source} — the item chip's back now " +
+                                        "matches the ability cards (no more plain black slab).");
+                }
+                return backing;
+            }
+            catch (System.Exception e)
+            {
+                VRLog.Warn("Cards", $"ITEM CARD backing build failed ({e.Message}) — falling back to the cube slab.");
+                return null;
+            }
         }
 
         /// <summary>
@@ -882,30 +963,64 @@ internal sealed class ItemsPile
             transform.localScale = Vector3.one * scale;
         }
 
-        // Take-into-hand reading pose: upright, facing the palm, enlarged — the same frame
-        // math VRCard uses so items read like ability cards do when inspected.
+        // FIX 1 — take-into-hand reading pose: pinched between thumb and index, the card CENTER sitting
+        // (0.5 − PinchGripFraction)·cardH above the pinch along the card up-axis, at InspectScale. This
+        // is VRCard.GetHeldPose verbatim, except cardH is the ITEM card's own near-square held height
+        // (_faceHeight at held scale) so the pinch grips the right spot on a near-square card. The base
+        // snap seats this the instant the chip is grabbed; TickHeldPose then billboards the face.
         protected override HeldPose GetHeldPose(VRHand hand)
         {
+            float scale = CardsConfig.InspectScale.Value;
+            // Item cards are near-square — use the chip's OWN measured held height (not the tall ability
+            // CardHeight) so the grip offset lifts the card the right amount out of the pinch.
+            float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * scale;
+
+            // GrabAnchor frame: +Y out of the palm, +Z along the fingers, ±X thumb side.
             float bias = CardsConfig.HeldFaceBias.Value * Mathf.Deg2Rad;
             var faceNormal = new Vector3(0f, Mathf.Cos(bias), -Mathf.Sin(bias));
             float thumbSide = hand.Side == HandSide.Right ? 1f : -1f;
+            // Card +Z (away from the viewer) = −faceNormal; card top (+Y) = thumb side.
             var rot = Quaternion.LookRotation(-faceNormal, new Vector3(thumbSide, 0f, 0f));
-            return new HeldPose(new Vector3(0f, 0.02f, 0.04f), rot, CardsConfig.InspectScale.Value);
+
+            Vector3 pinchLocal;
+            FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
+            FingerJoints index = hand.Rig.GetFinger(Finger.Index);
+            if (thumb.IsValid && index.IsValid)
+            {
+                Vector3 pinchWorld = (thumb.Tip.position + index.Tip.position) * 0.5f;
+                pinchLocal = hand.Rig.GrabAnchor.InverseTransformPoint(pinchWorld);
+            }
+            else
+            {
+                pinchLocal = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
+            }
+            pinchLocal += CardsConfig.HeldPinchOffset.Value;
+
+            Vector3 pos = pinchLocal + rot * new Vector3(0f, cardH * (0.5f - PinchGripFraction), 0f);
+            return new HeldPose(pos, rot, scale);
         }
 
         public override void OnGrab(VRHand hand)
         {
-            // Drop the pop before the base snap captures the pre-grab pose (so the release restores
-            // the un-popped home scale).
+            // Drop the pop so the grabbed chip starts from a clean pose.
             _fingerPopped = false;
             _laserPopped = false;
             _pop = 0f;
-            if (Holder == null)
-            {
-                transform.localScale = Vector3.one * _homeScale;
-                transform.localPosition = _homePos;
-            }
-            base.OnGrab(hand); // snaps to the reading pose
+            // FIX 1 — keep the world pose across the base re-parent so TickHeldPose flies the chip from
+            // its fan slot INTO the hand instead of teleporting (mirror of VRCard.OnGrab). The base snap
+            // seats GetHeldPose; we capture that local target, then restore the pre-grab world pose and
+            // let TickHeldPose ease in.
+            Vector3 worldPos = transform.position;
+            Quaternion worldRot = transform.rotation;
+            Vector3 worldScale = transform.localScale;
+            base.OnGrab(hand); // snaps to the reading pose at GetHeldPose
+            _heldPos = transform.localPosition;
+            _heldRot = transform.localRotation;
+            _heldScale = transform.localScale.x;
+            transform.position = worldPos;
+            transform.rotation = worldRot;
+            transform.localScale = worldScale;
+            _releaseGlide = 0f; // re-grab mid-glide: the held pose takes over cleanly (FIX 2)
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Item chip '{name}' taken into hand ({hand.Side}) — readable (state {State}).");
         }
@@ -920,7 +1035,17 @@ internal sealed class ItemsPile
             // While held the chip sits at the hand's grab anchor, so its world position IS the drop
             // point. Capture it before base.OnRelease re-parents it back to the fan.
             Vector3 dropWorldPos = transform.position;
-            base.OnRelease(hand, velocity); // detach + restore fan home
+            // FIX 2 — glide back, don't snap: base.OnRelease restores the pre-grab LOCAL pose (an
+            // instant teleport to the fan slot). Mirror VRCard.OnRelease — keep the world pose across
+            // the re-parent so the chip stays at the release point, then Update's home-lerp flies it
+            // back to its fan home over ReleaseGlideSeconds (unscaled, so it plays even while paused).
+            Quaternion worldRot = transform.rotation;
+            Vector3 worldScale = transform.localScale;
+            base.OnRelease(hand, velocity); // detach + restore fan home (pre-grab local pose)
+            transform.position = dropWorldPos;
+            transform.rotation = worldRot;
+            transform.localScale = worldScale;
+            _releaseGlide = ReleaseGlideSeconds;
             _owner?.OnChipReleased(this, dropWorldPos, hand);
         }
 
@@ -942,13 +1067,57 @@ internal sealed class ItemsPile
         private void Update()
         {
             if (Holder != null)
-                return; // held — the hand owns the pose
+            {
+                TickHeldPose(); // FIX 1 — track the wrist + billboard the face every frame while held
+                return;
+            }
+
+            float udt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // unscaled: pop/glide play while paused
             bool popped = _fingerPopped || _laserPopped;
-            float target = popped ? 1f : 0f;
-            _pop = Mathf.MoveTowards(_pop, target, PopLerpSpeed * Time.unscaledDeltaTime);
-            // Apply on top of the arc home: grow a touch + nudge toward the viewer (local -Z).
-            transform.localScale = Vector3.one * (_homeScale * (1f + (PopScale - 1f) * _pop));
-            transform.localPosition = _homePos + new Vector3(0f, 0f, -PopLift * _pop);
+            _pop = Mathf.MoveTowards(_pop, popped ? 1f : 0f, PopLerpSpeed * udt);
+            // Pop applied on top of the arc home: grow a touch + nudge toward the viewer (local -Z).
+            Vector3 posTarget = _homePos + new Vector3(0f, 0f, -PopLift * _pop);
+            float scaleTarget = _homeScale * (1f + (PopScale - 1f) * _pop);
+
+            if (_releaseGlide > 0f)
+            {
+                // FIX 2 — post-release glide: exponential ease toward the fan home (position + rotation
+                // + scale) at CardLerpSpeed on unscaled time, so a released chip flies back to its slot
+                // instead of snapping. The window converges ~99 % by ReleaseGlideSeconds; the tiny
+                // residual settle below is imperceptible (same easing/feel as VRCard's home-lerp).
+                _releaseGlide -= udt;
+                float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * udt);
+                transform.localPosition = Vector3.Lerp(transform.localPosition, posTarget, t);
+                transform.localRotation = Quaternion.Slerp(transform.localRotation, _homeRot, t);
+                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * scaleTarget, t);
+            }
+            else
+            {
+                // Settled: apply the pop directly on the arc home (unchanged steady-state behavior).
+                transform.localScale = Vector3.one * scaleTarget;
+                transform.localPosition = posTarget;
+            }
+        }
+
+        /// <summary>
+        /// FIX 1 — fly-in / read-in-hand pose: the chip sits at the pinch point (localPosition lerped in
+        /// GrabAnchor-local space, so it tracks the wrist 1:1) but per-frame BILLBOARDS its face to the
+        /// head, and lerps scale — VRCard.TickHeldPose verbatim, so a held item card is at the same
+        /// place/orientation as a held ability card (at the pinch, always facing the player).
+        /// </summary>
+        private void TickHeldPose()
+        {
+            float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
+            transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
+            Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            if (head != null)
+            {
+                Vector3 away = transform.position - head.transform.position; // card +Z away from viewer
+                if (away.sqrMagnitude > 1e-6f)
+                    transform.rotation = Quaternion.Slerp(transform.rotation,
+                        Quaternion.LookRotation(away.normalized, head.transform.up), t);
+            }
+            transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
         }
 
         // ---- IPokeable (laser hover + pluck; the board laser drives these) ----------
