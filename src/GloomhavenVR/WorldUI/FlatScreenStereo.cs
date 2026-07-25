@@ -213,7 +213,28 @@ namespace GloomhavenVR.WorldUI;
 /// and a global exposure gain (attempt #5) just overexposed the surrounding UI while the map stayed a
 /// murky brown — the WRONG lever.
 ///
-/// FIX (attempt #6, FORCED FORWARD): when map base capture engages, the source MapCamera's
+/// FIX (attempt #7, DEFAULT — MAP BACKBUFFER GRAB, [WorldUI] MapBackbufferGrab, default ON): stop fighting
+/// the redirect entirely. Hardware log (build 9b119624f) settled it: <c>QualitySettings.activeColorSpace</c>
+/// is <c>Gamma</c> (so the whole sRGB/Linear colorspace hypothesis — MapSrgbFix — is a NO-OP and is dead),
+/// the earliest-capture probe right after MapCamera onPostRender is ALREADY dark (mean ~12), forcing Forward
+/// does NOT help (Amp_Basic_N_MRAO has no usable forward pass), and the map renders BRIGHT ONLY on the native
+/// backbuffer (it flashes up bright for one frame before the redirect kicks in). Conclusion: this scene's
+/// deferred lighting + Beautify (camera CommandBuffers, Decalicious decals, VolumetricFog) resolve ONLY to the
+/// real backbuffer, never to an off-screen RenderTexture, regardless of camera or rendering path. So: when the
+/// map base capture engages (the SAME reliable black-probe detection), FlatScreen LEAVES the game MapCamera on
+/// its native backbuffer (<c>targetTexture = null</c> — the bright full deferred+Beautify render; MapCamera is
+/// a mono stereo=None camera, so it renders to the desktop game-window backbuffer, not the XR eye swapchain),
+/// and attaches a <c>CommandBuffer</c> at <c>CameraEvent.AfterImageEffects</c> that blits
+/// <c>BuiltinRenderTextureType.CameraTarget</c> (the finished image) into the base RT (<see cref="_leftRt"/>,
+/// = FlatScreen's <c>_rt</c>). The engaged/center probes then read that base RT bright and set
+/// <see cref="_baseRecovered"/>, so the existing MONO/stable-eye path drives BOTH eyes from the grabbed RT —
+/// exactly the native look. NO forced Forward, NO effect strip, NO mod clone camera, NO exposure gain, NO sRGB
+/// RT (all created plain Default). The mod HeadCamera (depth 0+) then clears the eye and draws the quad, so the
+/// MapCamera's direct-to-backbuffer render is harmless (overwritten) — the CommandBuffer grabbed it first.
+/// Rendering-only, multiplayer-safe (no game state touched). Everything below (attempt #6 and earlier) is the
+/// LEGACY path, kept reachable with [WorldUI] MapBackbufferGrab OFF for safety.
+///
+/// FIX (attempt #6, FORCED FORWARD — LEGACY, grab OFF): when map base capture engages, the source MapCamera's
 /// <c>renderingPath</c> is forced to <c>RenderingPath.Forward</c> (original saved, restored on
 /// release). In Forward the <c>Amp_Basic_N_MRAO</c> shader runs its ForwardBase/ForwardAdd passes and
 /// writes the LIT colour DIRECTLY into the target RT — no deferred G-buffer resolve needed — so the
@@ -304,6 +325,8 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<bool>? s_mapSrgbFix;
     /// <summary>SECONDARY: gamma-encode the recovered map on the stable eye RT when MapSrgbFix is off (see MapGammaCorrect config).</summary>
     private static ConfigEntry<bool>? s_mapGammaCorrect;
+    /// <summary>BACKBUFFER GRAB (default ON): capture the campaign map from the real backbuffer via a CommandBuffer instead of redirecting the deferred MapCamera onto an off-screen RT (see MapBackbufferGrab config, class doc MAP BACKBUFFER GRAB).</summary>
+    private static ConfigEntry<bool>? s_mapBackbufferGrab;
     /// <summary>
     /// Default map exposure gain — 1.0 = OFF / no-op (task step 1 revert). The map's brightness must
     /// come from correct LIGHTING (the forced-Forward render, class doc FORWARD LIGHTING), NOT a post
@@ -488,7 +511,8 @@ internal sealed class FlatScreenStereo
     // ---- STEP-1 colorspace measurement + map-area probes (leading hypothesis: Linear/sRGB) ----
     /// <summary>One-shot colorspace-facts log guard (per activation) — STEP-1a.</summary>
     private bool _colorspaceLogged;
-    private const int CenterProbeIntervalFrames = 30;
+    /// <summary>Frames between center-region base-RT probes — ~once per second (low-spam; the MAP GRAB probe line rides this cadence).</summary>
+    private const int CenterProbeIntervalFrames = 60;
     /// <summary>Central fraction of the base RT the map-area probe samples (away from UI/corners).</summary>
     private const float CenterProbeRegion = 0.5f;
     private RenderTexture? _centerProbeRt;
@@ -530,6 +554,8 @@ internal sealed class FlatScreenStereo
     private int _diagStepProbes;
     /// <summary>True once the diagnostic sweep has finished and settled on the safe strip-all + gain fix.</summary>
     private bool _diagDone;
+    /// <summary>MAP BACKBUFFER GRAB: consecutive center probes reading dark (&lt;25 mean) since engage — drives the one-shot "grab failed" hint.</summary>
+    private int _grabDarkProbes;
     /// <summary>Lazily-built exposure-gain blit material (MapExposure); Overlay shader, opaque overwrite.</summary>
     private Material? _gainMaterial;
     private bool _gainMaterialWarned;
@@ -681,7 +707,26 @@ internal sealed class FlatScreenStereo
             "recovers) by making that RT sRGB, so a linear->sRGB encode happens on the blit into it. " +
             "MapSrgbFix (the base-RT sRGB fix) is the primary, complete fix and takes precedence; this " +
             "only lifts the narrow recovered-map path when the primary fix is disabled.");
+        s_mapBackbufferGrab = file.Bind("WorldUI", "MapBackbufferGrab", true,
+            "THE MAP FIX (default ON): capture the campaign world map from the REAL backbuffer via a " +
+            "CommandBuffer instead of redirecting the deferred MapCamera onto an off-screen RenderTexture. " +
+            "Hardware fact (build 9b119624f): the scene's deferred lighting + Beautify resolve ONLY to the " +
+            "native backbuffer — redirecting the MapCamera's targetTexture (or a forced-Forward clone) onto " +
+            "any RT yields a flat dark grey-brown (base mean ~12/255), because deferred G-buffer lighting is " +
+            "never resolved into an off-screen target and the map shader Amp_Basic_N_MRAO has no usable " +
+            "forward pass. With this ON the MapCamera is LEFT on its native backbuffer (targetTexture=null, " +
+            "full bright deferred+Beautify render), and a CommandBuffer at CameraEvent.AfterImageEffects " +
+            "blits BuiltinRenderTextureType.CameraTarget into the flat-screen base RT the display samples — " +
+            "so the screen shows the exact bright native map. The mod HeadCamera then overwrites the " +
+            "backbuffer with the eye quad, so the MapCamera's direct-to-backbuffer render is harmless. Off = " +
+            "the legacy forced-Forward / effect-strip redirect path (proven to render dark; kept for safety).");
     }
+
+    /// <summary>[WorldUI] MapBackbufferGrab — capture the map from the native backbuffer via a CommandBuffer (class doc MAP BACKBUFFER GRAB).</summary>
+    internal static bool MapBackbufferGrabOn => s_mapBackbufferGrab?.Value ?? true;
+
+    /// <summary>True while the campaign-map base capture is engaged (drives FlatScreen's backbuffer-grab of the MapCamera).</summary>
+    internal bool MapBaseCaptureEngaged => _mapBaseCapture;
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
@@ -704,7 +749,11 @@ internal sealed class FlatScreenStereo
     /// </summary>
     internal static RenderTexture CreateColorRt(int width, int height, int depth, string name, bool gammaFallback = false)
     {
-        bool srgb = MapSrgbFixOn || (gammaFallback && MapGammaCorrectOn);
+        // MAP BACKBUFFER GRAB (default ON): the sRGB read/write hypothesis is a proven NO-OP on the test
+        // rig — QualitySettings.activeColorSpace is Gamma there (build 9b119624f), so RenderTextureReadWrite.sRGB
+        // yields sRGB=False regardless. Under the grab path the RT just receives an already-correct backbuffer
+        // copy, so create it plain Default; the legacy sRGB/gamma levers remain reachable with the grab OFF.
+        bool srgb = !MapBackbufferGrabOn && (MapSrgbFixOn || (gammaFallback && MapGammaCorrectOn));
         RenderTextureReadWrite rw = srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Default;
         return new RenderTexture(width, height, depth, RenderTextureFormat.Default, rw)
         {
@@ -778,7 +827,10 @@ internal sealed class FlatScreenStereo
         // CAPTURE); only kept alive while engaged.
         if (_rtLeft != null && (_rtLeft.width != leftRt!.width || _rtLeft.height != leftRt.height))
             ReleaseLeftRt();
-        if (_mapBaseCapture && _rtLeft == null)
+        // The mod-owned clone RT (_rtLeft) is only used by the LEGACY forward/clone path. Under the
+        // backbuffer grab (default) the map is fed straight into the base RT from the native backbuffer,
+        // so no clone camera / clone RT is created at all.
+        if (_mapBaseCapture && !MapBackbufferGrabOn && _rtLeft == null)
             EnsureLeftRt();
 
         if (!_active)
@@ -878,6 +930,7 @@ internal sealed class FlatScreenStereo
         _diagStep = -1;
         _diagStepProbes = 0;
         _diagDone = false;
+        _grabDarkProbes = 0;
         ReleaseGainMaterial();
         if (_root != null)
         {
@@ -1105,6 +1158,30 @@ internal sealed class FlatScreenStereo
         }
         int mean = (int)(sum / n);
         int rMean = (int)(rSum / n), gMean = (int)(gSum / n), bMean = (int)(bSum / n);
+
+        // MAP BACKBUFFER GRAB: this center region of the base RT is exactly what the CommandBuffer copied
+        // from the native backbuffer — a single decisive line tells us success/failure (task logging spec).
+        if (_mapBaseCapture && MapBackbufferGrabOn)
+        {
+            VRLog.Info("WorldUI",
+                $"MAP GRAB probe: grabbed RT center mean {mean}/255 (r{rMean} g{gMean} b{bMean}), max {max} — " +
+                ">50 ⇒ bright native map captured; ~12 flat ⇒ grab failed (CameraTarget empty / wrong event).");
+            // If it stays dark for a few seconds, surface a decisive diagnostic hint ONCE (no auto-fallback —
+            // we want to see the real result on the next hardware log).
+            if (mean < 25)
+            {
+                if (++_grabDarkProbes == 3)
+                    VRLog.Warn("WorldUI", "MAP GRAB still dark — CameraTarget may be empty at " +
+                                          "AfterImageEffects; try CameraEvent.AfterEverything or verify " +
+                                          "MapCamera.targetTexture is null (the redirect must be released).");
+            }
+            else
+            {
+                _grabDarkProbes = 0;
+            }
+            return;
+        }
+
         bool srgb = _leftRt != null
             && UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(_leftRt.graphicsFormat);
         VRLog.Info("WorldUI",
@@ -1317,10 +1394,10 @@ internal sealed class FlatScreenStereo
         // redirected RT; it escalates to stripping Beautify too (+ MapExposure gain) only if keeping
         // it left the base RT black. Restored verbatim on release. Gated behind the black probe, so
         // no working scene (menu video / guildmaster) is ever touched.
-        if (_mapBaseCapture)
+        if (_mapBaseCapture && !MapBackbufferGrabOn)
         {
-            // THE REAL FIX (task): force the source map camera to Forward so its deferred surface
-            // is LIT into the redirected base RT. Undone here if the fix later falls back to deferred.
+            // LEGACY REDIRECT PATH (grab OFF): force the source map camera to Forward so its deferred
+            // surface is LIT into the redirected base RT. Undone here if the fix falls back to deferred.
             if (_forwardForced)
                 ForceForwardOnSource(entry, source);
             else if (entry.RenderingPathForced)
@@ -1328,6 +1405,9 @@ internal sealed class FlatScreenStereo
             ApplyStripPlan(entry, source, _stripMask);
         }
         else if (entry.AppliedStripMask >= 0 || entry.RenderingPathForced)
+            // MAP BACKBUFFER GRAB (default) leaves the source camera completely untouched (it renders its
+            // native bright backbuffer image, grabbed by FlatScreen's CommandBuffer) — restore any effects/
+            // rendering-path override a previous legacy engagement left on it.
             RestoreSourceEffects(entry);
 
         if (!entry.SourceOn)
@@ -1667,6 +1747,38 @@ internal sealed class FlatScreenStereo
     {
         if (_mapBaseCapture)
             return;
+
+        // MAP BACKBUFFER GRAB (default, class doc): the base RT reads black because the deferred MapCamera
+        // was redirected onto it. Instead of fighting the redirect (forced Forward / effect strip / clone),
+        // engage the grab: FlatScreen leaves the MapCamera on its NATIVE backbuffer and a CommandBuffer at
+        // AfterImageEffects blits the finished bright image into this base RT. No clone RT, no source-camera
+        // changes here; the engaged/center probes below read the grabbed base RT and drive both eyes from it.
+        if (MapBackbufferGrabOn)
+        {
+            _mapBaseCapture = true;
+            _baseRecovered = false;
+            _baseNonBlack = false;
+            _stableIdentityLogged = false;
+            _forwardForced = false;      // never force Forward under the grab
+            _forwardFailed = false;
+            _manualExposure = false;     // the grabbed image is already correctly bright
+            _stripMask = StripWhat.None; // never strip effects under the grab
+            _diagStep = -1;
+            _diagStepProbes = 0;
+            _diagDone = true;
+            _grabDarkProbes = 0;
+            ReleaseStableRt();           // a stale hold from a previous engagement must not leak in
+            LogMapRenderSetup(maxChannel);
+            VRLog.Info("WorldUI", "MAP BACKBUFFER GRAB ENGAGED: MapCamera left on native backbuffer " +
+                                  "(targetTexture=null); CommandBuffer AfterImageEffects blits CameraTarget " +
+                                  "→ " + (_leftRt != null ? _leftRt.name : "base RT") + ". This captures the " +
+                                  "fully-lit deferred+Beautify image (the bright native render) instead of the " +
+                                  "dark off-screen redirect. Base RT reads BLACK now (max channel " +
+                                  $"{maxChannel}/255) — expect the MAP GRAB probe below to jump to a bright mean " +
+                                  "(>50) once the grab lands. Re-arms on the next scene change.");
+            return;
+        }
+
         if (!EnsureLeftRt())
         {
             _mapBaseCaptureFailed = true;
@@ -2081,7 +2193,11 @@ internal sealed class FlatScreenStereo
         int litPct = litTexels * 100 / n;
         // Magenta = an unsupported/missing forward pass (task robustness): R+B high, G starved.
         bool magenta = mean > 40 && rMean > 60 && bMean > 60 && gMean * 4 < rMean + bMean;
-        VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max {maxChannel}/255, mean {mean}/255 " +
+        // Under the backbuffer grab the once/sec MAP GRAB line (OnCenterProbe) is the canonical brightness
+        // report; suppress this second per-probe line there to keep the log low-spam (the grab probe still
+        // runs to drive _baseNonBlack/_baseRecovered — the display routing — it just does not double-log).
+        if (!MapBackbufferGrabOn)
+            VRLog.Info("WorldUI", $"MAP probe [{_engagedProbeLabel}]: max {maxChannel}/255, mean {mean}/255 " +
                               $"(r{rMean} g{gMean} b{bMean}), lit {litPct}% ({BlackProbeSize}x{BlackProbeSize} " +
                               $"downsample), path {(_forwardForced ? "Forward(forced)" : _forwardFailed ? "Deferred(forward-failed)" : "Deferred")}" +
                               $"{(magenta ? " — MAGENTA (no forward pass?)" : "")} — low mean + low lit% with high " +
@@ -2093,6 +2209,23 @@ internal sealed class FlatScreenStereo
             // while it reads non-black, so a black base blip freezes the last good copy.
             // Magenta is treated as NOT usable content (it is a shader error, not a lit map).
             _baseNonBlack = maxChannel > BlackChannelThreshold && !magenta;
+
+            // MAP BACKBUFFER GRAB: the base RT is fed by the CommandBuffer copy of the fully-lit native
+            // backbuffer (FlatScreen), NOT a redirected deferred render — so a non-black read means the
+            // grab landed. Mark it recovered (drives the mono/stable eye path — both eyes show the grabbed
+            // map) and skip the entire legacy forward/strip/magenta ladder below.
+            if (MapBackbufferGrabOn)
+            {
+                if (_baseNonBlack && !_baseRecovered)
+                {
+                    _baseRecovered = true;
+                    VRLog.Info("WorldUI", $"MAP BACKBUFFER GRAB RECOVERED: base RT (fed by the " +
+                                          $"AfterImageEffects CameraTarget blit) reads NON-black (max {maxChannel}/255, " +
+                                          $"mean {mean}/255) — the bright native deferred+Beautify map was captured. " +
+                                          "Both eyes now show it via the stable eye RT (mono, exactly the native look).");
+                }
+                return;
+            }
 
             if (!_diagDone)
             {
@@ -2333,6 +2466,7 @@ internal sealed class FlatScreenStereo
             _diagStep = -1;
             _diagStepProbes = 0;
             _diagDone = false;
+            _grabDarkProbes = 0;
             _probeGen++;
             _probePending = false;
             ReleaseLeftRt();
