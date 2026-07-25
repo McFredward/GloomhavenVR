@@ -1379,6 +1379,105 @@ internal sealed class FlatScreenStereo
         }
     }
 
+    // ---- map PAN (laser + trigger grab-drag) ------------------------------------------------
+    //
+    // FlatScreen owns the trigger gesture (it already distinguishes a still click from a moving
+    // drag via the press latch). On the campaign map a moving held trigger PANS the parchment
+    // instead of dragging a uGUI widget: FlatScreen calls BeginMapPan(downPixel) when the latch
+    // opens into a drag, UpdateMapPan(pixel) each tick, and EndMapPan() on release. A still
+    // trigger keeps the latch closed → the existing click path selects the location under it.
+
+    /// <summary>True while the campaign map is being rendered by our forward camera AND we have a valid
+    /// driven pose — the window in which pan/zoom apply. FlatScreen gates the pan gesture on this.</summary>
+    internal bool MapActive => _mapBaseCapture && _mapDrivenValid;
+
+    /// <summary>True while a pan drag is actively moving the map (FlatScreen suppresses its click/hover).</summary>
+    internal bool MapPanning => _mapPanning;
+
+    /// <summary>Start a grab-pan: remember the world point (on the focal plane y=0) under the press pixel.</summary>
+    internal void BeginMapPan(Vector2 downPixel)
+    {
+        if (!MapActive || !TryMapPixelToPlane(downPixel, out Vector3 grab))
+        {
+            _mapPanning = false;
+            return;
+        }
+        _mapPanGrabWorld = grab;
+        _mapPanning = true;
+        if (!_mapPanLogged)
+        {
+            _mapPanLogged = true;
+            VRLog.Info("WorldUI", $"MAP PAN begin: grab world={grab} at pixel=({downPixel.x:F0},{downPixel.y:F0}).");
+        }
+    }
+
+    /// <summary>Continue a grab-pan: move the focal point so the grabbed world point stays under the pointer.
+    /// The whole camera rig translates rigidly with the focal point (horizontal, plane y=0 fixed), so the
+    /// world point under a fixed pixel moves 1:1 with the focal point → this converges in a single step.</summary>
+    internal void UpdateMapPan(Vector2 pixel)
+    {
+        if (!_mapPanning || !MapActive)
+            return;
+        CameraController? cc = CameraController.s_CameraController;
+        if (cc == null)
+            return;
+        if (!TryMapPixelToPlane(pixel, out Vector3 curHit))
+            return;
+        Vector3 delta = _mapPanGrabWorld - curHit; // move focal so grab returns under the pointer
+        delta.y = 0f;
+        Vector3 nf = cc.m_TargetFocalPoint + delta;
+        nf.y = 0f;
+        // Clamp to the map's focal bounds (encapsulates the party/scenario/village positions) so the
+        // parchment can't be dragged off into the void. Bounds may be degenerate early — skip then.
+        Bounds fb = cc.m_FocalBounds;
+        if (fb.size.x > 0.01f && fb.size.z > 0.01f)
+        {
+            nf.x = Mathf.Clamp(nf.x, fb.min.x, fb.max.x);
+            nf.z = Mathf.Clamp(nf.z, fb.min.z, fb.max.z);
+        }
+        cc.m_TargetFocalPoint = nf;
+        cc.m_FocalPoint = nf; // keep the game's lerp target and current in sync (LateUpdate is skipped in VR)
+    }
+
+    /// <summary>End the pan gesture.</summary>
+    internal void EndMapPan()
+    {
+        _mapPanning = false;
+    }
+
+    /// <summary>Reconstruct the ray for an RT pixel through our DRIVEN map-camera pose (pos/look/fov + RT
+    /// aspect — identical to what the game's m_Camera projects markers/clicks with) and intersect the
+    /// focal plane y=0. This is a manual ScreenPointToRay: it depends only on the cached driven pose, so
+    /// it is immune to when the real camera transform actually gets driven during the render loop.</summary>
+    private bool TryMapPixelToPlane(Vector2 pixel, out Vector3 world)
+    {
+        world = Vector3.zero;
+        if (!_mapDrivenValid || _leftRt == null)
+            return false;
+        float w = _leftRt.width, h = _leftRt.height;
+        if (w < 1f || h < 1f)
+            return false;
+        Vector3 fwd = _mapDrivenLook - _mapDrivenPos;
+        if (fwd.sqrMagnitude < 1e-6f)
+            return false;
+        fwd.Normalize();
+        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
+        Vector3 right = rot * Vector3.right;
+        Vector3 up = rot * Vector3.up;
+        float aspect = w / h;
+        float tanV = Mathf.Tan(_mapDrivenFov * 0.5f * Mathf.Deg2Rad);
+        float nx = pixel.x / w * 2f - 1f;   // pixel is bottom-origin (local.y up), matching Unity screen coords
+        float ny = pixel.y / h * 2f - 1f;
+        Vector3 dir = (fwd + right * (nx * tanV * aspect) + up * (ny * tanV)).normalized;
+        if (Mathf.Abs(dir.y) < 1e-5f)
+            return false;
+        float t = (0f - _mapDrivenPos.y) / dir.y; // intersect plane y = 0 (focal plane)
+        if (t <= 0f)
+            return false;
+        world = _mapDrivenPos + dir * t;
+        return true;
+    }
+
     /// <summary>
     /// Replicate the game's map-camera pose (CameraController.RefreshFocusPosition) so our forward camera
     /// frames the map exactly like flat (the mod prefix-skips CameraController.LateUpdate in VR, so the
@@ -1650,6 +1749,13 @@ internal sealed class FlatScreenStereo
     private Vector3 _mapDrivenPos, _mapDrivenLook;
     private float _mapDrivenFov = 50f;
     private bool _mapDrivenValid;
+    // ---- map PAN (laser + trigger grab-drag) ----
+    /// <summary>True while a trigger-drag pan gesture is in progress (FlatScreen drives Begin/Update/End).</summary>
+    private bool _mapPanning;
+    /// <summary>World point on the map's focal plane (y=0) that was under the pointer when the pan grab began.
+    /// Each tick the focal point is moved so THIS same world point stays pinned under the (moving) pointer.</summary>
+    private Vector3 _mapPanGrabWorld;
+    private bool _mapPanLogged;
     // ---- map location icons (deferred Decalicious decals → forward quads in our camera) ----
     /// <summary>Draw each MapLocation's decal icon as a textured quad flat on the map plane, ONLY in our
     /// forward map camera (the game's decals are deferred and never light into our RT).</summary>
@@ -2825,6 +2931,8 @@ internal sealed class FlatScreenStereo
         _mapPoseLogged = false;
         _mapDrivenValid = false;
         _mapZoom = 0f;
+        _mapPanning = false;
+        _mapPanLogged = false;
         _mapSceneRenderersLogged = false;
         _mapIconsLogCount = 0;
         _ndcLogCount = 0;

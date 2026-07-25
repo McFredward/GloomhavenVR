@@ -89,6 +89,9 @@ internal static class WorldUIConfig
     /// <summary>Freeze the pointer from trigger-press to release so uGUI sees a CLICK, not a tremor drag.</summary>
     internal static ConfigEntry<bool> ClickLatch = null!;
 
+    /// <summary>Disable the physical desktop mouse while VR runs so only the VR laser drives the pointer.</summary>
+    internal static ConfigEntry<bool> SuppressPhysicalMouse = null!;
+
     /// <summary>Ray movement (degrees off the press direction) that opens the click latch into a drag.</summary>
     internal static ConfigEntry<float> DragUnlockDegrees = null!;
 
@@ -337,6 +340,10 @@ internal static class WorldUIConfig
             "sub-degree hand tremor otherwise moves the projected pixel dozens of px and turns " +
             "every click into a no-op drag. Deliberate movement past DragUnlockDegrees for " +
             "DragUnlockSeconds opens the latch into a real drag (scroll lists keep working).");
+        SuppressPhysicalMouse = _file.Bind("WorldUI", "SuppressPhysicalMouse", true,
+            "While VR is running, disable the physical desktop mouse in the InputSystem so its " +
+            "(stale) desktop position can no longer hover or select map/menu elements behind your " +
+            "back — only the VR laser drives the pointer. The mouse is re-enabled when VR stops.");
         DragUnlockDegrees = _file.Bind("WorldUI", "DragUnlockDegrees", 2.0f,
             "How far (degrees) the ray must move off its press direction to open the click " +
             "latch into a drag.");

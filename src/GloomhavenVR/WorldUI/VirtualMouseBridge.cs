@@ -192,6 +192,14 @@ internal static class VirtualMouse
     private static float _lastDeviceFlipLog = float.NegativeInfinity;
     private static int _suppressedFlips;
 
+    // ---- physical-mouse suppression (accidental desktop-mouse hover, user report) ----------
+
+    /// <summary>Physical mice WE disabled while VR runs, so we can re-enable exactly those on exit.
+    /// Never contains our own virtual mouse. Rebuilt lazily; small (usually 0–1 entries).</summary>
+    private static readonly System.Collections.Generic.List<Mouse> _disabledPhysicalMice = new();
+    private static bool _mouseSuppressionActive;
+    private static float _lastSuppressLog = float.NegativeInfinity;
+
     /// <summary>True once the virtual mouse device exists and is usable.</summary>
     public static bool IsAvailable => _mouse != null && _mouse.added;
 
@@ -394,6 +402,71 @@ internal static class VirtualMouse
         }
 
         TickKeepAlive();
+        TickSuppressPhysicalMice();
+    }
+
+    /// <summary>
+    /// User report: the physical desktop mouse can still hover/select map (and menu) elements in VR,
+    /// causing accidental mouse-overs — its last desktop position keeps pointing at whatever the RT
+    /// maps under it, and Virtual Desktop keeps that device artificially "fresh". The keep-alive
+    /// re-claims Mouse.current, but that only fixes WHICH device is read, not that the physical one
+    /// still emits position/hover when it briefly holds currency. The clean cure is to DISABLE the
+    /// physical mouse device(s) in the InputSystem while VR runs — only the VR laser drives the
+    /// virtual mouse then. We track exactly what we disabled and re-enable it when VR stops (or the
+    /// toggle is turned off), and never touch our own virtual mouse. Re-enumeration (HMD standby) can
+    /// re-enable a device — this runs every frame, so it simply re-disables it.
+    /// </summary>
+    private static void TickSuppressPhysicalMice()
+    {
+        bool want = WorldUIConfig.SuppressPhysicalMouse.Value
+                    && VRSession.IsRunning
+                    && _mouse != null && _mouse.added; // never disable the ONLY mouse (would kill input)
+
+        if (want)
+        {
+            var devices = InputSystem.devices;
+            for (int i = 0; i < devices.Count; i++)
+            {
+                if (devices[i] is not Mouse m)
+                    continue;
+                if (ReferenceEquals(m, _mouse) || !m.added || !m.enabled)
+                    continue;
+                InputSystem.DisableDevice(m);
+                if (ReferenceEquals(Mouse.current, m) && _mouse!.added)
+                    _mouse.MakeCurrent(); // don't leave a disabled device as the read source
+                if (!_disabledPhysicalMice.Contains(m))
+                    _disabledPhysicalMice.Add(m);
+                if (Time.unscaledTime - _lastSuppressLog >= 5f)
+                {
+                    _lastSuppressLog = Time.unscaledTime;
+                    VRLog.Info("WorldUI", $"Physical mouse '{m.name}' disabled while VR runs " +
+                                          "(accidental desktop hover suppression) — only the VR laser " +
+                                          "drives the pointer.");
+                }
+            }
+            _mouseSuppressionActive = true;
+        }
+        else if (_mouseSuppressionActive)
+        {
+            // Policy turned off (VR stopped or toggle cleared): restore what we disabled.
+            RestorePhysicalMice();
+        }
+    }
+
+    /// <summary>Re-enable every physical mouse we disabled (called when VR stops / suppression is off).</summary>
+    private static void RestorePhysicalMice()
+    {
+        for (int i = 0; i < _disabledPhysicalMice.Count; i++)
+        {
+            Mouse m = _disabledPhysicalMice[i];
+            if (m != null && m.added && !m.enabled)
+                InputSystem.EnableDevice(m);
+        }
+        if (_disabledPhysicalMice.Count > 0)
+            VRLog.Info("WorldUI", $"Physical mouse suppression lifted — re-enabled " +
+                                  $"{_disabledPhysicalMice.Count} device(s).");
+        _disabledPhysicalMice.Clear();
+        _mouseSuppressionActive = false;
     }
 
     /// <summary>

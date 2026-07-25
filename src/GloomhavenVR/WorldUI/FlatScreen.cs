@@ -250,6 +250,15 @@ internal sealed class FlatScreen
     private Vector3 _pressDirection;   // world ray direction at press time
     private float _dragOverSince = -1f;
 
+    // ---- campaign-map pan (laser + trigger grab-drag) --------------------------------------
+    /// <summary>True while a held trigger over the campaign map is panning the parchment (via
+    /// <see cref="FlatScreenStereo.UpdateMapPan"/>) instead of dragging a uGUI widget. A still
+    /// trigger keeps the latch closed → the normal click path selects the location under it.</summary>
+    private bool _mapPanGesture;
+    /// <summary>Pointer travel (RT px) from the press pixel that flips a held trigger over the map from
+    /// a click into a grab-pan. Small so the map feels grabbed immediately, large enough to protect taps.</summary>
+    private const float MapPanStartPixels = 22f;
+
     // ---- poke click (requirement 2) --------------------------------------------------------
     // Meters at scale 1 (multiplied by the poking hand's WorldScale). Contact/release
     // hysteresis mirrors PokeInteractor's canvas path (press at plane contact, release
@@ -1844,10 +1853,15 @@ internal sealed class FlatScreen
         // UV → virtual mouse pixels.
         var pixel = new Vector2((local.x + 0.5f) * _rt.width, (local.y + 0.5f) * _rt.height);
 
+        // On the campaign map, a moving held trigger PANS the map (grab-drag) instead of
+        // dragging a uGUI widget — see the map-pan block below. Suppress the generic
+        // latch→uGUI-drag here so the two gestures never fight.
+        bool mapActive = _stereo.MapActive;
+
         // Click latch (requirement 1, class doc): while pressed and latched the warp
         // position stays frozen at the press pixel; deliberate sustained ray movement
         // opens the latch into a real drag.
-        if (_pressing && _latched)
+        if (_pressing && _latched && !mapActive)
         {
             float angle = Vector3.Angle(_pressDirection, pose.Direction);
             if (angle > WorldUIConfig.DragUnlockDegrees.Value)
@@ -1895,11 +1909,38 @@ internal sealed class FlatScreen
             }
         }
 
+        // MAP PAN (grab-drag): on the campaign map a held trigger that travels past a small
+        // pixel threshold grabs the parchment and drags it — the map follows the laser. This
+        // consumes the press latch so release does NOT select a location; a still trigger keeps
+        // the latch closed and clicks through to the location, exactly as before.
+        if (mapActive && _pressing)
+        {
+            if (!_mapPanGesture &&
+                (pixel - _latchedPixel).sqrMagnitude > MapPanStartPixels * MapPanStartPixels)
+            {
+                _mapPanGesture = true;
+                _latched = false;             // consume the click — release must not DirectClick
+                if (_vmPressed)
+                {
+                    VirtualMouse.Release();    // drop any held virtual-mouse button so no hover/drag leaks
+                    _vmPressed = false;
+                }
+                EndScreenDrag();
+                _stereo.BeginMapPan(_latchedPixel);
+                VRLog.Info("WorldUI", "FlatScreen pointer: map PAN started (trigger-drag grabbed the map).");
+            }
+            if (_mapPanGesture)
+                _stereo.UpdateMapPan(pixel);
+        }
+
         // While frozen, keep re-warping to the SAME latched pixel: identical uGUI
         // position (no drag delta), but the per-tick write keeps pointer currency
-        // reclaimed and the queued-event stream alive during a held press.
+        // reclaimed and the queued-event stream alive during a held press. During a map
+        // pan the virtual mouse is FROZEN at the press pixel so panning never drags the
+        // cursor across (and accidentally hovers) location markers.
         bool frozen = _pressing && _latched;
-        VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
+        if (!_mapPanGesture)
+            VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
 
         // Execute-mode drag (default ClickMode): once the latch has opened, drive the
         // uGUI IDragHandler under the press so sliders/scrollbars/scroll-rects follow
@@ -1952,6 +1993,12 @@ internal sealed class FlatScreen
                 VirtualMouse.Release();
                 _vmPressed = false;
             }
+            // A map pan consumed the press (latch already false) — end it, no click fires.
+            if (_mapPanGesture)
+            {
+                _stereo.EndMapPan();
+                _mapPanGesture = false;
+            }
             // End any execute-mode drag first (endDrag + pointerUp). A drag opened the
             // latch, so _latched is false here and DirectClick does not double-fire —
             // the two paths are mutually exclusive (tap → DirectClick; drag → EndScreenDrag).
@@ -1991,6 +2038,11 @@ internal sealed class FlatScreen
         {
             _pressing = false;
             _latched = false;
+            if (_mapPanGesture)
+            {
+                _stereo.EndMapPan();
+                _mapPanGesture = false;
+            }
             VirtualMouse.Release();
             EndScreenDrag();
         }
