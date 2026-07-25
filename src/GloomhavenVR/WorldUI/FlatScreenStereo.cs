@@ -1369,31 +1369,34 @@ internal sealed class FlatScreenStereo
     /// </summary>
     private bool TryComputeGameMapPose(out Vector3 pos, out Vector3 lookTarget, out float fov)
     {
-        pos = Vector3.zero; lookTarget = Vector3.zero; fov = 60f;
+        pos = Vector3.zero; lookTarget = Vector3.zero; fov = 50f;
         CameraController? cc = CameraController.s_CameraController;
         if (cc == null || cc.m_Camera == null)
             return false;
-        Vector3 focal = cc.m_TargetFocalPoint; focal.y = 0f;
+        Vector3 focal = cc.m_TargetFocalPoint; focal.y = 0f; // PAN center (party token / clicked location)
         float radius = cc.m_CameraDefaultRadius;
-        float baseH = cc.m_InitialCameraHeight;
-        float zoomExtra = cc.m_ZoomOutExtraHeight;
-        float zoomF = cc.m_ZoomFactor;
-        float defZoomF = cc.m_DefaultZoomFactor;
-        Vector3 diff = cc.m_CameraToFocalTargetDiff;
-        fov = Mathf.Clamp(cc.m_Camera.fieldOfView, 15f, 90f);
+        float baseH = cc.m_InitialCameraHeight;               // authored map-camera height (fixed ~80° pitch with radius)
+        Vector3 diff = cc.m_CameraToFocalTargetDiff;          // horizontal offset, |diff| == radius
+        // ZOOM: we manage FOV ourselves (the game's LateUpdate zoom is prefix-skipped in VR, leaving
+        // m_Camera.fieldOfView stale at ~90). Seed from the game's target zoom, then the stick drives it.
+        if (_mapZoomFov <= 1f)
+            _mapZoomFov = Mathf.Clamp(cc.Zoom > 5f ? cc.Zoom : cc.m_DefaultFOV, MapZoomMinFov, MapZoomMaxFov);
+        fov = Mathf.Clamp(_mapZoomFov, MapZoomMinFov, MapZoomMaxFov);
         if (!_mapPoseLogged)
         {
             _mapPoseLogged = true;
             VRLog.Info("WorldUI", $"MAP POSE (CameraController): focal(target)={cc.m_TargetFocalPoint} FocusPoint={cc.FocusPoint} " +
-                                  $"radius={radius:F2} baseHeight={baseH:F2} zoomExtra={zoomExtra:F2} zoomF={zoomF:F3} defZoomF={defZoomF:F3} " +
-                                  $"diff={diff} |diff|={diff.magnitude:F2} fov={fov:F1} focusPtH={cc.m_FocusPointHeight:F2} " +
+                                  $"radius={radius:F2} baseHeight={baseH:F2} zoomExtra={cc.m_ZoomOutExtraHeight:F2} " +
+                                  $"gameZoom(target)={cc.Zoom:F1} defFOV={cc.m_DefaultFOV:F1} minFOV={cc.m_MinimumFOV:F1} " +
+                                  $"diff={diff} |diff|={diff.magnitude:F2} modFov={fov:F1} focusPtH={cc.m_FocusPointHeight:F2} " +
                                   $"gameCamPos={cc.m_Camera.transform.position}.");
         }
         if (radius < 0.5f || baseH < 0.5f || diff.sqrMagnitude < 0.01f)
             return false; // degenerate captured values → caller uses the top-down fallback
-        float height = baseH + Mathf.Max((zoomF - defZoomF) / Mathf.Max(1e-3f, 1f - defZoomF), 0f) * zoomExtra;
-        pos = focal + diff; pos.y = height;
+        pos = focal + diff; pos.y = baseH;                    // fixed authored height/pitch; zoom is FOV-only
         lookTarget = focal + Vector3.up * cc.m_FocusPointHeight;
+        // Cache for driving the real game map camera (so its marker projection + click raycasts align).
+        _mapDrivenPos = pos; _mapDrivenLook = lookTarget; _mapDrivenFov = fov; _mapDrivenValid = true;
         return true;
     }
 
@@ -1608,6 +1611,18 @@ internal sealed class FlatScreenStereo
     private bool _capLogged;
     /// <summary>One-shot guard for the MAP POSE (CameraController fields) log.</summary>
     private bool _mapPoseLogged;
+    // ---- map camera pose driving (match flat: pan via focal point, zoom via FOV) ----
+    /// <summary>When true, drive the real game map camera (CameraController.m_Camera) to our computed
+    /// pose so the game's marker projection + click raycasts (which use that camera) line up with our
+    /// render. The VR rig only reads m_Camera as a build-time anchor (never follows it), so this is safe.</summary>
+    private const bool MapDriveGameCamera = true;
+    private const float MapZoomMinFov = 20f;
+    private const float MapZoomMaxFov = 75f;
+    /// <summary>Mod-managed map zoom (FOV); the game's own zoom LateUpdate is prefix-skipped in VR.</summary>
+    private float _mapZoomFov;
+    private Vector3 _mapDrivenPos, _mapDrivenLook;
+    private float _mapDrivenFov = 50f;
+    private bool _mapDrivenValid;
     /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
     private int _ndcLogCount;
     private int _ndcLastLogFrame = int.MinValue;
@@ -2615,6 +2630,8 @@ internal sealed class FlatScreenStereo
         ReleaseMapRt();
         _mapTargetLogged = false;
         _mapPoseLogged = false;
+        _mapDrivenValid = false;
+        _mapZoomFov = 0f;
         _ndcLogCount = 0;
         _ndcLastLogFrame = int.MinValue;
         _capLogged = false;
@@ -2807,6 +2824,15 @@ internal sealed class FlatScreenStereo
     {
         if (!_active)
             return;
+        // Drive the real game map camera to our computed pose right before it culls/renders, so the game's
+        // on-map marker projection and click raycasts (both via CameraController.m_Camera) align with our
+        // render. Safe: the VR rig uses m_Camera only as a build-time anchor and never follows its transform.
+        if (MapDriveGameCamera && _mapBaseCapture && _mapDrivenValid && _mapSourceCam != null && cam == _mapSourceCam)
+        {
+            cam.transform.SetPositionAndRotation(_mapDrivenPos, Quaternion.LookRotation((_mapDrivenLook - _mapDrivenPos).normalized, Vector3.up));
+            cam.fieldOfView = _mapDrivenFov;
+            cam.orthographic = false;
+        }
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam && _capMapValid)
         {
             cam.worldToCameraMatrix = _capMapView;
