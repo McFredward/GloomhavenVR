@@ -4740,7 +4740,13 @@ internal sealed class CardsDriver : MonoBehaviour
     /// </summary>
     private void UpdateActive(CardsHandUI hand)
     {
-        if (!CardsConfig.ActivePile.Value)
+        // #5: while ANOTHER actor is taking its turn (an enemy, or another character), the control board
+        // shows NO cards — only the cards of the character whose turn it currently is. The active pile is
+        // otherwise drawn every frame regardless of turn; gate it on this being the local character's own
+        // action turn OR the shared card-selection phase (where everyone picks at once). The round/played
+        // cards are already gated the same way (IsActionTurn, CardsDriver Rebuild ActionSelection case).
+        if (!CardsConfig.ActivePile.Value
+            || (!CardsGameApi.IsActionTurn(hand) && !CardsGameApi.IsSelectionPhase(hand)))
         {
             _active.SetVisible(false);
             _activeBuffer.Clear();
