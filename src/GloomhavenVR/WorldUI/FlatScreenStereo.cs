@@ -1785,6 +1785,17 @@ internal sealed class FlatScreenStereo
     private Mesh? _iconQuad;
     private Material? _iconMat;
     private MaterialPropertyBlock? _iconMpb;
+    // ---- wind/cloud particle suppression (drifting streaks over the map) ----
+    /// <summary>Hide the map's Wind/Clouds ParticleSystems while it is shown in VR. In flat these
+    /// drift subtly and are masked out over explored areas by the fog-of-war _WorldMask (fed by
+    /// VFX_UseWorldMask); our forward capture has no such mask (campaign fog-of-war is disabled), so
+    /// they render as thick translucent streaks across the map and its icons. We disable their
+    /// renderers (reversibly) so the parchment stays clean — the static art/decals are unaffected.</summary>
+    private const bool MapSuppressWindParticles = true;
+    /// <summary>ParticleSystemRenderers we disabled (to re-enable on disengage). Never contains anything else.</summary>
+    private readonly System.Collections.Generic.List<Renderer> _suppressedWindRenderers = new();
+    /// <summary>The map root we last scanned for wind particles (re-scan on world↔city switch).</summary>
+    private GameObject? _windScannedRoot;
     private static readonly int IconMainTex = Shader.PropertyToID("_MainTex");
     private static readonly int IconColor = Shader.PropertyToID("_Color");
     // Decal type is in an unreferenced assembly (ThreeEyedGames Decalicious) — reach it via reflection.
@@ -2591,10 +2602,59 @@ internal sealed class FlatScreenStereo
     /// texture + tint come from the decal's CurrentMaterial (_MainTex/_Color); the footprint from its
     /// renderer bounds. Uses Graphics.DrawMesh(..., camera) so nothing else in the scene is affected.
     /// </summary>
+    /// <summary>Hide the active map's Wind/Clouds particle renderers so they don't streak across the
+    /// captured map. Scans once per map (world↔city); then cheaply re-asserts the disable each frame in
+    /// case a game state change re-enables them. Reversed on disengage via <see cref="RestoreWindParticles"/>.</summary>
+    private void SuppressMapWindParticles()
+    {
+        if (!MapSuppressWindParticles)
+            return;
+        if (!ReferenceEquals(_windScannedRoot, _activeMapGo))
+        {
+            RestoreWindParticles();          // re-enable the previous map's particles before scanning this one
+            _windScannedRoot = _activeMapGo;
+            if (_activeMapGo != null)
+            {
+                foreach (ParticleSystem ps in _activeMapGo.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    string n = ps.gameObject.name;
+                    if (n.IndexOf("Wind", System.StringComparison.OrdinalIgnoreCase) < 0
+                        && n.IndexOf("Cloud", System.StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    var r = ps.GetComponent<ParticleSystemRenderer>();
+                    if (r != null)
+                        _suppressedWindRenderers.Add(r);
+                }
+                VRLog.Info("WorldUI", $"MAP WIND: suppressed {_suppressedWindRenderers.Count} Wind/Clouds particle " +
+                                      $"renderer(s) on the {(_activeMapIsCity ? "CITY" : "WORLD")} map (no streaks over the map/icons).");
+            }
+        }
+        for (int i = 0; i < _suppressedWindRenderers.Count; i++)
+        {
+            Renderer r = _suppressedWindRenderers[i];
+            if (r != null && r.enabled)
+                r.enabled = false;
+        }
+    }
+
+    /// <summary>Re-enable every Wind/Clouds renderer we disabled (map disengage / world↔city switch).</summary>
+    private void RestoreWindParticles()
+    {
+        for (int i = 0; i < _suppressedWindRenderers.Count; i++)
+        {
+            Renderer r = _suppressedWindRenderers[i];
+            if (r != null && !r.enabled)
+                r.enabled = true;
+        }
+        _suppressedWindRenderers.Clear();
+        _windScannedRoot = null;
+    }
+
     private void DrawMapIcons(Camera mapCam)
     {
         if (!MapDrawIcons || mapCam == null || _worldMapRenderer == null)
             return;
+        SuppressMapWindParticles(); // keep the drifting wind/cloud streaks out of the captured map
         var choreo = Object.FindObjectOfType<MapChoreographer>();
         if (choreo == null)
             return;
@@ -2961,6 +3021,7 @@ internal sealed class FlatScreenStereo
         _mapFov = 0f;
         _mapPanning = false;
         _mapPanLogged = false;
+        RestoreWindParticles(); // leaving the map — give the game its wind/cloud particles back
         _mapSceneRenderersLogged = false;
         _mapIconsLogCount = 0;
         _ndcLogCount = 0;
