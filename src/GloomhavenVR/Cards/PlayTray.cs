@@ -2266,6 +2266,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>
     /// Laser pluck for slotted cards (P7): geometric rect test against the two
     /// occupants — same math as CardFan.TryRaycast. No allocations.
+    ///
+    /// ROOT-CAUSE FIX (grazing-angle laser, hardware round 3) — this was the DOCKED-card twin
+    /// of the fan defect fixed in <see cref="CardFan.TryRaycast"/>, and it survived that fix
+    /// because it lives here. Two faults, both now gone:
+    ///
+    ///   • the plane came from the LIVE transform (<c>t.position</c>/<c>t.forward</c>). A
+    ///     laser-hovered slot card pops toward the viewer at once (CardsDriver sets
+    ///     SetLaserHover on the winner), so the hit PLANE moved INTO the beam the moment it
+    ///     was hit and then fed its own raise back into the test: the beam clamp
+    ///     (<c>Ray.UiHitOverride = cardPoint</c>) floated above the resting card and stayed
+    ///     latched when the beam swept off — "something invisible above the upper half", the
+    ///     adjacent board button unreachable. The RESTING rect (pop excluded) makes the pop
+    ///     purely visual again.
+    ///   • the rect used the NOMINAL config card size, overhanging the drawn art by the
+    ///     VisibleFaceFraction inset; the resting rect is fitted to the visible face.
     /// </summary>
     internal bool TryRaycastCards(Vector3 origin, Vector3 direction, out VRCard? card,
         out Vector3 point, out float distance)
@@ -2276,23 +2291,25 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (!IsVisible)
             return false;
 
-        float halfW = CardsConfig.CardWidth.Value * 0.5f;
-        float halfH = CardsConfig.CardHeight * 0.5f;
         for (int i = 0; i < 2; i++)
         {
             VRCard? c = _occupants[i];
             if (c == null || c.IsHeld || !c.gameObject.activeInHierarchy)
                 continue;
-            Transform t = c.transform;
-            float denom = Vector3.Dot(direction, t.forward);
+            if (!c.TryGetRestingLaserRect(out Vector3 center, out Vector3 normal,
+                    out Vector3 rectRight, out Vector3 rectUp, out float halfW, out float halfH))
+                continue;
+            // Cards face the viewer with −Z; a ray from the viewer travels along +Z.
+            float denom = Vector3.Dot(direction, normal);
             if (denom < 1e-5f)
                 continue;
-            float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+            float dist = Vector3.Dot(center - origin, normal) / denom;
             if (dist <= 0f || dist >= distance)
                 continue;
             Vector3 hit = origin + direction * dist;
-            Vector3 local = t.InverseTransformPoint(hit);
-            if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
+            Vector3 rel = hit - center; // in-plane offset from the RESTING card center (world meters)
+            if (Mathf.Abs(Vector3.Dot(rel, rectRight)) > halfW
+                || Mathf.Abs(Vector3.Dot(rel, rectUp)) > halfH)
                 continue;
             card = c;
             point = hit;

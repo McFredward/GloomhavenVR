@@ -1080,8 +1080,14 @@ internal sealed class ItemsPile
             // to the ACTUAL card size so it covers the whole face; mod layer; destroyed with the chip.
             chip._dimQuad = chip.BuildDimOverlay(go.transform, cw, ch);
 
-            // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
-            box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
+            // Now size the grab collider to the real card (a small margin for easy laser/finger
+            // targeting) — but only in X/Y. The face-normal thickness must stay as thin as the
+            // card body (backing slab 0.0022 + face at −0.0012): a fat slab stands proud of the
+            // art on the VIEWER side, and at a grazing beam angle that offset projects far up the
+            // card — the laser then reports a hit well above where it points and misses the lower
+            // half entirely. Same defect, same cure as VRCard.ColliderThickness; keep the two in
+            // step. Grab is untouched (ProximityGrabber accepts within 0.13 m of the surface).
+            box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.003f);
             // NOTE: do NOT VRLayers.Apply(go) — it recurses into the hosted ItemCardUI, which is a
             // GAME-owned canvas that must keep its authored UI layer (reversibility rule; it renders
             // via the VR camera's UI-layer bit owned by CanvasConversion). The mod-owned pieces
