@@ -1165,6 +1165,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Vector3 arcUp,
         Action onComplete, float minArcHeight = 0f)
     {
+        CancelAppear(); // a fly wins over a running materialize — never leave it half-faded/bodiless
         _flying = true;
         _flyIntro = false; // fly-OUT: run the park/hide completion on arrival
         _flyElapsed = 0f;
@@ -1224,6 +1225,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         Vector3 toWorld = parent != null ? parent.TransformPoint(_homePos) : _homePos;
         _flyRot = parent != null ? parent.rotation * _homeRot : _homeRot; // LOCKED upright/home orientation
 
+        CancelAppear(); // a fly wins over a running materialize — never leave it half-faded/bodiless
         _flying = true;
         _flyIntro = true; // fly-IN: settle at home on arrival, do NOT park
         _flyElapsed = 0f;
@@ -1313,9 +1315,10 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     /// <summary>
     /// Fade the adopted face art (a lazy <see cref="CanvasGroup"/> on our world-space face canvas).
-    /// The opaque backing slab does not fade — the simultaneous scale toward/from zero hides it —
-    /// so no shared game/card material is ever touched. Reset to 1 whenever an animation ends or the
-    /// card is disabled (pool-safe).
+    /// This fades the ART ONLY — the 3D body (backing slab) is opaque and does NOT follow, so every
+    /// caller that fades below alpha 1 must ALSO suppress the body via <see cref="SetBodyVisible"/>
+    /// (see the "black slab over the slot overlay" root cause there). No shared game/card material
+    /// is ever touched. Reset to 1 whenever an animation ends or the card is disabled (pool-safe).
     /// </summary>
     private void SetVisualAlpha(float alpha)
     {
@@ -1328,6 +1331,87 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
                 _faceGroup = _canvas.gameObject.AddComponent<CanvasGroup>();
         }
         _faceGroup.alpha = Mathf.Clamp01(alpha);
+    }
+
+    // ------------------------------------------- body suppression during appear/disappear --
+    //
+    // USER BUG ("wenn man zu einem Charakter wechselt, der die Karten noch nicht gelegt hat und dort
+    // noch die Overlays sind, werden die Verschwindenden kurz so schwarz in dem neu auftauchenden
+    // Overlay — sieht aus wie ein Glitch"): switching to a character who has NOT played yet turns the
+    // still-empty play slots' TEAL "wanted slot" overlay ON (PlayTray.BuildWantedHighlights) in the
+    // very same frame the OUTGOING character's slot cards start their crumble-to-dust vanish. For
+    // ~0.3 s the two share one slot — and that exposed TWO defects of the vanish, both rooted in the
+    // SAME thing: the vanish only fades the FACE ART (a CanvasGroup on our world-space face canvas)
+    // while the card's 3D BODY stays 100 % opaque, because the settle-shrink is only to
+    // DustSettleScale (0.82) — it never shrinks the slab away the way the original scale-to-zero
+    // disappear did (the stale claim this comment block replaces).
+    //
+    //   1. BLACK SLAB. CardMesh's front/rim material is EdgeColor (0.10, 0.09, 0.08) — deliberately
+    //      near-black because it normally sits entirely BEHIND the card art (the backing is fitted to
+    //      VisibleFaceFraction, inside CardFace's border inset). As the art fades toward 0 that
+    //      near-black front face is progressively UNCOVERED, so the last ~two thirds of the vanish is
+    //      a black card-shaped slab sitting in the freshly lit teal overlay. That is the "schwarz"
+    //      the user sees. Identical defect on the APPEAR side: PlayAppear seeds alpha 0 with the slab
+    //      still opaque, so an incoming card starts as a black slab and fades its art in over itself.
+    //
+    //   2. Z-FIGHT WEDGES. The slab is opaque and ZWRITES (Standard opaque, or Cutout/AlphaTest once
+    //      CardMesh.SetSilhouette clipped it to the art outline). The overlay quad is the bundled
+    //      GloomhavenVR/Overlay shader — additive, ZWrite Off, ZTest LEqual, Queue Transparent — so
+    //      it depth-tests against whatever the slab wrote. Card and overlay are effectively coplanar
+    //      in the slot (both are slot children a few millimetres off the recess floor), so the test
+    //      resolves inconsistently across the slab's CENTRE-FAN triangulation: the hardware capture
+    //      shows exactly that — jagged teal wedges radiating from the card's fan centre. Normally the
+    //      two are never co-present (the wanted-overlay shows only for an EMPTY slot), which is why
+    //      this only ever appeared during the switch-over animation.
+    //
+    // FIX (one change, both symptoms): while an appear/disappear runs, HIDE the body renderers. The
+    // slab is fully covered by the art at alpha 1 anyway (only its ~1.5 mm rim reads, and only at a
+    // grazing angle), so dropping it is imperceptible at the start of the animation — but it means
+    // the fade now carries the WHOLE card (nothing opaque left to be uncovered → no black), and the
+    // card stops writing depth for the animation's duration, so the additive overlay draws uniformly
+    // underneath it (→ no z-fight wedges). Renderer.enabled only: no material is created, mutated or
+    // cloned (the front/rim + back materials are SHARED with every other card and with
+    // Net.RemoteHandFan's opponent hand backs — fading them would tint every card in the scene), no
+    // game object is touched, and the flag is restored on every exit path incl. OnDisable, so a
+    // pooled card can never come back invisible. Purely local presentation — never networked.
+
+    private Renderer[]? _bodyRenderers;
+    private bool _bodyHidden;
+    private static bool s_loggedBodySuppressed;
+
+    /// <summary>
+    /// Show/hide the card's 3D body (the backing slab: front, rim and decorative back) WITHOUT
+    /// touching any material — used to keep the opaque near-black slab from being uncovered (and
+    /// from ZWRITING into the slot overlay) while <see cref="SetVisualAlpha"/> fades the art during
+    /// <see cref="Vanish"/> / <see cref="PlayAppear"/>. Idempotent, allocation-free after the first
+    /// call, and safe on a prefab backing with several renderers.
+    /// </summary>
+    private void SetBodyVisible(bool visible)
+    {
+        if (_bodyHidden == !visible)
+            return;
+        if (_bodyRenderers == null)
+        {
+            if (_backing == null)
+                return;
+            _bodyRenderers = _backing.GetComponentsInChildren<Renderer>(true);
+        }
+        for (int i = 0; i < _bodyRenderers.Length; i++)
+        {
+            Renderer r = _bodyRenderers[i];
+            if (r != null)
+                r.enabled = visible;
+        }
+        _bodyHidden = !visible;
+        if (!visible && !s_loggedBodySuppressed)
+        {
+            s_loggedBodySuppressed = true;
+            Core.VRLog.Info("Cards", $"Card body suppressed during appear/disappear ('{name}', " +
+                                     $"{_bodyRenderers.Length} backing renderer(s)): the opaque near-black slab " +
+                                     "no longer surfaces as the face art fades, and it stops ZWRITING — so a card " +
+                                     "crumbling out over a freshly lit teal slot overlay shows neither a black " +
+                                     "slab nor z-fight wedges. Renderers re-enabled on every exit path.");
+        }
     }
 
     // Throttle so a relayout that animates several cards in one frame logs a couple of lines, not a
@@ -1396,6 +1480,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _vanishElapsed = 0f;
         _vanishFromScale = transform.localScale;
         _vanishDone = onComplete;
+        // The art fade below is the WHOLE fade only if nothing opaque is left underneath it — drop
+        // the body for the duration (see SetBodyVisible: black-slab + overlay z-fight root cause).
+        SetBodyVisible(false);
         EmitCardDust(appear: false); // crumble puff at the card's current pose
         LogAnim("vanish", transform.position, transform.position, "dust crumble (in place)");
         // A vanishing card makes no promises — drop every hover/grab affordance.
@@ -1432,9 +1519,30 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         transform.localPosition = _homePos;
         transform.localRotation = _homeRot;
         transform.localScale = Vector3.one * (_homeScale * DustSettleScale);
+        // Same reason as Vanish: at alpha 0 the opaque near-black slab would BE the card, so an
+        // incoming card would materialize as a black slab over the slot overlay before its art
+        // faded in. Body off for the duration; restored when the appear completes.
+        SetBodyVisible(false);
         SetVisualAlpha(0f);
         EmitCardDust(appear: true); // converging motes coalesce into the card at its home pose
         LogAnim("appear", transform.position, transform.position, "dust materialize (in place)");
+    }
+
+    /// <summary>
+    /// End a running materialize IMMEDIATELY at its finished state (full alpha, body back). Anything
+    /// that takes the transform away from the appear tick — a grab, a fly — must call this, or the
+    /// card is stranded half-faded AND bodiless (its opaque slab is suppressed for the animation's
+    /// duration, see <see cref="SetBodyVisible"/>). No-op when no appear is running. Deliberately
+    /// does NOT touch a running <see cref="Vanish"/>: a vanishing card is un-grabbable and never also
+    /// flies (the driver picks exactly one), and silently dropping it would strand the park callback.
+    /// </summary>
+    private void CancelAppear()
+    {
+        if (!_appearing)
+            return;
+        _appearing = false;
+        SetVisualAlpha(1f);
+        SetBodyVisible(true);
     }
 
     public override void OnRelease(VRHand hand, Vector3 velocity)
@@ -1552,6 +1660,12 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         if (IsHeld)
         {
             _flying = false; // a re-grab mid-flight wins — the hand owns the pose now
+            // A grab mid-APPEAR wins the same way — and because the held branch returns before the
+            // appear tick below, the animation would otherwise be frozen half-faded with its body
+            // suppressed (an invisible-ish card stuck in the hand). Finish it here instead: full
+            // alpha, body back. (A VANISHING card cannot get here — Vanish drops Grabbable and
+            // refuses to start on a held card, so its completion callback is never stranded.)
+            CancelAppear();
             TickHeldPose();
             return;
         }
@@ -1609,6 +1723,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
                 Action? done = _vanishDone;
                 _vanishDone = null;
                 SetVisualAlpha(1f); // reset for the pooled card's next life (it is about to hide)
+                SetBodyVisible(true); // ditto for the body — a pooled card never comes back bodiless
                 done?.Invoke();
             }
             return;
@@ -1631,6 +1746,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             {
                 _appearing = false;
                 SetVisualAlpha(1f);
+                SetBodyVisible(true); // fully opaque art again — the slab is covered, bring it back
             }
             return;
         }
@@ -1713,6 +1829,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _vanishDone = null;
         _appearing = false;
         SetVisualAlpha(1f);
+        SetBodyVisible(true); // a parked/pooled card never carries a suppressed body into its next life
     }
 
     private void OnDestroy()
