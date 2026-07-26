@@ -640,14 +640,18 @@ internal static class CardsConfig
                 $"[{board}] size MULTIPLIER of the OBJECTIVES ('Aufgaben') dock. Seeded 1 (Oak).");
             _objectivesWidth[i] = _file.Bind("Cards", $"ObjectivesWidth_{board}", 1.6f,
                 new ConfigDescription(
-                    $"[{board}] WIDTH MULTIPLIER of the OBJECTIVES ('Aufgaben') dock — scales the panel's " +
-                    "fit WIDTH budget (PlayTray.ObjectivesMountWidth, base 0.26 m) so the scenario TASK " +
-                    "and its PROGRESS BAR render LONGER/wider (the old fixed budget squished them). The " +
-                    "panel grows LEFTWARD from the board's left edge into open space (no board overlap); " +
-                    "while width is the binding fit constraint the whole objective — incl. its fillAmount " +
-                    "progress bar — scales up proportionally with this factor. Default 1.6 (wider than the " +
-                    "old 1.0). Live-applied: ObjectivesSurface re-reads MountWidth and re-lays-out each tick.",
-                    new AcceptableValueRange<float>(1f, 3f)));
+                    $"[{board}] WIDTH MULTIPLIER of the OBJECTIVES ('Aufgaben') dock — the panel's width " +
+                    "budget is PlayTray.ObjectivesMountWidth (0.26 m) x this factor, e.g. 1.6 = 416 mm. " +
+                    "That budget is FORCED onto the game's objective rows as a pixel width (budget x the " +
+                    "panel density, 2400 px/m x 0.6), so the objective TEXT RE-WRAPS at the wider measure " +
+                    "and each row's fillAmount PROGRESS BAR really gets longer — it is not a uniform " +
+                    "zoom. (Before, this factor only raised the dock's fit CEILING, which the content " +
+                    "never reached: the fit saturated at its MaxDensityScale clamp for the whole range, " +
+                    "so the dial did nothing at all.) The panel grows LEFTWARD from the board's left edge " +
+                    "into open space, so no board overlap. Below ~0.5 the rows wrap tighter than the game " +
+                    "authored them. Default 1.6. Live-applied: ObjectivesSurface re-forces the row widths " +
+                    "and re-fits each tick; all rect changes are reverted when the panel is released.",
+                    new AcceptableValueRange<float>(0.5f, 3f)));
             _elementsOffset[i] = _file.Bind("Cards", $"ElementsOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the ELEMENT infusion ('Elemente') dock mount local position (on top " +
                 "of the fixed left-column base below the objectives), board-local meters. Seeded 0 (Oak).");
