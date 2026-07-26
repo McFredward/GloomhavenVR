@@ -112,11 +112,6 @@ internal sealed class ItemsPile
     // the board's use slot (so it rides the slot pose + visibility); built lazily, toggled by proximity.
     private GameObject? _useGhost;
 
-    // Requirement 7 (usability-cue diagnostic): throttled change-logged bright/dim tally.
-    private float _nextDimLogAt;
-    private int _loggedBright = -1;
-    private int _loggedDim = -1;
-
     internal bool IsOpen { get; private set; }
     internal bool IsHandHeld => _followHand != null;
 
@@ -284,9 +279,10 @@ internal sealed class ItemsPile
         // Physical fingertip sweep: lift the chip nearest the dominant index tip (single-winner).
         UpdateHandSweep();
 
-        // Requirement 7: change-logged bright/dim tally (the per-chip dim overlay is applied in each
-        // chip's own face maintenance from CanUseNow — this only reports it).
-        TickUsabilityDiag();
+        // NOTE (usable-highlight): the per-chip gold rim glow is toggled inside each chip's own face
+        // maintenance from CanUseNow — nothing to drive from here. The throttled tally diagnostic lives
+        // in PileViewer.TickStatus instead, because it must also report while this fan is CLOSED (the
+        // items STACK carries the same highlight then, and there are no chips to count).
 
         if (_pendingUseChip != null)
         {
@@ -635,33 +631,50 @@ internal sealed class ItemsPile
     }
 
     /// <summary>
-    /// Requirement 7 — can this chip's item be USED right now: it is the local character's own action
-    /// turn AND the item's live state is activatable (non-passive + Useable/Selected — the exact gate
-    /// <c>UseItemService.UseItem</c> enforces). Owner-driven (turn-aware) so OFF-turn every item reads
-    /// de-emphasized and ON-turn only the truly-usable ones stay bright. Polled live from each chip's
-    /// per-frame face maintenance; never cached.
+    /// USABLE-HIGHLIGHT truth source — can this chip's item be USED right now: it is the local
+    /// character's own action turn AND the item's live state is activatable (non-passive +
+    /// Useable/Selected — the exact gate <c>UseItemService.UseItem</c> enforces). Owner-driven
+    /// (turn-aware), so OFF-turn nothing highlights and ON-turn exactly the playable items light up.
+    /// Polled live from each chip's per-frame face maintenance; never cached — usability moves with
+    /// turn/phase and with every item the player spends.
+    ///
+    /// WHY the highlight (not a dim) hangs off THIS predicate: the game logic stays untouched; the
+    /// visual is a pure read of it. Flipping the cue from "grey out the unusable" to "light up the
+    /// usable" is a change of which side of this bool draws a quad, nothing else.
     /// </summary>
     internal bool CanUseNow(ItemChip chip) =>
         chip != null && _hand != null && CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable;
 
-    /// <summary>Requirement 7 — throttled, change-gated tally of how many chips are bright (usable now)
-    /// vs dimmed (passive / spent / consumed / off-turn), so a hardware log confirms the cue is live.</summary>
-    private void TickUsabilityDiag()
+    /// <summary>
+    /// The SINGLE live activatability predicate, shared by the chips (<see cref="ItemChip.IsActivatable"/>)
+    /// and by the fan-CLOSED stack highlight (<see cref="UsableCount"/>): non-passive AND in a
+    /// Useable/Selected slot state — byte-for-byte the gate <c>UseItemService.UseItem</c> enforces, so a
+    /// highlight can never promise a use the service would reject. Read-only on game data.
+    /// </summary>
+    private static bool IsItemActivatable(CItem? item) =>
+        item != null && item.YMLData != null
+        && item.YMLData.Trigger != CItem.EItemTrigger.PassiveEffect
+        && (item.SlotState == CItem.EItemSlotState.Useable
+            || item.SlotState == CItem.EItemSlotState.Selected);
+
+    /// <summary>
+    /// How many of the acting character's equipped items are usable RIGHT NOW (0 when it is not this
+    /// hand's action turn). Read straight from the live inventory rather than from the chips, because
+    /// the items STACK highlight must work while the fan is CLOSED and no chips exist at all. Cheap:
+    /// a turn check plus one pass over a handful of items, per frame, allocation-free.
+    /// </summary>
+    internal int UsableCount(CardsHandUI? hand)
     {
-        if (_chips.Count == 0 || Time.unscaledTime < _nextDimLogAt)
-            return;
-        _nextDimLogAt = Time.unscaledTime + 2f;
-        int bright = 0;
-        for (int i = 0; i < _chips.Count; i++)
-            if (_chips[i] != null && CanUseNow(_chips[i]))
-                bright++;
-        int dim = _chips.Count - bright;
-        if (bright == _loggedBright && dim == _loggedDim)
-            return;
-        _loggedBright = bright;
-        _loggedDim = dim;
-        VRLog.Info("Cards", $"ITEM usability cue: {bright} bright (usable now), {dim} dimmed " +
-                            "(passive/spent/consumed/off-turn) — dim overlay live per chip.");
+        if (hand == null || !CardsGameApi.IsActionTurn(hand))
+            return 0;
+        List<CItem>? items = ItemsOf(hand);
+        if (items == null)
+            return 0;
+        int n = 0;
+        for (int i = 0; i < items.Count; i++)
+            if (IsItemActivatable(items[i]))
+                n++;
+        return n;
     }
 
     /// <summary>
@@ -892,17 +905,7 @@ internal sealed class ItemsPile
         /// Useable/Selected — the exact gate <c>UseItemService.UseItem</c> enforces. Read every
         /// tick by the owner's use-slot gate + the clip-in-to-use path.
         /// </summary>
-        internal bool IsActivatable
-        {
-            get
-            {
-                CItem? item = Item;
-                return item != null && item.YMLData != null
-                    && item.YMLData.Trigger != CItem.EItemTrigger.PassiveEffect
-                    && (item.SlotState == CItem.EItemSlotState.Useable
-                        || item.SlotState == CItem.EItemSlotState.Selected);
-            }
-        }
+        internal bool IsActivatable => IsItemActivatable(Item);
 
         // Pop/enlarge for readability (fingertip sweep OR laser hover — spatially exclusive, so
         // one effective pop). Mirrors VRCard's pop: a small grow + a nudge toward the viewer.
@@ -946,22 +949,28 @@ internal sealed class ItemsPile
         private float _tightArtPollUntil;
         private bool _artBaked;
 
-        // ITEM #7 (live playable-gating legibility): non-usable chips (passive items, spent/consumed,
-        // or anything whose live IsActivatable is false right now — e.g. off-turn) are dimmed so the
-        // currently-usable ones read as the ones you can actually play. Applied via a REVERSIBLE
-        // CanvasGroup alpha on the hosted card — never mutates the game card's own materials, and it is
-        // reset to full alpha before the widget is recycled to the pool. Re-evaluated LIVE every Update
-        // from IsActivatable, because usability changes with turn/phase. -1 = "not yet applied".
-        // ITEM #7 ROOT CAUSE: the CanvasGroup-alpha dim did NOT show in game because the game's own
-        // ItemCardUI.OnReturnedToPool DISABLES the card's CanvasGroup (component.enabled = false,
-        // ItemCardUI.cs:350). A pooled card handed back to us therefore has a disabled CanvasGroup, so
-        // setting its alpha has ZERO effect. Rather than fight the game's component state, the de-emphasis
-        // is now a MOD-OWNED dark translucent "dim" quad laid over the card face (viewer side): visible,
-        // reliable, fully reversible (destroyed with the chip; never touches the game card's own
-        // materials/graphics). Toggled LIVE from the owner's turn-aware usability gate so usable-now items
-        // read bright and non-usable ones (passive / spent / consumed / off-turn) are clearly dimmed.
-        private GameObject? _dimQuad;      // mod-owned dark overlay shown over NON-usable item cards
-        private int _usabilityShown = -1;  // last applied state: -1 none, 0 dimmed, 1 bright
+        // USABLE HIGHLIGHT (replaces the former de-emphasis dim — see ROOT CAUSE below).
+        //
+        // WHAT CHANGED AND WHY: the first two attempts at this cue worked the NEGATIVE way round —
+        // de-emphasise everything you cannot play. Attempt 1 (a CanvasGroup alpha on the hosted card)
+        // was invisible because the game's own ItemCardUI.OnReturnedToPool DISABLES the card's
+        // CanvasGroup (component.enabled = false, ItemCardUI.cs:350), so a pooled card handed back to
+        // us ignores every alpha we write. Attempt 2 (a mod-owned dark quad over the face) was visible
+        // but wrong on its own terms: with most items passive or off-turn, the fan was mostly grey
+        // sludge, the art stopped reading, and the player had to infer the playable cards from the
+        // ABSENCE of a veil. The cue is now POSITIVE — light up exactly the cards you CAN play and
+        // leave every other card at its natural, fully legible look.
+        //
+        // MECHANISM: the mod's established gold telegraph — CardGlow.CreateGlowQuad, i.e. the SAME
+        // additive Overlay material + gold the board play-slot glow and the hand-fan insertion glow
+        // use — sized slightly larger than the card and parked BEHIND the card body, so the gold reads
+        // as a halo rim around the card silhouette and never washes over the art. CardGlow.AddPulse
+        // gives it the wanted-slot breath so it catches the eye in peripheral vision at fan scale.
+        // Fully mod-owned: a child quad of OUR chip GameObject, destroyed with the chip; the hosted
+        // game ItemCardUI is never touched, so the widget goes back to the ObjectPool untouched.
+        // Toggled LIVE (never cached) from the owner's turn-aware CanUseNow. -1 = "not yet applied".
+        private GameObject? _usableGlow;   // mod-owned gold rim glow shown behind USABLE item cards
+        private int _usabilityShown = -1;  // last applied state: -1 none, 0 normal, 1 highlighted
 
         // ITEM #3 (desktop mirror): the hosted card's world-space FaceCanvas. VRCard binds its face
         // canvas' worldCamera to the head camera every frame (VRCard.UpdateCanvasCamera); ItemsPile
@@ -1075,10 +1084,11 @@ internal sealed class ItemsPile
             if (!realCard)
                 BuildFallbackFace(go.transform, item, cw, ch, state);
 
-            // ITEM #7 — the mod-owned de-emphasis overlay: a dark translucent quad over the card face
-            // (viewer side), hidden by default, shown by TickFaceMaintenance for NON-usable items. Built
-            // to the ACTUAL card size so it covers the whole face; mod layer; destroyed with the chip.
-            chip._dimQuad = chip.BuildDimOverlay(go.transform, cw, ch);
+            // USABLE HIGHLIGHT — the mod-owned gold rim glow behind the card, hidden by default and
+            // shown by TickFaceMaintenance for items that CAN be used right now. Built to the ACTUAL
+            // card size so the halo tracks the real (near-square) item silhouette; mod layer; a child
+            // of the chip, so it dies with the chip and never touches the pooled game card.
+            chip._usableGlow = chip.BuildUsableGlow(go.transform, cw, ch);
 
             // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
             box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
@@ -1168,31 +1178,47 @@ internal sealed class ItemsPile
         }
 
         /// <summary>
-        /// ITEM #7 — build the mod-owned "not usable" de-emphasis overlay: a dark translucent quad the
-        /// exact size of the card face, on the viewer side just proud of the face canvas. Hidden by
-        /// default; <see cref="TickFaceMaintenance"/> shows it live for items that cannot be used right
-        /// now (passive / spent / consumed / off-turn) so the usable-now items read bright by contrast.
-        /// Sprites/Default is unlit + double-sided (Cull Off), so it dims the face from the viewer side
-        /// regardless of quad winding. Never touches the game card — fully reversible (dies with the chip).
+        /// Build the mod-owned "you can play this NOW" highlight: the mod's standard gold telegraph
+        /// (<see cref="CardGlow.CreateGlowQuad"/> — the identical additive Overlay material the board
+        /// play slots and the hand-fan insertion gap use) sized <see cref="UsableGlowRim"/>× the card and
+        /// parked BEHIND the card body.
+        ///
+        /// WHY BEHIND rather than over the face: the glow shader is ADDITIVE, so a quad in front of the
+        /// card would add gold light straight onto the artwork and blow out the very card it is trying
+        /// to advertise. Placed behind the opaque card body (which is only ~1.5–2.3 mm thick), the card
+        /// occludes the middle of the quad and only the oversized border survives — a clean gold halo
+        /// tracing the card's silhouette, which is what actually reads at fan scale in VR from a metre
+        /// away, and which leaves the item art untouched and fully legible.
+        ///
+        /// <see cref="CardGlow.AddPulse"/> adds the wanted-slot breath: several usable cards pulse in
+        /// phase (shared unscaled clock) and read as one cue. Hidden by default; <see cref="TickFaceMaintenance"/>
+        /// toggles it live. Never touches the hosted game card — dies with the chip.
         /// </summary>
-        private GameObject BuildDimOverlay(Transform parent, float cw, float ch)
+        private GameObject BuildUsableGlow(Transform parent, float cw, float ch)
         {
-            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "UsabilityDim";
-            Object.Destroy(quad.GetComponent<Collider>());
-            quad.transform.SetParent(parent, worldPositionStays: false);
-            quad.transform.localScale = new Vector3(cw, ch, 1f);
-            quad.transform.localPosition = new Vector3(0f, 0f, -0.0016f); // viewer side, just proud of the face
+            var color = new Color(1f, 0.85f, 0.3f, 0.95f); // the mod's telegraph gold (board slot / fan gap)
+            GameObject quad = CardGlow.CreateGlowQuad("UsableHighlight", parent,
+                new Vector3(cw * UsableGlowRim, ch * UsableGlowRim, 1f),
+                new Vector3(0f, 0f, UsableGlowBehindZ),
+                color);
             var mr = quad.GetComponent<MeshRenderer>();
-            Shader? sh = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
-            if (sh != null)
-                // Dark-but-translucent: clearly de-emphasized yet the art still reads for browsing off-turn.
-                mr.sharedMaterial = new Material(sh) { color = new Color(0.03f, 0.03f, 0.04f, 0.5f) };
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            Core.VRLayers.Apply(quad); // mod-owned overlay on the mod layer
-            quad.SetActive(false);     // shown only for NON-usable items
-            return quad;
+            if (mr != null)
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            CardGlow.AddPulse(quad, color);
+            Core.VRLayers.Apply(quad); // mod-owned overlay on the mod layer (no children — recursion-safe)
+            return quad;               // CreateGlowQuad hands it back INACTIVE — shown only when usable
         }
+
+        /// <summary>How far the usable-highlight halo extends past the card edge (1.0 = flush).
+        /// Sized so the visible rim is roughly a tenth of the card on every side — unmistakable at
+        /// fan scale without bleeding into the neighbouring card in the arc.</summary>
+        private const float UsableGlowRim = 1.20f;
+
+        /// <summary>Local +Z (AWAY from the viewer) the halo sits at: clear of the thickest card body
+        /// the chip can wear (CardMesh 1.5 mm / the cube-slab fallback 2.3 mm) so the body reliably
+        /// occludes the halo's middle, yet close enough that the rim never parallax-separates from the
+        /// card when the fan is viewed at an angle.</summary>
+        private const float UsableGlowBehindZ = 0.004f;
 
         /// <summary>
         /// Host the game's real <c>ItemCardUI</c> on a world-space canvas (requirement 1): spawn it
@@ -1753,8 +1779,8 @@ internal sealed class ItemsPile
         /// (1) re-run the mip-bake sprite swap on a slow cadence until the async background art has
         /// baked (mirror of <c>CardFace.Maintain</c>'s <see cref="MipRescanInterval"/> cadence — async
         /// arrivals / state changes keep putting the mipless originals back), and (2) LIVE re-evaluate
-        /// the playable-gate dim from <see cref="IsActivatable"/> so the usable chips read bright and
-        /// the non-usable ones (passive / spent / consumed / off-turn) dim. Usability changes with
+        /// the playable gate from <see cref="IsActivatable"/> so exactly the cards that CAN be used
+        /// right now wear the gold halo and every other card stays untouched. Usability changes with
         /// turn/phase, so it is polled every frame, never cached. Change-gated (both are no-ops unless
         /// due), so the per-frame cost is a clock compare + a bool compare.
         /// </summary>
@@ -1802,16 +1828,18 @@ internal sealed class ItemsPile
                 CardFaceMipBake.Rescan(_cardUI);
             }
 
-            // ITEM #7 (live playable-gate legibility) — dim the card when it can't be used RIGHT NOW.
-            // Turn-aware: the owner gates on IsActionTurn AND IsActivatable, so off-turn every item reads
-            // de-emphasized and on-turn only the truly-usable ones stay bright. Change-gated toggle of the
-            // mod-owned overlay quad (reliable where the game's disabled CanvasGroup made alpha a no-op).
+            // USABLE HIGHLIGHT (live) — light the gold halo when this card CAN be played RIGHT NOW.
+            // Turn-aware: the owner gates on IsActionTurn AND IsActivatable, so off-turn nothing glows
+            // and on-turn exactly the playable items do. Polled every frame (usability moves with
+            // turn/phase and with every item spent) but change-gated, so the steady-state cost is one
+            // bool compare. Non-usable cards get NO treatment at all — they simply keep their natural
+            // look, which is the whole point of flipping the cue from "dim the rest" to "light these".
             int want = (_owner != null && _owner.CanUseNow(this)) ? 1 : 0;
             if (want != _usabilityShown)
             {
                 _usabilityShown = want;
-                if (_dimQuad != null && _dimQuad.activeSelf != (want == 0))
-                    _dimQuad.SetActive(want == 0); // dim (overlay ON) when NOT usable
+                if (_usableGlow != null && _usableGlow.activeSelf != (want == 1))
+                    _usableGlow.SetActive(want == 1); // halo ON only while usable
             }
         }
 
@@ -1912,7 +1940,7 @@ internal sealed class ItemsPile
                 return;
             }
 
-            TickFaceMaintenance(); // ITEM #1 (de-shimmer) + #7 (live playable-gate dim) — held or not
+            TickFaceMaintenance(); // ITEM #1 (de-shimmer) + live usable-highlight halo — held or not
 
             if (Holder != null)
             {
@@ -2022,8 +2050,8 @@ internal sealed class ItemsPile
                 try
                 {
                     // ITEM #1 — leave the pooled widget CLEAN: restore the mip-swapped sprites before the
-                    // game reuses this card elsewhere. (The #7 dim is a mod-owned overlay quad, destroyed
-                    // with the chip below — it never touches the game card, so nothing to reset there.)
+                    // game reuses this card elsewhere. (The usable highlight is a mod-owned glow quad,
+                    // destroyed with the chip below — it never touches the game card, nothing to reset.)
                     CardFaceMipBake.RestoreSprites(_cardUI);
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
@@ -2035,7 +2063,7 @@ internal sealed class ItemsPile
             _cardGo = null;
             _cardUI = null;
             _faceCanvas = null;
-            _dimQuad = null; // child of the chip GameObject — destroyed with it
+            _usableGlow = null; // child of the chip GameObject — destroyed with it
             _usabilityShown = -1;
         }
 

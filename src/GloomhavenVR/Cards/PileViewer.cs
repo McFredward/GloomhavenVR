@@ -28,6 +28,11 @@ internal sealed class PileViewer
     private (int discard, int burnt) _loggedCounts = (int.MinValue, int.MinValue);
     private int _loggedItems = int.MinValue;
 
+    // Usable-item highlight diagnostic (throttled + change-gated) — see TickItemsUsableHighlight.
+    private float _nextUsableLogAt;
+    private int _loggedUsable = int.MinValue;
+    private bool _loggedStackGlow;
+
     /// <summary>
     /// The character-items pile (item 4): a self-contained THIRD stack below the burnt
     /// pile, browsed like the others but rendered from <c>Inventory.AllItems</c> instead
@@ -229,6 +234,8 @@ internal sealed class PileViewer
         _hand = null;
         _loggedCounts = (int.MinValue, int.MinValue);
         _loggedItems = int.MinValue;
+        _loggedUsable = int.MinValue;
+        _loggedStackGlow = false;
     }
 
     // ------------------------------------------------------------------ status --
@@ -266,6 +273,42 @@ internal sealed class PileViewer
             VRLog.Info("Cards", $"Piles: items={items} (Inventory.AllItems).");
         }
         _itemsBrowse.Tick(hand);
+        TickItemsUsableHighlight(hand, items);
+    }
+
+    /// <summary>
+    /// USABLE-HIGHLIGHT on the CLOSED items stack: light the "Gegenstände" stack with the mod's gold
+    /// telegraph whenever AT LEAST ONE equipped item can be used right now, so the player sees there is
+    /// something to play WITHOUT having to open the fan — and it goes out again the moment nothing is
+    /// usable (turn ends, the last usable item is spent/consumed).
+    ///
+    /// WHY the count comes from <see cref="ItemsPile.UsableCount"/> and not from the fan's chips: while
+    /// the fan is closed there ARE no chips — the chips are built on open and destroyed on close. The
+    /// count is therefore read live from the inventory through the exact same activatability predicate
+    /// the chips and <c>UseItemService</c> use, so the stack can never advertise a use the game would
+    /// reject, and the stack cue and the per-card halos can never disagree.
+    ///
+    /// Runs every frame the tray shows (a turn check + a pass over a handful of items), so it tracks
+    /// turn/phase changes live. Purely local visual — nothing here touches game state or the network.
+    /// </summary>
+    private void TickItemsUsableHighlight(CardsHandUI? hand, int itemCount)
+    {
+        int usable = _itemsBrowse.UsableCount(hand);
+        bool on = usable > 0;
+        _items?.SetUsableHighlight(on);
+
+        // Throttled + change-gated diagnostic so the next hardware log can verify the cue end-to-end:
+        // how many items are usable this instant, and whether the stack glow is actually lit.
+        if (Time.unscaledTime < _nextUsableLogAt)
+            return;
+        _nextUsableLogAt = Time.unscaledTime + 2f;
+        if (usable == _loggedUsable && on == _loggedStackGlow)
+            return;
+        _loggedUsable = usable;
+        _loggedStackGlow = on;
+        VRLog.Info("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now — " +
+                            $"stack glow {(on ? "ON" : "off")}, fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
+                            "(usable cards wear the gold halo; nothing is dimmed).");
     }
 
     // ------------------------------------------------------------------ dispatch --
@@ -338,6 +381,12 @@ internal sealed class PileViewer
         private Color _baseColor;
         private int _shown = int.MinValue;
         private bool _hasCards;
+
+        // USABLE-HIGHLIGHT (items stack only, built lazily on first use): the mod's gold telegraph glow
+        // lit while at least one equipped item can be played right now. Built lazily because only the
+        // ITEMS stack ever asks for it — the discard/burnt stacks must not pay for a quad they never show.
+        private GameObject? _usableGlow;
+        private bool _usableGlowOn;
 
         // Slab footprint: 0.62× card size — reads as a mini pile without crowding
         // the 0.10 m column budget (PlayTray.BuildMounts collision math).
@@ -441,6 +490,51 @@ internal sealed class PileViewer
                     _topMaterial.color = color;
             }
         }
+
+        /// <summary>
+        /// USABLE-HIGHLIGHT — light (or clear) the stack's gold telegraph glow. Called every frame by
+        /// <see cref="PileViewer.TickItemsUsableHighlight"/> with the live "at least one item is usable
+        /// right now" answer, and change-gated here so the pulse is never restarted per frame.
+        ///
+        /// The glow is the SAME <see cref="CardGlow"/> gold the board play slots, the hand-fan insertion
+        /// gap and the usable item CARDS wear, so the stack cue and the card cue read as one language:
+        /// gold means "playable now". It is laid PROUD of the top slab (viewer side) and oversized, so
+        /// the gold both washes the pile face and haloes out past its silhouette — the stack sits flat on
+        /// the board, so a halo hidden BEHIND it would be swallowed by the board surface. It sits just
+        /// behind the count/caption text (z -0.0018 vs -0.0025), which therefore still reads on top.
+        ///
+        /// Mod-owned child of this stack: hidden with the stack, destroyed with it, nothing game-side
+        /// touched. Purely local — no game state, no network traffic (multiplayer-neutral).
+        /// </summary>
+        internal void SetUsableHighlight(bool on)
+        {
+            if (on == _usableGlowOn)
+                return;
+            _usableGlowOn = on;
+            if (_usableGlow == null)
+            {
+                if (!on)
+                    return; // never built, never needed — don't pay for the quad
+                float w = CardsConfig.CardWidth.Value * SlabFactor;
+                float h = CardsConfig.CardHeight * SlabFactor;
+                var color = new Color(1f, 0.85f, 0.3f, 0.95f); // the mod's telegraph gold
+                _usableGlow = CardGlow.CreateGlowQuad("UsableHighlight", transform,
+                    new Vector3(w * UsableGlowRim, h * UsableGlowRim, 1f),
+                    new Vector3(0f, 0f, UsableGlowProudZ),
+                    color);
+                CardGlow.AddPulse(_usableGlow, color); // the wanted-slot breath — catches the eye on the board
+                Core.VRLayers.Apply(_usableGlow);      // mod-owned overlay on the mod layer (no children)
+            }
+            if (_usableGlow.activeSelf != on)
+                _usableGlow.SetActive(on);
+        }
+
+        /// <summary>How far the stack halo extends past the slab edge (1.0 = flush).</summary>
+        private const float UsableGlowRim = 1.35f;
+
+        /// <summary>Local -Z (toward the viewer) the stack halo sits at: proud of the top slab's front
+        /// face (which spans ±0.0009 about z 0) but still behind the count/caption text at -0.0025.</summary>
+        private const float UsableGlowProudZ = -0.0018f;
 
         // ---- grab (pinch-to-browse) ------------------------------------------------
 
