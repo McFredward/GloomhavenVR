@@ -69,12 +69,34 @@ internal sealed class RayInteractor : IPickProvider
     private int _uiHitOverrideFrame = -1;
 
     /// <summary>
+    /// Claim the trigger for this frame WITHOUT moving the beam — the far-click half of
+    /// <see cref="UiHitOverride"/> on its own.
+    ///
+    /// The two duties used to be welded together: a driver that wanted only "don't let this
+    /// trigger also fire a board click" had to publish a world point, and the beam then
+    /// clamped to it. Where that point was not an actual beam hit the result was a phantom
+    /// surface — the beam ends at the point's PROJECTION onto the aim ray, so publishing an
+    /// object's CENTRE makes the reticle stick to the plane through that centre perpendicular
+    /// to the beam, at every aim direction. That is precisely the "invisible wall drawn
+    /// orthogonally through the middle of the card" the tester kept hitting instead of the
+    /// card (see CardsDriver's lift-priority branch). Callers that own the trigger but have no
+    /// real hit point call this instead and leave the beam to the physics pick.
+    /// </summary>
+    public void SuppressFarClick() => _farClickFrame = Time.frameCount;
+
+    private int _farClickFrame = -1;
+
+    /// <summary>
     /// True while <see cref="UiHitOverride"/> is fresh (set this frame or the last) —
     /// i.e. the beam is clamped to a code-intersected UI surface (world panel, fan
-    /// card, flat screen). Far-click consumers (BoardClickDriver) skip the trigger
-    /// while this is set so a UI point-and-click never doubles as a board click.
+    /// card, flat screen) — or while a driver has claimed the trigger via
+    /// <see cref="SuppressFarClick"/> without clamping the beam. Far-click consumers
+    /// (BoardClickDriver) skip the trigger while this is set so a UI point-and-click
+    /// never doubles as a board click.
     /// </summary>
-    public bool HasFreshUiHit => _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
+    public bool HasFreshUiHit =>
+        (_uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1)
+        || Time.frameCount - _farClickFrame <= 1;
 
     /// <summary>
     /// Distance along the aim ray to the nearest card in the OPEN hand fan, or +inf when

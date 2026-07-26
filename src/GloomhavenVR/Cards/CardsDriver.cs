@@ -1439,9 +1439,16 @@ internal sealed class CardsDriver : MonoBehaviour
                     // A stale laser pop on a DIFFERENT card than the rescue winner drops now.
                     if (_laserHover != null && !ReferenceEquals(_laserHover, rescue))
                         ClearLaserHover();
-                    // Clamp the beam onto the winner (telegraphs the grab target, keeps the
-                    // board far-click + proximity double-path suppressed via HasFreshUiHit).
-                    dom.Ray.UiHitOverride = rescue.transform.position;
+                    // Own the trigger for the winner, but do NOT move the beam. This branch
+                    // runs precisely BECAUSE the ray missed the card this frame, so any point
+                    // published here is a fiction — and the beam ends at that point's
+                    // PROJECTION onto the aim ray, so publishing the card CENTRE parked the
+                    // reticle on the plane through the centre perpendicular to the beam: the
+                    // "invisible wall through the middle of the card" that stayed under the dot
+                    // however far the beam was swept off the card. SuppressFarClick keeps the
+                    // board far-click + proximity double-path suppression (HasFreshUiHit) that
+                    // the clamp used to provide, without inventing a hit.
+                    dom.Ray.SuppressFarClick();
                     if (dom.TriggerDown && rescue.CanGrab)
                     {
                         if (!s_loggedFanRescue)
@@ -1753,6 +1760,57 @@ internal sealed class CardsDriver : MonoBehaviour
     private VRCard? _trayCardHover;
 
     /// <summary>
+    /// Does the ray actually cross <paramref name="card"/>'s face? Intersects the card's
+    /// RESTING rect (VRCard.TryGetRestingLaserRect — the hover pop excluded, so the raise can
+    /// never feed itself back into the hit test) and reports the world hit point. Used by the
+    /// lift-priority branch to decide whether it may clamp the beam at all.
+    /// </summary>
+    private static bool TryHitRestingRect(VRCard card, Vector3 origin, Vector3 direction,
+        out Vector3 point)
+    {
+        point = default;
+        if (!card.TryGetRestingLaserRect(out Vector3 center, out Vector3 normal,
+                out Vector3 right, out Vector3 up, out float halfW, out float halfH))
+            return false;
+        float denom = Vector3.Dot(direction, normal); // cards face the viewer with −Z
+        if (denom < 1e-5f)
+            return false;
+        float dist = Vector3.Dot(center - origin, normal) / denom;
+        if (dist <= 0f)
+            return false;
+        Vector3 hit = origin + direction * dist;
+        Vector3 rel = hit - center;
+        if (Mathf.Abs(Vector3.Dot(rel, right)) > halfW || Mathf.Abs(Vector3.Dot(rel, up)) > halfH)
+            return false;
+        point = hit;
+        return true;
+    }
+
+    // Throttle for the lift-priority diagnostic below (shared; the branch runs per frame).
+    private static float s_nextLiftPriorityLogAt;
+    private static bool s_lastLiftOnCard;
+
+    /// <summary>
+    /// Diagnostic for the lift-priority branch — the path that produced the phantom
+    /// "orthogonal wall through the middle of the card". Logs when the branch owns the frame
+    /// and whether the beam is clamped to a REAL hit on the card or merely left alone, so a
+    /// hardware log shows the branch engaging (it is silent otherwise: it only ever logged on
+    /// an actual trigger-grab) and proves the beam is no longer parked on the card centre.
+    /// Throttled, plus an immediate line whenever the on-card state flips.
+    /// </summary>
+    private static void LogLiftPriority(VRCard lifted, bool onCard)
+    {
+        float now = Time.unscaledTime;
+        if (onCard == s_lastLiftOnCard && now < s_nextLiftPriorityLogAt)
+            return;
+        s_lastLiftOnCard = onCard;
+        s_nextLiftPriorityLogAt = now + 2f;
+        VRLog.Debug("Cards", $"Board laser: LIFT-PRIORITY owns the trigger for '{lifted.name}' " +
+            $"(palm highlight on a docked card) — beam {(onCard ? "clamped to the REAL ray/card hit" : "LEFT FREE (ray is off the card; far-click suppressed only)")}. " +
+            "The beam is never parked on the card centre any more (that was the phantom wall).");
+    }
+
+    /// <summary>
     /// P7 (test #10): laser support for every control-board element — the dominant
     /// hand's ray is tested geometrically against the tray's registered pokeables
     /// (Collider.Raycast works on triggers, no physics-layer coupling) and against
@@ -1790,12 +1848,37 @@ internal sealed class CardsDriver : MonoBehaviour
         // flows) take the same lift-priority accept as the two played-slot occupants —
         // they live in the same recesses, carry the same dock grab apron, and suffered
         // the same trigger fall-through to board actions.
+        // ROOT CAUSE of the "invisible wall through the middle of the card" (hardware rounds
+        // 5-7; the collider hunts were chasing the wrong object entirely). This branch used to
+        // publish `Ray.UiHitOverride = lifted.transform.position` — the card's CENTRE. The beam
+        // does not end AT an override point, it ends at that point's PROJECTION onto the aim ray
+        // (RayInteractor.UpdateVisuals, deliberately, so the beam can never bend). Feeding it a
+        // centre therefore parks the reticle on the plane through the card centre PERPENDICULAR
+        // TO THE BEAM — a phantom wall standing across the ray at the card's midline, which the
+        // beam "hits" no matter where it actually points, while this branch's `return` keeps the
+        // card itself from ever registering a hover. Exactly the reported symptom, right down to
+        // being worst at flat angles: pointing along the board brings the controller close enough
+        // to a docked card for ProximityGrabber's palm highlight to engage, which is this
+        // branch's trigger.
+        //
+        // The branch's real job is the trigger, not the beam: own the pull so it grabs the lifted
+        // card instead of a near-missed board element. So clamp the beam ONLY when the ray truly
+        // crosses the card (then the point is honest and telegraphs the winner), and otherwise
+        // just claim the trigger via SuppressFarClick — the beam keeps reporting whatever it
+        // really hits, and the far-click suppression that used to ride along on UiHitOverride is
+        // preserved.
         if (dom.Grabber.Highlighted is VRCard lifted
             && (_tray.ContainsCard(lifted) || _fieldCards.Contains(lifted))
             && !dom.RayUgui.HasHit)
         {
             ClearBoardHover();
-            dom.Ray.UiHitOverride = lifted.transform.position;
+            bool onCard = TryHitRestingRect(lifted, dom.Ray.Current.Origin,
+                dom.Ray.Current.Direction, out Vector3 liftedHit);
+            if (onCard)
+                dom.Ray.UiHitOverride = liftedHit; // honest hit — beam lands ON the card
+            else
+                dom.Ray.SuppressFarClick(); // own the trigger, leave the beam alone
+            LogLiftPriority(lifted, onCard);
             if (dom.TriggerDown && lifted.CanGrab)
             {
                 VRLog.Info("Cards", "Board: hover-LIFTED slot card trigger-grabbed " +
