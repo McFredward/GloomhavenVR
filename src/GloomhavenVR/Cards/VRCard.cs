@@ -671,6 +671,28 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private bool _laserPopped;
 
     /// <summary>
+    /// BURN ANIM: the card's SEATED (home) pose in world space — where the layout put it, which is
+    /// where it will be sitting once any fly-in/settle finishes. Needed because a card can be asked
+    /// for its "true position" during the very frame a <see cref="FlyFromPile"/> is seeding the
+    /// flight start at the PILE: the live transform then reads the pile, while the pose that matters
+    /// for a later burn animation is the seat it is heading to. Read-only; false for a parentless
+    /// card (nothing meaningful to report — the live transform is returned instead).
+    /// </summary>
+    internal bool TryGetHomeWorldPose(out Vector3 pos, out Quaternion rot)
+    {
+        Transform? parent = transform.parent;
+        if (parent == null)
+        {
+            pos = transform.position;
+            rot = transform.rotation;
+            return false;
+        }
+        pos = parent.TransformPoint(_homePos);
+        rot = parent.rotation * _homeRot;
+        return true;
+    }
+
+    /// <summary>
     /// LASER hit geometry that DELIBERATELY EXCLUDES the hover RAISE (pop): the card's
     /// RESTING world-space rectangle — center, plane normal, unit right/up axes and
     /// world-meter half-extents — computed from the HOME pose
