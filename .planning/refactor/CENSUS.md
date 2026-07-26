@@ -62,8 +62,25 @@ unbinding a key drops it from the user's `.cfg` on the next write, which `CardsC
   loading unchanged, and converts a misleading knob into an honest one. Deletion buys a slightly
   shorter file and risks nothing except the back-compat promise — not worth it.
 
-**Guard expectation either way:** description-only edits do not survive into IL, so the guard
-diff is empty. That is itself the argument for preferring re-labelling over removal.
+**Guard expectation — corrected.** I first wrote here that description-only edits give an empty
+guard diff. **That is wrong**, and the Net/Rig review caught it by *measuring* the snapshot
+instead of reasoning about it. A config description is a **string literal argument** to `Bind`,
+so it is compiled into the assembly and appears in the decompiled snapshot verbatim — I
+confirmed by finding "LIVE FIT KNOB" in `baseline/GloomhavenVR.Cards/CardsConfig.cs`.
+
+The correct rule, now measured rather than assumed:
+
+| Edit | In the snapshot? | Guard diff |
+|---|---|---|
+| XML doc comment (`/// <summary>`) | no — 0 `<summary>` tags in the whole snapshot | **empty** |
+| `//` comment | no | **empty** |
+| Config `Bind` description | **yes** — it is a string literal | one line per edited description |
+| Sequential enum member values | not rendered when they are the implicit 0,1,2… | **empty** — so making them explicit is provably free |
+
+So re-labelling the legacy config entries WILL show a guard diff — one line per description,
+inside `CardsConfig`, and nothing else. That is still the expected, reviewable outcome; it just
+is not the "provably nothing changed" case I claimed. The argument for re-labelling over removal
+stands on the back-compat promise, not on the guard.
 
 ## Confirmed dead — stale documentation (Tier 0)
 

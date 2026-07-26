@@ -48,9 +48,27 @@ snapshot() {
     # same source — mask it so it never shows up as a false positive.
     grep -rlZ 'built 20\|BuildTimeUtc' "$out" 2>/dev/null \
         | xargs -0 -r sed -i -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/<BUILD-TIME>/g'
-    # The commit hash is baked in too, and changes with every commit.
-    grep -rlZ 'build [0-9a-f]\{9\}' "$out" 2>/dev/null \
-        | xargs -0 -r sed -i -E 's/build [0-9a-f]{9} \[[^]]*\]/build <COMMIT>/g'
+    # The commit hash is baked in too, and changes with every commit — in the startup log
+    # line, in BuildInfo, AND in AssemblyInformationalVersion. Mask every form: any run of
+    # 9+ hex characters that looks like a git object id.
+    find "$out" -name '*.cs' -print0 \
+        | xargs -0 -r sed -i -E 's/\b[0-9a-f]{9,40}\b/<COMMIT>/g; s/build <COMMIT> \[[^]]*\]/build <COMMIT>/g'
+}
+
+# Classify one changed file: MOVED if the two versions are permutations of each other
+# (same multiset of lines, different order), CHANGED otherwise.
+#
+# This distinction is the whole point for a refactor whose main tool is moving code.
+# ilspycmd emits members in SOURCE order, so splitting a class into partials or
+# reordering members reshuffles the snapshot even though nothing about the compiled
+# behaviour changed. Without this, every Tier 1 motion looks like a failure and the
+# signal is lost in noise.
+#
+# It is not a proof of safety: reordering two statements that DO depend on each other
+# is also a permutation. It narrows "what changed" to "only the order changed", which
+# is exactly the question a human then has to answer.
+classify() {
+    if diff -q <(sort "$1") <(sort "$2") >/dev/null 2>&1; then echo "MOVED  "; else echo "CHANGED"; fi
 }
 
 case "${1:-check}" in
@@ -63,9 +81,21 @@ case "${1:-check}" in
         [[ -d "$BASE" ]] || { echo "error: no baseline — run 'refactor-guard.sh baseline' first" >&2; exit 1; }
         snapshot "$CURR"
         if [[ "${2:-}" == "--summary" ]]; then
-            echo "=== types whose compiled form changed vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="
-            diff -rq "$BASE" "$CURR" | sed -E 's|.*/baseline/||; s| and .*||; s|^Files ||' || true
-            echo "=== $(diff -r "$BASE" "$CURR" | grep -c '^[<>]' || true) changed lines total ==="
+            echo "=== compiled form vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="
+            moved=0; changed=0; added=0
+            while IFS= read -r line; do
+                case "$line" in
+                    Files\ *)
+                        rel="${line#Files }"; rel="${rel%% and *}"; rel="${rel#$BASE/}"
+                        verdict="$(classify "$BASE/$rel" "$CURR/$rel")"
+                        [[ "$verdict" == "MOVED  " ]] && moved=$((moved+1)) || changed=$((changed+1))
+                        echo "  $verdict  $rel" ;;
+                    Only\ in\ *)
+                        added=$((added+1)); echo "  NEW/GONE $line" ;;
+                esac
+            done < <(diff -rq "$BASE" "$CURR" 2>/dev/null || true)
+            echo "=== $moved moved (order only), $changed changed, $added added/removed ==="
+            [[ $changed -eq 0 && $added -eq 0 ]] && echo "=== no compiled behaviour differs from the baseline ==="
         else
             diff -ru "$BASE" "$CURR" || true
         fi

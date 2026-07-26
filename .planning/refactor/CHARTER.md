@@ -50,18 +50,49 @@ is built on:
 
 | Refactor kind | Expected guard output |
 |---|---|
-| Move a type to another file, split a file, reorder members | **empty diff** |
-| Rename a private member | diff confined to that one type, names only |
-| Extract a method | diff confined to that one type |
+| Move a whole type to another file | **nothing at all** — the snapshot files types separately |
+| Split a class into partials, reorder members | **`MOVED`** — same lines, different order |
+| Rename a private member | `CHANGED`, confined to that one type, names only |
+| Extract a method | `CHANGED`, confined to that one type |
 | Anything appearing in a type I did not intend to touch | **collateral damage — revert** |
 
-Verified: two builds of identical source differ only in the build timestamp,
-which the script masks. A no-op check reports 0 changed lines.
+**Corrected after measuring, not assuming** (the first version of this table was wrong twice):
+
+- `ilspycmd -p` emits members in **source order**, so splitting a class into partials or
+  reordering members reshuffles the snapshot even though nothing compiled has changed. Without
+  a distinction, every Tier 1 motion would look like a failure. The guard now classifies each
+  changed file: `MOVED` when the two versions are **permutations of the same lines**, `CHANGED`
+  otherwise. Verified by swapping two methods in `VRLayers` — reported as `MOVED`, 0 changed.
+  *This is not a safety proof:* swapping two statements that DO depend on each other is also a
+  permutation. It narrows "what changed" to "only the order changed" — which is the question a
+  human then has to answer, and is exactly where frame-ordering constraints live (§8).
+- Config `Bind` descriptions are **string literal arguments**, so they DO appear in the
+  snapshot. XML doc comments and `//` comments do not (measured: 0 `<summary>` tags in the whole
+  snapshot). Implicit sequential enum values are not rendered, so making them explicit is
+  provably free — which is what makes the `PileKind` wire fix free.
+
+Verified: two builds of identical source differ only in the build timestamp and the baked commit
+hash, both of which the script masks. A no-op check reports "no compiled behaviour differs".
 
 This does not prove a refactor is *correct*. It proves the exact blast radius,
 which is the thing that is otherwise invisible and is how regressions get in.
 
 **Rule: every refactor commit records its guard output in `LOG.md`.**
+
+## 3b. Where the guard is blind
+
+Stated plainly, because a safety net you trust too far is worse than none:
+
+1. **It proves blast radius, not correctness.** Inside a type I meant to touch, a wrong change
+   looks exactly like a right one.
+2. **Frame ordering.** The order in which subsystems run per frame is a documented constraint in
+   several places (`VRHand`'s six interactors, `BoardDriver`'s five steps, `FigureGrab` after the
+   Animator, MixedReality last in `_tailSteps`). A reordering shows up as `MOVED` or as an
+   ordinary `CHANGED` inside an expected type. **This is the refactor's blind spot**, and it is
+   why ordering constraints get their own checker rather than relying on the guard.
+3. **Anything not in the assembly**: the Harmony registration wiring (a patch class nobody
+   references compiles and ships inert — that has happened twice), config keys disappearing from
+   a user's `.cfg`, log grep tokens the debug workflow depends on.
 
 ## 4. Risk tiers
 
