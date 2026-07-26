@@ -661,9 +661,79 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// Laser hover (P6, Demeo pluck): separate flag so the dominant hand's ray and the
     /// proximity highlight never stomp each other — the card pops while EITHER is set.
     /// </summary>
-    internal void SetLaserHover(bool hovered) => _laserPopped = hovered;
+    internal void SetLaserHover(bool hovered)
+    {
+        if (hovered && !_laserPopped)
+            LogLaserRectDecoupled(); // one throttled diagnostic on hover-start (see below)
+        _laserPopped = hovered;
+    }
 
     private bool _laserPopped;
+
+    /// <summary>
+    /// LASER hit geometry that DELIBERATELY EXCLUDES the hover RAISE (pop): the card's
+    /// RESTING world-space rectangle — center, plane normal, unit right/up axes and
+    /// world-meter half-extents — computed from the HOME pose
+    /// (<see cref="_homePos"/>/<see cref="_homeRot"/>/<see cref="_homeScale"/> under the
+    /// current parent), NOT the live transform.
+    ///
+    /// ROOT-CAUSE FIX (hardware: the laser "sticks" ABOVE a raised fan card — the board
+    /// button beside it becomes unreachable and the card is grabbed by mistake). The fan
+    /// laser pick (<see cref="CardFan.TryRaycast"/>) built its per-card plane from the LIVE
+    /// transform. A laser-hovered card immediately lifts toward the viewer (−Z) and up (+Y)
+    /// — <see cref="Update"/>'s pop — so the hit PLANE moved INTO the beam the instant the
+    /// card popped, feeding the raise straight back into the hit test: sweeping the beam up
+    /// the card raised its plane up to meet the beam, and sweeping off sideways left the
+    /// hover latched at the raised height (a stale hit floating above the resting card,
+    /// which is exactly the "invisible collider above the card" the tester felt). Because
+    /// the stuck fan hover gates the board laser off (CardsDriver.UpdateBoardLaser returns
+    /// while <c>_laserHover != null</c>) and arms the laser pluck, the adjacent button dies
+    /// and the trigger grabs the card. Testing the RESTING rect breaks the loop — the pop is
+    /// now purely visual; the beam hits the card where it sits at rest, so leaving the rect
+    /// drops the hover at once. Returns false only for a parentless/degenerate card (the
+    /// caller then simply skips it — a fanned card always has the fan root as parent).
+    /// </summary>
+    internal bool TryGetRestingLaserRect(out Vector3 center, out Vector3 normal,
+        out Vector3 right, out Vector3 up, out float halfWidth, out float halfHeight)
+    {
+        center = default;
+        normal = default;
+        right = default;
+        up = default;
+        halfWidth = 0f;
+        halfHeight = 0f;
+        Transform? parent = transform.parent;
+        if (parent == null)
+            return false;
+        center = parent.TransformPoint(_homePos);
+        Quaternion rot = parent.rotation * _homeRot;
+        right = rot * Vector3.right;
+        up = rot * Vector3.up;
+        normal = rot * Vector3.forward; // card +Z, away from the viewer (uGUI reads from −Z)
+        float lossy = parent.lossyScale.x * _homeScale; // resting world scale (pop scale excluded)
+        halfWidth = CardsConfig.CardWidth.Value * 0.5f * lossy;
+        halfHeight = CardsConfig.CardHeight * 0.5f * lossy;
+        return true;
+    }
+
+    /// <summary>Throttled diagnostic (shared across all cards): on laser hover-START, log the
+    /// RESTING hit center the pick now uses vs the LIVE (about-to-pop) transform, so a
+    /// hardware log verifies the laser rect no longer tracks the raise.</summary>
+    private static float s_nextLaserRectLogAt;
+
+    private void LogLaserRectDecoupled()
+    {
+        if (Time.unscaledTime < s_nextLaserRectLogAt)
+            return;
+        s_nextLaserRectLogAt = Time.unscaledTime + 1f;
+        if (!TryGetRestingLaserRect(out Vector3 center, out _, out _, out _, out float hw, out float hh))
+            return;
+        Vector3 live = transform.position;
+        Core.VRLog.Debug("Cards", $"Laser hover '{name}': hit rect = RESTING center " +
+            $"({center.x:F3},{center.y:F3},{center.z:F3}) half({hw:F3},{hh:F3}) m; live transform " +
+            $"({live.x:F3},{live.y:F3},{live.z:F3}) pop={_pop:F2} — laser rect decoupled from the " +
+            "raise (hits the card at rest, never the popped pose).");
+    }
 
     /// <summary>
     /// T2 (fan grab misses): extra grab-accept depth a FANNED card's collider grows
