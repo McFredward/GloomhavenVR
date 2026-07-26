@@ -978,15 +978,16 @@ internal sealed class ItemsPile
         // ABSENCE of a veil. The cue is now POSITIVE — light up exactly the cards you CAN play and
         // leave every other card at its natural, fully legible look.
         //
-        // MECHANISM: the mod's established gold telegraph — CardGlow.CreateGlowQuad, i.e. the SAME
-        // additive Overlay material + gold the board play-slot glow and the hand-fan insertion glow
-        // use — sized slightly larger than the card and parked BEHIND the card body, so the gold reads
-        // as a halo rim around the card silhouette and never washes over the art. CardGlow.AddPulse
-        // gives it the wanted-slot breath so it catches the eye in peripheral vision at fan scale.
-        // Fully mod-owned: a child quad of OUR chip GameObject, destroyed with the chip; the hosted
+        // MECHANISM (round 2 — the gold glow QUAD is gone, see BuildUsableFrame): the cue is now the
+        // SAME soft, breathing OUTLINE the initiative order wears for "this hero still has to choose"
+        // (WorldUI SoftCueArt.FrameSprite + SoftFramePulse, extracted from InitiativeSelectionGlow) —
+        // a hollow 9-sliced frame in the card's margin, with rounded corners so it hugs the card
+        // instead of boxing it in. The user rejected the previous flat gold overlay outright and named
+        // that initiative frame as the reference, so the two now share one sprite recipe and one breath.
+        // Fully mod-owned: a child canvas of OUR chip GameObject, destroyed with the chip; the hosted
         // game ItemCardUI is never touched, so the widget goes back to the ObjectPool untouched.
         // Toggled LIVE (never cached) from the owner's turn-aware CanUseNow. -1 = "not yet applied".
-        private GameObject? _usableGlow;   // mod-owned gold rim glow shown behind USABLE item cards
+        private GameObject? _usableFrame;  // mod-owned soft gold outline framing USABLE item cards
         private int _usabilityShown = -1;  // last applied state: -1 none, 0 normal, 1 highlighted
 
         // ITEM #3 (desktop mirror): the hosted card's world-space FaceCanvas. VRCard binds its face
@@ -1100,11 +1101,11 @@ internal sealed class ItemsPile
             if (!realCard)
                 BuildFallbackFace(go.transform, item, cw, ch, state);
 
-            // USABLE HIGHLIGHT — the mod-owned gold rim glow behind the card, hidden by default and
+            // USABLE HIGHLIGHT — the mod-owned soft outline AROUND the card, hidden by default and
             // shown by TickFaceMaintenance for items that CAN be used right now. Built to the ACTUAL
-            // card size so the halo tracks the real (near-square) item silhouette; mod layer; a child
+            // card size so the frame traces the real (near-square) item silhouette; mod layer; a child
             // of the chip, so it dies with the chip and never touches the pooled game card.
-            chip._usableGlow = chip.BuildUsableGlow(go.transform, cw, ch);
+            chip._usableFrame = chip.BuildUsableFrame(go.transform, cw, ch);
 
             // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
             box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
@@ -1194,47 +1195,99 @@ internal sealed class ItemsPile
         }
 
         /// <summary>
-        /// Build the mod-owned "you can play this NOW" highlight: the mod's standard gold telegraph
-        /// (<see cref="CardGlow.CreateGlowQuad"/> — the identical additive Overlay material the board
-        /// play slots and the hand-fan insertion gap use) sized <see cref="UsableGlowRim"/>× the card and
-        /// parked BEHIND the card body.
+        /// Build the mod-owned "you can play this NOW" cue: a soft, breathing gold FRAME around the
+        /// card — the very treatment the user pointed at ("ein Rahmen, ähnlich wie du es mal bei der
+        /// Initiativreihenfolge gemacht hast"), reusing the initiative ring's own art and motion via
+        /// <see cref="WorldUI.SoftCueArt.FrameSprite"/> + <see cref="WorldUI.SoftFramePulse"/>.
         ///
-        /// WHY BEHIND rather than over the face: the glow shader is ADDITIVE, so a quad in front of the
-        /// card would add gold light straight onto the artwork and blow out the very card it is trying
-        /// to advertise. Placed behind the opaque card body (which is only ~1.5–2.3 mm thick), the card
-        /// occludes the middle of the quad and only the oversized border survives — a clean gold halo
-        /// tracing the card's silhouette, which is what actually reads at fan scale in VR from a metre
-        /// away, and which leaves the item art untouched and fully legible.
+        /// WHY A FRAME AND NOT THE OLD GLOW QUAD: the previous cue was an additive gold quad parked
+        /// behind the card so its oversized border survived as a halo. It worked mechanically but the
+        /// user rejected the LOOK outright — a hard-edged rectangle of light stuck behind an antique
+        /// fantasy card. A hollow 9-sliced outline draws light ONLY in the card's margin band, with a
+        /// falloff on both sides and ROUNDED corners, so nothing is ever a filled rectangle; the item
+        /// art stays completely untouched and the cue reads as the same "waiting for you" language the
+        /// initiative bar already speaks.
         ///
-        /// <see cref="CardGlow.AddPulse"/> adds the wanted-slot breath: several usable cards pulse in
-        /// phase (shared unscaled clock) and read as one cue. Hidden by default; <see cref="TickFaceMaintenance"/>
-        /// toggles it live. Never touches the hosted game card — dies with the chip.
+        /// WHY A uGUI CANVAS AND NOT A MESH: the frame's thickness must be CONSTANT (a fixed band in the
+        /// card's margin), not proportional to the card — a stretched textured quad would scale its
+        /// border with the card and turn a hairline into a slab on a wide card. That is exactly what a
+        /// 9-sliced Image gives for free, and it is what makes this literally the same mechanism as the
+        /// initiative ring rather than a look-alike. The chip already hosts one mod-owned world-space
+        /// canvas for the card face, so this adds a second sibling canvas of the SAME kind — it is
+        /// parked at <see cref="FrameZ"/> (viewer side of the face) with an explicit
+        /// <c>sortingOrder</c> above the face canvas, so the draw order is decided, not distance-luck.
+        ///
+        /// Built INACTIVE; <see cref="TickFaceMaintenance"/> toggles it live from the owner's turn-aware
+        /// <c>CanUseNow</c>. Never touches the hosted game card — a child of the chip, destroyed with it.
         /// </summary>
-        private GameObject BuildUsableGlow(Transform parent, float cw, float ch)
+        private GameObject BuildUsableFrame(Transform parent, float cw, float ch)
         {
-            var color = new Color(1f, 0.85f, 0.3f, 0.95f); // the mod's telegraph gold (board slot / fan gap)
-            GameObject quad = CardGlow.CreateGlowQuad("UsableHighlight", parent,
-                new Vector3(cw * UsableGlowRim, ch * UsableGlowRim, 1f),
-                new Vector3(0f, 0f, UsableGlowBehindZ),
-                color);
-            var mr = quad.GetComponent<MeshRenderer>();
-            if (mr != null)
-                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            CardGlow.AddPulse(quad, color);
-            Core.VRLayers.Apply(quad); // mod-owned overlay on the mod layer (no children — recursion-safe)
-            return quad;               // CreateGlowQuad hands it back INACTIVE — shown only when usable
+            // The mod's telegraph gold, warmed toward the initiative ring's amber so the two cues are
+            // recognisably the same voice. Alpha is the CEILING the breath multiplies (SoftFramePulse).
+            var color = new Color(1f, 0.80f, 0.32f, 1f);
+
+            var canvasGo = new GameObject("UsableFrame", typeof(RectTransform), typeof(Canvas));
+            var rt = (RectTransform)canvasGo.transform;
+            rt.SetParent(parent, worldPositionStays: false);
+            var canvas = canvasGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.sortingOrder = 1; // above the hosted face canvas (0) — deterministic, not distance-sorted
+
+            // px → metres. Working in a fixed pixel reference (rather than in metres) is what lets the
+            // outset/border constants below be stated in the SAME uGUI px units the initiative ring uses,
+            // so both frames end up proportionally identical.
+            float scale = cw / FrameReferencePixels;
+            rt.sizeDelta = new Vector2(FrameReferencePixels + 2f * FrameOutsetPixels,
+                                       ch / scale + 2f * FrameOutsetPixels);
+            rt.localScale = new Vector3(scale, scale, scale);
+            rt.localPosition = new Vector3(0f, 0f, FrameZ);
+            rt.localRotation = Quaternion.identity;
+
+            // The outline itself lives on a CHILD stretched to the canvas rect, so SoftFramePulse can
+            // breathe its localScale without rescaling the canvas' pixel reference under it.
+            var ringGo = new GameObject("Ring", typeof(RectTransform), typeof(Image));
+            var ringRt = (RectTransform)ringGo.transform;
+            ringRt.SetParent(rt, worldPositionStays: false);
+            ringRt.anchorMin = Vector2.zero;
+            ringRt.anchorMax = Vector2.one;
+            ringRt.offsetMin = Vector2.zero;
+            ringRt.offsetMax = Vector2.zero;
+            ringRt.localPosition = new Vector3(0f, 0f, 0f);
+            ringRt.localRotation = Quaternion.identity;
+
+            var img = ringGo.GetComponent<Image>();
+            img.sprite = WorldUI.SoftCueArt.FrameSprite(FrameCornerRadiusPx);
+            img.type = Image.Type.Sliced;
+            img.fillCenter = false;   // hollow — a frame, never a wash over the art
+            img.raycastTarget = false; // the chip is grabbed through its collider; nothing may raycast this
+            img.color = color;
+            ringGo.AddComponent<WorldUI.SoftFramePulse>().Init(img, color);
+
+            Core.VRLayers.Apply(canvasGo); // mod-owned overlay on the mod layer (no game children below it)
+            canvasGo.SetActive(false);     // shown only while the item is usable
+            return canvasGo;
         }
 
-        /// <summary>How far the usable-highlight halo extends past the card edge (1.0 = flush).
-        /// Sized so the visible rim is roughly a tenth of the card on every side — unmistakable at
-        /// fan scale without bleeding into the neighbouring card in the arc.</summary>
-        private const float UsableGlowRim = 1.20f;
+        /// <summary>Pixel width the card is mapped to for the frame canvas. Matches the item card's own
+        /// native rect (~300 px), so <see cref="FrameOutsetPixels"/> and the sprite's 16 px border land in
+        /// the same proportions the initiative ring wears on a portrait.</summary>
+        private const float FrameReferencePixels = 300f;
 
-        /// <summary>Local +Z (AWAY from the viewer) the halo sits at: clear of the thickest card body
-        /// the chip can wear (CardMesh 1.5 mm / the cube-slab fallback 2.3 mm) so the body reliably
-        /// occludes the halo's middle, yet close enough that the rim never parallax-separates from the
-        /// card when the fan is viewed at an angle.</summary>
-        private const float UsableGlowBehindZ = 0.004f;
+        /// <summary>How far (uGUI px, i.e. ~1/300 of the card width) the frame rect is grown past the card
+        /// on every side — the initiative ring's outset. The sprite's bright core sits 2–6 px inside the
+        /// frame's outer lip, so the visible gold line floats just OUTSIDE the card silhouette and only its
+        /// soft inner falloff touches the art's outermost few percent.</summary>
+        private const float FrameOutsetPixels = 8f;
+
+        /// <summary>Corner rounding (px) of the outline. Non-zero on purpose: the user's one hard
+        /// constraint on the new cue was "nicht viereckig", and a rounded, softly-falling outline hugging
+        /// the card is the opposite of the hard rectangle that was rejected.</summary>
+        private const int FrameCornerRadiusPx = 14;
+
+        /// <summary>Local -Z (TOWARD the viewer) the frame sits at: 1 mm proud of the hosted face canvas
+        /// (-0.0012) so no card body or face graphic can ever occlude or z-fight the outline, yet close
+        /// enough that it never parallax-separates from the card when the fan is viewed at an angle.</summary>
+        private const float FrameZ = -0.0022f;
 
         /// <summary>
         /// Host the game's real <c>ItemCardUI</c> on a world-space canvas (requirement 1): spawn it
@@ -1839,7 +1892,7 @@ internal sealed class ItemsPile
         /// baked (mirror of <c>CardFace.Maintain</c>'s <see cref="MipRescanInterval"/> cadence — async
         /// arrivals / state changes keep putting the mipless originals back), and (2) LIVE re-evaluate
         /// the playable gate from <see cref="IsActivatable"/> so exactly the cards that CAN be used
-        /// right now wear the gold halo and every other card stays untouched. Usability changes with
+        /// right now wear the soft gold frame and every other card stays untouched. Usability changes with
         /// turn/phase, so it is polled every frame, never cached. Change-gated (both are no-ops unless
         /// due), so the per-frame cost is a clock compare + a bool compare.
         /// </summary>
@@ -1887,7 +1940,7 @@ internal sealed class ItemsPile
                 CardFaceMipBake.Rescan(_cardUI);
             }
 
-            // USABLE HIGHLIGHT (live) — light the gold halo when this card CAN be played RIGHT NOW.
+            // USABLE HIGHLIGHT (live) — light the soft gold FRAME when this card CAN be played RIGHT NOW.
             // Turn-aware: the owner gates on IsActionTurn AND IsActivatable, so off-turn nothing glows
             // and on-turn exactly the playable items do. Polled every frame (usability moves with
             // turn/phase and with every item spent) but change-gated, so the steady-state cost is one
@@ -1897,8 +1950,8 @@ internal sealed class ItemsPile
             if (want != _usabilityShown)
             {
                 _usabilityShown = want;
-                if (_usableGlow != null && _usableGlow.activeSelf != (want == 1))
-                    _usableGlow.SetActive(want == 1); // halo ON only while usable
+                if (_usableFrame != null && _usableFrame.activeSelf != (want == 1))
+                    _usableFrame.SetActive(want == 1); // frame ON only while usable
             }
         }
 
@@ -1999,7 +2052,7 @@ internal sealed class ItemsPile
                 return;
             }
 
-            TickFaceMaintenance(); // ITEM #1 (de-shimmer) + live usable-highlight halo — held or not
+            TickFaceMaintenance(); // ITEM #1 (de-shimmer) + live usable-highlight frame — held or not
 
             if (Holder != null)
             {
@@ -2104,7 +2157,7 @@ internal sealed class ItemsPile
                 try
                 {
                     // ITEM #1 — leave the pooled widget CLEAN: restore the mip-swapped sprites before the
-                    // game reuses this card elsewhere. (The usable highlight is a mod-owned glow quad,
+                    // game reuses this card elsewhere. (The usable highlight is a mod-owned frame canvas,
                     // destroyed with the chip below — it never touches the game card, nothing to reset.)
                     CardFaceMipBake.RestoreSprites(_cardUI);
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
@@ -2117,7 +2170,7 @@ internal sealed class ItemsPile
             _cardGo = null;
             _cardUI = null;
             _faceCanvas = null;
-            _usableGlow = null; // child of the chip GameObject — destroyed with it
+            _usableFrame = null; // child of the chip GameObject — destroyed with it
             _usabilityShown = -1;
         }
 

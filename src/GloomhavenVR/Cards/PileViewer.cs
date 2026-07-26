@@ -31,7 +31,7 @@ internal sealed class PileViewer
     // Usable-item highlight diagnostic (throttled + change-gated) — see TickItemsUsableHighlight.
     private float _nextUsableLogAt;
     private int _loggedUsable = int.MinValue;
-    private bool _loggedStackGlow;
+    private bool _loggedStackCue;
 
     /// <summary>
     /// The character-items pile (item 4): a self-contained THIRD stack below the burnt
@@ -235,7 +235,7 @@ internal sealed class PileViewer
         _loggedCounts = (int.MinValue, int.MinValue);
         _loggedItems = int.MinValue;
         _loggedUsable = int.MinValue;
-        _loggedStackGlow = false;
+        _loggedStackCue = false;
     }
 
     // ------------------------------------------------------------------ status --
@@ -277,16 +277,16 @@ internal sealed class PileViewer
     }
 
     /// <summary>
-    /// USABLE-HIGHLIGHT on the CLOSED items stack: light the "Gegenstände" stack with the mod's gold
-    /// telegraph whenever AT LEAST ONE equipped item can be used right now, so the player sees there is
-    /// something to play WITHOUT having to open the fan — and it goes out again the moment nothing is
+    /// USABLE-HIGHLIGHT on the CLOSED items stack: drift soft gold embers off the "Gegenstände" stack
+    /// whenever AT LEAST ONE equipped item can be used right now, so the player sees there is something
+    /// to play WITHOUT having to open the fan — and the emission stops again the moment nothing is
     /// usable (turn ends, the last usable item is spent/consumed).
     ///
     /// WHY the count comes from <see cref="ItemsPile.UsableCount"/> and not from the fan's chips: while
     /// the fan is closed there ARE no chips — the chips are built on open and destroyed on close. The
     /// count is therefore read live from the inventory through the exact same activatability predicate
     /// the chips and <c>UseItemService</c> use, so the stack can never advertise a use the game would
-    /// reject, and the stack cue and the per-card halos can never disagree.
+    /// reject, and the stack cue and the per-card frames can never disagree.
     ///
     /// Runs every frame the tray shows (a turn check + a pass over a handful of items), so it tracks
     /// turn/phase changes live. Purely local visual — nothing here touches game state or the network.
@@ -298,17 +298,17 @@ internal sealed class PileViewer
         _items?.SetUsableHighlight(on);
 
         // Throttled + change-gated diagnostic so the next hardware log can verify the cue end-to-end:
-        // how many items are usable this instant, and whether the stack glow is actually lit.
+        // how many items are usable this instant, and whether the stack's ember drift is actually running.
         if (Time.unscaledTime < _nextUsableLogAt)
             return;
         _nextUsableLogAt = Time.unscaledTime + 2f;
-        if (usable == _loggedUsable && on == _loggedStackGlow)
+        if (usable == _loggedUsable && on == _loggedStackCue)
             return;
         _loggedUsable = usable;
-        _loggedStackGlow = on;
+        _loggedStackCue = on;
         VRLog.Info("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now — " +
-                            $"stack glow {(on ? "ON" : "off")}, fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
-                            "(usable cards wear the gold halo; nothing is dimmed).");
+                            $"stack embers {(on ? "ON" : "off")}, fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
+                            "(usable cards wear the soft gold frame; nothing is dimmed).");
     }
 
     // ------------------------------------------------------------------ dispatch --
@@ -382,11 +382,12 @@ internal sealed class PileViewer
         private int _shown = int.MinValue;
         private bool _hasCards;
 
-        // USABLE-HIGHLIGHT (items stack only, built lazily on first use): the mod's gold telegraph glow
-        // lit while at least one equipped item can be played right now. Built lazily because only the
-        // ITEMS stack ever asks for it — the discard/burnt stacks must not pay for a quad they never show.
-        private GameObject? _usableGlow;
-        private bool _usableGlowOn;
+        // USABLE-HIGHLIGHT (items stack only, built lazily on first use): a slow drift of soft gold
+        // embers rising off the stack while at least one equipped item can be played right now. Built
+        // lazily because only the ITEMS stack ever asks for it — the discard/burnt stacks must not pay
+        // for a particle system they never show.
+        private ParticleSystem? _usableEmbers;
+        private bool _usableCueOn;
 
         // Slab footprint: 0.62× card size — reads as a mini pile without crowding
         // the 0.10 m column budget (PlayTray.BuildMounts collision math).
@@ -492,49 +493,154 @@ internal sealed class PileViewer
         }
 
         /// <summary>
-        /// USABLE-HIGHLIGHT — light (or clear) the stack's gold telegraph glow. Called every frame by
+        /// USABLE-HIGHLIGHT — start (or stop) the stack's ember drift. Called every frame by
         /// <see cref="PileViewer.TickItemsUsableHighlight"/> with the live "at least one item is usable
-        /// right now" answer, and change-gated here so the pulse is never restarted per frame.
+        /// right now" answer, and change-gated here so the emitter is never re-triggered per frame.
         ///
-        /// The glow is the SAME <see cref="CardGlow"/> gold the board play slots, the hand-fan insertion
-        /// gap and the usable item CARDS wear, so the stack cue and the card cue read as one language:
-        /// gold means "playable now". It is laid PROUD of the top slab (viewer side) and oversized, so
-        /// the gold both washes the pile face and haloes out past its silhouette — the stack sits flat on
-        /// the board, so a halo hidden BEHIND it would be swallowed by the board surface. It sits just
-        /// behind the count/caption text (z -0.0018 vs -0.0025), which therefore still reads on top.
+        /// WHY PARTICLES AND NOT A FRAME (user's own split): the item CARDS get a frame because a card
+        /// has a silhouette worth tracing; the closed stack does not — it is a 4-slab lump lying flat on
+        /// the board, and a frame around it would be exactly the rectangle of light the user rejected.
+        /// So the deck hints at "something in here is playable" the way a fantasy table would: a few soft
+        /// gold motes lifting off the pile and fading out, round and irregular, never a shape.
+        ///
+        /// SUBTLE BY CONSTRUCTION: ~5 motes a second, each a few millimetres across, living under two
+        /// seconds, at well under half opacity, drifting a couple of centimetres. At any instant there
+        /// are under a dozen on screen — a shimmer you notice in peripheral vision, not an effect that
+        /// competes with the board.
+        ///
+        /// Switching OFF stops EMISSION only, so the motes already in flight finish their fade instead of
+        /// vanishing mid-air (a hard clear is what would read as a bug when a turn ends).
         ///
         /// Mod-owned child of this stack: hidden with the stack, destroyed with it, nothing game-side
         /// touched. Purely local — no game state, no network traffic (multiplayer-neutral).
         /// </summary>
         internal void SetUsableHighlight(bool on)
         {
-            if (on == _usableGlowOn)
+            if (on == _usableCueOn)
                 return;
-            _usableGlowOn = on;
-            if (_usableGlow == null)
+            _usableCueOn = on;
+            if (_usableEmbers == null)
             {
                 if (!on)
-                    return; // never built, never needed — don't pay for the quad
-                float w = CardsConfig.CardWidth.Value * SlabFactor;
-                float h = CardsConfig.CardHeight * SlabFactor;
-                var color = new Color(1f, 0.85f, 0.3f, 0.95f); // the mod's telegraph gold
-                _usableGlow = CardGlow.CreateGlowQuad("UsableHighlight", transform,
-                    new Vector3(w * UsableGlowRim, h * UsableGlowRim, 1f),
-                    new Vector3(0f, 0f, UsableGlowProudZ),
-                    color);
-                CardGlow.AddPulse(_usableGlow, color); // the wanted-slot breath — catches the eye on the board
-                Core.VRLayers.Apply(_usableGlow);      // mod-owned overlay on the mod layer (no children)
+                    return; // never built, never needed — don't pay for the emitter
+                _usableEmbers = BuildUsableEmbers();
+                if (_usableEmbers == null)
+                    return; // shader-less environment — the cue degrades to nothing (never to a crash)
             }
-            if (_usableGlow.activeSelf != on)
-                _usableGlow.SetActive(on);
+            if (on)
+                _usableEmbers.Play();
+            else
+                _usableEmbers.Stop(withChildren: false, ParticleSystemStopBehavior.StopEmitting);
         }
 
-        /// <summary>How far the stack halo extends past the slab edge (1.0 = flush).</summary>
-        private const float UsableGlowRim = 1.35f;
+        /// <summary>
+        /// Build the stack's ember emitter once. Local simulation space so the motes ride the tray if the
+        /// player repositions the control board (world space would smear them into a trail behind it), and
+        /// a flattened box shape spanning the pile face so they lift off the WHOLE deck rather than from a
+        /// single point. Velocity is authored rather than taken from the shape's normal: the stack lies
+        /// flat against the tray, so "up" for this cue is the tray's own +Y with a slight lean toward the
+        /// viewer (-Z), which is what makes the motes read as rising off the deck from every seat.
+        ///
+        /// The material is <c>Sprites/Default</c> (the same shader the button dust FX proved on hardware —
+        /// vertex-coloured, alpha-blended, always present) textured with
+        /// <see cref="WorldUI.SoftCueArt.MoteTexture"/> so each particle is a soft ROUND ember; untextured,
+        /// that shader draws hard squares, which is precisely the look being replaced. Returns null only
+        /// when even that shader is missing.
+        /// </summary>
+        private ParticleSystem? BuildUsableEmbers()
+        {
+            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Particles/Standard Unlit");
+            if (shader == null)
+                return null;
 
-        /// <summary>Local -Z (toward the viewer) the stack halo sits at: proud of the top slab's front
-        /// face (which spans ±0.0009 about z 0) but still behind the count/caption text at -0.0025.</summary>
-        private const float UsableGlowProudZ = -0.0018f;
+            float w = CardsConfig.CardWidth.Value * SlabFactor;
+            float h = CardsConfig.CardHeight * SlabFactor;
+
+            var go = new GameObject("UsableEmbers");
+            go.transform.SetParent(transform, worldPositionStays: false);
+            // Just proud of the top slab (which spans ±0.0009 about z 0) so the motes are never born
+            // inside the pile, but behind the count/caption text at -0.0025 so they never fog the number.
+            go.transform.localPosition = new Vector3(0f, 0f, -0.0016f);
+            go.transform.localRotation = Quaternion.identity;
+
+            var ps = go.AddComponent<ParticleSystem>();
+            ParticleSystem.MainModule main = ps.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.scalingMode = ParticleSystemScalingMode.Hierarchy; // follows a scaled tray
+            main.playOnAwake = false;
+            main.loop = true;
+            main.maxParticles = 24;
+            main.startSpeed = 0f;      // drift comes from velocityOverLifetime below
+            main.gravityModifier = 0f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.2f);
+            main.startSize = new ParticleSystem.MinMaxCurve(w * 0.045f, w * 0.11f);
+            main.startColor = EmberColor;
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, 2f * Mathf.PI);
+
+            ParticleSystem.EmissionModule emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 5f;
+
+            ParticleSystem.ShapeModule shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Box;
+            shape.scale = new Vector3(w * 0.85f, h * 0.85f, 0.0001f); // a flat sheet over the pile face
+            shape.randomDirectionAmount = 0f;
+
+            // Slow lift along the tray's +Y with a small lean toward the viewer, and a per-particle spread
+            // so the column never looks like a machine-made jet.
+            ParticleSystem.VelocityOverLifetimeModule vel = ps.velocityOverLifetime;
+            vel.enabled = true;
+            vel.space = ParticleSystemSimulationSpace.Local;
+            vel.x = new ParticleSystem.MinMaxCurve(-0.004f, 0.004f);
+            vel.y = new ParticleSystem.MinMaxCurve(0.010f, 0.022f);
+            vel.z = new ParticleSystem.MinMaxCurve(-0.008f, -0.002f);
+
+            // Gentle organic wander — this is what keeps the drift from reading as a straight line.
+            ParticleSystem.NoiseModule noise = ps.noise;
+            noise.enabled = true;
+            noise.quality = ParticleSystemNoiseQuality.Low;
+            noise.strength = new ParticleSystem.MinMaxCurve(0.006f);
+            noise.frequency = 0.35f;
+            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.12f);
+            noise.damping = true;
+
+            // Fade in, hold under half opacity, fade out — a mote is never "switched on".
+            ParticleSystem.ColorOverLifetimeModule col = ps.colorOverLifetime;
+            col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.25f),
+                    new GradientAlphaKey(0.75f, 0.6f), new GradientAlphaKey(0f, 1f),
+                });
+            col.color = new ParticleSystem.MinMaxGradient(grad);
+
+            ParticleSystem.SizeOverLifetimeModule size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
+                new Keyframe(0f, 0.55f), new Keyframe(0.3f, 1f), new Keyframe(1f, 0.25f)));
+
+            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            var mat = new Material(shader);
+            mat.mainTexture = WorldUI.SoftCueArt.MoteTexture();
+            renderer.sharedMaterial = mat;
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.alignment = ParticleSystemRenderSpace.View;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sortingOrder = 2; // over the slabs, under the panel canvases
+
+            Core.VRLayers.Apply(go); // mod-owned FX on the mod layer (no children — recursion-safe)
+            return ps;
+        }
+
+        /// <summary>The mod's telegraph gold, warmed toward the initiative ring's amber so the deck cue and
+        /// the item cards' frame read as the same voice. Alpha is the ember's CEILING — the lifetime
+        /// gradient above never lets a mote reach it for long.</summary>
+        private static readonly Color EmberColor = new Color(1f, 0.80f, 0.36f, 0.45f);
 
         // ---- grab (pinch-to-browse) ------------------------------------------------
 
