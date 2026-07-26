@@ -103,6 +103,29 @@ internal sealed class RemoteAvatar
     /// sender is right-dominant the non-dominant hand is the Left hand, and vice versa.</summary>
     public Transform NonDominantHandHolder => DominantRight ? LeftHandHolder : RightHandHolder;
 
+    /// <summary>
+    /// The sender's PALM anchor for a hand HOLDER (<c>HandRig.PalmCenter</c>: +Y is the palm normal
+    /// OUT of the palm, +Z along the fingers), or null before the hands are built.
+    ///
+    /// WHY THIS EXISTS: the holder transform carries the sender's <c>Rig.Root</c> pose verbatim (that
+    /// is what <see cref="LocalRigSampler"/> puts on the wire), and by the HandRig contract the hand
+    /// ROOT's +Y points out of the BACK of the hand — the palm normal is the PALM anchor's +Y, which
+    /// for the procedural hand is a 180° Z-flip of the root and for a glove prefab is whatever
+    /// <c>Anchor_Palm</c> was authored as. Anything the OWNER hangs off <c>Rig.PalmCenter</c> — the
+    /// card fan, the item fan, the pile browser — therefore has to be reproduced off THIS transform
+    /// on the receiver, not off the holder, or it floats out of the wrong face of the peer's hand.
+    /// Costs no wire: we build the peer's hand from the SAME <see cref="HandVisuals"/> rig they do,
+    /// so their palm anchor is already sitting here, exact.
+    /// </summary>
+    public Transform? PalmAnchorFor(Transform holder)
+    {
+        HandRig? rig = ReferenceEquals(holder, _leftHolder) ? _leftRig
+            : ReferenceEquals(holder, _rightHolder) ? _rightRig
+            : null;
+        Transform? palm = rig != null ? rig.PalmCenter : null;
+        return palm != null ? palm : null; // Unity-null collapse: a destroyed anchor reads as null
+    }
+
     /// <summary>Stable per-player tint (matches the head/hand tint).</summary>
     public Color Tint => _tint;
 

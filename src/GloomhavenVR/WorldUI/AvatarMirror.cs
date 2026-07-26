@@ -28,16 +28,19 @@ namespace GloomhavenVR.WorldUI;
 /// <see cref="VRHands"/>), so the mirror matches what is broadcast. The hands use the CURRENT
 /// [Hands] HandStyle and rebuild live when it changes.
 ///
-/// WHAT THE GLASS SHOWS (user report 1, "nur die Karten oder Figuren in der Hand, nicht auch die
-/// Fächer"): ONLY what is physically IN A HAND — the held figure
-/// (<see cref="HeldFigures.Current"/>, visual-only clone) and a single grip-held card per hand of
+/// WHAT THE GLASS SHOWS: what is physically IN A HAND — the held figure
+/// (<see cref="HeldFigures.Current"/>, visual-only clone), a single grip-held card per hand of
 /// EITHER kind (ability <see cref="VRCard"/> or item <see cref="ItemsPile.ItemChip"/>, drawn as a
-/// both-faces-BACK slab — a mirror shows card backs). The open card FANS are deliberately NOT
-/// mirrored: the ability fan (<see cref="CardFan"/>) and the item fan (<see cref="ItemsPile"/>)
-/// used to be reflected too, which filled the glass with a second wall of cards right where the
-/// player is trying to look at themselves. Nothing about the fans is sampled or reflected here
-/// any more — peers still see them through <see cref="RemoteHandFan"/> / <see cref="RemoteItemFan"/>,
-/// which are driven by the extras packet and are entirely independent of this preview.
+/// both-faces-BACK slab — a mirror shows card backs) — AND the open ABILITY hand fan
+/// (<see cref="CardFan.Current"/>), which is what the player is holding in their non-dominant hand.
+/// The ITEM fan (<see cref="ItemsPile"/>) stays OUT: user report 1 ("Im Spiegel wird auch der Fächer
+/// der Items dargestellt — das will ich nicht") was about that second, board-sized wall of item
+/// cards filling the glass right where the player is trying to look at themselves; the round that
+/// implemented it removed BOTH fans, and the follow-up report ("Der Handfächer wird nicht mehr im
+/// Spiegel angezeigt") asked for the ability fan back. So: hand fan YES, item fan NO — the item fan
+/// is never sampled here, and peers keep seeing both through <see cref="RemoteHandFan"/> /
+/// <see cref="RemoteItemFan"/>, which are driven by the extras packet and are entirely independent
+/// of this preview.
 /// Rendered on the mod layer
 /// (<see cref="VRLayers"/>) so the owned head camera draws it, unlit (the void has no lights).
 /// Poses are written directly every frame (a mirror is 1:1, never eased) so the first enabled
@@ -83,8 +86,8 @@ internal sealed class AvatarMirror
     // (FigureOverlay.BuildFrozenGhost recipe, but keeping the ORIGINAL materials), posed at
     // the reflection of the live figure every frame. Held CARDS: the single card grip-held
     // in each hand, reflected onto a both-faces-BACK slab — which is exactly what a real
-    // mirror shows of a card whose face points at the player. The card FANS are NOT
-    // mirrored (report 1); see the type doc.
+    // mirror shows of a card whose face points at the player. The open ABILITY hand fan is
+    // mirrored as one back slab per card (see MirrorHandFan); the ITEM fan is not (report 1).
     // _figureClone is a CONTAINER above the cloned animator object (FigureOverlay's "the
     // container should NOT be a child of the figure's Animator object" rule): the game's
     // clips animate ABSOLUTE root position curves on the animator GameObject itself, so a
@@ -102,11 +105,17 @@ internal sealed class AvatarMirror
     // (Cards.ItemsPile.ItemChip) — see GripHeldCard's ROOT CAUSE note.
     private Component? _loggedCardLeft;
     private Component? _loggedCardRight;
+    private int _loggedFanCount = -1;   // hand-fan mirror diagnostic, once per card-count change
 
-    /// <summary>Slab pool ceiling: at most ONE grip-held card per hand now that the fans are no
-    /// longer mirrored (report 1). The pool used to hold 12 ability + 12 item fan slabs.</summary>
-    private const int MaxHeldCardSlabs = 2;
-    private readonly List<GameObject> _cardSlabs = new(MaxHeldCardSlabs);
+    /// <summary>Ability-fan slab ceiling — the same clamp <see cref="RemoteHandFan"/> puts on the
+    /// broadcast hand-card count, so the glass and a peer's view can never disagree about how many
+    /// cards a full hand draws.</summary>
+    private const int MaxMirrorFanCards = 12;
+
+    /// <summary>Slab pool ceiling: the ability fan plus at most ONE grip-held card per hand. The
+    /// ITEM fan is deliberately not mirrored (report 1), so it claims no slabs.</summary>
+    private const int MaxCardSlabs = MaxMirrorFanCards + 2;
+    private readonly List<GameObject> _cardSlabs = new(MaxCardSlabs);
     private Mesh? _cardSlabMesh;
     private Material? _cardBackMat;
     private float _slabW;               // the mesh's built-in width/height (ability-card aspect) —
@@ -219,9 +228,11 @@ internal sealed class AvatarMirror
         _rightGhost.Apply(ghostSide == HandSide.Right ? _rightRig : null, ghostAlpha);
 
         // Held interactables: what the player is HOLDING shows up in the glass too — the held
-        // figure and a grip-held card per hand. The card fans deliberately do not (report 1).
+        // figure, a grip-held card per hand, and the open ABILITY hand fan. The ITEM fan
+        // deliberately does not (report 1). headPos is handed down so the fan can re-derive the
+        // fan's own head-facing rule against the MIRRORED head (see MirrorFanFacing).
         UpdateHeldFigure(planePoint, fwd);
-        UpdateHeldCards(planePoint, fwd);
+        UpdateMirroredCards(planePoint, fwd, headPos);
     }
 
     private void UpdateHand(Transform holder, FingerCurler? curler, VRHand? hand,
@@ -346,9 +357,10 @@ internal sealed class AvatarMirror
 
         _appliedScale = -1f;
         VRLayers.Apply(_root);
-        VRLog.Info("WorldUI", "Avatar mirror enabled (local self-preview): head + hands + HELD items only "
-            + "(held figure / grip-held ability + item cards). Card FANS are not mirrored (report 1) — "
-            + "no fan proxy is built and no fan state is read.");
+        VRLog.Info("WorldUI", "Avatar mirror enabled (local self-preview): head + hands + held figure + "
+            + "grip-held ability/item cards + the open ABILITY hand fan (root through the mirrored hand "
+            + "frame, billboarded at the mirrored head, card poses carried fan-local). The ITEM fan is "
+            + "NOT mirrored (report 1) — no item-fan proxy is built and no item-fan state is read.");
     }
 
     /// <summary>(Re)build both mirror hands with the CURRENT local [Hands] HandStyle —
@@ -617,25 +629,23 @@ internal sealed class AvatarMirror
         _figureAttachLogged = false;
     }
 
-    // ---- held-card mirroring ------------------------------------------------------------------
+    // ---- card mirroring (hand fan + grip-held cards) -------------------------------------------
 
     /// <summary>
-    /// Mirror the cards the player is physically HOLDING: one both-faces-BACK slab
-    /// (<see cref="RemoteHandFan.BuildBackSlab"/>) per grip-held card — ability
-    /// (<see cref="VRCard"/>) or item (<see cref="ItemsPile.ItemChip"/>), grabbed out of a fan or
-    /// plucked with the board laser. Backs are exactly what a real mirror shows of a card whose
-    /// face points at the player — and they cost nothing (no card art cloning). Slabs are pooled;
-    /// inactive when nothing is held.
+    /// Mirror every card the player is holding: the open ABILITY hand fan
+    /// (<see cref="MirrorHandFan"/>) plus the single card physically GRIP-held in each hand —
+    /// ability (<see cref="VRCard"/>) or item (<see cref="ItemsPile.ItemChip"/>), grabbed out of a
+    /// fan or plucked with the board laser. Every one of them is one both-faces-BACK slab
+    /// (<see cref="RemoteHandFan.BuildBackSlab"/>): backs are exactly what a real mirror shows of a
+    /// card whose face points at the player — and they cost nothing (no card art cloning). Slabs
+    /// are pooled; inactive when nothing is held.
     ///
-    /// REPORT 1 ("Im Spiegel wird auch der Fächer der Items dargestellt — das will ich nicht"):
-    /// the open ability fan (<see cref="CardFan.Current"/>) and the open item fan
-    /// (<see cref="ItemsPile.Current"/>) used to be walked here and reflected slab-per-card. Both
-    /// loops are gone — the mirror is an explicit proxy builder, so "not mirrored" is simply "no
-    /// proxy built": no fan is read, nothing subscribes to fan state, and the pool now tops out at
-    /// one slab per hand. Nothing else in the mod changes; peers keep seeing the fans through the
-    /// extras packet (<see cref="RemoteHandFan"/> / <see cref="RemoteItemFan"/>).
+    /// The ITEM fan (<see cref="ItemsPile.Current"/>) is NOT walked here (report 1). The mirror is
+    /// an explicit proxy builder, so "not mirrored" is simply "no proxy built": no item fan state
+    /// is read at all. Peers keep seeing it through the extras packet
+    /// (<see cref="RemoteItemFan"/>).
     /// </summary>
-    private void UpdateHeldCards(Vector3 planePoint, Vector3 normal)
+    private void UpdateMirroredCards(Vector3 planePoint, Vector3 normal, Vector3 headPos)
     {
         int used = 0;
 
@@ -650,6 +660,10 @@ internal sealed class AvatarMirror
         if (!ReferenceEquals(_loggedCardRight, heldRight))
             _loggedCardRight = null;
 
+        // Fan first: a plucked card is still IN the fan's list while it is held (CardFan.Remove
+        // only fires on a committed pluck), so the fan loop must skip whatever the hands hold —
+        // those two go through the hand-frame path below instead.
+        used = MirrorHandFan(used, heldLeft, heldRight, headPos);
         used = MirrorHeldCard(VRHands.Left, heldLeft, used, planePoint, normal);
         used = MirrorHeldCard(VRHands.Right, heldRight, used, planePoint, normal);
 
@@ -661,11 +675,182 @@ internal sealed class AvatarMirror
     }
 
     /// <summary>
+    /// Mirror the open ABILITY hand fan (<see cref="CardFan.Current"/>) — one back slab per card.
+    ///
+    /// WHY NOT A PER-CARD PLANAR REFLECTION (what the pre-removal code did, and the crux of the
+    /// follow-up report "auch hier soll die Orientierung stimmen"). The old loop reflected each
+    /// card's WORLD pose independently with <see cref="Reflect"/>. That is the mathematically exact
+    /// planar mirror — but this class does NOT render an exact planar mirror of the player, and it
+    /// must not: <see cref="Reflect"/> returns the PROPER rotation R' = M·R·D (D = diag(−1,1,1)),
+    /// i.e. the true reflection with the local X axis flipped back, because a Transform cannot carry
+    /// the improper reflection M and because the mirror hands are drawn with the UN-mirrored left/
+    /// right hand meshes. Every hand-attached thing in this class therefore lives in that same
+    /// D-convention (see the math doc on <see cref="TryMirrorThroughHand"/>): position is carried
+    /// through the RENDERED mirror hand's frame so it keeps its thumb-side offset, instead of
+    /// landing at the true reflection, which reads as the PINKY side of the drawn hand.
+    ///
+    /// The fan is hand-attached — its root is parented to <c>Rig.PalmCenter</c> and floats one palm
+    /// standoff up the palm normal. Reflecting it exactly therefore reproduces the very bug already
+    /// fixed for the held figure and the held card, one level up: worked through in the mirrored
+    /// hand's own frame, an exact reflection puts card 0 at hand-local −X's MIRROR IMAGE, i.e. the
+    /// arc sweeps the opposite way round the drawn mirror hand — the fan spreads off the pinky/back
+    /// side and the card order reads reversed against the hand it is supposedly held in.
+    ///
+    /// WHAT THE MIRRORED FAN MUST BE, derived from <see cref="CardFan"/> itself. The real fan is
+    /// built as (a) a ROOT posed at the palm standoff and billboarded at the HEAD
+    /// (<c>LookRotation(rootPos − headPos, Vector3.up)</c>, plus an optional eased gaze-bias YAW
+    /// about world up), and (b) cards at fan-LOCAL poses from <c>CardFan.Relayout</c> — arc angle,
+    /// roll, hover split, insertion gap, the depth bow around the gaze apex, and the per-card
+    /// TOE-IN that aims each card's own normal at the head. Crucially (b) is expressed entirely in
+    /// the ROOT's frame and is derived from the head's position IN THAT FRAME, which the billboard
+    /// pins at fan-local ≈(0, 0, −distance). So the mirrored equivalent is:
+    ///
+    ///   1. ROOT POSITION: carry the fan root's hand-local pose through the rendered mirror hand
+    ///      (<see cref="TryMirrorThroughHand"/>) — the fan then floats off the MIRRORED palm exactly
+    ///      as the real one floats off the real palm, standoff and eased follow-lag included, and on
+    ///      the same side of the hand.
+    ///   2. ROOT ROTATION: re-run the fan's OWN facing rule against the MIRRORED head — the head
+    ///      proxy this class already draws (<c>_headHolder</c>, written earlier this frame). This is
+    ///      the same argument <see cref="TryBillboardToMirrorHead"/> makes for the held card, and it
+    ///      is not an approximation: for a vertical mirror plane M leaves world up alone and maps
+    ///      differences to differences, so M·R_root·D == LookRotation(M·(rootPos − headPos), up) ==
+    ///      the billboard at the mirrored head. Carrying the root's world ROTATION through the hand
+    ///      frame instead would re-attach a head-derived rotation to the WRIST — the exact defect
+    ///      report 2 hit with the held card (the fan would tumble with every wrist twist).
+    ///      <see cref="MirrorFanFacing"/> also carries the gaze-bias yaw with the sign the mirror
+    ///      gives it.
+    ///   3. CARD POSES: re-emit each card at its UNCHANGED fan-local pose under that mirrored root.
+    ///      Because the mirrored root billboards at the mirrored head, the mirrored head sits at the
+    ///      same fan-local ≈(0, 0, −d) the real head sits at in the real fan — so the arc, the roll,
+    ///      the split, the bow and the per-card toe-in are ALREADY correct for the mirrored viewer,
+    ///      verbatim, with no re-derivation and no D anywhere. Keeping the local X sign is what makes
+    ///      the arc sweep the same way round the mirrored hand as it does round the real one, which
+    ///      is step 1's convention applied consistently to the whole fan.
+    ///
+    /// Net effect in the glass: the reflection holds its hand of cards exactly the way the player
+    /// holds theirs — same side, same order, same cup, faces toward the reflection (so the player
+    /// sees BACKS, which is what a mirror shows and what peers see).
+    /// </summary>
+    private int MirrorHandFan(int used, Component? heldLeft, Component? heldRight, Vector3 headPos)
+    {
+        CardFan? fan = CardFan.Current;
+        Transform? fanRoot = fan != null ? fan.Root : null;
+        if (fan == null || !fan.IsOpen || fanRoot == null)
+        {
+            if (_loggedFanCount != -1)
+            {
+                _loggedFanCount = -1;
+                VRLog.Info("WorldUI", "Mirror hand fan: closed — no fan slabs in the glass.");
+            }
+            return used;
+        }
+
+        // Step 1 — root position through the rendered mirror hand (thumb-side convention).
+        if (!TryMirrorThroughHand(fan.Hand, fanRoot.position, fanRoot.rotation,
+                out Vector3 rootPos, out _, out Vector3 rootHandLocal))
+            return used; // fan hand untracked / its mirror hand not drawn this frame
+        // Step 2 — root rotation from the fan's own rule, re-run against the mirrored head.
+        if (!MirrorFanFacing(fanRoot, rootPos, headPos, out Quaternion rootRot, out float biasYaw))
+            return used;
+
+        // Step 3 — every card at its UNCHANGED fan-local pose under the mirrored root. Read the
+        // local pose off the WORLD transforms (not localPosition/localRotation): the fan root
+        // reparents between PalmCenter and the rig root as the follow mode flips, and a card
+        // mid-pluck is parented elsewhere entirely, so the world-space difference is the only
+        // definition that holds in every frame. The offset stays in WORLD metres, exactly like
+        // TryMirrorThroughHand's o — the slab parent (_root) is unit scale, so nothing rescales it.
+        Quaternion invRoot = Quaternion.Inverse(fanRoot.rotation);
+        Vector3 realRootPos = fanRoot.position;
+        IReadOnlyList<VRCard> cards = fan.Cards;
+        int count = Mathf.Min(cards.Count, MaxMirrorFanCards);
+        int mirrored = 0;
+        for (int i = 0; i < count; i++)
+        {
+            VRCard card = cards[i];
+            if (card == null || !card.gameObject.activeSelf)
+                continue;
+            if (ReferenceEquals(card, heldLeft) || ReferenceEquals(card, heldRight))
+                continue; // grip-held: mirrored via the hand-frame path in MirrorHeldCard
+            Transform ct = card.transform;
+            Vector3 localPos = invRoot * (ct.position - realRootPos);
+            Quaternion localRot = invRoot * ct.rotation;
+            if (!PlaceSlabAt(used, rootPos + rootRot * localPos, rootRot * localRot,
+                    ct.lossyScale, _slabW, _slabH))
+                return used; // slab assets unavailable (no CardMesh material) — skip quietly
+            used++;
+            mirrored++;
+        }
+
+        if (mirrored != _loggedFanCount)
+        {
+            _loggedFanCount = mirrored;
+            VRLog.Info("WorldUI", $"Mirror hand fan: {mirrored} card(s) mirrored on {fan.Hand?.Side.ToString() ?? "?"} — "
+                + $"root via hand frame (handLocalOffset={rootHandLocal.ToString("F3")}), "
+                + $"facing=billboard->mirrored head (gazeBiasYaw={biasYaw:F1}deg carried as {-biasYaw:F1}deg), "
+                + "card poses carried fan-local (arc + roll + split + bow + toe-in preserved).");
+        }
+        return used;
+    }
+
+    /// <summary>
+    /// The orientation the MIRRORED fan root must take: <see cref="CardFan"/>'s own facing rule,
+    /// re-run against the MIRRORED head.
+    ///
+    /// The real root's rotation is <c>AngleAxis(θ, up) · LookRotation(rootPos − headPos, up)</c>,
+    /// where θ is the eased gaze-bias yaw ([Cards] FanGazeBias — opt-in and 0 by default). We do not
+    /// reach into <see cref="CardFan"/> for θ: it is recovered from the root's own world rotation as
+    /// the signed horizontal angle between "where the head is" and "where the fan actually faces",
+    /// which is θ by construction and stays correct however CardFan eases or clamps it.
+    ///
+    /// Under the mirror that yaw flips sign. For an improper orthogonal M,
+    /// <c>M·Rot(a, θ)·M⁻¹ = Rot(det(M)·M·a, θ) = Rot(M·a, −θ)</c>, and our plane is VERTICAL so
+    /// M·up = up: the true reflection of the biased root is <c>AngleAxis(−θ, up) · (M·base·D)</c>.
+    /// The base factor <c>M·base·D</c> is exactly <c>LookRotation(mirroredRootPos − mirrorHeadPos,
+    /// up)</c> (M maps differences to differences and fixes world up), so the whole mirrored facing
+    /// is <c>AngleAxis(−θ, up) · LookRotation(away', up)</c> — built here from the slab's ACTUAL
+    /// mirrored root position, so the fan faces the head proxy where it is really drawn rather than
+    /// where a pure world reflection would have put it (the same self-consistency
+    /// <see cref="TryBillboardToMirrorHead"/> insists on for the held card).
+    ///
+    /// False when there is no head proxy yet or the fan sits straight above/below one of the two
+    /// heads (LookRotation undefined) — the caller then skips the fan for that frame rather than
+    /// letting Unity log and return garbage.
+    /// </summary>
+    private bool MirrorFanFacing(Transform fanRoot, Vector3 mirroredRootPos, Vector3 headPos,
+        out Quaternion rot, out float biasYaw)
+    {
+        rot = Quaternion.identity;
+        biasYaw = 0f;
+        if (_headHolder == null)
+            return false;
+
+        Vector3 up = Vector3.up; // CardFan billboards on WORLD up, not head up — match it exactly
+
+        // Recover the real fan's gaze-bias yaw: the horizontal angle from "billboard straight at the
+        // head" to the fan's actual forward. Zero whenever [Cards] FanGazeBias is off (the default).
+        Vector3 awayH = Vector3.ProjectOnPlane(fanRoot.position - headPos, up);
+        Vector3 fwdH = Vector3.ProjectOnPlane(fanRoot.forward, up);
+        if (awayH.sqrMagnitude > 1e-6f && fwdH.sqrMagnitude > 1e-6f)
+            biasYaw = Vector3.SignedAngle(awayH, fwdH, up);
+
+        Vector3 away = mirroredRootPos - _headHolder.position;
+        if (away.sqrMagnitude < 1e-6f)
+            return false;
+        away.Normalize();
+        if (Mathf.Abs(Vector3.Dot(away, up)) > 0.9995f)
+            return false;
+
+        Quaternion baseFacing = Quaternion.LookRotation(away, up);
+        rot = biasYaw != 0f ? Quaternion.AngleAxis(-biasYaw, up) * baseFacing : baseFacing;
+        return true;
+    }
+
+    /// <summary>
     /// The single card-like object this hand grip-holds, or null. Deliberately typed
     /// <see cref="Component"/>: an ABILITY card is a <see cref="VRCard"/> while an ITEM card is a
     /// <see cref="ItemsPile.ItemChip"/> — two unrelated <c>GrabbableBehaviour</c>s with no common
     /// card base type. Matching only VRCard here was the whole reason a held item card never
-    /// appeared in the mirror (see <see cref="UpdateHeldCards"/>'s ROOT CAUSE note); the MP sampler
+    /// appeared in the mirror (see <see cref="UpdateMirroredCards"/>'s note); the MP sampler
     /// (<see cref="LocalRigSampler.TryHeldCard"/>) already matches both.
     /// </summary>
     private static Component? GripHeldCard(VRHand? hand)
@@ -861,6 +1046,7 @@ internal sealed class AvatarMirror
         _figureAttachLogged = false;
         _loggedCardLeft = null;
         _loggedCardRight = null;
+        _loggedFanCount = -1;
         // Ghost hands: restore + free the cloned materials before the hand tree is destroyed
         // (same asset-lifetime rule as the slab mesh below).
         _leftGhost.Release();

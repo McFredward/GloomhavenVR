@@ -66,6 +66,18 @@ internal sealed class CardFan
     /// </summary>
     internal Hands.VRHand? Hand => _hand;
 
+    /// <summary>
+    /// The fan's ROOT transform — the frame every card's arc pose, tilt, split, toe-in and depth bow
+    /// is expressed in (null before the first <see cref="Open"/>). Read-only seam for
+    /// <see cref="WorldUI.AvatarMirror"/>: the mirror needs the fan-LOCAL pose of each card (root
+    /// pose ⁻¹ ∘ card pose) so it can re-emit the whole arc under a MIRRORED root, which is the only
+    /// way the mirrored fan keeps reading the same way round as the real one relative to the
+    /// mirrored hand. Exposed rather than duplicated because the root is also what the eased palm
+    /// follow moves (its parent flips between PalmCenter and the rig root, see <see cref="Tick"/>),
+    /// so no outside recomputation could reproduce it.
+    /// </summary>
+    internal Transform? Root => _root;
+
     /// <summary>How many cards the fan currently holds (broadcast as the remote hand-card count).</summary>
     internal int Count => _cards.Count;
 
