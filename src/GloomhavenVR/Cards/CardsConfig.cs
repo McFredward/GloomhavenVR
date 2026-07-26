@@ -194,8 +194,12 @@ internal static class CardsConfig
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
     internal static ConfigEntry<ControlBoard> Board = null!;
 
-    /// <summary>Feature (in-VR debug menu): gate the "Debug — Board tuning" section of the settings panel. Default OFF.</summary>
-    internal static ConfigEntry<bool> DebugMenu = null!;
+    // [Cards] DebugMenu is GONE (settings audit 2026-07). It used to gate the "Debug — Board tuning"
+    // section of the VR settings panel; the 2026-07 redesign moved that tuning into its own top-level
+    // "Debug" sidebar category and stopped consulting the flag, after which NOTHING in the mod read
+    // it — a bound entry whose only remaining effect was one dead line in the config file. It is not
+    // re-bound here on purpose: an unbound key is simply dropped from the user's cfg on the next save,
+    // and there is nothing for it to switch any more.
 
     // ---- Per-board board-element tuning (in-VR debug menu, indexed by (int)ControlBoard) ----
     // These REPLACE the old unreliable raycast auto-seating (SeatOnBoardFace/ReseatProud):
@@ -588,13 +592,6 @@ internal static class CardsConfig
             "board falls back to Oak, and if Oak is also missing the procedural board is used, " +
             "so any selection is safe. Changing this tears down and rebuilds the tray live " +
             "(CardsDriver), re-seating the cards on the newly loaded board.");
-
-        DebugMenu = _file.Bind("Cards", "DebugMenu", true,
-            "In-VR DEBUG MENU: legacy master flag for the 'Debug — Board tuning' section. As of the " +
-            "2026-07 settings-panel redesign the deep tuning lives in its OWN top-level 'Debug' sidebar " +
-            "category (hidden from the default view), so this flag is ALWAYS treated as true by the panel " +
-            "and is no longer switchable there. Kept bound so existing config files load cleanly and any " +
-            "external reader keeps working. Default ON.");
 
         // ---- Per-board element tuning (Part A) ----
         // Bound with one entry per board (loop over the ControlBoard enum). All boards seed

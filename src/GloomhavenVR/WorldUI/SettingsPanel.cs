@@ -115,11 +115,12 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // generic per-board offset/board rows hide themselves for this element.
         RoundButtons,
         // Category split (2026-07, user: "every value applies ONLY to its own category"):
-        // the board keycaps got their OWN ButtonTuning sections and therefore their OWN
-        // "Tasten" elements — [BoardButtons] = the Confirm/Undo ("Fortfahren"/"Rückgängig
-        // machen") keycaps, [BoardDashboard] = the gear ("Einstellungen") + follow
-        // ("Fixiert") plates. GLOBAL like RoundButtons (values ride every board).
-        BoardButtons,
+        // [BoardDashboard] = the gear ("Einstellungen") + follow ("Fixiert") plates. GLOBAL like
+        // RoundButtons (values ride every board). NOTE (settings audit 2026-07): the sibling
+        // BoardButtons member is GONE — issue 6 merged the [BoardButtons] Confirm/Undo geometry
+        // rows into the Generic element (they are the SAME physical caps), which removed it from
+        // both NavElements and SubCatElements; CurrentElement() can only ever return an element
+        // listed there, so the member, its chooser label and its reset case were unreachable.
         BoardDashboard,
         // Issue 2 (2026-07 Debug section): the four wall see-through FADE fractions are
         // developer-grade tuning, so they moved out of the user-facing "Wände" category into
@@ -940,6 +941,15 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // for convenience; the build order is irrelevant since every row registers its own gate. The
         // user-facing on/off toggle moved up into "Anzeige" (the one-row "Wände" tab is gone).
         WallFadeTuning.Bind();
+        // Settings audit 2026-07: these four fractions shape the Schmitt trigger / dwell hysteresis
+        // INSIDE WallSegmentFade's evaluation loop, and that loop only runs while [Compat] WallFade
+        // is on (WallSegmentFade.Enabled). With "Wände durchsichtig" off they are live entries that
+        // change nothing you can see — so the pane says which switch they depend on rather than
+        // leaving four steppers that look broken. Shown red-flagged only while the toggle is OFF.
+        _rowGate = () => WallFadeRowsVisible() && (Plugin.WallFade == null || !Plugin.WallFade.Value);
+        var wallFadeNote = Row(20f);
+        Label(wallFadeNote, Loc.Mod("wall_fade_note"), 12f, flexible: true);
+
         AddWallFadeRow("Einblenden", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
             v => $"{v * 100f:0}%");
         AddWallFadeRow("Ausblenden", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
@@ -1003,9 +1013,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
             v => { if (Net.NetModule.MirrorEnabled != null) Net.NetModule.MirrorEnabled.Value = v; });
 
+        // How much of OTHER players' boards this client draws (Off / Aktionsphase / Immer). Purely
+        // local — it never touches game state and is never transmitted, so every player picks their
+        // own. LIVE: the whole remote-board render path (frame + parity widgets + inert furniture +
+        // the board-anchored item/pile-browse fans + board card flights) asks
+        // Net.RemoteBoardGate every frame, so a cycle here changes what is drawn on the next frame.
         var remoteBoardsRow = Row();
         Label(remoteBoardsRow, Loc.Mod("remote_boards"), 16f, flexible: true);
         CycleButton(remoteBoardsRow, 150f, RemoteBoardsLabel, CycleRemoteBoards);
+        // The control is real but has nothing to act on in single player — say so instead of
+        // leaving a setting that visibly does nothing when the player tries it alone.
+        var remoteBoardsNote = Row(20f);
+        Label(remoteBoardsNote, Loc.Mod("remote_boards_note"), 12f, flexible: true);
 
         // ===== Debug elements folded in from the former top-level per-style tabs =====
         // These build into the CONTENT column (still set from the GateCat sections above) but each
@@ -1297,16 +1316,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// The in-VR DEBUG MENU (Part E): live-tune every board-attached element PER BOARD and save
     /// to config. Built from the existing panel helpers; every stepper closes over the per-board
     /// <see cref="CardsConfig"/> entries, so writing a value both persists (BepInEx) AND live-applies
-    /// (CardsDriver subscribes to each entry's SettingChanged). Gated behind [Cards] DebugMenu — the
-    /// rows are built once but shown only while the toggle is on (the 0.25 s refresher flips them).
+    /// (CardsDriver subscribes to each entry's SettingChanged). Every row is built once and shown by
+    /// its own visibility predicate (Debug sub-category + selected element).
     /// </summary>
     private void BuildElementTuning()
     {
         // Issue 5: the "Board-Justierung aktivieren" toggle is GONE — board tuning is now ALWAYS
-        // active. [Cards] DebugMenu stays bound (default ON) for config compatibility but the panel
-        // never gates on it and never lets the user switch it off. The deep tuning is instead tucked
-        // away under the dedicated "Debug" sidebar category (issue 2), which is the real
-        // discoverability the user wanted.
+        // active. The deep tuning is instead tucked away under the dedicated "Debug" sidebar
+        // category (issue 2), which is the real discoverability the user wanted. Settings audit
+        // 2026-07: the [Cards] DebugMenu entry that used to gate this section is gone too — nothing
+        // read it any more, so it was a dead key in the config file rather than a control.
 
         // Sub-category chooser — ACCORDION (user 5b: cluster the ~20 Debug elements so the pane
         // stays scannable). Shown for the whole Debug category; the header row shows the selected
@@ -2300,7 +2319,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // skip buttons the user tunes here, plus the category-split board elements (Confirm/Undo
         // keycaps; gear + Pin plates) and the per-style / colour rows.
         DebugElement.RoundButtons => Loc.Mod("round_buttons"),
-        DebugElement.BoardButtons => Loc.Mod("board_buttons"),
         DebugElement.BoardDashboard => Loc.Mod("board_dashboard"),
         DebugElement.WallFade => Loc.Mod("wall_fade"),
         // Per-style elements folded in from the former top-level tabs (2026-07).
@@ -2441,15 +2459,6 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 ResetTuningF(ButtonTuning.RoundTravel);
                 if (ButtonTuning.RoundShape != null)
                     ButtonTuning.RoundShape.Value = (ButtonShape)ButtonTuning.RoundShape.DefaultValue;
-                break;
-            }
-            case DebugElement.BoardButtons:
-            {
-                // GLOBAL [BoardButtons] group: the Confirm/Undo keycap geometry.
-                ResetTuningF(ButtonTuning.BoardWidth);
-                ResetTuningF(ButtonTuning.BoardHeight);
-                ResetTuningF(ButtonTuning.BoardDepth);
-                ResetTuningF(ButtonTuning.BoardTravel);
                 break;
             }
             case DebugElement.BoardDashboard:
@@ -2668,13 +2677,26 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         };
     }
 
-    /// <summary>Advance remote-board visibility Off→ActionPhaseOnly→Always→Off (writes [Net] RemoteBoards).</summary>
+    /// <summary>
+    /// Advance remote-board visibility Off→ActionPhaseOnly→Always→Off (writes [Net] RemoteBoards;
+    /// BepInEx persists on set). The write-side log exists because the READ-side confirmation
+    /// (<see cref="Net.RemoteBoardGate.LogModeIfChanged"/>) only fires while a peer's board is
+    /// actually ticking — in single player the button would otherwise leave no trace at all, which
+    /// is exactly what made this control look dead in the last hardware logs. Grep:
+    /// "Remote board visibility".
+    /// </summary>
     private static void CycleRemoteBoards()
     {
         if (Net.NetModule.RemoteBoards == null)
             return;
         int cur = (int)Net.NetModule.RemoteBoards.Value;
-        Net.NetModule.RemoteBoards.Value = (Net.RemoteBoardVisibility)((cur + 1) % 3);
+        var next = (Net.RemoteBoardVisibility)((cur + 1) % 3);
+        Net.NetModule.RemoteBoards.Value = next;
+        VRLog.Info("WorldUI", $"Remote board visibility SET from the VR settings panel: " +
+                              $"[Net] RemoteBoards = {next}. It governs the peer board frame, every " +
+                              "parity widget, the inert furniture, the board-anchored item and " +
+                              "pile-browse fans and the board-bound card flights; a peer's hands, head " +
+                              "and hand-HELD fans are avatar content and are never hidden by it.");
     }
 
     private static bool BoardConfigSafe(Func<bool> read)

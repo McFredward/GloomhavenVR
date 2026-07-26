@@ -174,9 +174,12 @@ internal sealed class RemoteControlBoard
 
     public void Tick(float dt)
     {
-        RemoteBoardVisibility vis = NetModule.RemoteBoards != null
-            ? NetModule.RemoteBoards.Value
-            : RemoteBoardVisibility.Off;
+        // The visibility mode is read through the SHARED gate (RemoteBoardGate) rather than off the
+        // ConfigEntry directly, because the board is no longer the only thing the setting governs:
+        // the transient item / pile-browse fans and the card-flight FX are separate classes with
+        // separate roots, and they now ask the same predicate. One expression, one meaning.
+        RemoteBoardVisibility vis = RemoteBoardGate.Mode;
+        RemoteBoardGate.LogModeIfChanged(vis); // evidence the panel's cycle button reaches the render path
 
         // Read the owner's actor fresh each frame (null offline / single-player / netcode absent /
         // benched) — a strict no-op in every one of those cases.
@@ -186,13 +189,7 @@ internal sealed class RemoteControlBoard
 
         bool showFronts = actor != null && RevealGate.ShowRoundCardFronts(actor);
 
-        bool showBoard = actor != null && vis switch
-        {
-            RemoteBoardVisibility.Always => true,
-            // ActionPhaseOnly: only once the cards may be shown (not the secret selection phase).
-            RemoteBoardVisibility.ActionPhaseOnly => showFronts,
-            _ => false,
-        };
+        bool showBoard = actor != null && RemoteBoardGate.SurfaceVisible(vis, showFronts);
 
         if (!showBoard)
         {

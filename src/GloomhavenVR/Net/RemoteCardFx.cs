@@ -22,9 +22,12 @@ namespace GloomhavenVR.Net;
 /// ANTI-CHEAT: the slab is a BACK on both faces, exactly like <see cref="RemoteHandFan"/>'s default
 /// and the held-card slab. No card identity is ever transmitted or rendered here.
 ///
-/// VISIBILITY: gated on <see cref="NetModule.RemoteBoards"/> — every anchor except the hand fan is
-/// board furniture, so a player who has chosen not to see remote boards does not get cards flying
-/// to invisible places either. Also requires the sender's board pose (<c>owner.HasBoard</c>).
+/// VISIBILITY: gated on <see cref="RemoteBoardGate.ShowBoardSurface"/> (the shared
+/// <see cref="NetModule.RemoteBoards"/> predicate) — every anchor except the hand fan is board
+/// furniture, so a player who has chosen not to see a peer's board (Off, or ActionPhaseOnly while
+/// that board is hidden through the secret selection phase) does not get cards flying to invisible
+/// places either. Also requires the sender's board pose (<c>owner.HasBoard</c>, which the gate
+/// checks).
 /// </summary>
 internal sealed class RemoteCardFx
 {
@@ -75,8 +78,22 @@ internal sealed class RemoteCardFx
         CardFxAnchor from = NetCardFx.From(endpoints);
         CardFxAnchor to = NetCardFx.To(endpoints);
 
-        if (NetModule.RemoteBoards == null || NetModule.RemoteBoards.Value == RemoteBoardVisibility.Off)
+        // VISIBILITY ([Net] RemoteBoards — audit 2026-07). This used to check ONLY for Off, which
+        // left ActionPhaseOnly broken: during the secret selection phase the peer's whole board is
+        // hidden, yet the very flights that happen then (a card docking into a play SLOT) still
+        // played — a lone card back arcing into empty space. Every anchor except the hand fan IS
+        // board furniture, so a flight that touches one now needs the board surface to be visible at
+        // all; a pure hand-fan flight is avatar content and is never gated.
+        bool touchesBoard = from != CardFxAnchor.HandFan || to != CardFxAnchor.HandFan;
+        if (touchesBoard && !RemoteBoardGate.ShowBoardSurface(_owner))
+        {
+            // Event-driven (a handful per turn at most), so this is greppable evidence the setting
+            // reached the FX path without being a per-frame line. Grep: "Remote card FX".
+            VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} SKIPPED — " +
+                              $"[Net] RemoteBoards = {RemoteBoardGate.Mode} hides that peer's board " +
+                              "right now, and this flight starts or ends on their board furniture.");
             return;
+        }
         if (!TryResolve(from, out Vector3 a) || !TryResolve(to, out Vector3 b))
         {
             VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} SKIPPED " +

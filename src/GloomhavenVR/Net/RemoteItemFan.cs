@@ -50,6 +50,8 @@ internal sealed class RemoteItemFan
     private bool _poseInit;
     private int _loggedCount = -1;
     private bool _loggedHeld;
+    /// <summary>One-shot latch for the "hidden by the remote-board setting" line (see Tick).</summary>
+    private bool _gateHiddenLogged;
 
     // ---- emerge / collapse (the peer-visible "Auf- und Zuklappen" of the item Fach) ------------
     // The local fan does BOTH: ItemsPile.EmergeAll seeds every chip ON the items stack at 0.35×
@@ -98,6 +100,33 @@ internal sealed class RemoteItemFan
                 Hide();
             return;
         }
+
+        // VISIBILITY ([Net] RemoteBoards — audit 2026-07). A BOARD-ANCHORED item fan is part of the
+        // peer's board: it floats at a fixed board-local spot above their control board and emerges
+        // out of that board's items stack. Before this check it ignored the setting entirely, so a
+        // player who had chosen "Aus" — or "Aktionsphase" during the secret selection phase — saw a
+        // near-square arc of card backs blooming in empty air exactly where the board they had asked
+        // NOT to see would have been. It obeys the shared gate now. A HAND-HELD fan is avatar
+        // content (it rides the sender's palm) and is deliberately left alone: the setting governs
+        // boards, not hands.
+        // Hidden INSTANTLY rather than collapsed: the collapse animation flies the chips into the
+        // board's items stack, and that stack is exactly what the gate just hid — an arc gliding
+        // into nothing is worse than the fan simply not being there. The next time the gate opens
+        // with the fan still up, _root is inactive, so the normal emerge-out-of-the-stack runs.
+        if (!_owner.ItemFanHeld && !RemoteBoardGate.ShowBoardSurface(_owner))
+        {
+            if (!_gateHiddenLogged)
+            {
+                _gateHiddenLogged = true;
+                VRLog.Info("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: board-anchored fan " +
+                                  $"HIDDEN by [Net] RemoteBoards = {RemoteBoardGate.Mode} " +
+                                  "(it belongs to that peer's board, which this client is not drawing).");
+            }
+            Hide();
+            return;
+        }
+        _gateHiddenLogged = false;
+
         if (!TryResolvePose(out Vector3 target, out Quaternion rot))
         {
             Hide(); // holding hand not tracked / no board pose — no anchor, so nothing to show

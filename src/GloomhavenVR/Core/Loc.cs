@@ -252,6 +252,17 @@ internal static class Loc
         ["remote_boards_off"] = Pair("Off", "Aus"),
         ["remote_boards_action"] = Pair("Action phase", "Aktionsphase"),
         ["remote_boards_always"] = Pair("Always", "Immer"),
+        // Settings audit 2026-07: the remote-board mode is a purely LOCAL rendering choice that only
+        // has anything to render while other players are in the session. Saying so on the panel is
+        // what keeps it from reading as a dead control in single player.
+        ["remote_boards_note"] = Pair("only affects other players' boards (multiplayer)",
+                                      "wirkt nur auf die Boards der Mitspieler (Mehrspieler)"),
+        // Settings audit 2026-07: the four wall-fade fractions shape a decision the fade driver only
+        // ever evaluates while [Compat] WallFade is on, so they are inert with the "Wände
+        // durchsichtig" toggle off. The pane says so instead of offering four steppers that move
+        // nothing.
+        ["wall_fade_note"] = Pair("needs 'See-through walls' (Display) switched on",
+                                  "wirkt nur bei eingeschaltetem \"Wände durchsichtig\" (Anzeige)"),
         ["on"] = Pair("On", "An"),
         ["off"] = Pair("Off", "Aus"),
         ["spacing"] = Pair("Spacing", "Abstand"),
@@ -270,7 +281,6 @@ internal static class Loc
 
         // ---- Debug element / sub-category labels (previously hardcoded German) ----
         ["round_buttons"] = Pair("Round-phase buttons", "Rundenknöpfe"),
-        ["board_buttons"] = Pair("Board buttons (Confirm/Undo)", "Boardtasten (Bestätigen/Rückgängig)"),
         ["board_dashboard"] = Pair("Gear & Pin", "Zahnrad & Fixiert"),
         ["wall_fade"] = Pair("Wall see-through", "Wandüberblendung"),
         ["hand_offsets"] = Pair("Hand offsets", "Hände-Offsets"),
