@@ -1824,11 +1824,17 @@ internal sealed class ItemsPile
             transform.localScale = worldScale;
             _releaseGlide = ReleaseGlideSeconds;
             _owner?.OnChipReleased(this, dropWorldPos, hand);
-            // ITEM 4 (card sounds): a release that CLIPS into the use slot plays the place "thunk"
-            // (fired in OnChipReleased, which sets PendingUse); any other release glides home to the
-            // fan → the soft take-back click, matching the ability cards' grab/release SFX set.
-            if (!PendingUse)
-                CardsDriver.PlayCardSound(CardsConfig.CardTakeBackSound.Value, transform);
+            // Card sounds: a release that CLIPS into the use slot plays the place "thunk" (fired in
+            // OnChipReleased, which sets PendingUse). A release that merely glides back to the fan
+            // plays NOTHING — deliberately.
+            //
+            // It used to play the soft take-back click here, on the claim that this matched the
+            // ability cards' SFX set. It did not: CardsDriver only plays that click when a card is
+            // pulled back off the FIELD during a pick reopen, precisely because the game itself is
+            // silent in that one case. An ability card released back into the fan makes no mod sound
+            // at all. So the item chip was the noisier of the two, which is exactly what the user
+            // objected to ("die Item-Karten sollten die selben und nicht mehr Geräusche machen als
+            // die anderen Karten auch"). Grab and place remain, and now match one-for-one.
         }
 
         // ---- pop (readability) -----------------------------------------------------
