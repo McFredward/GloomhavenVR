@@ -739,15 +739,16 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     protected override Transform? Mount => PlayTray.Current?.ObjectivesMount;
 
     /// <summary>
-    /// Task-panel WIDTH (user request: the LEFT scenario TASK — which can carry a PROGRESS BAR —
-    /// looked squished, the bar tiny). The dock fits its content UNIFORMLY into
-    /// <see cref="MountWidth"/> × <see cref="MountMaxHeight"/>; the objective row (text + a wide
-    /// horizontal <c>ImageProgressBar</c>) is WIDER than tall, so WIDTH is the binding constraint
-    /// and the whole panel — the fillAmount progress bar included — scales with the width budget.
-    /// So we widen that budget by the per-board <c>ObjectivesWidth</c> multiplier (default 1.6×,
-    /// live-tunable from the debug menu): the panel grows LEFTWARD from the board edge into open
-    /// space (GrowDirection = left ⇒ no board overlap / run-off) and the bar renders proportionally
-    /// longer. Read live each tick, so a debug-menu change re-fits next frame — no mount rebuild.
+    /// Task-panel WIDTH ('Breite' in the debug menu). The dock fits its content UNIFORMLY into
+    /// <see cref="MountWidth"/> × <see cref="MountMaxHeight"/>, and this budget is the base
+    /// <see cref="PlayTray.ObjectivesMountWidth"/> scaled by the per-board <c>ObjectivesWidth</c>
+    /// multiplier. The panel grows LEFTWARD from the board edge into open space
+    /// (GrowDirection = left ⇒ no board overlap / run-off). Read live each tick, so a debug-menu
+    /// change re-fits next frame — no mount rebuild.
+    ///
+    /// The budget ALONE is not the lever, though — see <see cref="ApplyContentWidth"/> for the
+    /// root cause of "die Breite verändert nichts" and for the pixel width this budget is now
+    /// actually FORCED onto the game's objective rows.
     /// </summary>
     protected override float MountWidth =>
         PlayTray.ObjectivesMountWidth * CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value;
@@ -762,15 +763,385 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         // Log the applied objectives width budget on (re)layout — once, and again whenever the
         // debug-menu multiplier changes — so a "the task/progress bar is too narrow" report is
         // diagnosable from the hardware log alone (Info: BepInEx's default disk config drops Debug).
+        // NOTE: this line only proves the BUDGET moved. Whether anything VISIBLE moved is proven by
+        // the 'OBJECTIVES WIDTH' / 'OBJECTIVES WIDTH APPLIED' lines (ApplyContentWidth) — the old
+        // hardware log had 31 of these budget lines sweeping 364→624 mm and NOT ONE re-logged
+        // 'Docked GloomhavenVR.Panel_Objectives' rect in between, which is exactly the bug.
         float w = MountWidth;
         if (Mathf.Abs(w - _loggedWidth) > 1e-4f)
         {
             _loggedWidth = w;
             VRLog.Info("WorldUI", $"Objectives dock width budget {w * 1000f:F0} mm " +
                                   $"({CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value:F2}× base " +
-                                  $"{PlayTray.ObjectivesMountWidth * 1000f:F0} mm) — progress bar scales with it.");
+                                  $"{PlayTray.ObjectivesMountWidth * 1000f:F0} mm) — forced onto the objective " +
+                                  "rows as a pixel width; see the 'OBJECTIVES WIDTH' lines.");
         }
         base.Place();
+    }
+
+    // ---- forced CONTENT width: the real lever behind the 'Breite' dial ---------------------
+
+    /// <summary>
+    /// ROOT CAUSE of the user report "die 'Breite' im Debug-Menü bei den Aufgaben verändert nichts"
+    /// — verified against the hardware log (.planning/debug/LogOutput.log):
+    ///
+    /// The multiplier only ever moved <see cref="MountWidth"/>, and MountWidth feeds nothing but
+    /// the dock FIT in <see cref="TrayMountedPanelSurface.Place"/>:
+    /// <c>fitScale = min(MountWidth·density / contentW, MountMaxHeight·density / contentH)</c>,
+    /// then <c>Mathf.Clamp(fitScale, MinDensityScale = 0.5, MaxDensityScale = 1)</c>. For this
+    /// panel the numbers are: density = TrayPixelsPerMeter 2400 × DensityScale 0.6 = 1440 px/m,
+    /// measured content 194×164 px ⇒ width term = 0.26·mult·1440 / 194 = 1.93·mult and height term
+    /// = 0.32·1440 / 164 = 2.81. Over the dial's WHOLE range (1.0…3.0 ⇒ 1.93…5.79) BOTH terms sit
+    /// far above 1, so the clamp saturated at MaxDensityScale and the applied metersPerPx was the
+    /// constant 1/1440 no matter what the dial said. The budget was a CEILING the content never
+    /// reached. The log proves it: 31 'Objectives dock width budget' lines sweeping 364 mm → 624 mm
+    /// (1.4×…2.4×) with ZERO 'Docked GloomhavenVR.Panel_Objectives' re-logs in between — that dock
+    /// diagnostic re-fires on a 2 % world-size change, so the panel's applied geometry did not move
+    /// by even 2 % across the entire sweep.
+    ///
+    /// And a bigger budget could not have fixed the SQUEEZE anyway: the fit only produces a uniform
+    /// meters-per-pixel. The content would stay 194 px wide, so the objective TEXT WOULD WRAP AT
+    /// EXACTLY THE SAME COLUMN — just rendered larger. "Gequetscht" is a WRAP problem, and a wrap
+    /// problem can only be solved in PIXELS, on the game's own rects.
+    ///
+    /// FIX — make the dial mean what its readout already claims. The mm budget is converted to
+    /// PIXELS at this panel's own density (<c>wantPx = MountWidth · TrayPixelsPerMeter ·
+    /// DensityScale</c>) and that width is FORCED onto the game's objective list, so
+    /// TextMeshProUGUI re-wraps at the wider measure and each row's <c>ImageProgressBar</c> really
+    /// does get longer. As a bonus the fit becomes self-consistent: content width == budget ⇒ the
+    /// fit's width term evaluates to exactly 1.0 (neutral), so the panel spans the configured
+    /// millimetres on the tray for real instead of stopping short of a ceiling.
+    ///
+    /// HOW, given uGUI fights back:
+    /// <list type="bullet">
+    /// <item>A <c>HorizontalOrVerticalLayoutGroup</c> with <c>childControlWidth</c> and a
+    ///   <c>ContentSizeFitter</c> with a horizontal fit mode DRIVE <c>SizeDeltaX</c> — any width we
+    ///   write is stomped on the next layout rebuild. Both are neutralized (horizontally only:
+    ///   vertical stacking and vertical content fitting are untouched, so the rows still stack and
+    ///   still grow in height as the text wraps).</item>
+    /// <item>Horizontally STRETCHED rects (anchorMax.x − anchorMin.x &gt; 0) are SKIPPED — their
+    ///   width already follows their parent, so widening the parent carries them for free and
+    ///   writing sizeDelta on them would mean an offset, not a width.</item>
+    /// <item>Only FULL-WIDTH elements are widened: a rect must span at least
+    ///   <see cref="WidthShareFloor"/> of the authored block width (row frames, text blocks,
+    ///   progress bars) and at most <see cref="WidthShareCeil"/> of it (a stray fullscreen
+    ///   raycast-catcher must never become the scale base). Check marks, digits and icons keep
+    ///   their authored size, so nothing distorts — only the columns that hold text get roomier.</item>
+    /// </list>
+    ///
+    /// REVERSIBILITY (the mod never leaves game objects modified): every touched rect's authored
+    /// <c>sizeDelta.x</c>, every neutralized group's <c>childControlWidth</c>/
+    /// <c>childForceExpandWidth</c> and every fitter's <c>horizontalFit</c> are recorded at capture
+    /// time and written back verbatim in <see cref="RestoreContentWidth"/> — on release, on
+    /// shutdown, and whenever the game re-instantiates the objective rows (so the next capture
+    /// always reads PRISTINE authored widths, never our own widened ones; the scale base is
+    /// likewise frozen at capture, which makes the whole pass idempotent).
+    ///
+    /// MULTIPLAYER: purely local presentation on the local player's HUD — no game state, no
+    /// simulation input, nothing serialized. Remote clients are unaffected by construction.
+    /// </summary>
+    private const float WidthShareFloor = 0.6f;
+
+    /// <summary>Upper bound on a rect's authored share of the block width — see <see cref="WidthShareFloor"/>.</summary>
+    private const float WidthShareCeil = 4f;
+
+    /// <summary>Delay before the applied-width verification line (lets the content re-fit settle).</summary>
+    private const float WidthVerifyDelay = 1.5f;
+
+    /// <summary>Authored horizontal state of one rect we widen (restored verbatim on release).</summary>
+    private struct RawWidth
+    {
+        /// <summary>Authored <c>sizeDelta.x</c> — the value handed back on restore.</summary>
+        public float SizeDeltaX;
+
+        /// <summary>Authored RESOLVED width (px) at capture time — the idempotent scale base.</summary>
+        public float Width;
+    }
+
+    private readonly Dictionary<RectTransform, RawWidth> _rawWidth = new(48);
+    private readonly List<HorizontalOrVerticalLayoutGroup> _widthGroups = new(8);
+    private readonly List<bool> _widthGroupControl = new(8);
+    private readonly List<bool> _widthGroupExpand = new(8);
+    private readonly List<ContentSizeFitter> _widthFitters = new(8);
+    private readonly List<ContentSizeFitter.FitMode> _widthFitterMode = new(8);
+    private readonly List<Transform> _widthStack = new(64);
+
+    private bool _widthCaptured;
+    private float _widthBasePx;
+    private int _widthSignature;
+    private float _widthAppliedPx = -1f;
+    private float _widthVerifyAt;
+    private static bool s_widthErrorLogged;
+
+    /// <summary>
+    /// The game's own serialized objective LIST holder (publicized
+    /// <c>MissionObjectiveContainer.objectiveContainer</c> — every <c>MissionObjectiveUI</c> is
+    /// instantiated under it, decompiled GH.Runtime/MissionObjectiveContainer.cs:123), used as the
+    /// row-set signature source. Same by-construction rule the initiative track and element board
+    /// use for their content roots — no name matching.
+    /// </summary>
+    private RectTransform? ObjectiveList()
+    {
+        UIManager manager = UIManager.Instance;
+        MissionObjectiveContainer? container = manager != null ? manager.MissionObjectiveContainer : null;
+        return container != null ? container.objectiveContainer as RectTransform : null;
+    }
+
+    /// <summary>
+    /// Force the configured width budget onto the game's objective rows (see the
+    /// <see cref="WidthShareFloor"/> docs for the root cause and the full contract). Runs every
+    /// tick while converted: cheap (a handful of change-gated comparisons over ~40 rects) and
+    /// idempotent — targets are always derived from the RECORDED authored widths, never from the
+    /// live, already-widened ones, so re-running can never compound.
+    /// </summary>
+    private void ApplyContentWidth()
+    {
+        if (Panel == null)
+            return;
+
+        try
+        {
+            RectTransform? list = ObjectiveList();
+            RectTransform root = list != null ? list : Panel.Target;
+            if (root == null)
+                return;
+
+            // The game re-instantiates rows on scenario init / AddObjective / RemoveObjective
+            // (MissionObjectiveContainer.cs:29-33,90,123). Hand everything back FIRST so the next
+            // capture reads PRISTINE authored widths instead of our own widened ones.
+            int signature = list != null ? list.childCount : root.childCount;
+            if (_widthCaptured && signature != _widthSignature)
+                RestoreContentWidth();
+
+            if (!_widthCaptured && !CaptureContentWidth(root, signature))
+                return; // layout not measurable yet (window fading in) — retry next tick
+
+            float density = PlayTray.TrayPixelsPerMeter * DensityScale;
+            float wantPx = MountWidth * density;
+            float k = wantPx / _widthBasePx;
+            float floor = _widthBasePx * WidthShareFloor;
+            float ceil = _widthBasePx * WidthShareCeil;
+
+            // Re-assert the layout neutralization every tick (change-gated): these components DRIVE
+            // SizeDeltaX, so one game-side rebuild with them re-enabled would silently stomp every
+            // width we wrote and the dial would look dead again.
+            bool changed = false;
+            for (int i = 0; i < _widthGroups.Count; i++)
+            {
+                HorizontalOrVerticalLayoutGroup group = _widthGroups[i];
+                if (group == null)
+                    continue;
+                if (group.childControlWidth)
+                {
+                    group.childControlWidth = false;
+                    changed = true;
+                }
+                if (group.childForceExpandWidth)
+                {
+                    group.childForceExpandWidth = false;
+                    changed = true;
+                }
+            }
+            for (int i = 0; i < _widthFitters.Count; i++)
+            {
+                ContentSizeFitter fitter = _widthFitters[i];
+                if (fitter == null || fitter.horizontalFit == ContentSizeFitter.FitMode.Unconstrained)
+                    continue;
+                fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained; // vertical fit untouched
+                changed = true;
+            }
+
+            int widened = 0;
+            bool destroyed = false;
+            foreach (KeyValuePair<RectTransform, RawWidth> entry in _rawWidth)
+            {
+                RectTransform rect = entry.Key;
+                if (rect == null)
+                {
+                    destroyed = true; // pooled/destroyed row — recapture from pristine next tick
+                    continue;
+                }
+                RawWidth raw = entry.Value;
+                if (raw.Width < floor || raw.Width > ceil)
+                    continue; // icon / check mark / stray fullscreen rect — keep its authored size
+                if (rect.anchorMax.x - rect.anchorMin.x > 0.01f)
+                    continue; // horizontally stretched: follows its parent's new width already
+                widened++;
+                float target = raw.Width * k;
+                if (Mathf.Abs(rect.sizeDelta.x - target) <= 0.01f)
+                    continue;
+                rect.sizeDelta = new Vector2(target, rect.sizeDelta.y);
+                changed = true;
+            }
+
+            if (destroyed)
+            {
+                RestoreContentWidth(); // the recorded set is stale — rebuild it from the live tree
+                return;
+            }
+            if (!changed)
+                return;
+
+            // Re-wrap NOW: TMP re-lays out on the rect change, and the objectives host is re-fitted
+            // by the central TickFit within ~30 frames, so the host rect follows the wider content.
+            LayoutRebuilder.ForceRebuildLayoutImmediate(root);
+
+            if (Mathf.Abs(wantPx - _widthAppliedPx) > 0.5f)
+            {
+                _widthAppliedPx = wantPx;
+                _widthVerifyAt = Time.unscaledTime + WidthVerifyDelay;
+                VRLog.Info("WorldUI", $"OBJECTIVES WIDTH: forcing the objective rows to {wantPx:F0} px " +
+                                      $"(authored {_widthBasePx:F0} px ⇒ {k:F2}×, {widened} full-width " +
+                                      $"rect(s)) for the {MountWidth * 1000f:F0} mm budget at " +
+                                      $"{density:F0} px/m — TMP re-wraps at the wider measure.");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            // A game-side surprise must never starve the WorldUI tick (the unguarded-Update lesson):
+            // hand the rects back, stop trying, and log once.
+            if (!s_widthErrorLogged)
+            {
+                s_widthErrorLogged = true;
+                VRLog.Warn("WorldUI", $"OBJECTIVES WIDTH: forcing the task width failed ({ex.Message}) — " +
+                                      "the objectives keep their authored layout.");
+            }
+            RestoreContentWidth();
+        }
+    }
+
+    /// <summary>
+    /// Record the PRISTINE horizontal state of the objectives subtree (every rect's authored
+    /// sizeDelta.x + resolved width, every width-driving layout group / content size fitter) and
+    /// freeze the scale base. Inactive children are recorded too, so a row that only reveals its
+    /// progress bar later (<c>MissionObjectiveUI.ShowProgressBar</c>) is widened the moment it
+    /// appears instead of popping out at its authored width.
+    ///
+    /// The scale base is the fit-measured VISIBLE content width — <c>Panel.HostRect.rect.width</c>,
+    /// the very number <see cref="TrayMountedPanelSurface.Place"/> divides the budget by — so
+    /// forcing the content to the budget makes that division come out at exactly 1.0. Returns false
+    /// while the fit has not measured yet (the caller retries next tick).
+    /// </summary>
+    private bool CaptureContentWidth(RectTransform root, int signature)
+    {
+        if (Panel == null || !Panel.FitMeasuredOnce)
+            return false;
+        float basePx = Panel.HostRect.rect.width;
+        if (basePx < 1f)
+            return false;
+
+        // Deterministic measurement: rebuild pending layout so every rect reports its RESOLVED
+        // authored width (layout-group driven widths included) BEFORE we take the drivers away.
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(root);
+
+        _rawWidth.Clear();
+        _widthGroups.Clear();
+        _widthGroupControl.Clear();
+        _widthGroupExpand.Clear();
+        _widthFitters.Clear();
+        _widthFitterMode.Clear();
+
+        _widthStack.Clear();
+        _widthStack.Add(root);
+        while (_widthStack.Count > 0)
+        {
+            int last = _widthStack.Count - 1;
+            Transform t = _widthStack[last];
+            _widthStack.RemoveAt(last);
+
+            if (t is RectTransform rect)
+                _rawWidth[rect] = new RawWidth { SizeDeltaX = rect.sizeDelta.x, Width = rect.rect.width };
+
+            var group = t.GetComponent<HorizontalOrVerticalLayoutGroup>();
+            if (group != null)
+            {
+                _widthGroups.Add(group);
+                _widthGroupControl.Add(group.childControlWidth);
+                _widthGroupExpand.Add(group.childForceExpandWidth);
+            }
+            var fitter = t.GetComponent<ContentSizeFitter>();
+            if (fitter != null)
+            {
+                _widthFitters.Add(fitter);
+                _widthFitterMode.Add(fitter.horizontalFit);
+            }
+
+            for (int i = 0; i < t.childCount; i++)
+                _widthStack.Add(t.GetChild(i)); // inactive included on purpose (see the summary)
+        }
+
+        _widthBasePx = basePx;
+        _widthSignature = signature;
+        _widthAppliedPx = -1f; // force the next apply to log against the fresh base
+        _widthCaptured = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Hand the objectives subtree its AUTHORED horizontal layout back — every recorded
+    /// sizeDelta.x, every layout group's width control, every fitter's horizontal fit mode — and
+    /// forget the capture. Called on release, on shutdown, when the game re-instantiates the rows,
+    /// and on any failure, so the game UI is never left modified (the framework's root-only restore
+    /// in <c>CanvasConversion.Release</c> never reaches these deep children).
+    /// </summary>
+    private void RestoreContentWidth()
+    {
+        if (!_widthCaptured && _rawWidth.Count == 0)
+            return;
+
+        foreach (KeyValuePair<RectTransform, RawWidth> entry in _rawWidth)
+        {
+            RectTransform rect = entry.Key;
+            if (rect == null)
+                continue;
+            rect.sizeDelta = new Vector2(entry.Value.SizeDeltaX, rect.sizeDelta.y);
+        }
+        for (int i = 0; i < _widthGroups.Count; i++)
+        {
+            HorizontalOrVerticalLayoutGroup group = _widthGroups[i];
+            if (group == null)
+                continue;
+            group.childControlWidth = _widthGroupControl[i];
+            group.childForceExpandWidth = _widthGroupExpand[i];
+        }
+        for (int i = 0; i < _widthFitters.Count; i++)
+        {
+            ContentSizeFitter fitter = _widthFitters[i];
+            if (fitter != null)
+                fitter.horizontalFit = _widthFitterMode[i];
+        }
+
+        _rawWidth.Clear();
+        _widthGroups.Clear();
+        _widthGroupControl.Clear();
+        _widthGroupExpand.Clear();
+        _widthFitters.Clear();
+        _widthFitterMode.Clear();
+        _widthCaptured = false;
+        _widthBasePx = 0f;
+        _widthAppliedPx = -1f;
+        _widthVerifyAt = 0f;
+    }
+
+    /// <summary>
+    /// Proof line for the next hardware log (the old diagnostic only proved the BUDGET moved, which
+    /// is exactly why a dead dial looked alive in the log): a short delay after a width change,
+    /// report the SETTLED host rect in pixels AND the world rect in metres. Grep 'OBJECTIVES WIDTH'
+    /// and compare two consecutive entries — if the dial works, both numbers move with it.
+    /// </summary>
+    private void LogWidthVerification()
+    {
+        if (_widthVerifyAt <= 0f || Panel == null || Time.unscaledTime < _widthVerifyAt)
+            return;
+        _widthVerifyAt = 0f;
+        Rect px = Panel.HostRect.rect;
+        Panel.HostRect.GetWorldCorners(QuestCorners); // 0=BL, 1=TL, 2=TR, 3=BR
+        float w = (QuestCorners[3] - QuestCorners[0]).magnitude;
+        float h = (QuestCorners[1] - QuestCorners[0]).magnitude;
+        VRLog.Info("WorldUI", $"OBJECTIVES WIDTH APPLIED: content settled at {px.width:F0}x{px.height:F0} px " +
+                              $"(forced {_widthAppliedPx:F0} px, budget {MountWidth * 1000f:F0} mm) — " +
+                              $"world rect {w:F3}x{h:F3} m. Both numbers MUST move when 'Breite' changes.");
     }
 
     /// <summary>
@@ -836,12 +1207,25 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 
     public override void Tick()
     {
+        bool wasConverted = Panel != null;
         base.Tick();
+        if (Panel != null)
+        {
+            ApplyContentWidth(); // the 'Breite' dial's real lever — see ApplyContentWidth
+            LogWidthVerification();
+        }
+        else if (wasConverted)
+        {
+            // Released this tick: the host is gone but the game's rows are alive again in their
+            // 2D home — hand them their authored horizontal layout back before we lose the records.
+            RestoreContentWidth();
+        }
         TickQuestLabel();
     }
 
     public override void Shutdown()
     {
+        RestoreContentWidth(); // before base releases the panel (the rows are still alive here)
         if (_questGo != null)
             Object.Destroy(_questGo);
         _questGo = null;

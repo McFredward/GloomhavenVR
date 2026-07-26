@@ -2069,11 +2069,18 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         return $"{PlayTray.ObjectivesMountWidth * mult * 1000f:0}mm ({mult:0.0}x)";
     }
 
-    /// <summary>Widen/narrow the objectives task dock (0.1× steps, 1.0–3.0). Live: the surface re-reads MountWidth.</summary>
+    /// <summary>
+    /// Widen/narrow the objectives task dock (0.1× steps, 0.5–3.0). Live: ObjectivesSurface FORCES
+    /// the resulting mm budget onto the game's objective rows as a pixel width each tick, so the
+    /// task text re-wraps and the progress bar lengthens — the readout's mm is the real panel width,
+    /// not just a fit ceiling. The lower bound goes below 1.0 on purpose: since the budget is now
+    /// literal, 1.0 (260 mm) is already wider than the game's authored wrap column, so the dial
+    /// needs headroom DOWNWARD to reach a tighter look again.
+    /// </summary>
     private void StepObjectivesWidth(int delta)
     {
         ConfigEntry<float> e = CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard);
-        e.Value = Mathf.Clamp(e.Value + delta * 0.1f, 1f, 3f);
+        e.Value = Mathf.Clamp(e.Value + delta * 0.1f, 0.5f, 3f);
     }
 
     // ---- Spacing / Row-gap / Shape steppers (round 2) --------------------------------------
