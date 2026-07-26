@@ -98,6 +98,9 @@ internal sealed class RemoteBrowserFan
     private int _shownKind = -1;
     private bool _poseInit;
 
+    /// <summary>One-shot latch for the "hidden by the remote-board setting" line (see Tick).</summary>
+    private bool _gateHiddenLogged;
+
     // EMERGE: seconds since the fan opened (-1 = settled / not emerging).
     private float _emergeElapsed = -1f;
 
@@ -125,6 +128,35 @@ internal sealed class RemoteBrowserFan
 
         bool wantOpen = _owner.PileBrowseOpen && _owner.PileBrowseCardCount > 0;
         int wantKind = wantOpen ? _owner.PileBrowseKind : -1;
+
+        // VISIBILITY ([Net] RemoteBoards — audit 2026-07). A BOARD-ANCHORED browse fan is the peer's
+        // board reading its own discard/burnt/item stack: it hangs at a fixed board-local spot and
+        // blooms out of one of that board's pile stacks. It used to ignore the setting completely,
+        // so with "Aus" (or "Aktionsphase" mid-selection) a dozen enlarged card backs still fanned
+        // open in the void where the hidden board was. Gated on the SHARED predicate now, and hidden
+        // INSTANTLY rather than collapsed — the collapse flies the cards into the very pile stack the
+        // gate just hid. A HAND-HELD browse fan rides the sender's palm and is avatar content, so it
+        // is deliberately untouched (the setting is about boards).
+        if (wantOpen && !_owner.PileBrowseHeld && !RemoteBoardGate.ShowBoardSurface(_owner))
+        {
+            if (!_gateHiddenLogged)
+            {
+                _gateHiddenLogged = true;
+                VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: board-anchored " +
+                                  $"{KindName(wantKind)} fan HIDDEN by [Net] RemoteBoards = " +
+                                  $"{RemoteBoardGate.Mode} (it blooms out of that peer's board, which " +
+                                  "this client is not drawing).");
+            }
+            if (_open || _collapseElapsed >= 0f || (_root != null && _root.activeSelf))
+            {
+                _open = false;
+                _shownKind = -1;
+                _collapseKind = -1;
+                Hide(); // also clears the emerge/collapse timers
+            }
+            return;
+        }
+        _gateHiddenLogged = false;
 
         // ---- state edges -------------------------------------------------------------------
         if (wantOpen && (!_open || wantKind != _shownKind))
