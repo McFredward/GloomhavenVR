@@ -922,7 +922,7 @@ internal sealed class CardFan
             card.SetHome(_root, pos, rot, 1f, instant || opening);
 
             if (i == n - 1)
-                card.SetColliderRegion(w, 0f); // fully exposed — full width, T2 viewer-side accept pad included
+                card.SetColliderRegion(w, 0f); // fully exposed — full width, exact-fit depth (no viewer-side apron)
             else
                 card.SetColliderRegion(strip, -(w - strip) * 0.5f);
         }
