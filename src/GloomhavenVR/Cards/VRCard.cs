@@ -735,29 +735,36 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             "raise (hits the card at rest, never the popped pose).");
     }
 
-    /// <summary>
-    /// T2 (fan grab misses): extra grab-accept depth a FANNED card's collider grows
-    /// TOWARD THE VIEWER (-Z, the side the reaching hand approaches from), on top of the
-    /// 0.02 exact-fit thickness. The exact-fit box demanded the palm essentially touch
-    /// the card plane before ProximityGrabber would highlight it; a modest 3 cm apron on
-    /// the approach side accepts the hand just BEFORE contact — mirroring the slot-dock
-    /// apron pattern (<see cref="DockPadDepth"/>) that fixed the same miss on the tray.
-    /// Card-local meters, so it scales with the fan/diorama exactly like the card.
-    /// Neighbor arbitration unchanged: the strip width still bounds X, and the pad is
-    /// identical on every fanned card, so nearest-collider + the 2.5 cm switch margin
-    /// resolve overlaps exactly as before.
-    /// </summary>
-    private const float FanGrabDepthPad = 0.03f;
+    /// <summary>Throttle clock (shared across cards) for the fan collider-fit diagnostic.</summary>
+    private static float s_nextFanColliderLogAt;
 
     /// <summary>
     /// P6 fan-collider strip: while fanned, each card's grab collider shrinks to its
     /// VISIBLE (un-overlapped) strip so neighboring colliders never fight for the
     /// hover — the source of the constant haptic buzz in test #8. The full collider
     /// comes back via <see cref="ResetColliderRegion"/> (grab, tray, half layout).
-    /// T2: the fan strip additionally grows a viewer-side accept apron
-    /// (<see cref="FanGrabDepthPad"/>) so the reaching hand highlights the card a
-    /// touch earlier — the highlighted card then wins the trigger via the fan
-    /// lift-priority rescue (CardsDriver.UpdateFanLaser).
+    ///
+    /// STEEP-ANGLE LASER FIX (build on 306e8ea — the laser STILL "sticks" above a raised
+    /// fan card from a top-down angle, board button beside it unreachable, card grabbed by
+    /// mistake). The earlier fix corrected only the GEOMETRIC fan pick (resting rect); the
+    /// PHYSICS BoxCollider still carried a 3 cm accept apron biased entirely onto the VIEWER
+    /// side (-Z). Fan cards billboard toward the head, so -Z points at the viewer's EYE — and
+    /// from a steep look-down that eye is ABOVE the card, so the apron protruded 3 cm (≈ half a
+    /// card width) of INVISIBLE collider volume ABOVE/IN FRONT of the card's upper half. That
+    /// volume is what caught the beam (physics-ray hit / ClosestPoint proximity highlight →
+    /// the fan lift-priority rescue in CardsDriver.UpdateFanLaser clamps the beam and grabs),
+    /// floating the reticle over the card and eating the trigger meant for the adjacent board
+    /// button — exactly the reported "something invisible hovering above the upper half".
+    ///
+    /// Fix: the fan strip now fits the collider EXACTLY to the visible card face (thickness =
+    /// <see cref="_fullColliderSize"/>.z, centred, NO viewer-side apron). The collider tracks
+    /// the visible rect with no upper/front overhang, so a hit can only land on the card face
+    /// and it clears the instant the beam leaves that face. Hand proximity grab is unaffected:
+    /// <see cref="ProximityGrabber"/> reaches 0.13 m off the collider (≈ 2× the 6.35 cm card
+    /// width, same fan/diorama scale as this box), so dropping a 3 cm accept pad leaves ample
+    /// reach, and the fan lift-priority rescue still catches a near-miss grab. Docked-card
+    /// tray-edge grab (<see cref="DockPadDepth"/> / <see cref="ResetColliderRegion"/>), poke,
+    /// and held-card behaviour are untouched — this apron was fan-only.
     /// </summary>
     internal void SetColliderRegion(float width, float offsetX)
     {
@@ -765,11 +772,34 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             return;
         _dockGrabPad = false; // fan strips own the collider shape — a fanned card is never slot-docked
         _box.size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y,
-            _fullColliderSize.z + FanGrabDepthPad);
-        // Bias the extra depth entirely onto the viewer side (-Z): the hand approaches
-        // from there; the far side keeps the exact fit so the pad never pokes through
-        // the palm the fan hovers over.
-        _box.center = new Vector3(offsetX, 0f, -FanGrabDepthPad * 0.5f);
+            _fullColliderSize.z);           // exact-fit depth — no viewer-side apron (steep-angle laser fix)
+        _box.center = new Vector3(offsetX, 0f, 0f); // centred on the card plane, no -Z overhang
+        LogFanColliderFit();
+    }
+
+    /// <summary>
+    /// Diagnostic (throttled, shared): prove the fan-seated collider now matches the VISIBLE
+    /// card face — logs the BoxCollider world centre/size against the resting laser rect
+    /// (world meters). A hardware log line with the box centred on the rect centre and its
+    /// depth ≈ the card thickness (no −Z overhang) verifies the invisible above-card volume
+    /// is gone. No-op for a card without a valid resting rect (parentless/degenerate).
+    /// </summary>
+    private void LogFanColliderFit()
+    {
+        if (_box == null || Time.unscaledTime < s_nextFanColliderLogAt)
+            return;
+        if (!TryGetRestingLaserRect(out Vector3 rectCenter, out _, out _, out _,
+                out float halfW, out float halfH))
+            return;
+        s_nextFanColliderLogAt = Time.unscaledTime + 2f;
+        Vector3 boxCenter = transform.TransformPoint(_box.center);
+        Vector3 lossy = transform.lossyScale;
+        Vector3 boxWorldSize = new(_box.size.x * lossy.x, _box.size.y * lossy.y, _box.size.z * lossy.z);
+        Core.VRLog.Debug("Cards", $"Fan collider fit '{name}': box world center " +
+            $"({boxCenter.x:F3},{boxCenter.y:F3},{boxCenter.z:F3}) size " +
+            $"({boxWorldSize.x:F3},{boxWorldSize.y:F3},{boxWorldSize.z:F3}) m vs visible rect center " +
+            $"({rectCenter.x:F3},{rectCenter.y:F3},{rectCenter.z:F3}) half({halfW:F3},{halfH:F3}) — " +
+            "collider fits the card face, no viewer-side (-Z) apron above the upper half.");
     }
 
     // Task #2 follow-up (grab UNDER the docked card): the exact-fit collider is thin
