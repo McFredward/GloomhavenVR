@@ -276,7 +276,10 @@ internal sealed class RayInteractor : IPickProvider
                 // furniture target is behind the hand of cards; drop it (no pick-through).
                 _current.HasHit = false;
                 _current.HitCollider = null;
-                NoteFanOcclusion($"board target '{hit.collider.name}'", hit.distance);
+                // [Optimize] LeanLogStrings: only pay for the interpolation + the allocating
+                // .name read when the throttled note would actually be emitted.
+                if (WantFanOcclusionNote)
+                    NoteFanOcclusion($"board target '{hit.collider.name}'", hit.distance);
             }
             else
             {
@@ -568,6 +571,18 @@ internal sealed class RayInteractor : IPickProvider
             ? dist
             : float.PositiveInfinity;
     }
+
+    /// <summary>
+    /// [Optimize] LeanLogStrings gate (2026-07 perf pass). <see cref="NoteFanOcclusion"/> throttles
+    /// itself to one line per second INSIDE the method — but its callers had already interpolated
+    /// the message (and read <c>UnityEngine.Object.name</c>, which allocates a fresh managed string
+    /// on every single access) before the call. That is two heap allocations per frame per hand for
+    /// a line printed once a second. Callers now ask this first and skip the string work entirely
+    /// when nothing would be logged; with the optimization off it answers true and the old
+    /// unconditional behaviour returns.
+    /// </summary>
+    public static bool WantFanOcclusionNote =>
+        !Core.PerfConfig.LeanStrings || Time.unscaledTime >= s_nextFanOcclusionLogAt;
 
     /// <summary>
     /// Throttled note (shared across both hands and every target kind) that the raised card

@@ -159,8 +159,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     // folded its user-facing see-through toggle into "Anzeige". What remains is a short, scannable
     // top-level list of genuinely user-facing tabs (Welt / Anzeige / Avatar) plus the single Debug
     // tab that holds ALL the deep per-element tuning. Debug is the sole element-bearing category.
-    private enum NavCat { Welt, Anzeige, Avatar, Debug }
-    private const int NavCatCount = 4;
+    // 2026-07 performance pass: "Leistung" is added as its OWN top-level category rather than being
+    // squeezed into "Anzeige". It is a coherent, self-contained block (frame-time measurement +
+    // one switch per optimization) built by the single method BuildPerformanceCategory(), so the
+    // inbound settings-menu reorganization can move it wholesale by moving that one call and this
+    // one enum member — nothing else in this file reaches into it.
+    private enum NavCat { Welt, Anzeige, Avatar, Leistung, Debug }
+    private const int NavCatCount = 5;
 
     /// <summary>
     /// SINGLE source of truth for category → board-attached elements (re-slice by editing this
@@ -177,6 +182,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Array.Empty<DebugElement>(),                                                                          // Welt
         Array.Empty<DebugElement>(),                                                                          // Anzeige
         Array.Empty<DebugElement>(),                                                                          // Avatar
+        Array.Empty<DebugElement>(),                                                                          // Leistung (flat rows only)
         // Debug (issue 2 + 2026-07 fold-in): the union of the former Board (panels/widgets) + Tasten
         // (button geometry) elements, the wall-fade fractions as one global WallFade element, AND the
         // former per-style top-level tabs — Hände-Offsets / Figuren-Offsets / Handgelenk — now Debug
@@ -1030,6 +1036,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // These build into the CONTENT column (still set from the GateCat sections above) but each
         // row gates itself to Debug → its element (Hände-Offsets / Figuren-Offsets / Handgelenk), so
         // they only appear when that Debug element is selected. Build order is irrelevant.
+        // ===== Leistung — measurement + one switch per optimization (2026-07 perf pass) =====
+        // ONE self-contained call: everything it builds gates itself to NavCat.Leistung, so the
+        // inbound category reorganization can move this line (and the enum member) and nothing else.
+        BuildPerformanceCategory();
+
         BuildHandsCategory();   // Debug → Hände-Offsets (per-style seat + card-fan geometry)
         BuildFiguresCategory(); // Debug → Figuren-Offsets (per-style held-mini pose)
         BuildWristCategory();   // Debug → Handgelenk (per-style wrist-HUD pose)
@@ -1076,6 +1087,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         NavCat.Welt => "Welt",
         NavCat.Anzeige => Loc.Mod("display"),
         NavCat.Avatar => Loc.Mod("avatar"),
+        NavCat.Leistung => Loc.Mod("performance"),
         NavCat.Debug => "Debug",
         _ => c.ToString(),
     };
@@ -2758,6 +2770,134 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     {
         var row = Row(24f);
         Label(row, $"— {title} —", 14f, bold: true, flexible: true, center: true);
+    }
+
+    // ==========================================================================================
+    //  Leistung — performance measurement + optimizations (2026-07 perf pass)
+    // ==========================================================================================
+
+    /// <summary>
+    /// The whole "Leistung" category, in ONE self-contained block. Two sections:
+    ///
+    /// <para><b>Messung</b> drives <c>[Perf]</c> — what the log records. Nothing here changes a
+    /// single pixel; it decides whether the next hardware log can answer "which subsystem owned
+    /// that hitch" at all. Defaults ON, because a performance report nobody switched on is worth
+    /// nothing, and the measurement is built to cost microseconds.</para>
+    ///
+    /// <para><b>Optimierungen</b> drives <c>[Optimize]</c> — one row per optimization, so any of
+    /// them can be A/B'd on hardware against the [Perf] numbers without a rebuild. The toggles
+    /// default to the OPTIMIZED behaviour only where the change is invisible by construction (pure
+    /// work removal); the two interval steppers and the quiet-diagnostics switch default to exactly
+    /// TODAY'S behaviour, so nothing the player can perceive changes without them asking for it.</para>
+    ///
+    /// <para>Every row registers its own gate via <see cref="GateCat"/>, so this method may be
+    /// called from anywhere in <c>Build()</c> and moved to any other category by changing the one
+    /// <see cref="GateCat"/> call below — which is what the inbound menu reorganization needs.</para>
+    /// </summary>
+    private void BuildPerformanceCategory()
+    {
+        PerfConfig.Bind();
+        GateCat(NavCat.Leistung);
+
+        // ---- Messung ------------------------------------------------------------------------
+        Section(Loc.Mod("perf_measurement"));
+
+        Toggle(Loc.Mod("perf_enabled"),
+            () => PerfConfig.Enabled.Value,
+            v => PerfConfig.Enabled.Value = v);
+
+        var noteRow = Row(30f);
+        Label(noteRow, Loc.Mod("perf_note"), 12f, flexible: true);
+
+        Stepper(Loc.Mod("perf_interval"),
+            () => $"{Mathf.Clamp(PerfConfig.SummaryIntervalSeconds.Value, 5f, 600f):0}s",
+            d => PerfConfig.SummaryIntervalSeconds.Value =
+                Mathf.Clamp(PerfConfig.SummaryIntervalSeconds.Value + d * 5f, 5f, 600f));
+
+        Toggle(Loc.Mod("perf_attribution"),
+            () => PerfConfig.Attribution.Value,
+            v => PerfConfig.Attribution.Value = v);
+
+        Stepper(Loc.Mod("perf_top_steps"),
+            () => $"{Mathf.Clamp(PerfConfig.TopSteps.Value, 1, 20)}",
+            d => PerfConfig.TopSteps.Value = Mathf.Clamp(PerfConfig.TopSteps.Value + d, 1, 20));
+
+        Toggle(Loc.Mod("perf_spikes"),
+            () => PerfConfig.SpikeLines.Value,
+            v => PerfConfig.SpikeLines.Value = v);
+
+        Stepper(Loc.Mod("perf_spike_factor"),
+            () => $"{Mathf.Clamp(PerfConfig.SpikeBudgetFactor.Value, 1.2f, 10f):0.0}x",
+            d => PerfConfig.SpikeBudgetFactor.Value =
+                Mathf.Clamp(PerfConfig.SpikeBudgetFactor.Value + d * 0.1f, 1.2f, 10f));
+
+        Stepper(Loc.Mod("perf_spike_rate"),
+            () => $"{Mathf.Clamp(PerfConfig.SpikeMaxPerSecond.Value, 0.1f, 20f):0.0}/s",
+            d => PerfConfig.SpikeMaxPerSecond.Value =
+                Mathf.Clamp(PerfConfig.SpikeMaxPerSecond.Value + d * 0.5f, 0.1f, 20f));
+
+        Toggle(Loc.Mod("perf_alloc"),
+            () => PerfConfig.Allocations.Value,
+            v => PerfConfig.Allocations.Value = v);
+
+        Toggle(Loc.Mod("perf_xr"),
+            () => PerfConfig.XrStats.Value,
+            v => PerfConfig.XrStats.Value = v);
+
+        // ---- Optimierungen -------------------------------------------------------------------
+        Section(Loc.Mod("perf_optimizations"));
+
+        Toggle(Loc.Mod("opt_cache_delegates"),
+            () => PerfConfig.CacheTickDelegates.Value,
+            v => PerfConfig.CacheTickDelegates.Value = v);
+
+        Toggle(Loc.Mod("opt_map_icons"),
+            () => PerfConfig.MapIconCache.Value,
+            v => PerfConfig.MapIconCache.Value = v);
+
+        Toggle(Loc.Mod("opt_figure_scan"),
+            () => PerfConfig.FigureScanCache.Value,
+            v => PerfConfig.FigureScanCache.Value = v);
+
+        Toggle(Loc.Mod("opt_lean_strings"),
+            () => PerfConfig.LeanLogStrings.Value,
+            v => PerfConfig.LeanLogStrings.Value = v);
+
+        Toggle(Loc.Mod("opt_tooltip_gate"),
+            () => PerfConfig.TooltipScanGate.Value,
+            v => PerfConfig.TooltipScanGate.Value = v);
+
+        // The three below trade freshness for work, so their DEFAULT is today's behaviour and the
+        // readout says "Aus"/"Off" rather than a number until the player deliberately raises it.
+        Stepper(Loc.Mod("opt_fan_relayout"),
+            () => PerfConfig.FanRelayoutMinInterval.Value <= 0f
+                ? Loc.Mod("off")
+                : $"{PerfConfig.FanRelayoutMinInterval.Value * 1000f:0}ms",
+            d => PerfConfig.FanRelayoutMinInterval.Value =
+                Mathf.Clamp(PerfConfig.FanRelayoutMinInterval.Value + d * 0.005f, 0f, 0.2f));
+
+        Stepper(Loc.Mod("opt_wall_eval"),
+            () => PerfConfig.WallFadeEvalInterval.Value <= 0f
+                ? Loc.Mod("off")
+                : $"{PerfConfig.WallFadeEvalInterval.Value * 1000f:0}ms",
+            d => PerfConfig.WallFadeEvalInterval.Value =
+                Mathf.Clamp(PerfConfig.WallFadeEvalInterval.Value + d * 0.005f, 0f, 0.25f));
+
+        Stepper(Loc.Mod("opt_remote_content"),
+            () => PerfConfig.RemoteContentInterval.Value <= 0f
+                ? $"{Net.RemoteBoardContent.DefaultRefreshSeconds * 1000f:0}ms"
+                : $"{PerfConfig.RemoteContentInterval.Value * 1000f:0}ms",
+            d => PerfConfig.RemoteContentInterval.Value =
+                Mathf.Clamp(PerfConfig.RemoteContentInterval.Value + d * 0.05f, 0f, 2f));
+
+        Toggle(Loc.Mod("opt_quiet_diag"),
+            () => PerfConfig.QuietDiagnostics.Value,
+            v => PerfConfig.QuietDiagnostics.Value = v);
+
+        var optNote = Row(30f);
+        Label(optNote, Loc.Mod("perf_opt_note"), 12f, flexible: true);
+
+        _rowGate = null;
     }
 
     private TextMeshProUGUI Label(RectTransform row, string text, float size,

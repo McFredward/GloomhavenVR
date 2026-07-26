@@ -154,6 +154,14 @@ internal sealed class WorldTooltips
     private Vector3 _parkedLogPos;
     private bool _gateOffLogged;
 
+    /// <summary>[Optimize] TooltipScanGate: earliest frame the CanvasManager may be searched for
+    /// again while the tooltip canvas is still unresolved.</summary>
+    private int _canvasSearchNextFrame;
+
+    /// <summary>Frames between two CanvasManager searches (~1/6 s at 90 Hz) — a hover needs the
+    /// canvas within human reaction time, not within one frame.</summary>
+    private const int CanvasSearchIntervalFrames = 15;
+
     /// <summary>Extents captured in the last pose resolve (park diagnostic — prove the panel clears the board).</summary>
     private float _lastBoardTopEdgeWorldY;
     private Vector2 _lastTooltipHalfWorld;
@@ -205,6 +213,14 @@ internal sealed class WorldTooltips
 
         if (_canvas == null)
         {
+            // [Optimize] TooltipScanGate (2026-07 perf pass): this full-scene FindObjectOfType had
+            // NO interval gate, so on any scene where the CanvasManager is absent or not yet built
+            // it re-scanned the whole scene EVERY FRAME, forever. Retrying a handful of times a
+            // second finds it just as fast in human terms (the canvas is needed for a hover, not
+            // for a frame) and costs ~1/10 of the scans.
+            if (PerfConfig.TooltipGateOn && Time.frameCount < _canvasSearchNextFrame)
+                return;
+            _canvasSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
             var manager = Object.FindObjectOfType<CanvasManager>();
             _canvas = manager != null ? manager.tooltipCanvas : null;
             if (_canvas == null)
@@ -259,15 +275,6 @@ internal sealed class WorldTooltips
         if (_tooltip == null)
             _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
 
-        // FLATTEN + CLIP (part A): kill the baked local-z / rotation that renders as 3D
-        // depth on a world-space host, and clip 2D overflow inside the frame. Both are
-        // undone on Restore().
-        FlattenSubtree();
-        EnsureFrameClip();
-        // HOVER GRACE (user #7b): widen the game's own show/hide fade so a jitter off a
-        // tiny target is bridged by its native tween. Undone on Restore().
-        EnsureFadeGrace();
-
         // FIXED PLACEMENT (user #7a): while a tooltip is shown — OR within the placement
         // grace window just after it stopped (user #7b) — park the canvas at the control
         // board's top-left corner, facing the player. Otherwise leave it out of view —
@@ -276,6 +283,25 @@ internal sealed class WorldTooltips
         if (contentShown)
             _lastShownTime = Time.unscaledTime;
         bool withinGrace = _tooltip != null && Time.unscaledTime - _lastShownTime <= HoverGraceSeconds;
+        bool visible = contentShown || withinGrace;
+
+        // FLATTEN + CLIP (part A): kill the baked local-z / rotation that renders as 3D
+        // depth on a world-space host, and clip 2D overflow inside the frame. Both are
+        // undone on Restore().
+        //
+        // [Optimize] TooltipScanGate (2026-07 perf pass): FlattenSubtree walks the WHOLE tooltip
+        // canvas subtree (GetComponentsInChildren, includeInactive) and used to run on every frame
+        // of every scenario — including the ~99 % of frames where no tooltip is shown at all and
+        // the canvas is parked out of view. The visibility test that already exists two lines down
+        // now gates it, so the walk happens exactly while the flattening can matter. Nothing the
+        // player sees changes: the canvas is at ParkPosition whenever this gate is false, and the
+        // flatten is re-asserted every frame it IS true.
+        if (!PerfConfig.TooltipGateOn || visible)
+            FlattenSubtree();
+        EnsureFrameClip();
+        // HOVER GRACE (user #7b): widen the game's own show/hide fade so a jitter off a
+        // tiny target is bridged by its native tween. Undone on Restore().
+        EnsureFadeGrace();
 
         if (!(contentShown || withinGrace) || !TryResolveTooltipPose(out Vector3 pos, out Quaternion rot))
         {

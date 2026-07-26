@@ -963,9 +963,36 @@ internal sealed class CardFan
                      || (CardsConfig.FanFaceViewer.Value > 0f
                          && (headLocal - _layoutHeadLocal).sqrMagnitude
                             > ToeInRelayoutEpsilon * ToeInRelayoutEpsilon);
-        if (moved)
-            Relayout(instant: false);
+        if (!moved)
+            return;
+
+        // [Optimize] FanRelayoutMinInterval (2026-07 perf pass). The gate above trips on ~2 mm of
+        // apex drift, which during a fast head turn is EVERY SINGLE FRAME — and a relayout touches
+        // every card's home pose, rotation and collider region. That is the mod's most obviously
+        // head-motion-CORRELATED cost, i.e. the first suspect for "the world judders when I turn my
+        // head fast", so it gets an explicit rate limit.
+        //
+        // DEFAULT 0 = off = today's behaviour, deliberately: the relayout is not KNOWN to be
+        // expensive (the collider write is already idempotence-guarded in VRCard.SetColliderRegion,
+        // and the [Perf] STEPS line now measures it), so this ships as a lever to test with, not as
+        // a silent change. When it IS switched on nothing can look steppy: each card's own
+        // exponential home-lerp keeps running every frame and smooths whatever the gate lets
+        // through — the rate limit changes how often the TARGET moves, not how the cards travel.
+        // Only the GAZE path is limited; card-set changes, hovers, plucks, insert gaps and the
+        // fan-out reveal all call Relayout directly and are never delayed.
+        float minInterval = Core.PerfConfig.FanRelayoutInterval;
+        if (minInterval > 0f)
+        {
+            float now = Time.unscaledTime;
+            if (now - _lastGazeRelayoutTime < minInterval)
+                return;
+            _lastGazeRelayoutTime = now;
+        }
+        Relayout(instant: false);
     }
+
+    /// <summary>Unscaled time of the last GAZE-driven relayout ([Optimize] FanRelayoutMinInterval).</summary>
+    private float _lastGazeRelayoutTime = float.NegativeInfinity;
 
     /// <summary>Gaze/fan-plane angle below which the crossing point is faded out (fan-local gaze +Z
     /// component). Under this the gaze is effectively parallel to the fan and the intersection is
@@ -1449,9 +1476,14 @@ internal sealed class CardFan
         //            lines is the bug this round fixed coming back.
         //   z=[..]   near/far composed depth spread AFTER the stacking clamp.
         // Grep: "Fan depth-curve:".
+        // [Optimize] QuietDiagnostics: this is the one mod diagnostic whose cadence is TIED TO
+        // HEAD MOTION — it deliberately speeds up to 4 Hz while the gaze apex sweeps, i.e. it emits
+        // most during exactly the manoeuvre the player reports as juddery. 4 lines/s is still far
+        // too little to cost frames (measured: the whole mod averaged ~3 lines/s on hardware), so it
+        // stays on by default; this switch exists so a performance capture can rule it out entirely.
         float logNow = Time.unscaledTime;
         bool sweeping = Mathf.Abs(apex - _loggedApex) > 0.1f;
-        if (logNow - _curveLogTime > (sweeping ? 0.25f : 2f))
+        if (!Core.PerfConfig.Quiet && logNow - _curveLogTime > (sweeping ? 0.25f : 2f))
         {
             _curveLogTime = logNow;
             _loggedApex = apex;

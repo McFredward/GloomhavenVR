@@ -119,7 +119,9 @@ internal sealed class RayGrabDriver
         // visible past them. Uses the ray's precomputed nearest fan-card distance.
         if (_hand.Ray.FanOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
-            _hand.Ray.NoteFanOcclusion($"panel grab bar '{best.name}'", bestDist);
+            // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
+            if (RayInteractor.WantFanOcclusionNote)
+                _hand.Ray.NoteFanOcclusion($"panel grab bar '{best.name}'", bestDist);
             ClearHover();
             return;
         }

@@ -291,6 +291,37 @@ internal static class Loc
         ["subcat_offsets"] = Pair("Hands/Offsets", "Hände/Offsets"),
         ["subcat_wall_seethrough"] = Pair("Wall see-through", "Wand-Durchsicht"),
 
+        // ---- SettingsPanel: Leistung (2026-07 performance pass) ----
+        // The category the frame-time instrumentation and every individually switchable
+        // optimization live in. Wording rule for this block: each label says WHAT it costs or
+        // WHAT it measures, because these are the only settings whose effect the player cannot
+        // see directly — they can only be read off the log.
+        ["performance"] = Pair("Performance", "Leistung"),
+        ["perf_measurement"] = Pair("Measurement (log only)", "Messung (nur Log)"),
+        ["perf_note"] = Pair("writes [Perf] FRAME / STEPS / SPIKE lines to the log — changes nothing you see",
+                             "schreibt [Perf] FRAME / STEPS / SPIKE ins Log — ändert nichts Sichtbares"),
+        ["perf_enabled"] = Pair("Measure performance", "Leistung messen"),
+        ["perf_interval"] = Pair("Summary every", "Zusammenfassung alle"),
+        ["perf_attribution"] = Pair("Per-subsystem breakdown", "Aufschlüsselung nach Subsystem"),
+        ["perf_top_steps"] = Pair("Subsystems listed", "Gelistete Subsysteme"),
+        ["perf_spikes"] = Pair("Log frame spikes", "Bildruckler protokollieren"),
+        ["perf_spike_factor"] = Pair("Spike threshold", "Ruckler-Schwelle"),
+        ["perf_spike_rate"] = Pair("Spike lines max", "Ruckler-Zeilen max"),
+        ["perf_alloc"] = Pair("Memory / GC pressure", "Speicher / GC-Druck"),
+        ["perf_xr"] = Pair("XR counters (dropped frames)", "XR-Zähler (verworfene Bilder)"),
+        ["perf_optimizations"] = Pair("Optimizations", "Optimierungen"),
+        ["opt_cache_delegates"] = Pair("Reuse per-frame delegates", "Delegates pro Bild wiederverwenden"),
+        ["opt_map_icons"] = Pair("Cache campaign-map icons", "Kampagnenkarten-Symbole zwischenspeichern"),
+        ["opt_figure_scan"] = Pair("Cache figure lookups", "Figuren-Suche zwischenspeichern"),
+        ["opt_lean_strings"] = Pair("Skip unused log text", "Ungenutzten Log-Text überspringen"),
+        ["opt_tooltip_gate"] = Pair("Tooltip scan only when shown", "Tooltip-Suche nur wenn sichtbar"),
+        ["opt_fan_relayout"] = Pair("Card fan re-layout limit", "Kartenfächer-Neuaufbau max."),
+        ["opt_wall_eval"] = Pair("Wall see-through check every", "Wand-Durchsicht prüfen alle"),
+        ["opt_remote_content"] = Pair("Player board refresh", "Mitspieler-Board-Auffrischung"),
+        ["opt_quiet_diag"] = Pair("Quiet diagnostics", "Diagnose-Log leise"),
+        ["perf_opt_note"] = Pair("switches marked as intervals default to today's behaviour — raise them only to trade freshness for frames",
+                                 "Intervall-Regler stehen auf dem heutigen Verhalten — höher heißt weniger Aktualität für mehr Bilder/s"),
+
         // ---- figure-grab debug tuning (item 2b) ----
         ["cat_figures"] = Pair("Figures", "Figuren"),
         ["fig_upright"] = Pair("Upright", "Aufrecht"),

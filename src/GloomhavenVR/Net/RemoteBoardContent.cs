@@ -41,7 +41,24 @@ internal static class RemoteBoardContent
 {
     /// <summary>Content re-read cadence (seconds). The board POSE follows every frame; only the
     /// model reads + TMP rebuilds are throttled.</summary>
-    internal const float RefreshSeconds = 0.25f;
+    internal const float DefaultRefreshSeconds = 0.25f;
+
+    /// <summary>
+    /// EFFECTIVE content re-read cadence. [Optimize] RemoteContentInterval can widen it: this walk
+    /// scales with the number of PEERS (every remote board's model reads, furniture, card faces,
+    /// fans and FX ride this one cadence), so on a four-player table it is the mod cost that grows
+    /// while a single-player capture shows nothing at all. 0 in config = keep the 0.25 s default,
+    /// which is what ships — the trade it buys is purely how fast a PEER's board contents catch up,
+    /// never anything about the local player's own board, and it is worth nothing in single player.
+    /// </summary>
+    internal static float RefreshSeconds
+    {
+        get
+        {
+            float over = Core.PerfConfig.RemoteContentSeconds;
+            return over > 0f ? over : DefaultRefreshSeconds;
+        }
+    }
 
     /// <summary>A fitted, unlit world-space label under <paramref name="parent"/>. Shared by every
     /// section below so the remote board's typography is consistent with the local one.</summary>

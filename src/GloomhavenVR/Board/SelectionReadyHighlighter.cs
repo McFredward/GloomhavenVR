@@ -59,6 +59,10 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
     // Last logged pending signature, so we only log when the pending/done split actually changes.
     private string _lastLoggedSignature = string.Empty;
 
+    /// <summary>[Optimize] LeanLogStrings: allocation-free change detector in front of the string
+    /// signature (0 = never computed).</summary>
+    private int _lastLoggedHash;
+
     /// <summary>Bind the [SelectionReady] toggle (its own module config file). Idempotent.</summary>
     public static void Bind()
     {
@@ -73,9 +77,14 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
             "instant an actor commits and when the phase ends.");
     }
 
+    /// <summary>Cached tick delegate ([Optimize] CacheTickDelegates — see BoardPing.Update).</summary>
+    private System.Action? _tickCached;
+
     private void LateUpdate()
     {
-        TickGuard.Run("Board.SelectionReady", Tick);
+        // [Optimize] CacheTickDelegates: reuse ONE Action instead of allocating a fresh one from
+        // this instance method group every frame (gen0 pressure = head-turn hitches).
+        TickGuard.Run("Board.SelectionReady", PerfConfig.CacheDelegates ? _tickCached ??= Tick : Tick);
     }
 
     private void OnDestroy()
@@ -120,6 +129,32 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
     /// <summary>Emit one log line listing pending vs done local actors whenever the split changes.</summary>
     private void LogIfChanged(List<CPlayerActor> players)
     {
+        // [Optimize] LeanLogStrings (2026-07 perf pass): this method runs EVERY FRAME for the whole
+        // card-selection phase and used to allocate two StringBuilders plus three strings before it
+        // ever reached the change gate — for a line that only prints when a player commits, i.e.
+        // maybe a dozen times a scenario. The cheap integer signature below decides first; the
+        // strings are built only once it says something actually changed. (A hash collision could
+        // at worst swallow ONE diagnostic line; the highlight itself is driven by Tick, not by this
+        // method, so nothing the player sees depends on it.)
+        if (Core.PerfConfig.LeanStrings)
+        {
+            int hash = 17;
+            for (int i = 0; i < players.Count; i++)
+            {
+                CPlayerActor p = players[i];
+                if (p == null || !p.IsUnderControlOrSingle())
+                    continue;
+                unchecked
+                {
+                    hash = hash * 31 + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(p);
+                    hash = hash * 31 + (_pending.Contains(p) ? 1 : 0);
+                }
+            }
+            if (hash == _lastLoggedHash)
+                return;
+            _lastLoggedHash = hash;
+        }
+
         var pendingNames = new StringBuilder();
         var doneNames = new StringBuilder();
         for (int i = 0; i < players.Count; i++)

@@ -419,7 +419,19 @@ internal sealed class VRHand : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Perf attribution (2026-07 perf pass): the hand's Update reads the XR device pose, drives
+    /// the visual seat, velocity, pose classification and finger curls, and runs twice per frame
+    /// (one instance per hand). It sits directly on the tracking path, so if a head/hand-motion
+    /// spike is ours this is one of the two places it can live.
+    /// </summary>
     private void Update()
+    {
+        using (Core.PerfMonitor.Scope("Hands.VRHand"))
+            UpdateBody();
+    }
+
+    private void UpdateBody()
     {
         WorldScale = transform.lossyScale.x;
         SyncVisualOffset();

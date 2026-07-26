@@ -1674,7 +1674,19 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     // ------------------------------------------------------------------ update --
 
+    /// <summary>
+    /// Perf attribution (2026-07 perf pass): this Update runs PER CARD — a full hand plus a pile
+    /// browser can be twenty-odd instances, so its cost is the one that scales with what the
+    /// player is holding. The step aggregates all instances under one name and reports the call
+    /// count next to the frame count, so the [Perf] STEPS line reads as "n cards x m µs".
+    /// </summary>
     private void Update()
+    {
+        using (Core.PerfMonitor.Scope("Cards.VRCard"))
+            UpdateBody();
+    }
+
+    private void UpdateBody()
     {
         UpdateCanvasCamera();
         _face.Maintain();
