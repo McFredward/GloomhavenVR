@@ -918,6 +918,7 @@ internal sealed class ItemsPile
         private GameObject? _plume;     // consumed-item smoke, destroyed with the chip
         private GameObject? _cardGo;    // hosted ItemCardUI GameObject (recycled to the pool on disable)
         private ItemCardUI? _cardUI;
+        private ItemCardEffects? _origCardEffects; // game FX suppressed while hosted; restored before recycle
         private bool _fingerPopped;
         private bool _laserPopped;
         private float _pop; // smoothed 0..1
@@ -1086,13 +1087,10 @@ internal sealed class ItemsPile
             // via the VR camera's UI-layer bit owned by CanvasConversion). The mod-owned pieces
             // (backing above, fallback face + plume below) are layered individually instead.
 
-            // FULLY CONSUMED → the game's burn plume, torn down with the chip (requirement).
-            if (state == Visual.Consumed)
-            {
-                chip._plume = BurnCardFx.SpawnConsumedPlume(go.transform);
-                if (chip._plume != null)
-                    Core.VRLayers.Apply(chip._plume);
-            }
+            // FULLY CONSUMED → ashen tint only (FaceColor / desaturated art). The game's CardSmoke
+            // plume is DELIBERATELY NOT spawned here: on the item chip's scale hierarchy it sprayed a
+            // screen-filling green fog ring that no clamp bounded (user: "komplett weg"). Consumed reads
+            // from the ashen look instead. (Was: BurnCardFx.SpawnConsumedPlume — removed.)
 
             // Laser: register the chip's collider as a board laser target so the dominant hand's
             // beam pops it on hover (OnPokeEnter) and plucks it on trigger (OnPoke) — the same
@@ -1240,8 +1238,17 @@ internal sealed class ItemsPile
                     return false;
                 }
                 cardUI.item = item;
+                // SUPPRESS the game's ItemCardEffects: Show()/UpdateState() call
+                // cardEffects.ToggleEffect(Consumed/Spent), whose FX are authored for the flat
+                // SCREEN-space card — on our world canvas the Consumed effect renders as a
+                // screen-filling GREEN FOG RING around the card (user: "komplett weg"). UpdateState
+                // guards on `cardEffects != null`, so nulling it skips ALL game card FX; the mod draws
+                // its own state visuals (ashen tint, 90° tap roll, dim overlay). Restored before the
+                // card is recycled to the pool so the pooled widget is left intact.
+                _origCardEffects = cardUI.cardEffects;
+                cardUI.cardEffects = null;
                 cardUI.Show(highlightElement: false); // no UIManager lock; activates + loads art async
-                cardUI.UpdateState(item.SlotState, force: true); // spent/consumed FX to match the fan look
+                cardUI.UpdateState(item.SlotState, force: true); // no-op FX now (cardEffects null); state read by the mod
 
                 // Fit the card's native rect onto the physical card size (mirror of CardFace).
                 var cardRect = cardGo.transform as RectTransform;
@@ -1431,12 +1438,9 @@ internal sealed class ItemsPile
             _laserPopped = false;
             if (_box != null)
                 _box.enabled = false; // no grabbing during the flourish
-            if (consumed && _plume == null)
-            {
-                _plume = BurnCardFx.SpawnConsumedPlume(transform);
-                if (_plume != null)
-                    Core.VRLayers.Apply(_plume);
-            }
+            // Consumed flourish = a brief ashen hold (no plume): the game's CardSmoke sprayed a screen-
+            // filling green fog on the item chip's scale hierarchy, so it is NOT spawned (user: "komplett
+            // weg"). The card reads as consumed from its ashen tint before collapsing back into the deck.
         }
 
         /// <summary>Requirement 6 — advance the post-confirm flourish, then hand off to the collapse.</summary>
@@ -1845,6 +1849,8 @@ internal sealed class ItemsPile
                     // game reuses this card elsewhere. (The #7 dim is a mod-owned overlay quad, destroyed
                     // with the chip below — it never touches the game card, so nothing to reset there.)
                     CardFaceMipBake.RestoreSprites(_cardUI);
+                    if (_origCardEffects != null)
+                        _cardUI.cardEffects = _origCardEffects; // restore the suppressed game FX for the pool
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)
