@@ -918,7 +918,7 @@ internal sealed class ItemsPile
         private GameObject? _plume;     // consumed-item smoke, destroyed with the chip
         private GameObject? _cardGo;    // hosted ItemCardUI GameObject (recycled to the pool on disable)
         private ItemCardUI? _cardUI;
-        private ItemCardEffects? _origCardEffects; // game FX suppressed while hosted; restored before recycle
+        private SmokeClamp[]? _smokeClamps; // ItemCardEffects emitters bounded card-local; restored before recycle
         private bool _fingerPopped;
         private bool _laserPopped;
         private float _pop; // smoothed 0..1
@@ -1087,10 +1087,10 @@ internal sealed class ItemsPile
             // via the VR camera's UI-layer bit owned by CanvasConversion). The mod-owned pieces
             // (backing above, fallback face + plume below) are layered individually instead.
 
-            // FULLY CONSUMED → ashen tint only (FaceColor / desaturated art). The game's CardSmoke
-            // plume is DELIBERATELY NOT spawned here: on the item chip's scale hierarchy it sprayed a
-            // screen-filling green fog ring that no clamp bounded (user: "komplett weg"). Consumed reads
-            // from the ashen look instead. (Was: BurnCardFx.SpawnConsumedPlume — removed.)
+            // FULLY CONSUMED → the ashen tint here PLUS the game's own ItemCardEffects burn timeline,
+            // which TryHostRealCard leaves live on the hosted card (bounded by ClampCardEffectSmoke).
+            // The SEPARATE BurnCardFx.SpawnConsumedPlume prefab stays removed: that one is authored for
+            // the full-size screen card and, spawned onto the item chip, was the second fog source.
 
             // Laser: register the chip's collider as a board laser target so the dominant hand's
             // beam pops it on hover (OnPokeEnter) and plucks it on trigger (OnPoke) — the same
@@ -1238,17 +1238,15 @@ internal sealed class ItemsPile
                     return false;
                 }
                 cardUI.item = item;
-                // SUPPRESS the game's ItemCardEffects: Show()/UpdateState() call
-                // cardEffects.ToggleEffect(Consumed/Spent), whose FX are authored for the flat
-                // SCREEN-space card — on our world canvas the Consumed effect renders as a
-                // screen-filling GREEN FOG RING around the card (user: "komplett weg"). UpdateState
-                // guards on `cardEffects != null`, so nulling it skips ALL game card FX; the mod draws
-                // its own state visuals (ashen tint, 90° tap roll, dim overlay). Restored before the
-                // card is recycled to the pool so the pooled widget is left intact.
-                _origCardEffects = cardUI.cardEffects;
-                cardUI.cardEffects = null;
+                // The game's ItemCardEffects runs ON the card (Show()/UpdateState() →
+                // cardEffects.ToggleEffect(Consumed/Spent)) and is KEPT LIVE: the "verbraucht"
+                // look the user wants back — the burn tint + dissolve + grey-out material sweep
+                // over the card's face images, the greyed card text and the `fgFx` flame/ghost
+                // overlay quad — is all uGUI ON the card's own RectTransforms, so it renders at
+                // exactly card size on our world canvas. (An earlier round nulled cardEffects
+                // wholesale to kill the fog; that threw the on-card FX away with it.)
                 cardUI.Show(highlightElement: false); // no UIManager lock; activates + loads art async
-                cardUI.UpdateState(item.SlotState, force: true); // no-op FX now (cardEffects null); state read by the mod
+                cardUI.UpdateState(item.SlotState, force: true); // plays the state FX on the card
 
                 // Fit the card's native rect onto the physical card size (mirror of CardFace).
                 var cardRect = cardGo.transform as RectTransform;
@@ -1271,6 +1269,12 @@ internal sealed class ItemsPile
                     cardRect.localRotation = Quaternion.identity;
                     cardRect.localScale = Vector3.one;
                 }
+
+                // Bound the ONE part of the state FX that is NOT uGUI (see ClampCardEffectSmoke).
+                // Runs AFTER the fit above so the clamp can measure the card's final world scale;
+                // still the same frame the effect coroutine was started in, and particles do not
+                // simulate until after this Update, so nothing oversized is ever emitted.
+                ClampCardEffectSmoke(cardGo);
 
                 // Neutralize the card's own raycasters — we drive interaction through the mod's
                 // collider (grab/laser), never the game's uGUI input module (which would raycast
@@ -1295,6 +1299,174 @@ internal sealed class ItemsPile
             {
                 VRLog.Warn("Cards", $"ITEM CARD host failed ({e.Message}) — falling back to the colored slab.");
                 return false;
+            }
+        }
+
+        /// <summary>One clamped game emitter + the module values it had before we touched it. The start
+        /// size/speed are kept as the WHOLE <c>MinMaxCurve</c>, not just their multiplier: in
+        /// TwoConstants/TwoCurves mode the multiplier only writes the MAX side, so scaling through it
+        /// would leave the MIN side unshrunk (and could invert the range).</summary>
+        private struct SmokeClamp
+        {
+            internal ParticleSystem Ps;
+            internal ParticleSystemSimulationSpace Space;
+            internal ParticleSystemScalingMode Scaling;
+            internal ParticleSystem.MinMaxCurve StartSize;
+            internal ParticleSystem.MinMaxCurve StartSpeed;
+        }
+
+        /// <summary>
+        /// The consumed/spent plume may not read wider than this many CARD WIDTHS in world space —
+        /// wisps ON the card, never a cloud AROUND it. The user explicitly wants the burn look back
+        /// but not the fog, so this is a hard geometric bound, not a taste multiplier.
+        /// </summary>
+        private const float SmokeCardSpan = 0.9f;
+
+        private static bool s_loggedSmokeClamp;
+
+        /// <summary>
+        /// ROOT CAUSE of the field-sized fog ring around a consumed item card, and the ONE thing that
+        /// has to be neutralised (everything else in <c>ItemCardEffects</c> stays live).
+        ///
+        /// <c>ItemCardEffects.BurnCardTimeline</c> / <c>GhostOutOnTimeline</c> drive two kinds of
+        /// visual. Nearly all of it is uGUI ON the card — the <c>_Burn</c>/<c>_Dissolve</c>/
+        /// <c>_GreyOut</c>/<c>_Flow</c> material sweep over <c>imgComp</c>, the greyed <c>txtComp</c>
+        /// text, and the <c>fgFx</c> flame/ghost overlay Image — all of which lives on the card's own
+        /// RectTransforms and therefore renders at exactly card size on our world-space FaceCanvas.
+        /// The single exception is the serialized <c>fx_Smoke</c> <see cref="ParticleSystem"/> the
+        /// timeline switches on: a particle system renders through its OWN renderer, not the canvas,
+        /// and Unity's default <c>ParticleSystemScalingMode.Local</c>/<c>Shape</c> makes it IGNORE the
+        /// parent scale chain. Under the flat screen-space canvas that is invisible (scale 1); under
+        /// our FaceCanvas — which is downscaled by ~<c>fit</c> (card metres ÷ ~300 canvas px, i.e.
+        /// three orders of magnitude) to make the card hand-sized — the emitter keeps emitting at its
+        /// authored CANVAS-PIXEL size in METRES. That is the green fog: puffs tens of metres across,
+        /// centred on and following the card. Nothing about the effect's colour or timing was wrong,
+        /// only its scale reference.
+        ///
+        /// Fix (mod-side, reversible, no re-layering, no game data touched): leave the effect running
+        /// and put every emitter in the hosted card back into the card's frame of reference —
+        /// <c>simulationSpace = Local</c> so the puffs ride the card instead of being emitted into
+        /// world space at authored size, and <c>scalingMode = Hierarchy</c> so start size/velocity
+        /// inherit the FaceCanvas downscale like the rest of the card does. Hierarchy scaling alone
+        /// already restores the authored card-relative look (unlike <see cref="BurnCardFx"/>, whose
+        /// plume is a separately spawned prefab authored for the full-size screen card); on top of it
+        /// we still shrink start size/speed by whatever factor is needed to keep the plume inside
+        /// <see cref="SmokeCardSpan"/> card widths, so a stray authored value can never grow into a
+        /// cloud again. Only these four module values are written, and every one is recorded per
+        /// emitter and restored by <see cref="RestoreCardEffectSmoke"/> before the widget goes back to
+        /// <c>ObjectPool.RecycleCard</c>.
+        /// </summary>
+        private void ClampCardEffectSmoke(GameObject cardGo)
+        {
+            _smokeClamps = null;
+            if (cardGo == null)
+                return;
+            // includeInactive: the timeline only SetActive(true)s fx_Smoke once it starts, and
+            // RestoreCard switches it back off — so at host time it is normally inactive.
+            ParticleSystem[] systems = cardGo.GetComponentsInChildren<ParticleSystem>(includeInactive: true);
+            if (systems.Length == 0)
+                return;
+
+            // World size of one authored unit once scalingMode=Hierarchy applies the card's scale chain.
+            float lossy = Mathf.Abs(cardGo.transform.lossyScale.x);
+            float span = (_faceWidth > 0.001f ? _faceWidth : CardsConfig.CardWidth.Value) * SmokeCardSpan;
+
+            var clamps = new List<SmokeClamp>(systems.Length);
+            var report = new StringBuilder();
+            foreach (ParticleSystem ps in systems)
+            {
+                if (ps == null)
+                    continue;
+                ParticleSystem.MainModule main = ps.main;
+                var rec = new SmokeClamp
+                {
+                    Ps = ps,
+                    Space = main.simulationSpace,
+                    Scaling = main.scalingMode,
+                    StartSize = main.startSize,
+                    StartSpeed = main.startSpeed,
+                };
+
+                main.simulationSpace = ParticleSystemSimulationSpace.Local;
+                main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+
+                // Belt-and-braces bound: with Hierarchy scaling a particle's world size is its start
+                // size × the card's lossy scale, and its world drift is start speed × lifetime × the
+                // same. Shrink both by the single worst-case factor needed to keep them inside `span`.
+                float shrink = 1f;
+                if (lossy > 1e-6f && span > 1e-5f)
+                {
+                    float worldSize = UpperBound(main.startSize) * lossy;
+                    float worldDrift = UpperBound(main.startSpeed) * UpperBound(main.startLifetime) * lossy;
+                    float worst = Mathf.Max(worldSize, worldDrift);
+                    if (worst > span)
+                        shrink = span / worst;
+                }
+                if (shrink < 1f)
+                {
+                    main.startSize = ScaleCurve(rec.StartSize, shrink);
+                    main.startSpeed = ScaleCurve(rec.StartSpeed, shrink);
+                }
+
+                clamps.Add(rec);
+                if (!s_loggedSmokeClamp)
+                    report.Append(report.Length > 0 ? ", " : "")
+                          .Append(ps.name).Append(" [").Append(rec.Space).Append('/').Append(rec.Scaling)
+                          .Append(" → Local/Hierarchy, size×").Append(shrink.ToString("F3")).Append(']');
+            }
+            _smokeClamps = clamps.ToArray();
+
+            if (!s_loggedSmokeClamp)
+            {
+                s_loggedSmokeClamp = true;
+                VRLog.Debug("Cards", $"ITEM CARD FX: game ItemCardEffects LIVE (burn/dissolve/greyout/overlay on the " +
+                                     $"card); bounded {clamps.Count} emitter(s) to <= {span:F3} m " +
+                                     $"(card lossy {lossy:F5}): {(report.Length > 0 ? report.ToString() : "none")}.");
+            }
+        }
+
+        /// <summary>Worst-case value a start-size/speed/lifetime curve can produce (curve modes fold
+        /// their multiplier, which is the curve's peak, so this is an upper bound in every mode).</summary>
+        private static float UpperBound(ParticleSystem.MinMaxCurve curve) => curve.mode switch
+        {
+            ParticleSystemCurveMode.Constant => curve.constant,
+            ParticleSystemCurveMode.TwoConstants => Mathf.Max(curve.constantMin, curve.constantMax),
+            _ => Mathf.Abs(curve.curveMultiplier),
+        };
+
+        /// <summary>Scale a start-size/speed curve by <paramref name="f"/> in EVERY mode (constants and
+        /// curve multipliers alike), so both ends of a random range shrink together.</summary>
+        private static ParticleSystem.MinMaxCurve ScaleCurve(ParticleSystem.MinMaxCurve curve, float f) => curve.mode switch
+        {
+            ParticleSystemCurveMode.Constant => new ParticleSystem.MinMaxCurve(curve.constant * f),
+            ParticleSystemCurveMode.TwoConstants =>
+                new ParticleSystem.MinMaxCurve(curve.constantMin * f, curve.constantMax * f),
+            ParticleSystemCurveMode.TwoCurves =>
+                new ParticleSystem.MinMaxCurve(curve.curveMultiplier * f, curve.curveMin, curve.curveMax),
+            _ => new ParticleSystem.MinMaxCurve(curve.curveMultiplier * f, curve.curve),
+        };
+
+        /// <summary>
+        /// Put every emitter clamped by <see cref="ClampCardEffectSmoke"/> back to its recorded module
+        /// values. MUST run before <c>ObjectPool.RecycleCard</c>: the card widget is GAME-owned and
+        /// pooled, so the flat UI would inherit our clamp on the next spawn. Writing module values on a
+        /// system the pool has already disabled is harmless, so no active check is needed.
+        /// </summary>
+        private void RestoreCardEffectSmoke()
+        {
+            SmokeClamp[]? clamps = _smokeClamps;
+            _smokeClamps = null;
+            if (clamps == null)
+                return;
+            foreach (SmokeClamp rec in clamps)
+            {
+                if (rec.Ps == null)
+                    continue;
+                ParticleSystem.MainModule main = rec.Ps.main;
+                main.simulationSpace = rec.Space;
+                main.scalingMode = rec.Scaling;
+                main.startSize = rec.StartSize;
+                main.startSpeed = rec.StartSpeed;
             }
         }
 
@@ -1438,9 +1610,10 @@ internal sealed class ItemsPile
             _laserPopped = false;
             if (_box != null)
                 _box.enabled = false; // no grabbing during the flourish
-            // Consumed flourish = a brief ashen hold (no plume): the game's CardSmoke sprayed a screen-
-            // filling green fog on the item chip's scale hierarchy, so it is NOT spawned (user: "komplett
-            // weg"). The card reads as consumed from its ashen tint before collapsing back into the deck.
+            // Consumed flourish = a brief hold on the card's OWN state FX (the game's ItemCardEffects
+            // burn sweep + its card-bounded smoke, kept live by TryHostRealCard) over the ashen tint,
+            // before the card collapses back into the deck. No extra CardSmoke prefab is spawned here —
+            // that separate, screen-card-authored plume was the field-covering fog.
         }
 
         /// <summary>Requirement 6 — advance the post-confirm flourish, then hand off to the collapse.</summary>
@@ -1458,7 +1631,7 @@ internal sealed class ItemsPile
                 float pulse = 1f + 0.14f * Mathf.Sin(prog * Mathf.PI);
                 transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * (_homeScale * pulse), k);
             }
-            // Consumed: the plume (spawned above) billows over the flourish window; no extra motion.
+            // Consumed: the card's own burn FX plays over the flourish window; no extra motion.
             if (_useFxTime <= 0f)
             {
                 _useFxActive = false;
@@ -1839,6 +2012,9 @@ internal sealed class ItemsPile
                 Object.Destroy(_plume);
                 _plume = null;
             }
+            // Undo the emitter clamp BEFORE anything else touches the hosted card, so the widget the
+            // pool gets back is byte-for-byte the one it handed out even if the recycle below fails.
+            RestoreCardEffectSmoke();
             // Return the hosted ItemCardUI to the game's pool BEFORE this chip is destroyed (recycle
             // reparents it under the pool, so it survives the chip teardown and its art is unloaded).
             if (_cardGo != null && _cardUI != null)
@@ -1849,8 +2025,6 @@ internal sealed class ItemsPile
                     // game reuses this card elsewhere. (The #7 dim is a mod-owned overlay quad, destroyed
                     // with the chip below — it never touches the game card, so nothing to reset there.)
                     CardFaceMipBake.RestoreSprites(_cardUI);
-                    if (_origCardEffects != null)
-                        _cardUI.cardEffects = _origCardEffects; // restore the suppressed game FX for the pool
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)
