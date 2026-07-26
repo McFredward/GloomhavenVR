@@ -117,8 +117,13 @@ internal sealed class CardsDriver : MonoBehaviour
     /// <summary>One-shot guard for the BoardTargeting Grab-policy grant (survives driver rebuilds).</summary>
     private static bool s_grabPolicyGranted;
 
+    /// <summary>The live driver, for the static request entry points (<see cref="RequestBoardRecall"/>).
+    /// Null while no cards driver exists (outside VR / before the module builds it).</summary>
+    private static CardsDriver? Instance;
+
     private void OnEnable()
     {
+        Instance = this;
         // USER BUG A (hardware log 4125-4193, "during movement destination selection I
         // could not grab the control board / options / VR settings bars — vibrates but
         // won't grab; laser grab dead too"): movement-destination selection is
@@ -178,6 +183,8 @@ internal sealed class CardsDriver : MonoBehaviour
 
     private void OnDisable()
     {
+        if (ReferenceEquals(Instance, this))
+            Instance = null; // static request entry points go no-op again
         VRModeStateMachine.ModeChanged -= OnModeChanged;
         VREvents.CardSelectionChanged -= OnCardSelectionChanged;
         VREvents.HandShown -= OnHandShown;
@@ -459,6 +466,29 @@ internal sealed class CardsDriver : MonoBehaviour
     /// (and cleared) by <see cref="TickBoardPoseWatch"/> the same frame. A pose change with
     /// no expected trigger pending logs a Warn — the "no silent recompute remains" proof.</summary>
     private string? _expectedPoseChange;
+
+    /// <summary>User escape hatch pending: the VR settings "Board zurückholen" button was pressed.
+    /// Per the P2 threading rule the UI handler only sets the flag; <see cref="Update"/> performs
+    /// the re-home on the main thread with a reliably valid head pose.</summary>
+    private bool _recallBoard;
+
+    /// <summary>True once the "no hand anchor while in a scenario" state has been logged, so the
+    /// per-frame path reports the board going away exactly once per occurrence.</summary>
+    private bool _anchorLossLogged;
+
+    /// <summary>
+    /// USER ESCAPE HATCH (settings → Komfort → "Board zurückholen"): bring the control board back
+    /// in front of the player NOW, whatever mode it is in and without waiting for the watchdog's
+    /// dwell timer. Deliberately a static request rather than a direct call — the settings panel
+    /// runs off a UI callback and the board pose may only be written from the driver's Update
+    /// (P2 threading rule), which also sanctions the move for the issue-C pose watchdog.
+    /// No-op with no live driver (no scenario / hands down).
+    /// </summary>
+    internal static void RequestBoardRecall()
+    {
+        if (Instance != null)
+            Instance._recallBoard = true;
+    }
 
     /// <summary>
     /// ISSUE C watchdog: track the board root's parent-local pose every frame and log each
@@ -843,9 +873,34 @@ internal sealed class CardsDriver : MonoBehaviour
             ClearBrowseHover();
             ClearActiveHover();
             ClearInitiativeTodo(); // item 6: drop the initiative to-do glow while hands are down
+            // "THE BOARD IS GONE" DIAGNOSTIC. The control board root is a CHILD of the hands root
+            // (AnchorParent), so whenever the hands go away the board goes with it — hidden here,
+            // and outright destroyed when HandsDriver tears the hands root down (that happens on a
+            // rig teardown: anchor camera destroyed/disabled, scene load, rig kind change). To the
+            // player that is indistinguishable from the board "just vanishing", and the watchdog
+            // below cannot help because there is no root left to inspect. Losing the anchor DURING
+            // a scenario is therefore always worth one loud line, so the next hardware log can tell
+            // "board gone because the hands/rig went" apart from "board gone because it drifted".
+            if (!_anchorLossLogged && CardsGameApi.InScenario)
+            {
+                _anchorLossLogged = true;
+                VRLog.Warn("Cards", "CONTROL BOARD HIDDEN — the hand/rig anchor disappeared mid-scenario " +
+                                    "(VRHands are down, i.e. the rig root went away). The board lives under " +
+                                    "that anchor, so it is hidden (and destroyed if the hands root was torn " +
+                                    "down); it re-builds and re-places in front of the player as soon as the " +
+                                    "hands return. If the board was reported missing around this timestamp, " +
+                                    "THIS is the cause, not a pose drift.");
+            }
             _tray.SetVisible(false);
             _half.SetVisible(false);
             return;
+        }
+
+        if (_anchorLossLogged)
+        {
+            _anchorLossLogged = false;
+            VRLog.Info("Cards", "Control board anchor restored (hands are back) — the board rebuilds and " +
+                                "re-places in front of the player this frame.");
         }
 
         if (_boardChanged)
@@ -874,6 +929,34 @@ internal sealed class CardsDriver : MonoBehaviour
         {
             _reassertTray = false;
             ReassertBoardKeepingPose();
+        }
+
+        // LOST-BOARD WATCHDOG (incident: "the control board was gone after walking around the
+        // room and briefly taking the headset off"). Unlike the presence-regain path above this
+        // is UNCONDITIONAL and per-frame — the incident log proves the doff/don produced no
+        // presence edge and no XR session state change at all (SteamVR/OpenXR stayed FOCUSED
+        // throughout), so an event-driven recovery had nothing to react to. Rationale, envelope
+        // and the pin-holder housekeeping it also performs: PlayTray.TickLostWatchdog.
+        bool lost = _tray.TickLostWatchdog(out string lostWhy);
+        // The watchdog's pin housekeeping may legitimately have re-posed the board (holder rescale /
+        // tracking-origin carry) — sanction it so the issue-C pose watch reports it instead of
+        // Warning about a silent recompute.
+        string? pinMove = _tray.ConsumePinHousekeepingMove();
+        if (pinMove != null)
+            _expectedPoseChange = pinMove;
+        if (lost)
+        {
+            _expectedPoseChange = "lost-board recovery (watchdog)"; // sanctioned move (issue C watchdog)
+            _tray.RecoverLostBoard(lostWhy);
+        }
+
+        // User escape hatch (VR settings → Komfort → "Board zurückholen"): an explicit, always
+        // available "bring it back" that does not wait for the watchdog dwell timer.
+        if (_recallBoard)
+        {
+            _recallBoard = false;
+            _expectedPoseChange = "user-recall (settings button)"; // sanctioned move (issue C watchdog)
+            _tray.RecoverLostBoard("USER REQUESTED the board back (settings → recall)");
         }
 
         // Debug-menu / hand-edited per-board tuning live-applies here (Part F).
