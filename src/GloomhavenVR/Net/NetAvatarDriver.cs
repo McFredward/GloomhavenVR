@@ -132,6 +132,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         extras.HandCardCount = (byte)Mathf.Clamp(count, 0, 255);
         extras.DominantRight = LocalRigSampler.LocalDominantRight();
 
+        // Ghost hand (cosmetic, additive FlagExtrasGhostHand field): whether OUR fan-carrying
+        // hand is currently faded, plus the strength WE chose — a peer must see our ghost hand
+        // exactly as we do, the same contract as the transmitted hand style / head mask. The
+        // SIDE needs no wire field: the fan always sits on the non-dominant hand, which the
+        // receiver already resolves from the dominant-hand flag above.
+        extras.GhostHand = Hands.HandGhosts.LocalSide != null;
+        if (extras.GhostHand)
+            extras.GhostStrength = (byte)Mathf.Clamp(
+                Mathf.RoundToInt(Hands.HandGhosts.Strength * 255f), 0, 255);
+
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }

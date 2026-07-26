@@ -40,6 +40,13 @@ internal sealed class RemoteAvatar
     private readonly RemoteHandFan _handFan;
     private readonly RemoteControlBoard _controlBoard;
 
+    // Ghost hand (extras FlagExtrasGhostHand): when the sender fades the hand carrying their open
+    // fan, OUR copy of that hand must fade too — otherwise the sender's view of themselves and
+    // everyone else's view of them disagree. ONE ghost is enough: the fan is always on the
+    // sender's non-dominant hand, and HandGhost restores the old rig by itself when that side
+    // flips (dominant-hand switch) or when BuildHands hands it a new rig instance.
+    private readonly HandGhost _ghost;
+
     private AvatarState _target;
     private bool _hasTarget;
     private float _appliedScale = -1f;
@@ -103,6 +110,14 @@ internal sealed class RemoteAvatar
     /// <summary>True when the sender's dominant hand is the RIGHT hand (default true).</summary>
     public bool DominantRight { get; private set; } = true;
 
+    /// <summary>True while the sender's fan-carrying hand is faded ("ghost hand"). False for peers
+    /// that predate the field — their hands simply stay solid.</summary>
+    public bool GhostHand { get; private set; }
+
+    /// <summary>Material alpha the sender's ghost hand should be drawn at (1 = opaque), decoded
+    /// from the transmitted strength byte. Meaningful only when <see cref="GhostHand"/>.</summary>
+    public float GhostAlpha { get; private set; } = 1f;
+
     /// <summary>True when the sender is physically holding a figure this frame.</summary>
     public bool HasHeldFigure { get; private set; }
 
@@ -154,6 +169,7 @@ internal sealed class RemoteAvatar
         // Tick and torn down from Destroy.
         _handFan = new RemoteHandFan(this);
         _controlBoard = new RemoteControlBoard(this);
+        _ghost = new HandGhost($"remote[{playerId}]");
 
         VRLog.Info("Net", $"Remote avatar created for player {playerId}.");
     }
@@ -217,6 +233,13 @@ internal sealed class RemoteAvatar
         }
         HandCardCount = p.HandCardCount;
         DominantRight = p.DominantRight;
+
+        // Ghost hand: the sender's own strength rides the wire, so their faded hand reads the
+        // same on every client. Decoded through the same AlphaFor curve the local hands use.
+        GhostHand = p.GhostHand;
+        GhostAlpha = p.GhostHand
+            ? Hands.HandGhosts.AlphaFor(p.GhostStrength / 255f)
+            : 1f;
     }
 
     /// <summary>Per-frame interpolation toward the latest target. Call from the driver's Update.</summary>
@@ -253,6 +276,13 @@ internal sealed class RemoteAvatar
             UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt);
             UpdateHeldCard(k);
         }
+
+        // Ghost hand: fade the sender's fan-carrying (= non-dominant) hand by the strength they
+        // broadcast. The rig objects are ours (built by BuildHands), so the fade runs on private
+        // material copies of THIS avatar only — no other player's hands and no bundle asset is
+        // ever touched. Released automatically when the flag clears or the avatar is destroyed.
+        HandRig? ghostRig = GhostHand ? (DominantRight ? _leftRig : _rightRig) : null;
+        _ghost.Apply(ghostRig, GhostAlpha);
 
         // Cosmetic add-ons (own their own guards; stubs today).
         _handFan.Tick(dt);
@@ -336,6 +366,8 @@ internal sealed class RemoteAvatar
 
     public void Destroy()
     {
+        // Cloned ghost materials are ASSETS — free them before the hand objects go away.
+        _ghost.Release();
         _handFan.Destroy();
         _controlBoard.Destroy();
         if (_heldCardMesh != null)
@@ -365,6 +397,11 @@ internal sealed class RemoteAvatar
     {
         var style = Hands.HandStyles.Clamp(handStyle);
         _appliedHandStyle = handStyle;
+
+        // Restore + free any ghost material clones BEFORE the old hand objects are destroyed
+        // (Unity does not free materials with the GameObject that referenced them). Tick
+        // re-applies the ghost to the freshly built rig on the very next frame.
+        _ghost.Release();
 
         for (int i = _leftHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_leftHolder.GetChild(i).gameObject);

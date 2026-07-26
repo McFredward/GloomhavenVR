@@ -41,11 +41,13 @@ internal sealed class HandsDriver : MonoBehaviour
     // method groups would allocate a fresh delegate each frame). Built once in Awake.
     private System.Action? _tickRig;
     private System.Action? _tickSim;
+    private System.Action? _tickGhost;
 
     private void Awake()
     {
         _tickRig = TickRig;
         _tickSim = AnimateSimulation;
+        _tickGhost = HandGhosts.Tick;
     }
 
     private void OnEnable()
@@ -93,6 +95,10 @@ internal sealed class HandsDriver : MonoBehaviour
         TickGuard.Run("Hands.Rig", _tickRig!);
         if (_simActive)
             TickGuard.Run("Hands.Simulation", _tickSim!);
+        // Ghost hand ([Hands] GhostHandOnFan): fade the hand carrying the OPEN card fan. Runs
+        // AFTER the rig step so a hand rebuilt this frame is already in place, and under its own
+        // guard so a material/shader surprise can never abort hand tracking itself.
+        TickGuard.Run("Hands.Ghost", _tickGhost!);
     }
 
     /// <summary>
@@ -232,6 +238,10 @@ internal sealed class HandsDriver : MonoBehaviour
     private void TearDown()
     {
         VRHands.Set(null, null);
+        // Ghost hand: restore + free the cloned materials BEFORE the hand tree dies. Cloned
+        // materials are ASSETS — Unity does not free them with the GameObject that referenced
+        // them, so a style switch or rig rebuild under an open fan would leak one per renderer.
+        HandGhosts.Shutdown();
         if (_handsRoot != null)
             Destroy(_handsRoot);
         _handsRoot = null;

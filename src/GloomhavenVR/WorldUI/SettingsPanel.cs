@@ -1164,6 +1164,20 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var gazeRow = Row();
         Label(gazeRow, "Blick-Neigung", 16f, flexible: true);
         ToggleButton(gazeRow, () => CardsConfig.FanGazeBias.Value, v => CardsConfig.FanGazeBias.Value = v);
+
+        // GHOST HAND ([Hands] GhostHandOnFan/GhostHandStrength): while the fan is open, the hand
+        // holding it fades so it stops covering card details. Lives in the Kartenfächer
+        // sub-section because that is when it happens, and it is the fan the player is looking at
+        // when they want it. Both rows live-apply — HandGhosts re-reads the entries every frame
+        // (toggle: engage/release next tick; strength: the installed material copies are just
+        // re-tinted, no rebuild) — and the state carries to the mirror + multiplayer avatars.
+        _rowGate = HandOffsetRowsVisible;
+        var ghostRow = Row();
+        Label(ghostRow, Loc.Mod("ghost_hand"), 16f, flexible: true);
+        ToggleButton(ghostRow, () => HandsConfig.GhostHandOnFan.Value,
+            v => HandsConfig.GhostHandOnFan.Value = v);
+        AddFanStepper(Loc.Mod("ghost_strength"), HandsConfig.GhostHandStrength, 0.05f,
+            HandGhosts.MinStrength, HandGhosts.MaxStrength, v => $"{v * 100f:0}%");
     }
 
     /// <summary>

@@ -29,6 +29,20 @@ internal struct PresenceState
     /// <summary>True when the sender's dominant hand is the RIGHT hand (mirror of the rig flag).
     /// Defaults true (right-dominant) when unknown.</summary>
     public bool DominantRight;
+
+    /// <summary>
+    /// True when the sender has the "ghost hand" active this frame: their [Hands] GhostHandOnFan
+    /// toggle is on AND their card fan is open, so the fan-carrying (= non-dominant) hand is
+    /// faded locally and must read the same way on our copy of their avatar. Wire flag
+    /// <see cref="NetProtocol.FlagExtrasGhostHand"/>; false for peers that predate the field.
+    /// </summary>
+    public bool GhostHand;
+
+    /// <summary>Quantized ghost transparency STRENGTH (0..255 ⇒ 0..1; higher = more see-through),
+    /// meaningful only when <see cref="GhostHand"/> is set. The SENDER's strength is transmitted
+    /// on purpose — their ghost hand must look the same to everyone, exactly like their chosen
+    /// hand style and head mask.</summary>
+    public byte GhostStrength;
 }
 
 /// <summary>
@@ -39,14 +53,19 @@ internal struct PresenceState
 ///
 /// Layout (little-endian), wire v3 type 1:
 ///   [0..3] uint32 magic | [4] version | [5] type(==MsgExtras) | [6] flags
-///     flags: bit0 hasBoard, bit1 dominantRight
+///     flags: bit0 hasBoard, bit1 dominantRight, bit2 ghostHand
 ///   if hasBoard: pose(pos 12 + rot 8 = 20) + scale(float32 = 4) → 24 bytes
 ///   [.] byte handCardCount
+///   if ghostHand: byte ghostStrength (0..255 ⇒ 0..1) — ADDITIVE trailing field, still wire v3:
+///     it sits AFTER every field older readers know, and those readers only validate the length
+///     their own known flags demand, so a peer built before the ghost hand ignores the unknown
+///     flag bit and the trailing byte and keeps parsing the packet unchanged (solid hands).
 /// </summary>
 internal static class PresenceSerializer
 {
-    /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 = 32.</summary>
-    public const int MaxSize = 32;
+    /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
+    /// ghost strength 1 = 33 (rounded up to 34 for headroom).</summary>
+    public const int MaxSize = 34;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -62,6 +81,7 @@ internal static class PresenceSerializer
         byte flags = 0;
         if (state.HasBoard) flags |= NetProtocol.FlagHasBoard;
         if (state.DominantRight) flags |= NetProtocol.FlagExtrasDominantRight;
+        if (state.GhostHand) flags |= NetProtocol.FlagExtrasGhostHand;
         buffer[i++] = flags;
 
         if (state.HasBoard)
@@ -72,6 +92,11 @@ internal static class PresenceSerializer
         }
 
         buffer[i++] = state.HandCardCount;
+
+        // Trailing ghost-hand strength (FlagExtrasGhostHand) — MUST stay after the hand-card
+        // count so pre-ghost readers keep finding the count at the offset they expect.
+        if (state.GhostHand)
+            buffer[i++] = state.GhostStrength;
         return i;
     }
 
@@ -92,9 +117,10 @@ internal static class PresenceSerializer
 
         byte flags = buffer[i++];
         bool hasBoard = (flags & NetProtocol.FlagHasBoard) != 0;
+        bool ghost = (flags & NetProtocol.FlagExtrasGhostHand) != 0;
         state.DominantRight = (flags & NetProtocol.FlagExtrasDominantRight) != 0;
 
-        int need = (hasBoard ? 24 : 0) + 1;
+        int need = (hasBoard ? 24 : 0) + 1 + (ghost ? 1 : 0);
         if (length < i + need)
             return false;
 
@@ -108,6 +134,13 @@ internal static class PresenceSerializer
         }
 
         state.HandCardCount = buffer[i++];
+        if (ghost)
+        {
+            state.GhostHand = true;
+            state.GhostStrength = buffer[i++];
+        }
+        // else: the sender either has the ghost hand off, or predates the field entirely —
+        // both mean "render this peer's hands solid", which is the safe default.
         return true;
     }
 }

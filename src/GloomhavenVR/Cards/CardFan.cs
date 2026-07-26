@@ -59,6 +59,13 @@ internal sealed class CardFan
     /// </summary>
     internal static CardFan? Current { get; private set; }
 
+    /// <summary>
+    /// The hand this fan is currently open ON (null before the first <see cref="Open"/>). Read by
+    /// <see cref="Hands.HandGhosts"/> to fade exactly that hand while the fan is open — the fan
+    /// already owns this fact, so the ghost feature keeps no duplicate state that could drift.
+    /// </summary>
+    internal Hands.VRHand? Hand => _hand;
+
     /// <summary>How many cards the fan currently holds (broadcast as the remote hand-card count).</summary>
     internal int Count => _cards.Count;
 

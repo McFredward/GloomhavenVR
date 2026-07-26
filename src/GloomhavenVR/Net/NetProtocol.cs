@@ -114,4 +114,21 @@ internal static class NetProtocol
     /// <summary>Extras packet: the sender's dominant hand is the RIGHT hand (mirror of the rig
     /// <see cref="FlagDominantRight"/>, laid out at bit1 in the extras flag byte per the wire spec).</summary>
     public const byte FlagExtrasDominantRight = 1 << 1;
+
+    /// <summary>
+    /// Extras packet: the sender has the "ghost hand" active — the hand carrying their open card
+    /// fan is faded ([Hands] GhostHandOnFan) — and a 1-byte transparency STRENGTH (0..255 ⇒
+    /// 0..1) trails the hand-card count so the receiver fades that hand of the sender's remote
+    /// avatar by exactly the amount the sender chose.
+    ///
+    /// WHY the extras packet and not the rig packet: the rig flag byte is FULL (bits 0..7 are all
+    /// taken, up to <see cref="FlagHeldCard"/>) — extending it would cost a wire-version bump and
+    /// break every existing peer. The extras packet already carries the fan-related cosmetics
+    /// (hand-card count, dominant hand) at 5 Hz, which is plenty for a fade that only changes when
+    /// a fan opens or closes. ADDITIVE and backward-compatible exactly like
+    /// <see cref="FlagHandStyle"/>: the strength byte is placed AFTER every field older readers
+    /// know, and those readers validate only the length their own known flags demand — they ignore
+    /// this flag bit and the trailing byte and simply render solid hands.
+    /// </summary>
+    public const byte FlagExtrasGhostHand = 1 << 2;
 }

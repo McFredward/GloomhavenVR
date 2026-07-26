@@ -66,6 +66,10 @@ internal sealed class HandsModule : IVRModule
             _driverGo = null;
         }
 
+        // Ghost hand: restore the original shared materials before the hand tree goes away, so a
+        // hot reload can never leave a cloned material (or a faded hand) behind.
+        HandGhosts.Shutdown();
+
         // Hot-reload hygiene: registries and the asset bundle are static.
         VRInteractables.Clear();
         UguiPokeSurfaces.Clear();
