@@ -65,6 +65,34 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
     /// </summary>
     protected virtual float DensityScale => 1f;
 
+    /// <summary>
+    /// Does the mount WIDTH budget take part in the uniform dock fit?
+    ///
+    /// ROOT CAUSE this hook exists for (user: "Breite und Größe scheinen sich gleich zu verhalten"):
+    /// the fit below is UNIFORM — one metres-per-pixel for both axes — and its width term is
+    /// <c>MountWidth · density / contentWidth</c>. For a panel whose content is simply MEASURED that
+    /// is right: content and budget are independent, so the term only ever shrinks an oversized
+    /// panel. But for a panel that FORCES its content to the very same budget
+    /// (<see cref="ObjectivesSurface.ApplyContentWidth"/> writes <c>wantPx = MountWidth · density</c>
+    /// onto the objectives container root) the two sides of that fraction move TOGETHER, and what is
+    /// left over is the CONSTANT overhang <c>c</c> that the measured graphics union carries past the
+    /// forced column (the quest header's Background — 94 px in the hardware log: forced 374 px,
+    /// settled 468 px). The term then reads
+    /// <code>fitScale = wantPx / (wantPx + c) = 1 / (1 + c / (MountWidth · density))</code>
+    /// which RISES towards 1 as the width budget grows. Hardware proof (Player.log, the 0.8 → 0.9
+    /// step of the 'Breite' dial): 300/356 = 0.84 → 337/356 = 0.95, host lossyScale 0.0122 → 0.0137.
+    /// One click of a WIDTH dial made every glyph 12 % BIGGER — i.e. 'Breite' behaved like 'Größe',
+    /// and at the low end the same fraction shrank the text back ("so gestaucht wie zuvor").
+    ///
+    /// Overriding this to false drops the width term: the panel's metres-per-pixel is then the panel
+    /// density alone (its <see cref="DensityScale"/> × the shared tray density) with only the HEIGHT
+    /// budget left as an overflow guard, so the forced content width can move the WRAP COLUMN — and
+    /// with it the panel's horizontal extent — while the glyph size stays exactly put. Correct by
+    /// construction: a panel that forces its content to the width budget already satisfies that
+    /// budget, so re-checking it can only mis-measure the constant overhang.
+    /// </summary>
+    protected virtual bool FitWidthToMount => true;
+
     /// <summary>Live mount anchor (null/destroyed → floating fallback).</summary>
     protected abstract Transform? Mount { get; }
 
@@ -111,11 +139,17 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         // scale, so the density holds at tray scale 1 and multiplies uniformly.
         float trayScale = mount.lossyScale.x;
         float density = PlayTray.TrayPixelsPerMeter * DensityScale;
-        float fitScale = Mathf.Min(
-            MountWidth * density / rect.width,
-            MountMaxHeight * density / rect.height);
-        float metersPerPx = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale)
-                            / density;
+        // The WIDTH term is skipped for panels that force their content to the width budget
+        // themselves (see FitWidthToMount) — including it would make their width dial drag the
+        // glyph scale along. Everything else fits both axes exactly as before.
+        float heightFit = MountMaxHeight * density / rect.height;
+        float fitScale = FitWidthToMount
+            ? Mathf.Min(MountWidth * density / rect.width, heightFit)
+            : heightFit;
+        fitScale = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale);
+        float metersPerPx = fitScale / density;
+        AppliedFitScale = fitScale;
+        AppliedMetersPerPixel = metersPerPx;
 
         Vector2 grow = GrowDirection;
         Vector3 offset = new Vector3(
@@ -129,6 +163,20 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
 
         LogDockedRect(mount);
     }
+
+    /// <summary>
+    /// Metres per uGUI pixel applied by the last <see cref="Place"/> — the panel's GLYPH SCALE
+    /// before the mount's own scale (which is where a 'Größe' dial lives). Exposed because a
+    /// width-vs-size complaint can only be settled by seeing this number NOT move while the
+    /// width does; the surfaces log it next to their width numbers.
+    /// </summary>
+    protected float AppliedMetersPerPixel { get; private set; }
+
+    /// <summary>
+    /// The fit factor that produced <see cref="AppliedMetersPerPixel"/>: 1 = pure panel density
+    /// (nothing shrunk), below 1 = the content was scaled down to stay inside the mount budget.
+    /// </summary>
+    protected float AppliedFitScale { get; private set; }
 
     // ---- dock world-rect diagnostics (test #19 item 3) ---------------------------------
     private static readonly Vector3[] DockCornerScratch = new Vector3[4];
@@ -163,8 +211,13 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         _dockLoggedMountId = mountId;
         _dockLoggedWorldSize = new Vector2(w, h);
         Rect px = Panel.HostRect.rect;
+        // The glyph scale rides along (fit + mm per uGUI pixel): a "the dial changed the wrong
+        // thing" report is only answerable if the log separates the panel's EXTENT from its
+        // TEXT SIZE — see FitWidthToMount for the width-drags-scale root cause.
         VRLog.Info("WorldUI", $"Docked '{Panel.HostGo.name}' on '{mount.name}': " +
                               $"world rect {w:F3}x{h:F3} m ({px.width:F0}x{px.height:F0} px), " +
+                              $"glyph scale {AppliedMetersPerPixel * 1000f:F4} mm/px " +
+                              $"(fit {AppliedFitScale:F3}), " +
                               $"BL={DockCornerScratch[0]:F3} TR={DockCornerScratch[2]:F3}.");
     }
 }
@@ -739,21 +792,58 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     protected override Transform? Mount => PlayTray.Current?.ObjectivesMount;
 
     /// <summary>
-    /// Task-panel WIDTH ('Breite' in the debug menu). The dock fits its content UNIFORMLY into
-    /// <see cref="MountWidth"/> × <see cref="MountMaxHeight"/>, and this budget is the base
+    /// Task-panel WIDTH ('Breite' in the debug menu): the base
     /// <see cref="PlayTray.ObjectivesMountWidth"/> scaled by the per-board <c>ObjectivesWidth</c>
-    /// multiplier. The panel grows LEFTWARD from the board edge into open space
-    /// (GrowDirection = left ⇒ no board overlap / run-off). Read live each tick, so a debug-menu
-    /// change re-fits next frame — no mount rebuild.
+    /// multiplier. Unlike every other docked panel this is NOT a fit ceiling — it is the WRAP COLUMN
+    /// itself: <see cref="ApplyContentWidth"/> forces it onto the objectives container root as a
+    /// pixel width, so the text re-wraps into it and the progress bars stretch to it. The panel
+    /// grows LEFTWARD from the board edge into open space (GrowDirection = left ⇒ no board overlap /
+    /// run-off). Read live each tick, so a debug-menu change re-wraps next frame — no mount rebuild.
     ///
-    /// The budget ALONE is not the lever, though — see <see cref="ApplyContentWidth"/> for the
-    /// root cause of "die Breite verändert nichts" and for the pixel width this budget is now
-    /// actually FORCED onto the game's objective rows.
+    /// Because the width budget is FORCED rather than measured, it must not also feed the uniform
+    /// dock fit — that is what made 'Breite' behave like 'Größe'. See <see cref="FitWidthToMount"/>.
     /// </summary>
     protected override float MountWidth =>
         PlayTray.ObjectivesMountWidth * CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value;
     protected override float MountMaxHeight => PlayTray.ObjectivesMountMaxHeight;
     protected override Vector2 GrowDirection => Vector2.left; // right edge on the mount
+
+    /// <summary>
+    /// WIDTH AND SIZE ARE SEPARATE DIALS HERE (user, round 4: "Bei der Breite will ich wirklich nur
+    /// die Breite einstellen, ohne die ganze Größe zu verändern").
+    ///
+    /// ROOT CAUSE of the coupling — see the full derivation on
+    /// <see cref="TrayMountedPanelSurface.FitWidthToMount"/>: the shared dock fit is UNIFORM, and
+    /// its width term divides the width budget by the MEASURED content width. Since round 3 this
+    /// panel FORCES its content to exactly that budget, so the term degenerated to
+    /// <c>wantPx / (wantPx + c)</c> with <c>c</c> = the constant 94 px header overhang — a fraction
+    /// that climbs toward 1 as the budget grows. Every 'Breite' click therefore also re-scaled the
+    /// glyphs (hardware log: 0.8× → 0.9× moved the host lossyScale 0.0122 → 0.0137, +12 %), and at
+    /// the low end it squeezed them back down ("so gestaucht wie zuvor"). The dial was, in effect, a
+    /// second size dial with a wrap side-effect.
+    ///
+    /// THE DECOUPLING: drop the width term for this panel. The content is written to the budget by
+    /// construction, so nothing about the width still needs fitting; what remains is the HEIGHT
+    /// budget alone as an overflow guard. Metres-per-pixel is then <c>1 / density</c> — a CONSTANT
+    /// (0.694 mm/px at the shared 2400 px/m × this panel's 0.6 DensityScale) that no width change
+    /// can move. Wider budget ⇒ the same glyphs re-wrap into fewer, longer lines and the panel
+    /// extends further left; narrower ⇒ more, shorter lines, same glyphs. Overall SIZE stays with
+    /// <c>ObjectivesScale</c>, which is the objectives MOUNT's localScale (PlayTray.BuildMounts) and
+    /// multiplies the whole panel through <c>mount.lossyScale</c> — a completely different factor in
+    /// <see cref="TrayMountedPanelSurface.Place"/>, so the two dials can no longer touch each other.
+    ///
+    /// The height guard cannot smuggle the coupling back in at any realistic content size: the
+    /// budget is 0.32 m × 1440 px/m = 461 px and the hardware log settles this panel at 80–98 px
+    /// tall — even the narrowest 0.5× setting (≈ 187 px column, roughly double the line count) stays
+    /// far below it, so the guard only ever engages for a pathological measurement, where a bounded
+    /// panel beats a board-covering one.
+    ///
+    /// Side effect, deliberate: with the fit at 1 instead of ~0.8, the objectives render at the size
+    /// they had BEFORE the width forcing existed — back then the fit saturated at
+    /// <c>MaxDensityScale</c> = 1, which is the same metres-per-pixel. This restores the test #17
+    /// approved type size rather than inventing a new one.
+    /// </summary>
+    protected override bool FitWidthToMount => false;
 
     /// <summary>Last objectives width budget we logged (change-gated so a per-tick re-fit stays quiet).</summary>
     private float _loggedWidth = -1f;
@@ -768,15 +858,18 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         // hardware log had 31 of these budget lines sweeping 364→624 mm and NOT ONE re-logged
         // 'Docked GloomhavenVR.Panel_Objectives' rect in between, which is exactly the bug.
         float w = MountWidth;
-        if (Mathf.Abs(w - _loggedWidth) > 1e-4f)
+        bool budgetChanged = Mathf.Abs(w - _loggedWidth) > 1e-4f;
+        base.Place(); // re-fits first, so the glyph scale below is THIS tick's applied value
+        if (budgetChanged)
         {
             _loggedWidth = w;
             VRLog.Info("WorldUI", $"Objectives dock width budget {w * 1000f:F0} mm " +
                                   $"({CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value:F2}× base " +
                                   $"{PlayTray.ObjectivesMountWidth * 1000f:F0} mm) — forced onto the objective " +
-                                  "rows as a pixel width; see the 'OBJECTIVES WIDTH' lines.");
+                                  "rows as a pixel width; see the 'OBJECTIVES WIDTH' lines. Glyph scale is " +
+                                  $"{AppliedMetersPerPixel * 1000f:F4} mm/px (fit {AppliedFitScale:F3}) and MUST " +
+                                  "NOT move with this budget — 'Größe' (ObjectivesScale) owns the size.");
         }
-        base.Place();
     }
 
     // ---- forced CONTENT width: the real lever behind the 'Breite' dial ---------------------
@@ -840,14 +933,20 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// mechanism that carries the width downward. Nothing below the root is touched any more, so
     /// icons, check marks and digits cannot distort.
     ///
-    /// The dial also becomes literal. The dock fit computes
-    /// <c>fitScale = MountWidth·density / contentW</c> and clamps it to [0.5, 1]; with the content
-    /// forced to <c>wantPx = MountWidth·density</c> the measured union is <c>wantPx + c</c> (c ≈ the
-    /// constant 94 px header overhang), so fitScale ≈ 0.85…0.89 — inside the clamp for the whole dial
-    /// range. World width then evaluates to <c>union · fitScale / density = MountWidth</c> EXACTLY,
-    /// while the rendered font size stays put. Before, fitScale was 2.7 (194 px content vs a 524 px
-    /// budget), saturated at the clamp, and the applied geometry was a constant — 31 budget lines
-    /// swept 364→624 mm in LogOutput.log with the panel frozen at 194×164 px / 2.305 m.
+    /// The dial also becomes literal — but ONLY once the dock fit is kept out of the width axis.
+    /// The shared fit computes <c>fitScale = MountWidth·density / contentW</c> and clamps it to
+    /// [0.5, 1]; with the content forced to <c>wantPx = MountWidth·density</c> the measured union is
+    /// <c>wantPx + c</c> (c = the constant 94 px header overhang, hardware log: forced 374 px →
+    /// settled 468 px). That fraction is NOT constant — it is <c>1/(1 + c/wantPx)</c>, which climbs
+    /// with the budget (0.84 at 0.8×, 0.95 at 0.9×) — so round 3 shipped a width dial that also
+    /// re-scaled the text, which is exactly the round-4 report "Breite und Größe verhalten sich
+    /// gleich". Round 4 therefore overrides <see cref="FitWidthToMount"/> to false: the forced width
+    /// needs no fitting (it IS the budget), metres-per-pixel collapses to the constant
+    /// <c>1/density</c>, and the budget shows up purely as horizontal extent — the wrap column, the
+    /// row width and the stretch-anchored progress bar — at unchanged glyph size. (Two rounds ago,
+    /// before any forcing, fitScale was 2.7 — 194 px content vs a 524 px budget — saturated at the
+    /// clamp, so the applied geometry was a constant: 31 budget lines swept 364→624 mm in
+    /// LogOutput.log with the panel frozen at 194×164 px / 2.305 m.)
     ///
     /// REVERSIBILITY: the container's <c>sizeDelta.x</c> as the conversion installed it is recorded
     /// at capture and written back in <see cref="RestoreContentWidth"/> — but ONLY while the live
@@ -1065,9 +1164,16 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             Panel.HostRect.GetWorldCorners(QuestCorners); // 0=BL, 1=TL, 2=TR, 3=BR
             float w = (QuestCorners[3] - QuestCorners[0]).magnitude;
             float h = (QuestCorners[1] - QuestCorners[0]).magnitude;
+            // DECOUPLING PROOF, in one line: the width numbers (px / world rect) MUST move with
+            // 'Breite', while 'glyph scale' MUST stay at 1/density (0.694 mm/px at 1440 px/m) for
+            // the whole dial range — that is the difference between a width dial and a size dial.
+            // Only 'Größe' (ObjectivesScale, the mount's localScale) may move the world scale.
             VRLog.Info("WorldUI", $"OBJECTIVES WIDTH APPLIED: content settled at {px.width:F0}x{px.height:F0} px " +
                                   $"(forced {_widthAppliedPx:F0} px, budget {MountWidth * 1000f:F0} mm) — " +
-                                  $"world rect {w:F3}x{h:F3} m. Both numbers MUST move when 'Breite' changes.");
+                                  $"world rect {w:F3}x{h:F3} m, glyph scale " +
+                                  $"{AppliedMetersPerPixel * 1000f:F4} mm/px (fit {AppliedFitScale:F3}, " +
+                                  $"world {Panel.HostTransform.localScale.x * 1000f:F4} mm/px incl. tray+size). " +
+                                  "The width numbers MUST move when 'Breite' changes; the glyph scale MUST NOT.");
         }
 
         if (!_widthDumped && _widthDumpAt > 0f && now >= _widthDumpAt)
