@@ -127,6 +127,20 @@ internal static class HandsConfig
 
     public static ConfigEntry<float> GlovePinkyCounterAbduction = null!;
 
+    // ---- ghost hand while the card fan is open ---------------------------------------------
+    // User request: with the fan open on the palm, the HAND itself covers card details. The
+    // hand that carries the open fan may OPTIONALLY fade to a "Geisterhand" — still visible
+    // (you must be able to see where your fingers are to grab a card), just see-through. OFF by
+    // default: nothing about the hands changes until the player enables it in the debug menu.
+    // Applied reversibly on per-renderer material CLONES (see HandGhost) and mirrored onto the
+    // avatar mirror + the multiplayer avatar, so all three renderings of this player agree.
+
+    /// <summary>Fade the hand that carries the OPEN card fan ("ghost hand"). Default OFF.</summary>
+    public static ConfigEntry<bool> GhostHandOnFan = null!;
+
+    /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
+    public static ConfigEntry<float> GhostHandStrength = null!;
+
     // ---- per-STYLE seat controls (2026-07 per-style rework) --------------------------------
     // The user's request: EVERY hand-tuning value in the debug menu is per selected hand
     // style, not just the scale. These four arrays (indexed by (int)HandStyle: Glove/
@@ -303,6 +317,26 @@ internal static class HandsConfig
             "toward the ring finger as it curls (sign auto-flips for the right hand). 0 disables. " +
             "Live-tunable.");
 
+        // Ghost hand (see the field docs above). Bound BEFORE the seat block so a fresh cfg
+        // file groups the two feature keys next to the other [Hands] visual toggles.
+        GhostHandOnFan = config.Bind(
+            "Hands", "GhostHandOnFan", false,
+            "Make the hand that currently holds the OPEN card fan semi-transparent (\"ghost " +
+            "hand\") so the hand mesh stops covering card details. The hand stays visible — " +
+            "only its opacity drops (strength: GhostHandStrength). OFF by default; nothing " +
+            "about the hands changes until you enable it. Live-tunable, fully reversible (the " +
+            "fade runs on private per-renderer material copies, never on the shared hand " +
+            "materials), and carried to the avatar mirror and to other players' view of you.");
+        GhostHandStrength = config.Bind(
+            "Hands", "GhostHandStrength", HandGhosts.DefaultStrength,
+            new ConfigDescription(
+                "Ghost-hand transparency STRENGTH while the card fan is open: 0 = fully solid, " +
+                "1 = fully invisible (material alpha = 1 - strength). Clamped so the hand never " +
+                "disappears completely — you still need to see where your fingers are to grab a " +
+                "card. Live-tunable; the same strength is sent to other players so your ghost " +
+                "hand looks identical on their screens.",
+                new AcceptableValueRange<float>(HandGhosts.MinStrength, HandGhosts.MaxStrength)));
+
         TestFist = config.Bind(
             "Hands", "TestFist", false,
             "DEBUG: force a FULL fist (curl 1.0 on all five fingers of both hands) regardless " +
@@ -440,6 +474,15 @@ internal static class HandsConfig
                        $"{StyleSeatLateral[i].Value * 1000f:0}/{StyleSeatVertical[i].Value * 1000f:0}/" +
                        $"{StyleSeatForward[i].Value * 1000f:0} mm";
             })) + " (first run seeds from the old global seat + trims).");
+
+        // Ghost hand: the flip itself is worth one log line (the per-hand engage/release lines
+        // with the renderer counts come from HandGhost, but only once a fan actually opens).
+        GhostHandOnFan.SettingChanged += (_, _) =>
+            VRLog.Info("Hands", $"[Hands] GhostHandOnFan is now {(GhostHandOnFan.Value ? "ON" : "OFF")} " +
+                                $"(strength {GhostHandStrength.Value * 100f:0}% ⇒ alpha " +
+                                $"{HandGhosts.AlphaFor(GhostHandStrength.Value):0.00}) — the hand carrying " +
+                                "the open card fan " +
+                                (GhostHandOnFan.Value ? "fades to a ghost hand." : "stays solid."));
 
         // The toggle is the user's A/B lever during hardware tests — make every flip
         // land in the log so the session record shows WHICH fist was being judged.

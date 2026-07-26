@@ -219,6 +219,9 @@ internal static class Loc
         ["fan_arc"] = Pair("Arc sweep", "Bogen"),
         ["fan_radius"] = Pair("Radius", "Radius"),
         ["fan_split"] = Pair("Hover split", "Spreizung"),
+        // Ghost hand: the fan-carrying hand fades while the fan is open ([Hands] GhostHandOnFan).
+        ["ghost_hand"] = Pair("Ghost hand", "Geisterhand"),
+        ["ghost_strength"] = Pair("Ghost strength", "Geist-Stärke"),
         ["decision"] = Pair("Decision", "Entscheidung"),
         ["avatar"] = Pair("Avatar", "Avatar"),
         ["head_mask"] = Pair("Head Mask", "Kopfmaske"),

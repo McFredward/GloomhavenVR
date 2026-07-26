@@ -51,6 +51,14 @@ internal sealed class AvatarMirror
     private FingerCurler? _leftCurler;
     private FingerCurler? _rightCurler;
 
+    // Ghost hand ([Hands] GhostHandOnFan): the mirror must show the SAME hand faded as the real
+    // rig does — otherwise the self-preview lies about what the ghost looks like (and about what
+    // peers see). One HandGhost per side, driven from HandGhosts.LocalSide in Tick; they own
+    // private material copies of the MIRROR's own hand renderers, so mirror and real hand never
+    // share ghost state (that is exactly why this cannot be done by tinting a shared material).
+    private readonly HandGhost _leftGhost = new("mirror Left");
+    private readonly HandGhost _rightGhost = new("mirror Right");
+
     private int _appliedMaskId = -1;
     private int _appliedHandStyle = -1; // [Hands] HandStyle the mirror hands were built with
     private float _appliedScale = -1f;
@@ -169,6 +177,15 @@ internal sealed class AvatarMirror
 
         UpdateHand(_leftHolder, _leftCurler, VRHands.Left, planePoint, fwd);
         UpdateHand(_rightHolder, _rightCurler, VRHands.Right, planePoint, fwd);
+
+        // Ghost hand: fade the SAME side the real rig is fading (HandGhosts.LocalSide is the one
+        // source of truth for the local hands, the mirror and the multiplayer wire). Apply() is a
+        // no-op once engaged, restores on its own when the side goes away, and re-scans by itself
+        // after BuildHands hands us a brand-new HandRig instance.
+        HandSide? ghostSide = HandGhosts.LocalSide;
+        float ghostAlpha = HandGhosts.Alpha;
+        _leftGhost.Apply(ghostSide == HandSide.Left ? _leftRig : null, ghostAlpha);
+        _rightGhost.Apply(ghostSide == HandSide.Right ? _rightRig : null, ghostAlpha);
 
         // Held interactables: what the player is holding shows up in the glass too.
         UpdateHeldFigure(planePoint, fwd);
@@ -313,6 +330,12 @@ internal sealed class AvatarMirror
         if (_leftHolder == null || _rightHolder == null)
             return;
         _appliedHandStyle = (int)HandVisuals.LocalStyle();
+
+        // Release any ghost BEFORE the old hand objects go away: the cloned materials are
+        // assets, and Unity does NOT free assets with the GameObject that referenced them — a
+        // style switch under an open fan would leak one material per renderer, every switch.
+        _leftGhost.Release();
+        _rightGhost.Release();
 
         for (int i = _leftHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_leftHolder.GetChild(i).gameObject);
@@ -731,6 +754,10 @@ internal sealed class AvatarMirror
         _figureAttachLogged = false;
         _loggedCardLeft = null;
         _loggedCardRight = null;
+        // Ghost hands: restore + free the cloned materials before the hand tree is destroyed
+        // (same asset-lifetime rule as the slab mesh below).
+        _leftGhost.Release();
+        _rightGhost.Release();
         _cardSlabs.Clear();
         if (_cardSlabMesh != null)
             Object.Destroy(_cardSlabMesh);
