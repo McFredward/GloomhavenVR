@@ -832,6 +832,13 @@ internal sealed class SettingsPanel : IPanelGrabOwner
 
         var recenterRow = Row();
         Button(recenterRow, Loc.Mod("recenter_now"), 0f, Comfort.RequestRecenter, flexible: true);
+        // ESCAPE HATCH next to the recenter (incident: "the control board was gone after I walked
+        // around and briefly took the headset off"). The per-frame lost-board watchdog
+        // (PlayTray.TickLostWatchdog) recovers it by itself, but a board the player cannot find is
+        // an immediate hard stop — playing becomes impossible — so there must always be a manual,
+        // zero-latency way back. Routed through the driver's request queue so the pose is written
+        // on the main thread and the move stays a SANCTIONED one for the issue-C pose watchdog.
+        Button(recenterRow, Loc.Mod("recall_board"), 0f, Cards.CardsDriver.RequestBoardRecall, flexible: true);
 
         Toggle(Loc.Mod("dominant_hand_right"),
             () => !string.Equals(Plugin.PrimaryHand.Value, "Left", StringComparison.OrdinalIgnoreCase),

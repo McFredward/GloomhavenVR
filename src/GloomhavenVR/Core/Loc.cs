@@ -173,6 +173,10 @@ internal static class Loc
         ["free_movement"] = Pair("Free movement", "Freie Bewegung"),
         ["world_grab"] = Pair("World grab", "Welt greifen"),
         ["recenter_now"] = Pair("Recenter now", "Neu zentrieren"),
+        // Escape hatch for a control board the player cannot find any more (walked away, pinned
+        // and left behind, stranded by a recentre). The per-frame watchdog recovers it on its own,
+        // but the user must never be at the mercy of a timer for their primary control surface.
+        ["recall_board"] = Pair("Bring board back", "Board zurückholen"),
         ["modules"] = Pair("Modules", "Module"),
         ["dominant_hand_right"] = Pair("Dominant hand right", "Dominante Hand rechts"),
         ["board_far_ray"] = Pair("Board: far ray only", "Board: nur Fernstrahl"),
