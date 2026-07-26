@@ -32,10 +32,34 @@ namespace GloomhavenVR.Net;
 /// name, initiative, actions — no sprite/texture). So a face-up card here is a clear card-shaped
 /// panel showing the card NAME + INITIATIVE number (<c>CAbilityCard.Name</c> / <c>.Initiative</c>),
 /// which is exactly what "see who placed what" needs. Backs reuse the mod's own card-back texture
-/// (<c>CardMesh</c>), drawn unlit.
+/// (<c>CardMesh</c>), drawn unlit. The card widget itself lives in <see cref="RemoteBoardCard"/>,
+/// shared with the active-card column.
+///
+/// FULL BOARD PARITY (standing user requirement: "ALLE Widgets … sollen auch beim fremden
+/// Controllboard sichtbar und synchronisiert sein"). Beyond the two round cards this board now also
+/// reproduces, MOD-DRAWN and at the same board-local offsets the LOCAL board docks its panels at:
+///   • the objectives with their progress  (<see cref="RemoteObjectivesPanel"/> — GLOBAL),
+///   • the element infusions               (<see cref="RemoteElementStrip"/>    — GLOBAL),
+///   • the round number                    (<see cref="RemoteStatusReadouts"/>  — GLOBAL),
+///   • the peer's initiative position      (<see cref="RemoteStatusReadouts"/>  — per-actor, gated),
+///   • their short/long rest state         (<see cref="RemoteStatusReadouts"/>  — per-actor, split gate),
+///   • their discard/burnt/item pile COUNTS on the three stacks (per-actor, public),
+///   • their active/persistent cards       (<see cref="RemoteActiveCards"/>     — per-actor, gated).
+/// NONE of that rides the wire: the global items are bit-identical on every client already, and the
+/// per-actor items are read off the host-replicated <c>CPlayerActor</c> exactly like the round cards.
+/// See <see cref="RemoteBoardContent"/> for the per-section anti-cheat derivation.
+///
+/// DELIBERATELY NOT MIRRORED — a peer's own interactive controls: the CONFIRM/UNDO keycaps, the
+/// turn-flow ButtonCluster, the settings gear, the FOLLOW/PIN toggle, the grab handle, the item-USE
+/// recess and the debug menu. A card-slot highlight is INFORMATION; a button you cannot press on
+/// someone else's board is not — it would only add clutter and invite mis-pokes. The transient
+/// reading fans (hand fan, item fan, pile browse, card flights) are already handled by the dedicated
+/// VR-only wire fields (<see cref="RemoteHandFan"/> / <see cref="RemoteItemFan"/> /
+/// <see cref="RemoteBrowserFan"/> / <see cref="RemoteCardFx"/>).
 ///
 /// Strict no-op offline / single-player / when the actor is null (<see cref="NetPlayerActors"/>
-/// degrades to null there); everything is re-read each <see cref="Tick"/>.
+/// degrades to null there); everything is re-read each <see cref="Tick"/> (pose per frame, content
+/// on the <see cref="RemoteBoardContent.RefreshSeconds"/> cadence).
 /// </summary>
 internal sealed class RemoteControlBoard
 {
@@ -44,11 +68,20 @@ internal sealed class RemoteControlBoard
     private const float BoardW = 0.64f;
     private const float BoardH = 0.32f;
 
+    /// <summary>Board half-width in board-local metres — the anchor the off-edge docks (objectives
+    /// left, piles/active cards right) offset from, mirroring <c>PlayTray.BoardHalfWidthLocal</c>.</summary>
+    internal const float BoardHalfW = BoardW * 0.5f;
+
     // Two round-card slots, side by side and enlarged for at-a-distance legibility.
     private const float CardW = 0.15f;
     private const float CardH = CardW * (88f / 63.5f);
     private const float SlotX = 0.11f;      // ± slot centre X (board-local)
     private const float ProudZ = -0.004f;   // toward the viewer (−Z), proud of the frame face
+
+    /// <summary>The shared proud depth every board-local surface sits at (−Z = toward the viewer).
+    /// Exposed so the mod-drawn parity panels in <see cref="RemoteBoardContent"/> seat on the same
+    /// plane as the round-card slots and the pile stacks.</summary>
+    internal const float ProudZLocal = ProudZ;
 
     // ---- pile stacks (report 6) ---------------------------------------------------------------
     // The three card STACKS that hang off the right edge of the local control board
@@ -85,8 +118,24 @@ internal sealed class RemoteControlBoard
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;
-    private readonly BoardCard[] _cards = new BoardCard[2];
+    private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[2];
     private OwnerTag? _tag;
+
+    // ---- full-parity content (all mod-drawn, all zero-wire — see the class note) ----------------
+    private RemoteObjectivesPanel? _objectives;   // GLOBAL
+    private RemoteElementStrip? _elements;        // GLOBAL
+    private RemoteStatusReadouts? _status;        // GLOBAL round + per-actor initiative/rest
+    private RemoteActiveCards? _active;           // per-actor active/persistent cards
+    private readonly PileCounter?[] _piles = new PileCounter?[3]; // discard / burnt / items
+
+    /// <summary>Next content re-read time (unscaled). The POSE follows every frame; the model reads
+    /// and the TMP repaints run on the <see cref="RemoteBoardContent.RefreshSeconds"/> cadence so a
+    /// four-peer table stays free.</summary>
+    private float _nextRefreshAt;
+
+    /// <summary>Change-gate for the "what is this peer's board rendering" diagnostic (see
+    /// <see cref="LogContent"/>) — one Info line per actual change, never per tick.</summary>
+    private string _loggedContent = string.Empty;
 
     private readonly CAbilityCard?[] _ordered = new CAbilityCard?[2];
 
@@ -135,6 +184,74 @@ internal sealed class RemoteControlBoard
             _cards[i].Set(_ordered[i], showFronts);
 
         _tag!.Tick();
+
+        // Content (objectives / elements / round / initiative / rest / pile counts / active cards)
+        // on the shared cadence — everything below is a MODEL read, not a wire read.
+        if (Time.unscaledTime >= _nextRefreshAt)
+        {
+            _nextRefreshAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
+            RefreshContent(actor!, showFronts);
+        }
+    }
+
+    /// <summary>
+    /// Re-read every parity surface from the LOCAL game model and repaint what changed. Wrapped as a
+    /// whole: a half-initialised scenario state (mid-load, mid-teardown) must degrade to a stale
+    /// board, never take down the remote-avatar tick that also drives this peer's head and hands.
+    /// </summary>
+    private void RefreshContent(CPlayerActor actor, bool showFronts)
+    {
+        try
+        {
+            _objectives?.Refresh();
+            _elements?.Refresh();
+            _status?.Refresh(actor, showFronts);
+            _active?.Refresh(actor, showFronts);
+
+            // Pile counts — the SAME reads CardsGameApi.DiscardedCount/BurntCount and
+            // ItemsPile.Count make for the local board, against this actor instead of the local
+            // hand. PUBLIC information: vanilla lets anyone open ANY player's full card overview
+            // from the initiative track (InitiativeTrackPlayerAvatar.OnClick →
+            // CardsHandManager.ToggleViewAllCards), so a count on a stack reveals nothing new and
+            // needs no reveal gate.
+            CCharacterClass cc = actor.CharacterClass;
+            int discard = cc != null ? cc.DiscardedAbilityCards.Count : 0;
+            int burnt = cc != null ? cc.LostAbilityCards.Count + cc.PermanentlyLostAbilityCards.Count : 0;
+            CInventory? inv = actor.Inventory;
+            int items = inv?.AllItems != null ? inv.AllItems.Count : 0;
+            _piles[0]?.Set(discard);
+            _piles[1]?.Set(burnt);
+            _piles[2]?.Set(items);
+
+            LogContent(discard, burnt, items, showFronts);
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Remote board [{_owner.PlayerId}] content refresh failed: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Change-gated diagnostic so the next hardware log states EXACTLY what a peer's board is
+    /// rendering (grep: "Remote board content"). One line per actual change — the cadence tick
+    /// itself is silent.
+    /// </summary>
+    private void LogContent(int discard, int burnt, int items, bool showFronts)
+    {
+        string line = $"Remote board content [{_owner.PlayerId}]: " +
+                      $"round='{(_status != null ? _status.RoundText : "-")}', " +
+                      $"initiative={(_status != null ? _status.InitiativeText : "?")}, " +
+                      $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +
+                      $"piles d/b/i={discard}/{burnt}/{items}, " +
+                      $"active={(_active != null ? _active.Count : 0)} card(s), " +
+                      $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s), " +
+                      $"elements={(_elements != null ? _elements.ActiveCount : 0)} infused, " +
+                      $"fronts={showFronts}";
+        if (line == _loggedContent)
+            return;
+        _loggedContent = line;
+        VRLog.Info("Net", line + " — all read LOCALLY from the replicated model (zero wire traffic); " +
+                          "fronts gated by RevealGate.");
     }
 
     /// <summary>Mirror the local board's ordering: <c>InitiativeAbilityCard</c> first, then the
@@ -172,25 +289,41 @@ internal sealed class RemoteControlBoard
         BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH),
             BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 1f)));
 
-        _cards[0] = new BoardCard(_root.transform, SlotLocal(0));
-        _cards[1] = new BoardCard(_root.transform, SlotLocal(1));
+        _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), CardW, CardH);
+        _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), CardW, CardH);
 
         // The three stacks (report 6): the destinations a remote card flight lands on. Card-back
-        // texture, drawn unlit, no labels — they are landing pads, not readable piles.
+        // texture, drawn unlit. Since the parity pass they also carry the peer's live pile COUNT +
+        // the localized caption the local board's own stacks wear (PileViewer.Caption), so a peer's
+        // "Abgelegt 7 / Verbrannt 2 / Gegenstände 3" reads at a glance instead of the numbers being
+        // knowable only from that player's own seat.
         Texture? stackTex = CardMesh.CreateBackMaterial().mainTexture;
         Material stackMat = BoardVisual.Unlit(new Color(0.82f, 0.82f, 0.82f, 1f), stackTex);
-        BoardVisual.Quad(_root.transform, "DiscardStack", new Vector2(PileW, PileH), stackMat)
-            .transform.localPosition = AnchorLocal(CardFxAnchor.Discard);
-        BoardVisual.Quad(_root.transform, "BurntStack", new Vector2(PileW, PileH), stackMat)
-            .transform.localPosition = AnchorLocal(CardFxAnchor.Burnt);
-        BoardVisual.Quad(_root.transform, "ItemStack", new Vector2(PileW, PileH), stackMat)
-            .transform.localPosition = AnchorLocal(CardFxAnchor.Items);
+        _piles[0] = new PileCounter(_root.transform, "DiscardStack", AnchorLocal(CardFxAnchor.Discard),
+            stackMat, PileViewer.Caption(PileKind.Discard));
+        _piles[1] = new PileCounter(_root.transform, "BurntStack", AnchorLocal(CardFxAnchor.Burnt),
+            stackMat, PileViewer.Caption(PileKind.Burnt));
+        _piles[2] = new PileCounter(_root.transform, "ItemStack", AnchorLocal(CardFxAnchor.Items),
+            stackMat, PileViewer.Caption(PileKind.Items));
+
+        // Full-parity panels (all mod-drawn, all fed from the LOCAL model — see the class note).
+        _objectives = new RemoteObjectivesPanel(_root.transform);
+        _elements = new RemoteElementStrip(_root.transform);
+        _status = new RemoteStatusReadouts(_root.transform);
+        _active = new RemoteActiveCards(_root.transform);
+        _nextRefreshAt = 0f; // repaint on the very next tick
 
         // Ownership tag pinned just above the board's top-left corner, always facing the head.
         _tag = new OwnerTag(_owner.PlayerId, _root.transform,
             new Vector3(-BoardW * 0.5f + 0.02f, BoardH * 0.5f + 0.045f, ProudZ));
 
         VRLayers.Apply(_root);
+
+        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] built with full parity surfaces: " +
+                          "2 round-card slots, 3 pile stacks with counts, objectives, elements, " +
+                          "round + initiative + rest readouts, active-card column. Interactive " +
+                          "controls (Confirm/Undo/gear/pin/cluster/item-use) are deliberately NOT " +
+                          "mirrored — a button you cannot press is not information.");
     }
 
     private void SetActive(bool active)
@@ -208,111 +341,67 @@ internal sealed class RemoteControlBoard
             Object.Destroy(_root);
             _root = null;
         }
+        // Every parity surface is a CHILD of _root and dies with it — drop the handles so a rebuilt
+        // board (peer re-join / scene change) can never repaint through a destroyed transform, and
+        // so the change-gates start clean.
+        _objectives = null;
+        _elements = null;
+        _status = null;
+        _active = null;
+        _piles[0] = _piles[1] = _piles[2] = null;
+        _loggedContent = string.Empty;
+        _nextRefreshAt = 0f;
     }
 
-    // ------------------------------------------------------------------ one card slot --
+    // ------------------------------------------------------------------ pile stack --
 
     /// <summary>
-    /// One round-card slot: a card-shaped unlit panel. FACE-UP shows the card NAME + INITIATIVE;
-    /// face-down (or empty-but-present) shows the mod card BACK. Rebuilt only on a real change
-    /// (identity / face-up / initiative), so it is cheap to drive every frame.
+    /// One of the three pile stacks on a peer's board (discard / burnt / items): the card-back slab
+    /// that a <see cref="RemoteCardFx"/> flight lands on, PLUS the peer's live pile COUNT and the
+    /// same localized caption the local board's own stack wears (<c>PileViewer.Caption</c>).
+    ///
+    /// The count is PUBLIC information — vanilla lets any player open ANY other player's full card
+    /// overview straight off the initiative track (<c>InitiativeTrackPlayerAvatar.OnClick</c> →
+    /// <c>CardsHandManager.ToggleViewAllCards</c>) — so it needs no reveal gate. Change-gated writes:
+    /// a per-tick <c>TMP.text</c> assignment re-triggers auto-size layout.
     /// </summary>
-    private sealed class BoardCard
+    private sealed class PileCounter
     {
-        private readonly GameObject _root;
-        private readonly MeshRenderer _bg;
-        private readonly Material _backMat;
-        private readonly Material _faceMat;
-        private readonly TextMeshPro _initLabel;
-        private readonly TextMeshPro _nameLabel;
+        private readonly TextMeshPro _count;
+        private int _shown = int.MinValue;
 
-        private int _shownId = int.MinValue;
-        private bool _shownFront;
-        private bool _shownEmpty = true;
-
-        public BoardCard(Transform parent, Vector3 localPos)
+        public PileCounter(Transform parent, string name, Vector3 localPos, Material slabMat,
+            string caption)
         {
-            _root = new GameObject("Card");
-            _root.transform.SetParent(parent, worldPositionStays: false);
-            _root.transform.localPosition = localPos;
+            var root = new GameObject(name).transform;
+            root.SetParent(parent, worldPositionStays: false);
+            root.localPosition = localPos;
 
-            // Card-back texture, drawn UNLIT (read the mod's shared back texture off CardMesh's
-            // back material without mutating it, then wrap it in our own unlit material).
-            Texture? backTex = CardMesh.CreateBackMaterial().mainTexture;
-            _backMat = BoardVisual.Unlit(Color.white, backTex);
-            _faceMat = BoardVisual.Unlit(new Color(0.86f, 0.81f, 0.68f, 1f)); // parchment
+            BoardVisual.Quad(root, "Slab", new Vector2(PileW, PileH), slabMat);
 
-            _bg = BoardVisual.Quad(_root.transform, "Face", new Vector2(CardW, CardH), _backMat);
+            _count = RemoteBoardContent.Label(root, "Count", new Vector3(0f, 0f, -0.001f),
+                new Vector2(PileW * 0.8f, PileH * 0.5f), 0.075f,
+                new Color(1f, 0.95f, 0.8f), TextAlignmentOptions.Center, FontStyles.Bold);
+            _count.text = "-";
 
-            _initLabel = MakeLabel("Initiative", new Vector3(0f, CardH * 0.34f, -0.001f),
-                new Vector2(CardW * 0.9f, CardH * 0.28f), 0.09f,
-                new Color(0.12f, 0.10f, 0.08f), FontStyles.Bold, wrap: false);
-            _nameLabel = MakeLabel("Name", new Vector3(0f, -CardH * 0.12f, -0.001f),
-                new Vector2(CardW * 0.86f, CardH * 0.5f), 0.045f,
-                new Color(0.14f, 0.11f, 0.09f), FontStyles.Normal, wrap: true);
+            RemoteBoardContent.Label(root, "Caption",
+                new Vector3(0f, -PileH * 0.5f - 0.014f, -0.001f),
+                new Vector2(PileW * 1.25f, 0.020f), 0.036f,
+                new Color(0.85f, 0.8f, 0.7f), TextAlignmentOptions.Center)
+                .text = caption.ToUpperInvariant();
         }
 
-        private TextMeshPro MakeLabel(string name, Vector3 localPos, Vector2 box, float maxFont,
-            Color color, FontStyles style, bool wrap)
+        /// <summary>Write the count (change-gated); an empty pile greys out, exactly like the local
+        /// board's stack dims its top slab at zero.</summary>
+        public void Set(int count)
         {
-            var go = new GameObject(name);
-            go.transform.SetParent(_root.transform, worldPositionStays: false);
-            go.transform.localPosition = localPos;
-            var tmp = go.AddComponent<TextMeshPro>();
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.color = color;
-            tmp.fontStyle = style;
-            TmpFit.Fit(tmp, box.x, box.y, maxFont, wrap);
-            return tmp;
-        }
-
-        /// <summary>Show <paramref name="card"/> face-up (name+initiative) when
-        /// <paramref name="front"/>, else the card back; hide entirely when there is no card.</summary>
-        public void Set(CAbilityCard? card, bool front)
-        {
-            bool empty = card == null;
-            int id = card != null ? card.CardInstanceID : int.MinValue;
-            if (empty == _shownEmpty && id == _shownId && front == _shownFront)
+            if (count == _shown)
                 return;
-            _shownEmpty = empty;
-            _shownId = id;
-            _shownFront = front;
-
-            if (empty)
-            {
-                if (_root.activeSelf) _root.SetActive(false);
-                return;
-            }
-            if (!_root.activeSelf) _root.SetActive(true);
-
-            if (front)
-            {
-                _bg.sharedMaterial = _faceMat;
-                _initLabel.gameObject.SetActive(true);
-                _nameLabel.gameObject.SetActive(true);
-                _initLabel.text = card!.Initiative.ToString();
-                _nameLabel.text = CardDisplayName(card);
-            }
-            else
-            {
-                _bg.sharedMaterial = _backMat;
-                _initLabel.gameObject.SetActive(false);
-                _nameLabel.gameObject.SetActive(false);
-            }
-        }
-
-        /// <summary>Readable card name: <c>CAbilityCard.Name</c> (localized YML name), stripped of
-        /// the <c>ABILITY_CARD_</c> loc prefix when present (as the game's own <c>StrictName</c>
-        /// does). Guarded — a YML lookup miss degrades to "?".</summary>
-        private static string CardDisplayName(CAbilityCard card)
-        {
-            string name;
-            try { name = card.Name ?? "?"; }
-            catch { return "?"; }
-            const string prefix = "ABILITY_CARD_";
-            return name.StartsWith(prefix, System.StringComparison.Ordinal)
-                ? name.Substring(prefix.Length)
-                : name;
+            _shown = count;
+            _count.text = count.ToString();
+            _count.color = count > 0
+                ? new Color(1f, 0.95f, 0.8f)
+                : new Color(0.55f, 0.53f, 0.48f);
         }
     }
 }
