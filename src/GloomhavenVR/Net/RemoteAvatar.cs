@@ -71,6 +71,7 @@ internal sealed class RemoteAvatar
     private Transform? _headVisual;
     private float _appliedMaskSize = -1f;
     private float _loggedMaskSize = -1f; // one log line per received CHANGE, never per packet
+    private int _loggedBoardStyle = -1;  // ditto for the received control-board style
 
     // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card slab eased
     // toward the sender's held-card pose — a card in a peer's HAND, distinct from their fan.
@@ -161,6 +162,15 @@ internal sealed class RemoteAvatar
     /// 1 for peers that predate the field or wear the default size — both mean "unchanged look",
     /// which is why the wire only carries the byte when it differs.</summary>
     public float MaskSize { get; private set; } = 1f;
+
+    /// <summary>
+    /// The CONTROL BOARD this peer actually uses (their <c>Cards.ControlBoard</c> choice, received
+    /// in the extras block's byte A bits 5..6). Oak for peers that predate the field or use the
+    /// default board — both mean "the default look", which is why the wire spends no presence bit
+    /// on it. Consumed by <see cref="RemoteControlBoard"/> to tint our copy of their board so it
+    /// reads in the material they picked.
+    /// </summary>
+    public Cards.ControlBoard BoardStyle { get; private set; } = Cards.ControlBoard.Oak;
 
     /// <summary>True while the sender's fan-carrying hand is faded ("ghost hand"). False for peers
     /// that predate the field — their hands simply stay solid.</summary>
@@ -302,6 +312,20 @@ internal sealed class RemoteAvatar
                                   ? $"(wire code {p.MaskSizeCode}, hundredths, extras block bit 4)."
                                   : "(no size byte — default/older peer)."));
             _loggedMaskSize = MaskSize;
+        }
+
+        // CONTROL-BOARD STYLE: which board this peer picked in THEIR settings (byte A bits 5..6 of
+        // the same trailing block). Code 0 = the default board, which is also what an older peer's
+        // zeroed bits read as — so an absent field degrades to today's look, never to a wrong one.
+        // Our copy of their board tints itself from this in RemoteControlBoard.
+        BoardStyle = Cards.ControlBoards.Clamp(p.BoardStyleCode);
+        if ((int)BoardStyle != _loggedBoardStyle)
+        {
+            _loggedBoardStyle = (int)BoardStyle;
+            VRLog.Info("Net", $"Control board style RECEIVED from player {PlayerId}: '{BoardStyle}' " +
+                              $"(wire code {p.BoardStyleCode}, extras block byte A bits 5..6) — " +
+                              "their board is drawn in the material THEY chose, the same rule the " +
+                              "head mask, mask size and hand style already follow.");
         }
 
         // Ghost hand: the sender's own strength rides the wire, so their faded hand reads the

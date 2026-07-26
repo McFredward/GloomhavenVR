@@ -58,6 +58,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // instead of five times a second. -1 = never sent.
     private int _lastSentMaskSizeCode = -1;
 
+    // CONTROL-BOARD STYLE: same contract as the mask size one row up. Switching the board is a
+    // deliberate, human-paced act the user performs while looking at their board, so the edge
+    // pre-empts the 5 Hz gate (a peer must see the new material immediately, not up to 200 ms
+    // later) and the confirmation log fires once per CHANGE, never per packet. -1 = never sent.
+    private int _lastSentBoardStyleCode = -1;
+
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
@@ -176,8 +182,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         byte maskSizeCode = NetProtocol.EncodeMaskSize(LocalRigSampler.LocalMaskSize());
         bool maskSizeChanged = maskSizeCode != _lastSentMaskSizeCode;
 
+        // CONTROL-BOARD STYLE (user: the board is picked in the normal settings "genau wie die
+        // Hände und die Maske" — so it must travel like them): the wire code of the board the local
+        // player currently uses. Read here, same as the mask size, so a switch in the VR settings
+        // pre-empts the rate gate and reaches every peer on the next frame.
+        byte boardStyleCode = LocalRigSampler.LocalBoardStyle();
+        bool boardStyleChanged = boardStyleCode != _lastSentBoardStyleCode;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
-            && !maskSizeChanged)
+            && !maskSizeChanged && !boardStyleChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -254,6 +267,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   : "default, byte omitted (peers render 1.00x)."));
         }
         _lastSentMaskSizeCode = maskSizeCode;
+
+        // CONTROL-BOARD STYLE, riding the SAME trailing block's byte A (bits 5..6 — no extra byte
+        // at all, see NetProtocol.PileBrowseBoardStyleShift). Assigned unconditionally: the
+        // serializer itself omits the whole block when the style is the DEFAULT board and nothing
+        // else needs the block, so a default-board player's packet stays byte-identical to what
+        // previous builds emitted, and a switch BACK to the default is communicated by the bits
+        // reading 0 again.
+        extras.BoardStyleCode = boardStyleCode;
+        if (boardStyleChanged)
+        {
+            VRLog.Info("Net", $"Control board style SENT: '{Cards.ControlBoards.Clamp(boardStyleCode)}' " +
+                              $"(wire code {boardStyleCode}, extras block byte A bits 5..6) — " +
+                              (boardStyleCode != NetProtocol.BoardStyleDefaultCode
+                                  ? "0 extra bytes; peers tint their copy of this board to match."
+                                  : "default board, block bits read 0 (peers render the default board)."));
+        }
+        _lastSentBoardStyleCode = boardStyleCode;
 
         // One log per OPEN/CLOSE/switch edge (never per packet) so a hardware log can prove each of
         // the three piles going out on the wire.

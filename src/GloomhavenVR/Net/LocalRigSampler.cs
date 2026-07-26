@@ -105,6 +105,20 @@ internal static class LocalRigSampler
         return Mathf.Clamp(v, NetProtocol.MaskSizeMin, NetProtocol.MaskSizeMax);
     }
 
+    /// <summary>
+    /// The locally-chosen CONTROL-BOARD style as its wire code (0 Oak / 1 Steel / 2 Bronze).
+    /// Guarded exactly like <see cref="LocalMaskId"/>: an unbound [Cards] config (Cards module
+    /// never inited, hot reload) reads as the default board rather than throwing inside the extras
+    /// sender. Read LIVE, so switching the board in the VR settings goes out on the next packet.
+    /// </summary>
+    public static byte LocalBoardStyle()
+    {
+        Cards.ControlBoard board = Cards.CardsConfig.Board != null
+            ? Cards.ControlBoards.Clamp((int)Cards.CardsConfig.Board.Value)
+            : Cards.ControlBoard.Oak;
+        return NetProtocol.EncodeBoardStyle((int)board);
+    }
+
     /// <summary>The world pose of the single card the local player grip-holds, if any (left
     /// hand wins when both hold one — matches the mirror's slab order). False when no hand
     /// holds a <see cref="Cards.VRCard"/> ability card or an <see cref="Cards.ItemsPile.ItemChip"/>.</summary>
