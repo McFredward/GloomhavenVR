@@ -965,6 +965,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(maskRow, Loc.Mod("head_mask"), 16f, flexible: true);
         CycleButton(maskRow, 120f, MaskLabel, CycleMask);
 
+        // SIZE of that head mask (writes [Net] MaskSize — synchronized like the mask itself, so
+        // peers see your mask at the size you picked). Directly under the mask picker because it
+        // is the same choice, one property further. LIVE: the mirror re-reads the entry every tick
+        // and remote clients re-apply the received size on their next frame — no restart, and the
+        // 1.00x default means today's look until it is tuned. 0.05 steps over the entry's
+        // 0.25-2.55 range, "x" readout like the other size steppers.
+        var maskSizeRow = Row();
+        Label(maskSizeRow, Loc.Mod("mask_size"), 16f, flexible: true);
+        MiniStepper(maskSizeRow, MaskSizeLabel, StepMaskSize);
+
         // Hand style: cycles Glove → Plate → Arcane (writes [Hands] HandStyle; HandsDriver
         // rebuilds the hand visuals live). Synchronized via the avatar rig packet. Also
         // reachable as the "Stil" row under Hände/Figuren/Handgelenk (same bind).
@@ -2524,6 +2534,26 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
         int cur = Mathf.Clamp(Net.NetModule.MaskId.Value, 0, Net.HeadMaskLibrary.MaskCount - 1);
         Net.NetModule.MaskId.Value = (cur + 1) % Net.HeadMaskLibrary.MaskCount;
+    }
+
+    /// <summary>Stepper readout for the head-mask size ("1.00x"), matching the other size
+    /// steppers' format. Falls back to the authored size when the [Net] config is unbound.</summary>
+    private static string MaskSizeLabel()
+    {
+        float v = Net.NetModule.MaskSize != null ? Net.NetModule.MaskSize.Value : 1f;
+        return $"{v:0.00}x";
+    }
+
+    /// <summary>Nudge the head-mask size by 0.05 (writes [Net] MaskSize; BepInEx persists on set).
+    /// Clamped to the entry's own AcceptableValueRange, which is exactly the wire's quantization
+    /// window — so what the panel allows is always transmittable to the letter.</summary>
+    private static void StepMaskSize(int direction)
+    {
+        ConfigEntry<float>? e = Net.NetModule.MaskSize;
+        if (e == null)
+            return;
+        e.Value = Mathf.Clamp(e.Value + direction * 0.05f,
+            Net.NetProtocol.MaskSizeMin, Net.NetProtocol.MaskSizeMax);
     }
 
     /// <summary>Cycle-button readout for the hand-style picker (enum name, like the

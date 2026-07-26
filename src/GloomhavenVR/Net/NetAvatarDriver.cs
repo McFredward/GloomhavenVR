@@ -52,6 +52,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentBrowseCount = -1;
     private bool _loggedBrowseOpen;
 
+    // Head-mask SIZE: the last wire code we broadcast, so a stepper edit pre-empts the 5 Hz gate
+    // (the user resizes their mask while watching a peer's mirror/avatar — a 200 ms lag reads as
+    // "the slider does nothing on their screen") and so the confirmation log fires once per CHANGE
+    // instead of five times a second. -1 = never sent.
+    private int _lastSentMaskSizeCode = -1;
+
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
@@ -164,7 +170,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // human-paced action; it cannot become a stream.
         bool browseChanged = browseKind != _lastSentBrowseKind || browseCount != _lastSentBrowseCount;
 
-        if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged)
+        // HEAD-MASK SIZE (user request "Die Groesse der Maske ... entsprechend so synchronisiert"):
+        // quantized to the wire byte FIRST, so the change test is the change the receiver can
+        // actually observe (a sub-0.01 config wobble must not trigger a packet).
+        byte maskSizeCode = NetProtocol.EncodeMaskSize(LocalRigSampler.LocalMaskSize());
+        bool maskSizeChanged = maskSizeCode != _lastSentMaskSizeCode;
+
+        if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
+            && !maskSizeChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -222,6 +235,26 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.PileBrowseHeld = browseNow!.IsHandHeld;
             extras.PileBrowseLeftHand = browseNow.IsHeldByLeftHand;
         }
+        // HEAD-MASK SIZE, riding the SAME trailing block (byte A bit 4 + one trailing byte — the
+        // reserved-bit extension path both flag bytes' exhaustion forces us onto, see NetProtocol).
+        // Sent ONLY when it differs from the default: absence already means "1.00x" to every
+        // reader, so a default-size player's packets stay byte-identical to previous builds and a
+        // step back to 1.00x is communicated by the byte disappearing again.
+        if (maskSizeCode != NetProtocol.MaskSizeDefaultCode)
+        {
+            extras.HasMaskSize = true;
+            extras.MaskSizeCode = maskSizeCode;
+        }
+        if (maskSizeChanged)
+        {
+            VRLog.Info("Net", $"Mask size SENT: {NetProtocol.DecodeMaskSize(maskSizeCode):0.00}x " +
+                              $"(wire code {maskSizeCode}, hundredths) — " +
+                              (extras.HasMaskSize
+                                  ? "1 additive byte in the extras block (byte A bit 4)."
+                                  : "default, byte omitted (peers render 1.00x)."));
+        }
+        _lastSentMaskSizeCode = maskSizeCode;
+
         // One log per OPEN/CLOSE/switch edge (never per packet) so a hardware log can prove each of
         // the three piles going out on the wire.
         if (browseChanged)

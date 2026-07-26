@@ -100,6 +100,21 @@ internal struct PresenceState
 
     /// <summary>True when the hand-held browse fan rides the sender's LEFT hand; false = right.</summary>
     public bool PileBrowseLeftHand;
+
+    /// <summary>
+    /// True when the sender transmits a non-default HEAD-MASK SIZE this packet (trailing-block
+    /// byte A <see cref="NetProtocol.PileBrowseMaskSizeBit"/>); then <see cref="MaskSizeCode"/>
+    /// carries it. False means "the default 1.00×" — either the sender wears the default size or
+    /// they predate the field; both render identically, which is the whole point of only sending
+    /// the byte when it differs.
+    /// </summary>
+    public bool HasMaskSize;
+
+    /// <summary>Quantized head-mask size multiplier (hundredths — see
+    /// <see cref="NetProtocol.EncodeMaskSize"/>), meaningful only when <see cref="HasMaskSize"/>.
+    /// The SENDER's chosen size is transmitted on purpose: their mask must read the same to
+    /// everyone, exactly like their chosen mask style, hand style and ghost strength.</summary>
+    public byte MaskSizeCode;
 }
 
 /// <summary>
@@ -119,17 +134,25 @@ internal struct PresenceState
 ///   if cardFx:     byte fxSeq + byte fxEndpoints                  → 2 bytes  (ADDITIVE)
 ///   if pileBrowse: byte kindFlags + byte browseCardCount          → 2 bytes  (ADDITIVE)
 ///                  kindFlags: bits0..1 pile kind (0 discard / 1 burnt / 2 items),
-///                             bit2 hand-held, bit3 left hand, bits4..7 reserved (0)
+///                             bit2 hand-held, bit3 left hand,
+///                             bit4 MASK-SIZE byte follows, bits5..7 reserved (0)
+///     if kindFlags bit4: byte maskSizeCode (size × 100 ⇒ 0.25×..2.55×)  → 1 byte  (ADDITIVE,
+///                        INSIDE the block — this is the reserved-bit extension path)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
 /// block only has to be appended behind every field a pre-existing reader knows, and the bit order
 /// then fixes the layout without any writer/reader having to know about the others.
 ///
-/// FLAG BITS ARE NOW EXHAUSTED (bit 7 = pile browse is the last one). That is deliberate and it is
-/// why the pile-browse block spends its bit on "a block follows" rather than on a single boolean:
-/// its byte A carries four reserved bits, so the NEXT extras extension can be appended inside this
-/// block — still additive, still no wire-version bump — instead of running out of flag byte.
+/// FLAG BITS ARE EXHAUSTED (bit 7 = pile browse is the last one). That is deliberate and it is why
+/// the pile-browse block spends its bit on "a block follows" rather than on a single boolean: its
+/// byte A carries reserved bits, so the NEXT extras extension can be appended inside this block —
+/// still additive, still no wire-version bump — instead of running out of flag byte. The HEAD-MASK
+/// SIZE is the first user of that room (byte A bit 4 + trailing byte C, see
+/// <see cref="NetProtocol.PileBrowseMaskSizeBit"/>). Because of it, flag bit 7 now means "a trailing
+/// BLOCK follows", not "a browse fan is open": a size-only packet writes the block with the
+/// pile-browse sub-fields zeroed and byte B (count) = 0, and every reader that ever understood bit 7
+/// requires count &gt; 0 before it renders a fan — so it sees no fan and ignores byte C.
 ///
 /// BACKWARD COMPATIBILITY CONTRACT (all additive blocks): they are appended AFTER every field a
 /// pre-existing reader knows, in flag-bit order, and that reader validates only the length ITS
@@ -141,8 +164,8 @@ internal struct PresenceState
 internal static class PresenceSerializer
 {
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
-    /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 = 38, rounded up to 44 for
-    /// headroom.</summary>
+    /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39, rounded up
+    /// to 44 for headroom.</summary>
     public const int MaxSize = 44;
 
     // ---- write --------------------------------------------------------------------------
@@ -164,7 +187,11 @@ internal static class PresenceSerializer
         if (state.HasItemFan && state.ItemFanHeld) flags |= NetProtocol.FlagItemFanHeld;
         if (state.HasItemFan && state.ItemFanHeld && state.ItemFanLeftHand) flags |= NetProtocol.FlagItemFanLeft;
         if (state.HasCardFx) flags |= NetProtocol.FlagCardFx;
-        if (state.HasPileBrowse) flags |= NetProtocol.FlagPileBrowse;
+        // Bit 7 is the trailing-BLOCK header, not "a browse fan is open": the block also carries
+        // the head-mask size in its reserved byte-A bits, so it goes out whenever EITHER rides
+        // this packet (see the layout doc + NetProtocol.PileBrowseMaskSizeBit).
+        bool block = state.HasPileBrowse || state.HasMaskSize;
+        if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
 
         if (state.HasBoard)
@@ -189,16 +216,26 @@ internal static class PresenceSerializer
             buffer[i++] = state.FxSeq;
             buffer[i++] = state.FxEndpoints;
         }
-        if (state.HasPileBrowse)
+        if (block)
         {
-            // Byte A packs everything that is NOT a count: the pile kind (2 bits) plus the two
-            // placement bits. Bits 4..7 stay zero — reserved room for the next extras extension,
-            // which is the whole reason the last flag bit was spent on a BLOCK (see NetProtocol).
-            byte kindFlags = (byte)(state.PileBrowseKind & 0x03);
-            if (state.PileBrowseHeld) kindFlags |= NetProtocol.PileBrowseHeldBit;
-            if (state.PileBrowseHeld && state.PileBrowseLeftHand) kindFlags |= NetProtocol.PileBrowseLeftBit;
+            // Byte A packs everything that is NOT a count: the pile kind (2 bits), the two
+            // placement bits, and — first user of the reserved room the last flag bit was spent
+            // to create — the "a mask-size byte follows" bit. Bits 5..7 stay zero for the next
+            // extension after this one.
+            //
+            // When only the mask size rides this packet, the pile-browse sub-fields are written
+            // ZEROED and byte B (count) is 0: that is precisely how a reader — new or old — is
+            // told "no browse fan" (all of them gate the fan on count > 0), so the block can
+            // carry the size without inventing a fan on anybody's screen.
+            byte kindFlags = state.HasPileBrowse ? (byte)(state.PileBrowseKind & 0x03) : (byte)0;
+            if (state.HasPileBrowse && state.PileBrowseHeld) kindFlags |= NetProtocol.PileBrowseHeldBit;
+            if (state.HasPileBrowse && state.PileBrowseHeld && state.PileBrowseLeftHand)
+                kindFlags |= NetProtocol.PileBrowseLeftBit;
+            if (state.HasMaskSize) kindFlags |= NetProtocol.PileBrowseMaskSizeBit;
             buffer[i++] = kindFlags;
-            buffer[i++] = state.PileBrowseCardCount;
+            buffer[i++] = state.HasPileBrowse ? state.PileBrowseCardCount : (byte)0;
+            if (state.HasMaskSize)
+                buffer[i++] = state.MaskSizeCode;
         }
         return i;
     }
@@ -273,6 +310,20 @@ internal static class PresenceSerializer
             state.PileBrowseHeld = (kindFlags & NetProtocol.PileBrowseHeldBit) != 0;
             state.PileBrowseLeftHand = (kindFlags & NetProtocol.PileBrowseLeftBit) != 0;
             state.PileBrowseCardCount = buffer[i++];
+
+            // Head-mask size: the block's own reserved-bit extension. Its length is validated
+            // HERE and not in the `need` sum above, because the bit that demands it lives inside
+            // byte A — which we could not read before. Same contract, one level down: we validate
+            // exactly what OUR known flags demand and nothing else, so a sender that appends yet
+            // another field behind byte C still parses cleanly here.
+            if ((kindFlags & NetProtocol.PileBrowseMaskSizeBit) != 0)
+            {
+                if (length < i + 1)
+                    return false;
+                state.HasMaskSize = true;
+                state.MaskSizeCode = buffer[i++];
+            }
+            // else: the sender wears the default size OR predates the field — identical rendering.
         }
         return true;
     }
