@@ -959,7 +959,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // next root and could recover a board that was never lost.
         _lostSince = 0f;
         _pinPoseVersion = -1;
-        _pinScale = -1f;
         _rigLocalPinValid = false;
         _pinHousekeepingMove = null;
     }
@@ -1219,9 +1218,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// the pinned pose was authored against a DIFFERENT origin and must be carried along.</summary>
     private int _pinPoseVersion = -1;
 
-    /// <summary>Last pin-holder scale we asserted, so the re-assert is a cheap compare per frame.</summary>
-    private float _pinScale = -1f;
-
     /// <summary>Pending SANCTIONED-move label from <see cref="SyncPinHolder"/>, null when it wrote
     /// nothing. The pin housekeeping legitimately changes the board's PARENT-LOCAL pose (the holder
     /// rescale) or its world pose (the tracking-origin carry), and CardsDriver's issue-C pose watch
@@ -1404,19 +1400,21 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         _pinPoseVersion = version;
 
-        // (1) scale drift — re-assert the holder scale, preserving the tray's world pose.
-        Transform? scaleRef = rig != null ? rig : _anchorParent;
-        float live = scaleRef != null ? scaleRef.lossyScale.x : 1f;
-        if (live > 1e-4f && !Mathf.Approximately(live, _pinScale))
-        {
-            Vector3 pos = _root.position;
-            Quaternion rot = _root.rotation;
-            _pinRoot.localScale = Vector3.one * live;
-            _root.SetPositionAndRotation(pos, rot); // world pose unchanged by the holder rescale
-            if (_pinScale > 0f)
-                _pinHousekeepingMove ??= "pin holder rescaled to the live rig scale (world pose preserved)";
-            _pinScale = live;
-        }
+        // (1) NO live holder rescale. An earlier cut of this housekeeping re-asserted
+        // _pinRoot.localScale from the LIVE rig scale every frame, on the theory that a world-grab
+        // zoom would otherwise drift the pinned board. That theory was wrong twice over:
+        //   * it cannot drift. The holder sits at the world ORIGIN with identity rotation and a
+        //     scale baked once at pin time (ApplyFollowMode); it is NOT parented under the rig, so
+        //     rescaling the rig cannot move or resize anything underneath it.
+        //   * the rescale itself was the bug the tester then reported ("world zoom zooms the
+        //     pinned control board too — that must not happen, the board is scaled independently
+        //     by the player"). With the holder tracking the rig, the board's WORLD size grows with
+        //     the zoom while its world POSITION is held — so it swells on screen exactly as the
+        //     rest of the world shrinks. With the holder FIXED, world size and world distance are
+        //     both constant, so a pinned board is completely unaffected by zoom, which is the
+        //     whole point of pinning it. Board size stays what the player dialled in (BoardScale /
+        //     the two-hand resize), and nothing else.
+        // The holder scale is therefore written ONCE, by ApplyFollowMode, and left alone.
 
         // Re-cache the rig-relative pin pose every frame the origin is stable, so the NEXT
         // origin change has a fresh, correct offset to carry the board by.
