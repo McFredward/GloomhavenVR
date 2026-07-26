@@ -41,6 +41,7 @@ internal sealed class RemoteAvatar
     private readonly RemoteControlBoard _controlBoard;
     private readonly RemoteItemFan _itemFan;   // report 5: the peer's equipped-item fan
     private readonly RemoteCardFx _cardFx;     // report 6: replayed card animations
+    private readonly RemoteBrowserFan _browserFan; // the peer's discard/burnt pile-browse reading fan
 
     // Card-FX de-duplication. The event byte is re-sent for redundancy on the unreliable extras
     // stream, so the flight plays only when the SEQUENCE changes. _fxSeqInit exists because the
@@ -126,6 +127,24 @@ internal sealed class RemoteAvatar
     /// <summary>True when the hand-held item fan rides the sender's LEFT hand.</summary>
     public bool ItemFanLeftHand { get; private set; }
 
+    /// <summary>True while the sender has a control-board PILE BROWSER open (the "Abgelegt" /
+    /// "Verbrannt" reading fan). False for peers that predate the field — they simply show no fan.
+    /// Rendered by <see cref="RemoteBrowserFan"/> as backs only.</summary>
+    public bool PileBrowseOpen { get; private set; }
+
+    /// <summary>Which pile that browser reads (<see cref="NetProtocol.PileBrowseKindDiscard"/> /
+    /// <c>…Burnt</c> / <c>…Items</c>); meaningful only when <see cref="PileBrowseOpen"/>.</summary>
+    public byte PileBrowseKind { get; private set; }
+
+    /// <summary>How many cards are in that open browse fan (0 when closed).</summary>
+    public int PileBrowseCardCount { get; private set; }
+
+    /// <summary>True when that browse fan is a hand-held reading fan rather than board-anchored.</summary>
+    public bool PileBrowseHeld { get; private set; }
+
+    /// <summary>True when the hand-held browse fan rides the sender's LEFT hand.</summary>
+    public bool PileBrowseLeftHand { get; private set; }
+
     /// <summary>True when the sender's dominant hand is the RIGHT hand (default true).</summary>
     public bool DominantRight { get; private set; } = true;
 
@@ -191,6 +210,7 @@ internal sealed class RemoteAvatar
         _ghost = new HandGhost($"remote[{playerId}]");
         _itemFan = new RemoteItemFan(this);
         _cardFx = new RemoteCardFx(this);
+        _browserFan = new RemoteBrowserFan(this);
 
         VRLog.Info("Net", $"Remote avatar created for player {playerId}.");
     }
@@ -268,6 +288,17 @@ internal sealed class RemoteAvatar
         ItemFanHeld = p.HasItemFan && p.ItemFanHeld;
         ItemFanLeftHand = ItemFanHeld && p.ItemFanLeftHand;
 
+        // Pile browse (additive field, same reasoning as the item fan): an absent flag means the
+        // sender closed the fan OR predates the field — both mean "no fan", and the receiver's
+        // RemoteBrowserFan turns the open→closed transition into the collapse-into-the-stack
+        // animation. Because a DROPPED packet produces no SetExtras call at all, a lost packet can
+        // never be mistaken for a close; only a packet that really arrived without the flag can.
+        PileBrowseOpen = p.HasPileBrowse && p.PileBrowseCardCount > 0;
+        PileBrowseKind = PileBrowseOpen ? p.PileBrowseKind : (byte)0;
+        PileBrowseCardCount = PileBrowseOpen ? p.PileBrowseCardCount : 0;
+        PileBrowseHeld = PileBrowseOpen && p.PileBrowseHeld;
+        PileBrowseLeftHand = PileBrowseHeld && p.PileBrowseLeftHand;
+
         // Card FX (additive field): play ONLY on a sequence change (the same event is deliberately
         // re-sent for redundancy), and never on the first packet we ever see from this peer.
         if (p.HasCardFx)
@@ -332,6 +363,7 @@ internal sealed class RemoteAvatar
         _controlBoard.Tick(dt);
         _itemFan.Tick(dt);
         _cardFx.Tick(dt);
+        _browserFan.Tick(dt);
     }
 
     private static void UpdatePart(Transform holder, bool valid, in RigPose pose, float k)
@@ -417,6 +449,7 @@ internal sealed class RemoteAvatar
         _controlBoard.Destroy();
         _itemFan.Destroy();
         _cardFx.Destroy();
+        _browserFan.Destroy();
         if (_heldCardMesh != null)
             Object.Destroy(_heldCardMesh); // asset — not freed with the GameObject tree
         _heldCardMesh = null;

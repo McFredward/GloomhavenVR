@@ -159,6 +159,54 @@ internal static class NetProtocol
     /// would hang the fan off the wrong arm half the time.</summary>
     public const byte FlagItemFanLeft = 1 << 6;
 
+    /// <summary>
+    /// Extras packet: a 2-byte PILE-BROWSE block trails the packet — the sender has one of their
+    /// control-board pile browsers open (<c>Cards.PileBrowser</c>: the "Abgelegt" / "Verbrannt"
+    /// reading fan) and peers should render the same fan over that player's board or palm.
+    ///
+    /// WHY THE LAST FLAG BIT PLUS A PAYLOAD BLOCK, and not more flag bits: this is bit 7 — the LAST
+    /// free bit in the extras flag byte (bits 0..6 are hasBoard / dominantRight / ghostHand /
+    /// itemFan / itemFanHeld / cardFx / itemFanLeft). The state to express is "which of three piles"
+    /// plus "how many cards" plus "held in which hand", which is far more than one bit; so the bit
+    /// says only PRESENT, and everything else moves into trailing payload bytes where there is no
+    /// scarcity. Spending the last bit on a block header rather than on a single boolean is what
+    /// keeps the packet extensible: any future extras field can be appended INSIDE this block's
+    /// reserved bits instead of needing a wire-version bump.
+    ///
+    /// LAYOUT (2 bytes, appended LAST because bit 7 is the highest flag bit — see the additive
+    /// block contract in <c>PresenceState</c>):
+    ///   byte A: bits0..1 pile kind (<see cref="PileBrowseKindDiscard"/> /
+    ///           <see cref="PileBrowseKindBurnt"/> / <see cref="PileBrowseKindItems"/>),
+    ///           bit2 hand-held (else board-anchored), bit3 held in the LEFT hand, bits4..7 reserved (0)
+    ///   byte B: card count in the fan (0..255, clamped)
+    ///
+    /// ADDITIVE and backward-compatible exactly like every block before it: appended behind every
+    /// field a pre-existing reader knows, and such a reader validates only the length ITS OWN known
+    /// flags demand — so it parses the packet unchanged, ignores this bit and these two bytes, and
+    /// simply shows no browse fan. No version bump in either direction.
+    /// </summary>
+    public const byte FlagPileBrowse = 1 << 7;
+
+    /// <summary>Pile-browse block, byte A bits 0..1: the DISCARD ("Abgelegt") pile. Wire constants —
+    /// they mirror <c>Cards.PileKind</c>'s member order; append only, never renumber.</summary>
+    public const byte PileBrowseKindDiscard = 0;
+
+    /// <summary>Pile-browse block, byte A bits 0..1: the BURNT ("Verbrannt") pile.</summary>
+    public const byte PileBrowseKindBurnt = 1;
+
+    /// <summary>Pile-browse block, byte A bits 0..1: the ITEMS ("Gegenstände") pile. Currently the
+    /// item fan rides its OWN older flag (<see cref="FlagItemFan"/>, which also carries the held-hand
+    /// bits and predates this block), so a sender never emits this value today — the receiver still
+    /// understands it, so a later unification of the two fans needs no wire change.</summary>
+    public const byte PileBrowseKindItems = 2;
+
+    /// <summary>Pile-browse block, byte A bit 2: the fan is a HAND-HELD reading fan pinned to the
+    /// grabbing palm (pinch-grabbed the stack) rather than floating above the sender's board.</summary>
+    public const byte PileBrowseHeldBit = 1 << 2;
+
+    /// <summary>Pile-browse block, byte A bit 3: that hand-held fan rides the sender's LEFT hand.</summary>
+    public const byte PileBrowseLeftBit = 1 << 3;
+
     /// <summary>How long a remote card-FX flight takes (seconds) — matched to the LOCAL
     /// <c>CardsDriver.FlyToPileSeconds</c> so a peer's flight lasts as long as the real one.</summary>
     public const float CardFxSeconds = 0.4f;

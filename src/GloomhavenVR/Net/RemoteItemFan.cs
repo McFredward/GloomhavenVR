@@ -51,10 +51,26 @@ internal sealed class RemoteItemFan
     private int _loggedCount = -1;
     private bool _loggedHeld;
 
-    // Fan-out reveal, identical to RemoteHandFan's (the local ItemsPile.EmergeAll flies the chips
-    // OUT of the stack on open — a peer must see a fan SPREAD, not a fan pop into existence).
-    private float _openElapsed = -1f;
-    private const float OpenSeconds = 0.22f;
+    // ---- emerge / collapse (the peer-visible "Auf- und Zuklappen" of the item Fach) ------------
+    // The local fan does BOTH: ItemsPile.EmergeAll seeds every chip ON the items stack at 0.35×
+    // size and lets the chip's own home-glide fly it out into the arc, and ItemsPile.CollapseChips
+    // glides every chip back INTO that stack over ItemChip.CollapseSeconds before it dies. This
+    // ghost used to do neither properly — it spread from its own centre and then vanished instantly
+    // on close — so a peer never saw the fan close AT ALL, it just blinked out.
+    //
+    // Driven, like RemoteBrowserFan's, off the RECEIVER'S state transition (count 0↔N) rather than
+    // off an event: the receiver already knows the sender's board pose and therefore where their
+    // ITEMS stack is (RemoteControlBoard.AnchorLocal), so both arcs replay locally for zero extra
+    // wire bytes. Timings match the local ones so both players see the same motion.
+    private float _emergeElapsed = -1f;
+    private const float EmergeSharpness = 14f;        // [Cards] CardLerpSpeed default — the chip home-glide
+    private const float EmergeSettleSeconds = 0.7f;
+    private const float EmergeSeedScale = 0.35f;      // ItemChip.BeginEmerge's seed size
+    private const float CollapseSeconds = 0.26f;      // ItemsPile.ItemChip.CollapseSeconds
+
+    private float _collapseElapsed = -1f;
+    private Vector3 _collapseTo;
+    private readonly List<Vector3> _collapseFrom = new(MaxCards);
 
     public RemoteItemFan(RemoteAvatar owner)
     {
@@ -63,10 +79,28 @@ internal sealed class RemoteItemFan
 
     public void Tick(float dt)
     {
-        int count = Mathf.Clamp(_owner.ItemCardCount, 0, MaxCards);
-        if (count == 0 || !TryResolvePose(out Vector3 target, out Quaternion rot))
+        dt = Mathf.Max(dt, 0f);
+
+        // A collapse (the fan closing) runs to completion on its own — the count already went to 0,
+        // so this is the only thing keeping the chips on screen.
+        if (_collapseElapsed >= 0f)
         {
-            Hide();
+            TickCollapse(dt);
+            return;
+        }
+
+        int count = Mathf.Clamp(_owner.ItemCardCount, 0, MaxCards);
+        if (count == 0)
+        {
+            // Close edge: prefer the collapse-into-the-stack glide; BeginCollapse returns false when
+            // there is nothing up or no stack to aim at, and only then do we blink out as before.
+            if (!BeginCollapse())
+                Hide();
+            return;
+        }
+        if (!TryResolvePose(out Vector3 target, out Quaternion rot))
+        {
+            Hide(); // holding hand not tracked / no board pose — no anchor, so nothing to show
             return;
         }
 
@@ -84,7 +118,8 @@ internal sealed class RemoteItemFan
         {
             _root.SetActive(true);
             _poseInit = true;   // snap on the frame we appear, never ease in from a stale pose
-            _openElapsed = 0f;  // …but the chips fan OUT of the centre stack
+            _root.transform.SetPositionAndRotation(target, rot);
+            SeedEmerge();       // …and the chips fly OUT of the sender's ITEMS stack, like the local fan
         }
 
         Transform t = _root.transform;
@@ -149,20 +184,22 @@ internal sealed class RemoteItemFan
     }
 
     /// <summary>Arc the slabs in fan-local space — the same reading arc <see cref="ItemsPile"/>
-    /// lays its chips out on (capped sweep, capped per-card step, z-staggered for draw order).</summary>
+    /// lays its chips out on (capped sweep, capped per-card step, z-staggered for draw order),
+    /// easing out of the <see cref="SeedEmerge"/> seed on the same exponential the local chips
+    /// home-glide on.</summary>
     private void Layout(int n, float dt)
     {
         float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
-        float blend = 1f;
-        if (_openElapsed >= 0f)
+        bool easing = _emergeElapsed >= 0f;
+        float k = 0f;
+        if (easing)
         {
-            _openElapsed += Mathf.Max(dt, 0f);
-            float u = OpenSeconds > 0f ? Mathf.Clamp01(_openElapsed / OpenSeconds) : 1f;
-            blend = u * u * (3f - 2f * u);
-            if (u >= 1f)
-                _openElapsed = -1f;
+            _emergeElapsed += dt;
+            k = 1f - Mathf.Exp(-EmergeSharpness * dt);
+            if (_emergeElapsed >= EmergeSettleSeconds)
+                _emergeElapsed = -1f; // settled: assert the slots exactly from here on
         }
 
         for (int i = 0; i < _cards.Count; i++)
@@ -171,15 +208,104 @@ internal sealed class RemoteItemFan
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * Radius, (Mathf.Cos(rad) - 1f) * Radius, -ZStagger * i);
             Quaternion rot = Quaternion.Euler(0f, 0f, -angle);
-            if (blend < 1f)
-            {
-                pos = Vector3.Lerp(new Vector3(0f, 0f, -ZStagger * i), pos, blend);
-                rot = Quaternion.Slerp(Quaternion.identity, rot, blend);
-            }
             Transform t = _cards[i].transform;
-            t.localPosition = pos;
-            t.localRotation = rot;
+            if (easing)
+            {
+                t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
+                t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
+                t.localScale = Vector3.Lerp(t.localScale, Vector3.one, k);
+            }
+            else
+            {
+                t.localPosition = pos;
+                t.localRotation = rot;
+                t.localScale = Vector3.one;
+            }
         }
+    }
+
+    // ------------------------------------------------------------------ emerge / collapse --
+
+    /// <summary>
+    /// Seed every chip ON the sender's ITEMS stack at <see cref="EmergeSeedScale"/> size so the ease
+    /// in <see cref="Layout"/> flies them OUT of the pile — the wire-free replay of
+    /// <c>ItemsPile.EmergeAll</c> + <c>ItemChip.BeginEmerge</c>. Falls back to the fan centre when
+    /// the sender's board pose is unknown, so the worst case is a spread-open, never a pop-in.
+    /// </summary>
+    private void SeedEmerge()
+    {
+        if (_root == null)
+            return;
+        Vector3 seedLocal = Vector3.zero;
+        if (TryItemStackWorld(out Vector3 stackWorld))
+            seedLocal = _root.transform.InverseTransformPoint(stackWorld);
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            Transform t = _cards[i].transform;
+            t.localPosition = seedLocal + new Vector3(0f, 0f, -ZStagger * i); // keep the draw order stable
+            t.localRotation = Quaternion.identity;
+            t.localScale = Vector3.one * EmergeSeedScale;
+        }
+        _emergeElapsed = 0f;
+    }
+
+    /// <summary>
+    /// Close edge: glide every chip back INTO the sender's items stack over
+    /// <see cref="CollapseSeconds"/> instead of blinking the fan out — the replay of
+    /// <c>ItemsPile.CollapseChips</c>. The root pose is frozen for the duration and the chips are
+    /// driven in WORLD space, mirroring how the local chips are re-parented out of the fan root
+    /// before they glide. Returns false (caller hides instantly) when there is nothing to collapse
+    /// or no stack to collapse into.
+    /// </summary>
+    private bool BeginCollapse()
+    {
+        if (_root == null || !_root.activeSelf || _cards.Count == 0)
+            return false;
+        if (!TryItemStackWorld(out Vector3 stackWorld))
+            return false;
+
+        _emergeElapsed = -1f;
+        _collapseTo = stackWorld;
+        _collapseFrom.Clear();
+        for (int i = 0; i < _cards.Count; i++)
+            _collapseFrom.Add(_cards[i].transform.position);
+        _collapseElapsed = 0f;
+
+        VRLog.Info("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: closing — {_cards.Count} item card(s) " +
+                          $"collapse back into their items stack ({CollapseSeconds:F2}s), matching the local fan.");
+        _loggedCount = 0; // Hide's own "closed" line is redundant with this one
+        return true;
+    }
+
+    private void TickCollapse(float dt)
+    {
+        _collapseElapsed += dt;
+        float u = Mathf.Clamp01(_collapseElapsed / CollapseSeconds);
+        float e = u * u * (3f - 2f * u);
+        for (int i = 0; i < _cards.Count && i < _collapseFrom.Count; i++)
+        {
+            Transform t = _cards[i].transform;
+            t.position = Vector3.Lerp(_collapseFrom[i], _collapseTo, e);
+            t.localScale = Vector3.one * Mathf.Lerp(1f, EmergeSeedScale, e);
+        }
+        if (u < 1f)
+            return;
+        _collapseElapsed = -1f;
+        Hide();
+    }
+
+    /// <summary>World position of the sender's ITEMS stack, resolved through the SHARED board-local
+    /// stack layout against their own synced board pose — the point the chips emerge from and
+    /// collapse into, wherever that player parked their board.</summary>
+    private bool TryItemStackWorld(out Vector3 world)
+    {
+        world = default;
+        if (!_owner.HasBoard)
+            return false;
+        float bs = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+        world = _owner.BoardPosition
+                + _owner.BoardRotation * (RemoteControlBoard.AnchorLocal(CardFxAnchor.Items) * bs);
+        return true;
     }
 
     private void EnsureRoot()
@@ -204,6 +330,7 @@ internal sealed class RemoteItemFan
                 Object.Destroy(_cards[i]);
         }
         _cards.Clear();
+        _collapseFrom.Clear(); // parallel to _cards — never let it outlive the slabs it indexed
 
         Material back = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)
@@ -231,12 +358,15 @@ internal sealed class RemoteItemFan
         }
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
-        _openElapsed = -1f; // next appearance fans out again
+        _emergeElapsed = -1f;   // next appearance emerges out of the stack again
+        _collapseElapsed = -1f;
+        _collapseFrom.Clear();
     }
 
     public void Destroy()
     {
         _cards.Clear();
+        _collapseFrom.Clear();
         _builtCount = -1;
         if (_mesh != null)
             Object.Destroy(_mesh); // asset — not freed with the GameObject tree

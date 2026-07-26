@@ -113,6 +113,21 @@ internal sealed class PileBrowser
     /// <summary>Held-fan mode (grabbed a pile): the arc follows the grabbing hand.</summary>
     internal bool IsHandHeld => _followHand != null;
 
+    /// <summary>Which hand a HELD reading fan is pinned to — the receiver cannot guess it (either
+    /// hand may pinch-grab a stack) so it rides the wire. Mirrors <see cref="ItemsPile.IsHeldByLeftHand"/>.</summary>
+    internal bool IsHeldByLeftHand => _followHand != null && _followHand.Side == HandSide.Left;
+
+    /// <summary>
+    /// The OPEN pile browser, or null while every pile fan is closed. Exists for exactly one
+    /// reason: the multiplayer extras sender (<c>Net.NetAvatarDriver.TickExtrasSend</c>) has to
+    /// answer "does this player have a pile fan up, which pile, how many cards" once per extras
+    /// packet, and the browser instance itself is a private field of <c>CardsDriver</c>. Publishing
+    /// a static here is the same seam <see cref="ItemsPile.Current"/> and <see cref="CardFan.Current"/>
+    /// already use, and it keeps the Net layer from reaching into the Cards driver's privates.
+    /// Purely a read seam — nothing mutates the browser through it.
+    /// </summary>
+    internal static PileBrowser? Current { get; private set; }
+
     internal bool Contains(VRCard card) => _cards.Contains(card);
 
     /// <summary>Requirement 2 (collapse-on-close): the cards currently in the arc, so CardsDriver can
@@ -168,6 +183,7 @@ internal sealed class PileBrowser
         _root.gameObject.SetActive(true);
         Kind = kind;
         IsOpen = true;
+        Current = this; // publish to the multiplayer extras sender (see Current's doc comment)
         if (followHand != null)
             Tick(); // place immediately near the holding hand
         else if (boardRoot != null)
@@ -182,6 +198,8 @@ internal sealed class PileBrowser
     {
         IsOpen = false;
         Kind = null;
+        if (ReferenceEquals(Current, this))
+            Current = null; // unpublish: the extras sender stops advertising the fan this frame
         _followHand = null;
         _boardAnchored = false;
         ClearHandSweep(); // drop any hand-sweep lift + suppression before the cards are released
@@ -196,6 +214,8 @@ internal sealed class PileBrowser
         _cards.Clear();
         IsOpen = false;
         Kind = null;
+        if (ReferenceEquals(Current, this))
+            Current = null;
         _followHand = null;
         _boardAnchored = false;
         if (_root != null)

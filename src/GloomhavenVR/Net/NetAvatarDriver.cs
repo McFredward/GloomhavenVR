@@ -44,6 +44,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentHandCount = -1;
     private int _lastSentItemCount = -1;
 
+    // Pile-browse (Abgelegt / Verbrannt reading fan): the last broadcast (kind, count) so opening,
+    // switching and closing a browser also pre-empts the 5 Hz gate — the fan's EMERGE animation is
+    // driven by the receiver's open transition, so a late packet would show the emerge after the
+    // owner already finished reading. -1 = no browser open.
+    private int _lastSentBrowseKind = -1;
+    private int _lastSentBrowseCount = -1;
+    private bool _loggedBrowseOpen;
+
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
@@ -139,7 +147,24 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         ItemsPile? itemsNow = ItemsPile.Current;
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;
-        if (_extrasAccumulator < interval && !fxPending && !countsChanged)
+
+        // PILE BROWSE (user request "Auf-/Zuklappen der Fächer im Multiplayer"): the discard/burnt
+        // reading fan. Read through the PileBrowser.Current seam — the browser instance itself is a
+        // private of CardsDriver. Gated on Count > 0 because the arc's content only fills in the
+        // driver's NEXT rebuild pass: a zero-card block would make the peer emerge an empty fan and
+        // then emerge it AGAIN one frame later when the cards arrive.
+        PileBrowser? browseNow = PileBrowser.Current;
+        int browseKind = browseNow != null && browseNow.IsOpen && browseNow.Kind.HasValue
+                         && browseNow.Cards.Count > 0
+            ? (int)browseNow.Kind.Value
+            : -1;
+        int browseCount = browseKind >= 0 ? browseNow!.Cards.Count : -1;
+        // Open, CLOSE and pile-switch are all state EDGES the receiver animates, so every one of
+        // them pre-empts the rate gate exactly like a card-FX event does. Two extra bytes on a
+        // human-paced action; it cannot become a stream.
+        bool browseChanged = browseKind != _lastSentBrowseKind || browseCount != _lastSentBrowseCount;
+
+        if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -182,6 +207,41 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.ItemFanHeld = itemsNow != null && itemsNow.IsHandHeld;
             extras.ItemFanLeftHand = itemsNow != null && itemsNow.IsHeldByLeftHand;
         }
+
+        // PILE BROWSE block (additive FlagPileBrowse, the LAST free extras flag bit): which pile the
+        // sender has open, how many cards the arc holds, and whether it is a hand-held reading fan.
+        // Count + placement only — the receiver renders BACKS, so no card identity rides the wire,
+        // exactly like the hand and item fans. Note the mutual exclusion the Cards layer already
+        // enforces (PileViewer.ItemsOpening / DispatchPoke close the other fan): at most ONE pile
+        // fan is ever open, so this block and FlagItemFan can never both describe a fan at once.
+        if (browseKind >= 0)
+        {
+            extras.HasPileBrowse = true;
+            extras.PileBrowseKind = (byte)browseKind;   // PileKind order == PileBrowseKind* wire order
+            extras.PileBrowseCardCount = (byte)Mathf.Clamp(browseCount, 0, 255);
+            extras.PileBrowseHeld = browseNow!.IsHandHeld;
+            extras.PileBrowseLeftHand = browseNow.IsHeldByLeftHand;
+        }
+        // One log per OPEN/CLOSE/switch edge (never per packet) so a hardware log can prove each of
+        // the three piles going out on the wire.
+        if (browseChanged)
+        {
+            if (browseKind >= 0)
+            {
+                VRLog.Info("Net", $"Pile-browse SENT: {(PileKind)browseKind} fan open, {browseCount} card(s), " +
+                                  $"{(extras.PileBrowseHeld ? $"held in the {(extras.PileBrowseLeftHand ? "LEFT" : "RIGHT")} hand" : "anchored above the board")} " +
+                                  "— backs only (2-byte additive block, flag bit 7).");
+                _loggedBrowseOpen = true;
+            }
+            else if (_loggedBrowseOpen)
+            {
+                _loggedBrowseOpen = false;
+                VRLog.Info("Net", $"Pile-browse SENT: closed (was {(PileKind)_lastSentBrowseKind}) " +
+                                  "— peers collapse the fan back into that stack.");
+            }
+        }
+        _lastSentBrowseKind = browseKind;
+        _lastSentBrowseCount = browseCount;
 
         // CARD-FX event (report 6): pop at most one queued animation per packet and stamp it with a
         // fresh sequence. When nothing is queued the LAST event is re-sent unchanged — deliberate
