@@ -52,7 +52,9 @@ namespace GloomhavenVR.WorldUI;
 /// Scale sanity (I2): world scale = <see cref="WorldUIConfig.CanvasScaleMm"/> (mm per
 /// uGUI pixel, default 1) × 0.001 × diorama scale × 0.5 — half the panel framework's
 /// meters-per-pixel (CanvasConversion.cs: <c>metersPerPixel = CanvasScaleMm * 0.001f</c>)
-/// so a ~400 px tooltip reads ~20 cm at arm's length instead of 40.
+/// so a ~400 px tooltip reads ~20 cm at arm's length instead of 40 — times the user's live
+/// <see cref="WorldUIConfig.HoverInfoScale"/> dial (normalized against its default, so 1× at
+/// the factory value; see the LateTick comment).
 ///
 /// Verified via ilspycmd (GH.Runtime.dll): <c>CanvasManager</c> holds
 /// <c>[SerializeField] private Canvas tooltipCanvas;</c> (publicized) and only
@@ -212,7 +214,18 @@ internal sealed class WorldTooltips
         // Scale WITH THE BOARD (user #7a): the control board's live lossy scale (diorama ×
         // tray-grab resize) when it exists, else the diorama scale (menu / no-tray fallback).
         float scale = ResolveWorldScale();
-        Vector3 worldScale = Vector3.one * (WorldUIConfig.CanvasScaleMm.Value * 0.001f * scale * 0.5f);
+        // USER SIZE DIAL ("Infotafel-Größe", Anzeige): one factor for every mouseover info panel.
+        // The prop/text hover cards apply it as their ABSOLUTE world factor (its default IS their
+        // old hard-coded 0.6), so here it is NORMALIZED against that same default — at the factory
+        // value the term is exactly 1 and this canvas keeps its established metres-per-pixel
+        // (CanvasScaleMm × 0.001 × board scale × 0.5), i.e. nothing changes until the user tunes
+        // the dial, and one stepper then scales BOTH families of hover panels by the same ratio.
+        // Read every tick (like CanvasScaleMm above) so a stepper nudge resizes the SHOWN tooltip
+        // immediately; the anchor math measures the tooltip's own world corners afterwards, so the
+        // "clearly above the board top edge" placement re-derives itself from the NEW size for free.
+        float sizeDial = WorldUIConfig.HoverInfoScaleLive() / WorldUIConfig.DefaultHoverInfoScale;
+        Vector3 worldScale =
+            Vector3.one * (WorldUIConfig.CanvasScaleMm.Value * 0.001f * scale * 0.5f * sizeDial);
 
         if (!_converted)
         {

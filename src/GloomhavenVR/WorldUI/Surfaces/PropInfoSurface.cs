@@ -185,13 +185,28 @@ internal sealed class PropInfoSurface
         }
     }
 
-    /// <summary>Dock at the PropInfo layout slot (low in view, near the player edge).</summary>
+    /// <summary>
+    /// Dock at the PropInfo layout slot (low in view, near the player edge), sized by the
+    /// user's live "Infotafel-Größe" dial.
+    ///
+    /// The 0.6 that used to be hard-coded here is now the DEFAULT of
+    /// <see cref="WorldUIConfig.HoverInfoScale"/> (<see cref="WorldUIConfig.DefaultHoverInfoScale"/>),
+    /// so the factory value reproduces the previous size exactly. It is read HERE, on every
+    /// placement tick (this method runs per frame while a panel is converted — see
+    /// <see cref="TickWatch"/>), instead of being captured at conversion time: that is what makes
+    /// the stepper apply LIVE to an ALREADY SHOWN hover card, not just to the next hover.
+    /// <see cref="CanvasConversion.PlaceHost"/> multiplies it into the host's uniform localScale
+    /// (metres-per-pixel × this), so the whole panel — frame, text, icons — zooms as one; nothing
+    /// re-wraps and no rect is rewritten, which keeps the mutation trivially reversible on release
+    /// and keeps the card readable at any board scale / distance.
+    /// </summary>
     private static void PlaceWatch(Watch watch)
     {
         if (watch.Panel == null)
             return;
         if (PanelLayout.TryGetPose(PanelSlot.PropInfo, out Vector3 pos, out Quaternion rot))
-            CanvasConversion.PlaceHost(watch.Panel, pos, rot, PanelLayout.WorldScale * 0.6f);
+            CanvasConversion.PlaceHost(watch.Panel, pos, rot,
+                PanelLayout.WorldScale * WorldUIConfig.HoverInfoScaleLive());
     }
 
     private static void Release(Watch watch)

@@ -187,6 +187,10 @@ internal static class Loc
         ["control_board"] = Pair("Control board", "Kontrollbrett"),
         ["display"] = Pair("Display", "Anzeige"),
         ["show_combat_log"] = Pair("Show combat log", "Kampflog anzeigen"),
+        // Size dial for the mouseover info panels ("2 Gold", "Geschlossene Tür", …) — the German
+        // wording mirrors the user's own term ("Infotafeln"), the English one names them as the
+        // hover info cards they are.
+        ["hover_info_size"] = Pair("Info panel size", "Infotafel-Größe"),
         ["mixed_reality"] = Pair("Mixed Reality", "Mixed Reality"),
         ["key_color"] = Pair("Key color", "Key-Farbe"),
         ["debug_board_tuning"] = Pair("Debug — Board tuning", "Debug — Board-Justierung"),

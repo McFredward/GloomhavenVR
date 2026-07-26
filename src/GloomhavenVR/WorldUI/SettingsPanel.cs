@@ -896,6 +896,26 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             () => WorldUIConfig.ActionElementHints.Value,
             v => WorldUIConfig.ActionElementHints.Value = v);
 
+        // User ("Ich will die Größe der Infotafeln, die beim Mouseover erscheinen, einstellen
+        // können"): SIZE of the hover info panels — the cards the game raises over a board field
+        // ("2 Gold", "Geschlossene Tür", chest/obstacle/trap/quest item) AND the element hint
+        // toggled right above, since both are the same mouseover-info family to the player. Lives
+        // here next to the hints toggle, the only other tooltip setting. GLOBAL (the panels ride no
+        // board — they dock at the PropInfo layout slot / above the board's measured top edge), so
+        // this is a flat "Anzeige" row, not a per-board Debug element. LIVE: PropInfoSurface and
+        // WorldTooltips both re-read [WorldUI] HoverInfoScale on every placement tick, so a shown
+        // panel resizes on the spot and the next hover comes up at the new size; BepInEx persists
+        // on set. 0.05 steps over the entry's 0.2-2 range, x readout like the other size steppers.
+        var hoverInfoRow = Row();
+        Label(hoverInfoRow, Loc.Mod("hover_info_size"), 16f, flexible: true);
+        MiniStepper(hoverInfoRow,
+            () => $"{WorldUIConfig.HoverInfoScale.Value:0.00}x",
+            d =>
+            {
+                ConfigEntry<float> e = WorldUIConfig.HoverInfoScale;
+                e.Value = Mathf.Clamp(e.Value + d * 0.05f, 0.2f, 2f);
+            });
+
         var startNote = Row(22f);
         Label(startNote, Loc.Mod("applies_next_start"), 12f, flexible: true);
 

@@ -64,6 +64,50 @@ internal static class WorldUIConfig
     internal static ConfigEntry<float> DecisionRowGapPx = null!;
 
     /// <summary>
+    /// User ("Ich will die Größe der Infotafeln, die beim Mouseover erscheinen, einstellen
+    /// können"): world SIZE factor of the hover INFO panels — the board-hover cards the game
+    /// raises through <c>UITextInfoPanel</c> ("2 Gold", "Geschlossene Tür", chest, obstacle,
+    /// pressure plate …) and <c>UIPropInfoPanel</c> (trap / quest item), plus the card-action
+    /// element hint on the tooltip canvas. Live-tunable in the debug menu (Anzeige →
+    /// Infotafel-Größe); read on every placement tick, so the panel resizes immediately /
+    /// at the latest on the next hover. Default <see cref="DefaultHoverInfoScale"/> = the
+    /// pre-existing hard-coded factor, so nothing changes until the dial is touched.
+    /// </summary>
+    internal static ConfigEntry<float> HoverInfoScale = null!;
+
+    /// <summary>
+    /// The hover-info size factor that was HARD-CODED before the dial existed
+    /// (<c>PropInfoSurface.PlaceWatch</c>: <c>PanelLayout.WorldScale * 0.6f</c>). It is the
+    /// entry's default AND the normalization base for the tooltip canvas in
+    /// <see cref="WorldTooltips"/>, so ONE dial scales every mouseover info panel and the
+    /// factory value reproduces today's sizes EXACTLY (0.6 / 0.6 = 1x on the tooltip path).
+    /// </summary>
+    internal const float DefaultHoverInfoScale = 0.6f;
+
+    /// <summary>Last hover-info factor we logged (change-dedup for the hardware log).</summary>
+    private static float _loggedHoverInfoScale = float.NaN;
+
+    /// <summary>
+    /// Read the live hover-info size factor AND log it once per CHANGE. Both consumers
+    /// (<see cref="Surfaces.PropInfoSurface"/> and <see cref="WorldTooltips"/>) read through
+    /// here every placement tick, so the log proves in the hardware log WHICH size was actually
+    /// applied to a shown panel — a value written into the cfg but never applied (panel not
+    /// converted, hints toggled off) produces no line. Deduped because the callers run per frame.
+    /// </summary>
+    internal static float HoverInfoScaleLive()
+    {
+        float v = HoverInfoScale.Value;
+        if (float.IsNaN(_loggedHoverInfoScale) || System.Math.Abs(v - _loggedHoverInfoScale) > 0.001f)
+        {
+            _loggedHoverInfoScale = v;
+            VRLog.Info("WorldUI",
+                $"Hover info panel size applied: {v:0.00}x (default {DefaultHoverInfoScale:0.00}x) — " +
+                "mouseover info panels (TextInfoPanel/PropInfoPanel) and the card element hint.");
+        }
+        return v;
+    }
+
+    /// <summary>
     /// User (hardware, "Die Gegnerinfo spawnt meist genau hinter dem Controllboard"): how far the
     /// enemy round reveal must clear the CONTROL BOARD's top edge, in real metres measured AT THE
     /// BOARD (the sight-line gap the player sees between the board's top edge and the bottom of
@@ -311,6 +355,21 @@ internal static class WorldUIConfig
             "bar is never overlapped (the block always sits at least its clearance below it). " +
             "Range 0-120.",
             new AcceptableValueRange<float>(0f, 120f)));
+        HoverInfoScale = _file.Bind("WorldUI", "HoverInfoScale", DefaultHoverInfoScale,
+            new ConfigDescription(
+                "SIZE factor of the hover INFO panels — the little cards the game raises while the " +
+                "pointer/fingertip hovers a board field ('2 Gold', 'Geschlossene Tür', chest, " +
+                "obstacle, pressure plate, trap, quest item …) plus the card-action element hint. " +
+                "The factor multiplies the panel's world scale, i.e. it scales the WHOLE panel " +
+                "(frame + text) uniformly on top of the diorama/board scale, so the hint keeps its " +
+                "proportions and stays readable at any board size and viewing distance — it is a " +
+                "zoom, not a re-layout, and the panel's placement (which is derived from its own " +
+                "measured extents) follows automatically. Default 0.6 = the size before this dial " +
+                "existed, so nothing changes until it is tuned; raise it if the hover cards read " +
+                "too small in the HMD. Live-tunable in the debug menu (Anzeige -> Infotafel-Größe): " +
+                "the value is read on every placement tick, so an open panel resizes immediately and " +
+                "the next hover comes up at the new size — no restart. Range 0.2-2.",
+                new AcceptableValueRange<float>(0.2f, 2f)));
         EnemyRevealBoardClearance = _file.Bind("WorldUI", "EnemyRevealBoardClearance", 0.10f,
             new ConfigDescription(
                 "How far the ENEMY ROUND REVEAL (the monster ability cards shown after everyone " +
