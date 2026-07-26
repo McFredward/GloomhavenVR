@@ -1116,8 +1116,6 @@ internal sealed class CardFan
         // hits the card the player is visibly aiming at. Nearest-hit + the sticky rule
         // still arbitrate overlaps, so widening every card cannot flip the winner.
         const float acceptMargin = 1.10f;
-        float halfW = CardsConfig.CardWidth.Value * 0.5f * acceptMargin;
-        float halfH = CardsConfig.CardHeight * 0.5f * acceptMargin;
 
         for (int i = 0; i < _cards.Count; i++)
         {
@@ -1125,18 +1123,29 @@ internal sealed class CardFan
             if (c == null || c.IsHeld || !c.gameObject.activeInHierarchy)
                 continue;
 
-            Transform t = c.transform;
+            // ROOT-CAUSE FIX (laser sticks ABOVE a raised card): intersect the card's
+            // RESTING rect, NOT its live transform. A laser-hovered card immediately pops
+            // toward the viewer + up, so a plane built from the live transform moved INTO
+            // the beam and latched the hover above the resting card — the board button
+            // beside it went unreachable and the trigger grabbed the card by mistake. The
+            // resting rect (VRCard.TryGetRestingLaserRect, world meters, pop excluded) makes
+            // the pop purely visual: leaving the rect drops the hover at once.
+            if (!c.TryGetRestingLaserRect(out Vector3 center, out Vector3 normal,
+                    out Vector3 rectRight, out Vector3 rectUp, out float halfW, out float halfH))
+                continue;
             // Cards face the viewer with -Z; a ray from the viewer travels along +Z.
-            float denom = Vector3.Dot(direction, t.forward);
+            float denom = Vector3.Dot(direction, normal);
             if (denom < 1e-5f)
                 continue;
-            float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+            float dist = Vector3.Dot(center - origin, normal) / denom;
             if (dist <= 0f)
                 continue;
 
             Vector3 hit = origin + direction * dist;
-            Vector3 local = t.InverseTransformPoint(hit); // scale-aware (pop growth included)
-            if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
+            Vector3 rel = hit - center; // in-plane offset from the resting card center (world meters)
+            float lx = Vector3.Dot(rel, rectRight);
+            float ly = Vector3.Dot(rel, rectUp);
+            if (Mathf.Abs(lx) > halfW * acceptMargin || Mathf.Abs(ly) > halfH * acceptMargin)
                 continue;
 
             if (ReferenceEquals(c, sticky))
