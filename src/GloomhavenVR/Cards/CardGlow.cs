@@ -58,4 +58,59 @@ internal static class CardGlow
         quad.SetActive(false);
         return quad;
     }
+
+    /// <summary>
+    /// Give a glow quad the calm "breathing" animation the board's wanted-slot hint wears
+    /// (verbatim math from <c>PlayTray.SlotPulse</c>: 3.2 rad/s, brightness 0.30 → 0.85), so an
+    /// attention cue reads as living light instead of a flat sticker. Extracted here so ANY
+    /// mod-owned glow (item-card usable rim, items-stack rim) can wear it without its owner
+    /// running a per-frame Update.
+    ///
+    /// WHY unscaled time (and why that matters here): every pulse is driven by the SAME global
+    /// clock, so N simultaneously-pulsing glows — e.g. three usable item cards in the fan —
+    /// breathe in PHASE and read as one coherent cue rather than as three competing flickers.
+    /// It also keeps breathing while the game pauses simulation time (modal dialogs, menus).
+    ///
+    /// Safe to call on any quad built by <see cref="CreateGlowQuad"/>: that factory hands each
+    /// quad its OWN material instance, so writing <c>sharedMaterial.color</c> here can never
+    /// bleed into another glow.
+    /// </summary>
+    internal static void AddPulse(GameObject quad, Color baseColor)
+    {
+        if (quad == null)
+            return;
+        var mr = quad.GetComponent<MeshRenderer>();
+        if (mr != null)
+            quad.AddComponent<GlowPulse>().Init(mr, baseColor);
+    }
+
+    /// <summary>Self-animated soft pulse for a glow quad (no owner Update). See <see cref="AddPulse"/>.</summary>
+    private sealed class GlowPulse : MonoBehaviour
+    {
+        private MeshRenderer? _renderer;
+        private Color _base;
+
+        internal void Init(MeshRenderer? renderer, Color baseColor)
+        {
+            _renderer = renderer;
+            _base = baseColor;
+        }
+
+        private void Update()
+        {
+            if (_renderer == null || _renderer.sharedMaterial == null)
+                return;
+            // The glow material uses the ADDITIVE Overlay shader (rgb IS the emitted brightness,
+            // alpha unused), so scale rgb by the breath; alpha is breathed too so the
+            // alpha-blended Sprites/Default fallback (Overlay bundle absent) still pulses.
+            float t = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3.2f);
+            float k = Mathf.Lerp(0.30f, 0.85f, t);
+            Color c = _base;
+            c.r *= k;
+            c.g *= k;
+            c.b *= k;
+            c.a = k;
+            _renderer.sharedMaterial.color = c;
+        }
+    }
 }
