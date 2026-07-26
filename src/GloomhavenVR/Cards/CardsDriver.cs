@@ -1760,18 +1760,47 @@ internal sealed class CardsDriver : MonoBehaviour
     private VRCard? _trayCardHover;
 
     /// <summary>
-    /// Does the ray actually cross <paramref name="card"/>'s face? Intersects the card's
-    /// RESTING rect (VRCard.TryGetRestingLaserRect — the hover pop excluded, so the raise can
-    /// never feed itself back into the hit test) and reports the world hit point. Used by the
-    /// lift-priority branch to decide whether it may clamp the beam at all.
+    /// Grazing-angle accept margin for the lift-priority hit test (mirrors CardFan.TryRaycast's
+    /// own margin). A card met at a shallow angle subtends almost nothing, so a few mm of
+    /// controller jitter is the difference between "dead centre" and "off the edge"; widening
+    /// the rect ~10 % cannot pick a different card here (the branch already knows WHICH card —
+    /// the palm-highlighted one — and only asks WHETHER the beam is on it).
     /// </summary>
-    private static bool TryHitRestingRect(VRCard card, Vector3 origin, Vector3 direction,
+    private const float LiftHitMargin = 1.10f;
+
+    /// <summary>
+    /// Does the ray cross <paramref name="card"/>'s face, and where? Tests the card WHERE IT
+    /// VISIBLY IS (live rect, pop included) and falls back to the resting rect, accepting
+    /// either.
+    ///
+    /// The live rect is the important one and used to be missing. This branch fires because the
+    /// PALM highlight lifted the card, so by the time it runs the card is visibly raised toward
+    /// the player — testing only the RESTING rect (which exists to break the laser-driven pop
+    /// feedback loop, a loop this branch does not have) asked whether the beam crosses a
+    /// rectangle the card has already left. At a flat angle that gap projects far along the view
+    /// direction, so the test failed while the reticle sat dead centre on the card: "the laser
+    /// goes straight through the card". Accepting BOTH poses keeps the card hittable throughout
+    /// the raise animation, when neither pose alone covers it.
+    /// </summary>
+    private static bool TryHitLiftedCard(VRCard card, Vector3 origin, Vector3 direction,
         out Vector3 point)
     {
+        if (card.TryGetLiveLaserRect(out Vector3 c, out Vector3 n, out Vector3 r, out Vector3 u,
+                out float hw, out float hh)
+            && TryHitRect(c, n, r, u, hw, hh, origin, direction, out point))
+            return true;
+        if (card.TryGetRestingLaserRect(out c, out n, out r, out u, out hw, out hh)
+            && TryHitRect(c, n, r, u, hw, hh, origin, direction, out point))
+            return true;
         point = default;
-        if (!card.TryGetRestingLaserRect(out Vector3 center, out Vector3 normal,
-                out Vector3 right, out Vector3 up, out float halfW, out float halfH))
-            return false;
+        return false;
+    }
+
+    /// <summary>Ray/rect intersection in world meters (same math as CardFan.TryRaycast).</summary>
+    private static bool TryHitRect(Vector3 center, Vector3 normal, Vector3 right, Vector3 up,
+        float halfW, float halfH, Vector3 origin, Vector3 direction, out Vector3 point)
+    {
+        point = default;
         float denom = Vector3.Dot(direction, normal); // cards face the viewer with −Z
         if (denom < 1e-5f)
             return false;
@@ -1780,7 +1809,8 @@ internal sealed class CardsDriver : MonoBehaviour
             return false;
         Vector3 hit = origin + direction * dist;
         Vector3 rel = hit - center;
-        if (Mathf.Abs(Vector3.Dot(rel, right)) > halfW || Mathf.Abs(Vector3.Dot(rel, up)) > halfH)
+        if (Mathf.Abs(Vector3.Dot(rel, right)) > halfW * LiftHitMargin
+            || Mathf.Abs(Vector3.Dot(rel, up)) > halfH * LiftHitMargin)
             return false;
         point = hit;
         return true;
@@ -1806,7 +1836,7 @@ internal sealed class CardsDriver : MonoBehaviour
         s_lastLiftOnCard = onCard;
         s_nextLiftPriorityLogAt = now + 2f;
         VRLog.Debug("Cards", $"Board laser: LIFT-PRIORITY owns the trigger for '{lifted.name}' " +
-            $"(palm highlight on a docked card) — beam {(onCard ? "clamped to the REAL ray/card hit" : "LEFT FREE (ray is off the card; far-click suppressed only)")}. " +
+            $"(palm highlight on a docked card) — beam {(onCard ? "clamped to the REAL ray/card hit (live or resting rect)" : "LEFT FREE (ray is off the card in BOTH poses; far-click suppressed only)")}. " +
             "The beam is never parked on the card centre any more (that was the phantom wall).");
     }
 
@@ -1872,7 +1902,7 @@ internal sealed class CardsDriver : MonoBehaviour
             && !dom.RayUgui.HasHit)
         {
             ClearBoardHover();
-            bool onCard = TryHitRestingRect(lifted, dom.Ray.Current.Origin,
+            bool onCard = TryHitLiftedCard(lifted, dom.Ray.Current.Origin,
                 dom.Ray.Current.Direction, out Vector3 liftedHit);
             if (onCard)
                 dom.Ray.UiHitOverride = liftedHit; // honest hit — beam lands ON the card

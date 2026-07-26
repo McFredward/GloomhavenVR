@@ -716,6 +716,35 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         return true;
     }
 
+    /// <summary>
+    /// The card's rect WHERE IT IS RIGHT NOW (live transform, pop included), world meters —
+    /// the twin of <see cref="TryGetRestingLaserRect"/>, for callers whose raise is NOT
+    /// laser-driven.
+    ///
+    /// The resting rect exists to break ONE feedback loop: laser hover raises the card, the
+    /// raise moves the plane into the beam, the beam re-hits it. That loop only exists where
+    /// the BEAM is what pops the card. Where the pop comes from somewhere else — the palm
+    /// proximity highlight lifting a docked card — there is no loop, and testing the resting
+    /// rect is simply wrong: the card is visibly lifted, so the player aims at the LIFTED card
+    /// and the resting rect sits behind/below it. At a flat angle that offset projects far
+    /// along the view direction, so the ray misses the rect entirely while the reticle looks
+    /// dead centre on the card — the "laser goes straight through the card at a flat angle"
+    /// report. Callers pop-driven by the hand use this; laser-driven picks keep the resting rect.
+    /// </summary>
+    internal bool TryGetLiveLaserRect(out Vector3 center, out Vector3 normal,
+        out Vector3 right, out Vector3 up, out float halfWidth, out float halfHeight)
+    {
+        Transform t = transform;
+        center = t.position;
+        right = t.right;
+        up = t.up;
+        normal = t.forward; // card +Z, away from the viewer (uGUI reads from −Z)
+        float lossy = t.lossyScale.x; // live world scale — the pop's grow is part of the target
+        halfWidth = CardsConfig.CardWidth.Value * 0.5f * lossy;
+        halfHeight = CardsConfig.CardHeight * 0.5f * lossy;
+        return halfWidth > 1e-5f && halfHeight > 1e-5f;
+    }
+
     /// <summary>Throttled diagnostic (shared across all cards): on laser hover-START, log the
     /// RESTING hit center the pick now uses vs the LIVE (about-to-pop) transform, so a
     /// hardware log verifies the laser rect no longer tracks the raise.</summary>
