@@ -1531,8 +1531,17 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private const float GenericButtonGap = 0.010f;
 
     /// <summary>
-    /// Item D: per-button side length for a generic cluster of <paramref name="count"/> buttons. A
-    /// pair (or single) keeps the full authored size; from 3 up each cap shrinks so the whole stack
+    /// SUPERSEDED (user: "der Use-Button soll genauso groß sein und sich nach den Werten richten,
+    /// die die generischen Buttons vorgegeben haben"). Every generic-cluster member — Confirm, Undo
+    /// and the item "Use" confirm alike — now keeps the tuned [BoardButtons] cap size at ANY count,
+    /// and the stack makes room by SPACING instead (see <see cref="GenericClusterY"/>). The old
+    /// auto-shrink meant a cluster changed size depending on how many members happened to be live,
+    /// so the moment Use appeared all three caps snapped to a smaller auto-fit square and none of
+    /// them matched the size the player had dialled in. Kept only for callers that still want the
+    /// old fit answer; nothing in the cluster path uses it.
+    ///
+    /// Item D (original): per-button side length for a generic cluster of <paramref name="count"/>
+    /// buttons. A pair (or single) keeps the full authored size; from 3 up each cap shrinks so the whole stack
     /// fits <see cref="GenericColumnHeight"/> (auto-scale from the count), floored so it stays pokeable.
     /// </summary>
     internal static float GenericClusterButtonSize(float baseSide, int count)
@@ -1544,18 +1553,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     }
 
     /// <summary>
-    /// Item D: local-Y of button <paramref name="index"/> in a top-to-bottom generic stack of
-    /// <paramref name="count"/>. At count ≤ 2 it reproduces the tuned ±<paramref name="spacing"/>/2
-    /// pair; at 3+ it distributes the members evenly across <see cref="GenericColumnHeight"/> so all fit.
+    /// Local-Y of button <paramref name="index"/> in a top-to-bottom generic stack of
+    /// <paramref name="count"/>, centred on the cluster anchor with the TUNED
+    /// <paramref name="spacing"/> as the step at every count. At count 2 this is exactly the old
+    /// ±spacing/2 pair, so nothing about the tuned Confirm/Undo layout changes.
+    ///
+    /// WHY the step is the tuned spacing and no longer <see cref="GenericColumnHeight"/>/(count−1):
+    /// the old form packed extra members into a FIXED column, which only works if the caps shrink
+    /// to match — and shrinking the caps is exactly what the user rejected ("the Use button should
+    /// be the same size and follow the values the generic buttons were given"). Sizes now come
+    /// purely from the [BoardButtons] tuning, so the stack has to grow instead of the caps
+    /// shrinking; growing it symmetrically keeps the cluster centred where the player placed it,
+    /// and both directions stay under the player's control through the same spacing/offset dials.
     /// </summary>
     internal static float GenericClusterY(int index, int count, float spacing)
     {
         if (count <= 1)
             return 0f;
-        if (count == 2)
-            return (index == 0 ? 0.5f : -0.5f) * spacing;
-        float step = GenericColumnHeight / (count - 1);
-        return GenericColumnHeight * 0.5f - index * step; // member 0 at the top, descending
+        return ((count - 1) * 0.5f - index) * spacing; // member 0 at the top, descending
     }
 
     /// <summary>PART F live-apply: move the discard/burn pile mount to a new per-board offset (instant).</summary>
@@ -1663,6 +1678,16 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// The per-board <see cref="CardsConfig.ItemUseSlotOffset"/> adds on top (debug-menu tunable).
     /// </summary>
     private static Vector3 ItemUseSlotBase => new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
+
+    /// <summary>Gap between the item-use recess's bottom edge and the "USE" caption's centre line
+    /// (tray-local metres). Big enough that the caption clears the glow rim (1.28× the card) as well
+    /// as the card itself, so nothing ever overlaps the clipped-in card — see BuildItemUseSlot.</summary>
+    private const float ItemUseLabelDrop = 0.026f;
+
+    /// <summary>Height budget the "USE" caption is fitted into — the strip BELOW the recess, not the
+    /// card's own height (see BuildItemUseSlot for why fitting it to the card height re-created the
+    /// overlap the drop is there to prevent).</summary>
+    private const float ItemUseLabelHeight = 0.030f;
 
     /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
     private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
@@ -2265,16 +2290,32 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             glowRenderer.sharedMaterial = _itemUseSlotGlow;
         glow.AddComponent<SlotPulse>().Init(glowRenderer, glowColor);
 
+        // "USE" caption, BELOW the recess — never across it.
+        //
+        // ROOT CAUSE of "der 'Use'-Text glitcht immer mal wieder vor die Karte und darunter": the
+        // caption used to sit at the slot's CENTRE (0, 0, −0.002), i.e. exactly where the clipped-in
+        // card lands, and a couple of millimetres proud of it. Two co-planar surfaces two millimetres
+        // apart, one of them a card whose face art and backing are pushed into a high render queue
+        // (CardMesh.HeldCardRenderQueue / VRCard's render-on-top), decide their order per FRAME and
+        // per VIEW ANGLE — so the text flickered in front of the card art and then behind it as the
+        // head moved. Nudging the z would only move the flicker.
+        //
+        // The fix is geometric, not a depth tweak: the caption is parked entirely OUTSIDE the card
+        // footprint, one half-card below the recess plus a margin, so there is no overlap left to
+        // fight over at any viewing angle. It is a label for the slot, and a slot's label belongs
+        // under it — which is also what the user asked for ("er soll fix unter der Karte bleiben").
         var labelGo = new GameObject("Label");
         labelGo.transform.SetParent(go.transform, worldPositionStays: false);
-        labelGo.transform.localPosition = new Vector3(0f, 0f, -0.002f); // viewer side (-Z)
+        labelGo.transform.localPosition = new Vector3(0f, -(h * 0.5f + ItemUseLabelDrop), -0.002f);
         var label = labelGo.AddComponent<TextMeshPro>();
         // "USE" — localized from the game's own use-item bar key, safe English fallback, uppercased.
         label.text = Core.Loc.Game("GUI_USE", "USE").ToUpperInvariant();
         label.alignment = TextAlignmentOptions.Center;
         label.color = new Color(1f, 0.92f, 0.72f);
         WorldUI.NativeButtonSkin.ApplyFont(label);
-        Core.TmpFit.Fit(label, w * 0.9f, h * 0.5f, maxFontSize: 0.16f, wrap: false);
+        // Fit into the strip BELOW the card, not into the card's own height — a box as tall as the
+        // card would let TMP grow the glyphs back up across the recess and undo the separation.
+        Core.TmpFit.Fit(label, w * 1.1f, ItemUseLabelHeight, maxFontSize: 0.16f, wrap: false);
 
         // Requirement 9a: the item "Use" confirm is no longer a bespoke keycap beside the slot — it is a
         // GENERIC cluster board button in the right-hand Confirm/Undo column (built in BuildButtons,
@@ -2929,8 +2970,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
         // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
         int count = GenericCount; // 2 (Confirm/Undo) or 3 while the item "Use" confirm is a cluster member
-        float baseSide = CardsConfig.ConfirmUndoSize(active).Value;
-        float side = GenericClusterButtonSize(baseSide, count);
+        // Cap size is the TUNED size at every count (user: "der Use-Button soll genauso groß sein und
+        // sich nach den Werten richten, die die generischen Buttons vorgegeben haben"). It used to be
+        // run through GenericClusterButtonSize, which shrank every cap once a third member joined — so
+        // the instant an item clipped into the use slot, Confirm and Undo silently resized too and the
+        // whole cluster stopped matching the dialled-in values. The stack now makes room by SPACING
+        // (GenericClusterY), which is itself a tuned value, so every member is exactly the size the
+        // player asked for and the geometry stays theirs.
+        float side = CardsConfig.ConfirmUndoSize(active).Value;
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
@@ -2941,9 +2988,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // numeric defaults (0.073 × 0.073 × 0.036 / 4 mm — no 0=Auto sentinel any more).
         // Round caps keep the per-board authored diameter (the square set does not apply).
         WorldUI.ButtonTuning.Bind();
-        // Square caps keep the tuned [BoardButtons] W×H for the 2-member pair; when the item "Use"
-        // confirm joins (count 3) they shrink to the auto-fit side so three members fit the column.
-        var rectSize = round || count > GenericButtonCount
+        // Square caps ALWAYS keep the tuned [BoardButtons] W×H, whatever the member count — the item
+        // "Use" confirm is built from the very same rectSize/depth/travel below, so it is identical
+        // to Confirm and Undo by construction and follows every tuning change with them.
+        var rectSize = round
             ? new Vector2(side, side)
             : new Vector2(WorldUI.ButtonTuning.BoardCapWidth, WorldUI.ButtonTuning.BoardCapHeight);
         float capDepth = WorldUI.ButtonTuning.BoardCapDepth;

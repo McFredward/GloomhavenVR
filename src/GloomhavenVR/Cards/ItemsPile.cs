@@ -755,6 +755,11 @@ internal sealed class ItemsPile
         _pendingUseChip = chip;
         chip.PendingUse = true;
         chip.CancelReleaseGlide(); // do NOT glide home — we clip into the slot instead
+        // Bolt it to the slot (see ClipIntoSlot): rigid by hierarchy, not chased by a lerp — the
+        // fan root billboards to the head, the slot does not, and chasing across that boundary is
+        // what made the clipped card swim behind head movement.
+        if (_root != null)
+            chip.ClipIntoSlot(slot, _root, ChipScale);
         PlayTray.Current?.SetItemUseSlotVisible(true);
         PlayTray.Current?.SetItemUseConfirmVisible(true, ConfirmPendingUse);
         vrHand.SendHaptic(HapticPreset.HoverTick);
@@ -785,20 +790,29 @@ internal sealed class ItemsPile
         // Invalidated: no longer this hand's action turn, or the item is no longer usable.
         if (!CardsGameApi.IsActionTurn(hand) || !chip.IsActivatable)
         {
+            UnclipChip(chip);   // back into the fan's frame BEFORE the fan-local glide starts
             chip.ReturnToFan(); // glide back to the fan (not held)
             CancelPendingUse("no longer usable");
             return;
         }
 
         PlayTray.Current?.SetItemUseSlotVisible(true);
+        // No per-frame pose work: the chip is a CHILD of the slot while clipped (ClipIntoSlot), so
+        // the hierarchy holds it exactly, whatever the head and the board do. Re-assert the parent
+        // only if something else stole it (a board rebuild re-creating the slot transform).
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
-        if (slot != null && _root != null)
-        {
-            Vector3 lp = _root.InverseTransformPoint(slot.position);
-            Quaternion lr = Quaternion.Inverse(_root.rotation) * slot.rotation;
-            chip.SetClipTarget(lp, lr, ChipScale);
-        }
+        if (slot != null && _root != null && chip.transform.parent != slot)
+            chip.ClipIntoSlot(slot, _root, ChipScale);
     }
+
+    /// <summary>
+    /// Take a clipped chip back out of the use-slot hierarchy and into the fan root, world pose
+    /// preserved (see <see cref="ItemChip.ClipIntoSlot"/> for why it was parented to the slot at all).
+    /// EVERY exit from the pending state routes through here — cancel, invalidation and the grab that
+    /// pulls the card back out — so the chip's fan-local home pose and glide are always evaluated in
+    /// the frame they were written for. No-op when the chip is not (or no longer) under the slot.
+    /// </summary>
+    internal void UnclipChip(ItemChip chip) => chip?.UnclipFromSlot(_root);
 
     /// <summary>Requirement 6 — drop the pending state + hide the Confirm button. Clears the chip's own
     /// PendingUse flag so a chip GRABBED back out glides home on release (instead of re-clipping); the
@@ -808,7 +822,10 @@ internal sealed class ItemsPile
         ItemChip? chip = _pendingUseChip;
         _pendingUseChip = null;
         if (chip != null)
+        {
+            UnclipChip(chip); // no-op when a grab already took it out of the slot hierarchy
             chip.PendingUse = false;
+        }
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
@@ -1006,13 +1023,12 @@ internal sealed class ItemsPile
         private const float CollapseSeconds = 0.26f;
 
         // Requirement 6 (clip-in decision): while a released usable chip is CLIPPED into the use slot
-        // awaiting a Confirm/cancel decision, PendingUse is set and the owner drives it to this clip
-        // target (root-local, so it rides the board billboard) each tick. The chip stays grabbable so
-        // the player can grab it BACK OUT to cancel (the #6 refinement); on release it glides to the fan.
+        // awaiting a Confirm/cancel decision, PendingUse is set and the chip is RE-PARENTED onto the
+        // slot (ClipIntoSlot) so the hierarchy holds it there rigidly — it used to be chased toward a
+        // per-tick target instead, which is what made it swim behind head movement. The chip stays
+        // grabbable so the player can grab it BACK OUT to cancel (the #6 refinement); the grab hands it
+        // back to the fan root first, so on release it glides to the fan as always.
         internal bool PendingUse { get; set; }
-        private Vector3 _clipPos;
-        private Quaternion _clipRot = Quaternion.identity;
-        private float _clipScale = 1f;
         private bool _hasClip;
 
         // Requirement 6 (use FX): after a CONFIRM the owner detaches the chip and plays a brief flourish
@@ -1594,14 +1610,50 @@ internal sealed class ItemsPile
                 _box.enabled = false;
         }
 
-        /// <summary>Requirement 6 — set the root-local pose the pending chip clips to (the use slot pose,
-        /// re-read each tick by the owner so it stays glued to the slot as the board billboards).</summary>
-        internal void SetClipTarget(Vector3 localPos, Quaternion localRot, float scale)
+        /// <summary>
+        /// Requirement 6 — BOLT the chip into the use slot: re-parent it onto the slot transform at an
+        /// exact zero local pose, so it is as rigid there as a played ability card is in a board recess.
+        ///
+        /// ROOT CAUSE of "wenn man mit dem Kopf wackelt, wackelt die Karte auch etwas und zieht nach":
+        /// the clipped chip stayed parented to the ITEMS-FAN root, and that root BILLBOARDS to the head
+        /// every frame (ItemsPile.Tick rewrites _root.rotation from the head direction). The slot,
+        /// meanwhile, is bolted to the board. So the owner re-derived the slot pose in fan-root local
+        /// space each tick and the chip chased it with an exponential lerp — a target that jumped with
+        /// every head movement, followed by something that only ever converges asymptotically. The card
+        /// could not help but swim behind the head.
+        ///
+        /// Re-parenting removes the chase entirely instead of tuning it: once the chip IS a child of the
+        /// slot, Unity's transform hierarchy holds it there for free, at zero cost and with no residual
+        /// error, however the head or the board moves. The world SIZE is preserved across the re-parent
+        /// by dividing the fan's world scale out of the chip's local scale, since the two parents sit at
+        /// different points in the board's scale chain.
+        /// </summary>
+        internal void ClipIntoSlot(Transform slot, Transform fanRoot, float fanLocalScale)
         {
-            _clipPos = localPos;
-            _clipRot = localRot;
-            _clipScale = scale;
-            _hasClip = true;
+            if (slot == null)
+                return;
+            _hasClip = false;   // no chase target any more — the hierarchy owns the pose
+            _releaseGlide = 0f; // and no glide may fight the parent
+            transform.SetParent(slot, worldPositionStays: false);
+            transform.localPosition = Vector3.zero;
+            transform.localRotation = Quaternion.identity;
+            float fan = fanRoot != null ? fanRoot.lossyScale.x : 1f;
+            float host = slot.lossyScale.x;
+            float ratio = host > 1e-5f ? fan / host : 1f;
+            transform.localScale = Vector3.one * (fanLocalScale * ratio);
+        }
+
+        /// <summary>
+        /// Requirement 6 — take the chip back OUT of the slot hierarchy and hand it to
+        /// <paramref name="fanRoot"/> again, KEEPING its current world pose so nothing jumps. Every exit
+        /// from the pending state goes through this (cancel, invalidation, confirm), so the chip's
+        /// fan-local home pose, glide-home and use-flourish all run in the frame they were written for.
+        /// </summary>
+        internal void UnclipFromSlot(Transform? fanRoot)
+        {
+            if (fanRoot == null || transform.parent == fanRoot)
+                return;
+            transform.SetParent(fanRoot, worldPositionStays: true);
         }
 
         /// <summary>Requirement 6 — cancel the post-release glide-home (used when a drop CLIPS into the
@@ -1717,6 +1769,13 @@ internal sealed class ItemsPile
 
         public override void OnGrab(VRHand hand)
         {
+            // Leave the use slot BEFORE the base records the pre-grab parent. A clipped chip is a
+            // CHILD of the slot (ClipIntoSlot), and base.OnRelease restores exactly the parent it saw
+            // here — so grabbing a clipped card and dropping it elsewhere would have put it back under
+            // the SLOT while its glide-home target (_homePos) is fan-root local. Handing it to the fan
+            // root first (world pose preserved) keeps the whole grab/release path in one frame of
+            // reference, so a cancel really does return the card to the deck.
+            _owner?.UnclipChip(this);
             // Drop the pop so the grabbed chip starts from a clean pose.
             _fingerPopped = false;
             _laserPopped = false;
@@ -1948,17 +2007,12 @@ internal sealed class ItemsPile
                 return;
             }
 
-            if (PendingUse) // Req #6 — clipped into the use slot, waiting for the decision
-            {
-                if (_hasClip)
-                {
-                    float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * Time.unscaledDeltaTime);
-                    transform.localPosition = Vector3.Lerp(transform.localPosition, _clipPos, t);
-                    transform.localRotation = Quaternion.Slerp(transform.localRotation, _clipRot, t);
-                    transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _clipScale, t);
-                }
+            // Req #6 — clipped into the use slot, waiting for the decision: NOTHING to do. The chip is
+            // a child of the slot with an exact zero local pose (ClipIntoSlot), so it is held there by
+            // the transform hierarchy — rigid, free, and with no residual error. Any per-frame pose
+            // work here would be the swim-behind-the-head bug coming back.
+            if (PendingUse)
                 return;
-            }
 
             float udt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // unscaled: pop/glide play while paused
             bool popped = _fingerPopped || _laserPopped;
