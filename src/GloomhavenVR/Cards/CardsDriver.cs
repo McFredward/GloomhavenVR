@@ -224,6 +224,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.RestButtonOffset(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.ConfirmUndoOffset(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.ItemUseSlotOffset(b).SettingChanged += OnControlOffsetChanged;   // item-use slot = in-place move
+                CardsConfig.ItemCardOffset(b).SettingChanged += OnControlOffsetChanged;      // item fan/held pose (read live by ItemsPile)
                 CardsConfig.RestButtonSpacing(b).SettingChanged += OnControlOffsetChanged;   // spacing = in-place move
                 CardsConfig.GenericButtonSpacing(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged += OnControlSizeChanged;
@@ -260,6 +261,7 @@ internal sealed class CardsDriver : MonoBehaviour
                 CardsConfig.RestButtonOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ConfirmUndoOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ItemUseSlotOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.ItemCardOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.GenericButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged -= OnControlSizeChanged;
@@ -351,10 +353,13 @@ internal sealed class CardsDriver : MonoBehaviour
             _rest.SetOffset(CardsConfig.RestButtonOffset(b).Value, CardsConfig.RestButtonSpacing(b).Value);
             _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(b).Value, CardsConfig.GenericButtonSpacing(b).Value);
             _tray.SetItemUseSlotOffset(CardsConfig.ItemUseSlotOffset(b).Value); // items rework: move the use slot in place
+            // ItemCardOffset (req #2) is read LIVE by ItemsPile every Tick, so an open item fan moves
+            // immediately with no push needed here — logged for parity with the other control offsets.
             VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset(b).Value} " +
                                 $"(spacing {CardsConfig.RestButtonSpacing(b).Value:F3} m), confirm/undo offset " +
                                 $"{CardsConfig.ConfirmUndoOffset(b).Value} (spacing {CardsConfig.GenericButtonSpacing(b).Value:F3} m), " +
-                                $"item-use slot offset {CardsConfig.ItemUseSlotOffset(b).Value}.");
+                                $"item-use slot offset {CardsConfig.ItemUseSlotOffset(b).Value}, " +
+                                $"item-card offset {CardsConfig.ItemCardOffset(b).Value}.");
         }
         if (_applyOverlayOffset)
         {
@@ -1830,6 +1835,13 @@ internal sealed class CardsDriver : MonoBehaviour
         if (float.IsPositiveInfinity(nearest) || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < nearest))
         {
             ClearBoardHover();
+            // Requirement 4 click-away: a TRIGGER that lands off every board target (empty space or the
+            // game's own UI) while the item fan is open dismisses it — the item counterpart of the
+            // discard/burnt browser's click-away in UpdateBrowseLaser. Item-chip hovers take the
+            // finite-nearest branches above, so plucking/poking an item chip never closes the fan; and
+            // a hand already holding a chip skips this whole method (Grabber.Held guard at the top).
+            if (dom.TriggerDown && _piles.ItemsBrowseOpen)
+                ForeignInteraction("click-away (trigger off the item fan)");
             return;
         }
 
@@ -1889,7 +1901,11 @@ internal sealed class CardsDriver : MonoBehaviour
                 // input modality; this also catches board buttons with no Cards event,
                 // e.g. settings/recenter, on the laser path). Pile stacks are NOT
                 // BoardButtons — they route through OnPoke below and manage the browse.
-                ForeignInteraction("board button");
+                // Req #6 EXEMPTION: the item-use CONFIRM button is PART of the item interaction, so it
+                // must NOT close the item fan (a foreign close would drop the pending chip before the
+                // confirm callback runs). The finger-poke path never routes ForeignInteraction anyway.
+                if (!_tray.IsItemUseConfirm(button))
+                    ForeignInteraction("board button");
                 button.Press(dom, "laser");
             }
             else if (best is PileViewer.PileStack pile)
@@ -4659,7 +4675,11 @@ internal sealed class CardsDriver : MonoBehaviour
         _browseMode = mode;
         // Held grab (item 5): the arc becomes a reading fan pinned to the grabbing
         // hand — "the pile in my hand". Poke-toggle stays a fixed head-relative wall.
-        _browser.Open(kind, anchor, held ? hand : null);
+        // Requirement 5 (emerge): pass the pile stack's world position so the arc's cards
+        // fly OUT of the stack instead of popping in (existing home-lerp does the easing).
+        Vector3? emergeFrom = _piles.TryGetPileWorld(kind, out Vector3 pileWorld, out _)
+            ? pileWorld : (Vector3?)null;
+        _browser.Open(kind, anchor, held ? hand : null, emergeFrom);
         VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held in hand" : "toggled")}, mode={mode}).");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
@@ -4678,6 +4698,15 @@ internal sealed class CardsDriver : MonoBehaviour
     {
         if (_browser.IsOpen)
             CloseBrowser($"foreign interaction: {source}");
+        // Requirement 4: the item fan closes on the SAME foreign-interaction / click-away seams the
+        // discard/burnt ability browser does (board button, ability-card grab, rest toggle, action
+        // play, initiative swap, click-away). Item-fan-OWN interactions (poke the item stack, grab an
+        // item chip, drop into the use slot) never route through here, so the fan stays open for them.
+        if (_piles.ItemsBrowseOpen)
+        {
+            VRLog.Info("Cards", $"Items pile CLOSE (foreign interaction: {source}).");
+            _piles.CloseItemsBrowse();
+        }
     }
 
     private void CloseBrowser(string reason)

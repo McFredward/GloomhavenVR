@@ -118,6 +118,12 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     // that card into the recess USES it. Its glow pulses like the wanted-slot hint.
     private Transform? _itemUseSlot;
     private Material? _itemUseSlotGlow;
+    // Requirement 6 (clip-in decision): the CONFIRM (USE) button shown beside the item-use slot while a
+    // held usable item card is CLIPPED into the slot awaiting a decision. Poking/laser-clicking it uses
+    // the item (ItemsPile supplies the callback); the CANCEL is grabbing the card back out, so there is
+    // no cancel button. Hidden by default; child of the slot so it inherits the slot's pose/visibility.
+    private BoardButton? _itemUseConfirm;
+    private System.Action? _itemUseConfirmAction;
     private bool _placed;
     private bool _wantVisible;
     private bool _placementDeferLogged;
@@ -927,6 +933,8 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it
         _itemUseSlotGlow = null;
+        _itemUseConfirm = null; // child of the slot (under _root), destroyed with it
+        _itemUseConfirmAction = null;
         _handle = null; // child of _root, destroyed with it
         _followToggle = null;
         _gear = null;
@@ -1949,10 +1957,43 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         WorldUI.NativeButtonSkin.ApplyFont(label);
         Core.TmpFit.Fit(label, w * 0.9f, h * 0.5f, maxFontSize: 0.16f, wrap: false);
 
+        // Requirement 6: the CONFIRM (USE) keycap beside the slot — shown only while a card is clipped
+        // in awaiting a decision. A round board keycap like Confirm/Undo, parented to the slot so it
+        // rides the slot pose + visibility. onClick routes to the ItemsPile-supplied action.
+        float bSize = CardsConfig.ConfirmUndoSize(CardsConfig.CurrentBoard).Value;
+        _itemUseConfirm = BoardButton.Create(go.transform, new Vector2(bSize, bSize),
+            new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
+            Core.Loc.Game("GUI_USE", "USE"),
+            () => _itemUseConfirmAction?.Invoke(),
+            round: true, diameter: bSize, thickness: WorldUI.ButtonTuning.BoardCapDepth,
+            travel: WorldUI.ButtonTuning.BoardCapTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _itemUseConfirm.transform.localPosition = new Vector3(w * 0.9f, 0f, -0.004f); // to the right of the slot
+        _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
+        RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
+        _itemUseConfirm.SetVisible(false);
+
         Core.VRLayers.Apply(go);
         go.SetActive(false); // ItemsPile toggles it live via SetItemUseSlotVisible
         _itemUseSlot = go.transform;
     }
+
+    /// <summary>
+    /// Requirement 6 — show/hide the item-use CONFIRM button and set its click action. Called by
+    /// <see cref="ItemsPile"/> when a card clips into the slot (visible, with the use callback) and
+    /// when the decision resolves (hidden, null). The CANCEL is grabbing the card out, so no button.
+    /// </summary>
+    internal void SetItemUseConfirmVisible(bool visible, System.Action? onConfirm)
+    {
+        _itemUseConfirmAction = visible ? onConfirm : null;
+        _itemUseConfirm?.SetVisible(visible);
+    }
+
+    /// <summary>Requirement 6 / 4 — is <paramref name="target"/> the item-use CONFIRM button? The board
+    /// laser dispatch uses this to EXEMPT a confirm click from the foreign-interaction fan-close (it is
+    /// part of the item interaction, not a foreign one).</summary>
+    internal bool IsItemUseConfirm(object? target) =>
+        _itemUseConfirm != null && ReferenceEquals(_itemUseConfirm, target);
 
     /// <summary>
     /// The ITEM-USE clip-in slot transform (world pose read by <see cref="ItemsPile"/> for the

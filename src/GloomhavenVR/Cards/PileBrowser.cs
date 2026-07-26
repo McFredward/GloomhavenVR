@@ -98,6 +98,13 @@ internal sealed class PileBrowser
     private readonly List<VRCard> _handSuppressed = new(16);
     private float _nextHandLogAt; // throttle clock (unscaled s) for the winner-change log
 
+    // Requirement 5 (emerge from the pile): the world position of the pile STACK this browse
+    // opened over; the first content layout pre-seats every card AT this point so the existing
+    // per-card home-lerp flies them OUT of the stack into the arc (a subtle emerge, no pop-in).
+    // Consumed on the first non-empty Relayout, then cleared.
+    private Vector3 _emergeWorld;
+    private bool _emergePending;
+
     internal bool IsOpen { get; private set; }
 
     /// <summary>The pile currently browsed (null while closed).</summary>
@@ -120,8 +127,14 @@ internal sealed class PileBrowser
     /// and the open/close policy. <paramref name="anchorParent"/> is the head-relative
     /// fallback parent (the hands root) when no control board is present.
     /// </summary>
-    internal void Open(PileKind kind, Transform anchorParent, VRHand? followHand = null)
+    internal void Open(PileKind kind, Transform anchorParent, VRHand? followHand = null,
+        Vector3? emergeFromWorld = null)
     {
+        // Requirement 5: remember the pile-stack world anchor so the first content layout emerges
+        // the cards out of the stack (cleared once consumed). A held fan (followHand) still emerges
+        // from the pile the same way — the cards fly from the stack up to the reading fan.
+        _emergePending = emergeFromWorld.HasValue;
+        _emergeWorld = emergeFromWorld ?? default;
         if (_root == null)
         {
             _root = new GameObject("GloomhavenVR.PileBrowser").transform;
@@ -343,7 +356,13 @@ internal sealed class PileBrowser
             var rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
             card.SetHome(_root, pos, rot, CardScale, instant);
             card.ResetColliderRegion(); // browse cards are not fan-stripped
+            // Requirement 5 (emerge): on the first content layout after open, drop the card ONTO the
+            // pile stack world point; SetHome left _instantNext=false, so the per-card home-lerp then
+            // flies it up into the arc — the cards visibly emerge FROM the stack.
+            if (_emergePending && !instant)
+                card.transform.position = _emergeWorld;
         }
+        _emergePending = false; // one-shot: only the first layout after open emerges
     }
 
     // ------------------------------------------------------------------ hand sweep --

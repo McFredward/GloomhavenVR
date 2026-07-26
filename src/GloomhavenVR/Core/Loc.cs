@@ -234,6 +234,7 @@ internal static class Loc
         ["piles"] = Pair("Piles", "Stapel"),
         ["items"] = Pair("Items", "Gegenstände"),
         ["item_use"] = Pair("Use item", "Gegenstand benutzen"),
+        ["item_card"] = Pair("Item card", "Gegenstandskarte"),
 
         // ---- Debug element / sub-category labels (previously hardcoded German) ----
         ["round_buttons"] = Pair("Round-phase buttons", "Rundenknöpfe"),

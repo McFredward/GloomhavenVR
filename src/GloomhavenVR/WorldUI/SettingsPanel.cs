@@ -103,6 +103,10 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         // Confirm/Undo buttons. Per-board offset only (no size/spacing/shape), so only the generic
         // offset rows show — like the other pure-offset elements (Initiative, Readout, Pin, ...).
         ItemUse,
+        // Items rework (requirement 2): the ITEM pile fan + held item-card pose offset — nudges the
+        // item cards independently of the ability fan (they are a different, near-square shape).
+        // Per-board offset only (no size/spacing/shape), so only the generic offset rows show.
+        ItemCard,
         // Request C (2026-07): the transient round-phase buttons ("Bewegung überspringen",
         // "Angriff überspringen", …) as their OWN clearly-named element under the "Tasten"
         // category — the ButtonTuning [RoundButtons] geometry (offset X/Y/Z, shape, cap
@@ -183,7 +187,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 DebugElement.Overlays, DebugElement.Readout, DebugElement.VRSettings, DebugElement.Pin,
                 DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
-                DebugElement.ItemUse,
+                DebugElement.ItemUse, DebugElement.ItemCard,
                 DebugElement.WallFade,
                 DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets,
                 DebugElement.ButtonColors },                                                                 // Debug
@@ -204,7 +208,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
                 DebugElement.Initiative, DebugElement.Readout, DebugElement.Pin, DebugElement.VRSettings },
         // Karten & Stapel — the card piles, active-card grid, slot overlays, decision dock, item-use slot.
-        new[] { DebugElement.Piles, DebugElement.Active, DebugElement.Overlays, DebugElement.Decision, DebugElement.ItemUse },
+        new[] { DebugElement.Piles, DebugElement.Active, DebugElement.Overlays, DebugElement.Decision, DebugElement.ItemUse, DebugElement.ItemCard },
         // Tasten — every button group's geometry + the new Knopf-Farben (label/cap colours).
         new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.ButtonColors },
@@ -1938,6 +1942,7 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             DebugElement.Cluster => CardsConfig.ClusterOffset(b),
             DebugElement.Decision => CardsConfig.DecisionOffset(b),
             DebugElement.ItemUse => CardsConfig.ItemUseSlotOffset(b),
+            DebugElement.ItemCard => CardsConfig.ItemCardOffset(b),
             _ => null,
         };
     }
@@ -2167,6 +2172,8 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         DebugElement.Decision => Loc.Mod("decision"),
         // Items rework: the item-use clip-in slot.
         DebugElement.ItemUse => Loc.Mod("item_use"),
+        // Items rework: the item pile fan / held item-card pose offset.
+        DebugElement.ItemCard => Loc.Mod("item_card"),
         // Fully localized (the whole mod is localized — no hardcoded strings): the round-phase
         // skip buttons the user tunes here, plus the category-split board elements (Confirm/Undo
         // keycaps; gear + Pin plates) and the per-style / colour rows.

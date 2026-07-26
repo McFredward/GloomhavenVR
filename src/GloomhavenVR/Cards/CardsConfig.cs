@@ -175,6 +175,10 @@ internal static class CardsConfig
     // Confirm/Undo decision buttons — dropping a held, usable item card into it USES the item.
     // Per-board offset, mirrors ConfirmUndoOffset's binding/accessor/debug-menu wiring exactly.
     private static readonly ConfigEntry<Vector3>[] _itemUseSlotOffset = new ConfigEntry<Vector3>[3];
+    // Item-card fan offset (items rework, req #2): nudges the ITEM pile fan + held item card pose
+    // INDEPENDENTLY of the ability-card fan (item cards are a different, near-square shape). Per-board
+    // Vector3, mirrors ConfirmUndoOffset's binding/accessor/debug-menu wiring. Read live by ItemsPile.
+    private static readonly ConfigEntry<Vector3>[] _itemCardOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _slotOverlayOffset = new ConfigEntry<Vector3>[3];
     // Item 1: the two slot overlays move together as a PAIR (Overlays element); this spacing
     // spreads them apart along the inter-slot (board long) axis — slot 0 by −½, slot 1 by +½.
@@ -563,6 +567,11 @@ internal static class CardsConfig
                 "base UNDER the board next to the Confirm/Undo buttons), board-local meters. X/Y in plane, " +
                 "Z = proud depth toward the player (NEGATIVE = prouder). Drop a held usable item card into " +
                 "this slot to USE it. Seeded 0 (Oak).");
+            _itemCardOffset[i] = _file.Bind("Cards", $"ItemCardOffset_{board}", Vector3.zero,
+                $"[{board}] offset ADDED to the ITEM pile fan + the held item-card pose, board-local " +
+                "meters — moves the item cards INDEPENDENTLY of the ability-card fan (they are a " +
+                "different, near-square shape). X/Y in plane, Z = proud depth toward the player " +
+                "(NEGATIVE = prouder). Seeded 0 (Oak).");
             _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the slot snap-glow / wanted-glow local position, board-local " +
                 "meters. X/Y in plane, Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 (Oak).");
@@ -899,6 +908,7 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> ConfirmUndoOffset(ControlBoard b) => _confirmUndoOffset[(int)b];
     internal static ConfigEntry<float> ConfirmUndoSize(ControlBoard b) => _confirmUndoSize[(int)b];
     internal static ConfigEntry<Vector3> ItemUseSlotOffset(ControlBoard b) => _itemUseSlotOffset[(int)b];
+    internal static ConfigEntry<Vector3> ItemCardOffset(ControlBoard b) => _itemCardOffset[(int)b];
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];

@@ -56,6 +56,16 @@ internal sealed class PileViewer
 
     internal bool IsBuilt => _discard != null;
 
+    /// <summary>Requirement 4: is the item fan currently open? CardsDriver's foreign-interaction /
+    /// click-away path polls this to dismiss the item fan on the SAME seams that close the
+    /// discard/burnt ability browser (board button, card grab, rest, action play, click-away).</summary>
+    internal bool ItemsBrowseOpen => _itemsBrowse.IsOpen;
+
+    /// <summary>Requirement 4: dismiss the item fan on a foreign interaction (the item counterpart of
+    /// <c>CardsDriver.CloseBrowser</c>). The item→ability mutual-exclusion is separate (<see cref="ItemsOpening"/>);
+    /// this is the general click-away close for the item fan itself.</summary>
+    internal void CloseItemsBrowse() => _itemsBrowse.Close();
+
     /// <summary>
     /// Issue 5 (fly-to-pile): world placement of one pile stack, for animating a just-cleared
     /// played card INTO its destination stack. <paramref name="worldPos"/> is the stack centre;
