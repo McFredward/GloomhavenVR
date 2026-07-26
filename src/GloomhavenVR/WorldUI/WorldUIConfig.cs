@@ -63,6 +63,15 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> DecisionRowGapPx = null!;
 
+    /// <summary>
+    /// User (hardware, "Die Gegnerinfo spawnt meist genau hinter dem Controllboard"): how far the
+    /// enemy round reveal must clear the CONTROL BOARD's top edge, in real metres measured AT THE
+    /// BOARD (the sight-line gap the player sees between the board's top edge and the bottom of
+    /// the reveal). Live-tunable in the debug menu (Panels -> Initiative); read on every reveal
+    /// spawn/follow by <see cref="Surfaces.EnemyRevealSurface"/>.
+    /// </summary>
+    internal static ConfigEntry<float> EnemyRevealBoardClearance = null!;
+
     /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
     internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
@@ -302,6 +311,20 @@ internal static class WorldUIConfig
             "bar is never overlapped (the block always sits at least its clearance below it). " +
             "Range 0-120.",
             new AcceptableValueRange<float>(0f, 120f)));
+        EnemyRevealBoardClearance = _file.Bind("WorldUI", "EnemyRevealBoardClearance", 0.10f,
+            new ConfigDescription(
+                "How far the ENEMY ROUND REVEAL (the monster ability cards shown after everyone " +
+                "confirmed their selection) must clear the CONTROL BOARD's top edge, in real " +
+                "metres measured AT THE BOARD. The player is normally LOOKING DOWN at the control " +
+                "board when the reveal appears, so a purely gaze-anchored spawn lands right " +
+                "behind/inside the board and is unreadable; the reveal is therefore lifted just " +
+                "far enough that the player's line of sight to its BOTTOM edge passes this far " +
+                "above the board's real (rendered) top edge. Because the gap is measured at the " +
+                "board and the reveal floats further away, the on-screen gap is proportionally " +
+                "larger. 0 = graze the top edge; raise it if the reveal still reads too close to " +
+                "the board. Live-tunable in the debug menu (Panels -> Initiative); applies to the " +
+                "next reveal spawn / lazy-follow step. Range 0-0.5.",
+                new AcceptableValueRange<float>(0f, 0.5f)));
         FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");

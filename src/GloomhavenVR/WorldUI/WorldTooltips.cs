@@ -165,9 +165,6 @@ internal sealed class WorldTooltips
     /// <summary>Reused world-corner buffer for measuring the tooltip's rendered size.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
-    /// <summary>Reused per-tick scan buffer for the board's mesh renderers (no steady-state allocation).</summary>
-    private static readonly List<MeshRenderer> BoardRendererScratch = new(48);
-
     private struct FlattenEntry
     {
         public Transform Transform;
@@ -360,70 +357,16 @@ internal sealed class WorldTooltips
 
     /// <summary>
     /// The CONTROL BOARD's REAL top edge in WORLD space, horizontally centred on the board.
-    /// Derived from the tray's combined MESH-RENDERER bounds expressed in the board's own LOCAL
-    /// space (so a board TILT does not inflate the extent the way a world AABB would): each
-    /// renderer's local-space mesh bounds are mapped into board-root-local coords and the max
-    /// local +Y across them is the true top edge — the visible frame + decorations, which sit
-    /// PAST the authored plate (<see cref="PlayTray.BoardTopLocalY"/>). Horizontal centre is the
-    /// board root origin (X 0) — the plate is authored at localPos 0, so root origin IS the
-    /// board centre; Z stays on the board face plane (local Z 0). Degrades to the authored
-    /// <see cref="PlayTray.BoardTopLocalY"/> constant when the board has no mesh renderers yet
-    /// (procedural build mid-frame). Runs only while a tooltip is shown, and reuses a scan
-    /// buffer, so no steady-state allocation.
+    /// Delegates to <see cref="PlayTray.BoardTopEdgeWorld"/>, which derives the edge from the
+    /// tray's combined MESH-RENDERER bounds expressed in the board's own LOCAL space (tilt-tight)
+    /// because the visible board (bundled frame + decorations) sits PAST the authored plate
+    /// (<see cref="PlayTray.BoardTopLocalY"/>) — a constant-based half-height under-estimated the
+    /// edge and the panel still sat inside the board (the "still inside" report). The measurement
+    /// now lives on <see cref="PlayTray"/> so the enemy-reveal spawn clearance
+    /// (<c>Surfaces.EnemyRevealSurface</c>) clears the SAME measured board, with no second copy of
+    /// this math that could drift out of sync.
     /// </summary>
-    private static Vector3 GetBoardTopEdgeWorld(Transform root)
-    {
-        float localTopY = PlayTray.BoardTopLocalY; // authored fallback
-        BoardRendererScratch.Clear();
-        root.GetComponentsInChildren(includeInactive: false, BoardRendererScratch);
-        Matrix4x4 worldToLocal = root.worldToLocalMatrix;
-        bool has = false;
-        float maxLocalY = float.NegativeInfinity;
-        for (int i = 0; i < BoardRendererScratch.Count; i++)
-        {
-            MeshRenderer mr = BoardRendererScratch[i];
-            if (mr == null || !mr.enabled)
-                continue;
-
-            // Prefer the renderer's own LOCAL mesh bounds mapped through (worldToLocal ×
-            // rendererLocalToWorld) → board-root-local, which is tilt-tight; fall back to the
-            // renderer's world AABB corners mapped into local space when there is no mesh.
-            Bounds b;
-            Matrix4x4 toBoardLocal;
-            MeshFilter mf = mr.GetComponent<MeshFilter>();
-            Mesh? mesh = mf != null ? mf.sharedMesh : null;
-            if (mesh != null)
-            {
-                b = mesh.bounds;
-                toBoardLocal = worldToLocal * mr.transform.localToWorldMatrix;
-            }
-            else
-            {
-                b = mr.bounds; // world AABB
-                toBoardLocal = worldToLocal;
-            }
-
-            Vector3 c = b.center, e = b.extents;
-            for (int s = 0; s < 8; s++)
-            {
-                Vector3 corner = c + new Vector3(
-                    (s & 1) == 0 ? -e.x : e.x,
-                    (s & 2) == 0 ? -e.y : e.y,
-                    (s & 4) == 0 ? -e.z : e.z);
-                float ly = toBoardLocal.MultiplyPoint3x4(corner).y;
-                if (ly > maxLocalY)
-                    maxLocalY = ly;
-                has = true;
-            }
-        }
-        BoardRendererScratch.Clear();
-        if (has)
-            localTopY = maxLocalY;
-
-        // Horizontally centred over the board (local X 0), on the board face plane (local Z 0),
-        // at the real top edge. TransformPoint carries the live lossy scale, pose and tilt.
-        return root.TransformPoint(new Vector3(0f, localTopY, 0f));
-    }
+    private static Vector3 GetBoardTopEdgeWorld(Transform root) => PlayTray.BoardTopEdgeWorld(root);
 
     /// <summary>
     /// Measure the tooltip frame's rendered size in WORLD metres (half-width / half-height).

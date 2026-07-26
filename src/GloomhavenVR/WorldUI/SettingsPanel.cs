@@ -1400,6 +1400,25 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 e.Value = Mathf.Clamp(e.Value + d * 1f, 0f, 40f);
             });
 
+        // Initiative-only ENEMY-INFO CLEARANCE row (shown only when Element == Initiative): the
+        // GLOBAL [WorldUI] EnemyRevealBoardClearance — how far the enemy round reveal must clear
+        // the control board's top edge (real cm, measured AT the board). The reveal's content IS
+        // the initiative track's enemyCardsHolder, so it belongs to this element; GLOBAL but edited
+        // from an element's rows exactly like the 3D-depth row above (the clearance is derived from
+        // the board's LIVE measured pose, so it already rides every board — no per-board entry).
+        // EnemyRevealSurface re-reads the entry on every plant/follow step, so the next reveal (and
+        // the next lazy-follow glide of a standing one) uses the new value; BepInEx persists on set.
+        _rowGate = () => PerBoard() && CurrentElement() == DebugElement.Initiative;
+        var revealClearRow = Row();
+        Label(revealClearRow, "Gegnerinfo-Abstand", 16f, flexible: true);
+        MiniStepper(revealClearRow,
+            () => $"{WorldUIConfig.EnemyRevealBoardClearance.Value * 100f:0}cm",
+            d =>
+            {
+                ConfigEntry<float> e = WorldUIConfig.EnemyRevealBoardClearance;
+                e.Value = Mathf.Clamp(e.Value + d * 0.01f, 0f, 0.5f);
+            });
+
         // Decision-only ROW-GAP row (shown only when Element == Decision): the GLOBAL
         // [WorldUI] DecisionRowGapPx — target vertical gap (uGUI px) between a docked
         // decision prompt's text block and its button row. GLOBAL but edited from this
