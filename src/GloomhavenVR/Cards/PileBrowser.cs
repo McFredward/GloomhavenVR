@@ -115,6 +115,11 @@ internal sealed class PileBrowser
 
     internal bool Contains(VRCard card) => _cards.Contains(card);
 
+    /// <summary>Requirement 2 (collapse-on-close): the cards currently in the arc, so CardsDriver can
+    /// fly each one back down into its pile stack before the driver reparks it. Read-only snapshot use
+    /// only — the driver never mutates this list (Close/SetCards own it).</summary>
+    internal IReadOnlyList<VRCard> Cards => _cards;
+
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>

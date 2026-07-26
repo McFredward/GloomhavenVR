@@ -107,6 +107,16 @@ internal sealed class ItemsPile
     // chip is never yanked), the chip is driven to the slot pose each tick, and a Confirm button shows.
     private ItemChip? _pendingUseChip;
 
+    // Requirement 8 (drop preview): a translucent GHOST duplicate shown at the use-slot pose while a held
+    // usable item card comes NEAR the slot — a preview of where it will land if released. Parented under
+    // the board's use slot (so it rides the slot pose + visibility); built lazily, toggled by proximity.
+    private GameObject? _useGhost;
+
+    // Requirement 7 (usability-cue diagnostic): throttled change-logged bright/dim tally.
+    private float _nextDimLogAt;
+    private int _loggedBright = -1;
+    private int _loggedDim = -1;
+
     internal bool IsOpen { get; private set; }
     internal bool IsHandHeld => _followHand != null;
 
@@ -191,6 +201,8 @@ internal sealed class ItemsPile
         _boardAnchored = false;
         ClearHandSweep();
         _pendingUseChip = null; // #6: drop any pending decision on close
+        if (_useGhost != null) // #8: never leave a drop-preview floating once the fan is gone
+            _useGhost.SetActive(false);
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false); // never leave the use slot up once the fan is gone
         _useSlotShownLogged = false;
@@ -212,6 +224,11 @@ internal sealed class ItemsPile
         _hand = null;
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false);
+        if (_useGhost != null) // #8: the ghost is parented under the (foreign) use slot — destroy it explicitly
+        {
+            Object.DestroyImmediate(_useGhost);
+            _useGhost = null;
+        }
         if (_root != null)
         {
             Object.DestroyImmediate(_root.gameObject);
@@ -267,11 +284,16 @@ internal sealed class ItemsPile
         // Physical fingertip sweep: lift the chip nearest the dominant index tip (single-winner).
         UpdateHandSweep();
 
+        // Requirement 7: change-logged bright/dim tally (the per-chip dim overlay is applied in each
+        // chip's own face maintenance from CanUseNow — this only reports it).
+        TickUsabilityDiag();
+
         if (_pendingUseChip != null)
         {
             // Requirement 6: a chip is CLIPPED into the use slot awaiting a decision — keep the slot +
             // Confirm button up and glue the chip to the slot pose, or resolve the cancel/invalidation.
             TickPendingUse(hand);
+            TickUseGhost(false, null); // clipped in — the ghost preview is not needed
         }
         else
         {
@@ -282,6 +304,8 @@ internal sealed class ItemsPile
             ItemChip? heldUsable = HeldActivatableChip();
             bool showUseSlot = turn && heldUsable != null;
             PlayTray.Current?.SetItemUseSlotVisible(showUseSlot);
+            // Requirement 8: preview where the held card lands as it nears the slot.
+            TickUseGhost(showUseSlot, heldUsable);
             if (showUseSlot != _useSlotShownLogged)
             {
                 _useSlotShownLogged = showUseSlot;
@@ -611,6 +635,87 @@ internal sealed class ItemsPile
     }
 
     /// <summary>
+    /// Requirement 7 — can this chip's item be USED right now: it is the local character's own action
+    /// turn AND the item's live state is activatable (non-passive + Useable/Selected — the exact gate
+    /// <c>UseItemService.UseItem</c> enforces). Owner-driven (turn-aware) so OFF-turn every item reads
+    /// de-emphasized and ON-turn only the truly-usable ones stay bright. Polled live from each chip's
+    /// per-frame face maintenance; never cached.
+    /// </summary>
+    internal bool CanUseNow(ItemChip chip) =>
+        chip != null && _hand != null && CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable;
+
+    /// <summary>Requirement 7 — throttled, change-gated tally of how many chips are bright (usable now)
+    /// vs dimmed (passive / spent / consumed / off-turn), so a hardware log confirms the cue is live.</summary>
+    private void TickUsabilityDiag()
+    {
+        if (_chips.Count == 0 || Time.unscaledTime < _nextDimLogAt)
+            return;
+        _nextDimLogAt = Time.unscaledTime + 2f;
+        int bright = 0;
+        for (int i = 0; i < _chips.Count; i++)
+            if (_chips[i] != null && CanUseNow(_chips[i]))
+                bright++;
+        int dim = _chips.Count - bright;
+        if (bright == _loggedBright && dim == _loggedDim)
+            return;
+        _loggedBright = bright;
+        _loggedDim = dim;
+        VRLog.Info("Cards", $"ITEM usability cue: {bright} bright (usable now), {dim} dimmed " +
+                            "(passive/spent/consumed/off-turn) — dim overlay live per chip.");
+    }
+
+    /// <summary>
+    /// Requirement 8 — show a translucent GHOST duplicate at the use-slot pose while a HELD usable item
+    /// card comes NEAR the slot, previewing where it will land if released (mirror of the ability cards'
+    /// drop telegraph, which glows the destination slot). Built lazily under the slot so it rides the
+    /// slot pose + visibility; toggled purely by proximity. No-op / hidden when nothing is held near it.
+    /// </summary>
+    private void TickUseGhost(bool showUseSlot, ItemChip? heldUsable)
+    {
+        Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
+        bool show = false;
+        if (showUseSlot && heldUsable != null && slot != null && slot.gameObject.activeSelf)
+        {
+            float scale = slot.lossyScale.x;
+            float near = UseSlotRadius * 2.2f * (scale > 1e-4f ? scale : 1f); // generous "approaching" band
+            if ((heldUsable.transform.position - slot.position).sqrMagnitude <= near * near)
+                show = true;
+        }
+        if (show)
+        {
+            if (_useGhost == null && slot != null)
+                _useGhost = BuildUseGhost(slot);
+            if (_useGhost != null && !_useGhost.activeSelf)
+                _useGhost.SetActive(true);
+        }
+        else if (_useGhost != null && _useGhost.activeSelf)
+        {
+            _useGhost.SetActive(false);
+        }
+    }
+
+    /// <summary>Requirement 8 — the translucent gold card-shaped ghost, parented at the use-slot pose.</summary>
+    private static GameObject BuildUseGhost(Transform slot)
+    {
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+        var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = "GloomhavenVR.ItemUseGhost";
+        Object.Destroy(quad.GetComponent<Collider>());
+        quad.transform.SetParent(slot, worldPositionStays: false);
+        quad.transform.localPosition = new Vector3(0f, 0f, -0.004f); // viewer side, proud of the slot face
+        quad.transform.localRotation = Quaternion.identity;
+        quad.transform.localScale = new Vector3(w, h, 1f);
+        var mr = quad.GetComponent<MeshRenderer>();
+        Shader? sh = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        if (sh != null)
+            mr.sharedMaterial = new Material(sh) { color = new Color(0.92f, 0.85f, 0.5f, 0.34f) };
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        Core.VRLayers.Apply(quad); // mod-owned ghost on the mod layer (double-sided Sprites/Default)
+        return quad;
+    }
+
+    /// <summary>
     /// Requirement 6 (clip-in + decide): a just-released usable chip dropped onto/near the board's
     /// item-use slot does NOT use immediately — it CLIPS INTO the slot and waits. A poke/laser on the
     /// Confirm button uses it (<see cref="ConfirmPendingUse"/>); grabbing the card BACK OUT and
@@ -640,6 +745,8 @@ internal sealed class ItemsPile
         PlayTray.Current?.SetItemUseSlotVisible(true);
         PlayTray.Current?.SetItemUseConfirmVisible(true, ConfirmPendingUse);
         vrHand.SendHaptic(HapticPreset.HoverTick);
+        // ITEM 4 (card sounds): the place "thunk" the ability cards play when a card drops into a slot.
+        CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
         VRLog.Info("Cards", $"ITEM clip-in: '{chip.name}' held in the use slot ({vrHand.Side}) — " +
                             "poke USE to confirm, or grab it back out to cancel.");
     }
@@ -733,8 +840,17 @@ internal sealed class ItemsPile
         // Reflect the RESULT with an FX on the clipped card, then it collapses back into the deck.
         // Detach it from the fan root + drop it from the live list so the flourish/collapse runs to
         // completion even as the fan live-rebuilds to show the item's new (Spent/Consumed) state.
-        bool consumed = item.SlotState == CItem.EItemSlotState.Consumed;
-        bool spent = item.SlotState == CItem.EItemSlotState.Spent;
+        // Requirement 9b FIX: read the intended flourish from the item's STATIC usage TYPE
+        // (YMLData.Usage), NOT the live SlotState — online, UseItemService.UseItem sends the state
+        // change as a GameAction that resolves a frame or more LATER, so SlotState is still
+        // Useable/Selected the instant we return here and the old "spent = SlotState==Spent" read was
+        // false → no tap animation ever played. The usage type is authored config, stable pre/post use.
+        CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
+        bool consumed = usage == CItem.EUsageType.Consumed
+                        || item.SlotState == CItem.EItemSlotState.Consumed;
+        bool spent = !consumed
+                     && (usage == CItem.EUsageType.Spent
+                         || item.SlotState == CItem.EItemSlotState.Spent);
         Vector3 converge = PileConvergeWorld();
         Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
         if (keep != null)
@@ -819,15 +935,31 @@ internal sealed class ItemsPile
         private const float MipRescanInterval = 1f;
         private float _nextMipRescan;
 
+        // ITEM #1 (de-shimmer immediately): the 1 s maintenance cadence above lands the FIRST successful
+        // bake up to ~1.5 s after the fan opens (the art loads async, the periodic Rescan then catches
+        // it), so the card visibly shimmers until then. Close that window: for the first ~2 s after host
+        // poll the hosted card's background sprite every frame (a cheap null check) and Rescan the INSTANT
+        // the async art appears — no visible shimmer window once the art is present. Then the 1 s cadence
+        // takes over for ongoing state-change maintenance.
+        private const float TightArtPollSeconds = 2f;
+        private float _tightArtPollUntil;
+        private bool _artBaked;
+
         // ITEM #7 (live playable-gating legibility): non-usable chips (passive items, spent/consumed,
         // or anything whose live IsActivatable is false right now — e.g. off-turn) are dimmed so the
         // currently-usable ones read as the ones you can actually play. Applied via a REVERSIBLE
         // CanvasGroup alpha on the hosted card — never mutates the game card's own materials, and it is
         // reset to full alpha before the widget is recycled to the pool. Re-evaluated LIVE every Update
         // from IsActivatable, because usability changes with turn/phase. -1 = "not yet applied".
-        private const float UsableAlpha = 1f;
-        private const float DimAlpha = 0.4f;
-        private CanvasGroup? _faceGroup;   // on the hosted ItemCardUI (reversible face dim)
+        // ITEM #7 ROOT CAUSE: the CanvasGroup-alpha dim did NOT show in game because the game's own
+        // ItemCardUI.OnReturnedToPool DISABLES the card's CanvasGroup (component.enabled = false,
+        // ItemCardUI.cs:350). A pooled card handed back to us therefore has a disabled CanvasGroup, so
+        // setting its alpha has ZERO effect. Rather than fight the game's component state, the de-emphasis
+        // is now a MOD-OWNED dark translucent "dim" quad laid over the card face (viewer side): visible,
+        // reliable, fully reversible (destroyed with the chip; never touches the game card's own
+        // materials/graphics). Toggled LIVE from the owner's turn-aware usability gate so usable-now items
+        // read bright and non-usable ones (passive / spent / consumed / off-turn) are clearly dimmed.
+        private GameObject? _dimQuad;      // mod-owned dark overlay shown over NON-usable item cards
         private int _usabilityShown = -1;  // last applied state: -1 none, 0 dimmed, 1 bright
 
         // ITEM #3 (desktop mirror): the hosted card's world-space FaceCanvas. VRCard binds its face
@@ -942,6 +1074,11 @@ internal sealed class ItemsPile
             if (!realCard)
                 BuildFallbackFace(go.transform, item, cw, ch, state);
 
+            // ITEM #7 — the mod-owned de-emphasis overlay: a dark translucent quad over the card face
+            // (viewer side), hidden by default, shown by TickFaceMaintenance for NON-usable items. Built
+            // to the ACTUAL card size so it covers the whole face; mod layer; destroyed with the chip.
+            chip._dimQuad = chip.BuildDimOverlay(go.transform, cw, ch);
+
             // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
             box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
             // NOTE: do NOT VRLayers.Apply(go) — it recurses into the hosted ItemCardUI, which is a
@@ -1033,6 +1170,33 @@ internal sealed class ItemsPile
         }
 
         /// <summary>
+        /// ITEM #7 — build the mod-owned "not usable" de-emphasis overlay: a dark translucent quad the
+        /// exact size of the card face, on the viewer side just proud of the face canvas. Hidden by
+        /// default; <see cref="TickFaceMaintenance"/> shows it live for items that cannot be used right
+        /// now (passive / spent / consumed / off-turn) so the usable-now items read bright by contrast.
+        /// Sprites/Default is unlit + double-sided (Cull Off), so it dims the face from the viewer side
+        /// regardless of quad winding. Never touches the game card — fully reversible (dies with the chip).
+        /// </summary>
+        private GameObject BuildDimOverlay(Transform parent, float cw, float ch)
+        {
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = "UsabilityDim";
+            Object.Destroy(quad.GetComponent<Collider>());
+            quad.transform.SetParent(parent, worldPositionStays: false);
+            quad.transform.localScale = new Vector3(cw, ch, 1f);
+            quad.transform.localPosition = new Vector3(0f, 0f, -0.0016f); // viewer side, just proud of the face
+            var mr = quad.GetComponent<MeshRenderer>();
+            Shader? sh = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+            if (sh != null)
+                // Dark-but-translucent: clearly de-emphasized yet the art still reads for browsing off-turn.
+                mr.sharedMaterial = new Material(sh) { color = new Color(0.03f, 0.03f, 0.04f, 0.5f) };
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            Core.VRLayers.Apply(quad); // mod-owned overlay on the mod layer
+            quad.SetActive(false);     // shown only for NON-usable items
+            return quad;
+        }
+
+        /// <summary>
         /// Host the game's real <c>ItemCardUI</c> on a world-space canvas (requirement 1): spawn it
         /// from the game's own pool exactly as the flat inventory tooltip does
         /// (<c>ObjectPool.SpawnCard(item.ID, ECardType.Item, …)</c> → set <c>item</c> →
@@ -1107,16 +1271,14 @@ internal sealed class ItemsPile
                 foreach (GraphicRaycaster gr in cardGo.GetComponentsInChildren<GraphicRaycaster>(true))
                     gr.enabled = false;
 
-                // ITEM #7 — a reversible CanvasGroup on the hosted card drives the live playable-gate
-                // dim (alpha only; no game material is touched). Reuse any existing group so we never
-                // stack components, and leave it at full alpha until the first Update classifies it.
-                _faceGroup = cardGo.GetComponent<CanvasGroup>() ?? cardGo.AddComponent<CanvasGroup>();
-                _faceGroup.alpha = 1f;
-
                 // ITEM #1 — swap the mipless-atlas sprites for mip-baked equivalents right after host,
-                // then re-scan on a slow cadence (Update) until the async background art has arrived.
+                // then (a) tight-poll for the async background art every frame for the first ~2 s and
+                // Rescan the INSTANT it appears (no shimmer window), and (b) re-scan on the 1 s cadence
+                // afterward for ongoing state-change maintenance.
                 CardFaceMipBake.Rescan(cardUI);
                 _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+                _tightArtPollUntil = Time.unscaledTime + TightArtPollSeconds;
+                _artBaked = false;
 
                 _cardGo = cardGo;
                 _cardUI = cardUI;
@@ -1372,6 +1534,9 @@ internal sealed class ItemsPile
             transform.localScale = worldScale;
             _releaseGlide = 0f; // re-grab mid-glide: the held pose takes over cleanly (FIX 2)
             hand.SendHaptic(HapticPreset.ClickPulse);
+            // ITEM 4 (card sounds): the SAME pluck/grab SFX ability cards play on grab (laser-pluck
+            // routes through OnPoke → ForceGrab → OnGrab, so it fires there too — no double sound).
+            CardsDriver.PlayCardSound(CardsConfig.CardGrabSound.Value, transform);
             VRLog.Info("Cards", $"Item chip '{name}' taken into hand ({hand.Side}) — readable (state {State}).");
         }
 
@@ -1397,6 +1562,11 @@ internal sealed class ItemsPile
             transform.localScale = worldScale;
             _releaseGlide = ReleaseGlideSeconds;
             _owner?.OnChipReleased(this, dropWorldPos, hand);
+            // ITEM 4 (card sounds): a release that CLIPS into the use slot plays the place "thunk"
+            // (fired in OnChipReleased, which sets PendingUse); any other release glides home to the
+            // fan → the soft take-back click, matching the ability cards' grab/release SFX set.
+            if (!PendingUse)
+                CardsDriver.PlayCardSound(CardsConfig.CardTakeBackSound.Value, transform);
         }
 
         // ---- pop (readability) -----------------------------------------------------
@@ -1413,36 +1583,121 @@ internal sealed class ItemsPile
         /// </summary>
         private void TickFaceMaintenance()
         {
-            // ITEM #3 — keep the WorldSpace face canvas bound to the head camera (mirror of
-            // VRCard.UpdateCanvasCamera) so the item face renders in the desktop mirror like ability cards.
+            // ITEM #5 — keep the WorldSpace face canvas bound to the head camera (mirror of
+            // VRCard.UpdateCanvasCamera). A WorldSpace canvas renders on its LAYER regardless of
+            // worldCamera, so this alone can't decide mirror visibility — the deep diagnostic below logs
+            // exactly what the item face is (layer, canvas modes, which cameras would draw it) so the next
+            // hardware log pinpoints why a held item face is/ isn't in the desktop mirror vs an ability face.
             if (_faceCanvas != null)
             {
                 Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
                 if (head != null && _faceCanvas.worldCamera != head)
-                {
                     _faceCanvas.worldCamera = head;
-                    if (!s_loggedMirror)
+                if (!s_loggedMirror && head != null)
+                    LogMirrorDiag(head);
+            }
+
+            // ITEM #1 (de-shimmer immediately) — tight per-frame poll for the async background art; the
+            // instant the hosted card's cardBackground sprite is present, Rescan so the mip-baked face
+            // lands with ZERO shimmer window (instead of up to ~1.5 s later on the slow cadence).
+            if (!_artBaked && _cardUI != null && Time.unscaledTime <= _tightArtPollUntil)
+            {
+                Image? bg = _cardUI.cardBackground;
+                if (bg != null && bg.sprite != null)
+                {
+                    _artBaked = true;
+                    CardFaceMipBake.Rescan(_cardUI); // art just arrived — bake it NOW
+                    _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+                    if (!s_loggedArtBaked)
                     {
-                        s_loggedMirror = true;
-                        VRLog.Info("Cards", "ITEM CARD mirror fix (#3): item FaceCanvas.worldCamera bound to the " +
-                                            $"head camera '{head.name}' (layer {_cardGo?.layer ?? -1}) — the item face " +
-                                            "now renders in the desktop mirror like the ability cards' face.");
+                        s_loggedArtBaked = true;
+                        VRLog.Info("Cards", "ITEM #1: background art detected on host — mip-baked immediately " +
+                                            "(tight per-frame poll), so the item card no longer shimmers for ~1.5 s.");
                     }
                 }
             }
 
+            // Ongoing maintenance cadence (async re-arrivals / game sprite reassignments put mipless
+            // originals back — swap them for the baked copies again), same 1 s cadence as CardFace.
             if (_cardUI != null && Time.unscaledTime >= _nextMipRescan)
             {
                 _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                 CardFaceMipBake.Rescan(_cardUI);
             }
 
-            int want = IsActivatable ? 1 : 0;
+            // ITEM #7 (live playable-gate legibility) — dim the card when it can't be used RIGHT NOW.
+            // Turn-aware: the owner gates on IsActionTurn AND IsActivatable, so off-turn every item reads
+            // de-emphasized and on-turn only the truly-usable ones stay bright. Change-gated toggle of the
+            // mod-owned overlay quad (reliable where the game's disabled CanvasGroup made alpha a no-op).
+            int want = (_owner != null && _owner.CanUseNow(this)) ? 1 : 0;
             if (want != _usabilityShown)
             {
                 _usabilityShown = want;
-                if (_faceGroup != null)
-                    _faceGroup.alpha = want == 1 ? UsableAlpha : DimAlpha;
+                if (_dimQuad != null && _dimQuad.activeSelf != (want == 0))
+                    _dimQuad.SetActive(want == 0); // dim (overlay ON) when NOT usable
+            }
+        }
+
+        private static bool s_loggedArtBaked;
+
+        /// <summary>
+        /// ITEM #5 (desktop-mirror investigation) — one-shot deep diagnostic: dump exactly what the hosted
+        /// item face is so the hardware log can compare it to a held ABILITY face. Logs the item card's
+        /// render layer + our FaceCanvas mode/camera, every nested Canvas on the hosted ItemCardUI (mode /
+        /// worldCamera / overrideSorting — a nested Screen-Space canvas would render only through its own
+        /// camera and never reach the head mirror), and every enabled Camera whose cullingMask includes the
+        /// item's layer (so the log reveals whether the head camera — and any separate avatar/desktop mirror
+        /// camera — actually draws it). No behaviour change; pure evidence.
+        /// </summary>
+        private void LogMirrorDiag(Camera head)
+        {
+            s_loggedMirror = true;
+            try
+            {
+                int layer = _cardGo != null ? _cardGo.layer : -1;
+                var sb = new StringBuilder(256);
+                sb.Append("ITEM #5 MIRROR DIAG: item face layer=").Append(layer)
+                  .Append(" ('").Append(layer >= 0 ? LayerMask.LayerToName(layer) : "?").Append("'), FaceCanvas ")
+                  .Append(_faceCanvas != null ? _faceCanvas.renderMode.ToString() : "null")
+                  .Append(" worldCam=").Append(_faceCanvas != null && _faceCanvas.worldCamera != null ? _faceCanvas.worldCamera.name : "null")
+                  .Append("; head '").Append(head.name).Append("' mask 0x").Append(head.cullingMask.ToString("X8"))
+                  .Append(" rendersItemLayer=").Append(layer >= 0 && (head.cullingMask & (1 << layer)) != 0);
+
+                if (_cardGo != null)
+                {
+                    Canvas[] nested = _cardGo.GetComponentsInChildren<Canvas>(true);
+                    sb.Append("; nested canvases=").Append(nested.Length);
+                    for (int i = 0; i < nested.Length && i < 4; i++)
+                    {
+                        Canvas c = nested[i];
+                        if (c == null || ReferenceEquals(c, _faceCanvas))
+                            continue;
+                        sb.Append(" [").Append(c.name).Append(':').Append(c.renderMode)
+                          .Append(c.overrideSorting ? " override" : "")
+                          .Append(" cam=").Append(c.worldCamera != null ? c.worldCamera.name : "null").Append(']');
+                    }
+                }
+
+                int drawers = 0;
+                if (layer >= 0)
+                {
+                    Camera[] cams = Camera.allCameras;
+                    for (int i = 0; i < cams.Length; i++)
+                        if (cams[i] != null && (cams[i].cullingMask & (1 << layer)) != 0)
+                        {
+                            drawers++;
+                            sb.Append("; draws:'").Append(cams[i].name).Append('\'');
+                        }
+                }
+                sb.Append(" (").Append(drawers).Append(" camera(s) render the item layer). " +
+                          "If only the head camera draws it, the desktop mirror IS the head mirror and the item " +
+                          "SHOULD be visible; if a separate avatar/desktop-mirror camera exists but is absent here, " +
+                          "its cullingMask excludes the item layer — that is the miss.");
+                VRLog.Info("Cards", sb.ToString());
+            }
+            catch (System.Exception e)
+            {
+                VRLog.Warn("Cards", $"ITEM #5 mirror diag skipped ({e.Message}).");
             }
         }
 
@@ -1586,11 +1841,10 @@ internal sealed class ItemsPile
             {
                 try
                 {
-                    // ITEM #1/#7 — leave the pooled widget CLEAN: restore the mip-swapped sprites and
-                    // reset the reversible playable-gate dim before the game reuses this card elsewhere.
+                    // ITEM #1 — leave the pooled widget CLEAN: restore the mip-swapped sprites before the
+                    // game reuses this card elsewhere. (The #7 dim is a mod-owned overlay quad, destroyed
+                    // with the chip below — it never touches the game card, so nothing to reset there.)
                     CardFaceMipBake.RestoreSprites(_cardUI);
-                    if (_faceGroup != null)
-                        _faceGroup.alpha = 1f;
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)
@@ -1600,8 +1854,8 @@ internal sealed class ItemsPile
             }
             _cardGo = null;
             _cardUI = null;
-            _faceGroup = null;
             _faceCanvas = null;
+            _dimQuad = null; // child of the chip GameObject — destroyed with it
             _usabilityShown = -1;
         }
 

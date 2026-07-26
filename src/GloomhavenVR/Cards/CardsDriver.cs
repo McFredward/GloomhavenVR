@@ -1330,7 +1330,7 @@ internal sealed class CardsDriver : MonoBehaviour
     /// load) is skipped silently — audio must never break the interaction path. Edge-triggered
     /// by the callers (grab/release/reveal transitions), never per frame.
     /// </summary>
-    private static void PlayCardSound(string item, Transform at)
+    internal static void PlayCardSound(string item, Transform at)
     {
         if (string.IsNullOrEmpty(item))
             return;
@@ -4717,8 +4717,59 @@ internal sealed class CardsDriver : MonoBehaviour
         _browseHeld = false;
         _browseHand = null;
         ClearBrowseHover();
+        // Requirement 2 (collapse-into-stack for discard/burnt): before the browser closes + the
+        // rebuild parks the adopted cards, fly each card DOWN into ITS OWN pile stack (reverse of the
+        // emerge). The park sweep skips IsFlying cards, so the fly runs to completion and its callback
+        // parks each card on arrival — exactly the item fan's collapse feel, for the ability browser.
+        StartBrowseCollapse();
         _browser.Close();
-        _dirty = true; // next rebuild parks the browsed cards
+        _dirty = true; // next rebuild parks any browsed cards that did not launch a collapse fly
+    }
+
+    /// <summary>
+    /// Requirement 2: launch a fly-to-pile collapse for every card in the closing browse arc, into the
+    /// browsed pile's OWN stack (discard fan → discard stack, burnt fan → burnt stack). Each card is
+    /// re-parented OUT of the browser root first (worldPositionStays) so it keeps animating after the
+    /// root deactivates on Close; the shared <see cref="_flyingToPile"/> set keeps it out of the park
+    /// sweep, and the completion callback hands the adopted face back via <see cref="VRCardFactory.Park"/>
+    /// — same lifecycle as the played-card fly-to-pile. No-op (cards park instantly, as before) when the
+    /// target stack is off/not built.
+    /// </summary>
+    private void StartBrowseCollapse()
+    {
+        PileKind? kind = _browser.Kind;
+        if (kind == null)
+            return;
+        if (!_piles.TryGetPileWorld(kind.Value, out Vector3 worldPos, out float slabWidth))
+            return; // pile offscreen / not built → the rebuild park sweep hides the cards instantly
+
+        Transform? anchor = AnchorParent();
+        Vector3 arcUp = BoardUp();
+        float minArc = BoardArcMin();
+        IReadOnlyList<VRCard> cards = _browser.Cards;
+        int launched = 0;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            VRCard card = cards[i];
+            if (card == null || card.IsHeld || card.IsFlying || _flyingToPile.Contains(card)
+                || !card.gameObject.activeInHierarchy)
+                continue;
+            if (anchor != null)
+                card.transform.SetParent(anchor, worldPositionStays: true); // survive the root deactivation
+            _flyingToPile.Add(card);
+            VRCard flying = card;
+            PileKind dest = kind.Value;
+            card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
+            {
+                _flyingToPile.Remove(flying);
+                _factory.Park(flying);
+                VRLog.Info("Cards", $"Browse collapse: '{flying.name}' reached the {dest} stack — parked.");
+            }, minArc);
+            launched++;
+        }
+        if (launched > 0)
+            VRLog.Info("Cards", $"Browse collapse: {launched} {kind.Value} card(s) fly back into their stack " +
+                                $"({FlyToPileSeconds:F2}s) before parking — the discard/burnt fan now collapses like the item fan.");
     }
 
     /// <summary>
