@@ -115,6 +115,20 @@ internal struct PresenceState
     /// The SENDER's chosen size is transmitted on purpose: their mask must read the same to
     /// everyone, exactly like their chosen mask style, hand style and ghost strength.</summary>
     public byte MaskSizeCode;
+
+    /// <summary>
+    /// The sender's chosen CONTROL-BOARD STYLE (<c>Cards.ControlBoard</c> id: 0 Oak / 1 Steel /
+    /// 2 Bronze), carried in trailing-block byte A bits 5..6 — see
+    /// <see cref="NetProtocol.PileBrowseBoardStyleShift"/>. NO extra byte and no presence flag: 0
+    /// is the default board, so "absent" (older peer, or a peer on Oak) and "Oak" render the same,
+    /// and the packet length is unchanged.
+    ///
+    /// Transmitted because picking the board is now a normal user-facing choice sitting next to the
+    /// head mask and the hand style, and those already travel: a peer's board must read in the
+    /// material that peer actually chose (<see cref="RemoteControlBoard"/> tints its frame from
+    /// this), not in whatever this client happens to use.
+    /// </summary>
+    public byte BoardStyleCode;
 }
 
 /// <summary>
@@ -135,7 +149,9 @@ internal struct PresenceState
 ///   if pileBrowse: byte kindFlags + byte browseCardCount          → 2 bytes  (ADDITIVE)
 ///                  kindFlags: bits0..1 pile kind (0 discard / 1 burnt / 2 items),
 ///                             bit2 hand-held, bit3 left hand,
-///                             bit4 MASK-SIZE byte follows, bits5..7 reserved (0)
+///                             bit4 MASK-SIZE byte follows,
+///                             bits5..6 CONTROL-BOARD STYLE (0 Oak / 1 Steel / 2 Bronze),
+///                             bit7 reserved (0)
 ///     if kindFlags bit4: byte maskSizeCode (size × 100 ⇒ 0.25×..2.55×)  → 1 byte  (ADDITIVE,
 ///                        INSIDE the block — this is the reserved-bit extension path)
 ///
@@ -149,7 +165,10 @@ internal struct PresenceState
 /// byte A carries reserved bits, so the NEXT extras extension can be appended inside this block —
 /// still additive, still no wire-version bump — instead of running out of flag byte. The HEAD-MASK
 /// SIZE is the first user of that room (byte A bit 4 + trailing byte C, see
-/// <see cref="NetProtocol.PileBrowseMaskSizeBit"/>). Because of it, flag bit 7 now means "a trailing
+/// <see cref="NetProtocol.PileBrowseMaskSizeBit"/>); the CONTROL-BOARD STYLE is the second and
+/// cheapest possible one (byte A bits 5..6, <see cref="NetProtocol.PileBrowseBoardStyleShift"/> —
+/// no trailing byte at all, so the packet length does not even change). Because of them, flag bit 7
+/// now means "a trailing
 /// BLOCK follows", not "a browse fan is open": a size-only packet writes the block with the
 /// pile-browse sub-fields zeroed and byte B (count) = 0, and every reader that ever understood bit 7
 /// requires count &gt; 0 before it renders a fan — so it sees no fan and ignores byte C.
@@ -190,7 +209,11 @@ internal static class PresenceSerializer
         // Bit 7 is the trailing-BLOCK header, not "a browse fan is open": the block also carries
         // the head-mask size in its reserved byte-A bits, so it goes out whenever EITHER rides
         // this packet (see the layout doc + NetProtocol.PileBrowseMaskSizeBit).
-        bool block = state.HasPileBrowse || state.HasMaskSize;
+        // The board STYLE rides the same block's byte A (bits 5..6) and therefore also decides
+        // whether the block goes out — but only when it is NON-default, so a player on the default
+        // board still emits the exact bytes previous builds did.
+        bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
+        bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
 
@@ -232,6 +255,12 @@ internal static class PresenceSerializer
             if (state.HasPileBrowse && state.PileBrowseHeld && state.PileBrowseLeftHand)
                 kindFlags |= NetProtocol.PileBrowseLeftBit;
             if (state.HasMaskSize) kindFlags |= NetProtocol.PileBrowseMaskSizeBit;
+            // Board style: two bits IN this byte, no trailing byte — the cheapest extension the
+            // reserved room allows. Zero (= Oak, the default board) is what an older sender writes
+            // here anyway, so the value space and the "field absent" case coincide by construction.
+            kindFlags |= (byte)((NetProtocol.EncodeBoardStyle(state.BoardStyleCode)
+                                 << NetProtocol.PileBrowseBoardStyleShift)
+                                & NetProtocol.PileBrowseBoardStyleMask);
             buffer[i++] = kindFlags;
             buffer[i++] = state.HasPileBrowse ? state.PileBrowseCardCount : (byte)0;
             if (state.HasMaskSize)
@@ -310,6 +339,11 @@ internal static class PresenceSerializer
             state.PileBrowseHeld = (kindFlags & NetProtocol.PileBrowseHeldBit) != 0;
             state.PileBrowseLeftHand = (kindFlags & NetProtocol.PileBrowseLeftBit) != 0;
             state.PileBrowseCardCount = buffer[i++];
+
+            // Control-board style (byte A bits 5..6): pure bit extraction, no length to validate —
+            // which is exactly why it was put here rather than behind another trailing byte. Zero
+            // means the default board (Oak), whether the sender chose it or predates the field.
+            state.BoardStyleCode = NetProtocol.DecodeBoardStyle(kindFlags);
 
             // Head-mask size: the block's own reserved-bit extension. Its length is validated
             // HERE and not in the `need` sum above, because the bit that demands it lives inside

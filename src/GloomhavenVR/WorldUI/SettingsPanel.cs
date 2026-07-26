@@ -928,15 +928,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         Label(mrColorRow, Loc.Mod("key_color"), 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
-        // Which control-board MODEL is loaded (Oak/Steel/Bronze) — a genuinely user-facing choice
-        // (issue 2 keep-list), so it lives here in the default view. It is the SAME [Cards] Board
-        // entry the Debug per-board tuning selects, so switching here also retargets the Debug pane.
-        // Live: CardsDriver rebuilds the tray on change.
-        var boardModelRow = Row();
-        Label(boardModelRow, Loc.Mod("control_board"), 16f, flexible: true);
-        CycleButton(boardModelRow, 100f,
-            () => CardsConfig.Board.Value.ToString(),
-            () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
+        // (The control-board MODEL picker used to sit here in "Anzeige". User 2026-07: "Genau wie
+        // die Hände und die Maske soll auch das Board an sich außerhalb des Debug-Menüs umgestellt
+        // werden können" — it is the same KIND of choice as the head mask and the hand style, so it
+        // now sits WITH them under Avatar instead of between the MSAA/MR display switches. See the
+        // "Kontrollbrett" row in the Avatar section below.)
 
         // Wall-fade thresholds (live [WallFade] config — WallSegmentFade re-reads the clamped
         // accessors every evaluation tick). Issue 2: developer-grade fractions, so each row gates
@@ -981,6 +977,27 @@ internal sealed class SettingsPanel : IPanelGrabOwner
         var handStyleRow = Row();
         Label(handStyleRow, Loc.Mod("hands"), 16f, flexible: true);
         CycleButton(handStyleRow, 120f, HandStyleLabel, CycleHandStyle);
+
+        // CONTROL-BOARD MODEL — Eiche / Stahl / Bronze (writes [Cards] Board). User 2026-07:
+        // "Genau wie die Hände und die Maske soll auch das Board an sich außerhalb des Debug-Menüs
+        // umgestellt werden können (schließlich ist es ein Feature für die User — Debug soll immer
+        // nur optional sein)". So it is built HERE, as the third row of the same style block the
+        // head mask and the hand style form, and NOT in the Debug pane: Debug only tunes the
+        // selected board's offsets/sizes and points back here (BuildElementTuning).
+        //
+        // WHY THIS CATEGORY: "Avatar — Mehrspieler-Erscheinung" is the block of choices that decide
+        // how your gear LOOKS, to you and to everyone else — and the board style now travels on the
+        // wire exactly like the mask and the hand style do (extras trailing block, see
+        // NetProtocol.PileBrowseBoardStyleShift), so a peer's board reads in the material that peer
+        // actually picked. That is what makes it belong next to them rather than in "Anzeige".
+        //
+        // LIVE: writing the entry fires SettingChanged → CardsDriver.OnBoardChanged sets a rebuild
+        // flag → the next Update tears the tray down and rebuilds it from the newly selected prefab
+        // AT THE OLD WORLD POSE (RebuildBoard captures/restores it), so the board changes material
+        // under your hands without a restart and without moving. BepInEx persists on set.
+        var boardModelRow = Row();
+        Label(boardModelRow, Loc.Mod("control_board"), 16f, flexible: true);
+        CycleButton(boardModelRow, 120f, ControlBoardLabel, CycleControlBoard);
 
         Toggle(Loc.Mod("mirror"),
             () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
@@ -1323,15 +1340,31 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             });
         }
 
-        // Board cycle (Oak/Steel/Bronze) — the per-board element tuning edits the SELECTED
-        // board. Hidden for the GLOBAL ButtonTuning elements (Rundenknöpfe / Zahnrad & Fixiert /
-        // Knopf-Farben etc. — their values ride every board).
+        // WHICH BOARD THIS PANE IS TUNING — a READOUT plus a pointer, no longer a second selector.
+        //
+        // This row used to be a Board cycle identical to the one in the user-facing settings, i.e.
+        // the SAME [Cards] Board entry driven from two places. The user's rule (2026-07) is that
+        // choosing the board is a USER FEATURE and Debug is only ever the optional power-user
+        // surface on top of it, so the selection lives exactly once — under Avatar → Kontrollbrett
+        // — and Debug states which board its per-board offsets/sizes/spacings are currently
+        // editing, with a button that takes you to the picker. One writer, no two controls fighting
+        // over one entry, and the tuning workflow (switch board → tune it) is still two presses.
+        //
+        // Hidden for the GLOBAL ButtonTuning elements (Rundenknöpfe / Zahnrad & Fixiert /
+        // Knopf-Farben etc. — their values ride every board, so naming a board would be a lie).
         _rowGate = () => PerBoard() && !ElementIsGlobalTuning(CurrentElement());
         var boardRow = Row();
         Label(boardRow, Loc.Mod("board"), 16f, flexible: true);
-        CycleButton(boardRow, 100f,
-            () => CardsConfig.Board.Value.ToString(),
-            () => CardsConfig.Board.Value = (ControlBoard)(((int)CardsConfig.Board.Value + 1) % 3));
+        TextMeshProUGUI tunedBoard = Label(boardRow, "", 16f, bold: true);
+        tunedBoard.GetComponent<LayoutElement>().preferredWidth = 90f;
+        _refreshers.Add(() => tunedBoard.text = ControlBoardLabel());
+        Button(boardRow, Loc.Mod("board_pick_in_avatar"), 190f, () =>
+        {
+            _navCat = (int)NavCat.Avatar; // jump to the ONE place the board is chosen
+            _subCatListOpen = false;
+            _elementListOpen = false;
+            RefreshAll();
+        });
 
         // Element chooser — ACCORDION scoped to the selected SUB-CATEGORY (user 5b): the header row
         // shows the selected element; pressing it expands one option row PER element of the CURRENT
@@ -2578,6 +2611,49 @@ internal sealed class SettingsPanel : IPanelGrabOwner
             return;
         int cur = (int)Hands.HandStyles.Clamp((int)Plugin.HandStyle.Value);
         Plugin.HandStyle.Value = (Hands.HandStyle)((cur + 1) % Hands.HandStyles.Count);
+    }
+
+    /// <summary>
+    /// Cycle-button readout for the USER-FACING control-board picker: the LOCALIZED board name
+    /// ("Eiche" / "Stahl" / "Bronze"), not the raw enum member. Guarded like the hand-style readout
+    /// so an unbound [Cards] config (panel opened before the Cards module bound) shows the default
+    /// board instead of throwing inside a UI refresher.
+    /// </summary>
+    private static string ControlBoardLabel()
+    {
+        try
+        {
+            return ControlBoards.DisplayName(
+                CardsConfig.Board != null ? CardsConfig.Board.Value : ControlBoard.Oak);
+        }
+        catch
+        {
+            return ControlBoards.DisplayName(ControlBoard.Oak);
+        }
+    }
+
+    /// <summary>
+    /// Advance the control board Eiche→Stahl→Bronze→Eiche (writes [Cards] Board; BepInEx persists
+    /// on set and CardsDriver live-rebuilds the tray via SettingChanged, keeping the old world
+    /// pose). Mirrors <see cref="CycleHandStyle"/> one-for-one — same shape, same guard, same
+    /// single source for the cycle length (<see cref="ControlBoards.Next"/>).
+    ///
+    /// The VRLog line is the proof-of-apply a hardware log needs: it names the board the USER just
+    /// picked, and the rebuild it triggers logs its own "[Cards] Control board switched to …" plus
+    /// the factory's "Control board '…' → '…' loaded from bundle." — so the whole chain
+    /// (menu press → config write → prefab load) is greppable end to end.
+    /// </summary>
+    private static void CycleControlBoard()
+    {
+        if (CardsConfig.Board == null)
+            return;
+        ControlBoard next = ControlBoards.Next(ControlBoards.Clamp((int)CardsConfig.Board.Value));
+        CardsConfig.Board.Value = next;
+        VRLog.Info("WorldUI", $"Control board SELECTED by the user: '{next}' " +
+                              $"(\"{ControlBoards.DisplayName(next)}\") — VR settings → " +
+                              "Avatar → Kontrollbrett, the same user-facing surface as the head " +
+                              "mask and the hand style. Written to [Cards] Board (persisted); the " +
+                              "tray rebuilds live at its current world pose.");
     }
 
     /// <summary>Cycle-button readout for the remote-boards visibility setting.</summary>

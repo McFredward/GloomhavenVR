@@ -185,6 +185,17 @@ internal static class Loc
         ["applies_next_start"] = Pair("* applies on next VR start", "* wird beim nächsten VR-Start aktiv"),
         ["board"] = Pair("Board", "Board"),
         ["control_board"] = Pair("Control board", "Kontrollbrett"),
+        // The three selectable control-board MODELS. The player picks these by name in the normal
+        // (non-debug) settings, exactly like the head mask and the hand style, so they must read as
+        // materials in the player's language — "Oak" means nothing to a German player, "Eiche" does.
+        // The enum member names (Oak/Steel/Bronze) stay the config/log/wire identity.
+        ["board_oak"] = Pair("Oak", "Eiche"),
+        ["board_steel"] = Pair("Steel", "Stahl"),
+        ["board_bronze"] = Pair("Bronze", "Bronze"),
+        // Debug pane pointer: the board SELECTION is a user feature and lives in Avatar; the Debug
+        // pane only says which board its tuning rows are editing and jumps you to the picker, so
+        // there are never two controls writing the same setting from two places.
+        ["board_pick_in_avatar"] = Pair("Choose under Avatar ›", "Auswahl unter Avatar ›"),
         ["display"] = Pair("Display", "Anzeige"),
         ["show_combat_log"] = Pair("Show combat log", "Kampflog anzeigen"),
         // Size dial for the mouseover info panels ("2 Gold", "Geschlossene Tür", …) — the German

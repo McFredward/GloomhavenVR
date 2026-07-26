@@ -140,6 +140,13 @@ internal sealed class RemoteControlBoard
     private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[2];
     private OwnerTag? _tag;
 
+    // ---- board STYLE (extras block byte A bits 5..6) --------------------------------------------
+    // The frame material of THIS peer's board (one Material instance per remote board — nothing is
+    // shared, so tinting one peer's board can never touch another's) plus the change latch, so the
+    // per-frame check costs an int compare until the peer actually switches board.
+    private Material? _frameMat;
+    private int _appliedStyle = -1;
+
     // ---- full-parity content (all mod-drawn, all zero-wire — see the class note) ----------------
     private RemoteObjectivesPanel? _objectives;   // GLOBAL
     private RemoteElementStrip? _elements;        // GLOBAL
@@ -206,6 +213,10 @@ internal sealed class RemoteControlBoard
         // Place at the REAL synced world transform.
         _root!.transform.SetPositionAndRotation(_owner.BoardPosition, _owner.BoardRotation);
         _root.transform.localScale = Vector3.one * (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
+
+        // Re-tint the frame when this peer switches their control board (change-latched, so it is a
+        // single int compare on every other frame).
+        ApplyBoardStyle();
 
         OrderRoundCards(actor!);
         // THE reveal decision for this peer's played cards, taken ONCE per frame here and passed
@@ -355,9 +366,13 @@ internal sealed class RemoteControlBoard
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
 
-        // Board frame: a dark rounded slab. Unlit so it reads regardless of scene lighting.
-        BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH),
-            BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 1f)));
+        // Board frame: a dark rounded slab. Unlit so it reads regardless of scene lighting. Its
+        // material is kept so the frame can be re-tinted to the peer's CHOSEN board style without
+        // rebuilding anything (see ApplyBoardStyle); it starts at the Oak/default colour, which is
+        // bit-for-bit what this board looked like before the style ever rode the wire.
+        _frameMat = BoardVisual.Unlit(FrameColor(Cards.ControlBoard.Oak));
+        BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH), _frameMat);
+        _appliedStyle = -1; // force the first Tick to state what it applied
 
         _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), CardW, CardH);
         _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), CardW, CardH);
@@ -411,6 +426,47 @@ internal sealed class RemoteControlBoard
                           "any interaction registry. It is a display of a control board, not one.");
     }
 
+    // ------------------------------------------------------------------ board style --
+
+    /// <summary>
+    /// Frame colour standing in for a control-board MATERIAL. Oak keeps EXACTLY the colour this
+    /// board has always had, so nothing changes for a peer on the default board (or on an older
+    /// build, whose zeroed style bits also read as Oak); Steel is a cool gunmetal grey and Bronze a
+    /// warm dark copper, i.e. the same three materials the real boards read as, at a glance and
+    /// from across the table.
+    /// </summary>
+    private static Color FrameColor(Cards.ControlBoard style) => style switch
+    {
+        Cards.ControlBoard.Steel => new Color(0.13f, 0.14f, 0.17f, 1f),
+        Cards.ControlBoard.Bronze => new Color(0.16f, 0.10f, 0.05f, 1f),
+        _ => new Color(0.10f, 0.09f, 0.08f, 1f), // Oak — today's colour, unchanged
+    };
+
+    /// <summary>
+    /// Tint this peer's board frame to the board THEY chose (received in the extras block's byte A
+    /// bits 5..6). Change-latched: a no-op int compare until they actually switch.
+    ///
+    /// WHY A TINT AND NOT THEIR PREFAB: a remote board is deliberately a MOD-DRAWN, INERT display
+    /// (see the class note) — quads and text, no colliders, no interaction registry — not an
+    /// instance of the real PlayTray prefab, which carries the whole interactive furniture and
+    /// would have to be loaded, stripped and re-parented per peer per switch. The wire cost of the
+    /// choice is two bits and the visual cost is one material colour, which is exactly the
+    /// "peers see the board you actually use" the standing MP rule asks for, at the fidelity this
+    /// display was built at.
+    /// </summary>
+    private void ApplyBoardStyle()
+    {
+        Cards.ControlBoard style = _owner.BoardStyle;
+        if ((int)style == _appliedStyle || _frameMat == null)
+            return;
+        _appliedStyle = (int)style;
+        _frameMat.color = FrameColor(style);
+        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] re-tinted to the '{style}' control " +
+                          "board — the board style that peer picked in THEIR settings, received in " +
+                          "the extras block (byte A bits 5..6, zero extra bytes). Cosmetic only: " +
+                          "the remote board stays the same inert mod-drawn display.");
+    }
+
     /// <summary>Drop every hosted card face on this board (round slots + active column) and reset the
     /// slots' change gates, so the next visible frame re-decides from scratch. No-op before the board
     /// has ever been built.</summary>
@@ -456,6 +512,10 @@ internal sealed class RemoteControlBoard
         _piles[0] = _piles[1] = _piles[2] = null;
         _loggedContent = string.Empty;
         _nextRefreshAt = 0f;
+        // The frame material belongs to the destroyed quad; drop the handle and the style latch so a
+        // rebuilt board re-applies the peer's style from scratch instead of trusting a stale int.
+        _frameMat = null;
+        _appliedStyle = -1;
     }
 
     // ------------------------------------------------------------------ pile stack --

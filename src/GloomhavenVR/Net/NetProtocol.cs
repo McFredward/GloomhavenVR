@@ -260,6 +260,53 @@ internal static class NetProtocol
     public static float DecodeMaskSize(byte code) =>
         code < 25 ? MaskSizeDefaultCode / 100f : code / 100f;
 
+    /// <summary>
+    /// Trailing-block byte A bits 5..6 — the SECOND user of the reserved room
+    /// <see cref="FlagPileBrowse"/> was spent to create: the sender's chosen CONTROL-BOARD STYLE
+    /// (<c>Cards.ControlBoard</c> — 0 Oak / 1 Steel / 2 Bronze), carried IN the existing byte with
+    /// NO extra byte at all. Bit 7 stays reserved for whatever comes after this.
+    ///
+    /// WHY IT IS TRANSMITTED: the board style became a normal user-facing choice (VR settings →
+    /// Avatar → Kontrollbrett, next to the head mask and the hand style), and the project's
+    /// standing multiplayer rule is that what one player sees, every player sees the same way. The
+    /// mask style, mask size, hand style and ghost strength all ride the wire for exactly this
+    /// reason; a peer whose board is bronze on their own screen and default-dark on everyone
+    /// else's would be the same disagreement.
+    ///
+    /// WHY NO PRESENCE BIT AND NO EXTRA BYTE: code 0 is the DEFAULT board (Oak), so "absent" and
+    /// "Oak" render identically — the same argument that lets the mask size be omitted at 1.00×.
+    /// A sender only sets the block header for the style when the style is NON-default, so a
+    /// default-board player's packet stays byte-identical to what previous builds emitted, and an
+    /// old sender (which always writes these bits as 0) reads as Oak, never as garbage. Two bits
+    /// hold four boards; a FIFTH board would need a trailing byte behind byte C, appended under the
+    /// same additive contract.
+    ///
+    /// BACKWARD COMPATIBLE BOTH WAYS: the packet LENGTH does not change, so a pre-existing reader
+    /// parses it exactly as before and simply ignores these two unknown bits (it masks byte A with
+    /// 0x03 for the pile kind and tests bits 2/3/4 individually — none of them is touched here).
+    /// No new flag bit, no wire-version bump.
+    /// </summary>
+    public const int PileBrowseBoardStyleShift = 5;
+
+    /// <summary>Mask of the board-style field inside trailing-block byte A (bits 5..6).</summary>
+    public const byte PileBrowseBoardStyleMask = 0x60;
+
+    /// <summary>Wire code of the DEFAULT control board (Oak). A packet whose byte-A style bits are
+    /// zero — including every packet from a peer that predates the field — means exactly this.</summary>
+    public const byte BoardStyleDefaultCode = 0;
+
+    /// <summary>Largest board id the two reserved bits can carry (four boards, 0..3).</summary>
+    public const byte BoardStyleMaxCode = 3;
+
+    /// <summary>Quantize a <c>Cards.ControlBoard</c> id to its 2-bit wire code (clamped, so a
+    /// hypothetical fifth board degrades to a drawable one instead of corrupting byte A).</summary>
+    public static byte EncodeBoardStyle(int board) =>
+        (byte)UnityEngine.Mathf.Clamp(board, BoardStyleDefaultCode, BoardStyleMaxCode);
+
+    /// <summary>Extract the board-style code from trailing-block byte A (0 = default/older peer).</summary>
+    public static byte DecodeBoardStyle(byte kindFlags) =>
+        (byte)((kindFlags & PileBrowseBoardStyleMask) >> PileBrowseBoardStyleShift);
+
     /// <summary>How long a remote card-FX flight takes (seconds) — matched to the LOCAL
     /// <c>CardsDriver.FlyToPileSeconds</c> so a peer's flight lasts as long as the real one.</summary>
     public const float CardFxSeconds = 0.4f;

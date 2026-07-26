@@ -27,6 +27,43 @@ internal enum ControlBoard
 }
 
 /// <summary>
+/// Helpers over <see cref="ControlBoard"/>, mirroring <c>Hands.HandStyles</c> — the reference
+/// implementation for a USER-FACING style choice in this codebase (count / clamp / display name).
+///
+/// WHY THIS EXISTS AT ALL: picking the control board is a normal-user FEATURE, exactly like the
+/// hand style and the head mask (user: "Genau wie die Hände und die Maske soll auch das Board an
+/// sich außerhalb des Debug-Menüs umgestellt werden können"). A user-facing control must show a
+/// LOCALIZED NAME, not the raw C# enum member, and the number of boards must come from ONE place
+/// so the cycle button, the wire clamp and any future fourth board all agree. Both of those used
+/// to be open-coded at every call site (<c>Board.Value.ToString()</c> and a hardcoded <c>% 3</c>),
+/// which is precisely the kind of duplication that lets a new board be added everywhere but one.
+/// </summary>
+internal static class ControlBoards
+{
+    /// <summary>Number of selectable boards (wire values and cycle steps clamp to [0, Count-1]).</summary>
+    public const int Count = 3;
+
+    /// <summary>Clamp an arbitrary (config / wire) value to a valid board.</summary>
+    public static ControlBoard Clamp(int value) =>
+        (ControlBoard)Mathf.Clamp(value, 0, Count - 1);
+
+    /// <summary>The next board in the cycle (wraps) — the single definition of the cycle order.</summary>
+    public static ControlBoard Next(ControlBoard b) => (ControlBoard)(((int)b + 1) % Count);
+
+    /// <summary>
+    /// LOCALIZED display name ("Eiche" / "Stahl" / "Bronze"), for every user-facing readout. The
+    /// enum member name stays the config/log/wire identity — only what the PLAYER reads is
+    /// translated, the same split the mask/hand-style pickers use.
+    /// </summary>
+    public static string DisplayName(ControlBoard b) => b switch
+    {
+        ControlBoard.Steel => Core.Loc.Mod("board_steel"),
+        ControlBoard.Bronze => Core.Loc.Mod("board_bronze"),
+        _ => Core.Loc.Mod("board_oak"),
+    };
+}
+
+/// <summary>
 /// Cap shape of a control-board button group (in-VR debug menu, per board). Round = the
 /// flattened-cylinder puck that drops into a round notch (today's Rest look); Square = the
 /// boxy 3D keycap (today's Confirm/Undo look). Selectable per group so a board with square
