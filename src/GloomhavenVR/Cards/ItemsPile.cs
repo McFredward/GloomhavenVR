@@ -66,6 +66,15 @@ internal sealed class ItemsPile
     private static Vector3 BoardAnchorBase =>
         new(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
 
+    /// <summary>
+    /// Requirement #2: the per-board ITEM-fan offset — nudges the item fan root (board-anchored,
+    /// held-follow, and above-board reading poses) INDEPENDENTLY of the ability-card fan, since item
+    /// cards are a different, near-square shape. Read LIVE every <see cref="Tick"/> (a cheap Vector3
+    /// config read) so the debug-menu 'Item card X/Y/Z' steppers move an OPEN fan immediately, exactly
+    /// like <see cref="CardsConfig.BrowseFanOffset"/> does for the discard/burnt fans.
+    /// </summary>
+    private static Vector3 ItemFanOffset => CardsConfig.ItemCardOffset(CardsConfig.CurrentBoard).Value;
+
     // Physical hand-sweep reach (mirror of PileBrowser.ContactTipReach/PalmReach/StickyMargin,
     // scale-1 metres): a chip is a candidate when the dominant index tip is within TipReach OR
     // the palm within PalmReach; the winner is the nearest by index tip alone, with a small
@@ -92,6 +101,11 @@ internal sealed class ItemsPile
 
     // Diagnostics dedup for the live USE-slot gate log ("ITEM USE SLOT: shown/hidden …").
     private bool _useSlotShownLogged;
+
+    // Requirement 6 (clip-in decision): the chip currently CLIPPED into the use slot awaiting a
+    // Confirm/cancel decision (null = none). While set, the fan never live-rebuilds (so the decision
+    // chip is never yanked), the chip is driven to the slot pose each tick, and a Confirm button shows.
+    private ItemChip? _pendingUseChip;
 
     internal bool IsOpen { get; private set; }
     internal bool IsHandHeld => _followHand != null;
@@ -163,6 +177,7 @@ internal sealed class ItemsPile
             PlaceAboveBoard(); // float above the board, inherit its scale (mirror PileBrowser)
         else
             PlaceAtHead(); // no board — head-relative fallback
+        EmergeAll(); // req #5: fly the chips OUT of the pile stack (after _root is placed)
         VRLog.Info("Cards", $"Items pile browse OPEN ({(followHand != null ? "held in hand" : boardRoot != null ? "board-anchored" : "toggled")}, " +
                             $"{_chips.Count} item(s)).");
     }
@@ -175,9 +190,11 @@ internal sealed class ItemsPile
         _followHand = null;
         _boardAnchored = false;
         ClearHandSweep();
+        _pendingUseChip = null; // #6: drop any pending decision on close
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false); // never leave the use slot up once the fan is gone
         _useSlotShownLogged = false;
-        ClearChips();
+        CollapseChips(); // req #5: fly the chips BACK INTO the pile stack, then self-destroy
         _signature = string.Empty;
         if (_root != null)
             _root.gameObject.SetActive(false);
@@ -188,10 +205,12 @@ internal sealed class ItemsPile
     {
         ClearHandSweep();
         ClearChips();
+        _pendingUseChip = null; // #6
         IsOpen = false;
         _followHand = null;
         _boardAnchored = false;
         _hand = null;
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false);
         if (_root != null)
         {
@@ -236,8 +255,9 @@ internal sealed class ItemsPile
             return;
         }
 
-        // Live refresh: rebuild only when nothing is held and the inventory state moved.
-        if (!AnyHeld())
+        // Live refresh: rebuild only when nothing is held AND no decision is pending (so a chip clipped
+        // into the use slot is never yanked by a rebuild) and the inventory state moved.
+        if (!AnyHeld() && _pendingUseChip == null)
         {
             string sig = Signature(hand);
             if (sig != _signature)
@@ -247,20 +267,29 @@ internal sealed class ItemsPile
         // Physical fingertip sweep: lift the chip nearest the dominant index tip (single-winner).
         UpdateHandSweep();
 
-        // Requirement 3 (LIVE gate, re-evaluated every tick): the USE clip-in slot shows ONLY
-        // while (a) it is this hand's own action turn AND (b) a HELD item card's live SlotState
-        // is usable. Poll the held chip's live SlotState here (never cache it at create time).
-        bool turn = CardsGameApi.IsActionTurn(hand);
-        ItemChip? heldUsable = HeldActivatableChip();
-        bool showUseSlot = turn && heldUsable != null;
-        PlayTray.Current?.SetItemUseSlotVisible(showUseSlot);
-        if (showUseSlot != _useSlotShownLogged)
+        if (_pendingUseChip != null)
         {
-            _useSlotShownLogged = showUseSlot;
-            Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
-            Vector3 pos = slot != null ? slot.position : Vector3.zero;
-            VRLog.Info("Cards", $"ITEM USE SLOT: {(showUseSlot ? "shown" : "hidden")} " +
-                                $"(turn={turn} heldUsable={(heldUsable != null)}) at ({pos.x:F2},{pos.y:F2},{pos.z:F2}).");
+            // Requirement 6: a chip is CLIPPED into the use slot awaiting a decision — keep the slot +
+            // Confirm button up and glue the chip to the slot pose, or resolve the cancel/invalidation.
+            TickPendingUse(hand);
+        }
+        else
+        {
+            // Requirement 3 (LIVE gate, re-evaluated every tick): the USE clip-in slot shows ONLY
+            // while (a) it is this hand's own action turn AND (b) a HELD item card's live SlotState
+            // is usable. Poll the held chip's live SlotState here (never cache it at create time).
+            bool turn = CardsGameApi.IsActionTurn(hand);
+            ItemChip? heldUsable = HeldActivatableChip();
+            bool showUseSlot = turn && heldUsable != null;
+            PlayTray.Current?.SetItemUseSlotVisible(showUseSlot);
+            if (showUseSlot != _useSlotShownLogged)
+            {
+                _useSlotShownLogged = showUseSlot;
+                Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
+                Vector3 pos = slot != null ? slot.position : Vector3.zero;
+                VRLog.Info("Cards", $"ITEM USE SLOT: {(showUseSlot ? "shown" : "hidden")} " +
+                                    $"(turn={turn} heldUsable={(heldUsable != null)}) at ({pos.x:F2},{pos.y:F2},{pos.z:F2}).");
+            }
         }
 
         // Fan facing/position: HELD → float above the palm; BOARD-ANCHORED → re-read the shared
@@ -269,12 +298,12 @@ internal sealed class ItemsPile
             return;
         if (_followHand != null)
         {
-            _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
+            _root.localPosition = new Vector3(0f, HandPalmOffset, 0f) + ItemFanOffset; // req #2 item nudge
             FaceHead(_root);
         }
         else if (_boardAnchored)
         {
-            _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
+            _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value + ItemFanOffset; // req #2 item nudge
             FaceHead(_root);
         }
     }
@@ -341,6 +370,58 @@ internal sealed class ItemsPile
         for (int i = 0; i < _chips.Count; i++)
             if (_chips[i] != null)
                 Object.DestroyImmediate(_chips[i].gameObject);
+        _chips.Clear();
+        _handWinner = null;
+    }
+
+    /// <summary>World anchor the fan emerges from / collapses into (req #5): the item PILE stack
+    /// region (the pile mount PileViewer built the stacks under). Falls back to the fan root.</summary>
+    private Vector3 PileConvergeWorld() =>
+        _anchor != null ? _anchor.position : (_root != null ? _root.position : Vector3.zero);
+
+    /// <summary>
+    /// Requirement 5 (emerge): once the fan root is placed, drop every chip ONTO the pile stack point
+    /// (in ROOT-LOCAL space, so it rides the board like the arc homes) and start each chip's home-glide
+    /// — the chips visibly fly OUT of the pile into the arc. Reuses the same easing as the release glide.
+    /// </summary>
+    private void EmergeAll()
+    {
+        if (_root == null)
+            return;
+        Vector3 localConverge = _root.InverseTransformPoint(PileConvergeWorld());
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c != null && c.Holder == null)
+                c.BeginEmerge(localConverge);
+        }
+    }
+
+    /// <summary>
+    /// Requirement 5 (collapse): on close, hand each chip off to a self-driven glide BACK INTO the pile
+    /// stack, then it destroys itself (recycling its ItemCardUI in OnDisable). The chips are re-parented
+    /// OUT of the fan root first so they keep updating after the root is deactivated. A held chip (rare
+    /// close-mid-grab) is dropped immediately. Clears the live list so a re-open builds fresh chips.
+    /// </summary>
+    private void CollapseChips()
+    {
+        Vector3 converge = PileConvergeWorld();
+        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root
+                        : (_anchor != null ? _anchor : null);
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c == null)
+                continue;
+            if (c.Holder != null)
+            {
+                Object.DestroyImmediate(c.gameObject); // held on close — just drop it
+                continue;
+            }
+            if (keep != null)
+                c.transform.SetParent(keep, worldPositionStays: true); // survive the root deactivation
+            c.BeginCollapse(converge);
+        }
         _chips.Clear();
         _handWinner = null;
     }
@@ -465,8 +546,8 @@ internal sealed class ItemsPile
             for (int i = 0; i < _chips.Count; i++)
             {
                 ItemChip c = _chips[i];
-                if (c == null || c.Holder != null)
-                    continue;
+                if (c == null || c.Holder != null || c.PendingUse)
+                    continue; // a chip clipped into the use slot is not a sweep candidate (#6)
                 if (!c.TryFingertipDistance(tip, out float tipDist)
                     || !c.TryFingertipDistance(palm, out float palmDist))
                     continue;
@@ -530,11 +611,11 @@ internal sealed class ItemsPile
     }
 
     /// <summary>
-    /// Requirement 3 (clip-in to use): a just-released chip is offered to the board's item-use
-    /// slot. If the chip is activatable and was dropped onto/near the slot, use it via the game's
-    /// own <c>UseItemService</c> (which owns ALL multiplayer sync — ItemToken +
-    /// GameActionType.UseItem — and re-validates the item itself). Otherwise it is a no-op and the
-    /// chip returns to its fan home (the base restore already ran). Never mutates inventory directly.
+    /// Requirement 6 (clip-in + decide): a just-released usable chip dropped onto/near the board's
+    /// item-use slot does NOT use immediately — it CLIPS INTO the slot and waits. A poke/laser on the
+    /// Confirm button uses it (<see cref="ConfirmPendingUse"/>); grabbing the card BACK OUT and
+    /// releasing it returns it to the deck, no use. Dropped anywhere else (or a non-activatable chip)
+    /// is a no-op — the base glide-home already runs. Inventory is never mutated here.
     /// </summary>
     internal void OnChipReleased(ItemChip chip, Vector3 dropWorldPos, VRHand vrHand)
     {
@@ -547,30 +628,126 @@ internal sealed class ItemsPile
         float scale = slot.lossyScale.x;
         float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
         if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
-            return; // dropped away from the slot — nothing to do
+            return; // dropped away from the slot — the base glide-home returns it to the fan
+
+        // Only one pending decision at a time (a fresh drop replaces an older pending clip cleanly).
+        if (_pendingUseChip != null && !ReferenceEquals(_pendingUseChip, chip))
+            _pendingUseChip.ReturnToFan();
+
+        _pendingUseChip = chip;
+        chip.PendingUse = true;
+        chip.CancelReleaseGlide(); // do NOT glide home — we clip into the slot instead
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        PlayTray.Current?.SetItemUseConfirmVisible(true, ConfirmPendingUse);
+        vrHand.SendHaptic(HapticPreset.HoverTick);
+        VRLog.Info("Cards", $"ITEM clip-in: '{chip.name}' held in the use slot ({vrHand.Side}) — " +
+                            "poke USE to confirm, or grab it back out to cancel.");
+    }
+
+    /// <summary>
+    /// Requirement 6 — per-tick pending-decision service: resolve a CANCEL (the card was grabbed back
+    /// out of the slot), an invalidation (turn ended / item no longer usable), or else keep the card
+    /// glued to the slot pose (root-local so it rides the board billboard) with the Confirm button up.
+    /// </summary>
+    private void TickPendingUse(CardsHandUI hand)
+    {
+        ItemChip? chip = _pendingUseChip;
+        if (chip == null)
+            return;
+
+        // Cancel by grabbing it BACK OUT (#6 refinement): once held again, clear the pending state; the
+        // chip's own OnRelease then returns it to the fan (or re-clips if dropped back on the slot).
+        if (chip.Holder != null)
+        {
+            CancelPendingUse("grabbed back out of the slot");
+            return;
+        }
+        // Invalidated: no longer this hand's action turn, or the item is no longer usable.
+        if (!CardsGameApi.IsActionTurn(hand) || !chip.IsActivatable)
+        {
+            chip.ReturnToFan(); // glide back to the fan (not held)
+            CancelPendingUse("no longer usable");
+            return;
+        }
+
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
+        if (slot != null && _root != null)
+        {
+            Vector3 lp = _root.InverseTransformPoint(slot.position);
+            Quaternion lr = Quaternion.Inverse(_root.rotation) * slot.rotation;
+            chip.SetClipTarget(lp, lr, ChipScale);
+        }
+    }
+
+    /// <summary>Requirement 6 — drop the pending state + hide the Confirm button. Clears the chip's own
+    /// PendingUse flag so a chip GRABBED back out glides home on release (instead of re-clipping); the
+    /// invalidation path already called <see cref="ItemChip.ReturnToFan"/> to start that glide.</summary>
+    private void CancelPendingUse(string why)
+    {
+        ItemChip? chip = _pendingUseChip;
+        _pendingUseChip = null;
+        if (chip != null)
+            chip.PendingUse = false;
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        PlayTray.Current?.SetItemUseSlotVisible(false);
+        _useSlotShownLogged = false;
+        VRLog.Info("Cards", $"ITEM clip-in CANCEL ({why}) — card returns to the deck, NOT used.");
+    }
+
+    /// <summary>
+    /// Requirement 6 — CONFIRM: use the pending item through the game's own <c>UseItemService</c>
+    /// (which owns ALL multiplayer sync + re-validates), then reflect the result with an animation ON
+    /// the clipped card (burn plume for Consumed, a "tap" roll for Spent) before it collapses back into
+    /// the deck. Invoked by the Confirm button's poke/laser callback. Inventory is never mutated here.
+    /// </summary>
+    private void ConfirmPendingUse()
+    {
+        ItemChip? chip = _pendingUseChip;
+        _pendingUseChip = null;
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        if (chip == null)
+            return;
 
         CPlayerActor? actor = _hand != null ? _hand.PlayerActor : null;
         if (actor == null || chip.Item == null)
+        {
+            chip.ReturnToFan();
             return;
+        }
 
+        CItem item = chip.Item;
         string itemName = chip.name;
         try
         {
-            // UseItemService handles the online GameAction send + local execution; passive/
-            // non-usable items are rejected inside it (belt-and-braces with IsActivatable).
-            new UseItemService(actor).UseItem(chip.Item);
+            // UseItemService owns the online GameAction send + local execution + re-validation.
+            new UseItemService(actor).UseItem(item);
         }
         catch (System.Exception e)
         {
             VRLog.Warn("Cards", $"ITEM USE failed for '{itemName}': {e.Message}");
+            chip.ReturnToFan();
             return;
         }
 
-        vrHand.SendHaptic(HapticPreset.ClickPulse);
-        VRLog.Info("Cards", $"ITEM USED {itemName} (clip-in slot, {vrHand.Side}). " +
-                            "Fan re-classifies (Spent/Consumed) on the next state-change refresh.");
-        PlayTray.Current?.SetItemUseSlotVisible(false); // hide now; the fan rebuilds when the item re-classifies
+        // Reflect the RESULT with an FX on the clipped card, then it collapses back into the deck.
+        // Detach it from the fan root + drop it from the live list so the flourish/collapse runs to
+        // completion even as the fan live-rebuilds to show the item's new (Spent/Consumed) state.
+        bool consumed = item.SlotState == CItem.EItemSlotState.Consumed;
+        bool spent = item.SlotState == CItem.EItemSlotState.Spent;
+        Vector3 converge = PileConvergeWorld();
+        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
+        if (keep != null)
+            chip.transform.SetParent(keep, worldPositionStays: true);
+        _chips.Remove(chip);
+        if (ReferenceEquals(_handWinner, chip))
+            _handWinner = null;
+        chip.PlayUseThenCollapse(consumed, spent, converge);
+
+        PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
+        VRLog.Info("Cards", $"ITEM USED {itemName} (CONFIRM; state now {item.SlotState}) — playing " +
+                            $"{(consumed ? "burn" : spent ? "tap" : "use")} FX, then it returns to the deck.");
     }
 
     // ================================================================== item chip ==
@@ -632,6 +809,35 @@ internal sealed class ItemsPile
         private float _faceWidth;
         private float _faceHeight;
 
+        // ITEM #1 (de-shimmer): the hosted ItemCardUI's cardBackground art loads ASYNC, so — exactly
+        // like the ability cards' CardFace — its mipless-atlas sprites must be swapped for mip-baked
+        // equivalents on host AND re-scanned on a slow cadence until the art has arrived (CardFace.cs
+        // uses MipRescanInterval=1s and re-runs forever, because async arrivals / state changes keep
+        // putting mipless originals back). RestoreSprites runs before the widget is recycled to the pool
+        // so the pooled card is left clean. The bake caches are static + content-keyed, so the item
+        // sprites share the ability cards' baked atlases for free (see CardFaceMipBake).
+        private const float MipRescanInterval = 1f;
+        private float _nextMipRescan;
+
+        // ITEM #7 (live playable-gating legibility): non-usable chips (passive items, spent/consumed,
+        // or anything whose live IsActivatable is false right now — e.g. off-turn) are dimmed so the
+        // currently-usable ones read as the ones you can actually play. Applied via a REVERSIBLE
+        // CanvasGroup alpha on the hosted card — never mutates the game card's own materials, and it is
+        // reset to full alpha before the widget is recycled to the pool. Re-evaluated LIVE every Update
+        // from IsActivatable, because usability changes with turn/phase. -1 = "not yet applied".
+        private const float UsableAlpha = 1f;
+        private const float DimAlpha = 0.4f;
+        private CanvasGroup? _faceGroup;   // on the hosted ItemCardUI (reversible face dim)
+        private int _usabilityShown = -1;  // last applied state: -1 none, 0 dimmed, 1 bright
+
+        // ITEM #3 (desktop mirror): the hosted card's world-space FaceCanvas. VRCard binds its face
+        // canvas' worldCamera to the head camera every frame (VRCard.UpdateCanvasCamera); ItemsPile
+        // never did, so a WorldSpace canvas with a null worldCamera culled/sorted differently per
+        // camera and the item face was absent from the desktop mirror while ability cards showed.
+        // Binding it to VRRigDriver.HeadCamera makes the item face render exactly like the ability
+        // face (both faces are already on the same authored UI layer; the mod bodies on the mod layer).
+        private Canvas? _faceCanvas;
+
         // FIX 1 (held pose) — the in-hand pinch target captured at grab time, in GrabAnchor-local
         // space; TickHeldPose lerps toward it each frame while also billboarding the face to the head
         // (mirror of VRCard._heldPos/_heldRot/_heldScale + VRCard.TickHeldPose).
@@ -649,8 +855,37 @@ internal sealed class ItemsPile
         private const float ReleaseGlideSeconds = 0.35f;
         private float _releaseGlide;
 
+        // Requirement 5 (collapse-into-pile): a closing chip is detached from the fan root by the owner
+        // and self-glides (WORLD space) into the pile stack point, then destroys itself — its OnDisable
+        // recycles the hosted ItemCardUI back to the pool, so the collapse never leaks a card widget.
+        private bool _collapsing;
+        private Vector3 _collapseWorld;
+        private float _collapseTime;
+        private const float CollapseSeconds = 0.26f;
+
+        // Requirement 6 (clip-in decision): while a released usable chip is CLIPPED into the use slot
+        // awaiting a Confirm/cancel decision, PendingUse is set and the owner drives it to this clip
+        // target (root-local, so it rides the board billboard) each tick. The chip stays grabbable so
+        // the player can grab it BACK OUT to cancel (the #6 refinement); on release it glides to the fan.
+        internal bool PendingUse { get; set; }
+        private Vector3 _clipPos;
+        private Quaternion _clipRot = Quaternion.identity;
+        private float _clipScale = 1f;
+        private bool _hasClip;
+
+        // Requirement 6 (use FX): after a CONFIRM the owner detaches the chip and plays a brief flourish
+        // reflecting the result — a burn plume (Consumed) or a "tap" roll to 90° with a scale pulse
+        // (Spent) — then the chip collapses into the deck. Independent of the collapse/pending states.
+        private bool _useFxActive;
+        private float _useFxTime;
+        private bool _useFxSpent;
+        private Vector3 _useFxCollapseWorld;
+        private Quaternion _useFxBaseRot = Quaternion.identity;
+        private const float UseFxSeconds = 0.55f;
+
         private static bool s_loggedRealCard;
         private static bool s_loggedBacking; // one-line confirm of the backing source reused (FIX 3)
+        private static bool s_loggedMirror;  // one-line confirm of the desktop-mirror canvas-camera bind (#3)
 
         internal static ItemChip Create(ItemsPile owner, Transform parent, CItem item)
         {
@@ -818,6 +1053,7 @@ internal sealed class ItemsPile
                 canvasGo.transform.SetParent(parent, worldPositionStays: false);
                 var canvas = canvasGo.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.WorldSpace;
+                _faceCanvas = canvas; // #3: bind worldCamera to the head camera (kept live in TickFaceMaintenance)
                 var canvasRect = (RectTransform)canvasGo.transform;
                 canvasRect.localPosition = new Vector3(0f, 0f, -0.0012f); // viewer side of the backing
                 // Layer the (still EMPTY) mod-owned canvas now — BEFORE the game card is parented
@@ -870,6 +1106,17 @@ internal sealed class ItemsPile
                 // this world canvas at the parked mouse pixel).
                 foreach (GraphicRaycaster gr in cardGo.GetComponentsInChildren<GraphicRaycaster>(true))
                     gr.enabled = false;
+
+                // ITEM #7 — a reversible CanvasGroup on the hosted card drives the live playable-gate
+                // dim (alpha only; no game material is touched). Reuse any existing group so we never
+                // stack components, and leave it at full alpha until the first Update classifies it.
+                _faceGroup = cardGo.GetComponent<CanvasGroup>() ?? cardGo.AddComponent<CanvasGroup>();
+                _faceGroup.alpha = 1f;
+
+                // ITEM #1 — swap the mipless-atlas sprites for mip-baked equivalents right after host,
+                // then re-scan on a slow cadence (Update) until the async background art has arrived.
+                CardFaceMipBake.Rescan(cardUI);
+                _nextMipRescan = Time.unscaledTime + MipRescanInterval;
 
                 _cardGo = cardGo;
                 _cardUI = cardUI;
@@ -947,6 +1194,109 @@ internal sealed class ItemsPile
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Requirement 5 (emerge): start the chip AT the pile converge point (root-local) and shrunk,
+        /// then reuse the release-glide easing to fly it out to its arc home. Called once at open, after
+        /// <see cref="SetHome"/> has recorded the home pose.
+        /// </summary>
+        internal void BeginEmerge(Vector3 localConverge)
+        {
+            if (Holder != null)
+                return;
+            transform.localPosition = localConverge;
+            transform.localScale = Vector3.one * (_homeScale * 0.35f);
+            _releaseGlide = ReleaseGlideSeconds; // Update's home-glide flies it to _homePos/_homeRot/_homeScale
+        }
+
+        /// <summary>
+        /// Requirement 5 (collapse): begin a self-driven WORLD-space glide into the pile stack point,
+        /// then destroy this chip. The owner has already re-parented the chip out of the fan root so it
+        /// keeps updating after the root deactivates. Disables the collider so it can't be grabbed mid-collapse.
+        /// </summary>
+        internal void BeginCollapse(Vector3 worldConverge)
+        {
+            _collapsing = true;
+            _collapseWorld = worldConverge;
+            _collapseTime = CollapseSeconds;
+            _fingerPopped = false;
+            _laserPopped = false;
+            if (_box != null)
+                _box.enabled = false;
+        }
+
+        /// <summary>Requirement 6 — set the root-local pose the pending chip clips to (the use slot pose,
+        /// re-read each tick by the owner so it stays glued to the slot as the board billboards).</summary>
+        internal void SetClipTarget(Vector3 localPos, Quaternion localRot, float scale)
+        {
+            _clipPos = localPos;
+            _clipRot = localRot;
+            _clipScale = scale;
+            _hasClip = true;
+        }
+
+        /// <summary>Requirement 6 — cancel the post-release glide-home (used when a drop CLIPS into the
+        /// use slot instead of returning to the fan).</summary>
+        internal void CancelReleaseGlide() => _releaseGlide = 0f;
+
+        /// <summary>Requirement 6 — return the chip to its fan home (the "return to deck" path on cancel):
+        /// clear the clip state and start the same glide the post-release home uses.</summary>
+        internal void ReturnToFan()
+        {
+            PendingUse = false;
+            _hasClip = false;
+            _releaseGlide = ReleaseGlideSeconds; // Update's home-glide flies it back to the arc slot
+        }
+
+        /// <summary>
+        /// Requirement 6 — after a CONFIRM: play the result flourish (burn plume for Consumed, a "tap"
+        /// roll to 90° with a scale pulse for Spent), then collapse into the deck. The owner has already
+        /// detached the chip from the fan root and removed it from the live list, so this runs to
+        /// completion even if the fan closes/rebuilds.
+        /// </summary>
+        internal void PlayUseThenCollapse(bool consumed, bool spent, Vector3 collapseWorld)
+        {
+            PendingUse = false;
+            _hasClip = false;
+            _useFxActive = true;
+            _useFxTime = UseFxSeconds;
+            _useFxSpent = spent && !consumed;
+            _useFxCollapseWorld = collapseWorld;
+            _useFxBaseRot = transform.localRotation;
+            _fingerPopped = false;
+            _laserPopped = false;
+            if (_box != null)
+                _box.enabled = false; // no grabbing during the flourish
+            if (consumed && _plume == null)
+            {
+                _plume = BurnCardFx.SpawnConsumedPlume(transform);
+                if (_plume != null)
+                    Core.VRLayers.Apply(_plume);
+            }
+        }
+
+        /// <summary>Requirement 6 — advance the post-confirm flourish, then hand off to the collapse.</summary>
+        private void TickUseFx()
+        {
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            _useFxTime -= dt;
+            float k = 1f - Mathf.Exp(-14f * dt);
+            if (_useFxSpent)
+            {
+                // "Tap": roll the card to 90° (the game's tapped look) with a brief scale pulse accent.
+                Quaternion target = _useFxBaseRot * Quaternion.Euler(0f, 0f, 90f);
+                transform.localRotation = Quaternion.Slerp(transform.localRotation, target, k);
+                float prog = 1f - Mathf.Clamp01(_useFxTime / UseFxSeconds);
+                float pulse = 1f + 0.14f * Mathf.Sin(prog * Mathf.PI);
+                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * (_homeScale * pulse), k);
+            }
+            // Consumed: the plume (spawned above) billows over the flourish window; no extra motion.
+            if (_useFxTime <= 0f)
+            {
+                _useFxActive = false;
+                BeginCollapse(_useFxCollapseWorld);
             }
         }
 
@@ -1051,6 +1401,51 @@ internal sealed class ItemsPile
 
         // ---- pop (readability) -----------------------------------------------------
 
+        /// <summary>
+        /// ITEM #1 + #7 — per-frame face upkeep, run in every state (held, popped, settled, glide):
+        /// (1) re-run the mip-bake sprite swap on a slow cadence until the async background art has
+        /// baked (mirror of <c>CardFace.Maintain</c>'s <see cref="MipRescanInterval"/> cadence — async
+        /// arrivals / state changes keep putting the mipless originals back), and (2) LIVE re-evaluate
+        /// the playable-gate dim from <see cref="IsActivatable"/> so the usable chips read bright and
+        /// the non-usable ones (passive / spent / consumed / off-turn) dim. Usability changes with
+        /// turn/phase, so it is polled every frame, never cached. Change-gated (both are no-ops unless
+        /// due), so the per-frame cost is a clock compare + a bool compare.
+        /// </summary>
+        private void TickFaceMaintenance()
+        {
+            // ITEM #3 — keep the WorldSpace face canvas bound to the head camera (mirror of
+            // VRCard.UpdateCanvasCamera) so the item face renders in the desktop mirror like ability cards.
+            if (_faceCanvas != null)
+            {
+                Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+                if (head != null && _faceCanvas.worldCamera != head)
+                {
+                    _faceCanvas.worldCamera = head;
+                    if (!s_loggedMirror)
+                    {
+                        s_loggedMirror = true;
+                        VRLog.Info("Cards", "ITEM CARD mirror fix (#3): item FaceCanvas.worldCamera bound to the " +
+                                            $"head camera '{head.name}' (layer {_cardGo?.layer ?? -1}) — the item face " +
+                                            "now renders in the desktop mirror like the ability cards' face.");
+                    }
+                }
+            }
+
+            if (_cardUI != null && Time.unscaledTime >= _nextMipRescan)
+            {
+                _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+                CardFaceMipBake.Rescan(_cardUI);
+            }
+
+            int want = IsActivatable ? 1 : 0;
+            if (want != _usabilityShown)
+            {
+                _usabilityShown = want;
+                if (_faceGroup != null)
+                    _faceGroup.alpha = want == 1 ? UsableAlpha : DimAlpha;
+            }
+        }
+
         /// <summary>Fingertip hand-sweep pop (set by the owner's single-winner sweep).</summary>
         internal void SetFingertipPop(bool on) => _fingerPopped = on;
 
@@ -1066,9 +1461,42 @@ internal sealed class ItemsPile
 
         private void Update()
         {
+            if (_collapsing)
+            {
+                // Req #5 — self-glide into the pile, then destroy (OnDisable recycles the card widget).
+                float cdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+                _collapseTime -= cdt;
+                float ct = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * cdt);
+                transform.position = Vector3.Lerp(transform.position, _collapseWorld, ct);
+                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * (_homeScale * 0.2f), ct);
+                if (_collapseTime <= 0f)
+                    Object.Destroy(gameObject);
+                return;
+            }
+
+            if (_useFxActive) // Req #6 — post-confirm burn/tap flourish, then collapse into the deck
+            {
+                TickUseFx();
+                return;
+            }
+
+            TickFaceMaintenance(); // ITEM #1 (de-shimmer) + #7 (live playable-gate dim) — held or not
+
             if (Holder != null)
             {
                 TickHeldPose(); // FIX 1 — track the wrist + billboard the face every frame while held
+                return;
+            }
+
+            if (PendingUse) // Req #6 — clipped into the use slot, waiting for the decision
+            {
+                if (_hasClip)
+                {
+                    float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * Time.unscaledDeltaTime);
+                    transform.localPosition = Vector3.Lerp(transform.localPosition, _clipPos, t);
+                    transform.localRotation = Quaternion.Slerp(transform.localRotation, _clipRot, t);
+                    transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _clipScale, t);
+                }
                 return;
             }
 
@@ -1158,6 +1586,11 @@ internal sealed class ItemsPile
             {
                 try
                 {
+                    // ITEM #1/#7 — leave the pooled widget CLEAN: restore the mip-swapped sprites and
+                    // reset the reversible playable-gate dim before the game reuses this card elsewhere.
+                    CardFaceMipBake.RestoreSprites(_cardUI);
+                    if (_faceGroup != null)
+                        _faceGroup.alpha = 1f;
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)
@@ -1167,6 +1600,9 @@ internal sealed class ItemsPile
             }
             _cardGo = null;
             _cardUI = null;
+            _faceGroup = null;
+            _faceCanvas = null;
+            _usabilityShown = -1;
         }
 
         // ---- state → look ----------------------------------------------------------

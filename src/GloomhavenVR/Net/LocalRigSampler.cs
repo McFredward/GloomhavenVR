@@ -13,6 +13,8 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal static class LocalRigSampler
 {
+    private static bool s_loggedHeldItem; // one-time confirm the held-item MP parity path fired (#3)
+
     public static bool TrySample(IBoardAnchor anchor, bool includeFingers, out AvatarState state)
     {
         state = default;
@@ -89,7 +91,7 @@ internal static class LocalRigSampler
 
     /// <summary>The world pose of the single card the local player grip-holds, if any (left
     /// hand wins when both hold one — matches the mirror's slab order). False when no hand
-    /// holds a <see cref="Cards.VRCard"/>.</summary>
+    /// holds a <see cref="Cards.VRCard"/> ability card or an <see cref="Cards.ItemsPile.ItemChip"/>.</summary>
     private static bool TrySampleHeldCard(out Vector3 pos, out Quaternion rot)
     {
         return TryHeldCard(VRHands.Left, out pos, out rot) || TryHeldCard(VRHands.Right, out pos, out rot);
@@ -99,9 +101,28 @@ internal static class LocalRigSampler
     {
         pos = default;
         rot = Quaternion.identity;
-        if (hand == null || hand.Grabber == null || hand.Grabber.Held is not Cards.VRCard card || card == null)
+        if (hand == null || hand.Grabber == null)
             return false;
-        Transform t = card.transform;
+        // Cosmetic MP parity (items rework #3b): a grip-held ABILITY card (VRCard) OR a grip-held
+        // ITEM chip both show as a card-BACK slab in the remote avatar's hand — POSE ONLY, no identity
+        // (same anti-cheat stance as the ability held card; the item's own use/effect already syncs
+        // authoritatively through UseItemService). Before this, a held item was NOT a VRCard, so peers
+        // saw the grabbing hand move with an empty hand while a held ability card showed its back.
+        bool isItem = false;
+        Transform? t = hand.Grabber.Held switch
+        {
+            Cards.VRCard card when card != null => card.transform,
+            Cards.ItemsPile.ItemChip chip when chip != null => (isItem = true) ? chip.transform : null,
+            _ => null,
+        };
+        if (t == null)
+            return false;
+        if (isItem && !s_loggedHeldItem)
+        {
+            s_loggedHeldItem = true;
+            Core.VRLog.Info("Net", "MP parity (#3): held ITEM chip now sampled onto the wire (pose only, " +
+                                   "back slab on peers) — matches the held ability-card representation.");
+        }
         pos = t.position;
         rot = t.rotation;
         return true;
