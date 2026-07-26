@@ -2821,6 +2821,114 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     private const float RestZoneX = -0.245f;
     private const float ButtonZoneX = 0.235f;
 
+    /// <summary>
+    /// The board's authored half width in board-LOCAL meters (fallback for
+    /// <see cref="MeasureBoardLocalExtents"/> when the board has no renderers yet).
+    /// </summary>
+    internal const float BoardHalfWidthLocal = BoardW * 0.5f;
+
+    /// <summary>
+    /// Sanity band for the MEASURED top edge (board-local meters past the authored plate). The
+    /// visible board (bundled frame + decorations) overhangs the authored plate by a few cm at
+    /// most; anything beyond this is a transient outlier (e.g. a card mid-flight that is still
+    /// parented under the tray while it animates home) and must never drag a board-anchored
+    /// floater — or, worse, the enemy-info clearance — metres into the sky.
+    /// </summary>
+    private const float BoardExtentSanityMargin = 0.35f;
+
+    /// <summary>Reused scan buffer for <see cref="MeasureBoardLocalExtents"/> (no steady-state allocation).</summary>
+    private static readonly List<MeshRenderer> ExtentScratch = new(48);
+
+    /// <summary>
+    /// The control board's REAL rendered extents in the board's OWN LOCAL space: the top (far)
+    /// edge <paramref name="topLocalY"/> and the half width <paramref name="halfLocalX"/>, both in
+    /// board-local metres (multiply by the root's lossy scale for world metres).
+    ///
+    /// Derived from the tray's combined MESH-RENDERER bounds mapped into board-root-local coords —
+    /// so a board TILT does not inflate the extent the way a world AABB would — because the VISIBLE
+    /// board (bundled frame + decorations) is LARGER than the authored plate constants: anything
+    /// that clears "the board" using <see cref="BoardTopLocalY"/> alone under-estimates the real
+    /// edge and still ends up sitting inside the board (the WorldTooltips "still inside" report).
+    /// Degrades to the authored constants when the board has no renderers yet (procedural build
+    /// mid-frame), and clamps the measurement into a sane band (<see cref="BoardExtentSanityMargin"/>).
+    ///
+    /// Shared by every surface that must stay clear of the board (<c>WorldUI.WorldTooltips</c>'s
+    /// above-the-edge hint anchor and <c>WorldUI.Surfaces.EnemyRevealSurface</c>'s spawn clearance),
+    /// so both see the same board and neither carries its own copy of this math.
+    /// </summary>
+    internal static void MeasureBoardLocalExtents(Transform root, out float topLocalY, out float halfLocalX)
+    {
+        topLocalY = BoardTopLocalY;      // authored fallbacks
+        halfLocalX = BoardHalfWidthLocal;
+        if (root == null)
+            return;
+
+        ExtentScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, ExtentScratch);
+        Matrix4x4 worldToLocal = root.worldToLocalMatrix;
+        bool has = false;
+        float maxLocalY = float.NegativeInfinity;
+        float maxLocalAbsX = 0f;
+        for (int i = 0; i < ExtentScratch.Count; i++)
+        {
+            MeshRenderer mr = ExtentScratch[i];
+            if (mr == null || !mr.enabled)
+                continue;
+
+            // Prefer the renderer's own LOCAL mesh bounds mapped through (worldToLocal ×
+            // rendererLocalToWorld) → board-root-local, which is tilt-tight; fall back to the
+            // renderer's world AABB corners mapped into local space when there is no mesh.
+            Bounds b;
+            Matrix4x4 toBoardLocal;
+            MeshFilter mf = mr.GetComponent<MeshFilter>();
+            Mesh? mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh != null)
+            {
+                b = mesh.bounds;
+                toBoardLocal = worldToLocal * mr.transform.localToWorldMatrix;
+            }
+            else
+            {
+                b = mr.bounds; // world AABB
+                toBoardLocal = worldToLocal;
+            }
+
+            Vector3 c = b.center, e = b.extents;
+            for (int s = 0; s < 8; s++)
+            {
+                Vector3 corner = c + new Vector3(
+                    (s & 1) == 0 ? -e.x : e.x,
+                    (s & 2) == 0 ? -e.y : e.y,
+                    (s & 4) == 0 ? -e.z : e.z);
+                Vector3 local = toBoardLocal.MultiplyPoint3x4(corner);
+                if (local.y > maxLocalY)
+                    maxLocalY = local.y;
+                float absX = Mathf.Abs(local.x);
+                if (absX > maxLocalAbsX)
+                    maxLocalAbsX = absX;
+                has = true;
+            }
+        }
+        ExtentScratch.Clear();
+        if (!has)
+            return;
+
+        topLocalY = Mathf.Clamp(maxLocalY, BoardTopLocalY, BoardTopLocalY + BoardExtentSanityMargin);
+        halfLocalX = Mathf.Clamp(maxLocalAbsX, BoardHalfWidthLocal, BoardHalfWidthLocal + BoardExtentSanityMargin);
+    }
+
+    /// <summary>
+    /// The CONTROL BOARD's REAL top edge in WORLD space, horizontally centred on the board (board-
+    /// local X 0) and on the board face plane (local Z 0). <c>TransformPoint</c> carries the live
+    /// pose, tilt and lossy scale, so callers re-read it every tick and stay aligned through grabs,
+    /// resizes and board switches. See <see cref="MeasureBoardLocalExtents"/> for the derivation.
+    /// </summary>
+    internal static Vector3 BoardTopEdgeWorld(Transform root)
+    {
+        MeasureBoardLocalExtents(root, out float topLocalY, out _);
+        return root.TransformPoint(new Vector3(0f, topLocalY, 0f));
+    }
+
     private void BuildProceduralBoard()
     {
         float w = CardsConfig.CardWidth.Value;
