@@ -166,7 +166,11 @@ internal sealed class RemoteCardFx
             Transform? holder = _owner.NonDominantHandHolder;
             if (holder == null || !holder.gameObject.activeInHierarchy)
                 return false;
-            world = holder.position + holder.up * (RemoteHandFan.PalmStandoff * _owner.AppliedScale);
+            // Via RemoteHandFan's own anchor helper, NOT holder.up: the hand ROOT's +Y points out of
+            // the BACK of the hand, so aiming a flight along it landed the card a palm-thickness on
+            // the wrong side of the peer's hand — the same frame bug PoseFan documents. One shared
+            // helper keeps the flight and the fan on the same point by construction.
+            world = RemoteHandFan.FanAnchorPoint(_owner, holder);
             return true;
         }
 
