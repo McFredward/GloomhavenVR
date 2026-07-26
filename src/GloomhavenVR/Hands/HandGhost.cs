@@ -229,7 +229,13 @@ internal sealed class HandGhost
         VRLog.Info("Hands", $"Ghost hand ON ({_label}) — alpha {alpha:0.00} " +
                             $"(strength {(1f - alpha) * 100f:0}%), {_renderers.Length} renderer(s) " +
                             $"cloned onto private materials, {tinted} material(s) tinted; " +
-                            $"shaders: {(shaders.Count > 0 ? string.Join(", ", shaders) : "none")}.");
+                            $"shaders: {(shaders.Count > 0 ? string.Join(", ", shaders) : "none")}" +
+                            (s_swappedShader
+                                ? " — at least one had NO blend state (hard-coded opaque) and its CLONE was " +
+                                  "re-shadered to an unlit alpha-blended one, texture + tint carried over; " +
+                                  "that is what makes the fade visible at all."
+                                : " — all blendable as shipped.") + ".");
+        s_swappedShader = false; // per-engage report, not a sticky flag
     }
 
     private void RefreshAlpha(float alpha)
@@ -313,6 +319,29 @@ internal sealed class HandGhost
     /// </summary>
     private static void MakeTransparent(Material m)
     {
+        // ROUND 2 ROOT CAUSE (user: "Geisterhand hat immer noch keinen Einfluss"). The renderer
+        // exclusion fixed in the previous round was only half the story. The hardware log of the
+        // build that carried that fix still says:
+        //   Ghost hand ON (local Left) — alpha 0.45 …, 1 renderer(s) cloned …; shaders: GloomhavenVR/BoardLit
+        // and this time the "1" is CORRECT: the shipped glove is a single (skinned) renderer, not
+        // the ~40-primitive procedural hand. What is wrong is the shader. Every knob below is
+        // guarded by HasProperty, and GloomhavenVR/BoardLit — a bundled OPAQUE shader — exposes
+        // none of them: no _Mode, no _Surface, no _SrcBlend/_DstBlend, no _ZWrite. So the whole
+        // recipe silently no-opped, SetAlpha dutifully wrote alpha into a colour the shader never
+        // blends with, and the hand rendered exactly as before. "1 material(s) tinted" in the log
+        // was reporting a write that could not possibly show.
+        //
+        // A shader with no blend state cannot be made to fade by setting properties — the fix has
+        // to REPLACE it. We are working on a private clone (see Engage), so swapping its shader is
+        // as reversible as everything else here: the original material is untouched and restored
+        // wholesale on release. Sprites/Default is the right target: unlit and alpha-blended, and
+        // already the proven choice for hands in this project (CreateHandMaterial picks it for the
+        // procedural hand precisely because the VR void and the menu scenes have NO lights, so a
+        // lit shader renders the hand pitch black). The base map and tint are carried across so the
+        // ghost keeps the glove's own colour rather than turning into a white silhouette.
+        if (!CanBlend(m))
+            SwapToBlendableShader(m);
+
         if (m.HasProperty(ModeId))
             m.SetFloat(ModeId, 2f); // Standard: 0 Opaque, 1 Cutout, 2 Fade, 3 Transparent
         if (m.HasProperty(SurfaceId))
@@ -335,6 +364,67 @@ internal sealed class HandGhost
         if (m.renderQueue < (int)UnityEngine.Rendering.RenderQueue.Transparent)
             m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
     }
+
+    /// <summary>
+    /// Can this material's shader blend at all? A shader that exposes neither the Standard/URP
+    /// surface-mode switch nor the raw blend factors has its blending HARD-CODED (opaque, in every
+    /// case we ship), so no amount of property writing will ever fade it — see
+    /// <see cref="MakeTransparent"/> for how that produced a ghost hand that logged success and
+    /// changed nothing.
+    /// </summary>
+    private static bool CanBlend(Material m) =>
+        m.HasProperty(ModeId) || m.HasProperty(SurfaceId)
+        || (m.HasProperty(SrcBlendId) && m.HasProperty(DstBlendId));
+
+    /// <summary>Names of the texture slot a swapped-in shader should inherit, in probe order.</summary>
+    private static readonly int[] MainTexIds =
+    {
+        Shader.PropertyToID("_MainTex"),
+        Shader.PropertyToID("_BaseMap"),
+        Shader.PropertyToID("_BaseColorMap"),
+    };
+
+    /// <summary>
+    /// Replace a CLONE's un-blendable shader with an unlit alpha-blended one, carrying the base
+    /// texture and tint across so the ghost still looks like the hand it came from. Only ever
+    /// called on a material this class created (never a shared asset), and undone by the wholesale
+    /// material restore in <see cref="Release"/>. No-op when no blendable shader can be found, in
+    /// which case the engage log's shader list is the evidence.
+    /// </summary>
+    private static void SwapToBlendableShader(Material m)
+    {
+        Shader? target = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default")
+                         ?? Shader.Find("Unlit/Transparent");
+        if (target == null)
+            return;
+
+        // Read the look BEFORE the shader swap — property ids resolve against the current shader.
+        Texture? tex = null;
+        for (int i = 0; i < MainTexIds.Length && tex == null; i++)
+        {
+            if (m.HasProperty(MainTexIds[i]))
+                tex = m.GetTexture(MainTexIds[i]);
+        }
+        Color tint = Color.white;
+        for (int i = 0; i < ColorIds.Length; i++)
+        {
+            if (!m.HasProperty(ColorIds[i]))
+                continue;
+            tint = m.GetColor(ColorIds[i]);
+            break;
+        }
+
+        m.shader = target;
+        if (tex != null && m.HasProperty(MainTexIds[0]))
+            m.SetTexture(MainTexIds[0], tex);
+        if (m.HasProperty(ColorIds[0]))
+            m.SetColor(ColorIds[0], tint); // alpha is written right after, by SetAlpha
+        s_swappedShader = true;
+    }
+
+    /// <summary>True once a shader swap has happened — folded into the engage log so a hardware
+    /// log states plainly WHY the hand can fade at all.</summary>
+    private static bool s_swappedShader;
 
     /// <summary>Write <paramref name="alpha"/> into the material's colour. True when a colour
     /// property existed (false = this shader has no tint we can fade — reported in the log).</summary>
