@@ -3169,6 +3169,9 @@ internal sealed class CardsDriver : MonoBehaviour
         _flyingToPile.Add(card);
         VRCard flying = card;
         PileKind dest = fate;
+        // MP parity (report 6): peers replay this exact flight (slot → discard/burnt stack) against
+        // THEIR copy of this player's board pose — 2 bytes, no per-frame transforms.
+        Net.NetCardFx.Report(SlotAnchor(_tray.SlotOf(card)), PileAnchor(fate));
         card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
             _flyingToPile.Remove(flying);
@@ -3303,6 +3306,27 @@ internal sealed class CardsDriver : MonoBehaviour
     /// </summary>
     private Vector3 BoardUp() => _tray.Root != null ? _tray.Root.up : Vector3.up;
 
+    // ---------------------------------------------------------------- MP card-FX anchors --
+    //
+    // Report 6 ("ALLE Kartenanimationen der Mitspieler sollen im Multiplayer sichtbar sein"): every
+    // card animation the local VR launches is announced to peers as a SEMANTIC endpoint pair
+    // (Net.NetCardFx), which they replay against their own copy of this player's board/hand pose.
+    // These two helpers translate the driver's local notions — a slot index, a PileKind — into the
+    // wire anchors. A card whose slot is unknown (-1: never docked, or already evicted) degrades to
+    // the generic Board anchor, which flies from the board centre rather than nowhere.
+
+    /// <summary>Wire anchor for a board slot index (-1 → the generic board anchor).</summary>
+    private static Net.CardFxAnchor SlotAnchor(int slot) => slot switch
+    {
+        0 => Net.CardFxAnchor.Slot0,
+        1 => Net.CardFxAnchor.Slot1,
+        _ => Net.CardFxAnchor.Board,
+    };
+
+    /// <summary>Wire anchor for a destination pile stack.</summary>
+    private static Net.CardFxAnchor PileAnchor(PileKind kind) =>
+        kind == PileKind.Burnt ? Net.CardFxAnchor.Burnt : Net.CardFxAnchor.Discard;
+
     /// <summary>
     /// Issue 3 (user): the absolute MINIMUM arc peak (world meters) a fly-to/from-pile must reach so
     /// the card visibly clears the control board's top edge even on a SHORT hop — a flat skim was
@@ -3387,6 +3411,9 @@ internal sealed class CardsDriver : MonoBehaviour
             float arcHeight = Mathf.Max(minArc, Vector3.Distance(card.transform.position, burntPos) * VRCard.FlyArcHeightFraction);
             _flyingToPile.Add(card);
             VRCard flying = card;
+            // MP parity (report 6): a damage-burn is the most dramatic card animation in the game —
+            // peers replay it as a card arcing off this player's board into their burnt stack.
+            Net.NetCardFx.Report(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
             {
                 _flyingToPile.Remove(flying);
@@ -3429,6 +3456,9 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
+        // MP parity (report 6): the fallback slab is the same event on the wire — the peer plays a
+        // back slab either way (they never see faces), so both burn branches read identically.
+        Net.NetCardFx.Report(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
         VRLog.Info("Cards", $"BURN ANIM [slab]: '{CardsGameApi.CardName(widget)}' burned — transient card-back slab " +
                             $"from {fromPos} (the burned card's true last position) → Burnt pile " +
                             $"({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the board), orientation held — no " +
@@ -3686,6 +3716,10 @@ internal sealed class CardsDriver : MonoBehaviour
             // SelectCard is the spin-wait path — queued; outcome verified against
             // the authoritative round pile afterwards.
             _tray.PlaceCard(card, slot);
+            // MP parity (report 6): peers replay the dock as a card gliding fan → slot. Reported
+            // HERE (the real drop seam) and never from PlayTray.PlaceCard, which also runs on every
+            // game-state rebuild — that would broadcast a flight for cards that never moved.
+            Net.NetCardFx.Report(Net.CardFxAnchor.HandFan, SlotAnchor(slot));
             CardsHandUI handRef = gameHand;
             CardActionQueue.Enqueue(
                 () => CardsGameApi.SelectCard(handRef, ability),
@@ -3718,6 +3752,10 @@ internal sealed class CardsDriver : MonoBehaviour
             _tray.RemoveCard(displaced);
             _fan.Add(displaced);
             _tray.PlaceCard(card, slot);
+            // MP parity (report 6): a swap is TWO visible flights — the displaced card glides back
+            // into the fan and the newcomer docks into the slot.
+            Net.NetCardFx.Report(SlotAnchor(slot), Net.CardFxAnchor.HandFan);
+            Net.NetCardFx.Report(Net.CardFxAnchor.HandFan, SlotAnchor(slot));
             CardsHandUI handRef = gameHand;
             if (displacedAbility != null)
                 CardActionQueue.Enqueue(
@@ -3760,6 +3798,10 @@ internal sealed class CardsDriver : MonoBehaviour
         }
         else if (wasInTray)
         {
+            // MP parity (report 6): peers replay the take-back as a card gliding slot → fan. Read
+            // the origin slot BEFORE the unselect path removes the occupancy.
+            Net.NetCardFx.Report(SlotAnchor(_tray.SlotOf(card)), Net.CardFxAnchor.HandFan);
+
             // Tray → elsewhere: take the card back.
             // Task #5: no mod sound — the queued UnselectCard plays the card's serialized
             // profile click via AbilityCardUI.ToggleSelect (deselect path, AbilityCardUI.cs:1184);
@@ -4293,6 +4335,9 @@ internal sealed class CardsDriver : MonoBehaviour
             && _piles.TryGetPileWorld(PileKind.Discard, out Vector3 srcPos, out float srcWidth))
         {
             card.FlyFromPile(srcPos, srcWidth, FlyToPileSeconds, BoardUp(), BoardArcMin());
+            // MP parity (report 6): the short-rest sacrifice flying OUT of the discard pile into
+            // the left slot is a card gliding back out of a pile — peers replay it in reverse.
+            Net.NetCardFx.Report(Net.CardFxAnchor.Discard, Net.CardFxAnchor.Slot0);
             VRLog.Info("Cards", $"Short rest: sacrifice '{CardsGameApi.CardName(widget)}' flies OUT of the discard " +
                                 $"pile into the left slot ({FlyToPileSeconds:F2}s, arc over the board, orientation " +
                                 "locked) — it originates there (issue 2; not a fly-from-below).");
@@ -4326,6 +4371,8 @@ internal sealed class CardsDriver : MonoBehaviour
         float minArc = BoardArcMin();
         _flyingToPile.Add(card);
         VRCard flying = card;
+        // MP parity (report 6): the redrawn sacrifice flying back into the discard pile.
+        Net.NetCardFx.Report(Net.CardFxAnchor.Slot0, Net.CardFxAnchor.Discard);
         card.FlyToPile(pos, width, FlyToPileSeconds, BoardUp(), () =>
         {
             _flyingToPile.Remove(flying);

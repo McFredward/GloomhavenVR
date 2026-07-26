@@ -131,4 +131,66 @@ internal static class NetProtocol
     /// this flag bit and the trailing byte and simply render solid hands.
     /// </summary>
     public const byte FlagExtrasGhostHand = 1 << 2;
+    /// Extras packet: a 1-byte ITEM-fan card count trails the packet (the sender's equipped-item fan
+    /// — <c>Cards.ItemsPile</c> — is open with that many item cards). ADDITIVE extension exactly
+    /// like the rig packet's <see cref="FlagHandStyle"/>: appended AFTER every field older readers
+    /// know, so a peer built before this flag ignores the unknown bit and the trailing byte and
+    /// simply shows no item fan. Absent flag ⇒ no item fan this packet.
+    /// </summary>
+    public const byte FlagItemFan = 1 << 3;
+
+    /// <summary>Extras packet: the sender's item fan is HAND-HELD (floating above the grabbing
+    /// palm) rather than board-anchored above their control board. Meaningful only together with
+    /// <see cref="FlagItemFan"/>; costs no payload bytes (pure flag).</summary>
+    public const byte FlagItemFanHeld = 1 << 4;
+
+    /// <summary>
+    /// Extras packet: a 2-byte CARD-FX event block trails the packet — <c>seq</c> (wrapping
+    /// counter) + <c>endpoints</c> (two 4-bit <see cref="CardFxAnchor"/> ids, from in the low
+    /// nibble, to in the high nibble). Lets a peer PLAY the card animation locally (a card-back
+    /// slab arcing between two anchors) instead of us streaming per-frame transforms: 2 bytes per
+    /// animation vs ~20 bytes × 15 Hz for its whole duration. ADDITIVE, appended last; older peers
+    /// ignore the bit and the trailing bytes and simply see no flight.
+    /// </summary>
+    public const byte FlagCardFx = 1 << 5;
+
+    /// <summary>Extras packet: a HAND-HELD item fan (<see cref="FlagItemFanHeld"/>) is held in the
+    /// LEFT hand. Pure flag, no payload — without it the receiver would have to guess a hand and
+    /// would hang the fan off the wrong arm half the time.</summary>
+    public const byte FlagItemFanLeft = 1 << 6;
+
+    /// <summary>How long a remote card-FX flight takes (seconds) — matched to the LOCAL
+    /// <c>CardsDriver.FlyToPileSeconds</c> so a peer's flight lasts as long as the real one.</summary>
+    public const float CardFxSeconds = 0.4f;
+}
+
+/// <summary>
+/// Endpoints a remote card-FX flight can start from / land on, encoded as a 4-bit id on the wire
+/// (see <see cref="NetProtocol.FlagCardFx"/>). Deliberately SEMANTIC (which piece of the sender's
+/// VR furniture), never a world position: the receiver resolves each anchor against the sender's
+/// OWN synced hand / control-board pose, so the flight lands where that player's board actually is
+/// and costs 4 bits instead of 12 bytes. Values are wire constants — append only, never renumber.
+/// </summary>
+internal enum CardFxAnchor : byte
+{
+    /// <summary>The sender's hand card fan (non-dominant palm).</summary>
+    HandFan = 0,
+
+    /// <summary>Left play slot of the sender's control board.</summary>
+    Slot0 = 1,
+
+    /// <summary>Right play slot of the sender's control board.</summary>
+    Slot1 = 2,
+
+    /// <summary>The sender's DISCARD stack.</summary>
+    Discard = 3,
+
+    /// <summary>The sender's BURNT (lost) stack.</summary>
+    Burnt = 4,
+
+    /// <summary>The sender's ITEM stack.</summary>
+    Items = 5,
+
+    /// <summary>The sender's control board in general (origin unknown/board centre).</summary>
+    Board = 6,
 }

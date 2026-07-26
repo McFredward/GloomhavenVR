@@ -108,20 +108,20 @@ internal static class LocalRigSampler
         // (same anti-cheat stance as the ability held card; the item's own use/effect already syncs
         // authoritatively through UseItemService). Before this, a held item was NOT a VRCard, so peers
         // saw the grabbing hand move with an empty hand while a held ability card showed its back.
-        bool isItem = false;
-        Transform? t = hand.Grabber.Held switch
-        {
-            Cards.VRCard card when card != null => card.transform,
-            Cards.ItemsPile.ItemChip chip when chip != null => (isItem = true) ? chip.transform : null,
-            _ => null,
-        };
+        // Both grab routes reach this the same way: pinch-grab (ProximityGrabber.BeginGrab) and the
+        // board-laser pluck (ItemChip.OnPoke → ProximityGrabber.ForceGrab) BOTH set Grabber.Held to
+        // the chip itself, so one pattern match covers every way an item card gets into a hand.
+        Cards.ItemsPile.ItemChip? chip = hand.Grabber.Held as Cards.ItemsPile.ItemChip;
+        Transform? t = chip != null
+            ? chip.transform
+            : hand.Grabber.Held is Cards.VRCard card && card != null ? card.transform : null;
         if (t == null)
             return false;
-        if (isItem && !s_loggedHeldItem)
+        if (chip != null && !s_loggedHeldItem)
         {
             s_loggedHeldItem = true;
-            Core.VRLog.Info("Net", "MP parity (#3): held ITEM chip now sampled onto the wire (pose only, " +
-                                   "back slab on peers) — matches the held ability-card representation.");
+            Core.VRLog.Info("Net", $"MP parity (#3): held ITEM chip sampled onto the wire ({hand.Side} hand, pose " +
+                                   "only, back slab on peers) — matches the held ability-card representation.");
         }
         pos = t.position;
         rot = t.rotation;

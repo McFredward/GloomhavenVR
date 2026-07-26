@@ -115,6 +115,29 @@ internal sealed class ItemsPile
     internal bool IsOpen { get; private set; }
     internal bool IsHandHeld => _followHand != null;
 
+    /// <summary>Which hand a HAND-HELD item fan follows (true = LEFT). Broadcast as a single wire
+    /// flag so a peer's ghost item fan hangs off the same hand the owner actually raised it with —
+    /// guessing "the dominant hand" put it on the wrong arm whenever they used the other one.</summary>
+    internal bool IsHeldByLeftHand => _followHand != null && _followHand.Side == HandSide.Left;
+
+    /// <summary>
+    /// The currently OPEN item fan (null when closed / destroyed) — the exact counterpart of
+    /// <see cref="CardFan.Current"/> for ability cards.
+    ///
+    /// ROOT CAUSE this exists (user report 5, "Itemkarten auf der Hand sind IMMER noch nicht im
+    /// Spiegel zu sehen"): both consumers of "what cards is the local player holding" —
+    /// <see cref="WorldUI.AvatarMirror"/> (the local self-preview) and
+    /// <see cref="Net.NetAvatarDriver"/> (the multiplayer extras packet) — could only ever find the
+    /// ABILITY fan, because <see cref="CardFan"/> published itself through a static Current and the
+    /// items fan published NOTHING. The items fan is owned privately by <see cref="PileViewer"/>,
+    /// so neither consumer had any way to reach it, and item cards were therefore invisible in the
+    /// mirror AND on every peer. Publishing the open fan the same way closes both gaps at once.
+    /// </summary>
+    internal static ItemsPile? Current { get; private set; }
+
+    /// <summary>The chips the fan currently holds (read-only view — mirrored / counted, never mutated).</summary>
+    internal IReadOnlyList<ItemChip> Chips => _chips;
+
     // ------------------------------------------------------------------ config --
 
     /// <summary>The pile mount PileViewer built the item stack under (placement reference).</summary>
@@ -174,6 +197,7 @@ internal sealed class ItemsPile
             _root.SetParent(parent, worldPositionStays: false);
         _root!.gameObject.SetActive(true);
         IsOpen = true;
+        Current = this; // publish to the mirror + the net extras sender (see Current's doc comment)
         _signature = string.Empty; // force a build
         Populate(hand);
         if (followHand != null)
@@ -192,6 +216,8 @@ internal sealed class ItemsPile
         if (!IsOpen)
             return;
         IsOpen = false;
+        if (ReferenceEquals(Current, this))
+            Current = null; // unpublish (mirror + net extras stop showing the fan this frame)
         _followHand = null;
         _boardAnchored = false;
         ClearHandSweep();
@@ -213,6 +239,8 @@ internal sealed class ItemsPile
         ClearHandSweep();
         ClearChips();
         _pendingUseChip = null; // #6
+        if (ReferenceEquals(Current, this))
+            Current = null;
         IsOpen = false;
         _followHand = null;
         _boardAnchored = false;
@@ -945,6 +973,15 @@ internal sealed class ItemsPile
         // Actual rendered card size (item aspect) — set by TryHostRealCard, drives the backing + collider.
         private float _faceWidth;
         private float _faceHeight;
+
+        /// <summary>Rendered face width in card-local metres (item aspect — NOT the ability-card
+        /// aspect). Falls back to the ability-card width before the real card has been hosted.
+        /// Read by <see cref="WorldUI.AvatarMirror"/> so a mirrored item slab keeps the item's own,
+        /// near-square shape instead of being stretched to the ability-card ratio.</summary>
+        internal float FaceWidth => _faceWidth > 0.001f ? _faceWidth : CardsConfig.CardWidth.Value;
+
+        /// <summary>Rendered face height in card-local metres (see <see cref="FaceWidth"/>).</summary>
+        internal float FaceHeight => _faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight;
 
         // ITEM #1 (de-shimmer): the hosted ItemCardUI's cardBackground art loads ASYNC, so — exactly
         // like the ability cards' CardFace — its mipless-atlas sprites must be swapped for mip-baked
