@@ -250,24 +250,52 @@ internal sealed class HandGhost
 
     // ---- helpers ----------------------------------------------------------------------------
 
+    /// <summary>Layer the mod's UI widgets live on — see <see cref="IsAttachment"/>.</summary>
+    private const int UiLayer = 5;
+
     /// <summary>
-    /// True when <paramref name="t"/> hangs off one of the hand's attachment SOCKETS
-    /// (<see cref="HandRig.Wrist"/> / <see cref="HandRig.PalmCenter"/> /
-    /// <see cref="HandRig.GrabAnchor"/>) rather than being hand geometry. The card fan
-    /// (<see cref="CardFan.Open"/> parents its root to <c>Rig.PalmCenter</c>), a grabbed
-    /// card/figure and the wrist HUD all live there — and for a glove PREFAB those sockets sit
-    /// inside the hand subtree, so a plain <c>GetComponentsInChildren</c> would sweep them up
-    /// and fade exactly the content the ghost exists to reveal.
+    /// True when <paramref name="t"/> hangs off one of the hand's attachment SOCKETS rather than
+    /// being hand geometry. The card fan (<see cref="CardFan.Open"/> parents its root to
+    /// <c>Rig.PalmCenter</c>), a grabbed card/figure (<c>GrabAnchor</c>) and the wrist HUD all
+    /// live there — and for a glove PREFAB those sockets sit inside the hand subtree, so a plain
+    /// <c>GetComponentsInChildren</c> would sweep them up and fade exactly the content the ghost
+    /// exists to reveal.
+    ///
+    /// ROOT CAUSE FIX (user: "die Geisterhand funktioniert nicht, die Hand wird immer noch genauso
+    /// angezeigt obwohl die Option an ist und der Fächer auf"). The hardware log named it exactly:
+    ///   Ghost hand ON (local Left) — alpha 0.45 …, 1 renderer(s) cloned …
+    /// ONE renderer. The sweep was excluding almost the entire hand, so of course nothing looked
+    /// different. The reason is that <see cref="HandRig.Wrist"/> is NOT a socket at all in the
+    /// shipped rigs: <c>HandVisuals</c> assigns <c>rig.Wrist = handRoot</c> for the procedural hand
+    /// and falls back to the whole prefab instance for a glove. Testing "is any ancestor the wrist"
+    /// therefore matched EVERY renderer in the hand, and the <c>rig.Root</c> escape below could
+    /// never be reached because the wrist test ran first and the two are the same object.
+    ///
+    /// So: the hand ROOT is checked FIRST — reaching it means we walked up through nothing but hand
+    /// geometry — and the wrist only counts as a socket when it is genuinely a separate node. The
+    /// wrist HUD, which really does hang off the wrist and must stay solid, is excluded by its own
+    /// identity instead: it is a mod-owned widget on the UI layer (<see cref="UiLayer"/>, set in
+    /// WristHud.Build), which no hand mesh ever uses. That is a property of the thing itself rather
+    /// than of where it happens to be parented, so it keeps working whatever the rig's shape.
     /// </summary>
     private static bool IsAttachment(Transform t, HandRig rig)
     {
+        // Mod UI riding the hand (the wrist HUD and anything it spawns): never hand geometry.
+        if (t.gameObject.layer == UiLayer)
+            return true;
+
         for (Transform? c = t; c != null; c = c.parent)
         {
-            if (ReferenceEquals(c, rig.Wrist) || ReferenceEquals(c, rig.PalmCenter)
-                || ReferenceEquals(c, rig.GrabAnchor))
-                return true;
+            // Checked FIRST: with rig.Wrist == rig.Root (the shipped case) this is what tells us
+            // we walked up through hand geometry only. Getting the order wrong excluded the hand.
             if (ReferenceEquals(c, rig.Root))
-                return false; // reached the top of the hand without crossing a socket
+                return false;
+            if (ReferenceEquals(c, rig.PalmCenter) || ReferenceEquals(c, rig.GrabAnchor))
+                return true;
+            // Only a wrist that is a distinct node is an attachment socket; when it IS the hand
+            // root the branch above has already returned.
+            if (ReferenceEquals(c, rig.Wrist) && !ReferenceEquals(rig.Wrist, rig.Root))
+                return true;
         }
         return false;
     }
