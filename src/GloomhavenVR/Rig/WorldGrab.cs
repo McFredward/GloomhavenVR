@@ -22,13 +22,15 @@ namespace GloomhavenVR.Rig;
 ///
 /// STICK CONTENTION (documented rule): the stick CLICK is a distinct button from the
 /// stick AXIS — SnapTurn and AoE targeting read the axis (<c>hand.Thumbstick.x</c>),
-/// world grab reads the click, so the two never fight. A stick-click only starts a
-/// world grab if that hand's <see cref="Hands.Interact.ProximityGrabber"/> is not
-/// already holding an object (a light defensive guard — figure/card grabs live on the
-/// grip/trigger and no longer contend for the stick). World grab runs in EVERY scenario
-/// mode — including <see cref="VRMode.ModalUI"/> since test #13: floating dialogs must
-/// not freeze the diorama (the player reads the story box AND repositions the table).
-/// Only <see cref="VRMode.Menu2D"/> is excluded (no table exists).
+/// world grab reads the click, so the two never fight. A stick-click starts a world grab
+/// regardless of what the hand holds: figure/card grabs live on the grip/trigger
+/// (<see cref="Hands.Interact.ProximityGrabber"/>) and never contend for the stick, so
+/// world locomotion stays available WHILE a mini or card is in hand — the held object is
+/// parented to the hand and simply rides the rig as the world moves (see
+/// <see cref="UpdateStickOwnership"/>). World grab runs in EVERY scenario mode —
+/// including <see cref="VRMode.ModalUI"/> since test #13: floating dialogs must not freeze
+/// the diorama (the player reads the story box AND repositions the table). Only
+/// <see cref="VRMode.Menu2D"/> is excluded (no table exists).
 ///
 /// MATH (tracking-space anchored, feedback-free): with the rig mapping
 /// <c>world = rigPos + rigRot · (s · t)</c> for a tracking-space point <c>t</c>, anchors
@@ -158,11 +160,19 @@ internal sealed class WorldGrab : MonoBehaviour
     // ---- grip ownership ---------------------------------------------------------------
 
     /// <summary>
-    /// A stick-click becomes a WORLD grab only at click-down with nothing already held by
-    /// the proximity grabber (a light defensive guard — figure/card grabs live on the
-    /// grip/trigger, so they no longer contend for the stick). It stays a world grab until
-    /// the stick is released, and is dropped defensively if an object somehow becomes held
-    /// mid-gesture.
+    /// A stick-click becomes a WORLD grab at click-down and stays one until the stick is
+    /// released.
+    ///
+    /// WHY no held-object gate: world locomotion and the figure/card grab live on DIFFERENT
+    /// buttons — world grab reads the stick CLICK (<c>primary2DAxisClick</c>), figure/card
+    /// grab reads the trigger/grip (<see cref="Hands.Interact.ProximityGrabber"/>) — so they
+    /// never contend for the same input. The old <c>Grabber.Held == null</c> guard was purely
+    /// defensive and wrongly froze locomotion whenever a hand held something: the player could
+    /// not pull the table closer while carrying a mini or a card. It is removed so world drag
+    /// engages even with an object in hand. The held object is parented to the hand and the
+    /// hand rides the rig root, so dragging/rotating/scaling the world simply carries the held
+    /// object along — exactly what "move the world while I hold a figure" should feel like; the
+    /// object is never dropped (its own trigger/grip still owns release) nor duplicated.
     /// </summary>
     private static void UpdateStickOwnership(VRHand? hand, ref bool owned)
     {
@@ -174,13 +184,23 @@ internal sealed class WorldGrab : MonoBehaviour
 
         if (owned)
         {
-            if (!hand.ThumbstickClick || hand.Grabber.Held != null)
+            // Held state is deliberately NOT checked here — a world grab that becomes a hold
+            // mid-gesture (or vice versa) keeps driving the world until the stick releases.
+            if (!hand.ThumbstickClick)
                 owned = false;
             return;
         }
 
-        if (hand.ThumbstickClickDown && hand.Grabber.Held == null)
+        if (hand.ThumbstickClickDown)
+        {
             owned = true;
+            // Diagnostic: world locomotion now co-exists with a held object (previously this
+            // engage was suppressed while Grabber.Held != null). Trace the coexistence so a
+            // hardware log shows the world drag starting with a figure/card in hand.
+            if (hand.Grabber.Held != null)
+                Core.VRLog.Debug("WorldGrab",
+                    $"{hand.Side} world-grab engaged while holding '{hand.Grabber.Held.GetType().Name}' — held object rides the rig.");
+        }
     }
 
     // ---- anchoring -----------------------------------------------------------------------
