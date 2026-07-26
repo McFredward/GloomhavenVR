@@ -52,6 +52,11 @@ internal sealed class RemoteHandFan
     private const float CardWidth = DefaultCardWidth;
     private const float CardHeight = DefaultCardHeight;
     private const float PalmOffset = 0.09f;                        // CardsConfig.FanPalmOffset
+
+    /// <summary>The palm standoff the fan floats at, exposed so <see cref="RemoteCardFx"/> can aim
+    /// a flight at the SAME point the fan actually sits at (a card must glide back into the fan,
+    /// not into the palm).</summary>
+    internal const float PalmStandoff = PalmOffset;
     private const float Radius = 0.1792f;                          // CardsConfig.FanEffectiveRadius
     private const float ArcSweepDegrees = 91f;                     // CardsConfig.FanArcSweepDegrees
     private const float PerCardStepDegrees = 14f;                  // CardsConfig.FanPerCardStepDegrees
@@ -72,6 +77,13 @@ internal sealed class RemoteHandFan
     private readonly List<RemoteCardArt> _faces = new(MaxCards); // per-slab cloned-front overlays (parallel to _cards)
     private int _builtCount = -1;          // how many card slabs currently exist (-1 = never built)
     private bool _poseInit;                // snap (no ease) on the first pose after (re)activation
+
+    // FAN-OUT REVEAL (report 6, "Fächer ist sichtbar" / the fan being RAISED). The local fan does a
+    // Demeo fan-in on Open (CardFan._openElapsed: every card seeds at the middle slot and flies out
+    // to its own slot), but the remote ghost simply appeared fully spread the instant the count
+    // arrived — a pop, not a raise. Seconds since this fan became visible; -1 = settled.
+    private float _openElapsed = -1f;
+    private const float OpenSeconds = 0.22f;
 
     /// <summary>Diagnostics dedup: whether the fan is CURRENTLY showing cloned fronts (vs backs), so we
     /// log exactly once on each backs↔fronts transition (never per frame, never card identities).</summary>
@@ -129,10 +141,11 @@ internal sealed class RemoteHandFan
         {
             _root.SetActive(true);
             _poseInit = true; // snap on the frame we (re)appear so we don't ease in from a stale pose
+            _openElapsed = 0f; // …but the CARDS fan out from the centre stack, like the local Open
         }
 
         PoseFan(holder, dt);
-        LayoutCards(count);
+        LayoutCards(count, dt);
         UpdateFaces(count);
     }
 
@@ -272,7 +285,7 @@ internal sealed class RemoteHandFan
 
     /// <summary>Arc the card slabs in the fan-local frame, mirroring CardFan.Relayout. Positions are
     /// real meters and inherit AppliedScale from the scaled holder above the root.</summary>
-    private void LayoutCards(int n)
+    private void LayoutCards(int n, float dt)
     {
         if (n <= 0)
             return;
@@ -285,6 +298,19 @@ internal sealed class RemoteHandFan
         float arch = ArchFactor * fill;
         float tilt = TiltFactor * fill;
 
+        // Fan-out blend (see _openElapsed): 0 = every card stacked at the centre slot, 1 = the full
+        // arc. Smoothstepped and on UNSCALED dt (the caller's dt already is), so a peer sees the fan
+        // SPREAD OPEN exactly like the owner's own fan does on Open.
+        float blend = 1f;
+        if (_openElapsed >= 0f)
+        {
+            _openElapsed += Mathf.Max(dt, 0f);
+            float u = OpenSeconds > 0f ? Mathf.Clamp01(_openElapsed / OpenSeconds) : 1f;
+            blend = u * u * (3f - 2f * u);
+            if (u >= 1f)
+                _openElapsed = -1f;
+        }
+
         for (int i = 0; i < _cards.Count; i++)
         {
             float angle = start + step * i;
@@ -294,6 +320,14 @@ internal sealed class RemoteHandFan
                                   -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * tilt);
             Transform t = _cards[i].transform;
+            if (blend < 1f)
+            {
+                // Collapsed seed = the centre stack (only the z-stagger survives, so the draw
+                // order stays stable through the whole reveal).
+                var seed = new Vector3(0f, 0f, -ZStagger * i);
+                pos = Vector3.Lerp(seed, pos, blend);
+                rot = Quaternion.Slerp(Quaternion.identity, rot, blend);
+            }
             t.localPosition = pos;
             t.localRotation = rot;
         }
@@ -375,6 +409,7 @@ internal sealed class RemoteHandFan
         }
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
+        _openElapsed = -1f; // next appearance fans out again from the centre stack
     }
 
     public void Destroy()

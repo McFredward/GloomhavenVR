@@ -39,6 +39,15 @@ internal sealed class RemoteAvatar
 
     private readonly RemoteHandFan _handFan;
     private readonly RemoteControlBoard _controlBoard;
+    private readonly RemoteItemFan _itemFan;   // report 5: the peer's equipped-item fan
+    private readonly RemoteCardFx _cardFx;     // report 6: replayed card animations
+
+    // Card-FX de-duplication. The event byte is re-sent for redundancy on the unreliable extras
+    // stream, so the flight plays only when the SEQUENCE changes. _fxSeqInit exists because the
+    // very first extras packet from a peer may already carry an old event (they were mid-flight
+    // when we joined) — playing that would fire a stray card across the table on join.
+    private byte _lastFxSeq;
+    private bool _fxSeqInit;
 
     private AvatarState _target;
     private bool _hasTarget;
@@ -100,6 +109,16 @@ internal sealed class RemoteAvatar
     /// <summary>How many cards are in the sender's hand fan (rendered as backs only).</summary>
     public int HandCardCount { get; private set; }
 
+    /// <summary>How many cards are in the sender's open ITEM fan (0 = closed / sender predates the
+    /// field). Rendered as backs only by <see cref="RemoteItemFan"/>.</summary>
+    public int ItemCardCount { get; private set; }
+
+    /// <summary>True when that item fan is hand-held rather than anchored above their board.</summary>
+    public bool ItemFanHeld { get; private set; }
+
+    /// <summary>True when the hand-held item fan rides the sender's LEFT hand.</summary>
+    public bool ItemFanLeftHand { get; private set; }
+
     /// <summary>True when the sender's dominant hand is the RIGHT hand (default true).</summary>
     public bool DominantRight { get; private set; } = true;
 
@@ -154,6 +173,8 @@ internal sealed class RemoteAvatar
         // Tick and torn down from Destroy.
         _handFan = new RemoteHandFan(this);
         _controlBoard = new RemoteControlBoard(this);
+        _itemFan = new RemoteItemFan(this);
+        _cardFx = new RemoteCardFx(this);
 
         VRLog.Info("Net", $"Remote avatar created for player {playerId}.");
     }
@@ -217,6 +238,28 @@ internal sealed class RemoteAvatar
         }
         HandCardCount = p.HandCardCount;
         DominantRight = p.DominantRight;
+
+        // Item fan (additive field): absent flag = the sender predates it OR their fan is closed —
+        // both mean "show nothing", so a plain reset is correct in either case.
+        ItemCardCount = p.HasItemFan ? p.ItemCardCount : 0;
+        ItemFanHeld = p.HasItemFan && p.ItemFanHeld;
+        ItemFanLeftHand = ItemFanHeld && p.ItemFanLeftHand;
+
+        // Card FX (additive field): play ONLY on a sequence change (the same event is deliberately
+        // re-sent for redundancy), and never on the first packet we ever see from this peer.
+        if (p.HasCardFx)
+        {
+            if (!_fxSeqInit)
+            {
+                _fxSeqInit = true;
+                _lastFxSeq = p.FxSeq; // adopt without playing — this event predates our joining
+            }
+            else if (p.FxSeq != _lastFxSeq)
+            {
+                _lastFxSeq = p.FxSeq;
+                _cardFx.Play(p.FxEndpoints);
+            }
+        }
     }
 
     /// <summary>Per-frame interpolation toward the latest target. Call from the driver's Update.</summary>
@@ -257,6 +300,8 @@ internal sealed class RemoteAvatar
         // Cosmetic add-ons (own their own guards; stubs today).
         _handFan.Tick(dt);
         _controlBoard.Tick(dt);
+        _itemFan.Tick(dt);
+        _cardFx.Tick(dt);
     }
 
     private static void UpdatePart(Transform holder, bool valid, in RigPose pose, float k)
@@ -338,6 +383,8 @@ internal sealed class RemoteAvatar
     {
         _handFan.Destroy();
         _controlBoard.Destroy();
+        _itemFan.Destroy();
+        _cardFx.Destroy();
         if (_heldCardMesh != null)
             Object.Destroy(_heldCardMesh); // asset — not freed with the GameObject tree
         _heldCardMesh = null;

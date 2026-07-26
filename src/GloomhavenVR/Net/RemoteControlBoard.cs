@@ -50,6 +50,38 @@ internal sealed class RemoteControlBoard
     private const float SlotX = 0.11f;      // ± slot centre X (board-local)
     private const float ProudZ = -0.004f;   // toward the viewer (−Z), proud of the frame face
 
+    // ---- pile stacks (report 6) ---------------------------------------------------------------
+    // The three card STACKS that hang off the right edge of the local control board
+    // (PlayTray.PileMountBase + PileViewer's per-stack offsets: discard above, burnt below, items
+    // two rows down). They exist here for one reason: a card flying into a peer's discard pile
+    // (RemoteCardFx) needs a VISIBLE destination on that peer's board — before this, the remote
+    // board had slots but no piles at all, so any pile-bound flight would have ended in empty air.
+    // Kept deliberately small and back-textured (never a card identity — same anti-cheat stance as
+    // everything else here).
+    private const float PileX = Cards.PlayTray.BoardHalfWidthLocal + 0.012f + Cards.PlayTray.PileStackOffsetX;
+    private const float PileSpacing = Cards.PlayTray.PileStackSpacing;
+    private const float PileW = 0.075f;
+    private const float PileH = PileW * (88f / 63.5f);
+
+    /// <summary>Board-local position of a play SLOT (0 = left, 1 = right) — the anchor a docking
+    /// card flies into. Shared with <see cref="RemoteCardFx"/> so the flight and the rendered slot
+    /// agree even when the board frame itself is hidden by the visibility setting.</summary>
+    internal static Vector3 SlotLocal(int slot) => new(slot == 0 ? -SlotX : SlotX, 0f, ProudZ);
+
+    /// <summary>Board-local position of a pile stack / the board centre for a card-FX anchor.
+    /// Mirrors the LOCAL board's stack layout (<c>PlayTray.PileMountBase</c> +
+    /// <c>PileViewer</c>'s ±spacing/2 and −1.5·spacing rows) so a peer's piles sit where that
+    /// player's own piles sit.</summary>
+    internal static Vector3 AnchorLocal(CardFxAnchor anchor) => anchor switch
+    {
+        CardFxAnchor.Slot0 => SlotLocal(0),
+        CardFxAnchor.Slot1 => SlotLocal(1),
+        CardFxAnchor.Discard => new Vector3(PileX, PileSpacing * 0.5f, ProudZ),
+        CardFxAnchor.Burnt => new Vector3(PileX, -PileSpacing * 0.5f, ProudZ),
+        CardFxAnchor.Items => new Vector3(PileX, -PileSpacing * 1.5f, ProudZ),
+        _ => new Vector3(0f, 0f, ProudZ), // Board (and any unknown future id)
+    };
+
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;
@@ -140,8 +172,19 @@ internal sealed class RemoteControlBoard
         BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH),
             BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 1f)));
 
-        _cards[0] = new BoardCard(_root.transform, new Vector3(-SlotX, 0f, ProudZ));
-        _cards[1] = new BoardCard(_root.transform, new Vector3(SlotX, 0f, ProudZ));
+        _cards[0] = new BoardCard(_root.transform, SlotLocal(0));
+        _cards[1] = new BoardCard(_root.transform, SlotLocal(1));
+
+        // The three stacks (report 6): the destinations a remote card flight lands on. Card-back
+        // texture, drawn unlit, no labels — they are landing pads, not readable piles.
+        Texture? stackTex = CardMesh.CreateBackMaterial().mainTexture;
+        Material stackMat = BoardVisual.Unlit(new Color(0.82f, 0.82f, 0.82f, 1f), stackTex);
+        BoardVisual.Quad(_root.transform, "DiscardStack", new Vector2(PileW, PileH), stackMat)
+            .transform.localPosition = AnchorLocal(CardFxAnchor.Discard);
+        BoardVisual.Quad(_root.transform, "BurntStack", new Vector2(PileW, PileH), stackMat)
+            .transform.localPosition = AnchorLocal(CardFxAnchor.Burnt);
+        BoardVisual.Quad(_root.transform, "ItemStack", new Vector2(PileW, PileH), stackMat)
+            .transform.localPosition = AnchorLocal(CardFxAnchor.Items);
 
         // Ownership tag pinned just above the board's top-left corner, always facing the head.
         _tag = new OwnerTag(_owner.PlayerId, _root.transform,
