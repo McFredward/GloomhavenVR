@@ -26,14 +26,23 @@ namespace GloomhavenVR.Net;
 ///                     selection phase — the whole board is hidden during selection);
 ///   Always          → render the frame always; card BACKS during selection, real faces on reveal.
 ///
-/// CARD FACE ART: the full painted card art is only ever instantiated by the game as an
-/// <c>AbilityCardUI</c> widget for the LOCAL player's own hand — there is no clean, cheat-safe way
-/// to reach a remote actor's card art/texture (the model <c>CAbilityCard</c> exposes only data:
-/// name, initiative, actions — no sprite/texture). So a face-up card here is a clear card-shaped
-/// panel showing the card NAME + INITIATIVE number (<c>CAbilityCard.Name</c> / <c>.Initiative</c>),
-/// which is exactly what "see who placed what" needs. Backs reuse the mod's own card-back texture
-/// (<c>CardMesh</c>), drawn unlit. The card widget itself lives in <see cref="RemoteBoardCard"/>,
-/// shared with the active-card column.
+/// CARD FACE ART — FULL DETAIL (user requirement: a player must be able to SHOW their board so the
+/// others can READ the cards and advise on the next move). A face-up card here is the game's OWN
+/// card widget: full painted art, both action halves with every icon and number, the initiative
+/// disc, the level, the enhancement stickers. It is produced by <see cref="RemoteAbilityCardSource"/>
+/// — which clones either the peer's own live <c>AbilityCardUI.fullAbilityCard</c> (those widgets
+/// exist on our client for EVERY actor, not just the local one) or a widget borrowed from the game's
+/// object pool by card id — onto a world-space canvas via <see cref="RemoteCardArt"/>. That class
+/// carries the full evidence trail; the earlier claim here that "the full painted art only ever
+/// exists for the LOCAL player's own hand" was simply wrong. The mod-drawn NAME + INITIATIVE panel
+/// survives only as the last-resort fallback when neither source resolves. Backs reuse the mod's own
+/// card-back texture (<c>CardMesh</c>), drawn unlit. The slot widget itself lives in
+/// <see cref="RemoteBoardCard"/>, shared with the active-card column.
+///
+/// NOTHING NEW GOES ON THE WIRE for any of this. The card identities were already available locally
+/// in the host-replicated <c>CPlayerActor.CharacterClass</c> — the same read that fed the old
+/// name+initiative panel. All that changed is how that identity is DRAWN, so the cheat surface is
+/// bit-for-bit the one <see cref="RevealGate"/> already governed.
 ///
 /// FULL BOARD PARITY (standing user requirement: "ALLE Widgets … sollen auch beim fremden
 /// Controllboard sichtbar und synchronisiert sein"). Beyond the two round cards this board now also
@@ -180,6 +189,13 @@ internal sealed class RemoteControlBoard
 
         if (!showBoard)
         {
+            // ANTI-CHEAT: hiding the root is not enough. A hosted card face that survives inside a
+            // deactivated board would be re-activated by SetActive(true) on the frame the board
+            // comes back — one statement BEFORE the slots re-evaluate the gate. Blanking the slots
+            // here means there is no such face to re-activate, in the one case where it matters most
+            // (RemoteBoardVisibility.ActionPhaseOnly hides the whole board *because* the gate shut).
+            // Self-early-returning and allocation-free once blank, so it is free to run every frame.
+            BlankCardFaces();
             SetActive(false);
             return;
         }
@@ -192,8 +208,15 @@ internal sealed class RemoteControlBoard
         _root.transform.localScale = Vector3.one * (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
 
         OrderRoundCards(actor!);
+        // THE reveal decision for this peer's played cards, taken ONCE per frame here and passed
+        // down: showFronts is RevealGate.ShowRoundCardFronts(actor) verbatim — false for a remote
+        // actor while the game is in its own secret SelectAbilityCardsOrLongRest phase, true once
+        // the selection is locked in and the characters are acting (and always true offline / for
+        // our own actor / off-scenario). The slot only ever CREATES a face object inside its
+        // front branch, so the fronts cannot exist a frame early. The actor is handed through purely
+        // so the slot can find that player's own card widget to clone — it is never written to.
         for (int i = 0; i < 2; i++)
-            _cards[i].Set(_ordered[i], showFronts);
+            _cards[i].Set(_ordered[i], showFronts, actor);
 
         _tag!.Tick();
 
@@ -256,12 +279,18 @@ internal sealed class RemoteControlBoard
     /// </summary>
     private void LogContent(int discard, int burnt, int items, bool showFronts)
     {
+        // FIDELITY + ANTI-CHEAT in one greppable line: which mechanism drew each round card
+        // (LiveWidget / PooledBorrow = the REAL game card face; None = the mod-drawn fallback panel),
+        // together with the gate answer that allowed a face at all. Grep: "Remote board content".
+        string slots = $"{FaceTag(0, showFronts)}/{FaceTag(1, showFronts)}";
         string line = $"Remote board content [{_owner.PlayerId}]: " +
                       $"round='{(_status != null ? _status.RoundText : "-")}', " +
                       $"initiative={(_status != null ? _status.InitiativeText : "?")}, " +
                       $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +
                       $"piles d/b/i={discard}/{burnt}/{items}, " +
-                      $"active={(_active != null ? _active.Count : 0)} card(s), " +
+                      $"round-card faces={slots}, " +
+                      $"active={(_active != null ? _active.Count : 0)} card(s) " +
+                      $"({(_active != null ? _active.RealFaceCount : 0)} real face(s)), " +
                       $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s), " +
                       $"elements={(_elements != null ? _elements.ActiveCount : 0)} infused, " +
                       $"track={(_track != null ? _track.Count : 0)} entr(y/ies), " +
@@ -271,7 +300,28 @@ internal sealed class RemoteControlBoard
             return;
         _loggedContent = line;
         VRLog.Info("Net", line + " — all read LOCALLY from the replicated model (zero wire traffic); " +
-                          "fronts gated by RevealGate.");
+                          "fronts gated by RevealGate.ShowRoundCardFronts (false ⇒ BACKS only, which " +
+                          "is exactly the game's secret SelectAbilityCardsOrLongRest phase for a " +
+                          "remote actor). A round-card face of LiveWidget/PooledBorrow is the REAL " +
+                          "game card at full detail; 'panel' is the mod-drawn name+initiative " +
+                          "fallback; 'back' means the gate is shut or the slot is empty.");
+    }
+
+    /// <summary>Per-slot fidelity tag for <see cref="LogContent"/>: the face path when a real face is
+    /// up, otherwise what the slot is actually showing (mod panel when the gate is open but neither
+    /// source resolved; a card BACK when the gate is shut; nothing at all when the slot is empty).
+    /// Pure read of already-computed state — it re-derives no gate of its own.</summary>
+    private string FaceTag(int slot, bool showFronts)
+    {
+        if (_ordered[slot] == null)
+            return "empty";
+        RemoteBoardCard card = _cards[slot];
+        RemoteAbilityCardSource.FacePath path = card != null
+            ? card.Path
+            : RemoteAbilityCardSource.FacePath.None;
+        if (path != RemoteAbilityCardSource.FacePath.None)
+            return path.ToString();
+        return showFronts ? "panel" : "back";
     }
 
     /// <summary>Mirror the local board's ordering: <c>InitiativeAbilityCard</c> first, then the
@@ -361,6 +411,17 @@ internal sealed class RemoteControlBoard
                           "any interaction registry. It is a display of a control board, not one.");
     }
 
+    /// <summary>Drop every hosted card face on this board (round slots + active column) and reset the
+    /// slots' change gates, so the next visible frame re-decides from scratch. No-op before the board
+    /// has ever been built.</summary>
+    private void BlankCardFaces()
+    {
+        for (int i = 0; i < _cards.Length; i++)
+            _cards[i]?.Blank();
+        _active?.Blank();
+        _loggedContent = string.Empty; // the next visible refresh must re-state what is drawn
+    }
+
     private void SetActive(bool active)
     {
         if (_root != null && _root.activeSelf != active)
@@ -371,6 +432,13 @@ internal sealed class RemoteControlBoard
     {
         _tag?.Destroy();
         _tag = null;
+        // Drop every hosted card face FIRST. The clones are children of the board root and would die
+        // with it anyway, but "we own the clone, we destroy the clone" is the contract these widgets
+        // are built on (see RemoteAbilityCardSource) and it must not depend on Unity's destruction
+        // order — nor on the board root still existing when a peer leaves mid-teardown.
+        for (int i = 0; i < _cards.Length; i++)
+            _cards[i]?.Destroy();
+        _active?.Destroy();
         if (_root != null)
         {
             Object.Destroy(_root);
