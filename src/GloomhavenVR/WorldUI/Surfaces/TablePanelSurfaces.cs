@@ -1476,9 +1476,6 @@ internal static class InitiativeSelectionGlow
     private static readonly HashSet<InitiativeTrackActorBehaviour> s_active = new();
     private static readonly List<InitiativeTrackActorBehaviour> s_stale = new(16);
 
-    /// <summary>Shared generated ring sprite (hollow 9-sliced amber border); built once, reused for all.</summary>
-    private static Sprite? s_ringSprite;
-
     // One-shot on-screen diagnostic per entry so a future "I see no ring" is answerable from the log.
     private static readonly HashSet<InitiativeTrackActorBehaviour> s_diagLogged = new();
     private static readonly Vector3[] s_diagCorners = new Vector3[4];
@@ -1625,7 +1622,7 @@ internal static class InitiativeSelectionGlow
         rt.SetAsLastSibling(); // draw after the face — the ring lives in the margin, nothing occludes it
 
         var img = go.GetComponent<Image>();
-        img.sprite = GetRingSprite();
+        img.sprite = SoftCueArt.FrameSprite(RingCornerRadiusPx);
         img.type = Image.Type.Sliced;
         img.fillCenter = false; // hollow — a frame, never a wash over the face
         img.color = GlowColor;
@@ -1638,57 +1635,12 @@ internal static class InitiativeSelectionGlow
     }
 
     /// <summary>
-    /// Generate the shared hollow ring sprite once: a soft amber OUTLINE that fades from a bright core
-    /// near the portrait edge inward to nothing, authored so it 9-slices cleanly (the falloff lives
-    /// entirely inside the sprite border, the stretched center is fully transparent). White pixels —
-    /// the amber comes from <see cref="GlowColor"/> tinting the Image.
+    /// Corner rounding (px) of this ring's outline. 0 = the ORIGINAL square-cornered ring — the portrait
+    /// it frames is itself a hard rect, and this cue is already approved on hardware, so the shared
+    /// factory is asked for exactly the sprite it always drew. (The item-card frame, which had to stop
+    /// reading as a rectangle, asks the same factory for a rounded radius instead.)
     /// </summary>
-    private static Sprite GetRingSprite()
-    {
-        if (s_ringSprite != null)
-            return s_ringSprite;
-
-        const int size = 48;
-        const int border = 16; // 9-slice margin (px) — the whole glow falloff fits inside it
-        var tex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false, linear: false)
-        {
-            name = "GloomhavenVR.SelectionRingTex",
-            wrapMode = TextureWrapMode.Clamp,
-            filterMode = FilterMode.Bilinear,
-        };
-        var px = new Color32[size * size];
-        for (int y = 0; y < size; y++)
-        {
-            int dyEdge = Mathf.Min(y, size - 1 - y);
-            for (int x = 0; x < size; x++)
-            {
-                int dxEdge = Mathf.Min(x, size - 1 - x);
-                float d = Mathf.Min(dxEdge, dyEdge); // px to the nearest outer edge
-                float a;
-                if (d < 2f)
-                    a = d / 2f;                       // soft outer lip
-                else if (d <= 6f)
-                    a = 1f;                           // bright outline core
-                else if (d < border)
-                {
-                    float t = (d - 6f) / (border - 6f); // fade inward to transparent
-                    a = (1f - t) * (1f - t);
-                }
-                else
-                    a = 0f;                           // transparent center (stretched by 9-slice)
-                px[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.Clamp(Mathf.RoundToInt(a * 255f), 0, 255));
-            }
-        }
-        tex.SetPixels32(px);
-        tex.Apply(updateMipmaps: false);
-
-        // ppu 100 == the uGUI reference, so the border strips render ~border px thick in UI space.
-        s_ringSprite = Sprite.Create(
-            tex, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f),
-            100f, 0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
-        s_ringSprite.name = "GloomhavenVR.SelectionRing";
-        return s_ringSprite;
-    }
+    private const int RingCornerRadiusPx = 0;
 
     /// <summary>
     /// One line per entry the first time its ring lights: the resolved portrait, its world-space rect
