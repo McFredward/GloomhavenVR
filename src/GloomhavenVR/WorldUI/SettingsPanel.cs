@@ -2092,9 +2092,11 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     /// Widen/narrow the objectives task dock (0.1× steps, 0.5–3.0). Live: ObjectivesSurface FORCES
     /// the resulting mm budget onto the game's objective rows as a pixel width each tick, so the
     /// task text re-wraps and the progress bar lengthens — the readout's mm is the real panel width,
-    /// not just a fit ceiling. The lower bound goes below 1.0 on purpose: since the budget is now
-    /// literal, 1.0 (260 mm) is already wider than the game's authored wrap column, so the dial
-    /// needs headroom DOWNWARD to reach a tighter look again.
+    /// not just a fit ceiling. SHAPE ONLY: the dock's fit deliberately ignores the width axis for
+    /// this panel (ObjectivesSurface.FitWidthToMount), so the rendered TYPE SIZE does not move with
+    /// this dial — that is what the separate 'Größe' (ObjectivesScale) row is for. The lower bound
+    /// goes below 1.0 on purpose: since the budget is literal, 1.0 (260 mm) is already wider than the
+    /// game's authored wrap column, so the dial needs headroom DOWNWARD to reach a tighter look.
     /// </summary>
     private void StepObjectivesWidth(int delta)
     {

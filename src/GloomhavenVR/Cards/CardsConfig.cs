@@ -213,8 +213,10 @@ internal static class CardsConfig
     // seeded so today's look is unchanged until tuned. ----
     private static readonly ConfigEntry<Vector3>[] _objectivesOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _objectivesScale = new ConfigEntry<float>[3];
-    // Task-panel WIDTH (user request): a multiplier on the objectives dock's fit WIDTH budget
+    // Task-panel WIDTH (user request): a multiplier on the objectives dock's WRAP COLUMN
     // (PlayTray.ObjectivesMountWidth) so the scenario task + its progress bar render longer/wider.
+    // Strictly orthogonal to _objectivesScale above: width re-wraps the text, scale zooms it — see
+    // ObjectivesSurface.FitWidthToMount for why the two used to drag each other.
     private static readonly ConfigEntry<float>[] _objectivesWidth = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _elementsOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _elementsScale = new ConfigEntry<float>[3];
@@ -637,20 +639,26 @@ internal static class CardsConfig
                 $"[{board}] offset ADDED to the OBJECTIVES ('Aufgaben') dock mount local position (on top of " +
                 "the fixed left-column base), board-local meters. Seeded 0 (Oak).");
             _objectivesScale[i] = _file.Bind("Cards", $"ObjectivesScale_{board}", 1f,
-                $"[{board}] size MULTIPLIER of the OBJECTIVES ('Aufgaben') dock. Seeded 1 (Oak).");
+                $"[{board}] SIZE multiplier of the OBJECTIVES ('Aufgaben') dock — a true ZOOM: text, " +
+                "progress bars, icons and the panel itself all scale together, because this is the " +
+                "objectives MOUNT's localScale and the docked panel rides mount.lossyScale. This is the " +
+                "ONLY dial that changes how big the task text renders; ObjectivesWidth changes the shape " +
+                "of the block, never its type size. Seeded 1 (Oak).");
             _objectivesWidth[i] = _file.Bind("Cards", $"ObjectivesWidth_{board}", 1.6f,
                 new ConfigDescription(
-                    $"[{board}] WIDTH MULTIPLIER of the OBJECTIVES ('Aufgaben') dock — the panel's width " +
-                    "budget is PlayTray.ObjectivesMountWidth (0.26 m) x this factor, e.g. 1.6 = 416 mm. " +
-                    "That budget is FORCED onto the game's objective rows as a pixel width (budget x the " +
-                    "panel density, 2400 px/m x 0.6), so the objective TEXT RE-WRAPS at the wider measure " +
-                    "and each row's fillAmount PROGRESS BAR really gets longer — it is not a uniform " +
-                    "zoom. (Before, this factor only raised the dock's fit CEILING, which the content " +
-                    "never reached: the fit saturated at its MaxDensityScale clamp for the whole range, " +
-                    "so the dial did nothing at all.) The panel grows LEFTWARD from the board's left edge " +
-                    "into open space, so no board overlap. Below ~0.5 the rows wrap tighter than the game " +
-                    "authored them. Default 1.6. Live-applied: ObjectivesSurface re-forces the row widths " +
-                    "and re-fits each tick; all rect changes are reverted when the panel is released.",
+                    $"[{board}] WIDTH multiplier of the OBJECTIVES ('Aufgaben') dock — SHAPE ONLY, NOT " +
+                    "size. The wrap column is PlayTray.ObjectivesMountWidth (0.26 m) x this factor, e.g. " +
+                    "1.6 = 416 mm, FORCED onto the game's objective container as a pixel width (column x " +
+                    "the panel density, 2400 px/m x 0.6), so the objective TEXT RE-WRAPS at that measure " +
+                    "and each row's fillAmount PROGRESS BAR really is that long. The rendered GLYPH SIZE " +
+                    "is untouched: the dock fit no longer looks at the width axis for this panel (it " +
+                    "cannot — the content IS the budget), so metres-per-pixel is the panel density alone " +
+                    "and only ObjectivesScale ('Größe') moves it. Higher = the same text on fewer, longer " +
+                    "lines with the panel reaching further LEFT from the board edge into open space (no " +
+                    "board overlap); lower = more, shorter lines in a narrower block, same letter height. " +
+                    "Below ~0.5 the rows wrap tighter than the game authored them. Default 1.6. " +
+                    "Live-applied: ObjectivesSurface re-forces the column each tick; every rect change is " +
+                    "reverted when the panel is released.",
                     new AcceptableValueRange<float>(0.5f, 3f)));
             _elementsOffset[i] = _file.Bind("Cards", $"ElementsOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the ELEMENT infusion ('Elemente') dock mount local position (on top " +
