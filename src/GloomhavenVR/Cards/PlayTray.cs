@@ -933,8 +933,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it
         _itemUseSlotGlow = null;
-        _itemUseConfirm = null; // child of the slot (under _root), destroyed with it
+        _itemUseConfirm = null; // #9a: generic-cluster child (under _root via the Confirm anchor), destroyed with it
         _itemUseConfirmAction = null;
+        _itemUseActive = false; // #9a: a fresh tray starts with the tuned 2-member cluster (no pending item)
         _handle = null; // child of _root, destroyed with it
         _followToggle = null;
         _gear = null;
@@ -1196,13 +1197,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     internal void SetConfirmUndoOffset(Vector3 offset, float spacing)
     {
-        // Item D: auto-fit the generic cluster's buttons in a vertical stack. Confirm is member 0
-        // (top), Undo member 1. GenericClusterY packs any count into the column; at 2 it reproduces
-        // the tuned ±spacing/2 layout, at 3–4 it spreads evenly across GenericColumnHeight.
+        // Item D / requirement 9a: auto-fit the generic cluster's buttons in a vertical stack. The
+        // member COUNT is dynamic — normally Confirm(0)/Undo(1); while a held usable item card is
+        // clipped into the use slot the item "Use" confirm joins as member 1 (the slot directly ABOVE
+        // Undo), pushing the pair to a 3-member stack. GenericClusterY packs any count into the column
+        // (at 2 it reproduces the tuned ±spacing/2 pair; at 3 it spreads within GenericColumnHeight so
+        // Use lands squarely above Undo). Undo is ALWAYS the bottom member (index count-1).
+        int count = GenericCount;
         if (_confirm != null)
-            _confirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(0, GenericButtonCount, spacing), 0f);
+            _confirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(0, count, spacing), 0f);
+        if (_itemUseConfirm != null && _itemUseActive)
+            _itemUseConfirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(1, count, spacing), 0f);
         if (_undo != null)
-            _undo.transform.localPosition = offset + new Vector3(0f, GenericClusterY(1, GenericButtonCount, spacing), 0f);
+            _undo.transform.localPosition = offset + new Vector3(0f, GenericClusterY(count - 1, count, spacing), 0f);
     }
 
     /// <summary>
@@ -1212,8 +1219,20 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     private const int GenericButtonCount = 2;
 
-    /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into (right column between the readout and the gear).</summary>
-    private const float GenericColumnHeight = 0.20f;
+    /// <summary>
+    /// Requirement 9a: true while the item "Use" confirm is a live member of the generic cluster (a held
+    /// usable item card is clipped into the use slot). It bumps <see cref="GenericCount"/> to 3 so Confirm
+    /// (top) / Use (middle, above Undo) / Undo (bottom) auto-fit the column; false restores the tuned pair.
+    /// </summary>
+    private bool _itemUseActive;
+
+    /// <summary>Live generic-cluster member count: the tuned pair, plus the item "Use" confirm while pending.</summary>
+    private int GenericCount => GenericButtonCount + (_itemUseActive ? 1 : 0);
+
+    /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into. Kept clear of
+    /// the round readout (top edge) and the settings gear (bottom edge) so a 3-member stack (with the item
+    /// "Use" confirm) fits between them without colliding.</summary>
+    private const float GenericColumnHeight = 0.16f;
 
     /// <summary>Minimum inter-button gap (tray-local meters) when the generic cluster auto-fits &gt;2 buttons.</summary>
     private const float GenericButtonGap = 0.010f;
@@ -1409,6 +1428,13 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         {
             Object.DestroyImmediate(_undo.gameObject);
             _undo = null;
+        }
+        // Requirement 9a: the item "Use" cluster button is (re)built by BuildButtons — tear the old one
+        // down first so a tuning rebuild never leaks/doubles it.
+        if (_itemUseConfirm != null)
+        {
+            Object.DestroyImmediate(_itemUseConfirm.gameObject);
+            _itemUseConfirm = null;
         }
         LaserTargets.RemoveAll(static t => t.Collider == null); // drop the just-destroyed (and any other dead) targets
         BuildButtons(confirmAnchor, undoAnchor);
@@ -1957,21 +1983,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         WorldUI.NativeButtonSkin.ApplyFont(label);
         Core.TmpFit.Fit(label, w * 0.9f, h * 0.5f, maxFontSize: 0.16f, wrap: false);
 
-        // Requirement 6: the CONFIRM (USE) keycap beside the slot — shown only while a card is clipped
-        // in awaiting a decision. A round board keycap like Confirm/Undo, parented to the slot so it
-        // rides the slot pose + visibility. onClick routes to the ItemsPile-supplied action.
-        float bSize = CardsConfig.ConfirmUndoSize(CardsConfig.CurrentBoard).Value;
-        _itemUseConfirm = BoardButton.Create(go.transform, new Vector2(bSize, bSize),
-            new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
-            Core.Loc.Game("GUI_USE", "USE"),
-            () => _itemUseConfirmAction?.Invoke(),
-            round: true, diameter: bSize, thickness: WorldUI.ButtonTuning.BoardCapDepth,
-            travel: WorldUI.ButtonTuning.BoardCapTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
-        _itemUseConfirm.transform.localPosition = new Vector3(w * 0.9f, 0f, -0.004f); // to the right of the slot
-        _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
-        RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
-        _itemUseConfirm.SetVisible(false);
+        // Requirement 9a: the item "Use" confirm is no longer a bespoke keycap beside the slot — it is a
+        // GENERIC cluster board button in the right-hand Confirm/Undo column (built in BuildButtons,
+        // positioned above the pair by SetConfirmUndoOffset), shown only while a card is clipped into the
+        // slot awaiting the decision. See BuildButtons / SetItemUseConfirmVisible.
 
         Core.VRLayers.Apply(go);
         go.SetActive(false); // ItemsPile toggles it live via SetItemUseSlotVisible
@@ -1986,6 +2001,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     internal void SetItemUseConfirmVisible(bool visible, System.Action? onConfirm)
     {
         _itemUseConfirmAction = visible ? onConfirm : null;
+        // Requirement 9a: the "Use" confirm is a dynamic member of the generic cluster. Toggling it
+        // changes the member COUNT (2 ↔ 3), so the whole Confirm/Undo/Use stack must re-lay-out (and the
+        // caps re-size to fit) — rebuild the cluster on an actual change, then show/hide the fresh button.
+        if (visible != _itemUseActive)
+        {
+            _itemUseActive = visible;
+            RebuildAttachedControls(); // rebuilds Confirm/Undo (+ Use when active) at the new count
+        }
         _itemUseConfirm?.SetVisible(visible);
     }
 
@@ -2612,8 +2635,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // the live count (GenericClusterButtonSize) and lays them out auto-fit (SetConfirmUndoOffset).
         // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
         // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
+        int count = GenericCount; // 2 (Confirm/Undo) or 3 while the item "Use" confirm is a cluster member
         float baseSide = CardsConfig.ConfirmUndoSize(active).Value;
-        float side = GenericClusterButtonSize(baseSide, GenericButtonCount);
+        float side = GenericClusterButtonSize(baseSide, count);
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
@@ -2624,7 +2648,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // numeric defaults (0.073 × 0.073 × 0.036 / 4 mm — no 0=Auto sentinel any more).
         // Round caps keep the per-board authored diameter (the square set does not apply).
         WorldUI.ButtonTuning.Bind();
-        var rectSize = round
+        // Square caps keep the tuned [BoardButtons] W×H for the 2-member pair; when the item "Use"
+        // confirm joins (count 3) they shrink to the auto-fit side so three members fit the column.
+        var rectSize = round || count > GenericButtonCount
             ? new Vector2(side, side)
             : new Vector2(WorldUI.ButtonTuning.BoardCapWidth, WorldUI.ButtonTuning.BoardCapHeight);
         float capDepth = WorldUI.ButtonTuning.BoardCapDepth;
@@ -2651,7 +2677,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
-        SetConfirmUndoOffset(off, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
+        // Requirement 9a: while the item "Use" confirm is a live cluster member, build it as a GENERIC
+        // cluster board button in THIS column at index 1 (the slot directly ABOVE Undo) — same board
+        // keycap look as Confirm/Undo (never the old bespoke keycap beside the slot). Built only while
+        // active (SetItemUseConfirmVisible flips _itemUseActive + rebuilds); onClick routes to the
+        // ItemsPile-supplied use action.
+        if (_itemUseActive)
+        {
+            _itemUseConfirm = BoardButton.Create(confirmParent, rectSize,
+                new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
+                Core.Loc.Game("GUI_USE", "USE"),
+                () => _itemUseConfirmAction?.Invoke(),
+                round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+                capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
+            RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
+        }
+
+        SetConfirmUndoOffset(off, spacing); // count-aware: Confirm(top)/[Use]/Undo(bottom), Z proud
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
                             $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));

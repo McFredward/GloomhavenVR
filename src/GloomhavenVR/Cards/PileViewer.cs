@@ -143,7 +143,10 @@ internal sealed class PileViewer
                 new Vector3(PlayTray.PileStackOffsetX, -spacing * 1.5f, 0f));
             tray.RegisterLaserTarget(_items.GetComponent<Collider>(), _items);
         }
-        _itemsBrowse.SetAnchor(mount);
+        // Requirement 3: the item fan must emerge from AND collapse into ITS OWN stack — hand the
+        // ITEMS stack transform (not the shared PileMount origin, which sits up by the DISCARD stack)
+        // as the converge anchor, so ItemsPile.PileConvergeWorld reads the real items-pile position.
+        _itemsBrowse.SetAnchor(_items != null ? _items.transform : mount);
         ApplyLayout(); // seat the per-board scale + spacing (all three stacks)
 
         // Live language following: the pile captions are built once — re-read them on a

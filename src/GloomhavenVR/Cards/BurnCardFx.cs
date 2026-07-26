@@ -153,19 +153,57 @@ internal sealed class BurnCardFx
         GameObject go = Object.Instantiate(prefab, chip);
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
-        var ps = go.GetComponentInChildren<ParticleSystem>();
-        if (ps != null)
+
+        // ITEM 10 (field-covering consumed-item fog) ROOT CAUSE: the burning-ABILITY-card path
+        // (Bind) reparents the game's ONE managed smoke instance onto the small world card, which
+        // shrinks its WHOLE child hierarchy by the huge screen-card scale it is removed from — so
+        // every sub-emitter comes down to card size for free. This spawn path has NO such reparent
+        // and the old code clamped only the FIRST ParticleSystem (GetComponentInChildren), leaving
+        // the CardSmoke prefab's OTHER emitters at World simulation + authored screen scale — they
+        // sprayed across the whole diorama. Fix: (1) clamp EVERY ParticleSystem in the instance to
+        // Local sim + Hierarchy scaling + the extra shrink, cap start lifetime so nothing drifts far,
+        // and (2) force the plume root's WORLD scale to a fixed card-relative size, so the plume is
+        // bounded to the card regardless of the item chip's own scale hierarchy (the reparent-shrink
+        // the ability path gets for free). Small and on/near the card only — never a large field fog.
+        float parentLossy = chip.lossyScale.x;
+        if (parentLossy > 1e-4f)
         {
+            float target = CardsConfig.CardWidth.Value * ItemPlumeCardSpan; // world extent ≈ 1.4 card widths
+            float local = target / parentLossy;
+            go.transform.localScale = new Vector3(local, local, local);
+        }
+
+        ParticleSystem[] systems = go.GetComponentsInChildren<ParticleSystem>(includeInactive: true);
+        foreach (ParticleSystem ps in systems)
+        {
+            if (ps == null)
+                continue;
             ParticleSystem.MainModule main = ps.main;
-            // Same clamp as the burning-card path: ride the small world chip, size to it,
-            // shrink so the plume stays localized instead of spraying at authored screen scale.
+            // Ride the small world chip, size to it, shrink so the plume stays localized instead of
+            // spraying at authored screen scale — the same clamp Bind applies to a burning card's smoke.
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
             main.scalingMode = ParticleSystemScalingMode.Hierarchy;
             main.startSizeMultiplier = main.startSizeMultiplier * StartSizeMultiplier;
             main.startSpeedMultiplier = main.startSpeedMultiplier * StartSpeedMultiplier;
+            // Cap lifetime so a stray large-velocity particle can't waft across the map before dying.
+            ParticleSystem.MinMaxCurve life = main.startLifetime;
+            if (life.mode == ParticleSystemCurveMode.Constant && life.constant > ItemPlumeMaxLifetime)
+                main.startLifetime = ItemPlumeMaxLifetime;
         }
+        VRLog.Info("Cards", $"Consumed-item plume: bounded to the card ({systems.Length} emitter(s) → " +
+                            $"Local/Hierarchy, size/speed ×{StartSizeMultiplier:F2}, world span ≈ " +
+                            $"{CardsConfig.CardWidth.Value * ItemPlumeCardSpan:F3} m) — no more field-covering fog.");
         return go;
     }
+
+    /// <summary>ITEM 10: the consumed-item plume's target WORLD extent, in card widths — the plume root
+    /// is scaled so its lossy size is this × the card width, bounding it to the card no matter what the
+    /// item chip's scale hierarchy is (the ability-card path gets this from its reparent-shrink instead).</summary>
+    private const float ItemPlumeCardSpan = 1.4f;
+
+    /// <summary>ITEM 10: hard cap (seconds) on any consumed-item plume emitter's constant start lifetime,
+    /// so a fast particle can't drift far from the card before it dies.</summary>
+    private const float ItemPlumeMaxLifetime = 1.4f;
 
     private void Bind(ParticleSystem smoke, Transform cardTransform)
     {
