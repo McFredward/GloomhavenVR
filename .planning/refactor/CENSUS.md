@@ -33,9 +33,23 @@ My single-file census found **3**; the Cards history mining found **8**, by the 
 mentioned in other files only from *comments*, so they pass a mention-based filter while still
 having no consumer. The eight:
 
-`HeldTiltDegrees`, `RoundButtonDiameter`, `RestButtonInsetX`, `ConfirmUndoInsetX`,
-`InspectForward`, `InspectUp`, `RevealPreset`, `RevealDemeo` — plus `FanArcDegrees` from the
-single-file pass, which the Cards list does not name.
+**Corrected a second time — the list itself was half fictional.** `REVIEW-Cards.md` §5.0
+checked each name against `src/` rather than against the history, and found that
+**`InspectForward`, `InspectUp`, `RevealPreset` and `RevealDemeo` have zero occurrences in the
+source tree.** They exist only in `.planning/research/DEMEO-HANDS-CARDS.md`, in
+`INVARIANTS-Cards.md`, and — because I copied it from there — in this document. I verified
+independently: 0 mentions, 0 `Bind` calls, for all four.
+
+Two real ones were missing instead: `TrayTilt` (superseded by `BoardTilt_{board}`, and
+`PlayTray` says so) and `RoundButtonThickness` (the live value is `ButtonTuning.RestCapDepth`).
+
+The **actual** set of bound-but-unread `[Cards]` entries is seven:
+`HeldTiltDegrees`, `RoundButtonDiameter`, `RoundButtonThickness`, `RestButtonInsetX`,
+`ConfirmUndoInsetX`, `TrayTilt`, `FanArcDegrees`.
+
+Worth recording why this happened, because it is the same failure the registry warns about:
+the entries were mined from **commit history**, where all four once existed, and nobody asked
+whether they still do. A history-derived fact needs a HEAD check before it becomes a plan.
 
 **And "dead" is the wrong word for most of them.** They split into two groups that need
 opposite treatment:
