@@ -1836,8 +1836,8 @@ internal sealed class CardsDriver : MonoBehaviour
         s_lastLiftOnCard = onCard;
         s_nextLiftPriorityLogAt = now + 2f;
         VRLog.Debug("Cards", $"Board laser: LIFT-PRIORITY owns the trigger for '{lifted.name}' " +
-            $"(palm highlight on a docked card) — beam {(onCard ? "clamped to the REAL ray/card hit (live or resting rect)" : "LEFT FREE (ray is off the card in BOTH poses; far-click suppressed only)")}. " +
-            "The beam is never parked on the card centre any more (that was the phantom wall).");
+            $"(palm highlight on a docked card) — {(onCard ? "ray IS on the card: beam clamped to the real hit, frame pre-empted" : "FALLBACK: ray hit nothing at all, beam left free, far-click suppressed only")}. " +
+            "Board elements the beam actually lands on are never starved (they are scanned first).");
     }
 
     /// <summary>
@@ -1893,22 +1893,28 @@ internal sealed class CardsDriver : MonoBehaviour
         //
         // The branch's real job is the trigger, not the beam: own the pull so it grabs the lifted
         // card instead of a near-missed board element. So clamp the beam ONLY when the ray truly
-        // crosses the card (then the point is honest and telegraphs the winner), and otherwise
-        // just claim the trigger via SuppressFarClick — the beam keeps reporting whatever it
-        // really hits, and the far-click suppression that used to ride along on UiHitOverride is
-        // preserved.
-        if (dom.Grabber.Highlighted is VRCard lifted
-            && (_tray.ContainsCard(lifted) || _fieldCards.Contains(lifted))
-            && !dom.RayUgui.HasHit)
+        // crosses the card (then the point is honest and telegraphs the winner).
+        //
+        // FOLLOW-UP (buttons died next to a lifted card): owning the frame whenever a docked card
+        // is palm-highlighted — beam on the card or not — starves every board element. The tester
+        // hit exactly that: after grazing a raised card, sweeping the SAME flat beam onto the
+        // board buttons passed straight through them, because the palm was still inside the
+        // card's grab volume and this branch kept returning before the element scan. A near-miss
+        // deserves the card; a beam sitting squarely ON a button is a deliberate aim and must win.
+        // So the lifted card only PRE-EMPTS the frame when the ray is genuinely on it; otherwise
+        // the normal scan runs, and the lift-priority accept applies further down as a FALLBACK,
+        // reached only when the ray found nothing else at all.
+        VRCard? lifted = dom.Grabber.Highlighted is VRCard hl
+                         && (_tray.ContainsCard(hl) || _fieldCards.Contains(hl))
+                         && !dom.RayUgui.HasHit
+            ? hl
+            : null;
+        if (lifted != null && TryHitLiftedCard(lifted, dom.Ray.Current.Origin,
+                dom.Ray.Current.Direction, out Vector3 liftedHit))
         {
             ClearBoardHover();
-            bool onCard = TryHitLiftedCard(lifted, dom.Ray.Current.Origin,
-                dom.Ray.Current.Direction, out Vector3 liftedHit);
-            if (onCard)
-                dom.Ray.UiHitOverride = liftedHit; // honest hit — beam lands ON the card
-            else
-                dom.Ray.SuppressFarClick(); // own the trigger, leave the beam alone
-            LogLiftPriority(lifted, onCard);
+            dom.Ray.UiHitOverride = liftedHit; // honest hit — beam lands ON the card
+            LogLiftPriority(lifted, onCard: true);
             if (dom.TriggerDown && lifted.CanGrab)
             {
                 VRLog.Info("Cards", "Board: hover-LIFTED slot card trigger-grabbed " +
@@ -1948,6 +1954,27 @@ internal sealed class CardsDriver : MonoBehaviour
         if (float.IsPositiveInfinity(nearest) || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < nearest))
         {
             ClearBoardHover();
+
+            // LIFT-PRIORITY FALLBACK (see the branch above): the ray found NOTHING — no board
+            // element, no card, no game UI — while the palm holds a docked card lifted. This is
+            // the case the accept was written for: a grab reach whose beam sails past the board
+            // into empty space, where letting the trigger through would fire a board far-click
+            // instead of the obviously-intended grab. Claim the trigger without touching the beam
+            // (SuppressFarClick, never a fabricated hit point) and grab the lifted card. Because
+            // this now sits AFTER the scan, a beam that is actually on a button reaches the button.
+            if (lifted != null)
+            {
+                dom.Ray.SuppressFarClick();
+                LogLiftPriority(lifted, onCard: false);
+                if (dom.TriggerDown && lifted.CanGrab)
+                {
+                    VRLog.Info("Cards", "Board: hover-LIFTED slot card trigger-grabbed " +
+                                        "(lift-priority FALLBACK — ray hit nothing at all).");
+                    dom.Grabber.ForceGrab(lifted, releaseOnTriggerUp: true);
+                }
+                return;
+            }
+
             // Requirement 4 click-away: a TRIGGER that lands off every board target (empty space or the
             // game's own UI) while the item fan is open dismisses it — the item counterpart of the
             // discard/burnt browser's click-away in UpdateBrowseLaser. Item-chip hovers take the
