@@ -215,6 +215,12 @@ internal static class Loc
         ["fan_arc"] = Pair("Arc sweep", "Bogen"),
         ["fan_radius"] = Pair("Radius", "Radius"),
         ["fan_split"] = Pair("Hover split", "Spreizung"),
+        // Card presentation (edge-read fix): per-card toe-in toward the head + the gaze-following
+        // depth-bow apex. "Zum Spieler" = how squarely each card faces you; "Blickfolge" = how far
+        // the card you look at is brought out of the fan's depth recession.
+        ["fan_face_viewer"] = Pair("Face viewer", "Zum Spieler"),
+        ["fan_gaze_follow"] = Pair("Gaze follow", "Blickfolge"),
+        ["fan_gaze_smooth"] = Pair("Gaze easing", "Blick-Glättung"),
         ["decision"] = Pair("Decision", "Entscheidung"),
         ["avatar"] = Pair("Avatar", "Avatar"),
         ["head_mask"] = Pair("Head Mask", "Kopfmaske"),

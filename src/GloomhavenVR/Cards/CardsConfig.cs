@@ -335,8 +335,26 @@ internal static class CardsConfig
 
     /// <summary>Fan facing (global): enable the gaze-responsive yaw bias (opt-in). Default OFF — the fan
     /// billboards steadily and the depth curvature is the primary shape. ON adds a hysteresis-gated yaw
-    /// toward the head's gaze so an edge card tips forward when you look at it (no center dither).</summary>
+    /// toward the head's gaze so an edge card tips forward when you look at it (no center dither).
+    /// SUPERSEDED by FanFaceViewer + FanGazeApexFollow (see CardFan's "card presentation" region); kept
+    /// for config compatibility and as an extra flourish for anyone who liked the whole-fan lean.</summary>
     internal static ConfigEntry<bool> FanGazeBias = null!;
+
+    /// <summary>Fan facing (global): per-card TOE-IN toward the head, 0..1. 0 = every card keeps the
+    /// fan's single billboard normal (the old flat sheet, so an outer card is seen obliquely); 1 = each
+    /// card is aimed at the head individually, like cupping a real hand of cards so every card faces
+    /// your eyes. Purely orientation — positions, hit rects and draw order are untouched.</summary>
+    internal static ConfigEntry<float> FanFaceViewer = null!;
+
+    /// <summary>Fan facing (global): how far the DEPTH-bow apex (the nearest, un-receded card) follows
+    /// the gaze, 0..1. 0 = the apex stays pinned to the middle card (the old symmetric bow, so the card
+    /// you turn to look at is the one that has receded most); 1 = the apex sits under the card you are
+    /// looking at, so looking at a card brings it fully out of the recession.</summary>
+    internal static ConfigEntry<float> FanGazeApexFollow = null!;
+
+    /// <summary>Fan facing (global): exponential ease rate (1/s) of the gaze apex toward the looked-at
+    /// card. Low = lazy/heavy, high = snappy (and more head-jitter sensitive).</summary>
+    internal static ConfigEntry<float> FanGazeSmoothing = null!;
 
     internal static void Bind()
     {
@@ -885,7 +903,45 @@ internal static class CardsConfig
             "sole shape response — the steady, predictable follow. ON re-adds an eased extra yaw that " +
             "turns the fan partway toward the head's gaze so the looked-at edge tips forward; a WIDE " +
             "deadzone plus side-hysteresis means a left-right head shake no longer dithers about which " +
-            "way to lean near the fan center (it holds center until the gaze clearly commits to a side).");
+            "way to lean near the fan center (it holds center until the gaze clearly commits to a side). " +
+            "SUPERSEDED by FanFaceViewer + FanGazeApexFollow — leave OFF unless you want the extra lean.");
+
+        // ---- Fan CARD PRESENTATION (per-card toe-in + gaze-following bow apex) ----
+        // The edge-read fix the whole-fan yaw bias above could not deliver: instead of swinging the
+        // WHOLE hand (a see-saw that improves one end by ruining the other), each card is aimed at
+        // the head individually and the depth bow's apex slides under whichever card you are looking
+        // at. See CardFan's "card presentation" region for the full derivation.
+        FanFaceViewer = _file.Bind("Cards", "FanFaceViewer", 1f,
+            new ConfigDescription(
+                "Hand fan (global): per-card TOE-IN toward the head. The fan as a whole billboards at " +
+                "the head, but a card sitting 13 cm out along the arc is still seen at ~15-20° off its " +
+                "own normal — it is turned away from your eye exactly when you turn to read it. This " +
+                "aims EACH card at the head instead (like cupping a real hand of cards). 0 = off (one " +
+                "flat billboarded sheet, the old look), 1 = exact per-card facing. Orientation only: " +
+                "card positions, the draw order, the hover split and the laser hit rects are unchanged " +
+                "(the pick reads the same home rotation that is drawn).",
+                new AcceptableValueRange<float>(0f, 1f)));
+        FanGazeApexFollow = _file.Bind("Cards", "FanGazeApexFollow", 1f,
+            new ConfigDescription(
+                "Hand fan (global): how far the DEPTH-BOW APEX follows your gaze. The bow " +
+                "(FanSideDepthCurve) recedes cards away from the viewer with distance from the apex; " +
+                "with the apex pinned to the middle card, the outermost card — the one you turn your " +
+                "head to read — is the FURTHEST away, i.e. looking at a card made it harder to see. " +
+                "At 1 the apex slides under the card you are looking at, so that card sits at zero " +
+                "recession and the recession falls off toward the far end instead. The bow's MAXIMUM " +
+                "never exceeds FanSideDepthCurve at any apex, so no card ever ends up further back " +
+                "than it already was at 0 (= the old symmetric bow). The apex is a continuous function " +
+                "of the gaze angle (no per-card latch, so nothing can flicker at a card boundary) and " +
+                "is eased at FanGazeSmoothing. Silhouette-safe: the bow runs along the VIEW axis, so " +
+                "moving its apex changes what is nearest without visibly moving the fan.",
+                new AcceptableValueRange<float>(0f, 1f)));
+        FanGazeSmoothing = _file.Bind("Cards", "FanGazeSmoothing", 8f,
+            new ConfigDescription(
+                "Hand fan (global): exponential ease rate (1/s, unscaled time) of the gaze apex toward " +
+                "the card you are looking at. Lower = heavier/lazier and completely immune to head " +
+                "jitter; higher = the fan presents the looked-at card faster. 8 reaches ~90% of a head " +
+                "turn in ~0.3 s.",
+                new AcceptableValueRange<float>(1f, 30f)));
     }
 
     /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>

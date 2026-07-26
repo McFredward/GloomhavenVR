@@ -799,10 +799,19 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         if (_box == null)
             return;
+        var size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y,
+            _fullColliderSize.z);                   // exact-fit depth — no viewer-side apron (steep-angle laser fix)
+        var center = new Vector3(offsetX, 0f, 0f);  // centred on the card plane, no -Z overhang
+        // IDEMPOTENCE GUARD: the fan re-lays out as the player's gaze moves (CardFan's card
+        // presentation), so this is now a per-frame caller. Assigning an unchanged BoxCollider
+        // size/centre still dirties the physics shape every frame for every fanned card, so no-op
+        // when nothing actually changed. The dock-pad flag still gets cleared on the first fan
+        // call after a dock (that path always differs, and the !_dockGrabPad term guarantees it).
+        if (!_dockGrabPad && _box.size == size && _box.center == center)
+            return;
         _dockGrabPad = false; // fan strips own the collider shape — a fanned card is never slot-docked
-        _box.size = new Vector3(Mathf.Min(width, _fullColliderSize.x), _fullColliderSize.y,
-            _fullColliderSize.z);           // exact-fit depth — no viewer-side apron (steep-angle laser fix)
-        _box.center = new Vector3(offsetX, 0f, 0f); // centred on the card plane, no -Z overhang
+        _box.size = size;
+        _box.center = center;
         LogFanColliderFit();
     }
 
