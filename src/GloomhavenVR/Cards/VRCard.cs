@@ -87,7 +87,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         float sticky = _popped ? DockPadStickyScale : 1f;
         Vector3 half = _fullColliderSize * (0.5f * sticky);
         if (Mathf.Abs(local.x) <= half.x && Mathf.Abs(local.y) <= half.y
-            && Mathf.Abs(local.z) <= Mathf.Max(half.z, DockCoreDepth * 0.5f * sticky))
+            && Mathf.Abs(local.z) <= Mathf.Max(half.z, DockPadDepth * 0.5f * sticky))
             return false;
 
         // "Clearly at the bar" = palm inside the bar's own grab zone volume.
@@ -243,30 +243,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     // ------------------------------------------------------------------ build --
 
-    /// <summary>
-    /// GRAZING-ANGLE LASER FIX (hardware round 3 — "etwas Unsichtbares über der oberen
-    /// Kartenhälfte, und in der unteren Hälfte geht der Laser durch die Karte; passiert bei
-    /// sehr flachem Winkel"). The grab collider used to be a 2 cm SLAB (0.02 face-normal)
-    /// around a card body that is only <see cref="CardMesh.Thickness"/> = 1.5 mm thick — i.e.
-    /// ~9 mm of INVISIBLE volume standing proud of the face on the VIEWER side, 15 % of the
-    /// 6.35 cm card width. That is what both reported symptoms are:
-    ///
-    ///   • the physics ray (RayInteractor → reticle at <c>hit.point</c>) lands on the SLAB's
-    ///     front face, one half-thickness in front of the art. At a grazing angle α that
-    ///     offset projects to (t/2)/tan α ALONG the card — at α ≈ 15° the old slab shifted the
-    ///     hit ≈ 3.7 cm up the card, more than half a card. Hence "something invisible above".
-    ///   • aim lower to compensate and the ray passes UNDER the whole slab and misses
-    ///     everything — hence "the laser goes straight through the card down there".
-    ///
-    /// Both vanish once the collider is as thin as the card it represents, at every angle,
-    /// with no special-casing. The card volume actually spans z ∈ [−0.0012 (face canvas),
-    /// +0.0015 (mesh back)], so a 3 mm box centred on the origin encloses the visible card and
-    /// essentially nothing else. Hand grab is unaffected: ProximityGrabber accepts within
-    /// 0.13 m of the collider SURFACE (≈ 2× the card width), so giving up ~8 mm of slab costs
-    /// nothing, and poke targets the face canvas, not this box.
-    /// </summary>
-    private const float ColliderThickness = 0.003f;
-
     /// <summary>Create geometry (called once by the factory right after AddComponent).</summary>
     internal void Build(GameObject? backingPrefab)
     {
@@ -281,7 +257,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _box = gameObject.GetComponent<BoxCollider>();
         if (_box == null)
             _box = gameObject.AddComponent<BoxCollider>();
-        _box.size = new Vector3(w, h, ColliderThickness); // as thin as the card — see ColliderThickness
+        _box.size = new Vector3(w, h, 0.02f);
         _box.isTrigger = true;
         _fullColliderSize = _box.size;
 
@@ -368,7 +344,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         }
         if (_box != null)
         {
-            _fullColliderSize = new Vector3(faceW, faceH, ColliderThickness);
+            _fullColliderSize = new Vector3(faceW, faceH, 0.02f);
             ResetColliderRegion(); // re-applies the dock grab pad when set
         }
     }
@@ -735,15 +711,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         up = rot * Vector3.up;
         normal = rot * Vector3.forward; // card +Z, away from the viewer (uGUI reads from −Z)
         float lossy = parent.lossyScale.x * _homeScale; // resting world scale (pop scale excluded)
-        // Fit the pick rect to the VISIBLE face (the fitted art rect the backing/collider use,
-        // see SetCanvasSize), not the nominal config card: the face is inset by
-        // VisibleFaceFraction, so the config rect overhung the drawn art by ~3 % of the card
-        // height on every edge — a thin band of "hit" outside the picture. Falls back to the
-        // config size for a card whose face was never fitted.
-        float halfExtentW = _fullColliderSize.x > 1e-5f ? _fullColliderSize.x : CardsConfig.CardWidth.Value;
-        float halfExtentH = _fullColliderSize.y > 1e-5f ? _fullColliderSize.y : CardsConfig.CardHeight;
-        halfWidth = halfExtentW * 0.5f * lossy;
-        halfHeight = halfExtentH * 0.5f * lossy;
+        halfWidth = CardsConfig.CardWidth.Value * 0.5f * lossy;
+        halfHeight = CardsConfig.CardHeight * 0.5f * lossy;
         return true;
     }
 
@@ -796,14 +765,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// reach, and the fan lift-priority rescue still catches a near-miss grab. Docked-card
     /// tray-edge grab (<see cref="DockPadDepth"/> / <see cref="ResetColliderRegion"/>), poke,
     /// and held-card behaviour are untouched — this apron was fan-only.
-    ///
-    /// ROUND 3 — that was still not the whole story, and the hardware log proved it:
-    /// <c>Fan collider fit … size (1.108,1.715,0.415) m vs visible rect half(0.658,0.912)</c>.
-    /// Removing the extra apron left the box at <see cref="_fullColliderSize"/>.z, which was
-    /// itself 0.02 — a 41.5 cm slab in world meters around a card 1.32 m wide. So the "exact
-    /// fit" was exact in X/Y only and still stood ±20 cm proud of the art. The thickness is
-    /// now <see cref="ColliderThickness"/> (as thin as the card body); see that constant for
-    /// the full grazing-angle geometry.
     /// </summary>
     internal void SetColliderRegion(float width, float offsetX)
     {
@@ -834,17 +795,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         Vector3 boxCenter = transform.TransformPoint(_box.center);
         Vector3 lossy = transform.lossyScale;
         Vector3 boxWorldSize = new(_box.size.x * lossy.x, _box.size.y * lossy.y, _box.size.z * lossy.z);
-        // The number that actually matters (round 3): how far the box stands PROUD of the art on
-        // the viewer side, and what that costs the beam at a 15° grazing angle — the reported
-        // "invisible thing above the card" is exactly this offset projected along the face.
-        float proudFront = boxWorldSize.z * 0.5f - _box.center.z * lossy.z;
-        float grazeShift = proudFront / Mathf.Tan(15f * Mathf.Deg2Rad);
         Core.VRLog.Debug("Cards", $"Fan collider fit '{name}': box world center " +
             $"({boxCenter.x:F3},{boxCenter.y:F3},{boxCenter.z:F3}) size " +
             $"({boxWorldSize.x:F3},{boxWorldSize.y:F3},{boxWorldSize.z:F3}) m vs visible rect center " +
             $"({rectCenter.x:F3},{rectCenter.y:F3},{rectCenter.z:F3}) half({halfW:F3},{halfH:F3}) — " +
-            $"viewer-side proud {proudFront * 100f:F1} cm = {grazeShift / Mathf.Max(1e-4f, halfH * 2f) * 100f:F0} % " +
-            "of the card height of hit drift at a 15° grazing beam.");
+            "collider fits the card face, no viewer-side (-Z) apron above the upper half.");
     }
 
     // Task #2 follow-up (grab UNDER the docked card): the exact-fit collider is thin
@@ -865,27 +820,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private const float DockPadSideFrac = 0.10f;  // × card width, each side
     private const float DockPadUpFrac = 0.15f;    // × card height, above
     private const float DockPadDownFrac = 0.35f;  // × card height, below — the under-grab
-    /// <summary>
-    /// Face-normal thickness of a SLOT-DOCKED card's grab collider. Was 0.04 (±2 cm proud of a
-    /// 1.5 mm card) and carried the SAME grazing-angle defect as the fan slab described on
-    /// <see cref="ColliderThickness"/> — worse, in fact, since a docked card lies on the tray
-    /// where the beam meets it at the shallowest angles of all. The under-grab this apron
-    /// exists for is done by the X/Y pads above (side/up/down); the DEPTH pad bought nothing
-    /// (ProximityGrabber already reaches 0.13 m off the surface) and cost the laser the lower
-    /// half of every docked card. Kept a hair thicker than the fan value so a docked card is
-    /// still the marginally easier palm target, but far too thin to displace a hit.
-    /// </summary>
-    private const float DockPadDepth = 0.006f;
-
-    /// <summary>
-    /// Depth half-extent of the "palm is inside the card's CORE" test in
-    /// <see cref="PalmClearlyAtTrayBar"/> — deliberately NOT <see cref="DockPadDepth"/>. That
-    /// test decides whether a docked card may keep the proximity highlight against the tray's
-    /// grab bar, and it wants a GENEROUS volume in front of the face (a palm held at the card
-    /// is a card grab, not a bar grab). It never feeds a collider, so it cannot deflect the
-    /// laser — it keeps the pre-fix 4 cm reading so the bar-yield behaviour is unchanged.
-    /// </summary>
-    private const float DockCoreDepth = 0.04f;
+    private const float DockPadDepth = 0.04f;     // face-normal thickness while docked
 
     /// <summary>
     /// Issue B hysteresis: while a docked card is the live proximity highlight its accept
