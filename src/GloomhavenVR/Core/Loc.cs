@@ -232,6 +232,7 @@ internal static class Loc
         ["avatar"] = Pair("Avatar", "Avatar"),
         ["head_mask"] = Pair("Head Mask", "Kopfmaske"),
         ["mask"] = Pair("Mask", "Maske"),
+        ["mask_size"] = Pair("Mask size", "Maskengröße"),
         ["mirror"] = Pair("Mirror", "Spiegel"),
         ["remote_boards"] = Pair("Player boards", "Mitspieler-Boards"),
         ["remote_boards_off"] = Pair("Off", "Aus"),

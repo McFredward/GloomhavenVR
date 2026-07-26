@@ -75,21 +75,50 @@ internal static class HeadMaskLibrary
     // ---- head building (shared by RemoteAvatar + the local AvatarMirror) -----------------
 
     /// <summary>
-    /// Instantiate the chosen mask prefab under <paramref name="parent"/>, or stand in a low-poly
-    /// placeholder head (tinted <paramref name="placeholderTint"/>) when that mask has not shipped.
-    /// Does NOT clear existing children — the caller owns teardown. The caller should re-apply the
-    /// mod layer afterwards so the head camera renders the new mesh.
+    /// Instantiate the chosen mask prefab, or stand in a low-poly placeholder head (tinted
+    /// <paramref name="placeholderTint"/>) when that mask has not shipped. Does NOT clear existing
+    /// children — the caller owns teardown. The caller should re-apply the mod layer afterwards so
+    /// the head camera renders the new mesh.
+    ///
+    /// The visual is built under a "HeadVisual" CHILD of <paramref name="parent"/>, and that child
+    /// is returned so the caller can write the user's mask SIZE onto it. This mirrors the hands'
+    /// "HandVisual" child exactly, and for the same hard-won reason: the HOLDER already carries the
+    /// sender/diorama scale, written every time the rig zoom changes — a size written onto the same
+    /// transform would be stomped by that write (which is precisely the bug that made styled remote
+    /// hands render ~1.6× too big). Two transforms, two independent scales, no interaction. Other
+    /// code that anchors off the head holder (the remote fans aim their cards at it) keeps reading
+    /// an unscaled holder, so the mask size cannot move anybody's cards.
     /// </summary>
-    public static void BuildHead(Transform parent, int maskId, Color placeholderTint)
+    public static Transform BuildHead(Transform parent, int maskId, Color placeholderTint, float size)
     {
+        Transform visual = new GameObject("HeadVisual").transform;
+        visual.SetParent(parent, worldPositionStays: false);
+        ApplySize(visual, size);
+
         GameObject? prefab = GetMaskPrefab(maskId);
         if (prefab != null)
         {
-            GameObject inst = Object.Instantiate(prefab, parent, worldPositionStays: false);
+            GameObject inst = Object.Instantiate(prefab, visual, worldPositionStays: false);
             inst.name = "HeadMask";
-            return;
+            return visual;
         }
-        BuildPlaceholderHead(parent, placeholderTint);
+        BuildPlaceholderHead(visual, placeholderTint);
+        return visual;
+    }
+
+    /// <summary>Write a uniform mask-size multiplier onto a head visual returned by
+    /// <see cref="BuildHead"/>, clamped to the transmittable window so neither a corrupt config nor
+    /// a hostile wire byte can turn a peer's head into a zero-scale singularity or a wall. Cheap
+    /// enough to call from a per-frame change check (the callers only call it on an actual
+    /// change).</summary>
+    public static void ApplySize(Transform? headVisual, float size)
+    {
+        if (headVisual == null)
+            return;
+        float s = float.IsNaN(size) || float.IsInfinity(size)
+            ? 1f
+            : Mathf.Clamp(size, NetProtocol.MaskSizeMin, NetProtocol.MaskSizeMax);
+        headVisual.localScale = Vector3.one * s;
     }
 
     /// <summary>Low-poly placeholder head: a cranium sphere + a flatter "visor" plate facing +Z

@@ -207,6 +207,59 @@ internal static class NetProtocol
     /// <summary>Pile-browse block, byte A bit 3: that hand-held fan rides the sender's LEFT hand.</summary>
     public const byte PileBrowseLeftBit = 1 << 3;
 
+    /// <summary>
+    /// Trailing-block byte A bit 4 — the FIRST of the four bits that
+    /// <see cref="FlagPileBrowse"/> deliberately reserved: a 1-byte HEAD-MASK SIZE (byte C) follows
+    /// the block's two bytes. This is the extension path the block header was created for, used
+    /// exactly as documented: no new flag bit (both flag bytes are full), no wire-version bump.
+    ///
+    /// WHY THE MASK SIZE IS TRANSMITTED AT ALL: the project's multiplayer rule is "everything the
+    /// user sees, every peer sees the same way". The mask STYLE already rides the rig packet, so a
+    /// mask scaled to half size locally but drawn at full size on every other client would be the
+    /// same class of disagreement the ghost-hand strength byte exists to prevent.
+    ///
+    /// WHY THE BLOCK HEADER MAY NOW BE SET WITHOUT A BROWSE FAN: bit 7 was spent on "a block
+    /// follows", not on a boolean, precisely so later fields could ride inside it. A size-only
+    /// packet therefore emits the block with the pile-browse sub-fields ZEROED (kind 0, not held,
+    /// byte B count = 0). Every reader that knows <see cref="FlagPileBrowse"/> — including every
+    /// build that ever shipped it — requires <c>count &gt; 0</c> before it renders a browse fan
+    /// (RemoteAvatar.SetExtras / RemoteBrowserFan), so a zero-count block reads as "no fan" there
+    /// and the trailing byte C is simply ignored along with this unknown bit. Backward compatible
+    /// in both directions: an OLD sender sets no bit 4, and absence means the DEFAULT size
+    /// (<see cref="MaskSizeDefaultCode"/> ⇒ 1.00×), never a broken one.
+    ///
+    /// ENCODING (byte C): the size multiplier in HUNDREDTHS — <c>code = round(size × 100)</c>,
+    /// clamped to 25..255 ⇒ 0.25×..2.55× in 0.01 steps. A byte is plenty for a cosmetic scale
+    /// (0.01 is far below what the eye resolves on a head-sized object) and hundredths make the
+    /// value readable as-is in a hardware log. The size is sent ONLY when it differs from
+    /// <see cref="MaskSizeDefaultCode"/>, so a default-size player's packet stays byte-identical
+    /// to what previous builds emitted.
+    /// </summary>
+    public const byte PileBrowseMaskSizeBit = 1 << 4;
+
+    /// <summary>Wire code of the DEFAULT head-mask size (1.00× ⇒ 100 hundredths). A packet without
+    /// <see cref="PileBrowseMaskSizeBit"/> means exactly this value.</summary>
+    public const byte MaskSizeDefaultCode = 100;
+
+    /// <summary>Smallest / largest transmittable head-mask multiplier (the byte's 25..255 range in
+    /// hundredths). The config entry's AcceptableValueRange stays inside this window, so a config
+    /// value can never be clipped by the wire.</summary>
+    public const float MaskSizeMin = 0.25f;
+    public const float MaskSizeMax = 2.55f;
+
+    /// <summary>Quantize a head-mask size multiplier to its wire byte (hundredths, clamped).</summary>
+    public static byte EncodeMaskSize(float size)
+    {
+        if (float.IsNaN(size) || float.IsInfinity(size))
+            return MaskSizeDefaultCode;
+        return (byte)UnityEngine.Mathf.Clamp(UnityEngine.Mathf.RoundToInt(size * 100f), 25, 255);
+    }
+
+    /// <summary>Decode a head-mask size byte back to a multiplier (hundredths). A zero/garbage code
+    /// degrades to the default rather than collapsing a peer's head to nothing.</summary>
+    public static float DecodeMaskSize(byte code) =>
+        code < 25 ? MaskSizeDefaultCode / 100f : code / 100f;
+
     /// <summary>How long a remote card-FX flight takes (seconds) — matched to the LOCAL
     /// <c>CardsDriver.FlyToPileSeconds</c> so a peer's flight lasts as long as the real one.</summary>
     public const float CardFxSeconds = 0.4f;

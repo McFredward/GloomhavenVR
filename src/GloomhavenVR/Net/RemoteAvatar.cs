@@ -64,6 +64,14 @@ internal sealed class RemoteAvatar
     private int _appliedMaskId = -1; // which HeadMaskLibrary mask the head currently shows
     private int _appliedHandStyle = -1; // which HandStyle the hand holders currently wear
 
+    // Head-mask SIZE (extras block, byte A bit 4). The size lives on the "HeadVisual" CHILD of the
+    // head holder, never on the holder itself — the holder carries the sender's diorama scale and
+    // would stomp it (see HeadMaskLibrary.BuildHead). _appliedMaskSize is the change latch so the
+    // per-frame check is free until the sender actually turns their stepper.
+    private Transform? _headVisual;
+    private float _appliedMaskSize = -1f;
+    private float _loggedMaskSize = -1f; // one log line per received CHANGE, never per packet
+
     // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card slab eased
     // toward the sender's held-card pose — a card in a peer's HAND, distinct from their fan.
     // Backs only, mirroring the fan's anti-cheat stance (no card identity is ever on the wire).
@@ -147,6 +155,11 @@ internal sealed class RemoteAvatar
 
     /// <summary>True when the sender's dominant hand is the RIGHT hand (default true).</summary>
     public bool DominantRight { get; private set; } = true;
+
+    /// <summary>Uniform SIZE multiplier the sender chose for their head mask (1 = authored size).
+    /// 1 for peers that predate the field or wear the default size — both mean "unchanged look",
+    /// which is why the wire only carries the byte when it differs.</summary>
+    public float MaskSize { get; private set; } = 1f;
 
     /// <summary>True while the sender's fan-carrying hand is faded ("ghost hand"). False for peers
     /// that predate the field — their hands simply stay solid.</summary>
@@ -275,6 +288,21 @@ internal sealed class RemoteAvatar
         HandCardCount = p.HandCardCount;
         DominantRight = p.DominantRight;
 
+        // Head-mask SIZE: the sender's own multiplier rides the wire (trailing-block byte A bit 4),
+        // so their mask is the same size on every client — the project's standing MP rule that what
+        // one player sees, everyone sees. An ABSENT byte means the default 1.00× (sender predates
+        // the field, or simply never tuned it), never a broken size; that is also how a peer
+        // stepping back to 1.00× is communicated, since we then stop sending the byte.
+        MaskSize = p.HasMaskSize ? NetProtocol.DecodeMaskSize(p.MaskSizeCode) : 1f;
+        if (!Mathf.Approximately(MaskSize, _loggedMaskSize))
+        {
+            VRLog.Info("Net", $"Mask size RECEIVED from player {PlayerId}: {MaskSize:0.00}x " +
+                              (p.HasMaskSize
+                                  ? $"(wire code {p.MaskSizeCode}, hundredths, extras block bit 4)."
+                                  : "(no size byte — default/older peer)."));
+            _loggedMaskSize = MaskSize;
+        }
+
         // Ghost hand: the sender's own strength rides the wire, so their faded hand reads the
         // same on every client. Decoded through the same AlphaFor curve the local hands use.
         GhostHand = p.GhostHand;
@@ -326,6 +354,16 @@ internal sealed class RemoteAvatar
             return;
 
         float dt = Mathf.Max(deltaTime, 0f);
+
+        // Live re-apply of the SENDER's head-mask size. It rides the extras stream (5 Hz + on
+        // change), which lands in SetExtras and not in the head build path, so the write happens
+        // here on change — the same shape as the style-scale check below. Cheap: one float compare
+        // per frame, one transform write per actual size change.
+        if (!Mathf.Approximately(MaskSize, _appliedMaskSize))
+        {
+            _appliedMaskSize = MaskSize;
+            HeadMaskLibrary.ApplySize(_headVisual, MaskSize);
+        }
 
         // Live re-apply of the receiver-local per-style visual scale (config stepper edit
         // while a remote avatar is up) — same live check the local hands/mirror run.
@@ -523,7 +561,10 @@ internal sealed class RemoteAvatar
         for (int i = _headHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_headHolder.GetChild(i).gameObject);
 
-        HeadMaskLibrary.BuildHead(_headHolder, maskId, _tint);
+        // The fresh visual is born at the size the sender last told us about, so a mask SWITCH
+        // never flashes at 1× for a frame before Tick corrects it.
+        _headVisual = HeadMaskLibrary.BuildHead(_headHolder, maskId, _tint, MaskSize);
+        _appliedMaskSize = MaskSize;
 
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);

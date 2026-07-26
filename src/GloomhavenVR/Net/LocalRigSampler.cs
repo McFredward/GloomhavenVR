@@ -89,6 +89,22 @@ internal static class LocalRigSampler
     public static int LocalMaskId() =>
         NetModule.MaskId != null ? Mathf.Clamp(NetModule.MaskId.Value, 0, HeadMaskLibrary.MaskCount - 1) : 0;
 
+    /// <summary>
+    /// The locally-chosen head-mask SIZE multiplier, clamped to the transmittable window. Guarded
+    /// exactly like <see cref="LocalMaskId"/> so an unbound config (net module never inited, hot
+    /// reload) falls back to the authored size rather than throwing or collapsing the head. Read
+    /// LIVE by the mirror and by the extras sender, so a stepper edit resizes the mask at once.
+    /// </summary>
+    public static float LocalMaskSize()
+    {
+        if (NetModule.MaskSize == null)
+            return 1f;
+        float v = NetModule.MaskSize.Value;
+        if (float.IsNaN(v) || float.IsInfinity(v))
+            return 1f;
+        return Mathf.Clamp(v, NetProtocol.MaskSizeMin, NetProtocol.MaskSizeMax);
+    }
+
     /// <summary>The world pose of the single card the local player grip-holds, if any (left
     /// hand wins when both hold one — matches the mirror's slab order). False when no hand
     /// holds a <see cref="Cards.VRCard"/> ability card or an <see cref="Cards.ItemsPile.ItemChip"/>.</summary>

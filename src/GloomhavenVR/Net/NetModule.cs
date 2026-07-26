@@ -51,6 +51,18 @@ internal sealed class NetModule : IVRModule
     internal static ConfigEntry<int> MaskId = null!;
 
     /// <summary>
+    /// Uniform visual SIZE of that head mask (1 = authored size — today's look, so nothing changes
+    /// until it is tuned). Lives next to <see cref="MaskId"/> because it is the same cosmetic
+    /// choice: the mask a player wears. Applies LIVE (the head visual's scale is re-read every
+    /// tick by <see cref="RemoteAvatar"/> and <see cref="WorldUI.AvatarMirror"/> — no rebuild, no
+    /// restart) and it is SYNCHRONIZED: peers render your mask at the size YOU picked, the same
+    /// contract as the mask style, the hand style and the ghost-hand strength. Range mirrors the
+    /// wire's quantization window (<see cref="NetProtocol.MaskSizeMin"/>..
+    /// <see cref="NetProtocol.MaskSizeMax"/>) so a config value can never be clipped in transit.
+    /// </summary>
+    internal static ConfigEntry<float> MaskSize = null!;
+
+    /// <summary>
     /// Show the local player their own avatar in a mirror floating in front of the head (a local
     /// cosmetic preview — independent of the net send, works in single-player). Default off.
     /// </summary>
@@ -93,6 +105,12 @@ internal sealed class NetModule : IVRModule
                 "Which head mask the local player wears (0..2). Picked in the in-VR settings panel; " +
                 "synchronized so other VR players see the right mask on you.",
                 new AcceptableValueRange<int>(0, HeadMaskLibrary.MaskCount - 1)));
+        MaskSize = _config.Bind("Net", "MaskSize", 1.0f,
+            new ConfigDescription(
+                "Uniform size of your head mask (1 = authored size). Tuned live in the in-VR " +
+                "settings panel (Avatar > Maskengroesse); synchronized, so other VR players see " +
+                "your mask at exactly the size you picked. Purely cosmetic.",
+                new AcceptableValueRange<float>(NetProtocol.MaskSizeMin, NetProtocol.MaskSizeMax)));
         MirrorEnabled = _config.Bind("Net", "MirrorEnabled", false,
             "Show yourself in a mirror floating in front of your head so you can see your chosen " +
             "mask + hands. Local cosmetic preview only — independent of networking, works in " +

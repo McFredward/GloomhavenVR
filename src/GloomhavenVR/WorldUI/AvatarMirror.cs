@@ -61,6 +61,11 @@ internal sealed class AvatarMirror
     private readonly HandGhost _rightGhost = new("mirror Right");
 
     private int _appliedMaskId = -1;
+    // Head-mask SIZE ([Net] MaskSize): written onto the "HeadVisual" CHILD the mask library builds,
+    // NEVER onto the head holder — the holder carries the rig/diorama scale from Tick and would
+    // stomp it (the exact stomping bug that made styled mirror hands render too big).
+    private Transform? _headVisual;
+    private float _appliedMaskSize = -1f;
     private int _appliedHandStyle = -1; // [Hands] HandStyle the mirror hands were built with
     private float _appliedScale = -1f;
     private float _appliedStyleScale = -1f; // per-style visual scale currently on the hand visual roots
@@ -126,6 +131,17 @@ internal sealed class AvatarMirror
         int maskId = LocalRigSampler.LocalMaskId();
         if (maskId != _appliedMaskId)
             BuildHead(maskId);
+
+        // Live re-apply of the local mask SIZE ([Net] MaskSize) so a stepper edit resizes the
+        // reflection on the spot — this mirror is exactly where the user tunes the value, so it
+        // has to follow without a rebuild or a restart. Same shape as the hand style-scale check
+        // below; the receiving side does the identical write from the SENDER's transmitted size.
+        float maskSize = LocalRigSampler.LocalMaskSize();
+        if (!Mathf.Approximately(maskSize, _appliedMaskSize))
+        {
+            _appliedMaskSize = maskSize;
+            HeadMaskLibrary.ApplySize(_headVisual, maskSize);
+        }
 
         // Rebuild the mirror hands if the local [Hands] HandStyle changed while the mirror
         // is open (known gap: the mirror previously kept whatever style it was built with;
@@ -820,7 +836,9 @@ internal sealed class AvatarMirror
         _appliedMaskId = Mathf.Clamp(maskId, 0, HeadMaskLibrary.MaskCount - 1);
         for (int i = _headHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_headHolder.GetChild(i).gameObject);
-        HeadMaskLibrary.BuildHead(_headHolder, _appliedMaskId, PlaceholderTint);
+        // Born at the current size so switching masks never flashes at 1× for one frame.
+        _appliedMaskSize = LocalRigSampler.LocalMaskSize();
+        _headVisual = HeadMaskLibrary.BuildHead(_headHolder, _appliedMaskId, PlaceholderTint, _appliedMaskSize);
         if (_root != null)
             VRLayers.Apply(_root);
     }
@@ -861,7 +879,9 @@ internal sealed class AvatarMirror
         _rightRig = null;
         _leftCurler = null;
         _rightCurler = null;
+        _headVisual = null;
         _appliedMaskId = -1;
+        _appliedMaskSize = -1f;
         _appliedHandStyle = -1;
         _appliedScale = -1f;
         _appliedStyleScale = -1f;
