@@ -1,0 +1,100 @@
+# Phase 2 — Dead code and duplication census
+
+> Findings are recorded here as they are verified. Nothing in this file has been deleted yet;
+> deletions happen in Phase 4 against `PLAN.md`, one commit per group, guard-checked.
+> Every candidate is tested against `CHARTER.md` §5 before it may be removed.
+
+## Method note: why the naive census is wrong
+
+The first pass asked "which `ConfigEntry<T>` field is never read as `<name>.Value`?" and
+returned **54 of 257** entries. That answer is almost entirely false.
+
+The reason is a pattern used throughout `CardsConfig`: per-board settings are stored in an
+**array** and reached through an accessor, so the consumer never mentions the field name at all:
+
+```csharp
+private static readonly ConfigEntry<float>[] _objectivesWidth = new ConfigEntry<float>[BoardCount];
+internal static ConfigEntry<float> ObjectivesWidth(ControlBoard b) => _objectivesWidth[(int)b];
+// consumer:
+PlayTray.ObjectivesMountWidth * CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value
+```
+
+`ObjectivesWidth` is demonstrably live (it is the objectives-width feature the user tested in
+round 25), yet a `.Value`-based census reports it dead. Narrowing to entries mentioned in **only
+one file** — their own config file, i.e. never referenced by any consumer, accessor or the
+settings panel — takes 54 candidates down to **3 real ones**.
+
+This is the charter's rule in miniature: the burden of proof is on the deletion.
+
+## Config entries with no reader — NOT a Tier 0 deletion (corrected)
+
+My single-file census found **3**; the Cards history mining found **8**, by the better test
+"is `CardsConfig.<name>` referenced anywhere outside `CardsConfig.cs`". The extra five are
+mentioned in other files only from *comments*, so they pass a mention-based filter while still
+having no consumer. The eight:
+
+`HeldTiltDegrees`, `RoundButtonDiameter`, `RestButtonInsetX`, `ConfirmUndoInsetX`,
+`InspectForward`, `InspectUp`, `RevealPreset`, `RevealDemeo` — plus `FanArcDegrees` from the
+single-file pass, which the Cards list does not name.
+
+**And "dead" is the wrong word for most of them.** They split into two groups that need
+opposite treatment:
+
+**Group A — deliberately retained legacy.** The commit that superseded them says so outright:
+`HeldTiltDegrees` is "now legacy, kept bound so existing cfg files load" (`6db51a2`), the inset
+and diameter globals "remain bound for back-compat" (`17862bb`). Removing these *reverses a
+deliberate decision*. They are not leftovers; they are a compatibility promise. The only defect
+is that their help text does not say so.
+
+**Group B — knobs that lie.** `RestButtonInsetX`'s description opens with "**LIVE FIT KNOB**
+(dial in dev.gloomhavenvr.cards.cfg without a rebuild)" and then walks the user through tuning
+the sign by watching the discs move. Nothing reads it. `FanArcDegrees` presents itself as
+"Maximum total fan arc in degrees". `ConfirmUndoInsetX` ends with "PER-BOARD." These do not just
+sit there unused — they **invite the user to tune something that cannot respond**, which is
+precisely the complaint that triggered the settings audit in `cc99144`.
+
+This is a **user decision, not a cleanup**, and it must be taken for all of them at once —
+unbinding a key drops it from the user's `.cfg` on the next write, which `CardsConfig`'s own
+`DebugMenu` note already documents as a consequence. Recommendation to put to the user:
+
+- Group A: keep bound, prefix each description with `LEGACY — no effect, superseded by <X>.`
+- Group B: same treatment, not deletion. It costs one line each, keeps every existing `.cfg`
+  loading unchanged, and converts a misleading knob into an honest one. Deletion buys a slightly
+  shorter file and risks nothing except the back-compat promise — not worth it.
+
+**Guard expectation either way:** description-only edits do not survive into IL, so the guard
+diff is empty. That is itself the argument for preferring re-labelling over removal.
+
+## Confirmed dead — stale documentation (Tier 0)
+
+| Where | What | Evidence |
+|---|---|---|
+| `Net/NetModule.cs` header | A 10-line comment block instructing a future worker to register the module in `Plugin.cs`, "in a SEPARATE change to avoid conflicting with parallel workers" | It has been registered since `cac5474`; `Plugin.cs` contains `_modules.Add(new Net.NetModule());` |
+| `Net/NetProtocol.cs` (`FlagPileBrowse` doc) | Says "bits4..7 reserved (0)" | Bits 4, 5 and 6 are all in use; only bit 7 is still free |
+| `Net/PresenceSerializer.Write` comment | Says "Bits 5..7 stay zero" | Same — the code is correct, the prose drifted |
+
+These are worse than harmless: the first one actively instructs a future agent to make a change
+that would double-register the module.
+
+## Undocumented cross-subsystem coupling (Tier 0 — add a comment, change nothing)
+
+`Cards.PileKind`'s **member order is a wire constant**. `NetAvatarDriver.TickExtrasSend` casts
+the enum straight into the extras payload. The constraint is documented on the *Net* side
+(`NetProtocol`: "they mirror `Cards.PileKind`'s member order; append only, never renumber") but
+**nothing at the enum itself says so**. A tidy-up in `Cards/` — alphabetising the members,
+inserting a fourth pile — would corrupt every peer's view with no compiler error, no
+single-player symptom, and no error on the sender's own screen.
+
+This is the single most dangerous refactor trap found so far. Fix: a comment at the enum. No
+behaviour change, guard diff empty (comments do not survive into IL).
+
+## Compiler warnings (Tier 0 candidates, not yet investigated)
+
+| Warning | Where |
+|---|---|
+| CS0414 — field assigned but never used | `Cards/ItemsPile.cs` — `ItemChip._hasClip` |
+| CS0162 — unreachable code (×3) | `WorldUI/FlatScreenStereo.cs` |
+
+The three unreachable-code sites need care rather than deletion: unreachable code behind a
+`const bool` switch is often a deliberately preserved alternative path. To be checked against
+`INVARIANTS-WorldUI.md` before anything is removed.
