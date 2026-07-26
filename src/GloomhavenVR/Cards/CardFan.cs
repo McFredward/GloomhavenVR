@@ -605,6 +605,17 @@ internal sealed class CardFan
     // FanInsertGapFactor precedent above. All are pure yaw about world up (matching the fan's
     // horizontal arc); head PITCH is projected out so looking down at the fan adds no bias.
 
+    // ROUND-2 AUDIT NOTE (the settings panel labels the FanGazeBias toggle "Blick-Neigung", so it is the
+    // first suspect for any "felt threshold" report): this block is NOT a source of a discontinuity. The
+    // _gazeSide latch is provably output-NEUTRAL — the weight t is exactly 0 whenever |gazeOffset| is
+    // inside GazeBiasDeadzoneDeg, and outside it the latch has always just re-committed to
+    // sign(gazeOffset) — so the emitted target reduces to a smooth ODD function of gazeOffset, C¹ at the
+    // dead-zone edge (smoothstep' = 0 there). What IS worth knowing: GazeBiasDeadzoneDeg (20°) is WIDER
+    // than the angle the whole fan subtends at a normal hand distance (~±18° for a 10-card hand at
+    // 0.4 m), so with this toggle ON the yaw bias contributes nothing at all while the player scans
+    // their own hand and only starts once they look PAST it. If a future report says the lean "only
+    // kicks in when I look away from the cards", that mismatch is the reason — not a latch.
+
     /// <summary>Gaze offset (deg off "looking straight at the fan center") the head must CLEAR before the
     /// bias commits to a side. WIDE (was 12°) — the center zone where the fan stays squarely billboarded,
     /// so ordinary head motion (and a left-right shake crossing center) never nudges the lean. Paired with
@@ -746,11 +757,77 @@ internal sealed class CardFan
     //   (2) The depth bow's apex was welded to the MIDDLE card. FanSideDepthCurve recedes cards away
     //       from the viewer with distance from the apex, so the card at the end of the arc — the one
     //       you turn your head toward — was by construction the one pushed FURTHEST back (the
-    //       reported "sie geht weiter nach hinten"). FIX: the apex FOLLOWS THE GAZE
-    //       (FanGazeApexFollow). Looking at a card slides the apex under it, so that card sits at
-    //       zero recession and the bow falls away toward the far end instead. Crucially the bow's
-    //       maximum is still FanSideDepthCurve for ANY apex, so no card is ever pushed further back
-    //       than it already was with the old symmetric bow — the fix can only improve a card.
+    //       reported "sie geht weiter nach hinten"). FIX: the gaze RELIEVES the recession
+    //       (FanGazeApexFollow). Looking at a card lifts that card (and, tapering off, its
+    //       neighbours) out of the resting bow, so it sits at zero recession while every other card
+    //       keeps at most the recession it had at rest.
+    //
+    // ------------------------------------------------------------------------------------------
+    // ROUND 2 — "erst in die falsche Richtung, dann ab einem Punkt abrupt die Richtung gewechselt".
+    // The first cut of (2) SLID the apex and RE-NORMALISED the bow around it
+    // (frac = |i - apex| / max(apex, n-1-apex), i.e. "stretch over the long side"). Three separate
+    // defects fell out of that one line, and together they are exactly the reported hectic
+    // back-and-forth with a felt threshold:
+    //
+    //   * ROOT CAUSE A — ONE shared corner at the fan centre. max(apex, n-1-apex) switches branch at
+    //     apex == (n-1)/2 for EVERY card at once, so all ten cards kink at the SAME gaze angle: the
+    //     fan centre, which is the angle the gaze crosses most often. With the shipped defaults
+    //     (10 cards, 35 mm bow, hand ~0.4 m from the head) card 0 travelled ~5.7 mm per degree of
+    //     head yaw on one side of centre and EXACTLY 0 mm/deg on the other — it is pinned at
+    //     frac == 1 for the whole half-range in which it sits on the long side. That is the "point
+    //     where the gaze tilt starts to grip" the user can feel: a hard velocity step from full
+    //     speed to dead stop, superposed across the whole hand.
+    //
+    //   * ROOT CAUSE B — the promise "no card ever ends up further back than with the old symmetric
+    //     bow" was simply FALSE, and that is the "wrong direction" half of the report. Because the
+    //     bow was re-normalised by the LONG side, a card near the middle of the hand gets a LARGER
+    //     frac when the apex sits at an end than it had at rest: e.g. card 3 of 10 has frac 0.33 at
+    //     rest (3.9 mm) but frac 0.67 with the apex on card 9 (15.6 mm). Measured on the shipped
+    //     defaults, turning the head toward the right-hand end pushed cards 1..6 up to 12 mm
+    //     FURTHER AWAY than the neutral shape — i.e. the fan first curls away from you, "wie
+    //     vorher", and only the far end ever comes forward.
+    //
+    //   * ROOT CAUSE C — the stacking clamp makes the whole thing one-sided, so the two halves of a
+    //     head sweep never felt alike. The clamp (see ComposeDepths) requires each card to sit one
+    //     stagger in FRONT of its predecessor; since the stagger is itself a monotone ramp, that is
+    //     algebraically the requirement that the bow be NON-INCREASING in card index. So the bow can
+    //     only ever be visible on the LOW-index side of its apex; the ascending flank is flattened
+    //     onto the bare stagger ramp no matter what the bow says (the bow's slope, ~15 mm/card, is
+    //     four times the 4 mm stagger). This is not a bug to remove — it is the draw order, and card
+    //     n-1 must stay frontmost or the full-width collider Relayout hands it would be half-covered
+    //     — but it means the response is inherently "un-curl the back of the hand", never "raise the
+    //     front of it", and the maths must be shaped for that instead of fighting it.
+    //
+    // ROUND 2 FIX — the gaze is a multiplicative RELIEF of a FIXED resting bow, not a moving apex:
+    //
+    //     rest(i)  = FanSideDepthCurve · (|i - (n-1)/2| / ((n-1)/2))^FanCurvePower · fill
+    //     bow(i)   = rest(i) · (1 - FanGazeApexFollow · exp(-((i - apex) / w)²))
+    //
+    //   rest(i) is the historic symmetric bow VERBATIM and no longer depends on the gaze at all, so:
+    //     - B is fixed by construction: 0 ≤ bow(i) ≤ rest(i) for every card at every gaze angle, so
+    //       no card can EVER be pushed further back than the pre-feature shape. The promise now
+    //       holds as an identity rather than as a hope.
+    //     - A is gone: there is no max(), no branch and no clamp corner anywhere in the apex, and
+    //       because the relief is a Gaussian in (i - apex) the derivative with respect to the apex is
+    //       continuous everywhere — including at apex == i, where exp' = 0. The response to a head
+    //       turn is C¹ over the entire range and saturates smoothly at the two ends of the arc
+    //       instead of stepping to zero at the centre.
+    //     - Monotonicity is now structural: rest(i) is a constant, and exp(-((i-apex)/w)²) increases
+    //       strictly as the apex approaches card i. Turning the head further toward a card therefore
+    //       strictly reduces that card's recession and nothing else's — one extremum per card, at
+    //       apex == i, so there is no reversal to feel.
+    //     - C is respected rather than fought: the relief only ever LOWERS the bow, so the clamp
+    //       binds exactly where it bound before (or less). The visible behaviour is "looking toward
+    //       the back of the hand un-curls it, looking away lets it settle back to the neutral cup",
+    //       which is monotone on both sides of the sweep.
+    //   w (GazeReliefWidth*) is the relief's half-width in CARDS: wide enough that the neighbours of
+    //   the gazed card come with it (so the hand opens toward the gaze rather than a single card
+    //   popping), narrow enough that the far end keeps its cup.
+    //
+    //   FanGazeApexFollow now scales the relief AMPLITUDE (it used to lerp the apex position toward
+    //   the centre). 0 is still the byte-exact revert — the relief term vanishes and bow(i) == the
+    //   historic rest(i) — and intermediate values now mean "lift the gazed card partway out of the
+    //   bow", which is what the name promises, instead of "put the apex under the wrong card".
     //
     // WHY NOT the alternatives we were asked to weigh:
     //   * Rotating the WHOLE fan toward the gaze (the previous attempt, [Cards] FanGazeBias) is a
@@ -769,6 +846,14 @@ internal sealed class CardFan
     // unscaled time so it stays alive while the game pauses for card selection). It is converted to a
     // fractional card index only at layout time. No index quantisation anywhere = no boundary flicker.
     //
+    // The gaze POINT itself is likewise free of hard gates now (round 2). It used to be dropped to
+    // the fan centre the moment the gaze got within ~78° of parallel to the fan plane
+    // (gazeLocal.z > 0.2f), which is a jump straight from a saturated end apex to the middle of the
+    // hand — a second felt threshold, just at a rarer angle. It is now weighted by a smoothstep over
+    // gazeLocal.z (GazeGrazeMinZ..GazeGrazeFullZ) and the intersection is saturated at the ARC's own
+    // half-width (the outermost card's x) rather than at the arc RADIUS, so _gazeX is directly
+    // comparable to a card's x in the log and reaches the end card exactly when the gaze does.
+    //
     // PICK SAFETY (the recurring, expensive bug in this project): everything here goes into the pose
     // handed to VRCard.SetHome — and CardFan.TryRaycast builds its rect from VRCard's HOME pose
     // (TryGetRestingLaserRect reads _homePos/_homeRot). So the toe-in rotation and the apex-shifted
@@ -778,6 +863,16 @@ internal sealed class CardFan
     /// <summary>Eased fan-local X (metres) where the head's gaze pierces the fan plane — the point the
     /// depth-bow apex is drawn toward. 0 = looking at the fan centre.</summary>
     private float _gazeX;
+
+    /// <summary>Diagnostic only: the raw fan-local gaze YAW in degrees (atan2 of the gaze direction),
+    /// i.e. how far the head is turned off "looking straight at the fan centre". Logged next to the
+    /// apex so a head sweep can be read off the log as a (yaw -> apex) curve and checked for
+    /// monotonicity. Never feeds the layout.</summary>
+    private float _gazeYawDeg;
+
+    /// <summary>The arc's own half-width in fan-local metres (the outermost card's |x|): the saturation
+    /// bound for <see cref="_gazeX"/> and the log's reference for "the gaze has reached the end card".</summary>
+    private float _gazeEdgeX = 0.1f;
 
     /// <summary>Gate state: the <see cref="_gazeX"/> the last <see cref="Relayout"/> used (NaN = none yet).</summary>
     private float _layoutGazeX = float.NaN;
@@ -806,7 +901,7 @@ internal sealed class CardFan
         if (_root == null)
             return;
 
-        float radius = Mathf.Max(0.02f, CardsConfig.FanEffectiveRadius.Value);
+        _gazeEdgeX = ArcHalfWidth(_cards.Count);
 
         // Where does the gaze cross the fan plane? In fan-local space the head sits at ≈(0,0,-d)
         // (the root billboards at it) and the cards lie in the z≈0 plane, so the crossing X is
@@ -814,13 +909,34 @@ internal sealed class CardFan
         Transform ht = head.transform;
         Vector3 headLocal = _root.InverseTransformPoint(ht.position);
         Vector3 gazeLocal = _root.InverseTransformDirection(ht.forward);
+        _gazeYawDeg = Mathf.Atan2(gazeLocal.x, gazeLocal.z) * Mathf.Rad2Deg; // diagnostic only
+
+        // CONTINUITY FIX (round 2): the old gate was a hard `gazeLocal.z > 0.2f`, which SNAPPED the
+        // apex from wherever it was straight back to the fan centre the instant the gaze got near
+        // parallel to the fan plane — a felt jump of up to the whole half-hand. The grazing case is
+        // real (the intersection blows up as gazeLocal.z -> 0) but the cure must be continuous, so it
+        // is now a smoothstep weight: full effect while the gaze is properly pointed at the hand,
+        // fading to "centred" as it swings toward parallel, with the divisor floored so the
+        // intersection can never explode inside the fade. In ordinary play (hand anywhere within
+        // ~70° of the gaze) front == 1 and this is bit-identical to the plain intersection.
         float targetX = 0f;
-        // gazeLocal.z > 0.2 = the gaze actually travels toward the fan plane and not near-parallel to
-        // it (a grazing ray would project to a wild X). Otherwise — looking away from the hand
-        // entirely — we relax the apex back to the fan centre rather than freezing it somewhere odd.
-        if (gazeLocal.z > 0.2f && headLocal.z < 0f)
-            targetX = headLocal.x + gazeLocal.x * (-headLocal.z / gazeLocal.z);
-        targetX = Mathf.Clamp(targetX, -radius, radius);
+        if (headLocal.z < 0f)
+        {
+            float front = Mathf.Clamp01((gazeLocal.z - GazeGrazeMinZ)
+                                        / Mathf.Max(0.01f, GazeGrazeFullZ - GazeGrazeMinZ));
+            front = front * front * (3f - 2f * front); // smoothstep: C¹ at both ends of the fade
+            if (front > 0f)
+            {
+                float cross = headLocal.x
+                              + gazeLocal.x * (-headLocal.z / Mathf.Max(gazeLocal.z, GazeGrazeMinZ));
+                // Saturate at the ARC's half-width, not the arc RADIUS: the outermost card sits at
+                // sin(halfSweep)·radius, well inside the radius, so clamping at the radius let _gazeX
+                // keep growing after the apex had already reached the end card (a dead band that made
+                // the effect feel like it "stopped gripping"). Clamping here makes _gazeX and a card's
+                // x directly comparable — and the log's gazeX/edge pair immediately readable.
+                targetX = Mathf.Clamp(cross, -_gazeEdgeX, _gazeEdgeX) * front;
+            }
+        }
 
         float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
         float rate = Mathf.Clamp(CardsConfig.FanGazeSmoothing.Value, 1f, 30f);
@@ -839,12 +955,44 @@ internal sealed class CardFan
             Relayout(instant: false);
     }
 
+    /// <summary>Gaze/fan-plane angle below which the crossing point is faded out (fan-local gaze +Z
+    /// component). Under this the gaze is effectively parallel to the fan and the intersection is
+    /// meaningless; the divisor is floored here too so it can never blow up.</summary>
+    private const float GazeGrazeMinZ = 0.05f;
+
+    /// <summary>Gaze/fan-plane angle at which the crossing point counts at FULL weight (fan-local gaze
+    /// +Z). ~70° off the fan — comfortably outside anything the player does while reading their hand,
+    /// so the fade is invisible in normal play and only tames the degenerate grazing case.</summary>
+    private const float GazeGrazeFullZ = 0.35f;
+
     /// <summary>
-    /// The depth-bow apex as a FRACTIONAL card index for a hand of <paramref name="n"/>: the card the
-    /// eased gaze point <see cref="_gazeX"/> lands on, blended toward the geometric centre by
-    /// 1 - FanGazeApexFollow. Inverts the arc's x = sin(angle)·radius placement, so it stays correct
-    /// at any radius/step/sweep. FanGazeApexFollow = 0 returns exactly (n-1)/2 — bit-identical to the
-    /// pre-change symmetric bow, which is what makes this whole feature reversible from the menu.
+    /// The arc's own half-width in fan-local metres for a hand of <paramref name="n"/>: the |x| of the
+    /// outermost card, x = sin(step·(n-1)/2)·radius. Shares the exact step/sweep/radius derivation used
+    /// by <see cref="Relayout"/> so the gaze saturation and the cards can never disagree.
+    /// </summary>
+    private static float ArcHalfWidth(int n)
+    {
+        float radius = Mathf.Max(0.02f, CardsConfig.FanEffectiveRadius.Value);
+        if (n < 2)
+            return radius;
+        float maxArc = Mathf.Clamp(CardsConfig.FanArcSweepDegrees.Value, 5f, 180f);
+        float stepCap = Mathf.Clamp(CardsConfig.FanPerCardStepDegrees.Value, 1f, 60f);
+        float step = Mathf.Min(stepCap, maxArc / (n - 1));
+        float half = step * (n - 1) * 0.5f;
+        return Mathf.Max(0.001f, Mathf.Sin(half * Mathf.Deg2Rad) * radius);
+    }
+
+    /// <summary>
+    /// The gaze apex as a FRACTIONAL card index for a hand of <paramref name="n"/>: the card the eased
+    /// gaze point <see cref="_gazeX"/> lands on. Inverts the arc's x = sin(angle)·radius placement, so
+    /// it stays correct at any radius/step/sweep, and is clamped to the real card range so looking past
+    /// the end of the hand SATURATES on the end card (monotone: it can never wrap or reverse).
+    ///
+    /// ROUND 2: this no longer blends toward the geometric centre by FanGazeApexFollow. That blend was
+    /// "put the apex under the WRONG card at partial strength"; the strength now scales the RELIEF
+    /// amplitude in <see cref="BowDepth"/> instead, which is what the setting's name actually promises.
+    /// FanGazeApexFollow = 0 still returns exactly (n-1)/2 (and the relief term vanishes), so the
+    /// feature remains a bit-identical revert to the pre-change symmetric bow from the debug menu.
     /// </summary>
     private float GazeApexIndex(int n)
     {
@@ -862,8 +1010,7 @@ internal sealed class CardFan
         float start = -step * (n - 1) * 0.5f;
 
         float angle = Mathf.Asin(Mathf.Clamp(_gazeX / radius, -1f, 1f)) * Mathf.Rad2Deg;
-        float idx = Mathf.Clamp((angle - start) / step, 0f, n - 1f);
-        return Mathf.Lerp(center, idx, follow);
+        return Mathf.Clamp((angle - start) / step, 0f, n - 1f);
     }
 
     /// <summary>
@@ -891,6 +1038,18 @@ internal sealed class CardFan
     /// constraint is exactly met, so nothing pops as the apex slides), and is skipped for a NEGATIVE
     /// FanSideDepthCurve — a viewer-bulging bow is a deliberate opt-in whose whole point is the
     /// other stacking direction.
+    ///
+    /// WHAT THE CLAMP IMPLIES FOR THE GAZE RESPONSE (round-2 root cause C — worth stating, because it
+    /// is the reason the fix is shaped the way it is): "each card one stagger in front of its
+    /// predecessor" is, after the -ZStagger·i ramp is substituted in, algebraically the requirement
+    /// that bow(i) be NON-INCREASING in i. A bow can therefore only ever be VISIBLE on the low-index
+    /// side of its deepest point; the ascending flank is flattened onto the bare stagger ramp whatever
+    /// the bow says (the bow's slope, ~15 mm/card on the defaults, is four times the 4 mm stagger).
+    /// So the gaze response is physically "un-curl the back of the hand toward where I am looking",
+    /// never "raise the front of it" — and <see cref="BowDepth"/>'s relief is built to do exactly that
+    /// monotonically, instead of the old moving apex which tried to re-centre a bow the clamp then
+    /// half-erased at a threshold. The clamp is left alone: it is the draw order, and card n-1 must
+    /// stay frontmost or the full-width collider <see cref="Relayout"/> hands it would be half-covered.
     /// </summary>
     private float ComposeDepths(int n)
     {
@@ -922,6 +1081,11 @@ internal sealed class CardFan
 
     /// <summary>Throttle clock for the depth-curvature diagnostic (unscaled seconds of the last line).</summary>
     private float _curveLogTime;
+
+    /// <summary>The apex the last "Fan depth-curve:" line reported. A change bigger than a tenth of a
+    /// card means the player is mid-head-turn, which switches that line to the fast sweep cadence so a
+    /// whole turn is recorded instead of two samples 2 s apart.</summary>
+    private float _loggedApex = float.NaN;
 
     // ---- Real-time fan-tuning preview (self-contained, allocation-free) ----
     // The settings panel edits the GLOBAL Fan config while the fan is OPEN, but Relayout only ran
@@ -990,22 +1154,26 @@ internal sealed class CardFan
     /// <summary>
     /// Depth curvature: the SIGNED bow of card <paramref name="i"/> of a hand of <paramref name="n"/>
     /// along the fan's local forward axis (fan-local +Z is AWAY from the viewer, since the fan faces the
-    /// head with -Z), so a full hand bows into depth like a real held fan. A POSITIVE
-    /// <see cref="CardsConfig.FanSideDepthCurve"/> recedes the cards AWAY from the viewer (apex card
-    /// nearest); a NEGATIVE value bows them the OTHER way, TOWARD the viewer (apex furthest). Rises with
-    /// <see cref="CardsConfig.FanCurvePower"/> in the card's fraction-from-APEX (0 at the apex, 1 at the
-    /// card furthest from it — always ≥ 0, so the SIGN comes purely from the curve value), scaled to
-    /// FanSideDepthCurve metres at that far end and ramped by hand size (flat at or below
-    /// <see cref="CardsConfig.FanCurveMinCards"/>, full at <see cref="CardsConfig.FanMaxHandForCurve"/>)
-    /// so a small hand stays nearly flat. Returns 0 when disabled / a tiny hand. Live-read each layout.
+    /// head with -Z), so a full hand bows into depth like a real held fan — with the card the player is
+    /// looking at (<paramref name="apex"/>, the fractional index from <see cref="GazeApexIndex"/>) lifted
+    /// out of that cup. Live-read each layout.
     ///
-    /// <paramref name="apex"/> is the fractional card index the bow is centred on — the geometric centre
-    /// (n-1)/2 historically, now the gaze-following apex from <see cref="GazeApexIndex"/>. The fraction is
-    /// normalised by the LONGER side (max(apex, n-1-apex)) rather than by the half-span, which is what
-    /// keeps the bow's maximum at exactly FanSideDepthCurve wherever the apex sits: sliding the apex
-    /// stretches the bow over the long side and compresses it over the short side (like turning a real
-    /// hand of cards toward you) instead of scaling the whole recession up. With apex == the centre this
-    /// reduces algebraically to the original formula, so FanGazeApexFollow = 0 is a byte-exact revert.
+    /// The RESTING bow (<see cref="RestBowDepth"/>) is the symmetric, gaze-INDEPENDENT cup: the historic
+    /// formula verbatim, normalised by the fixed half-span (n-1)/2. The gaze then RELIEVES it: card
+    /// <paramref name="i"/> keeps rest(i) · (1 - FanGazeApexFollow · exp(-((i-apex)/w)²)) of its
+    /// recession, so the card under <paramref name="apex"/> comes fully out of the bow and every other
+    /// card keeps AT MOST what it had at rest.
+    ///
+    /// WHY MULTIPLICATIVE RELIEF AND NOT A MOVING APEX (the round-2 root cause — see the region header):
+    /// the previous version re-normalised the bow by the LONGER side, max(apex, n-1-apex). That put a
+    /// corner in EVERY card's response at the SAME gaze angle (the fan centre, where the max switches
+    /// branch) — the felt threshold — and, because a mid-hand card's fraction GROWS when the apex slides
+    /// to an end, it pushed the middle of the hand up to ~12 mm FURTHER back than the neutral shape: the
+    /// reported "goes the wrong way first". With the relief form both defects are structurally
+    /// impossible: 0 ≤ bow(i) ≤ rest(i) always (nothing can ever get worse than the pre-feature shape),
+    /// and the only apex-dependent factor is a Gaussian, whose derivative in the apex is continuous
+    /// everywhere — including at apex == i, where it is exactly 0. Each card therefore has one extremum,
+    /// at "the gaze is on me", so turning the head further toward a card can only ever improve it.
     ///
     /// NOTE (raycast/collider safety, either sign): this shifts ONLY each card's local Z, never its
     /// rotation, and it goes into the card's HOME pose — the pluck raycast (<see cref="TryRaycast"/>)
@@ -1016,6 +1184,41 @@ internal sealed class CardFan
     /// </summary>
     private static float BowDepth(int i, int n, float apex)
     {
+        float rest = RestBowDepth(i, n);
+        if (rest == 0f)
+            return 0f;
+        float follow = Mathf.Clamp01(CardsConfig.FanGazeApexFollow.Value);
+        if (follow <= 0f)
+            return rest; // byte-exact revert: the historic symmetric bow, untouched by the gaze
+        float w = Mathf.Max(GazeReliefMinWidth, (n - 1) * 0.5f * GazeReliefWidthFactor);
+        float d = (i - apex) / w;
+        return rest * (1f - follow * Mathf.Exp(-d * d));
+    }
+
+    /// <summary>Half-width of the gaze relief, as a fraction of the hand's half-span (in CARDS). Wide
+    /// enough that the gazed card's neighbours come forward with it — the hand OPENS toward the gaze
+    /// rather than one card popping out of the cup — and narrow enough that the far end keeps its cup.
+    /// A LOCAL const (the FanInsertGapFactor / GazeBias* precedent): it changes the feel of an already
+    /// smooth, monotone response, not whether the response is correct, so it does not earn a stepper.</summary>
+    private const float GazeReliefWidthFactor = 0.55f;
+
+    /// <summary>Floor on the relief half-width in cards, so a 4-5 card hand still relieves its
+    /// neighbours instead of degenerating into a single-card notch.</summary>
+    private const float GazeReliefMinWidth = 1.2f;
+
+    /// <summary>
+    /// The RESTING (gaze-independent) depth bow of card <paramref name="i"/> of a hand of
+    /// <paramref name="n"/> — the historic symmetric cup, unchanged since before the gaze feature: rises
+    /// with <see cref="CardsConfig.FanCurvePower"/> in the card's fraction-from-CENTRE (0 at the middle
+    /// card, 1 at either end), scaled to <see cref="CardsConfig.FanSideDepthCurve"/> metres at the ends
+    /// and ramped by hand size (flat at or below <see cref="CardsConfig.FanCurveMinCards"/>, full at
+    /// <see cref="CardsConfig.FanMaxHandForCurve"/>) so a small hand stays nearly flat. A POSITIVE curve
+    /// recedes the edge cards AWAY from the viewer; a NEGATIVE value bows them TOWARD the viewer. This
+    /// is the CEILING the gaze relief works down from, which is what guarantees no card is ever pushed
+    /// further back than the pre-feature shape. Returns 0 when disabled / a tiny hand.
+    /// </summary>
+    private static float RestBowDepth(int i, int n)
+    {
         if (n < 2)
             return 0f;
         float curve = CardsConfig.FanSideDepthCurve.Value;
@@ -1024,8 +1227,8 @@ internal sealed class CardFan
         int lo = Mathf.Clamp(CardsConfig.FanCurveMinCards.Value, 1, 64);
         if (n <= lo)
             return 0f; // small hand: stay flat
-        float span = Mathf.Max(apex, (n - 1) - apex); // distance from the apex to the FAR end of the hand
-        float frac = span > 0f ? Mathf.Clamp01(Mathf.Abs(i - apex) / span) : 0f; // 0 apex .. 1 far end
+        float half = (n - 1) * 0.5f;                                   // FIXED half-span (no gaze term)
+        float frac = Mathf.Clamp01(Mathf.Abs(i - half) / half);        // 0 centre .. 1 either end
         float power = Mathf.Clamp(CardsConfig.FanCurvePower.Value, 0.5f, 4f);
         int hi = Mathf.Max(lo + 1, CardsConfig.FanMaxHandForCurve.Value);
         float fill = Mathf.Clamp01((float)(n - lo) / (hi - lo)); // 0 at lo .. 1 at full hand
@@ -1219,16 +1422,27 @@ internal sealed class CardFan
             _overlay.SetActive(false);
         }
 
-        // Throttled fan-presentation diagnostic (>=2 s apart). Keeps the historic "Fan depth-curve:"
-        // prefix (existing greps/log tooling), and now also proves the NEW behaviour is engaging on
-        // hardware: which card the bow apex has slid to (apex=x.xx/n-1 — 'mid' when it is still the
-        // geometric centre, i.e. the gaze is centred or FanGazeApexFollow is 0), where the gaze
-        // crosses the fan plane, the largest per-card toe-in actually applied, and the near/far depth
-        // spread AFTER the stacking clamp. Grep: "Fan depth-curve:".
+        // Throttled fan-presentation diagnostic. Keeps the historic "Fan depth-curve:" prefix (existing
+        // greps/log tooling). Round 2 makes it a SWEEP RECORDER: the throttle drops from 2 s to 0.25 s
+        // while the apex is actually moving, so one head turn leaves a readable series of lines and the
+        // response can be checked for continuity/monotonicity straight off the log — an idle fan still
+        // costs one line every 2 s. Read a sweep as (gazeYaw -> apex -> bow0):
+        //   gazeYaw  head yaw off "straight at the fan centre", fan-local degrees (the INPUT).
+        //   gazeX    where that gaze crosses the fan plane / the arc's own half-width (the saturation
+        //            bound) — |gazeX| == edge means the gaze has reached the end card.
+        //   apex     the fractional card index the relief is centred on (the eased state).
+        //   bow0     card 0's ACTUAL recession, and rest0 the resting bow it is relieved from: bow0
+        //            must stay in [0, rest0] at every sample (the "can never get worse" invariant) and
+        //            must move monotonically with gazeYaw — any reversal or step between consecutive
+        //            lines is the bug this round fixed coming back.
+        //   z=[..]   near/far composed depth spread AFTER the stacking clamp.
+        // Grep: "Fan depth-curve:".
         float logNow = Time.unscaledTime;
-        if (logNow - _curveLogTime > 2f)
+        bool sweeping = Mathf.Abs(apex - _loggedApex) > 0.1f;
+        if (logNow - _curveLogTime > (sweeping ? 0.25f : 2f))
         {
             _curveLogTime = logNow;
+            _loggedApex = apex;
             float nearMm = float.PositiveInfinity, farMm = float.NegativeInfinity;
             for (int i = 0; i < n; i++)
             {
@@ -1238,9 +1452,11 @@ internal sealed class CardFan
             }
             float mid2 = (n - 1) * 0.5f;
             Core.VRLog.Info("Cards",
-                $"Fan depth-curve: edgeDepth={BowDepth(0, n, apex) * 1000f:F1}mm n={n} " +
+                $"Fan depth-curve: n={n} gazeYaw={_gazeYawDeg:F1}deg " +
+                $"gazeX={_gazeX * 1000f:F0}/{_gazeEdgeX * 1000f:F0}mm " +
                 $"apex={apex:F2}/{n - 1}{(Mathf.Abs(apex - mid2) < 0.05f ? " (mid)" : "")} " +
-                $"gazeX={_gazeX * 1000f:F0}mm follow={CardsConfig.FanGazeApexFollow.Value:F2} " +
+                $"bow0={BowDepth(0, n, apex) * 1000f:F1}/{RestBowDepth(0, n) * 1000f:F1}mm " +
+                $"follow={CardsConfig.FanGazeApexFollow.Value:F2} " +
                 $"toeIn={maxToeDeg:F1}deg face={face:F2} " +
                 $"z=[{farMm:F1}..{nearMm:F1}]mm gazeBias={(CardsConfig.FanGazeBias.Value ? "ON" : "off")}");
         }

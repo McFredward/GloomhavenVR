@@ -348,10 +348,10 @@ internal static class CardsConfig
     /// your eyes. Purely orientation — positions, hit rects and draw order are untouched.</summary>
     internal static ConfigEntry<float> FanFaceViewer = null!;
 
-    /// <summary>Fan facing (global): how far the DEPTH-bow apex (the nearest, un-receded card) follows
-    /// the gaze, 0..1. 0 = the apex stays pinned to the middle card (the old symmetric bow, so the card
-    /// you turn to look at is the one that has receded most); 1 = the apex sits under the card you are
-    /// looking at, so looking at a card brings it fully out of the recession.</summary>
+    /// <summary>Fan facing (global): how far the gaze RELIEVES the depth bow, 0..1. 0 = the plain
+    /// symmetric bow (the card you turn to look at is the one that has receded most); 1 = the card under
+    /// your gaze (and, tapering off, its neighbours) comes fully out of the recession. Every other card
+    /// keeps at most the recession it has at 0, so nothing can ever get worse than the plain bow.</summary>
     internal static ConfigEntry<float> FanGazeApexFollow = null!;
 
     /// <summary>Fan facing (global): exponential ease rate (1/s) of the gaze apex toward the looked-at
@@ -931,17 +931,18 @@ internal static class CardsConfig
                 new AcceptableValueRange<float>(0f, 1f)));
         FanGazeApexFollow = _file.Bind("Cards", "FanGazeApexFollow", 1f,
             new ConfigDescription(
-                "Hand fan (global): how far the DEPTH-BOW APEX follows your gaze. The bow " +
-                "(FanSideDepthCurve) recedes cards away from the viewer with distance from the apex; " +
-                "with the apex pinned to the middle card, the outermost card — the one you turn your " +
-                "head to read — is the FURTHEST away, i.e. looking at a card made it harder to see. " +
-                "At 1 the apex slides under the card you are looking at, so that card sits at zero " +
-                "recession and the recession falls off toward the far end instead. The bow's MAXIMUM " +
-                "never exceeds FanSideDepthCurve at any apex, so no card ever ends up further back " +
-                "than it already was at 0 (= the old symmetric bow). The apex is a continuous function " +
-                "of the gaze angle (no per-card latch, so nothing can flicker at a card boundary) and " +
-                "is eased at FanGazeSmoothing. Silhouette-safe: the bow runs along the VIEW axis, so " +
-                "moving its apex changes what is nearest without visibly moving the fan.",
+                "Hand fan (global): how far your GAZE RELIEVES the depth bow. The bow " +
+                "(FanSideDepthCurve) recedes cards away from the viewer with distance from the middle " +
+                "of the hand, so the outermost card — the one you turn your head to read — is the " +
+                "FURTHEST away, i.e. looking at a card made it harder to see. At 1 the card under your " +
+                "gaze is lifted fully out of that recession (its neighbours partly, tapering off), at " +
+                "0.5 halfway, at 0 not at all (= the plain symmetric bow, a bit-exact revert). The " +
+                "relief only ever REMOVES recession: no card can end up further back than it is at 0, " +
+                "at any gaze angle. The response is a smooth function of the gaze angle with no " +
+                "threshold, no latch and no per-card quantisation — turning your head further toward a " +
+                "card can only ever bring that card further forward — and is eased at FanGazeSmoothing. " +
+                "Silhouette-safe: the bow runs along the VIEW axis, so relieving it changes what is " +
+                "nearest without visibly moving the fan.",
                 new AcceptableValueRange<float>(0f, 1f)));
         FanGazeSmoothing = _file.Bind("Cards", "FanGazeSmoothing", 8f,
             new ConfigDescription(
