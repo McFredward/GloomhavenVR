@@ -166,6 +166,11 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsConfig.FanArcSweepDegrees.SettingChanged += OnFanTuningChanged;
         CardsConfig.FanEffectiveRadius.SettingChanged += OnFanTuningChanged;
         CardsConfig.FanHoverSplitScale.SettingChanged += OnFanTuningChanged;
+        // Card presentation (edge-read fix): per-card toe-in + gaze-following bow apex. CardFan's
+        // per-frame param signature would re-lay the OPEN fan anyway; subscribing keeps them on the
+        // established live-apply path so a hand-edited cfg / menu step also logs the change.
+        CardsConfig.FanFaceViewer.SettingChanged += OnFanTuningChanged;
+        CardsConfig.FanGazeApexFollow.SettingChanged += OnFanTuningChanged;
 
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
@@ -199,6 +204,8 @@ internal sealed class CardsDriver : MonoBehaviour
         CardsConfig.FanArcSweepDegrees.SettingChanged -= OnFanTuningChanged;
         CardsConfig.FanEffectiveRadius.SettingChanged -= OnFanTuningChanged;
         CardsConfig.FanHoverSplitScale.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.FanFaceViewer.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.FanGazeApexFollow.SettingChanged -= OnFanTuningChanged;
     }
 
     // ------------------------------------------------------------------ board tuning (Part F) --
@@ -977,7 +984,9 @@ internal sealed class CardsDriver : MonoBehaviour
             _fan.ApplyLayout();
             VRLog.Info("Cards", $"Debug live-apply [Fan]: step {CardsConfig.FanPerCardStepDegrees.Value:F0}°, " +
                                 $"arc {CardsConfig.FanArcSweepDegrees.Value:F0}°, radius {CardsConfig.FanEffectiveRadius.Value:F3} m, " +
-                                $"split ×{CardsConfig.FanHoverSplitScale.Value:F2}.");
+                                $"split ×{CardsConfig.FanHoverSplitScale.Value:F2}, " +
+                                $"faceViewer {CardsConfig.FanFaceViewer.Value * 100f:F0}%, " +
+                                $"gazeFollow {CardsConfig.FanGazeApexFollow.Value * 100f:F0}%.");
         }
 
         // Post-rebuild per-frame interaction + status path (hover / laser / fingertip /

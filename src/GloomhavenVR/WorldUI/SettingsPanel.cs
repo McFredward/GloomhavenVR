@@ -1180,6 +1180,16 @@ internal sealed class SettingsPanel : IPanelGrabOwner
                 ConfigEntry<int> e = CardsConfig.FanCurveMinCards;
                 e.Value = Mathf.Clamp(e.Value + (int)Mathf.Sign(d), 1, 12);
             });
+        // Card presentation (edge-read fix, see CardFan's "card presentation" region): how squarely
+        // each card is aimed at the head, and how far the depth-bow apex follows the gaze so the card
+        // being LOOKED AT is the one at the front of the curve instead of the one furthest back.
+        // Both re-lay the open fan live through CardFan's per-frame param signature.
+        AddFanStepper(Loc.Mod("fan_face_viewer"), CardsConfig.FanFaceViewer, 0.05f, 0f, 1f,
+            v => $"{v * 100f:0}%");
+        AddFanStepper(Loc.Mod("fan_gaze_follow"), CardsConfig.FanGazeApexFollow, 0.05f, 0f, 1f,
+            v => $"{v * 100f:0}%");
+        AddFanStepper(Loc.Mod("fan_gaze_smooth"), CardsConfig.FanGazeSmoothing, 1f, 1f, 30f,
+            v => $"{v:0}/s");
         _rowGate = HandOffsetRowsVisible;
         var gazeRow = Row();
         Label(gazeRow, "Blick-Neigung", 16f, flexible: true);
