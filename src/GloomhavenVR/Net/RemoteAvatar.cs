@@ -69,6 +69,7 @@ internal sealed class RemoteAvatar
     // Backs only, mirroring the fan's anti-cheat stance (no card identity is ever on the wire).
     private Transform? _heldCardHolder;
     private Mesh? _heldCardMesh;
+    private bool _heldCardBillboardLogged; // one-line confirm the receiver-side billboard fired
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -407,6 +408,29 @@ internal sealed class RemoteAvatar
     /// hand, e.g. plucked from their fan or a pile viewer). Built lazily on first use, eased
     /// exactly like the other parts, hidden while the sender holds nothing. Shows a BACK only:
     /// no card identity rides the wire (same anti-cheat stance as <see cref="RemoteHandFan"/>).
+    ///
+    /// ORIENTATION (multiplayer half of user report 2): a held card is not rigid in the owner's
+    /// hand — <see cref="Cards.VRCard"/>.TickHeldPose re-billboards it to the OWNER's head every
+    /// frame, so the owner always reads it face-on however their wrist is turned. The POSITION for
+    /// that rule rides the wire already; the ROTATION does not need to. This slab used to simply
+    /// slerp toward the transmitted rotation, which breaks the rule on the receiver in two ways:
+    /// (a) the rotation is a 16-bit-quantized snapshot taken at the SEND rate and then eased with
+    /// <see cref="NetProtocol.InterpolationSharpness"/> INDEPENDENTLY of the head and of the card's
+    /// own position, so during head/hand motion the slab visibly lags out of the "facing its owner"
+    /// relationship instead of holding it; and (b) after packet loss the last rotation keeps
+    /// pointing at where the peer's head WAS. Both vanish if the receiver simply re-derives the
+    /// billboard each frame from data it already has: the peer's head is a mandatory part of the
+    /// SAME rig packet (<see cref="AvatarState.Head"/>, eased onto <see cref="HeadHolder"/> a few
+    /// lines earlier in <see cref="Tick"/>), so <c>LookRotation(slabPos − headPos, head.up)</c>
+    /// reproduces exactly what the owner sees — NO new wire field, no flag bit, no version bump.
+    /// This is the same receiver-side billboard <see cref="RemoteItemFan"/> and
+    /// <see cref="RemoteBrowserFan"/> already run for the peer's fans; the held-card slab was the
+    /// one card proxy still trusting the transmitted rotation. The transmitted rotation is still
+    /// read and still used as the fallback for a peer whose head is not tracked.
+    ///
+    /// No extra slerp on top: the billboard is derived from an ALREADY-eased slab position and an
+    /// already-eased head, so it inherits their smoothing — easing it again would only re-introduce
+    /// the lag this removes.
     /// </summary>
     private void UpdateHeldCard(float k)
     {
@@ -419,6 +443,29 @@ internal sealed class RemoteAvatar
                 return;
         }
         UpdatePart(_heldCardHolder, _target.HasHeldCard, in _target.HeldCardPose, k);
+        if (!_target.HasHeldCard || !_heldCardHolder.gameObject.activeSelf)
+            return;
+        if (!_target.HeadValid || !_headHolder.gameObject.activeSelf)
+            return; // no synced head this frame — keep the transmitted rotation
+
+        // Card +Z points AWAY from its reader (CardMesh / BuildBackSlab convention), so the look
+        // direction is head → card: the owner sees the face, everyone else sees the back.
+        Vector3 away = _heldCardHolder.position - _headHolder.position;
+        if (away.sqrMagnitude < 1e-6f)
+            return;
+        away.Normalize();
+        Vector3 up = _headHolder.up; // the OWNER's head-up: their head roll is on the wire too
+        if (Mathf.Abs(Vector3.Dot(away, up)) > 0.9995f)
+            return; // forward ∥ up — LookRotation undefined; keep the previous rotation
+        _heldCardHolder.rotation = Quaternion.LookRotation(away, up);
+
+        if (!_heldCardBillboardLogged)
+        {
+            _heldCardBillboardLogged = true;
+            VRLog.Info("Net", $"Remote held card: billboarding player {PlayerId}'s slab to their SYNCED head "
+                + $"(rig-packet head, no new wire field); wire rotation kept only as the untracked-head fallback. "
+                + $"delta vs wire rot {Quaternion.Angle(_target.HeldCardPose.Rotation, _heldCardHolder.rotation):F1} deg.");
+        }
     }
 
     private void BuildHeldCardSlab()
