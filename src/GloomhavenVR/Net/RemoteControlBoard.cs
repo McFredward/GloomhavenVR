@@ -44,17 +44,27 @@ namespace GloomhavenVR.Net;
 ///   • the peer's initiative position      (<see cref="RemoteStatusReadouts"/>  — per-actor, gated),
 ///   • their short/long rest state         (<see cref="RemoteStatusReadouts"/>  — per-actor, split gate),
 ///   • their discard/burnt/item pile COUNTS on the three stacks (per-actor, public),
-///   • their active/persistent cards       (<see cref="RemoteActiveCards"/>     — per-actor, gated).
+///   • their active/persistent cards       (<see cref="RemoteActiveCards"/>     — per-actor, gated),
+///   • the scenario INITIATIVE TRACK       (<see cref="RemoteInitiativeTrack"/> — global list,
+///                                          per-actor numbers under vanilla's own gate),
+///   • and every piece of INTERACTIVE FURNITURE the local board wears
+///                                         (<see cref="RemoteBoardFurniture"/> — see below).
 /// NONE of that rides the wire: the global items are bit-identical on every client already, and the
 /// per-actor items are read off the host-replicated <c>CPlayerActor</c> exactly like the round cards.
 /// See <see cref="RemoteBoardContent"/> for the per-section anti-cheat derivation.
 ///
-/// DELIBERATELY NOT MIRRORED — a peer's own interactive controls: the CONFIRM/UNDO keycaps, the
-/// turn-flow ButtonCluster, the settings gear, the FOLLOW/PIN toggle, the grab handle, the item-USE
-/// recess and the debug menu. A card-slot highlight is INFORMATION; a button you cannot press on
-/// someone else's board is not — it would only add clutter and invite mis-pokes. The transient
-/// reading fans (hand fan, item fan, pile browse, card flights) are already handled by the dedicated
-/// VR-only wire fields (<see cref="RemoteHandFan"/> / <see cref="RemoteItemFan"/> /
+/// THE FURNITURE IS DRAWN, AND IT IS INERT. An earlier pass deliberately OMITTED a peer's own
+/// controls (the CONFIRM/UNDO keycaps, the turn-flow cluster, the gear, the FOLLOW/PIN toggle, the
+/// grab handle, the item-USE recess, the decision drawer, the slot overlays) on the argument that "a
+/// button you cannot press is not information". The user rejected that: everything the local control
+/// board shows must be shown on a peer's board too — but as a PURE DISPLAY, with nothing on it
+/// interactable. <see cref="RemoteBoardFurniture"/> implements exactly that: meshes and text only,
+/// no collider is ever created, nothing is added to <c>PlayTray.LaserTargets</c>, to
+/// <c>VRInteractables</c> or to any other interaction registry, and a runtime guard
+/// (<see cref="RemoteBoardFurniture.StripColliders"/>) destroys anything that ever slips through.
+///
+/// The transient reading fans (hand fan, item fan, pile browse, card flights) are handled by the
+/// dedicated VR-only wire fields (<see cref="RemoteHandFan"/> / <see cref="RemoteItemFan"/> /
 /// <see cref="RemoteBrowserFan"/> / <see cref="RemoteCardFx"/>).
 ///
 /// Strict no-op offline / single-player / when the actor is null (<see cref="NetPlayerActors"/>
@@ -126,6 +136,8 @@ internal sealed class RemoteControlBoard
     private RemoteElementStrip? _elements;        // GLOBAL
     private RemoteStatusReadouts? _status;        // GLOBAL round + per-actor initiative/rest
     private RemoteActiveCards? _active;           // per-actor active/persistent cards
+    private RemoteInitiativeTrack? _track;        // GLOBAL actor list + per-actor initiative (gated)
+    private RemoteBoardFurniture? _furniture;     // INERT copies of the board's interactive controls
     private readonly PileCounter?[] _piles = new PileCounter?[3]; // discard / burnt / items
 
     /// <summary>Next content re-read time (unscaled). The POSE follows every frame; the model reads
@@ -207,6 +219,12 @@ internal sealed class RemoteControlBoard
             _elements?.Refresh();
             _status?.Refresh(actor, showFronts);
             _active?.Refresh(actor, showFronts);
+            _track?.Refresh();
+
+            // The inert furniture layer. It is fed the SAME reveal answer and the SAME round-card
+            // occupancy the board is already rendering — see RemoteBoardFurniture for why nothing
+            // derived from those two can leak anything the board does not already show.
+            _furniture?.Refresh(actor, _owner, showFronts, _ordered[0] != null, _ordered[1] != null);
 
             // Pile counts — the SAME reads CardsGameApi.DiscardedCount/BurntCount and
             // ItemsPile.Count make for the local board, against this actor instead of the local
@@ -246,6 +264,8 @@ internal sealed class RemoteControlBoard
                       $"active={(_active != null ? _active.Count : 0)} card(s), " +
                       $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s), " +
                       $"elements={(_elements != null ? _elements.ActiveCount : 0)} infused, " +
+                      $"track={(_track != null ? _track.Count : 0)} entr(y/ies), " +
+                      $"furniture[{(_furniture != null ? _furniture.StateLine : "-")}], " +
                       $"fronts={showFronts}";
         if (line == _loggedContent)
             return;
@@ -311,19 +331,34 @@ internal sealed class RemoteControlBoard
         _elements = new RemoteElementStrip(_root.transform);
         _status = new RemoteStatusReadouts(_root.transform);
         _active = new RemoteActiveCards(_root.transform);
+        _track = new RemoteInitiativeTrack(_root.transform);
+        _furniture = new RemoteBoardFurniture(_root.transform);
         _nextRefreshAt = 0f; // repaint on the very next tick
 
         // Ownership tag pinned just above the board's top-left corner, always facing the head.
+        // Y clears the initiative track drawn above the top edge (RemoteInitiativeTrack, y 0.165
+        // + half its 0.052 chip = 0.191) so the tag never sits on top of a track entry.
         _tag = new OwnerTag(_owner.PlayerId, _root.transform,
-            new Vector3(-BoardW * 0.5f + 0.02f, BoardH * 0.5f + 0.045f, ProudZ));
+            new Vector3(-BoardW * 0.5f + 0.02f, 0.215f, ProudZ));
 
         VRLayers.Apply(_root);
 
-        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] built with full parity surfaces: " +
+        // FINAL INERTNESS GUARANTEE for the WHOLE board, not just the furniture: a remote player's
+        // control board is a pure display. Nothing on it — not a keycap, not a card panel, not a
+        // pile stack — may be pokeable, laser-targetable or grabbable. Everything above is built
+        // from BoardVisual.Quad (collider stripped at creation) and TextMeshPro, and this sweep
+        // turns that from a code-review claim into a runtime fact.
+        RemoteBoardFurniture.StripColliders(_root, $"RemoteControlBoard[{_owner.PlayerId}]");
+
+        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] built with FULL parity surfaces: " +
                           "2 round-card slots, 3 pile stacks with counts, objectives, elements, " +
-                          "round + initiative + rest readouts, active-card column. Interactive " +
-                          "controls (Confirm/Undo/gear/pin/cluster/item-use) are deliberately NOT " +
-                          "mirrored — a button you cannot press is not information.");
+                          "round + initiative + rest readouts, active-card column, initiative TRACK, " +
+                          "and the complete interactive furniture (Confirm/Undo keycaps on their " +
+                          "native dock mounts, turn-flow Skip cap, settings gear, FOLLOW/PIN toggle, " +
+                          "grab-handle bar, item-USE recess + USE cap, decision drawer, pick field, " +
+                          "slot snap/wanted glows, half-card dividers) — ALL OF IT INERT: no " +
+                          "colliders, no laser targets, no poke zones, no grab handles, nothing in " +
+                          "any interaction registry. It is a display of a control board, not one.");
     }
 
     private void SetActive(bool active)
@@ -348,6 +383,8 @@ internal sealed class RemoteControlBoard
         _elements = null;
         _status = null;
         _active = null;
+        _track = null;
+        _furniture = null;
         _piles[0] = _piles[1] = _piles[2] = null;
         _loggedContent = string.Empty;
         _nextRefreshAt = 0f;

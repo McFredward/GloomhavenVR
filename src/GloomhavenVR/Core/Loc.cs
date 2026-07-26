@@ -200,6 +200,9 @@ internal static class Loc
         ["tilt_yaw"] = Pair("Tilt/Yaw", "Neigung/Gieren"),
         ["reset_element"] = Pair("Reset element", "Element zurücksetzen"),
         ["objectives"] = Pair("Objectives", "Aufgaben"),
+        // Caption of the (idle) shared decision drawer drawn on a REMOTE player's control board —
+        // the reserved strip where their take-damage / dialog prompts dock on their own client.
+        ["decision_dock"] = Pair("Decisions", "Entscheidungen"),
         ["elements"] = Pair("Elements", "Elemente"),
         ["vr_settings"] = Pair("VR settings", "VR-Einstellungen"),
         ["pin"] = Pair("Pin toggle", "Pin-Schalter"),
