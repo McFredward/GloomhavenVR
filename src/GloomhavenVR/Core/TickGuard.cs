@@ -31,6 +31,17 @@ namespace GloomhavenVR.Core;
 /// computed only when a line is actually emitted (first throw + every 10 s), never per
 /// frame during a throw storm. Callers must pass CACHED delegates (not per-frame method
 /// groups from instance methods) to keep the delegate allocation out of the hot path.</para>
+///
+/// <para>SECOND JOB — MEASUREMENT (2026-07 performance pass). Because nearly every heavy mod
+/// subsystem already routes its per-frame work through here under a stable NAME, this is also the
+/// natural attribution seam: <see cref="Run(string, Action, string)"/> hands the step to
+/// <see cref="PerfMonitor"/>, which stopwatch-times it and can therefore rank the mod's own steps
+/// by cost in the periodic <c>[Perf] STEPS</c> line and name the owner of an individual
+/// over-budget frame in a <c>[Perf] SPIKE</c> line. The measurement is gated on a single static
+/// bool (<see cref="PerfMonitor.StepsActive"/>): with the monitor off the added cost of this
+/// change is one predictable branch per step, and NOTHING about the isolation contract above
+/// changes — the timer is closed in a <c>finally</c>, so a throwing step is still isolated,
+/// still logged with its stack, and still measured.</para>
 /// </summary>
 internal static class TickGuard
 {
@@ -59,6 +70,9 @@ internal static class TickGuard
     /// </summary>
     public static void Run(string name, Action fn, string? scope = null)
     {
+        // Perf attribution: 0 when the monitor is off, in which case the finally below is a single
+        // compare-and-return. Opened OUTSIDE the try so a throw inside the body cannot skip it.
+        long perf = PerfMonitor.BeginStep();
         try
         {
             fn();
@@ -88,6 +102,10 @@ internal static class TickGuard
                     $"{ex.GetType().Name}: {ex.Message}. Fix the subsystem; ticks stay isolated.");
                 e.LastLog = now;
             }
+        }
+        finally
+        {
+            PerfMonitor.EndStep(name, perf);
         }
     }
 

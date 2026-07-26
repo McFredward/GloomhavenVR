@@ -38,6 +38,15 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private readonly Dictionary<CInteractableActor, Adopted> _adoptions = new();
     private readonly List<CInteractableActor> _scratch = new(32);
 
+    /// <summary>
+    /// [Optimize] FigureScanCache: figure GameObject instance id → its CInteractableActor, so the
+    /// per-frame registry sweep does not re-run a deep includeInactive hierarchy walk for figures
+    /// it already knows. Keyed by INSTANCE ID (not the object) so a destroyed figure can never keep
+    /// a Unity-null key alive in a way that hides a rebuilt one; a stale/destroyed value simply
+    /// falls back to the full walk. Cleared with the adoptions.
+    /// </summary>
+    private readonly Dictionary<int, CInteractableActor> _figureInteractables = new(64);
+
     // Last frame THIS driver clamped the beam to a figure, per hand — so the far-grab
     // arbitration can tell our own fresh figure clamp apart from a FOREIGN UI/card clamp.
     private int _leftClampFrame = int.MinValue;
@@ -47,6 +56,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     // private ReachMeters (0.13 m at scale 1) so the candidate set matches the palm reach the
     // grabber itself would consider before we narrow it to the offset-anchor-nearest figure.
     private const float ReachMeters = 0.13f;
+
+    // Cached per-frame tick delegates ([Optimize] CacheTickDelegates — see Update).
+    private System.Action? _tickRegistry;
+    private System.Action? _tickAutoRelease;
+    private System.Action? _tickAnchorSelect;
+    private System.Action? _tickLaserGrab;
 
     private void OnDestroy()
     {
@@ -75,10 +90,16 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             return;
         }
 
-        TickGuard.Run("FigureGrab.Registry", RefreshRegistry);
-        TickGuard.Run("FigureGrab.AutoRelease", AutoReleaseMovedFigures);
-        TickGuard.Run("FigureGrab.OffsetAnchorSelect", TickOffsetAnchorSelect);
-        TickGuard.Run("FigureGrab.LaserGrab", TickLaserGrab);
+        // [Optimize] CacheTickDelegates (2026-07 perf pass): these four used to allocate a fresh
+        // Action from an instance method group EVERY FRAME — four of the mod's seven such sites,
+        // ~256 B/frame from this driver alone, all of it gen0 garbage whose collection pauses show
+        // up as exactly the head-turn judder being investigated. Cached now; the toggle re-creates
+        // them per frame so the cost can be A/B'd against the [Perf] gc/alloc counters.
+        bool cache = PerfConfig.CacheDelegates;
+        TickGuard.Run("FigureGrab.Registry", cache ? _tickRegistry ??= RefreshRegistry : RefreshRegistry);
+        TickGuard.Run("FigureGrab.AutoRelease", cache ? _tickAutoRelease ??= AutoReleaseMovedFigures : AutoReleaseMovedFigures);
+        TickGuard.Run("FigureGrab.OffsetAnchorSelect", cache ? _tickAnchorSelect ??= TickOffsetAnchorSelect : TickOffsetAnchorSelect);
+        TickGuard.Run("FigureGrab.LaserGrab", cache ? _tickLaserGrab ??= TickLaserGrab : TickLaserGrab);
 
         // (Issue A) The held rotation is a FIXED CONSTANT anchor-LOCAL rotation
         // (FigureGrabConfig.HeldUprightRotation) applied at grab — no world-up / head derivation and
@@ -132,9 +153,33 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             if (figure == null)
                 continue;
 
-            CInteractableActor interactable = figure.GetComponentInChildren<CInteractableActor>(includeInactive: true);
+            // [Optimize] FigureScanCache (2026-07 perf pass): the GetComponentInChildren below is a
+            // DEEP hierarchy walk (includeInactive, so it visits every disabled child of a rigged
+            // character mesh), and it used to run for EVERY registered figure on EVERY frame —
+            // including the ones already adopted, whose result is thrown away one line later by the
+            // ContainsKey check. A figure never changes its CInteractableActor, so remembering the
+            // resolution per figure turns the steady state (all figures adopted) into a dictionary
+            // lookup per figure. Behaviour is unchanged: a destroyed/cleared entry falls back to the
+            // full walk, so a figure that is rebuilt is picked up exactly as before.
+            bool lean = Core.PerfConfig.FigureScanCacheOn;
+            CInteractableActor? interactable = null;
+            int figureId = 0;
+            if (lean)
+            {
+                figureId = figure.GetInstanceID();
+                if (_figureInteractables.TryGetValue(figureId, out CInteractableActor cached))
+                {
+                    if (cached != null && _adoptions.ContainsKey(cached))
+                        continue;      // already adopted — nothing left to resolve this frame
+                    interactable = cached; // may be Unity-null (destroyed) → re-resolved below
+                }
+            }
+            if (interactable == null)
+                interactable = figure.GetComponentInChildren<CInteractableActor>(includeInactive: true);
             if (interactable == null || _adoptions.ContainsKey(interactable))
                 continue;
+            if (lean)
+                _figureInteractables[figureId] = interactable;
 
             Collider? collider = interactable.GetComponent<Collider>();
             if (collider == null)
@@ -311,6 +356,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             VRInteractables.UnregisterGrabbable(pair.Value.Grabbable);
         }
         _adoptions.Clear();
+        // [Optimize] FigureScanCache: the resolution cache is only ever a shortcut to the walk it
+        // replaces, so dropping it with the adoptions keeps it bounded per scenario and guarantees
+        // the next sweep re-resolves everything from scratch.
+        _figureInteractables.Clear();
         HeldFigures.Clear();
     }
 }

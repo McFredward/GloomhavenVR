@@ -335,6 +335,12 @@ internal static class WallSegmentFade
         private float _sampleYMin, _sampleYMax;                 // overall sample-height range (diag)
         private int _roomsAnchored;                             // rooms with a tile-anchored plane (diag)
         private float _nextDiagTime;
+
+        // [Optimize] WallFadeEvalInterval state: when the visibility/coverage DECISION last ran and
+        // what it last reported (the fade + material writes keep running every frame regardless).
+        private float _nextEvalTime;
+        private float _lastEvalTime;
+        private int _lastVisibleCount;
         private MaterialPropertyBlock? _mpb;
 
         private Texture2D? _noiseTex;    // transition dissolve pattern (r in [0.06,1], a=0)
@@ -384,7 +390,12 @@ internal static class WallSegmentFade
         {
             try
             {
-                Tick();
+                // Perf attribution (2026-07 perf pass): the per-segment visibility sweep walks
+                // every wall's floor samples against the head pose EVERY FRAME, which makes it a
+                // prime suspect for head-motion-correlated cost — so it gets its own measured
+                // scope. The scope never alters the try/catch semantics around it.
+                using (PerfMonitor.Scope("WallFade.Late"))
+                    Tick();
             }
             catch (Exception e)
             {
@@ -423,11 +434,46 @@ internal static class WallSegmentFade
             Transform headT = head!.transform;
             Vector3 headPos = headT.position;
             UpdatePerspectiveState(headT, now);
-            int visibleCount = UpdateSampleVisibility(head!);
+
+            // [Optimize] WallFadeEvalInterval (2026-07 perf pass). The expensive half of this tick
+            // is the DECISION: UpdateSampleVisibility projects every room's floor samples through
+            // the head camera and BlockedFraction re-measures every segment against them, every
+            // frame — work that is by definition head-motion correlated. The cheap half is the
+            // per-segment exponential FADE plus its material write, which must stay per-frame or
+            // the fade would visibly step.
+            //
+            // So the interval gates the decision only; the fade keeps running at full rate toward
+            // whatever the last decision was. That is safe by construction because the decision it
+            // feeds is ALREADY deliberately slow — an EMA, a Schmitt trigger and second-scale dwell
+            // hysteresis (see the thresholds below) — so sampling it at 20 Hz instead of 90 Hz
+            // cannot change which walls fade, only when within a fraction of the dwell.
+            //
+            // DEFAULT 0 = every frame = today's behaviour; the [Perf] STEPS line's "WallFade.Late"
+            // entry is what decides whether raising it is worth anything on real hardware.
+            bool evaluate = true;
+            float evalInterval = PerfConfig.WallFadeInterval;
+            if (evalInterval > 0f)
+            {
+                if (now < _nextEvalTime)
+                    evaluate = false;
+                else
+                    _nextEvalTime = now + evalInterval;
+            }
+            int visibleCount = evaluate ? UpdateSampleVisibility(head!) : _lastVisibleCount;
+            _lastVisibleCount = visibleCount;
             bool reevalArmed = now - _lastReevalTime <= ReevalArmSeconds;
 
             float fadeStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FadeTauSeconds);
-            float fracStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FractionTauSeconds);
+            // The coverage EMA advances by the time since the last EVALUATION, not since the last
+            // frame — otherwise skipping evaluations would silently stretch its time constant and
+            // change the fade decision, which is exactly what the interval must NOT do. With the
+            // interval at 0 this is bit-identical to the old Time.unscaledDeltaTime term.
+            float evalDt = evaluate
+                ? (_lastEvalTime > 0f ? Mathf.Min(now - _lastEvalTime, 0.5f) : Time.unscaledDeltaTime)
+                : 0f;
+            if (evaluate)
+                _lastEvalTime = now;
+            float fracStep = 1f - Mathf.Exp(-evalDt / FractionTauSeconds);
             // Live thresholds (WallFadeTuning, clamped): tuning a stepper in the settings
             // panel re-shapes the Schmitt trigger / dwells on the very next evaluation.
             float onFraction = WallFadeTuning.On;
@@ -443,32 +489,35 @@ internal static class WallSegmentFade
                 // trigger + dwell hysteresis. The un-fade dwell is long, and much longer
                 // still unless the perspective (head position / world grip) recently
                 // changed — rotation-only head motion keeps the current state sticky.
-                float fraction = BlockedFraction(seg, headPos);
-                seg.LastRaw = fraction;
-                if (!seg.SmoothInit)
+                if (evaluate)
                 {
-                    seg.SmoothInit = true;
-                    seg.Smooth = fraction;
-                }
-                else
-                {
-                    seg.Smooth += (fraction - seg.Smooth) * fracStep;
-                }
-                bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
-                if (raw != seg.PendingRaw)
-                {
-                    seg.PendingRaw = raw;
-                    seg.PendingSince = now;
-                }
-                if (seg.PendingRaw != seg.State)
-                {
-                    float dwell = seg.PendingRaw
-                        ? EnterDwellSeconds
-                        : (reevalArmed ? exitDwellMoved : exitDwellStationary);
-                    if (now - seg.PendingSince >= dwell)
+                    float fraction = BlockedFraction(seg, headPos);
+                    seg.LastRaw = fraction;
+                    if (!seg.SmoothInit)
                     {
-                        seg.State = seg.PendingRaw;
-                        LogStateFlip(seg); // R2 deliverable: name the wall's shader variant
+                        seg.SmoothInit = true;
+                        seg.Smooth = fraction;
+                    }
+                    else
+                    {
+                        seg.Smooth += (fraction - seg.Smooth) * fracStep;
+                    }
+                    bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
+                    if (raw != seg.PendingRaw)
+                    {
+                        seg.PendingRaw = raw;
+                        seg.PendingSince = now;
+                    }
+                    if (seg.PendingRaw != seg.State)
+                    {
+                        float dwell = seg.PendingRaw
+                            ? EnterDwellSeconds
+                            : (reevalArmed ? exitDwellMoved : exitDwellStationary);
+                        if (now - seg.PendingSince >= dwell)
+                        {
+                            seg.State = seg.PendingRaw;
+                            LogStateFlip(seg); // R2 deliverable: name the wall's shader variant
+                        }
                     }
                 }
 
@@ -481,7 +530,12 @@ internal static class WallSegmentFade
                 Apply(seg);
             }
 
-            if (now >= _nextDiagTime)
+            // [Optimize] QuietDiagnostics: the 2 Hz 'diag:' sweep is by far the mod's longest
+            // log line (it names every tracked wall with eight numbers each) and it was the single
+            // biggest contributor to the hardware log's size. It measured well under one line per
+            // second, so it is NOT a frame-time problem and stays ON by default — but a clean
+            // performance capture wants only the [Perf] lines, and this is the switch for that.
+            if (now >= _nextDiagTime && !PerfConfig.Quiet)
             {
                 _nextDiagTime = now + DiagIntervalSeconds;
                 LogDiagnostic(headPos, visibleCount);

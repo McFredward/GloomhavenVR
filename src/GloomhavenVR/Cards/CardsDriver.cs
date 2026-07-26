@@ -862,7 +862,20 @@ internal sealed class CardsDriver : MonoBehaviour
 
     // ------------------------------------------------------------------ update --
 
+    /// <summary>
+    /// Perf attribution wrapper (2026-07 perf pass): the cards driver owns the card fan, the tray,
+    /// the piles and every board widget, i.e. the busiest per-frame block in the mod that was NOT
+    /// routed through TickGuard (it carries its own bespoke throw guard around the interaction
+    /// tail). Measuring it here — with a scope that does NOT alter exception flow — is what lets
+    /// the [Perf] STEPS line say whether a head-turn spike lives in the cards or somewhere else.
+    /// </summary>
     private void Update()
+    {
+        using (Core.PerfMonitor.Scope("Cards.Driver"))
+            UpdateBody();
+    }
+
+    private void UpdateBody()
     {
         CardActionQueue.Pump();
         HandSuppression.Tick();

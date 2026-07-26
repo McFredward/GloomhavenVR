@@ -2751,12 +2751,57 @@ internal sealed class FlatScreenStereo
         return dst;
     }
 
+    // ---- [Optimize] MapIconCache (2026-07 perf pass) -----------------------------------------
+    // DrawMapIcons is called from Camera.onPreCull, i.e. ONCE PER RENDERING CAMERA PER FRAME —
+    // and with the stereo flat screen up that is two or three cameras. As written it did, per
+    // call: a full-scene FindObjectOfType<MapChoreographer>(), a `new[]` roots array, an
+    // ALLOCATING GetComponentsInChildren per root, a GetComponent<Renderer>() per decal, a fresh
+    // MaterialPropertyBlock per decal, another allocating GetComponentsInChildren for the party
+    // token, and a multi-hundred-character interpolated string per decal that is only ever
+    // printed for the first five calls of the session. On the campaign map — exactly the screen
+    // the flat-screen stereo path exists for — that is the single biggest per-frame allocator in
+    // the mod.
+    //
+    // The set of decals under the scenario/village roots only changes when the map state changes,
+    // never between two frames of a pan; their POSES are still read fresh every frame from the
+    // live renderer bounds, so panning and zooming are pixel-identical. So the SET is cached and
+    // re-scanned on an interval, the renderers are cached alongside their decals, and the
+    // property blocks come from a pool that hands out the SAME distinct instance per draw slot
+    // every frame (which preserves the original "one MPB per draw" semantics exactly — the
+    // original comment shows that was a deliberate debugging choice, so it is not weakened).
+    private MapChoreographer? _iconChoreo;
+    private int _iconCacheFrame = int.MinValue;
+    private readonly List<Component> _iconDecals = new(64);
+    private readonly List<Renderer?> _iconDecalRenderers = new(64);
+    private readonly List<Renderer> _iconTokenRenderers = new(8);
+    private readonly List<MaterialPropertyBlock> _iconMpbPool = new(64);
+
+    /// <summary>Frames between two decal/renderer re-scans while <c>MapIconCache</c> is on. ~0.2 s
+    /// at 72 Hz: far below the time any map state change takes to become visible, and 15x less
+    /// scanning than the per-frame original.</summary>
+    private const int IconCacheIntervalFrames = 15;
+
+    /// <summary>Per-draw property block from the pool — same instance for the same draw slot every
+    /// frame, so nothing is shared BETWEEN draws (the property values are re-set below anyway).</summary>
+    private MaterialPropertyBlock RentIconMpb(int slot)
+    {
+        while (_iconMpbPool.Count <= slot)
+            _iconMpbPool.Add(new MaterialPropertyBlock());
+        return _iconMpbPool[slot];
+    }
+
     private void DrawMapIcons(Camera mapCam)
     {
         if (!MapDrawIcons || mapCam == null || _worldMapRenderer == null)
             return;
         TuneMapWindParticles(); // keep the wind but make it subtle (no thick see-through streaks over icons)
-        var choreo = Object.FindObjectOfType<MapChoreographer>();
+
+        bool cacheOn = Core.PerfConfig.MapIconCacheOn;
+        // A full-scene type scan per camera per frame; with the cache on it only re-runs when the
+        // cached choreographer died or the rescan interval elapsed.
+        if (!cacheOn || _iconChoreo == null)
+            _iconChoreo = Object.FindObjectOfType<MapChoreographer>();
+        MapChoreographer? choreo = _iconChoreo;
         if (choreo == null)
             return;
         if (_iconQuad == null)
@@ -2808,73 +2853,133 @@ internal sealed class FlatScreenStereo
         // Sit clearly ABOVE the parchment (its mesh is ~0.13 thick) so we never z-fight the animated
         // foliage — that intersection caused transparent 'wind' bands sweeping through the icons.
         float planeY = _worldMapRenderer.bounds.max.y + 0.10f;
-        var roots = new[] { choreo.m_ScenariosParent, choreo.m_VillagesParent };
-        int nDecals = 0, nNoMat = 0, nNoTex = 0, nDrawn = 0;
-        string firstDetail = "";
-        foreach (GameObject? rootGo in roots)
+
+        // Re-scan the decal / party-token component sets. With the cache OFF this is the original
+        // per-call behaviour (two allocating GetComponentsInChildren per camera per frame); with it
+        // ON the same scan runs once per IconCacheIntervalFrames and the results are reused.
+        bool rescan = !cacheOn
+                      || Time.frameCount - _iconCacheFrame >= IconCacheIntervalFrames
+                      || _iconDecals.Count != _iconDecalRenderers.Count;
+        if (!rescan)
         {
-            if (rootGo == null) continue;
-            foreach (Component d in rootGo.GetComponentsInChildren(_decalType, includeInactive: false))
+            // A destroyed decal (map state changed inside the interval) forces an early re-scan
+            // rather than a frame of stale draws.
+            for (int i = 0; i < _iconDecals.Count; i++)
             {
-                nDecals++;
-                Material? cm = _decalCurMatProp?.GetValue(d) as Material;
-                if (cm == null) { nNoMat++; continue; }
-                Texture? tex = cm.HasProperty(IconMainTex) ? cm.GetTexture(IconMainTex) : cm.mainTexture;
-                if (tex == null) { nNoTex++; if (firstDetail == "") firstDetail = $"noTex mat.shader='{(cm.shader != null ? cm.shader.name : "?")}' main='{(cm.mainTexture != null ? cm.mainTexture.name : "null")}'"; continue; }
-                var rend = d.GetComponent<Renderer>();
-                if (rend == null) continue;
-                Bounds b = rend.bounds;
-                var pos = new Vector3(b.center.x, planeY, b.center.z);
-                var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
-                // Orient the quad to the decal's yaw so the icon matches the game (our camera has a 90° yaw).
-                var rot = Quaternion.Euler(0f, d.transform.eulerAngles.y, 0f);
-                var mpb = new MaterialPropertyBlock(); // fresh per draw (rule out shared-MPB capture issues)
-                if (MapIconsSolidTest)
+                if (_iconDecals[i] == null)
                 {
-                    mpb.SetTexture(IconMainTex, Texture2D.whiteTexture);
-                    mpb.SetColor(IconColor, new Color(1f, 0f, 1f, 1f));
-                }
-                else
-                {
-                    mpb.SetTexture(IconMainTex, tex);
-                    mpb.SetColor(IconColor, Color.white);
-                }
-                _iconCmd.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, rot, scale), _iconMat, 0, 0, mpb);
-                nDrawn++;
-                if (firstDetail == "" || !firstDetail.StartsWith("drawn"))
-                {
-                    Vector2 stS = cm.HasProperty(IconMainTex) ? cm.GetTextureScale(IconMainTex) : Vector2.one;
-                    Vector2 stO = cm.HasProperty(IconMainTex) ? cm.GetTextureOffset(IconMainTex) : Vector2.zero;
-                    Color col = cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white;
-                    firstDetail = $"drawn tex='{tex.name}' {tex.width}x{tex.height} shader='{(cm.shader != null ? cm.shader.name : "?")}' ST(scale {stS.x:F3},{stS.y:F3} off {stO.x:F3},{stO.y:F3}) color={col} pos={pos} scale={scale} decalEuler={d.transform.eulerAngles} active={(_activeMapIsCity ? "CITY" : "WORLD")}";
+                    rescan = true;
+                    break;
                 }
             }
         }
+        if (rescan)
+        {
+            _iconCacheFrame = Time.frameCount;
+            _iconDecals.Clear();
+            _iconDecalRenderers.Clear();
+            CollectIconDecals(choreo.m_ScenariosParent);
+            CollectIconDecals(choreo.m_VillagesParent);
+
+            _iconTokenRenderers.Clear();
+            PartyToken? token = choreo.m_PartyToken; // publicized serialized field
+            if (token != null)
+                token.GetComponentsInChildren(includeInactive: false, _iconTokenRenderers);
+        }
+
+        // The MAP ICONS diagnostic is emitted at most five times per session, so its counters and
+        // its (very long) detail string must not be built on every one of the thousands of calls
+        // in between — the gate now wraps the string work instead of only the log call.
+        bool wantDiag = _mapIconsLogCount < 5;
+        int nDecals = 0, nNoMat = 0, nNoTex = 0, nDrawn = 0;
+        string firstDetail = "";
+
+        for (int i = 0; i < _iconDecals.Count; i++)
+        {
+            Component d = _iconDecals[i];
+            if (d == null)
+                continue;
+            nDecals++;
+            Material? cm = _decalCurMatProp?.GetValue(d) as Material;
+            if (cm == null) { nNoMat++; continue; }
+            Texture? tex = cm.HasProperty(IconMainTex) ? cm.GetTexture(IconMainTex) : cm.mainTexture;
+            if (tex == null)
+            {
+                nNoTex++;
+                if (wantDiag && firstDetail == "")
+                    firstDetail = $"noTex mat.shader='{(cm.shader != null ? cm.shader.name : "?")}' main='{(cm.mainTexture != null ? cm.mainTexture.name : "null")}'";
+                continue;
+            }
+            Renderer? rend = _iconDecalRenderers[i];
+            if (rend == null) continue;
+            Bounds b = rend.bounds;
+            var pos = new Vector3(b.center.x, planeY, b.center.z);
+            var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
+            // Orient the quad to the decal's yaw so the icon matches the game (our camera has a 90° yaw).
+            var rot = Quaternion.Euler(0f, d.transform.eulerAngles.y, 0f);
+            // One property block PER DRAW, as before — pooled instead of newly allocated, so the
+            // "no shared MPB between draws" property the original comment was protecting is kept.
+            MaterialPropertyBlock mpb = cacheOn ? RentIconMpb(nDrawn) : new MaterialPropertyBlock();
+            if (MapIconsSolidTest)
+            {
+                mpb.SetTexture(IconMainTex, Texture2D.whiteTexture);
+                mpb.SetColor(IconColor, new Color(1f, 0f, 1f, 1f));
+            }
+            else
+            {
+                mpb.SetTexture(IconMainTex, tex);
+                mpb.SetColor(IconColor, Color.white);
+            }
+            _iconCmd.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, rot, scale), _iconMat, 0, 0, mpb);
+            nDrawn++;
+            if (wantDiag && (firstDetail == "" || !firstDetail.StartsWith("drawn")))
+            {
+                Vector2 stS = cm.HasProperty(IconMainTex) ? cm.GetTextureScale(IconMainTex) : Vector2.one;
+                Vector2 stO = cm.HasProperty(IconMainTex) ? cm.GetTextureOffset(IconMainTex) : Vector2.zero;
+                Color col = cm.HasProperty(IconColor) ? cm.GetColor(IconColor) : Color.white;
+                firstDetail = $"drawn tex='{tex.name}' {tex.width}x{tex.height} shader='{(cm.shader != null ? cm.shader.name : "?")}' ST(scale {stS.x:F3},{stS.y:F3} off {stO.x:F3},{stO.y:F3}) color={col} pos={pos} scale={scale} decalEuler={d.transform.eulerAngles} active={(_activeMapIsCity ? "CITY" : "WORLD")}";
+            }
+        }
+
         // #3: the party / current-location marker (MapChoreographer.m_PartyToken) is a world-space 3D
         // mesh rendered in the normal forward pass — so our AfterForwardAlpha icons (drawn on cleared
         // depth) land ON TOP of it and it looks like it's "behind" the quest/city icons. Re-draw its
         // renderers into the SAME command buffer AFTER the icons so the party marker is always frontmost.
         int nToken = 0;
-        var partyToken = choreo.m_PartyToken; // publicized serialized field
-        if (partyToken != null)
+        for (int i = 0; i < _iconTokenRenderers.Count; i++)
         {
-            foreach (Renderer tr in partyToken.GetComponentsInChildren<Renderer>(includeInactive: false))
+            Renderer tr = _iconTokenRenderers[i];
+            if (tr == null || !tr.enabled || tr.sharedMaterial == null)
+                continue;
+            Material[] mats = tr.sharedMaterials;
+            for (int sm = 0; sm < mats.Length; sm++)
             {
-                if (tr == null || !tr.enabled || tr.sharedMaterial == null)
-                    continue;
-                Material[] mats = tr.sharedMaterials;
-                for (int sm = 0; sm < mats.Length; sm++)
-                {
-                    if (mats[sm] == null) continue;
-                    _iconCmd.DrawRenderer(tr, mats[sm], sm, -1); // -1 = the material's own valid passes
-                    nToken++;
-                }
+                if (mats[sm] == null) continue;
+                _iconCmd.DrawRenderer(tr, mats[sm], sm, -1); // -1 = the material's own valid passes
+                nToken++;
             }
         }
-        if (_mapIconsLogCount < 5)
+        if (wantDiag)
         {
             _mapIconsLogCount++;
             VRLog.Info("WorldUI", $"MAP ICONS [{_mapIconsLogCount}]: decals={nDecals} noMat={nNoMat} noTex={nNoTex} drawn={nDrawn} partyTokenRenderers={nToken} iconMat='{(_iconMat != null ? _iconMat.shader.name : "null")}' planeY={planeY:F2} — first: {firstDetail}");
+        }
+    }
+
+    /// <summary>
+    /// Collect one root's Decal components plus each one's Renderer into the cached parallel
+    /// lists. The per-decal <c>GetComponent&lt;Renderer&gt;()</c> used to run every frame for every
+    /// decal; a decal never changes its renderer, so it belongs in the scan, not the draw loop.
+    /// </summary>
+    private void CollectIconDecals(GameObject? rootGo)
+    {
+        if (rootGo == null || _decalType == null)
+            return;
+        Component[] found = rootGo.GetComponentsInChildren(_decalType, includeInactive: false);
+        for (int i = 0; i < found.Length; i++)
+        {
+            _iconDecals.Add(found[i]);
+            _iconDecalRenderers.Add(found[i] != null ? found[i].GetComponent<Renderer>() : null);
         }
     }
 

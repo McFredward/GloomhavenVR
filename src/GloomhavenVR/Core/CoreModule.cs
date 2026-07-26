@@ -39,13 +39,25 @@ internal sealed class CoreModule : IVRModule
         _depsLoaded = true;
         StartVR();
 
+        // Own hardened root (same pattern as every other driver host): the heartbeat and the
+        // performance monitor must outlive scene sweeps and never ride a game-visible GO.
+        // Created UNCONDITIONALLY (it used to be gated on VRSession.IsRunning) because the
+        // performance instrumentation is worth having on the flat screen too — a session that
+        // never reached VR is exactly the one whose frame times we want in the log.
+        _hostGo = new GameObject("GloomhavenVR.Core");
+        Object.DontDestroyOnLoad(_hostGo);
+        _hostGo.hideFlags = HideFlags.HideAndDontSave;
+
+        // Frame-pacing instrumentation (2026-07 perf pass). Cheap and self-disabling: with
+        // [Perf] Enabled = false its host costs one bool test per frame and nothing else.
+        PerfMonitor.Install(_hostGo);
+        VRLog.Info(Name, "Performance monitor installed — grep the log for '[Perf] FRAME' "
+                         + "(pacing/GC/XR summary), '[Perf] STEPS' (mod subsystems ranked by cost) "
+                         + "and '[Perf] SPIKE' (individual over-budget frames). Configure in "
+                         + "dev.gloomhavenvr.perf.cfg or under Einstellungen › Leistung.");
+
         if (VRSession.IsRunning)
         {
-            // Own hardened root (same pattern as every other driver host): the
-            // heartbeat must outlive scene sweeps and never ride a game-visible GO.
-            _hostGo = new GameObject("GloomhavenVR.Core");
-            Object.DontDestroyOnLoad(_hostGo);
-            _hostGo.hideFlags = HideFlags.HideAndDontSave;
             _hostGo.AddComponent<VRHeartbeat>();
             _hostGo.AddComponent<VRPresenceWatch>();
             VRLog.Info(Name, "Heartbeat installed — one [Core] status line every 10 s " +
@@ -58,6 +70,7 @@ internal sealed class CoreModule : IVRModule
     public void Shutdown()
     {
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
+        PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
 
         if (_hostGo != null)
         {

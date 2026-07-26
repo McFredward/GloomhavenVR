@@ -46,9 +46,19 @@ internal sealed class BoardPing : MonoBehaviour
 
     private float _lastPingTime = float.NegativeInfinity;
 
+    /// <summary>Cached tick delegate — see the allocation note in <see cref="Update"/>.</summary>
+    private System.Action? _tickCached;
+
     private void Update()
     {
-        TickGuard.Run("Board.Ping", Tick);
+        // [Optimize] CacheTickDelegates (2026-07 perf pass): passing the INSTANCE method group
+        // `Tick` straight to TickGuard.Run created a brand-new Action every single frame. One
+        // delegate is ~64 bytes, this mod had seven such sites, and at 90 Hz that is a steady
+        // ~40 kB/s of pure ceremony feeding the gen0 collector — whose pauses are precisely the
+        // kind of frame-time spike the player reports as the world "juddering" on a fast head
+        // turn. Caching it is behaviour-identical work removal. The toggle exists only so the
+        // hypothesis can be A/B'd on hardware against the [Perf] gc counters.
+        TickGuard.Run("Board.Ping", PerfConfig.CacheDelegates ? _tickCached ??= Tick : Tick);
     }
 
     private void Tick()

@@ -301,7 +301,12 @@ internal sealed class UguiPointer
             // provenance in the log — "did the initiative portrait click reach the
             // game's handler" is answerable from the log alone (the P7 idiom:
             // every interaction is logged).
-            Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
+            // [Optimize] QuietDiagnostics: one line per synthesized click. Event-driven (not
+            // per-frame) and the single most-repeated mod line in the hardware log, so it is the
+            // obvious thing to silence for a clean performance capture; on by default because it is
+            // the verification trace for the whole far-click path (test #18).
+            if (!Core.PerfConfig.Quiet)
+                Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
         }
 
         // End any active drag (StandaloneInputModule fires endDrag after up+click) and

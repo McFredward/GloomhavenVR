@@ -94,15 +94,31 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         DestroyAllAvatars();
     }
 
+    /// <summary>
+    /// Perf attribution (2026-07 perf pass): the networking driver is the only per-frame block
+    /// whose cost SCALES WITH THE NUMBER OF PEERS, so it has to be measurable separately — a
+    /// single-player capture that looks clean says nothing about a four-player table. Each
+    /// sub-step gets its own scope so the multiplayer log can say whether the cost is inbound
+    /// (ApplyPending / TickAvatars, the remote board + avatar rebuild) or outbound (TickSend).
+    /// </summary>
     private void Update()
     {
         float dt = Time.unscaledDeltaTime;
 
-        ApplyPending();
-        TickAvatars(dt);
-        TickSend(dt);
-        TickExtrasSend(dt);
-        NetFigures.Tick();
+        using (Core.PerfMonitor.Scope("Net.Avatar"))
+        {
+            using (Core.PerfMonitor.Scope("Net.ApplyPending"))
+                ApplyPending();
+            using (Core.PerfMonitor.Scope("Net.TickAvatars"))
+                TickAvatars(dt);
+            using (Core.PerfMonitor.Scope("Net.Send"))
+            {
+                TickSend(dt);
+                TickExtrasSend(dt);
+            }
+            using (Core.PerfMonitor.Scope("Net.Figures"))
+                NetFigures.Tick();
+        }
     }
 
     // ---- send ---------------------------------------------------------------------------

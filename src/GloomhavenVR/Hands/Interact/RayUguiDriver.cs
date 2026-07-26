@@ -134,7 +134,9 @@ internal sealed class RayUguiDriver
         // cards. Mirrors the physics rule using the ray's precomputed nearest fan-card distance.
         if (best != null && _hand.Ray.FanOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
-            _hand.Ray.NoteFanOcclusion($"uGUI panel '{best.name}'", bestDist);
+            // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
+            if (RayInteractor.WantFanOcclusionNote)
+                _hand.Ray.NoteFanOcclusion($"uGUI panel '{best.name}'", bestDist);
             best = null;
         }
 

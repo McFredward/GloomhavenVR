@@ -41,8 +41,17 @@ internal static class FigureRingSuppressor
     /// so a ring the game re-activated this frame never survives to the screen while held.</summary>
     internal static void Tick()
     {
-        Suppress(HeldFigures.All);
-        Suppress(NetHeldFigures.All);
+        // [Optimize] FigureScanCache (2026-07 perf pass): HeldFigures.All / NetHeldFigures.All are
+        // typed IEnumerable<ActorBehaviour> over a HashSet, so each foreach in Suppress BOXES the
+        // set's struct enumerator — two heap allocations EVERY LateUpdate, unconditionally, even
+        // though the overwhelmingly common case is "nothing is held at all" and Suppress then
+        // iterates zero elements. Checking the counts first makes the idle case allocation-free
+        // and behaviour-identical (an empty set has nothing to suppress by definition).
+        bool lean = Core.PerfConfig.FigureScanCacheOn;
+        if (!lean || HeldFigures.Count > 0)
+            Suppress(HeldFigures.All);
+        if (!lean || NetHeldFigures.Count > 0)
+            Suppress(NetHeldFigures.All);
 
         if (_tracked.Count == 0)
             return;

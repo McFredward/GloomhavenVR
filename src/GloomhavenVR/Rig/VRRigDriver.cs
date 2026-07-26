@@ -360,7 +360,21 @@ internal sealed class VRRigDriver : MonoBehaviour
         _sceneRecheckName = e.Scene.name;
     }
 
+    /// <summary>
+    /// Perf attribution wrapper (2026-07 perf pass): the rig's Update body is the mod's single
+    /// largest unattributed per-frame block (rig-kind resolution, teardown/build, recenter, spawn
+    /// reseat, then the guarded tail steps), so it gets its own measured scope. The tail's
+    /// TickGuard steps are NESTED inside it — they are still ranked individually in the [Perf]
+    /// STEPS line, and the nesting depth counter makes sure they are counted only ONCE in the
+    /// mod-total, so "Rig.Update" reads as the inclusive total for the whole rig frame.
+    /// </summary>
     private void Update()
+    {
+        using (Core.PerfMonitor.Scope("Rig.Update"))
+            UpdateBody();
+    }
+
+    private void UpdateBody()
     {
         CameraController controller = CameraController.s_CameraController;
         bool scenarioCameraAlive = controller != null && controller.m_Camera != null;
@@ -473,7 +487,14 @@ internal sealed class VRRigDriver : MonoBehaviour
     /// that flattened the rig back to yaw-only this frame (WorldGrab's two-hand solve,
     /// Recenter) is healed before the player ever sees an untilted frame.
     /// </summary>
-    private void LateUpdate() => TickGuard.Run("Rig.WorldTilt", TickWorldTilt);
+    private void LateUpdate() =>
+        // [Optimize] CacheTickDelegates: the expression body used to allocate a fresh Action from
+        // this instance method group every frame — the sibling _tailSteps array had already cached
+        // its delegates for exactly this reason; this one had been missed.
+        TickGuard.Run("Rig.WorldTilt", PerfConfig.CacheDelegates ? _tickWorldTilt ??= TickWorldTilt : TickWorldTilt);
+
+    /// <summary>Cached LateUpdate tick delegate ([Optimize] CacheTickDelegates).</summary>
+    private System.Action? _tickWorldTilt;
 
     // ---- Demeo-style world tilt ([Rig] WorldTiltDegrees) -----------------------------------
 
