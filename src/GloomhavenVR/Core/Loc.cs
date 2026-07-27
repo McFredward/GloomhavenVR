@@ -196,7 +196,34 @@ internal static class Loc
         // pane only says which board its tuning rows are editing and jumps you to the picker, so
         // there are never two controls writing the same setting from two places.
         ["board_pick_in_avatar"] = Pair("Choose under Avatar ›", "Auswahl unter Avatar ›"),
-        ["display"] = Pair("Display", "Anzeige"),
+        // ---- 2026-07 menu restructure: the five sidebar tabs + the section headers ----------
+        // NAMES ARE ONE WORD ON PURPOSE. The sidebar column is a PINNED 132 px (SettingsPanel
+        // .BuildColumn) and its buttons render at fontSize 15 in a 30 px row, so a two-word tab
+        // name wraps and clips. Every tab therefore gets a single noun that says what the player
+        // is trying to DO: sit comfortably (Komfort), make the picture right (Grafik), deal with
+        // the mod's own panels (Tafeln), decide how they look (Avatar), tune (Debug).
+        // (The "Komfort" tab reuses the long-standing ["comfort"] key further up; "Tafeln" reuses
+        // ["cat_panels"], "Avatar" reuses ["avatar"]. The two keys the restructure retired —
+        // ["display"] and ["performance"] — are gone with the tabs they named, so a dead key cannot
+        // suggest a tab that no longer exists.)
+        ["cat_graphics"] = Pair("Graphics", "Grafik"),
+        ["cat_debug"] = Pair("Debug", "Debug"),
+        // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
+        // group instead of a sidebar entry), which is why the restructure uses them for grouping
+        // and keeps the tab count at five.
+        ["sec_table_world"] = Pair("Table & world", "Tisch & Welt"),
+        ["sec_movement"] = Pair("Movement & turning", "Bewegung & Drehen"),
+        ["sec_hands_aim"] = Pair("Hands & aiming", "Hände & Zielen"),
+        ["sec_presentation"] = Pair("Presentation", "Darstellung"),
+        ["sec_appearance"] = Pair("Appearance", "Aussehen"),
+        ["sec_multiplayer"] = Pair("Multiplayer", "Mehrspieler"),
+        // Rows whose captions used to be German literals in SettingsPanel.3.Content.cs. They move
+        // between tabs in this restructure, so they are localized on the way (the whole mod is
+        // localized — a moved row must not arrive as a hardcoded string).
+        ["world_tilt"] = Pair("World tilt", "Welt-Neigung"),
+        ["wall_see_through"] = Pair("See-through walls", "Wände durchsichtig"),
+        ["element_hints"] = Pair("Element hints", "Element-Hinweise"),
+
         ["show_combat_log"] = Pair("Show combat log", "Kampflog anzeigen"),
         // Size dial for the mouseover info panels ("2 Gold", "Geschlossene Tür", …) — the German
         // wording mirrors the user's own term ("Infotafeln"), the English one names them as the
@@ -215,8 +242,14 @@ internal static class Loc
         // the reserved strip where their take-damage / dialog prompts dock on their own client.
         ["decision_dock"] = Pair("Decisions", "Entscheidungen"),
         ["elements"] = Pair("Elements", "Elemente"),
-        ["vr_settings"] = Pair("VR settings", "VR-Einstellungen"),
-        ["pin"] = Pair("Pin toggle", "Pin-Schalter"),
+        // The two board DASHBOARD keys. Both name BUTTONS, and the 2026-07 restructure moved them
+        // out of Debug ▸ "Board & Layout" into Debug ▸ "Tasten" — the user's literal complaint was
+        // that buttons were not to be found under buttons. The captions say (position) because the
+        // very same two caps carry their SIZE under "Zahnrad & Fixiert (Größe)"; the pair of
+        // qualifiers is what keeps the two rows from reading as duplicates of each other. German
+        // "Fixiert" is the word engraved on the plate itself (Loc "pinned"), not a new term.
+        ["vr_settings"] = Pair("Gear button (position)", "Zahnrad-Knopf (Position)"),
+        ["pin"] = Pair("Pin button (position)", "Fixiert-Knopf (Position)"),
         ["readout"] = Pair("Round readout", "Rundenanzeige"),
         ["cluster"] = Pair("Turn buttons", "Zugleiste"),
         ["hands"] = Pair("Hands", "Hände"),
@@ -261,8 +294,8 @@ internal static class Loc
         // ever evaluates while [Compat] WallFade is on, so they are inert with the "Wände
         // durchsichtig" toggle off. The pane says so instead of offering four steppers that move
         // nothing.
-        ["wall_fade_note"] = Pair("needs 'See-through walls' (Display) switched on",
-                                  "wirkt nur bei eingeschaltetem \"Wände durchsichtig\" (Anzeige)"),
+        ["wall_fade_note"] = Pair("needs 'See-through walls' (Graphics) switched on",
+                                  "wirkt nur bei eingeschaltetem \"Wände durchsichtig\" (Grafik)"),
         ["on"] = Pair("On", "An"),
         ["off"] = Pair("Off", "Aus"),
         ["spacing"] = Pair("Spacing", "Abstand"),
@@ -281,15 +314,20 @@ internal static class Loc
 
         // ---- Debug element / sub-category labels (previously hardcoded German) ----
         ["round_buttons"] = Pair("Round-phase buttons", "Rundenknöpfe"),
-        ["board_dashboard"] = Pair("Gear & Pin", "Zahnrad & Fixiert"),
+        ["board_dashboard"] = Pair("Gear & Pin (size)", "Zahnrad & Fixiert (Größe)"),
         ["wall_fade"] = Pair("Wall see-through", "Wandüberblendung"),
         ["hand_offsets"] = Pair("Hand offsets", "Hände-Offsets"),
         ["figure_offsets"] = Pair("Figure offsets", "Figuren-Offsets"),
         ["button_colors"] = Pair("Button colors", "Knopf-Farben"),
         ["subcat_board_layout"] = Pair("Board & Layout", "Board & Layout"),
         ["subcat_cards_piles"] = Pair("Cards & Piles", "Karten & Stapel"),
-        ["subcat_offsets"] = Pair("Hands/Offsets", "Hände/Offsets"),
-        ["subcat_wall_seethrough"] = Pair("Wall see-through", "Wand-Durchsicht"),
+        ["subcat_offsets"] = Pair("Hands & offsets", "Hände & Offsets"),
+        // 2026-07 restructure: the wall-fade fractions used to be a sub-category of their OWN with
+        // exactly one element — a navigation level with nothing to choose. They now share this
+        // sub-category with the timing/CPU levers, which is honest about what both are: dials you
+        // turn to FIND a good default, not settings a player decides between. The single-element
+        // name stays as the ELEMENT caption (Loc "wall_fade").
+        ["subcat_perf_effects"] = Pair("Performance & effects", "Leistung & Effekte"),
 
         // ---- Debug ▸ Alle Einstellungen — the generic config browser (2026-07) ----------------
         // User: "Alle config einstellungen sollen im VR Menu anpassbar sein!" — nothing may be
@@ -399,8 +437,8 @@ internal static class Loc
         ["perf_config_short"] = Pair("Measurement + internal switches: config file",
                                      "Messung + interne Schalter: Konfigurationsdatei"),
         ["perf_game_graphics_note"] = Pair(
-            "Shadows, textures, lighting and the game's own anti-aliasing stay in Options › Graphics — these two rows only add what VR needs and the game has no control for. Note the game's anti-aliasing is post-processing and is switched off in VR (Display › Disable post-processing).",
-            "Schatten, Texturen, Beleuchtung und die spieleigene Kantenglättung bleiben unter Optionen › Grafik — diese beiden Regler ergänzen nur das, wofür das Spiel keinen Regler hat. Hinweis: die Kantenglättung des Spiels ist Post-Processing und ist in VR abgeschaltet (Anzeige › Post-Processing aus)."),
+            "Shadows, textures, lighting and the game's own anti-aliasing stay in Options › Graphics — these two rows only add what VR needs and the game has no control for. Note the game's anti-aliasing is post-processing and is switched off in VR ('Disable post-processing', further up on this tab).",
+            "Schatten, Texturen, Beleuchtung und die spieleigene Kantenglättung bleiben unter Optionen › Grafik — diese beiden Regler ergänzen nur das, wofür das Spiel keinen Regler hat. Hinweis: die Kantenglättung des Spiels ist Post-Processing und ist in VR abgeschaltet (\"Post-Processing aus\", weiter oben auf dieser Seite)."),
         ["perf_config_note"] = Pair(
             "Measurement logging and the internal A/B switches are not shown here — they change nothing you can see. They live in dev.gloomhavenvr.perf.cfg, the timing levers under Debug.",
             "Mess-Protokollierung und interne A/B-Schalter stehen nicht hier — sie ändern nichts Sichtbares. Sie liegen in dev.gloomhavenvr.perf.cfg, die Zeitgeber-Regler unter Debug."),
@@ -410,8 +448,8 @@ internal static class Loc
         ["debug_timing_short"] = Pair("CPU intervals — not the stutter lever",
                                       "CPU-Intervalle — nicht der Ruckel-Regler"),
         ["debug_timing_note"] = Pair(
-            "CPU-side refresh intervals. Measured at ~2.5% of frame time, so these are for finding defaults, not for fixing stutter — the GPU rows under Performance are the ones that move frames.",
-            "CPU-seitige Auffrischungs-Intervalle. Gemessen bei ~2,5 % der Bildzeit — also zum Ermitteln guter Vorgaben, nicht gegen Ruckler; dafür sind die GPU-Regler unter Leistung zuständig."),
+            "CPU-side refresh intervals. Measured at ~2.5% of frame time, so these are for finding defaults, not for fixing stutter — the GPU rows under Graphics are the ones that move frames.",
+            "CPU-seitige Auffrischungs-Intervalle. Gemessen bei ~2,5 % der Bildzeit — also zum Ermitteln guter Vorgaben, nicht gegen Ruckler; dafür sind die GPU-Regler unter Grafik zuständig."),
         ["debug_skip_scrub_draw"] = Pair("Skip the discarded desktop render", "Verworfenes Desktop-Rendering überspringen"),
         ["debug_skip_scrub_note"] = Pair(
             "In a scenario the game still renders the whole 3D scene a third time, into a texture nothing reads, so the monitor stays clean. This skips only that drawing. Expected to be invisible and to be the single largest GPU saving here — but untested on hardware, which is why it is off. If anything looks wrong in the headset, switch it back.",
@@ -438,8 +476,9 @@ internal static class Loc
         // player can see, so there is no compromise for a player to make and offering them
         // implied there was. They are config-file entries now (dev.gloomhavenvr.perf.cfg), which
         // is where a debug-phase instrument belongs. The three interval labels below survive
-        // because their rows moved to the Debug pane, not because they are user settings.
-        ["performance"] = Pair("Performance", "Leistung"),
+        // because their rows moved to the Debug pane, not because they are user settings. The tab
+        // NAME key ["performance"] is gone too — the 2026-07 restructure folded that tab into
+        // "Grafik" (["cat_graphics"]), where the render trade opens the page.
         ["opt_fan_relayout"] = Pair("Card fan re-layout limit", "Kartenfächer-Neuaufbau max."),
         ["opt_wall_eval"] = Pair("Wall see-through check every", "Wand-Durchsicht prüfen alle"),
         ["opt_remote_content"] = Pair("Player board refresh", "Mitspieler-Board-Auffrischung"),

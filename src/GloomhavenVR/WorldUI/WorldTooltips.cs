@@ -230,7 +230,7 @@ internal sealed class WorldTooltips
         // Scale WITH THE BOARD (user #7a): the control board's live lossy scale (diorama ×
         // tray-grab resize) when it exists, else the diorama scale (menu / no-tray fallback).
         float scale = ResolveWorldScale();
-        // USER SIZE DIAL ("Infotafel-Größe", Anzeige): one factor for every mouseover info panel.
+        // USER SIZE DIAL ("Infotafel-Größe", settings tab "Tafeln"): one factor for every mouseover info panel.
         // The prop/text hover cards apply it as their ABSOLUTE world factor (its default IS their
         // old hard-coded 0.6), so here it is NORMALIZED against that same default — at the factory
         // value the term is exactly 1 and this canvas keeps its established metres-per-pixel
