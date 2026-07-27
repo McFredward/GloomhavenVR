@@ -147,12 +147,12 @@ check it is not:
 
 | Phase | Output | State |
 |---|---|---|
-| 0 | Charter, guard harness, baseline | done |
-| 1 | Per-subsystem code review → `REVIEW-*.md`; invariant registry → `INVARIANTS.md` | |
-| 2 | Dead-code and duplication census, cross-checked against §5 | |
-| 3 | `PLAN.md`: ordered, tiered work list with a guard expectation per item | |
-| 4 | Execution — small commits, guard-checked, one subsystem at a time | |
-| 5 | Final report + a regression test script for the user's hardware pass | |
+| 0 | Charter, guard harness, baseline | **done** |
+| 1 | Per-subsystem code review → `REVIEW-*.md`; invariant registry → `INVARIANTS.md` | **done** |
+| 2 | Dead-code and duplication census, cross-checked against §5 | **done** |
+| 3 | `PLAN.md`: ordered, tiered work list with a guard expectation per item | **done** |
+| 4 | Execution — small commits, guard-checked, one subsystem at a time | **done** |
+| 5 | Final report + a regression test script for the user's hardware pass | **done** |
 
 Phase 4 does not begin until the user has seen the plan from Phase 3.
 
