@@ -1,0 +1,44 @@
+# FRAME-ORDER.lock — the second of two levers.
+#
+# Per-frame step order is the one class of regression in this mod that can ship
+# completely silently: refactor-guard.sh proves BLAST RADIUS, and a reorder inside
+# BoardDriver.Update is an ordinary diff inside a type the refactor legitimately
+# touched — the guard's PASS condition for a Tier-1 motion (CHARTER §3b.2).
+#
+# So each locked ordering is stated twice: once as a `// FRAME-ORDER` marker
+# comment beside the code, and once here. scripts/check-frame-order.sh enforces
+#
+#   1. the marker's tokens occur, in that order, in the source after the marker;
+#   2. the marker's bracket list is byte-identical to the line below.
+#
+# (1) alone catches "I tidied the Update method". (2) catches "I tidied the Update
+# method AND the comment". Together they mean a frame order cannot change by
+# accident — three files, in agreement, in one commit. A deliberate change is still
+# possible, and is Tier 3.
+#
+# Format:  <id> | <file> | <mode> | [<step>, <step>, ...]
+#   mode `ordered`             — the steps run in this order after the marker
+#   mode `LateUpdate-required` — the steps sit inside a LateUpdate body
+#   a `GATE:` prefix marks a control-flow gate the steps around it straddle
+#
+# NOT LOCKED, ON PURPOSE
+# ----------------------
+# Six further orderings (REVIEW-Hands-Board-Core §P2 sites 8–13: MixedReality.Tick's
+# sky ordering, RayInteractor.Tick's fan occluder, UguiPointer.TryRaycast's override
+# write, HandsDriver.TearDown, HandVisuals' socket creation, and
+# FigureOverlay.BuildFrozenGhost's destroy order) are single-method-local and already
+# state their reason at the code. A lock entry adds nothing a reader would miss.
+#
+# And NO `[DefaultExecutionOrder]` anywhere: the two cross-MonoBehaviour orderings
+# (BoardDriver.SyncRayMask, FigureGrabDriver.TickLaserGrab) are deliberately NOT
+# relied upon — sticky mask, two-frame freshness window. Freezing an order the code
+# does not depend on is a behaviour change wearing a tidy-up costume. Both sites
+# carry a comment saying so, and no marker.
+
+VRHand.UpdateBody.pose | src/GloomhavenVR/Hands/VRHand.cs | ordered | [ReadSimulated, ReadDevice, UpdateVelocity, UpdatePoseClassification, UpdateCurlTargets, _curler.Tick, Poke.Tick]
+VRHand.UpdateBody.interactors | src/GloomhavenVR/Hands/VRHand.cs | ordered | [Poke, Ray, RayUgui, RayGrab, Grabber, PalmGate]
+BoardDriver.Update | src/GloomhavenVR/Board/BoardDriver.cs | ordered | [Board.SyncRayMask, Board.CameraArrival, Board.Click, Board.Aoe, Board.Targeting]
+FigureGrabDriver.Update | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | ordered | [FigureGrab.Ghosts, FigureGrab.Glide, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
+FigureGrabDriver.LateUpdate | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | LateUpdate-required | [HeldFigures.PinAnimatedRoots, NetHeldFigures.PinAnimatedRoots, FigureRingSuppressor.Tick]
+WallSegmentFade.FadeDriver.LateUpdate | src/GloomhavenVR/Core/WallSegmentFade.cs | LateUpdate-required | [WallFade.Late]
+VRRigDriver._tailSteps | src/GloomhavenVR/Rig/VRRigDriver.cs | ordered | [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]

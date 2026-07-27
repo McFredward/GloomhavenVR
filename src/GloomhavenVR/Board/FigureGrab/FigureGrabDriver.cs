@@ -73,6 +73,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private void Update()
     {
+        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.Ghosts, FigureGrab.Glide, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
+        //   The GATE token is load-bearing, not decoration: Ghosts and Glide must run BEFORE the
+        //   config gate's early-out. Ghosts so REMOTE-held ghosts still appear and clear while
+        //   local figure-grab is off, Glide so a release glide already in flight still lands when
+        //   the toggle is flipped mid-air. Moving either below the gate strands a mini in the air
+        //   on a remote peer — a bug that is invisible in single-player and invisible to
+        //   refactor-guard.sh (it is an ordinary in-type diff). Locked; reordering is Tier 3.
         // TASK #3 — reconcile home-spot ghosts against the local + remote held-sets (spawn is done at
         // grab time; this only tears down ghosts whose figure was released, incl. remote releases).
         // Runs even when local figure-grab is disabled so REMOTE-held ghosts still appear/clear.
@@ -123,6 +130,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// </summary>
     private void LateUpdate()
     {
+        // FRAME-ORDER FigureGrabDriver.LateUpdate LateUpdate-required [HeldFigures.PinAnimatedRoots, NetHeldFigures.PinAnimatedRoots, FigureRingSuppressor.Tick]
+        //   These three MUST run in LateUpdate, after the Animator. The doc comment above says
+        //   why; this line is the machine-checked form of it. The change it exists to stop is
+        //   "merge Update and LateUpdate for symmetry" — which would put the pin BEFORE the
+        //   animation update and translate every held figure straight out of the hand.
         if (HeldFigures.Count > 0)
             TickGuard.Run("FigureGrab.PinHeld", HeldFigures.PinAnimatedRoots);
         if (NetHeldFigures.Count > 0)
@@ -255,6 +267,14 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
         // Clamp the beam to the mini (reticle on the figure) AND suppress the board far-click /
         // game actor-select for this trigger press — the same UiHitOverride the fan laser uses.
+        //
+        // NO FRAME-ORDER MARKER, DELIBERATELY. This is the producer; consumers read it through
+        // RayInteractor.HasFreshUiHit, on a different GameObject, so Unity's relative Update
+        // order is undefined. That is by design: HasFreshUiHit's window is TWO frames
+        // (`frameCount - _uiHitOverrideFrame <= 1`) PRECISELY so producer and consumer may sit
+        // in either phase. Adding [DefaultExecutionOrder] to pin the phase would freeze an order
+        // nothing relies on, and would quietly narrow that window's job to nothing.
+        // See .planning/refactor/REVIEW-Hands-Board-Core.md §P2.
         hand.Ray.UiHitOverride = pick.HitPoint;
         if (hand.Side == HandSide.Left)
             _leftClampFrame = Time.frameCount;

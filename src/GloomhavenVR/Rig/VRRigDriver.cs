@@ -341,8 +341,20 @@ internal sealed class VRRigDriver : MonoBehaviour
         VREvents.SceneLoaded += OnSceneLoaded;
 
         // Build the guarded tick list once — order matches the original Update() tail
-        // exactly (HeadCullingMask → HeadClearColor → ClipPlanes → CameraPolicy →
-        // MixedReality). Cached delegates → zero per-frame allocation in the loop.
+        // exactly. Cached delegates → zero per-frame allocation in the loop.
+        //
+        // FRAME-ORDER VRRigDriver._tailSteps [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
+        //   MixedReality is LAST on purpose: it reads the camera state every earlier step wrote
+        //   (clear colour, clip planes, per-camera policy) and decides see-through from it.
+        //   Promoting it — or inserting a step after it — silently changes what it sees.
+        //   Cross-boundary invariant: the array lives in Rig/, the constraint belongs to
+        //   Core.MixedReality; the marker is the only thing holding the two together.
+        //
+        //   The prose that used to sit here listed FIVE steps for this SIX-step array —
+        //   Rig.RenderQuality was inserted and the comment was left alone, so the only guard on
+        //   the mod's most order-sensitive array had been wrong ever since. Naming the steps
+        //   twice (here and in FRAME-ORDER.lock) and checking both against the source is exactly
+        //   what stops that from recurring.
         _tailSteps = new (string, System.Action)[]
         {
             ("Rig.HeadCullingMask", TickHeadCullingMask),

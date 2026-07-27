@@ -388,6 +388,10 @@ internal static class WallSegmentFade
         /// </summary>
         private void LateUpdate()
         {
+            // FRAME-ORDER WallSegmentFade.FadeDriver.LateUpdate LateUpdate-required [WallFade.Late]
+            //   LateUpdate is the requirement, not a preference — see the doc comment above.
+            //   Machine-checked so a later "all drivers tick in Update" tidy-up fails at commit
+            //   time instead of producing a fade that samples last frame's head pose.
             try
             {
                 // Perf attribution (2026-07 perf pass): the per-segment visibility sweep walks

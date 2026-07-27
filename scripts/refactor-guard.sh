@@ -93,6 +93,8 @@ case "${1:-check}" in
         # checks; neither reaches the DLL, so neither affects the snapshot below.
         "$ROOT/scripts/patch-inventory.sh" check \
             || { echo "error: Harmony patch surface drifted (see above)" >&2; exit 1; }
+        "$ROOT/scripts/check-frame-order.sh" \
+            || { echo "error: frame ordering drifted (see above)" >&2; exit 1; }
         snapshot "$CURR"
         if [[ "${2:-}" == "--summary" ]]; then
             echo "=== compiled form vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="
