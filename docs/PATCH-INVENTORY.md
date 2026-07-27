@@ -88,8 +88,8 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `CameraController_LateUpdate_Patch`<br/><sub>src/GloomhavenVR/Rig/CameraControllerPatches.cs:32</sub> | `CameraController.LateUpdate()` *(private)* | prefix | `RigModule`:43 |
-| `CameraController_RefreshFocusPosition_Patch`<br/><sub>src/GloomhavenVR/Rig/CameraControllerPatches.cs:50</sub> | `CameraController.RefreshFocusPosition()` *(private)* | prefix | `RigModule`:44 |
+| `CameraController_LateUpdate_Patch`<br/><sub>src/GloomhavenVR/Rig/CameraControllerPatches.cs:32</sub> | `CameraController.LateUpdate()` *(private)* | prefix | `RigModule`:44 |
+| `CameraController_RefreshFocusPosition_Patch`<br/><sub>src/GloomhavenVR/Rig/CameraControllerPatches.cs:50</sub> | `CameraController.RefreshFocusPosition()` *(private)* | prefix | `RigModule`:45 |
 
 ## WorldUI
 

@@ -340,8 +340,11 @@ internal sealed class VRRigDriver : MonoBehaviour
         Instance = this;
         VREvents.SceneLoaded += OnSceneLoaded;
 
-        // Build the guarded tick list once — order matches the original Update() tail
-        // exactly. Cached delegates → zero per-frame allocation in the loop.
+        // Build the guarded tick list once. The array IS the order; it is no longer "the original
+        // Update() tail exactly", as this comment used to claim — Rig.RenderQuality was added
+        // later and was never part of that inline tail, which is the same edit that left the step
+        // list below wrong (see the note under the marker).
+        // Cached delegates → zero per-frame allocation in the loop.
         //
         // FRAME-ORDER VRRigDriver._tailSteps [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
         //   MixedReality is LAST on purpose: it reads the camera state every earlier step wrote
@@ -752,7 +755,16 @@ internal sealed class VRRigDriver : MonoBehaviour
     {
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
-        MixedReality.RestoreAll(); // put every keyed camera + the skybox back before the policy release
+        // RESTORE ORDER IS LOAD-BEARING: MixedReality FIRST, then VRCameraPolicy. MR is the
+        // narrower mutation and it lives ON cameras the policy owns — it resolves the head camera
+        // through VRCameraPolicy.AllowedHead, and every camera it keyed was swept while the policy
+        // was in force. VRCameraPolicy.RestoreAll releases that ownership and nulls AllowedHead,
+        // so it must be the LAST step of camera teardown: release first and the keyed cameras are
+        // left green with the state that recorded them already gone.
+        // Do not alphabetise or "group the restores"; this pair is an ordering, not a list.
+        // (INVARIANTS-Net-Rig.md "MixedReality.RestoreAll runs BEFORE VRCameraPolicy.RestoreAll",
+        //  established by 5c881e7.)
+        MixedReality.RestoreAll();
         VRCameraPolicy.RestoreAll();
         if (Instance == this)
             Instance = null;
@@ -1082,16 +1094,16 @@ internal sealed class VRRigDriver : MonoBehaviour
         return best;
     }
 
-    /// <summary>Recenter the live rig, if any (Phase-4 comfort entry point — chord/panel/dev key).</summary>
+    /// <summary>Recenter the live rig, if any (the comfort entry point — chord/panel/dev key).</summary>
     internal static void RequestRecenter() => Instance?.Recenter();
 
     /// <summary>
     /// Reposition the rig so the player's CURRENT head pose ends up at the configured
     /// table-edge spot: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real)
     /// above the orbit focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/>
-    /// back (standing/seated presets + [Comfort] TableHeightOffset). Called automatically
-    /// on the first tracked pose; Phase 4 binds it to the B+Y hold chord (see
-    /// <see cref="Comfort"/>).
+    /// back (the STANDING preset + [Comfort] TableHeightOffset — there is no seated preset any
+    /// more, see <see cref="ComfortSettings.StandingEyeHeightMeters"/>). Called automatically
+    /// on the first tracked pose, and bound to the B+Y hold chord (see <see cref="Comfort"/>).
     /// </summary>
     internal void Recenter()
     {

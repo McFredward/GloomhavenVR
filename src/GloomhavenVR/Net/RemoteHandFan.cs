@@ -88,17 +88,18 @@ internal sealed class RemoteHandFan
     private const float CardHeight = DefaultCardHeight;
     private const float PalmOffset = 0.09f;                        // CardsConfig.FanPalmOffset
 
-    /// <summary>The palm standoff the fan floats at, exposed so <see cref="RemoteCardFx"/> can aim
-    /// a flight at the SAME point the fan actually sits at (a card must glide back into the fan,
-    /// not into the palm). Prefer <see cref="FanAnchorPoint"/>, which also gets the palm-vs-hand-root
-    /// frame right.</summary>
-    internal const float PalmStandoff = PalmOffset;
-
     /// <summary>
     /// Where a peer's hand fan actually floats: one palm standoff up the PALM normal of
     /// <paramref name="holder"/>'s hand (falling back to the holder's own +Y before the rig exists).
     /// Shared with <see cref="RemoteCardFx"/> so a replicated card flight lands in the fan rather
     /// than out of the back of the peer's hand — the same frame bug PoseFan documents.
+    ///
+    /// This is the ONLY anchor surface, deliberately. The standoff used to be exposed on its own as
+    /// an <c>internal const PalmStandoff</c> and <see cref="RemoteCardFx"/> aimed with it along the
+    /// hand ROOT's +Y — which points out of the BACK of the hand, so flights landed a palm-thickness
+    /// on the wrong side (fixed in 9a7f911, which is when this helper appeared and the constant lost
+    /// its last caller). Do not re-expose the bare offset: a distance without the frame it is
+    /// measured in is what produced the bug.
     /// </summary>
     internal static Vector3 FanAnchorPoint(RemoteAvatar owner, Transform holder)
     {

@@ -243,8 +243,14 @@ internal static class PresenceSerializer
         {
             // Byte A packs everything that is NOT a count: the pile kind (2 bits), the two
             // placement bits, and — first user of the reserved room the last flag bit was spent
-            // to create — the "a mask-size byte follows" bit. Bits 5..7 stay zero for the next
-            // extension after this one.
+            // to create — the "a mask-size byte follows" bit. Bits 5..6 are the SECOND user of
+            // that room, the control-board style, written by the last statement in this block.
+            // Only bit 7 (NetProtocol.PileBrowseReservedBit) stays zero, and it is the last free
+            // bit in the entire protocol.
+            //
+            // (This comment used to say "bits 5..7 stay zero"; the style field was added four
+            // lines below it and the comment was not updated. Bits written here, bits described
+            // here: keep them in step.)
             //
             // When only the mask size rides this packet, the pile-browse sub-fields are written
             // ZEROED and byte B (count) is 0: that is precisely how a reader — new or old — is

@@ -7,9 +7,14 @@ namespace GloomhavenVR.Rig;
 
 /// <summary>
 /// <c>[Comfort] DebugGizmos</c>: OnGUI overlay with the live comfort state — rig
-/// pose/scale multiplier, world-grab state, per-hand grip ownership, snap-turn arming,
-/// clamp and vignette status, recenter-chord progress. Placed bottom-left so it
-/// coexists with the Phase-2 dev overlay (top-left).
+/// pose/scale multiplier, world-grab state, per-hand world-grab ownership (and whether an
+/// unused grip is pressed), snap-turn arming, <see cref="RigClamp"/> status, recenter-chord
+/// progress. Placed bottom-left so it coexists with the Phase-2 dev overlay (top-left).
+///
+/// There is no vignette row, and this doc used to claim one. The comfort vignette — component,
+/// settings row and Loc label — was REMOVED (8454e88, 5e4942a) and must not be restored: its
+/// absence is the decision, not an omission (INVARIANTS-Net-Rig.md, "The comfort vignette and
+/// seated mode were REMOVED").
 ///
 /// Like the DevConsole, OnGUI string building only runs while the toggle is on —
 /// the per-frame allocation rule applies to the always-on path, not debug overlays.

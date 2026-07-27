@@ -1,12 +1,14 @@
 // =============================================================================================
-// REGISTRATION (do this in a SEPARATE change to avoid conflicting with parallel workers):
-//   File: src/GloomhavenVR/Plugin.cs, method RegisterModules() — add after the WorldUI line
-//   (currently Plugin.cs:359, "_modules.Add(new WorldUI.WorldUIModule());"):
+// REGISTRATION: already done — Plugin.RegisterModules() contains "_modules.Add(new
+// Net.NetModule());" (since cac5474), between the WorldUI and Compat modules.
 //
-//       _modules.Add(new Net.NetModule());
+// This header used to carry instructions to add that line "in a SEPARATE change". It stayed
+// after the line landed, so it read as a to-do to exactly the audience most likely to act on
+// it, and acting on it would have registered the module TWICE. Do not restore it.
 //
-//   Order: after the Rig/Hands modules (it reads VRRigDriver.HeadCamera + VRHands) and
-//   before Compat is fine. It is safe anywhere after HandsModule.
+// The one real constraint it recorded, kept: NetModule must be registered AFTER RigModule and
+// HandsModule, because it reads VRRigDriver.HeadCamera and VRHands. Anywhere after HandsModule
+// is fine; nothing depends on its position relative to Compat or Dev.
 // =============================================================================================
 
 using BepInEx.Configuration;
@@ -27,8 +29,10 @@ namespace GloomhavenVR.Net;
 /// <see cref="VRSession.Harmony"/> instance (removed wholesale by Plugin.OnDestroy's
 /// UnpatchSelf), so hot-reload stays clean.
 ///
-/// NOT REGISTERED in Plugin.cs yet — see the registration note at the top of this file. The
-/// module is inert until that one line is added, so it cannot affect the rest of the mod.
+/// Registered in <c>Plugin.RegisterModules()</c>. The whole subsystem sits behind the
+/// <see cref="Enabled"/> kill-switch: with it off, <see cref="Init"/> binds the config and
+/// returns before the transport or the driver GameObject exist, so no Harmony hook is installed
+/// and nothing is sent or rendered.
 /// </summary>
 internal sealed class NetModule : IVRModule
 {

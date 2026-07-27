@@ -181,7 +181,26 @@ internal sealed class RemoteItemFan
     }
 
     /// <summary>Where the fan sits this frame: above the sender's dominant palm when they hold it,
-    /// otherwise above their synced control board. False when neither reference exists yet.</summary>
+    /// otherwise above their synced control board. False when neither reference exists yet.
+    ///
+    /// NEAR-TWIN OF <c>RemoteBrowserFan.TryResolveAnchor</c> — DO NOT UNIFY THEM. The position math
+    /// and the billboard tail match line for line; the SCALE does not, and the difference is real:
+    ///   • this method returns position only, and <see cref="Tick"/> puts the sender's RIG scale
+    ///     (<c>_owner.AppliedScale</c>) on the root in BOTH branches — including the board-anchored
+    ///     one, which positions with <c>BoardScale</c>;
+    ///   • the browse fan returns a <c>rootScale</c> and hands back the sender's BOARD scale when
+    ///     board-anchored, its doc stating the rule it follows: reproduce whichever transform the
+    ///     LOCAL fan hangs under.
+    /// By that rule the two disagree, because the local item fan is board-anchored under
+    /// <c>PlayTray.Current.Root</c> (<c>Cards.ItemsPile.Open</c>) and therefore wears the board's
+    /// scale on the sender's own screen. A peer therefore sees this fan at the sender's diorama
+    /// scale rather than their board scale — and the two routinely differ, because the control board
+    /// scales INDEPENDENTLY of world zoom (INVARIANTS-Net-Rig.md, "THE CONTROL BOARD SCALES
+    /// INDEPENDENTLY OF WORLD ZOOM").
+    /// This is therefore a suspected receiver-side fidelity BUG, not a documented choice — but
+    /// changing it changes what every peer sees, so it needs a hardware round, not a refactor.
+    /// Recorded here because the divergence was undocumented anywhere, including the registry, and
+    /// anyone "tidying" these two methods into one would silently pick a side.</summary>
     private bool TryResolvePose(out Vector3 pos, out Quaternion rot)
     {
         pos = default;

@@ -30,8 +30,9 @@ internal enum TurnHandChoice
 
 /// <summary>
 /// Typed accessor over one comfort config entry: read/write value + a typed change
-/// event. The future P3c in-VR settings panel binds its widgets to these — one
-/// wrapper per row — instead of touching BepInEx types directly.
+/// event. The in-VR settings panel (<see cref="WorldUI.SettingsPanel"/>) binds its widgets to
+/// these — one wrapper per row — instead of touching BepInEx types directly. It shipped; this
+/// doc used to call it "the future P3c panel".
 /// </summary>
 internal sealed class ComfortSetting<T>
 {
@@ -97,8 +98,10 @@ internal sealed class ComfortSetting<T>
 /// (<see cref="WorldScaleBase"/>). Bound in <see cref="RigModule.Init"/>, released in
 /// <see cref="RigModule.Shutdown"/> — hot-reload clean.
 ///
-/// The deferred P3c in-VR settings panel binds to the <see cref="ComfortSetting{T}"/>
-/// wrappers and the runtime ops on <see cref="Comfort"/>; nothing here depends on UI.
+/// The in-VR settings panel (<see cref="WorldUI.SettingsPanel"/>) binds to the
+/// <see cref="ComfortSetting{T}"/> wrappers and the runtime ops on <see cref="Comfort"/>;
+/// nothing here depends on UI. The dependency runs one way, and it still does now that the
+/// panel exists — keep it that way.
 /// </summary>
 internal static class ComfortSettings
 {
@@ -117,7 +120,7 @@ internal static class ComfortSettings
     /// <summary>Fired with the entry key after ANY comfort setting changes (panel dirty-marking).</summary>
     public static event Action<string>? AnyChanged;
 
-    // ---- typed accessors (the P3c panel binding surface) --------------------------------
+    // ---- typed accessors (the settings-panel binding surface) ---------------------------
 
     /// <summary>Base diorama scale (wraps the frozen <c>[Rig] WorldScale</c> entry, 0 = auto). Rig rebuild required.</summary>
     public static ComfortSetting<float> WorldScaleBase { get; private set; } = null!;
