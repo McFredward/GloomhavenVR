@@ -172,6 +172,8 @@ internal static class RenderQuality
     private static int _lastPushedDisplayMsaa = -1;
     private static float _lastLoggedEyeScale = -1f;
     private static int _lastLoggedPixelLights = int.MinValue;
+    /// <summary>The game's own pixelLightCount before we first capped it (-1 = we have not).</summary>
+    private static int _pixelLightsOriginal = -1;
     private static int _diagCountdown;
     private static string _diagReason = "";
     private static bool _anisoForced;
@@ -305,12 +307,32 @@ internal static class RenderQuality
     private static void ApplyPixelLights()
     {
         int wanted = PixelLightCount!.Value;
+
         if (wanted < 0)
-            return; // sentinel: leave the game's own value untouched
+        {
+            // RESTORE, not "do nothing" — the first version of this returned here, so switching
+            // back to -1 left the cap in place and the lights never came back. Every mutation of
+            // game state in this mod has to be reversible, and a sentinel that means "hands off"
+            // has to HAND BACK anything already taken.
+            if (_pixelLightsOriginal >= 0)
+            {
+                QualitySettings.pixelLightCount = _pixelLightsOriginal;
+                VRLog.Info("Rig", $"Per-pixel light cap released — restored the game's own value "
+                                  + $"{_pixelLightsOriginal}. (Note the game rewrites this on every "
+                                  + "quality-level swap, so the restored value is whatever it last set.)");
+                _pixelLightsOriginal = -1;
+                _lastLoggedPixelLights = int.MinValue;
+            }
+            return;
+        }
 
         int current = QualitySettings.pixelLightCount;
         if (current == wanted)
             return;
+
+        // Remember what the game had BEFORE we ever touched it, so -1 can give it back.
+        if (_pixelLightsOriginal < 0)
+            _pixelLightsOriginal = current;
 
         QualitySettings.pixelLightCount = wanted;
         if (wanted != _lastLoggedPixelLights)
