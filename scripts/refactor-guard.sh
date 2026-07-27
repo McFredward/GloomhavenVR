@@ -20,6 +20,18 @@
 #   scripts/refactor-guard.sh check --summary   # only list the changed types
 #
 # The snapshot lives in .planning/refactor/.guard/ (gitignored).
+#
+# `check` first runs four checkers for the things the compiled form CANNOT show
+# (CHARTER §3b). Each is pure text or a separate project, so none of them affects the
+# snapshot; each can be run on its own:
+#
+#   scripts/patch-inventory.sh check   a patch class nobody registers ships INERT, and
+#                                      docs/PATCH-INVENTORY.md must match the source
+#   scripts/check-frame-order.sh       a per-frame reorder is an ordinary in-type diff,
+#                                      i.e. the PASS condition for a Tier-1 motion
+#   scripts/check-mirrors.sh           two constants deliberately not merged must not drift
+#   scripts/wire-tests.sh              byte-exact packets: a Write+TryRead change made in
+#                                      lockstep is invisible to a round trip and to the guard
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
