@@ -166,6 +166,9 @@ internal static class PerfMonitor
     private static long _windowAllocBytes;
     private static int _gc0, _gc1, _gc2;          // window-start collection counts
 
+    /// <summary>Latched off after the scene-profile walk throws once (see LogSceneProfile).</summary>
+    private static bool _sceneProfileFaulted;
+
     // ---- display budget -------------------------------------------------------------------------
 
     private static float _refreshHz;
@@ -686,6 +689,7 @@ internal static class PerfMonitor
         VRLog.Info(Scope0, sb.ToString());
         LogSteps(windowSeconds);
         LogSplit(windowSeconds, mean);
+        LogSceneProfile();
     }
 
     /// <summary>
@@ -702,6 +706,38 @@ internal static class PerfMonitor
         if (PerfConfig.SceneCensus.Value)
             PerfFrameSplit.AppendSceneCensus(sb);
         VRLog.Info(Scope0, sb.ToString());
+    }
+
+    /// <summary>
+    /// The breakdown behind the census, on its own lines rather than as more clauses on the SPLIT
+    /// line: SPLIT answers "which LAYER owns the frame", these answer "WHAT is being submitted and
+    /// what multiplies it". Independent of <c>[Perf] FrameSplit</c> on purpose — the population of
+    /// the scene is worth recording even in a capture that has the span timing switched off.
+    /// </summary>
+    private static void LogSceneProfile()
+    {
+        if (_sceneProfileFaulted || !PerfConfig.SceneProfile.Value)
+            return;
+        // Latched guard of its own rather than relying on the host's: the host's catch disables
+        // the WHOLE instrumentation for the session, and a walk over ~1700 foreign renderers is
+        // the most likely thing here to meet an object in a state its API does not like. Losing
+        // this one line must not cost the FRAME/STEPS/SPLIT lines the investigation runs on.
+        try
+        {
+            StringBuilder sb = Sb;
+            sb.Length = 0;
+            PerfSceneProfile.AppendSceneLine(sb);
+            VRLog.Info(Scope0, sb.ToString());
+            sb.Length = 0;
+            PerfSceneProfile.AppendGfxLine(sb);
+            VRLog.Info(Scope0, sb.ToString());
+        }
+        catch (Exception e)
+        {
+            _sceneProfileFaulted = true;
+            VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
+                                + $"(the rest of the [Perf] lines are unaffected): {e}");
+        }
     }
 
     private static void LogSteps(float windowSeconds)
