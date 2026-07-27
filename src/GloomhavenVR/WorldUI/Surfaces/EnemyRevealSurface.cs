@@ -94,14 +94,23 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private const float FitPinHardTimeoutSeconds = 2.5f;
 
-    // LAZY FOLLOW — HORIZONTAL ONLY (user #4, 11th clarification: "I DO want the lazy movement so
-    // the enemy info stays in my field of view; I do NOT want it to move UP/DOWN when I rotate or
-    // move the control board — but that is exactly what happens"). So: the panel gently glides to
-    // stay in front of the view as the player physically TURNS (horizontal follow, computed in
-    // rig-local so a world-grab never trips it), but its WORLD HEIGHT is LOCKED at spawn (see
-    // _worldYLocked) — rotating / zooming / moving the board (all of which rotate/scale/translate
-    // the RIG) can never bob it up or down, because Place() overrides worldPos.y with the locked
-    // value and builds an upright yaw-only facing in WORLD space (rig pitch/roll never tilts it).
+    // LAZY FOLLOW — ALL AXES (X/Z *and* Y), computed in the RIG-LOCAL frame. User #4's 11th
+    // clarification ("I DO want the lazy movement so the enemy info stays in my field of view; I do
+    // NOT want it to move UP/DOWN when I rotate or move the control board — but that is exactly what
+    // happens") was answered for a while by a horizontal-only follow plus a world-Y LOCK at spawn.
+    // That lock is GONE and must not come back: the bobbing it was aimed at was never the follow at
+    // all. An attribution log proved the cards were provably under our Y-locked host yet their world
+    // Y still swung ±20 — `enemyCardsHolder` is the CONTENT of a ScrollRect on the tray-docked
+    // InitiativeTrack, whose LateUpdate slid the content vertically INSIDE our fixed host. Once that
+    // ScrollRect was disabled while floated (c8f8da6, the real root cause) the Y-lock became dead
+    // weight and was removed in e5e7027, restoring the full-axis follow.
+    //   * There is NO `_worldYLocked` field, and Place() does not override worldPos.y.
+    //   * Board-independence comes from RIG-LOCALITY (a world-grab moves the rig root and the
+    //     head-child together, so the stored rig-local pose does not change), not from a Y lock and
+    //     not from an absolute world pose — see the HeadFrameScale doc and INVARIANTS-WorldUI.md
+    //     "The reveal's real height bug was a tray-coupled ScrollRect".
+    // If the reveal ever appears to bob with the board again, look for a re-enabled ScrollRect (or a
+    // new tray-coupled parent), NOT for a missing Y lock.
     private const float FollowDeadzoneDeg = 22f;
     private const float FollowDwellSeconds = 0.5f;
     private const float FollowSettledDeg = 5f;
@@ -167,22 +176,17 @@ internal sealed class EnemyRevealSurface
     private static readonly StringBuilder NameScratch = new(128);
 
     private ConvertedPanel? _panel;
-    // Stored pose is now ABSOLUTE WORLD space, planted ONCE from the head's world pose and
-    // then held verbatim (user #5, recurring). The earlier rig-local + lazy-follow builds
-    // were mathematically board-invariant for the pose itself, but the head-follow GLIDE
-    // reacted to every real head movement — and the player physically leans/turns while
-    // handling the control board, so the reveal drifted "depending on how I rotate the
-    // board." Holding a fixed world pose removes ALL of that: the board / tray / world-grab
-    // move the RIG, never this stored world pose, and there is no follow to chase the head.
     // Stored pose is RIG-LOCAL (head pose relative to RigRoot), re-projected through the LIVE
     // rig each frame in Place(). Rig-local is grab-invariant relative to the physical head, so
     // the follow below reacts only to real head movement, never to board/tray/world-grab.
-    private Vector3 _position;                        // rig-local host position (head-relative) — HORIZONTAL follow
+    // (An ABSOLUTE-WORLD stored pose was tried and is wrong: a world-grab rotates the rig about
+    // the grab pivot, which swings a world-fixed reveal out of view.)
+    private Vector3 _position;                        // rig-local host position (head-relative) — follow in ALL axes
     private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (unused for facing now; kept for snap)
     private bool _placed;                            // false until the first in-view pose is snapped
     private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at (re-snap on recenter)
     private float _offGazeSince = -1f;               // unscaled time the panel first drifted past the deadzone
-    private bool _easing;                            // gliding back to the in-view target (horizontal)
+    private bool _easing;                            // gliding back to the in-view target (all axes)
     private bool _lastVisible;
     private bool _dropLogged;                        // one-shot per reveal: log the applied plant pose
     private float _lastDiagTime = -99f;              // throttle for the movement diagnostic (~1/s)
@@ -711,11 +715,15 @@ internal sealed class EnemyRevealSurface
 
     /// <summary>
     /// Anchor the reveal in the player's forward view focus, at the SHARED tray density
-    /// (test #16) with the objectives' readability multiplier, width-capped. Position/facing
-    /// are PLANTED ONCE by <see cref="PlantPose"/> and then held as an absolute world pose;
-    /// only the host SIZE tracks the LIVE head-frame scale (<see cref="HeadFrameScale"/>) so
-    /// the content reads at a fixed apparent size. COMPLETELY INDEPENDENT of the control
-    /// board (user #5): the board / tray / world-grab move the rig, never this world pose.
+    /// (test #16) with the objectives' readability multiplier, width-capped. The pose is stored
+    /// RIG-LOCAL by <see cref="PlantPose"/> and RE-PROJECTED through the live rig every frame
+    /// here (all axes, including Y), easing to a new target only after the panel has sat past
+    /// the follow deadzone for the dwell. The host SIZE tracks the LIVE head-frame scale
+    /// (<see cref="HeadFrameScale"/>) so the content reads at a fixed apparent size.
+    /// COMPLETELY INDEPENDENT of the control board (user #5) — but that independence comes from
+    /// RIG-LOCALITY, not from an absolute world pose: the board / tray / world-grab move the rig
+    /// ROOT and the head-child together, so the stored rig-local pose does not change. The facing
+    /// is rebuilt in WORLD space, upright and yaw-only, so rig pitch/roll never tilts the panel.
     /// </summary>
     private void Place()
     {
@@ -756,10 +764,10 @@ internal sealed class EnemyRevealSurface
             _panel.HostRect != null ? _panel.HostRect.rect.height * 0.5f * metersPerPx * scale : 0f,
             NominalHalfHeight * scale);
 
-        // Plant once (rig-local) in the forward view, then re-project through the LIVE rig each
-        // frame (user #5). World-grab moves the rig ROOT and the head-child together, so the
-        // reveal rides the physical head and never swings with the board; no follow, so it
-        // never chases a head movement either.
+        // Plant (rig-local) in the forward view, then re-project through the LIVE rig each frame
+        // (user #5). World-grab moves the rig ROOT and the head-child together, so the reveal
+        // rides the physical head and never swings with the board. PlantPose also runs the lazy
+        // follow: a head turn/pitch past the deadzone eases the stored pose to a new target.
         Transform? rig = Rig.VRRigDriver.RigRoot;
         PlantPose(head, rig, halfHeightWorld);
 
@@ -778,11 +786,14 @@ internal sealed class EnemyRevealSurface
         host.SetPositionAndRotation(worldPos, worldRot);
         host.localScale = Vector3.one * (metersPerPx * scale);
 
-        // DECISIVE HEIGHT DIAGNOSTIC (throttled ~1/s). The key column is Δ = rawReprojY −
-        // lockedY: it is how far the OLD rig-local re-projection WOULD have moved the height this
-        // frame (i.e. the exact vertical coupling to board rotate/zoom the user reported), while
-        // the panel's actual Y stays flat at lockedY. rig euler x/z shows whether a world-grab is
-        // introducing pitch/roll; rigScale shows zoom. If panel Y ever != lockedY the lock failed.
+        // DECISIVE HEIGHT ATTRIBUTION DIAGNOSTIC (throttled ~1/s). Columns actually printed below:
+        // myHostY (the pose we applied), the CARD widget's world Y + whether it is really under our
+        // host, enemyCardsHolder's live parent, the TRAY Y/yaw, trackRootY, headWorldY, rigScale
+        // (zoom), easing, and the re-measured board CLEARANCE. The question it answers is WHOSE
+        // transform moves the pixels the player sees: if the card's world Y tracks TRAY Y rather
+        // than myHostY, the visible reveal is the tray-docked track, not our float — which is
+        // exactly how the tray-coupled ScrollRect was caught (c8f8da6). This is not a lock check;
+        // there is no Y lock (see the LAZY FOLLOW block at the top of the file).
         float now = Time.unscaledTime;
         if (now - _lastDiagTime >= 1f)
         {

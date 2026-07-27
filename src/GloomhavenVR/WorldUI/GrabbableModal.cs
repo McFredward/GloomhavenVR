@@ -9,14 +9,17 @@ namespace GloomhavenVR.WorldUI;
 /// Makes a floated modal window (<see cref="ModalFallback"/>) a GRABBABLE + SCALABLE
 /// world element — exactly like the control board / combat log — by reusing the SHARED
 /// grab core (<see cref="PanelGrabHandle"/> + <see cref="IPanelGrabOwner"/>): one hand
-/// grips the brass bar under the panel to MOVE it, two hands RESIZE it (0.5x-2x). No new
+/// grips the brass bar under the panel to MOVE it, two hands RESIZE it (the SHARED range
+/// <see cref="PanelGrabHandle.MinScale"/>–<see cref="PanelGrabHandle.MaxScale"/> = 0.15×–2×;
+/// the floor was lowered from 0.5 and a local re-clamp at 0.5 would re-cap the pinch). No new
 /// grab mechanism is invented; this only owns a small mod-owned holder/frame the same way
 /// <see cref="Surfaces.CombatLogSurface"/> does, and lets the game-owned world-space host
 /// FOLLOW that frame each tick.
 ///
 /// TRANSFORM LAYOUT (mirrors CombatLogSurface): holder (identity pose, localScale =
 /// diorama WorldScale) → frame (grab ROOT at the PANEL CENTER; localScale = user size
-/// factor 0.5-2) → bar visual (a child just under the panel's bottom edge). The
+/// factor, clamped to PanelGrabHandle's [MinScale, MaxScale] = 0.15–2) → bar visual (a
+/// child just under the panel's bottom edge). The
 /// grab-zone collider lives on the frame with its centre offset down to the bar, so the
 /// grip lands on the visible handle while the frame origin stays at the panel centre.
 ///
