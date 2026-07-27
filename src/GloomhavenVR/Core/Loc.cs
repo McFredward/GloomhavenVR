@@ -331,6 +331,10 @@ internal static class Loc
         ["debug_timing_note"] = Pair(
             "CPU-side refresh intervals. Measured at ~2.5% of frame time, so these are for finding defaults, not for fixing stutter — the GPU rows under Performance are the ones that move frames.",
             "CPU-seitige Auffrischungs-Intervalle. Gemessen bei ~2,5 % der Bildzeit — also zum Ermitteln guter Vorgaben, nicht gegen Ruckler; dafür sind die GPU-Regler unter Leistung zuständig."),
+        ["debug_skip_scrub_draw"] = Pair("Skip the discarded desktop render", "Verworfenes Desktop-Rendering überspringen"),
+        ["debug_skip_scrub_note"] = Pair(
+            "In a scenario the game still renders the whole 3D scene a third time, into a texture nothing reads, so the monitor stays clean. This skips only that drawing. Expected to be invisible and to be the single largest GPU saving here — but untested on hardware, which is why it is off. If anything looks wrong in the headset, switch it back.",
+            "Im Szenario rendert das Spiel die komplette 3D-Szene ein drittes Mal — in eine Textur, die niemand liest, nur damit der Monitor sauber bleibt. Dies überspringt genau dieses Zeichnen. Sollte unsichtbar sein und ist hier die größte einzelne GPU-Ersparnis — aber ungetestet, deshalb aus. Falls im Headset etwas falsch aussieht: wieder ausschalten."),
         ["debug_stereo_mode"] = Pair("Stereo mode (restart)", "Stereo-Modus (Neustart)"),
         ["debug_stereo_note"] = Pair(
             "MultiPass renders the scene once per eye. Single-Pass Instanced would halve that, but this game's shaders ship with no stereo variants (verified by disassembly), so it renders the right eye black/wrong. Leave on MultiPass; the setting exists for testing a future patched shader bundle. Takes effect on the next game start.",

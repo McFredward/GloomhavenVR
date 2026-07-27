@@ -174,6 +174,15 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         var timingNote = Row(44f);
         Label(timingNote, Loc.Mod("debug_timing_note"), 12f, flexible: true);
 
+        // The one GPU experiment that has no quality trade at all, so it cannot go under
+        // Leistung: it either changes nothing visible (expected) or it breaks something
+        // (the reason it defaults off). Debug is exactly the tier for "help me find the default".
+        Toggle(Loc.Mod("debug_skip_scrub_draw"),
+            () => WorldUIConfig.SkipDesktopScrubDraw.Value,
+            v => WorldUIConfig.SkipDesktopScrubDraw.Value = v);
+        var scrubNote = Row(64f);
+        Label(scrubNote, Loc.Mod("debug_skip_scrub_note"), 12f, flexible: true);
+
         var stereoRow = Row();
         Label(stereoRow, Loc.Mod("debug_stereo_mode"), 16f, flexible: true);
         CycleButton(stereoRow, 150f, Core.StereoModeConfig.Label, Core.StereoModeConfig.Cycle);

@@ -196,6 +196,84 @@ internal sealed partial class FlatScreen
         }
 
         _scrubActive = true;
+        SyncScrubDrawSkip();
+    }
+
+    // ---- optional: stop PAYING for the scrubbed render ---------------------------------------
+
+    /// <summary>
+    /// The scrub keeps the game's cameras off the monitor by giving them a sink RT — but they
+    /// still RENDER into it, every frame, at desktop resolution, and in a scenario that includes
+    /// the game's scenario camera drawing the whole 3D board. Nothing ever reads the sink
+    /// (<c>_scrubRt</c> is never sampled by a material, never blitted, never read back), so on
+    /// top of the two eye passes the GPU is doing a third full scene render for a texture that is
+    /// discarded. On the hardware log's numbers — gpu 9.9-22.6 ms against an 11.11 ms budget,
+    /// with the runtime dropping to 45 Hz reprojection — that is not a rounding error.
+    ///
+    /// <para>WHY CULLING RATHER THAN DISABLING: <c>cam.enabled = false</c> looks obvious and is
+    /// wrong here. <see cref="Camera.main"/> only returns ENABLED cameras tagged MainCamera, the
+    /// scenario camera carries that tag, and both game code and ~20 mod fallbacks resolve through
+    /// Camera.main — disabling it would NRE them. Zeroing the culling mask for the duration of the
+    /// camera's own render keeps the camera enabled, keeps Camera.main, keeps pixel dimensions and
+    /// screen-space projection, still clears, and still runs any image effects; it just draws
+    /// nothing. Everything else in the process — including the rig's per-frame
+    /// <c>anchor.cullingMask</c> follow, which runs in Update/LateUpdate, before rendering — reads
+    /// the untouched value.</para>
+    ///
+    /// <para>Restore is belt-and-braces: <see cref="OnScrubPostRender"/> is the normal path, and
+    /// <see cref="OnScrubPreCull"/> restores any slot still occupied first, so a render that never
+    /// reaches post-render (camera disabled mid-frame, exception in an image effect) cannot leave
+    /// a game camera blinded. <see cref="ReleaseDesktopScrub"/> restores on the way out.</para>
+    /// </summary>
+    private void SyncScrubDrawSkip()
+    {
+        bool want = _scrubActive && WorldUIConfig.SkipDesktopScrubDraw.Value;
+        if (want == _scrubDrawSkipHooked)
+            return;
+        if (want)
+        {
+            Camera.onPreCull += OnScrubPreCull;
+            Camera.onPostRender += OnScrubPostRender;
+            _scrubDrawSkipHooked = true;
+            VRLog.Info("WorldUI", "ITEM9 desktop scrub: DRAW SKIP engaged ([WorldUI] SkipDesktopScrubDraw) " +
+                                  "— the redirected game cameras still clear and still run image effects, " +
+                                  "but their culling mask is zeroed for the duration of their own render, " +
+                                  "so the full 3D scene is no longer drawn into a sink nothing reads. " +
+                                  "Compare the [Perf] FRAME 'gpu' figure against a run with this off.");
+        }
+        else
+        {
+            Camera.onPreCull -= OnScrubPreCull;
+            Camera.onPostRender -= OnScrubPostRender;
+            _scrubDrawSkipHooked = false;
+            RestoreScrubMask();
+            VRLog.Info("WorldUI", "ITEM9 desktop scrub: draw skip released — the redirected cameras render " +
+                                  "their full culling mask into the sink again.");
+        }
+    }
+
+    private void OnScrubPreCull(Camera cam)
+    {
+        RestoreScrubMask(); // a previous camera never reached post-render — never leave one blinded
+        if (_scrubRt == null || cam == null || cam.targetTexture != _scrubRt || !_scrubbed.Contains(cam))
+            return;
+        _maskedCam = cam;
+        _maskedValue = cam.cullingMask;
+        cam.cullingMask = 0;
+    }
+
+    private void OnScrubPostRender(Camera cam)
+    {
+        if (_maskedCam != null && cam == _maskedCam)
+            RestoreScrubMask();
+    }
+
+    private void RestoreScrubMask()
+    {
+        if (_maskedCam == null)
+            return;
+        _maskedCam.cullingMask = _maskedValue;
+        _maskedCam = null;
     }
 
     /// <summary>
@@ -206,6 +284,9 @@ internal sealed partial class FlatScreen
     {
         if (!_scrubActive && _scrubbed.Count == 0 && _scrubRt == null)
             return;
+        bool wasActive = _scrubActive;
+        _scrubActive = false;   // so SyncScrubDrawSkip unhooks + un-blinds before we let go
+        SyncScrubDrawSkip();
         int restored = 0;
         for (int i = 0; i < _scrubbed.Count; i++)
         {
@@ -225,9 +306,8 @@ internal sealed partial class FlatScreen
             Object.Destroy(_scrubRt);
             _scrubRt = null;
         }
-        if (_scrubActive)
+        if (wasActive)
             VRLog.Info("WorldUI", $"ITEM9 desktop scrub released ({reason}) — {restored} camera(s) restored to the backbuffer.");
-        _scrubActive = false;
         _scrubInventoryScene = null;
     }
 
