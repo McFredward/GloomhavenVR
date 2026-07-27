@@ -24,6 +24,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // Fingers are cheap (10 B) and improve presence; on by default. No shared-config edit.
     private const bool IncludeFingers = true;
 
+    // COMPILE-TIME WIRE GUARD — do not delete, this is the only mechanism that turns a silent
+    // multiplayer corruption into a build failure.
+    //
+    // Cards.PileKind's member ORDER is a wire constant: TickExtrasSend casts it straight onto the
+    // extras packet's trailing-block byte A (bits 0..1) at
+    //     extras.PileBrowseKind = (byte)browseKind;
+    // and every peer decodes it against NetProtocol.PileBrowseKind*. Nothing in the compiler
+    // otherwise links Cards/ to Net/, so a renumber or a mid-list insertion over there would
+    // corrupt every peer's browse fan with NO error, NO single-player symptom and nothing wrong on
+    // the sender's own screen — a sender never parses its own packet.
+    //
+    // If the two orders ever diverge, the divisor below is 0 and THIS LINE STOPS COMPILING with
+    // CS0020 "Division by constant zero". Values are append-only: adding a FOURTH pile at the end
+    // is fine and this guard deliberately permits it.
+    private const int PileKindWireOrderGuard = 1 / (
+        (int)PileKind.Discard == NetProtocol.PileBrowseKindDiscard &&
+        (int)PileKind.Burnt == NetProtocol.PileBrowseKindBurnt &&
+        (int)PileKind.Items == NetProtocol.PileBrowseKindItems ? 1 : 0);
+
     private INetTransport _transport = new NullNetTransport();
     private IBoardAnchor _anchor = WorldAnchor.Instance;
 
@@ -259,7 +278,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (browseKind >= 0)
         {
             extras.HasPileBrowse = true;
-            extras.PileBrowseKind = (byte)browseKind;   // PileKind order == PileBrowseKind* wire order
+            // PileKind order == PileBrowseKind* wire order — enforced by PileKindWireOrderGuard.
+            extras.PileBrowseKind = (byte)browseKind;
             extras.PileBrowseCardCount = (byte)Mathf.Clamp(browseCount, 0, 255);
             extras.PileBrowseHeld = browseNow!.IsHandHeld;
             extras.PileBrowseLeftHand = browseNow.IsHeldByLeftHand;
