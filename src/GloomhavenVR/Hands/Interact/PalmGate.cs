@@ -97,6 +97,22 @@ internal sealed class PalmGate
     /// source-stable): the gate now always reads the VISUAL hand frame (HandRig.Root,
     /// including the debug-menu seat offsets/trims — class doc) and only falls back to the
     /// device transform if the rig is missing, regardless of this flag.
+    ///
+    /// <para>SCHEDULED FOR REMOVAL — a two-subsystem edit, deliberately not half-done
+    /// (refactor Batch D, REVIEW-Hands-Board-Core §P8). Re-verified at HEAD: <c>PalmGate</c>
+    /// never reads it, and the ONLY other reference in the repository is one write in
+    /// <c>Cards/CardsDriver.cs</c> (<c>gate.UseDevicePalmNormal = !_gateHand.IsSimulated;</c>).
+    /// Deleting the field while that write exists does not compile, so Hands cannot retire it
+    /// alone. <b>Whoever removes the Cards write should delete this field in the same commit</b>,
+    /// and amend the class doc's "which v3 read via UseDevicePalmNormal" sentence to name v3
+    /// without the symbol so the historical record survives.
+    /// CHARTER §5 sweep done: public on an internal class (no external surface), not
+    /// serialized (plain class, not a MonoBehaviour), not reflected (no string literal
+    /// "UseDevicePalmNormal" anywhere), not a config key (<c>[Cards] SupinationThreshold</c>,
+    /// which once fed the neighbouring thresholds, is itself gone), not a log token, not
+    /// debug-menu reachable. <c>docs/INTERFACES-P2.md</c>'s description of it — which said the
+    /// OPPOSITE of what this code does — was corrected in Batch C, so the doc no longer
+    /// argues for keeping it.</para>
     /// </summary>
     public bool UseDevicePalmNormal = true;
 

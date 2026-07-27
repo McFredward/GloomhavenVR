@@ -4,9 +4,14 @@
 # Three things the build needs are deliberately gitignored, so a worktree created by
 # `git worktree add` cannot build until they are linked in from the main checkout:
 #
-#   libs/RuntimeDeps/           harvested Unity XR assemblies (large, licence-bound)
+#   libs/RuntimeDeps/*          harvested Unity XR assemblies (large, licence-bound)
+#   libs/Natives/*              openxr_loader.dll / UnityOpenXR.dll (the preloader payload)
 #   ressources/                 the game's Managed folder (the reference assemblies)
 #   Directory.Build.props.user  the per-machine GameManaged path
+#
+# Note the two libs/ entries are the DIRECTORY CONTENTS, not the directories: the
+# directories themselves are tracked (.gitkeep + README) and therefore already exist in a
+# fresh worktree — see link_contents below for why that mattered.
 #
 # Without them `scripts/build.sh` fails on its first line with "libs/RuntimeDeps is not
 # populated", which is a confusing way to learn that your worktree is fine and your
@@ -40,7 +45,32 @@ link() {
     echo "linked  $rel"
 }
 
-link libs/RuntimeDeps
+# Link the CONTENTS of a directory, not the directory itself.
+#
+# libs/RuntimeDeps and libs/Natives are TRACKED (each holds a .gitkeep and a README), so
+# git creates them in every fresh worktree and link()'s `-e` test skips them — silently,
+# because a skip is the normal outcome for an already-satisfied link. The worktree then
+# reports "ready" and the very next build fails with "libs/RuntimeDeps is not populated",
+# which is exactly the confusing failure this script exists to prevent. The payload files
+# (the harvested XR assemblies and the native loaders) are the gitignored part, so they
+# are what has to be linked.
+link_contents() {
+    local rel="$1" n=0 f base
+    [[ -d "$MAIN/$rel" ]] || { echo "warn: $rel missing in the main checkout — skipped" >&2; return 0; }
+    mkdir -p "$HERE/$rel"
+    for f in "$MAIN/$rel"/*; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f")"
+        case "$base" in .gitkeep|README.md) continue ;; esac
+        [[ -e "$HERE/$rel/$base" ]] && continue
+        ln -s "$f" "$HERE/$rel/$base"
+        n=$((n + 1))
+    done
+    echo "linked  $rel ($n file(s))"
+}
+
+link_contents libs/RuntimeDeps
+link_contents libs/Natives
 link ressources
 link Directory.Build.props.user
 

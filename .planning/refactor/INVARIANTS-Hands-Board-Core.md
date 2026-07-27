@@ -2269,14 +2269,28 @@ declaring file.
 
 ---
 
-## 16. Open questions for `PLAN.md` (not decided here)
+## 16. Open questions for `PLAN.md`
 
-- Retire the three `PlacementDiagnostics` patch classes? (§15)
-- Retire `PalmGate.UseDevicePalmNormal` together with the `CardsDriver` assignment? (cross-module)
-- Extract the mirrored reach/depth constants into a shared location? (Tier 2, needs the
-  side-by-side proof the charter requires)
-- `docs/PATCH-INVENTORY.md` is stale (Phase 5, 17 patches). §13 is now the accurate inventory
-  for these subsystems; the doc should be regenerated rather than hand-patched.
+Answered during Batches C/D/E; kept with their answers so the questions are not re-asked.
+
+- ~~Retire the three `PlacementDiagnostics` patch classes?~~ **KEEP** until the next placement
+  question — the blocker is a clean HMD pass, not a code argument. Decision and measured cost
+  recorded at the top of `Board/Patches/PlacementDiagnostics.cs` and in §15.
+- **STILL OPEN — retire `PalmGate.UseDevicePalmNormal` together with the `CardsDriver`
+  assignment.** Confirmed vestigial at HEAD (the gate never reads it; one write, in Cards).
+  **Not done**: the two halves are in different subsystems worked by different workers, and
+  removing the Hands half alone does not compile. Whoever removes the `CardsDriver` write must
+  delete the field in the SAME commit; the field's doc now carries the instruction and the
+  completed CHARTER §5 sweep. The `INTERFACES-P2.md` half of the job is done (Batch C).
+- ~~Extract the mirrored reach/depth constants into a shared location?~~ **NO** — replaced by
+  `scripts/check-mirrors.sh` (Batch A). Merging would worsen the Hands↔Board layering. Every
+  mirrored site now says so at the constant. Note the exposure is wider than the review stated:
+  the fingertip radius has FOUR copies across four subsystems, not two, and the lint covers all
+  four (re-verified in Batch C by sweeping every `const float ... = 0.008f`).
+- ~~`docs/PATCH-INVENTORY.md` is stale (Phase 5, 17 patches).~~ **DONE** — generated from source
+  by `scripts/patch-inventory.sh` (Batch A) and checked by `refactor-guard.sh`. It now reports
+  34 classes / 56 methods. **Never hand-edit it**; regenerate. It records declaration LINE
+  NUMBERS, so any comment edit inside a patch file requires a regenerate + commit.
 
 
 
