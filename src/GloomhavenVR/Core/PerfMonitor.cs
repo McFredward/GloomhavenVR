@@ -166,6 +166,9 @@ internal static class PerfMonitor
     private static long _windowAllocBytes;
     private static int _gc0, _gc1, _gc2;          // window-start collection counts
 
+    /// <summary>Latched off after the scene-profile walk throws once (see LogSceneProfile).</summary>
+    private static bool _sceneProfileFaulted;
+
     // ---- display budget -------------------------------------------------------------------------
 
     private static float _refreshHz;
@@ -686,6 +689,7 @@ internal static class PerfMonitor
         VRLog.Info(Scope0, sb.ToString());
         LogSteps(windowSeconds);
         LogSplit(windowSeconds, mean);
+        LogSceneProfile();
     }
 
     /// <summary>
@@ -702,6 +706,48 @@ internal static class PerfMonitor
         if (PerfConfig.SceneCensus.Value)
             PerfFrameSplit.AppendSceneCensus(sb);
         VRLog.Info(Scope0, sb.ToString());
+    }
+
+    /// <summary>
+    /// The breakdown behind the census, on its own lines rather than as more clauses on the SPLIT
+    /// line: SPLIT answers "which LAYER owns the frame", these answer "WHAT is being submitted and
+    /// what multiplies it". Independent of <c>[Perf] FrameSplit</c> on purpose — the population of
+    /// the scene is worth recording even in a capture that has the span timing switched off.
+    ///
+    /// <para>PRE-MENU GATE. This walk froze the game once (see <see cref="PerfSceneProfile"/>'s
+    /// TallyRoot note) and it froze it at the WORST possible moment: the very first window close,
+    /// which lands in the intro, before the settings pane exists and therefore before the tester
+    /// has any way to switch it off. The bug is fixed, but the exposure is structural — so the
+    /// walk now also refuses to run in the pre-menu scenes and defaults to OFF. Nothing about the
+    /// intro's five renderers was worth measuring anyway.</para>
+    /// </summary>
+    private static void LogSceneProfile()
+    {
+        // SceneProfileOn, not SceneProfile.Value: this runs from the window close, which can fire
+        // before Bind on a partially-initialised session, and an NRE here escapes into the host's
+        // catch and takes the whole instrumentation down with it.
+        if (_sceneProfileFaulted || !PerfConfig.SceneProfileOn || PerfSceneProfile.IsPreMenuScene())
+            return;
+        // Latched guard of its own rather than relying on the host's: the host's catch disables
+        // the WHOLE instrumentation for the session, and a walk over ~1700 foreign renderers is
+        // the most likely thing here to meet an object in a state its API does not like. Losing
+        // this one line must not cost the FRAME/STEPS/SPLIT lines the investigation runs on.
+        try
+        {
+            StringBuilder sb = Sb;
+            sb.Length = 0;
+            PerfSceneProfile.AppendSceneLine(sb);
+            VRLog.Info(Scope0, sb.ToString());
+            sb.Length = 0;
+            PerfSceneProfile.AppendGfxLine(sb);
+            VRLog.Info(Scope0, sb.ToString());
+        }
+        catch (Exception e)
+        {
+            _sceneProfileFaulted = true;
+            VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
+                                + $"(the rest of the [Perf] lines are unaffected): {e}");
+        }
     }
 
     private static void LogSteps(float windowSeconds)

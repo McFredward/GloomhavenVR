@@ -1,3 +1,4 @@
+using System;
 using BepInEx.Configuration;
 using UnityEngine;
 
@@ -82,6 +83,12 @@ internal static class PerfConfig
     /// <summary>Count the scene's renderers once per window and append it to the SPLIT line.</summary>
     internal static ConfigEntry<bool> SceneCensus = null!;
 
+    /// <summary>Break the renderer census down by root/layer/type/material and dump the render state.</summary>
+    internal static ConfigEntry<bool> SceneProfile = null!;
+
+    /// <summary>Split each camera's render-loop figure into culling and submission halves.</summary>
+    internal static ConfigEntry<bool> CullSubmitSplit = null!;
+
     // ---- [Optimize] behaviour ---------------------------------------------------------------
 
     /// <summary>Cache the per-frame TickGuard delegates instead of re-allocating them every frame.</summary>
@@ -110,6 +117,15 @@ internal static class PerfConfig
 
     /// <summary>Seconds between remote-board content refreshes (0 = leave the subsystem's own cadence).</summary>
     internal static ConfigEntry<float> RemoteContentInterval = null!;
+
+    /// <summary>Keep the head camera's forward depth-texture prepass (a full extra scene submission per eye).</summary>
+    internal static ConfigEntry<bool> HeadDepthPrepass = null!;
+
+    /// <summary>Layer names/indices removed from the head camera's culling mask (comma-separated; empty = none).</summary>
+    internal static ConfigEntry<string> HeadCullingMaskDrop = null!;
+
+    /// <summary>Seed the scenario head mask from the game's ScenarioCamera instead of the blanket anchor mask.</summary>
+    internal static ConfigEntry<bool> HeadMaskFromScenarioCamera = null!;
 
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
@@ -146,6 +162,101 @@ internal static class PerfConfig
     /// <summary>[Optimize] RemoteContentInterval, 0 = keep the subsystem's own cadence.</summary>
     internal static float RemoteContentSeconds =>
         RemoteContentInterval == null ? 0f : Mathf.Clamp(RemoteContentInterval.Value, 0f, 2f);
+
+    /// <summary>[Perf] SceneProfile, defaulting to off while unbound (it is off when bound too).</summary>
+    internal static bool SceneProfileOn => SceneProfile != null && SceneProfile.Value;
+
+    /// <summary>[Perf] CullSubmitSplit, defaulting to off while unbound.</summary>
+    internal static bool CullSubmitSplitOn => CullSubmitSplit != null && CullSubmitSplit.Value;
+
+    /// <summary>[Optimize] HeadDepthPrepass, defaulting to on (today's behaviour) while unbound.</summary>
+    internal static bool DepthPrepassOn => HeadDepthPrepass == null || HeadDepthPrepass.Value;
+
+    /// <summary>[Optimize] HeadMaskFromScenarioCamera, defaulting to off (today's behaviour) while unbound.</summary>
+    internal static bool HeadMaskFromScenarioCam =>
+        HeadMaskFromScenarioCamera != null && HeadMaskFromScenarioCamera.Value;
+
+    // ---- [Optimize] HeadCullingMaskDrop: parsed once per distinct string, not per frame --------
+    // The entry is human-written text ("Water, 14, TransparentFX") and it is read from the rig's
+    // per-frame mask re-assert, so parsing it there would allocate and split a string every frame
+    // on every rig. Cache on the raw text: BepInEx hands back the same string instance until the
+    // value actually changes, and a value change is exactly when the mask must be recomputed.
+
+    private static string _dropSource = string.Empty;
+    private static int _dropMask;
+
+    /// <summary>
+    /// Culling-mask bits the head camera must NOT render, resolved from
+    /// <see cref="HeadCullingMaskDrop"/>. 0 = drop nothing, which is the default and means the
+    /// mask policy is exactly what it always was.
+    ///
+    /// <para>WHY A LIST AND NOT A FIXED SET: which layers the head camera can afford to lose is a
+    /// MEASUREMENT, not a fact we can look up — it depends on the scenario, on what the game's
+    /// anchor camera happened to have in its mask, and on what the player can see. The
+    /// <c>[Perf] SCENE</c> line prints every layer by NAME with its renderer count and whether the
+    /// head camera currently renders it, so this entry is the other half of that instrument: read
+    /// the names off the log, drop one, and compare the render-loop split. Nothing is guessed here.</para>
+    /// </summary>
+    internal static int HeadMaskDropMask
+    {
+        get
+        {
+            string source = HeadCullingMaskDrop?.Value ?? string.Empty;
+            // Ordinal VALUE compare, not ReferenceEquals: a config backend that ever handed back
+            // a fresh string instance for the same text would otherwise re-parse — and re-LOG —
+            // every single frame. One short-string compare per frame is not worth that risk.
+            if (!string.Equals(source, _dropSource, StringComparison.Ordinal))
+            {
+                _dropSource = source;
+                _dropMask = ParseLayerMask(source);
+            }
+            return _dropMask;
+        }
+    }
+
+    /// <summary>
+    /// Parse "Water, 14, TransparentFX" into a culling-mask. Unknown names are reported once (on
+    /// the parse, not per frame) and ignored — a typo must never silently blank the head camera.
+    /// </summary>
+    private static int ParseLayerMask(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return 0;
+        int mask = 0;
+        string[] parts = source.Split(',');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string token = parts[i].Trim();
+            if (token.Length == 0)
+                continue;
+            int layer;
+            if (int.TryParse(token, out layer))
+            {
+                if (layer < 0 || layer > 31)
+                {
+                    VRLog.Warn("Perf", $"[Optimize] HeadCullingMaskDrop: '{token}' is not a layer "
+                                       + "index 0-31 — ignored.");
+                    continue;
+                }
+            }
+            else
+            {
+                layer = LayerMask.NameToLayer(token);
+                if (layer < 0)
+                {
+                    VRLog.Warn("Perf", $"[Optimize] HeadCullingMaskDrop: no layer named '{token}' — "
+                                       + "ignored. The [Perf] SCENE line lists every layer by name.");
+                    continue;
+                }
+            }
+            mask |= 1 << layer;
+        }
+        if (mask != 0)
+            VRLog.Info("Perf", $"[Optimize] HeadCullingMaskDrop resolved '{source}' → mask 0x{mask:X8}. "
+                               + "The head camera stops culling AND submitting those layers, once per "
+                               + "eye pass. Clear the entry to restore the normal mask policy.");
+        return mask;
+    }
 
     /// <summary>
     /// Bind-once against the perf module's own config file. Lazy: called from
@@ -227,6 +338,37 @@ internal static class PerfConfig
             + "PER WINDOW: the object walk behind it allocates and would be a stutter of its own at "
             + "frame rate. Switch OFF for a capture where even a per-window hitch matters.");
 
+        // DEFAULT OFF, and off for a reason that is not caution: an earlier version of the walk
+        // behind this entry hung the game outright at the first window close (2026-07), which
+        // lands in the intro — before the pane that owns this switch exists. The defect is fixed
+        // and the walk additionally refuses to run in the pre-menu scenes, but a heavyweight
+        // object walk is not something that should be on by default in a build a player runs.
+        SceneProfile = _file.Bind("Perf", "SceneProfile", false,
+            "OFF by default. Append two more lines to each summary: [Perf] SCENE — the renderer population broken "
+            + "down by scene-root/child group, layer (with names), renderer type, shadow-casting "
+            + "mode, MaterialPropertyBlock count and DISTINCT MATERIAL COUNT — and [Perf] GFX — the "
+            + "render state that multiplies submission volume (quality level, shadow settings, "
+            + "pixel lights, the light census, and the head camera's path/depth-texture/culling "
+            + "mask). The bare census on the SPLIT line says 1683 renderers; it cannot say WHAT "
+            + "they are, and a count cannot choose a lever. The distinct-material number is the "
+            + "decisive one: the built-in pipeline can only merge renderers that share a material "
+            + "instance, so one material per renderer means there is no batch for anything — mod "
+            + "or game — to break. Sampled ONCE PER WINDOW like the census: the walk allocates and "
+            + "would be a stutter of its own at frame rate. Never runs in the pre-menu scenes "
+            + "(Bootstrap/Intro): there are five renderers there, and a fault in a walk that runs "
+            + "before the settings pane exists cannot be switched off from inside the headset.");
+
+        CullSubmitSplit = _file.Bind("Perf", "CullSubmitSplit", false,
+            "OFF by default. Split each camera's figure on the [Perf] SPLIT line into CULL "
+            + "(onPreCull→onPreRender: Unity's visibility determination, which scales with how "
+            + "many renderers exist and pass the culling mask) and SUBMIT (onPreRender→"
+            + "onPostRender: the draw calls, including a forward camera's depth-texture prepass "
+            + "and every shadow map). 'The render loop owns the frame' does not say which half, "
+            + "and the two have different levers, so this is the entry that decides it instead of "
+            + "arguing it. Costs one extra Stopwatch read and one Camera.onPreRender subscription "
+            + "per camera render; OFF unsubscribes the callback entirely rather than null-checking "
+            + "inside it, and the SPLIT line then prints the combined per-camera figure as before.");
+
         // ---- [Optimize] ----------------------------------------------------------------------
         CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", true,
             "Cache the Action delegates handed to TickGuard.Run instead of re-creating them from an "
@@ -286,5 +428,47 @@ internal static class PerfConfig
             + "delays how fast a peer's board contents catch up, and it does nothing at all in single "
             + "player.",
             new AcceptableValueRange<float>(0f, 2f)));
+        HeadDepthPrepass = _file.Bind("Optimize", "HeadDepthPrepass", true,
+            "Keep the head camera's DepthTextureMode.Depth. ON is today's behaviour and it is NOT "
+            + "free: on the built-in FORWARD path (which the mod's head camera uses) Unity builds "
+            + "_CameraDepthTexture by rendering the whole opaque scene a SECOND time through each "
+            + "shader's shadow-caster pass — a full extra scene submission PER EYE PASS, i.e. four "
+            + "full submissions per frame under MultiPass instead of two. That is the largest "
+            + "single piece of submission volume the MOD itself adds, and the 2026-07 measurement "
+            + "says submission volume is the wall. OFF halves it. What OFF costs: the game's VFX "
+            + "shaders (torch flames, glow billboards, DFade clouds) soft-fade against that depth "
+            + "texture, and without it the fade fails OPEN — glow renders straight through thin "
+            + "walls again, which is the exact bug this mode was added to fix. So this is a real "
+            + "trade, not free work removal, and it defaults to today's behaviour. Flip it from "
+            + "the Debug settings pane so the [Perf] measurement window closes on the boundary and "
+            + "the two SPLIT lines are comparable.");
+        HeadCullingMaskDrop = _file.Bind("Optimize", "HeadCullingMaskDrop", "",
+            "Layers the head camera must NOT render, as a comma-separated list of layer NAMES or "
+            + "indices (e.g. 'Water, 14'). Empty = drop nothing, which is today's behaviour and the "
+            + "normal mask policy (anchor camera's mask | the mod layer). Every layer removed here "
+            + "is a slice of the scene that stops being culled AND submitted, once per eye pass — "
+            + "but which layers are safe is a MEASUREMENT, not something that can be looked up, "
+            + "because it depends on the scenario and on what the game's anchor camera happened to "
+            + "carry. The [Perf] SCENE line prints every layer by name with its renderer count and "
+            + "whether the head camera currently renders it: read the names off the log, drop one, "
+            + "compare the render-loop split. Unknown names are reported and ignored, never "
+            + "silently applied, so a typo cannot blank the view. Re-asserted every frame, so "
+            + "clearing the entry restores the normal mask immediately.");
+        HeadMaskFromScenarioCamera = _file.Bind("Optimize", "HeadMaskFromScenarioCamera", false,
+            "In a SCENARIO, seed the head camera's culling mask from the game's own ScenarioCamera "
+            + "instead of from the anchor camera. Why this exists: the scenario anchor resolves to "
+            + "'Main Camera', whose mask is 0xFFFFFFFF — ALL 32 layers — while the camera the flat "
+            + "game actually renders the dungeon with carries 0x700FFF17 and deliberately excludes "
+            + "thirteen of them. The head camera therefore culls and submits a surplus the game "
+            + "never draws, twice per frame under MultiPass. OFF (default) keeps the blanket mask, "
+            + "which was the safe original choice for a good reason: the head camera legitimately "
+            + "renders things the ScenarioCamera never did — the mod's hands, cards, control board, "
+            + "remote avatars and the converted world-space UI. The mod layer and the UI layer are "
+            + "therefore ADDED BACK unconditionally and can never be dropped by this switch; "
+            + "anything else that turns out to be needed will simply go invisible, which is why "
+            + "this defaults off and why the log names every layer it drops, with its renderer "
+            + "count, at the moment it drops it. Read the [Perf] SCENE line's per-layer breakdown "
+            + "first: a layer with no renderers on it costs nothing to keep and gains nothing to "
+            + "drop. Applies live; switching it back off restores the blanket mask immediately.");
     }
 }
