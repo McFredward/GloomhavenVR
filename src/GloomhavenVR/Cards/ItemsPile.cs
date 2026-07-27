@@ -89,7 +89,10 @@ internal sealed class ItemsPile
     private readonly List<ItemChip> _chips = new(12);
     private Transform? _root;
     private TextMeshPro? _title;
-    private Transform? _anchor;   // the pile mount (rig-space, diorama-scaled) — placement scale ref
+    // The ITEMS stack transform (PileViewer.EnsureBuilt passes _items.transform; the shared pile
+    // MOUNT is only the null fallback). Used solely as the emerge/collapse converge point — it is
+    // not a parent and not a placement scale reference.
+    private Transform? _anchor;
     private VRHand? _followHand;
     private CardsHandUI? _hand;
     private string _signature = string.Empty; // last-built inventory state, for cheap live refresh
@@ -140,7 +143,11 @@ internal sealed class ItemsPile
 
     // ------------------------------------------------------------------ config --
 
-    /// <summary>The pile mount PileViewer built the item stack under (placement reference).</summary>
+    /// <summary>
+    /// The ITEMS stack transform (req #5 converge point), NOT the shared pile mount — the mount
+    /// sits up by the DISCARD stack, and "simplifying" this to it makes the fan emerge from the
+    /// wrong pile. PileViewer passes the mount only as a null fallback.
+    /// </summary>
     internal void SetAnchor(Transform anchor) => _anchor = anchor;
 
     /// <summary>Item count of the acting character's inventory (drives the board stack look).</summary>
@@ -422,8 +429,8 @@ internal sealed class ItemsPile
         _handWinner = null;
     }
 
-    /// <summary>World anchor the fan emerges from / collapses into (req #5): the item PILE stack
-    /// region (the pile mount PileViewer built the stacks under). Falls back to the fan root.</summary>
+    /// <summary>World anchor the fan emerges from / collapses into (req #5): the ITEMS stack
+    /// transform handed to <see cref="SetAnchor"/>. Falls back to the fan root.</summary>
     private Vector3 PileConvergeWorld() =>
         _anchor != null ? _anchor.position : (_root != null ? _root.position : Vector3.zero);
 

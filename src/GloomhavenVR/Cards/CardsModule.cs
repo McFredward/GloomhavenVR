@@ -6,8 +6,10 @@ namespace GloomhavenVR.Cards;
 
 /// <summary>
 /// Phase 3b (feat/cards) — the Demeo card hand (ROADMAP R3):
-/// 2D hand suppressed (visuals only — bookkeeping untouched, see
-/// <see cref="Patches.HandSuppressionPatches"/> header for the strategy), palm-up fan
+/// 2D hand suppressed (visuals only — bookkeeping untouched, see the header of
+/// Cards/Patches/HandSuppressionPatches.cs for the strategy — that is a FILE, not a
+/// type; the patch classes in it are <see cref="Patches.CardsHandManager_ShowList_Patch"/>
+/// and siblings), palm-up fan
 /// of live-canvas 3D cards, grab/inspect, play tray with initiative slot order +
 /// swap, short/long-rest tokens, in-turn top/bottom half poking. All game entry
 /// points verified against the real DLLs in <see cref="CardsGameApi"/>; blocking

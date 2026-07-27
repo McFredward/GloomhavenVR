@@ -68,8 +68,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// column (base-plate left edge ≈ 0.177); the inter-slot highlight gap stays
     /// ≈ 0.053 m. Grab/release is unaffected: VRCard.OnGrab re-parents into the
     /// hand (held scale is hand-defined) and OnRelease restores localScale =
-    /// home scale back under the slot. Slot captions compensate the inherited
-    /// scale (see <see cref="BuildSlotLabels"/>); SlotCaptureRadius stays as-is —
+    /// home scale back under the slot. (The slot captions that used to compensate the
+    /// inherited scale are GONE — test #29 removed BuildSlotLabels outright; see the note
+    /// above BuildButtons.) SlotCaptureRadius stays as-is —
     /// at 0.25 m it already spans both slots and the glow is the primary accept
     /// rule anyway.
     /// </summary>
@@ -3073,8 +3074,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         // Item D: the generic-button area is now a COUNT-DRIVEN cluster. The game can show up to
         // FOUR turn-flow buttons at once (decompiled: Choreographer toggles readyButton + m_SkipButton
         // + m_UndoButton, and occasionally m_selectButton, as independent GameObjects — see
-        // e.g. Choreographer.cs:6305-6309), so this consolidated area AUTO-SCALES each cap's size from
-        // the live count (GenericClusterButtonSize) and lays them out auto-fit (SetConfirmUndoOffset).
+        // e.g. Choreographer.cs:6305-6309), so this consolidated area lays them out auto-fit
+        // (SetConfirmUndoOffset). It does NOT auto-scale the caps from the live count — this
+        // paragraph used to say it did, and the paragraph six lines below explains why that was
+        // taken out. Believe the lower one.
         // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
         // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
         int count = GenericCount; // 2 (Confirm/Undo) or 3 while the item "Use" confirm is a cluster member

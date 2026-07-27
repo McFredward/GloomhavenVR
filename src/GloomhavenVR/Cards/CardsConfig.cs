@@ -763,7 +763,14 @@ internal static class CardsConfig
 
         // ONE-TIME defaults migration (paired with the 2.5x default table scale in
         // [Comfort] SavedScaleMultiplier): BepInEx keeps values saved in an existing config
-        // file, so the new 0.4 BoardScale default above only reaches FRESH installs by itself.
+        // file, so a lowered BoardScale default only reaches FRESH installs by itself.
+        // NOTE, and this is deliberate-or-a-bug, not something to "tidy": the bind above
+        // defaults to 0.5, NOT the 0.4 this migration writes. The bind was later raised to 0.5
+        // ("the ~0.4 table-ratio default felt a touch small on first spawn" — its own
+        // description); the migration value and the marker key BoardScaleDefault04Applied were
+        // left at 0.4. So a fresh install gets 0.5 and a migrated one gets 0.4. Do not
+        // "harmonise" the two numbers without asking — changing either moves board size on
+        // somebody's existing rig. This comment previously claimed 0.4 was the default above.
         // For existing files, adopt 0.4 ONLY where the user never touched the old default
         // (saved value == old default 1.0 — BoardScale is hand-edit/debug-menu only, so an
         // exact 1.0 means untouched). The marker makes this run at most once per config file;
