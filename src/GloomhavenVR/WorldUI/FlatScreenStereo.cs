@@ -285,46 +285,41 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<float>? s_parallaxScale;
     private static ConfigEntry<bool>? s_videoDepthLayer;
     private static ConfigEntry<float>? s_videoDepth;
+    /// <summary>DEPRECATED, no reader anywhere — see its Bind description. Kept bound only so existing .cfg files load unchanged.</summary>
     private static ConfigEntry<bool>? s_leftMirrorFallback;
-    /// <summary>MAP ALBEDO RENDER (default ON): render the campaign map parchment unlit via a mod forward camera (see MapAlbedoRender config, class doc MAP ALBEDO RENDER).</summary>
+    /// <summary>MAP ALBEDO RENDER (default ON, LIVE): render the campaign map parchment unlit via a mod forward camera into a private RT (see the MapAlbedoRender config text and the class doc MAP ALBEDO RENDER).</summary>
     private static ConfigEntry<bool>? s_mapAlbedoRender;
-    /// <summary>MAP ALBEDO — render the worldMap with its ORIGINAL Amplify material in our forward camera (default ON): the mesh is not CPU-readable (isReadable=false) so a Sprites/Default override cannot get UVs; the Amplify surface shader's auto forward pass computes UVs on the GPU. Off = the (dead) Sprites/Default override path.</summary>
+
+    // ---- DEPRECATED map config entries -----------------------------------------------------
+    // Every entry below is bound, has NO reader, and describes a design that was disproven and
+    // removed (see each Bind description, and the class doc's "ALSO DISPROVEN AND REMOVED" list).
+    // They stay bound because charter §5 treats an unread key as a user's persisted setting.
+    /// <summary>DEPRECATED, no reader: chose between the game's Amplify material and an override; the map is always drawn with GloomhavenVR/MapUnlit now.</summary>
     private static ConfigEntry<bool>? s_mapAlbedoOriginalMat;
-    /// <summary>MAP ALBEDO — ambient intensity forced during our forward render (default 4): the map's deferred lighting is never applied into our RT (the parchment stays at ~ambient ~12/255). A high flat ambient lets the Amplify forward pass show the albedo bright. 0 = leave the scene ambient untouched.</summary>
+    /// <summary>DEPRECATED, no reader: ambient boost for a LIT map render; MapUnlit is unlit.</summary>
     private static ConfigEntry<float>? s_mapAlbedoAmbient;
-    /// <summary>MAP ALBEDO — add a mod directional light during our forward render (default ON) so normal-mapped parchment relief is revealed (in case the map detail is lit relief, not flat albedo).</summary>
+    /// <summary>DEPRECATED, no reader: mod key light for a LIT map render; MapUnlit is unlit.</summary>
     private static ConfigEntry<bool>? s_mapAlbedoLight;
-    /// <summary>MAP TEX BLIT (MapCaptureMode 2): orientation knobs for the 2x2 GH_CampaignMap texture blit.</summary>
+    /// <summary>DEPRECATED, no reader: orientation knobs for the 2x2 texture blit (MapCaptureMode 2), which was never implemented.</summary>
     private static ConfigEntry<bool>? s_mapTexFlipX;
     private static ConfigEntry<bool>? s_mapTexFlipY;
     private static ConfigEntry<bool>? s_mapTexSwapDiag;
 
-    // ---- map capture MODE + passive-deferred image-effect strip (live) ---------------------
-    /// <summary>MAP CAPTURE MODE (default 1): 0 = albedo camera (mod forward render), 1 = passive-deferred (keep the game MapCamera deferred + redirected, strip its image effects). Read LIVE.</summary>
+    /// <summary>DEPRECATED, no reader: selected the capture strategy. Only the albedo camera ever ran; modes 1 and 2 are gone.</summary>
     private static ConfigEntry<int>? s_mapCaptureMode;
-    /// <summary>Passive-deferred: disable the MapCamera's Beautify component(s) (default ON). Live.</summary>
+    /// <summary>DEPRECATED, no reader: image-effect strip for the removed passive-deferred mode (MapCaptureMode 1).</summary>
     private static ConfigEntry<bool>? s_mapStripBeautify;
-    /// <summary>Passive-deferred: disable the MapCamera's VolumetricFog component(s) — VolumetricFog + any VolumetricFogPosT/PreT (default ON). Live.</summary>
     private static ConfigEntry<bool>? s_mapStripVolumetricFog;
-    /// <summary>Passive-deferred: disable the MapCamera's ScreenSpaceAmbientOcclusion/SSAO component(s) (default ON). Live.</summary>
     private static ConfigEntry<bool>? s_mapStripSSAO;
-    /// <summary>Passive-deferred: disable the MapCamera's PostProcessLayer component(s) (default ON). Live.</summary>
     private static ConfigEntry<bool>? s_mapStripPostProcess;
-    /// <summary>Passive-deferred: disable EVERY MonoBehaviour on the MapCamera that declares an OnRenderImage method (reflection), overriding the individual toggles (default OFF). Live.</summary>
     private static ConfigEntry<bool>? s_mapStripAllImageEffects;
 
-    // ---- map UV correction (class doc MAP ALBEDO RENDER, uv0 rebuild) — runtime-tunable ----
-    /// <summary>uv0 source for the corrected worldMap mesh: 0 = auto (real UVs else positional), 1 = force real-UV channel, 2 = force positional.</summary>
+    /// <summary>DEPRECATED, no reader: configured the removed CPU uv0-rebuild path. MapUnlit samples the mesh's own TexCoord0 on the GPU.</summary>
     private static ConfigEntry<int>? s_mapUvSource;
-    /// <summary>Swap u and v of the final uv0 (both paths).</summary>
     private static ConfigEntry<bool>? s_mapUvSwapUV;
-    /// <summary>Flip u of the final uv0 (uv.x = 1 - uv.x).</summary>
     private static ConfigEntry<bool>? s_mapUvFlipU;
-    /// <summary>Flip v of the final uv0 (uv.y = 1 - uv.y).</summary>
     private static ConfigEntry<bool>? s_mapUvFlipV;
-    /// <summary>Which UV channel (0..7) to read for the real-UV path.</summary>
     private static ConfigEntry<int>? s_mapUvChannel;
-    /// <summary>Which component pair of the chosen channel to use as uv0: 0 = .xy, 1 = .zw.</summary>
     private static ConfigEntry<int>? s_mapUvComponent;
     // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
@@ -547,99 +542,106 @@ internal sealed class FlatScreenStereo
             "comfortable while depth differences inside the captured scene grow this many " +
             "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
             "geometry; clamped to 1-60.");
+        // ---- DEPRECATED map keys -------------------------------------------------------------
+        // Every map key from here to the end of this method has NO effect — EXCEPT MapAlbedoRender,
+        // which is live and stays where it is (bind order is not reshuffled to group them). Each of
+        // the other 19 configured a map-capture design that was disproven on hardware and whose code
+        // has been removed. They stay BOUND on purpose —
+        // charter §5: an unread config key is still a user's persisted setting, and unbinding it
+        // drops the line from their .cfg on the next write. Each description now says plainly that
+        // it does nothing and what superseded it, so a knob that lies becomes a knob that admits it.
+        // (Precedent for the wording: [Cards] HeldTiltDegrees, "LEGACY — no longer used ... kept
+        // only so existing config files load cleanly".)
         s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", true,
-            "Rescue the campaign map when it renders BLACK into the screen's render texture " +
-            "(the game MapCamera renders all-black once its target is redirected onto our RT — " +
-            "the map's deferred Amplify parchment shader is never lit into an off-screen " +
-            "RenderTexture). When the base RT is detected black, the mod renders the map " +
-            "parchment itself (see MapAlbedoRender) instead of showing a black void. Off = " +
-            "legacy (black map if the game camera renders black).");
+            "DEPRECATED — no effect, and it never had one: this key has no reader anywhere in the " +
+            "mod. It presented itself as the master switch for the black-map rescue; the actual " +
+            "switch is MapAlbedoRender. Kept bound so existing .cfg files load unchanged.");
         s_mapAlbedoRender = file.Bind("WorldUI", "MapAlbedoRender", true,
-            "THE MAP FIX (default ON): render the campaign world map's parchment UNLIT via a " +
-            "mod-owned FORWARD camera we fully control, sampling the parchment's own albedo " +
-            "texture. The map is ordinary mesh geometry (MapChoreographer.worldMap, GH_WorldMap " +
-            "materials whose albedo lives in _Alb / _MainTex), but its deferred Amplify shader is " +
-            "never lit into any RenderTexture we own and its backbuffer is unreadable under XR — " +
-            "so instead of capturing the game's render, the mod draws the worldMap mesh straight " +
-            "into the flat-screen base RT with a temporary Sprites/Default material per submesh " +
-            "(albedo → _MainTex), swapped on only for our render and restored the same frame " +
-            "(rendering-only, multiplayer-safe). A top-down painted map reads correct unlit. Off " +
-            "= detect the black map but leave the base RT as-is (black).");
+            "THE MAP FIX (default ON): render the campaign map's parchment UNLIT via a mod-owned " +
+            "FORWARD camera into a PRIVATE RenderTexture, which the screen quad then shows. The map " +
+            "is ordinary mesh geometry (MapChoreographer.worldMap / cityMap, GH_WorldMap materials " +
+            "whose albedo lives in _Alb / _MainTex), but its deferred Amplify shader is never lit " +
+            "into any RenderTexture we own and its backbuffer is unreadable under XR — so instead of " +
+            "capturing the game's render, the mod re-renders the mesh with a GloomhavenVR/MapUnlit " +
+            "material per submesh (albedo -> _MainTex, UV sampled on the GPU from the mesh's own " +
+            "TexCoord0), swapped on only for our render and restored the same frame (rendering-only, " +
+            "multiplayer-safe). A top-down painted map reads correct unlit. Off = detect the black " +
+            "map but leave the base RT as-is (black).");
         s_mapAlbedoOriginalMat = file.Bind("WorldUI", "MapAlbedoOriginalMaterial", true,
-            "MAP UV FIX (default ON): the worldMap mesh is NOT CPU-readable (isReadable=false), so a " +
-            "Sprites/Default override cannot get its texture UVs (it rendered a flat detail-less " +
-            "colour). Instead, render the mesh with its ORIGINAL Amplify material in our forward " +
-            "camera — the surface shader's auto-generated forward pass computes the UVs on the GPU, " +
-            "so the parchment draws with correct detail (its forward-lit brightness applies). Off = " +
-            "the old (dead) Sprites/Default override path.");
+            "DEPRECATED — no effect. It chose between rendering the map with the game's own Amplify " +
+            "material and an override material; the map is now always drawn with GloomhavenVR/" +
+            "MapUnlit, and both alternatives it named are gone. Kept bound so existing .cfg files " +
+            "load unchanged.");
         s_mapAlbedoAmbient = file.Bind("WorldUI", "MapAlbedoAmbient", 4.0f,
-            "MAP BRIGHTNESS (default 4): ambient intensity forced ONLY during the mod forward render " +
-            "of the map. The map's deferred scene lighting is never applied into our RT, so the " +
-            "parchment renders at bare ambient (~12/255, flat dark). A high flat white ambient lifts " +
-            "the Amplify forward pass so the albedo shows bright. Tune live; 0 = leave scene ambient.");
+            "DEPRECATED — no effect. It forced a bright ambient during the map's forward render, " +
+            "back when that render was LIT. MapUnlit is unlit, so no ambient value can change the " +
+            "map; the code that read this key was removed. (When it did run it was measured: an " +
+            "ambient of 4 only turned a flat dark parchment into a flat brighter one.) Kept bound so " +
+            "existing .cfg files load unchanged.");
         s_mapAlbedoLight = file.Bind("WorldUI", "MapAlbedoLight", true,
-            "MAP BRIGHTNESS (default ON): also add a mod directional light during the map's forward " +
-            "render, so if the map detail is normal-mapped relief (not flat albedo) the lighting " +
-            "reveals it. Off = ambient only.");
+            "DEPRECATED — no effect. It added a mod directional light during the map's forward " +
+            "render, in case the map detail was normal-mapped relief. MapUnlit is unlit, so a light " +
+            "cannot affect it; the code that read this key was removed. Kept bound so existing .cfg " +
+            "files load unchanged.");
 
-        // Map capture MODE + passive-deferred image-effect strip (all read LIVE; edit the config
-        // file and the change takes effect next tick — no rebuild). Mode 1 keeps the game MapCamera
-        // rendering its DETAILED deferred map into our base RT and merely disables the image-effect
-        // components suspected of blacking/flattening it, instead of the mod's flat albedo render.
         s_mapCaptureMode = file.Bind("WorldUI", "MapCaptureMode", 1,
-            "CAMPAIGN-MAP CAPTURE STRATEGY (default 1). 0 = albedo camera: the mod forward render of " +
-            "the worldMap parchment (MapAlbedoRender path) — a flat detail-less colour, because the " +
-            "mesh is not CPU-readable and its detail comes from the deferred render. 1 = passive-" +
-            "deferred: keep the game MapCamera rendering its DETAILED deferred map into our base RT and " +
-            "merely DISABLE its image-effect components (Beautify / VolumetricFog / SSAO / " +
-            "PostProcessLayer) that black/flatten the redirected RT once they finish initialising. " +
-            "Mode 1 does NOT run the albedo camera, does NOT force forward, does NOT override materials. " +
-            "Every disabled component is restored on release/scene-change/mode-flip. Live.");
+            "DEPRECATED — no effect. The campaign map is always rendered by the mod's forward albedo " +
+            "camera into a private RenderTexture. The 'passive-deferred' strategy (1) this selected " +
+            "was disproven — the game's deferred map camera renders black into any RenderTexture we " +
+            "own, which no image-effect stripping can change — and the 'texture blit' strategy (2) " +
+            "was never implemented at all. Both code paths were removed. Kept bound so existing .cfg " +
+            "files load unchanged.");
         s_mapStripBeautify = file.Bind("WorldUI", "MapStripBeautify", true,
-            "Passive-deferred (MapCaptureMode 1): disable the MapCamera's Beautify image effect. Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
+            ".cfg files load unchanged.");
         s_mapStripVolumetricFog = file.Bind("WorldUI", "MapStripVolumetricFog", true,
-            "Passive-deferred (MapCaptureMode 1): disable the MapCamera's VolumetricFog effects " +
-            "(VolumetricFog and any VolumetricFogPosT/PreT companion). Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
+            ".cfg files load unchanged.");
         s_mapStripSSAO = file.Bind("WorldUI", "MapStripSSAO", true,
-            "Passive-deferred (MapCaptureMode 1): disable the MapCamera's ScreenSpaceAmbientOcclusion " +
-            "(SSAO) image effect. Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
+            ".cfg files load unchanged.");
         s_mapStripPostProcess = file.Bind("WorldUI", "MapStripPostProcess", true,
-            "Passive-deferred (MapCaptureMode 1): disable the MapCamera's PostProcessLayer component. Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
+            ".cfg files load unchanged.");
         s_mapTexFlipX = file.Bind("WorldUI", "MapTexFlipX", false,
-            "Texture-blit map (MapCaptureMode 2): mirror the map horizontally. Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
+            "Kept bound so existing .cfg files load unchanged.");
         s_mapTexFlipY = file.Bind("WorldUI", "MapTexFlipY", true,
-            "Texture-blit map (MapCaptureMode 2): mirror the map vertically (default ON — RT origin is " +
-            "bottom-left, textures are top-left). Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
+            "Kept bound so existing .cfg files load unchanged.");
         s_mapTexSwapDiag = file.Bind("WorldUI", "MapTexSwapDiag", false,
-            "Texture-blit map (MapCaptureMode 2): swap the NE/SW quadrants if the map reads mirrored " +
-            "along the diagonal. Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
+            "Kept bound so existing .cfg files load unchanged.");
         s_mapStripAllImageEffects = file.Bind("WorldUI", "MapStripAllImageEffects", false,
-            "Passive-deferred (MapCaptureMode 1): when ON, disable EVERY MonoBehaviour on the MapCamera " +
-            "that declares an OnRenderImage method (reflection), overriding the individual strip toggles. " +
-            "Use to bisect an unknown culprit effect. Live.");
+            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
+            ".cfg files load unchanged.");
 
         // Map UV correction knobs — DEPRECATED, no reader. They configured the CPU uv0-rebuild path
         // (a mod-owned corrected mesh copy + Sprites/Default), which was removed once the mesh was
         // proven to carry a correct TexCoord0 that GloomhavenVR/MapUnlit samples on the GPU
         // (53af144). Kept BOUND so existing .cfg files keep loading unchanged; see charter §5.
         s_mapUvSource = file.Bind("WorldUI", "MapUvSource", 0,
-            "Where the corrected campaign-map mesh gets its uv0 texture coordinates. 0 = auto (use " +
-            "the mesh's real UVs if a channel has a usable 2D span, else project from vertex " +
-            "positions per quadrant); 1 = force the real-UV channel (MapUvChannel/MapUvComponent); " +
-            "2 = force positional projection. Change while the map is showing to A/B the two paths.");
+            "DEPRECATED — no effect. The map's UV is sampled on the GPU from the mesh's own " +
+            "TexCoord0 by GloomhavenVR/MapUnlit; the CPU uv0-rebuild path this configured was " +
+            "removed. (The mesh was extracted offline and rasterized with its own UV0: it produces " +
+            "the complete correct map, so there is nothing to correct.) Kept bound so existing .cfg " +
+            "files load unchanged.");
         s_mapUvSwapUV = file.Bind("WorldUI", "MapUvSwapUV", false,
-            "Swap u and v of the final map uv0 (fixes a 90°-rotated/transposed parchment). Applies " +
-            "to BOTH the real-UV and positional paths; tunable live.");
+            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
+            "existing .cfg files load unchanged.");
         s_mapUvFlipU = file.Bind("WorldUI", "MapUvFlipU", false,
-            "Mirror the map horizontally (uv0.u = 1 - u). Applies to both UV paths; tunable live.");
+            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
+            "existing .cfg files load unchanged.");
         s_mapUvFlipV = file.Bind("WorldUI", "MapUvFlipV", false,
-            "Mirror the map vertically (uv0.v = 1 - v). Applies to both UV paths; tunable live.");
+            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
+            "existing .cfg files load unchanged.");
         s_mapUvChannel = file.Bind("WorldUI", "MapUvChannel", 0,
-            "Which UV channel (0..7) the real-UV path reads (MapUvSource 1, or the first channel " +
-            "auto tries). Amplify PBR meshes sometimes carry the texture UVs on a higher channel.");
+            "DEPRECATED — no effect, and deliberately not read: the shader's UV channel is " +
+            "hard-coded to 0 so a stale persisted value cannot break the map. Kept bound so existing " +
+            ".cfg files load unchanged.");
         s_mapUvComponent = file.Bind("WorldUI", "MapUvComponent", 0,
-            "Which component pair of the chosen channel the real-UV path uses as uv0: 0 = .xy, " +
-            "1 = .zw (some Amplify shaders pack the texture UVs into .zw of a Vector4 channel).");
+            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
+            "existing .cfg files load unchanged.");
 
     }
 
