@@ -1739,6 +1739,30 @@ internal sealed class FlatScreenStereo
         new Vector2(-1f,  0f), // 3 = 04 = SE
     };
 
+    // ==== MAP BISECTION SWITCHES ================================================================
+    // The five `false` consts below (MapUvDebug, MapDiagClearColor, MapDiagPerSubmeshChannel,
+    // MapDiagClearOnly, MapIconsSolidTest) are COMPILE-TIME bisection switches left over from the
+    // ~30-commit campaign-map hunt: each one is what disambiguated a single hypothesis on hardware.
+    // They are deliberately `const` so a disabled branch contributes NOTHING to the shipped DLL —
+    // which is also why three of them raise CS0162 and carry a site-scoped
+    // `#pragma warning disable CS0162` at their use site. MapDiagClearColor and
+    // MapDiagPerSubmeshChannel raise no warning purely because they are consumed inside TERNARIES
+    // rather than statements; that is an accident of expression form, not a difference in kind.
+    // The suppressions are site-scoped ON PURPOSE: a file-wide disable in a 3 700-line file would
+    // hide a genuine unreachable-code bug added later.
+    //
+    // Usage: flip ONE to true, rebuild the DLL (no AssetBundle rebuild needed), take one hardware
+    // screenshot, flip it back. Do not convert them to properties (a property is not a compile-time
+    // constant, so the branch would start shipping) or to config entries (runtime-flippable = a
+    // behaviour change, and the map's config surface is being made honest, not re-armed).
+    //
+    // NOT diagnostics, do not confuse them with these: MapDiagTopDown, MapMatchGameFraming,
+    // MapDriveGameCamera and MapDrawIcons below are all `true` and SELECT SHIPPING BEHAVIOUR —
+    // their disabled arms are the previous, disproven implementations. Flipping one of those is a
+    // behaviour change (Tier 3). `if (!MapDiagTopDown && <non-const>)` escapes CS0162 only because
+    // `false && x` is not a constant expression — again an accident of form.
+    // ============================================================================================
+
     // ---- UV DIAGNOSTIC (pure DLL, no bundle rebuild) ----
     // When true, every MapUnlit submesh samples a GENERATED "UV read-out" texture instead of its real
     // albedo, with _UvScale=(1,1) _UvOffset=(0,0) so the RAW mesh-wide UV field is shown. The texture
@@ -2956,11 +2980,13 @@ internal sealed class FlatScreenStereo
             // One property block PER DRAW, as before — pooled instead of newly allocated, so the
             // "no shared MPB between draws" property the original comment was protecting is kept.
             MaterialPropertyBlock mpb = cacheOn ? RentIconMpb(nDrawn) : new MaterialPropertyBlock();
+#pragma warning disable CS0162 // MapIconsSolidTest is a const bisection switch — see MAP BISECTION SWITCHES
             if (MapIconsSolidTest)
             {
                 mpb.SetTexture(IconMainTex, Texture2D.whiteTexture);
                 mpb.SetColor(IconColor, new Color(1f, 0f, 1f, 1f));
             }
+#pragma warning restore CS0162
             else
             {
                 mpb.SetTexture(IconMainTex, tex);
@@ -3119,11 +3145,13 @@ internal sealed class FlatScreenStereo
                 tex = _mapQuadTextures[q];
 
             // UV DIAGNOSTIC: swap the real albedo for the generated UV read-out texture (see MapUvDebug).
+#pragma warning disable CS0162 // MapUvDebug is a const bisection switch — see MAP BISECTION SWITCHES
             if (MapUvDebug)
             {
                 tex = UvDebugTexture();
                 prop = "UV-DEBUG";
             }
+#pragma warning restore CS0162
 
             var m = new Material(sh) { name = "GloomhavenVR.MapUnlit." + i };
             // Sample the mesh's OWN UV (the mesh carries real TexCoord0/1/2 — verified 20f8f79c0).
@@ -3226,8 +3254,10 @@ internal sealed class FlatScreenStereo
     /// </summary>
     private void ApplyWorldMapOverride()
     {
+#pragma warning disable CS0162 // MapDiagClearOnly is a const bisection switch — see MAP BISECTION SWITCHES
         if (MapDiagClearOnly)
             return; // diagnostic: leave the game's deferred material on → nothing draws → magenta clear only
+#pragma warning restore CS0162
         if (_overrideApplied || _worldMapRenderer == null || _worldMapOverrideMats == null)
             return;
         // Re-capture the live originals each time so the restore always puts back exactly what the
