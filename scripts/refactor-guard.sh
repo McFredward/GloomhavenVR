@@ -51,8 +51,15 @@ snapshot() {
     # The commit hash is baked in too, and changes with every commit — in the startup log
     # line, in BuildInfo, AND in AssemblyInformationalVersion. Mask every form: any run of
     # 9+ hex characters that looks like a git object id.
+    #
+    # The `-dirty` suffix and the `[branch]` token are part of the SAME build stamp
+    # (csproj appends them from `git status --porcelain` / `rev-parse --abbrev-ref`).
+    # They were not masked, so every `check` run against an uncommitted working tree —
+    # i.e. every check that has any reason to be run — reported BuildInfo and Plugin as
+    # CHANGED. Two permanent false positives are worse than none: they train the reader
+    # to skim past the one line that matters. Masked here for the same reason the hash is.
     find "$out" -name '*.cs' -print0 \
-        | xargs -0 -r sed -i -E 's/\b[0-9a-f]{9,40}\b/<COMMIT>/g; s/build <COMMIT> \[[^]]*\]/build <COMMIT>/g'
+        | xargs -0 -r sed -i -E 's/\b[0-9a-f]{9,40}\b/<COMMIT>/g; s/<COMMIT>-dirty/<COMMIT>/g; s/build <COMMIT> \[[^]]*\]/build <COMMIT>/g'
 }
 
 # Classify one changed file: MOVED if the two versions are permutations of each other
@@ -79,6 +86,13 @@ case "${1:-check}" in
         ;;
     check)
         [[ -d "$BASE" ]] || { echo "error: no baseline — run 'refactor-guard.sh baseline' first" >&2; exit 1; }
+        # --- the blind spots (CHARTER §3b) -------------------------------------------
+        # These run BEFORE the build, because they check things the compiled form
+        # cannot show: a patch class nobody registers still compiles and ships inert,
+        # and a reordered per-frame step is an ordinary in-type diff. Both are text
+        # checks; neither reaches the DLL, so neither affects the snapshot below.
+        "$ROOT/scripts/patch-inventory.sh" check \
+            || { echo "error: Harmony patch surface drifted (see above)" >&2; exit 1; }
         snapshot "$CURR"
         if [[ "${2:-}" == "--summary" ]]; then
             echo "=== compiled form vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="

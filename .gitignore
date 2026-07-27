@@ -10,6 +10,9 @@ artifacts/
 *.binlog
 *.nupkg
 
+# Python bytecode from scripts/
+__pycache__/
+
 # IDE
 .vs/
 .idea/
