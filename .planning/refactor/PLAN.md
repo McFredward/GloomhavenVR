@@ -62,8 +62,8 @@ order the code does not depend on is a Tier 3 behaviour change wearing a tidy-up
 
 | # | Item | Guard expectation |
 |---|---|---|
-| B1 | `Cards.PileKind` and `Cards.ControlBoard`: explicit `= 0, 1, 2` + the wire-constant warning at the enum + a compile-time assertion at the cast site. The reviewer **built and ran** the assertion to confirm it errors on renumbering. | **empty** — implicit sequential enum values are not rendered in the snapshot (measured) |
-| B2 | Name the last free protocol bit (`PileBrowseReservedBit = 1 << 7`) and terminate both flag-constant runs with "FLAG BYTE IS FULL → go here". Someone reaching for a flag bit looks at the flag constants, not 80 lines further down. | empty (const naming) |
+| B1 | `Cards.PileKind` and `Cards.ControlBoard`: explicit `= 0, 1, 2` + the wire-constant warning at the enum + a compile-time assertion at the cast site. The reviewer **built and ran** the assertion to confirm it errors on renumbering. | the enums themselves: **nothing**. The assertion adds **one const declaration** per site. |
+| B2 | Name the last free protocol bit (`PileBrowseReservedBit = 1 << 7`) and terminate both flag-constant runs with "FLAG BYTE IS FULL → go here". Someone reaching for a flag bit looks at the flag constants, not 80 lines further down. | **one added const declaration** |
 | B3 | Make the GLOBAL / PER-ACTOR MODEL / VR-ONLY / DELIBERATELY-NOT classification greppable in code. It exists **only in prose** today, and `RemoteBoardContent`'s own header says "TWO DATA CLASSES" where there are four. Recommend a `CLASSIFICATION:` tag over marker interfaces — interfaces cannot express the three MIXED types. | empty (comments) |
 
 B1 is the highest value-to-risk item in the whole plan: it neutralises a trap that produces a
@@ -189,3 +189,40 @@ at a time.
 One subsystem per commit, one tier per commit, build green at every commit, guard output recorded
 in `LOG.md` at every commit. Batches run **A → B → C → D → F**; E waits on decision 1. Any item
 whose guard output does not match its expectation above is reverted, not argued with.
+
+---
+
+## Corrections made during execution
+
+**B1/B2 guard expectation was wrong in this plan.** Both rows said "empty". A const
+*declaration* survives into the assembly — only its *use sites* are inlined. `REVIEW-Net-Rig.md`
+had this right ("one added line" each); the summary table above lost the detail, and the worker
+brief inherited the wrong version, making its stated expectation unachievable by construction.
+
+The actual, verified Batch B delta is three added lines and **no method body anywhere**:
+
+```
++ private const int ControlBoardWireOrderGuard = 1;   (LocalRigSampler)
++ private const int PileKindWireOrderGuard = 1;       (NetAvatarDriver)
++ public  const byte PileBrowseReservedBit = 128;     (NetProtocol)
+```
+
+`PileKind` and `ControlBoard` do not appear in the delta at all, confirming the charter's
+measured claim about implicit sequential enum values. B3 (17 `CLASSIFICATION:` tags plus a fixed
+header) added nothing whatsoever.
+
+The lesson is the same one this refactor keeps re-learning: **a summary of a measurement is not
+the measurement.** Expectations belong in the plan as the reviewer measured them, not as I
+paraphrased them.
+
+**Two tooling defects found by running the plan rather than reading it:**
+
+1. The guard could not be trusted on an **uncommitted tree** — the build stamps a `-dirty`
+   suffix on the baked commit hash, which the mask did not cover, and which then broke the
+   follow-up branch-name rule as well. Every intermediate check therefore reported `BuildInfo`
+   and `Plugin` as CHANGED. A checker that cries wolf on every run *during the exact activity it
+   polices* is worse than no checker. Fixed and verified: a dirty tree now reports "no compiled
+   behaviour differs". This mattered before Batch F, where mid-work checks are the whole point.
+2. A fresh worktree **cannot build at all**: `libs/RuntimeDeps/`, `ressources/` and
+   `Directory.Build.props.user` are gitignored, so every parallel worker lost time discovering
+   that its environment, not its work, was broken. `scripts/worktree-setup.sh` links them in.

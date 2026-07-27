@@ -50,9 +50,15 @@ snapshot() {
         | xargs -0 -r sed -i -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/<BUILD-TIME>/g'
     # The commit hash is baked in too, and changes with every commit — in the startup log
     # line, in BuildInfo, AND in AssemblyInformationalVersion. Mask every form: any run of
-    # 9+ hex characters that looks like a git object id.
+    # 9+ hex characters that looks like a git object id, INCLUDING the "-dirty" suffix the
+    # build stamps on an uncommitted tree, and the branch name beside it.
+    #
+    # The -dirty case matters more than it looks: without it, every mid-work check reports
+    # BuildInfo and Plugin as CHANGED, and a checker that cries wolf on every run during the
+    # exact activity it exists to police is worse than no checker. (Found by the Batch B
+    # worker, whose every intermediate check carried two false positives.)
     find "$out" -name '*.cs' -print0 \
-        | xargs -0 -r sed -i -E 's/\b[0-9a-f]{9,40}\b/<COMMIT>/g; s/build <COMMIT> \[[^]]*\]/build <COMMIT>/g'
+        | xargs -0 -r sed -i -E 's/\b[0-9a-f]{9,40}(-dirty)?\b/<COMMIT>/g; s/build <COMMIT>( \[[^]]*\])?/build <COMMIT>/g'
 }
 
 # Classify one changed file: MOVED if the two versions are permutations of each other
