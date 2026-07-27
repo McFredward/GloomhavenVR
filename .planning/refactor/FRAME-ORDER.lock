@@ -41,4 +41,4 @@ BoardDriver.Update | src/GloomhavenVR/Board/BoardDriver.cs | ordered | [Board.Sy
 FigureGrabDriver.Update | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | ordered | [FigureGrab.Ghosts, FigureGrab.Glide, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
 FigureGrabDriver.LateUpdate | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | LateUpdate-required | [HeldFigures.PinAnimatedRoots, NetHeldFigures.PinAnimatedRoots, FigureRingSuppressor.Tick]
 WallSegmentFade.FadeDriver.LateUpdate | src/GloomhavenVR/Core/WallSegmentFade.cs | LateUpdate-required | [WallFade.Late]
-VRRigDriver._tailSteps | src/GloomhavenVR/Rig/VRRigDriver.cs | ordered | [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.DepthPrepass, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
+VRRigDriver._tailSteps | src/GloomhavenVR/Rig/VRRigDriver.cs | ordered | [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]

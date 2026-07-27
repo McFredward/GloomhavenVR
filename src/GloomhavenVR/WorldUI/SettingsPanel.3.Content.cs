@@ -210,22 +210,9 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // Applies LIVE — the Harmony postfix consults the entry every frame. USER-FACING, and the
         // old single-toggle "Wände" tab is gone (2026-07), so this normal-user switch now lives here
         // in "Anzeige"; the developer-grade fade FRACTIONS live under Debug → Wandüberblendung.
-        // The MarkChange is not cosmetic: this row is also the A/B handle for the 2026-07
-        // submission-cost investigation. WallSegmentFade is the mod's highest-volume material
-        // touch — a per-renderer MaterialPropertyBlock on every faded wall segment, re-applied
-        // every frame — and a per-renderer property block is exactly what stops a renderer from
-        // batching, which lands in the render loop rather than in its own 0.17 ms STEPS entry.
-        // Closing the measurement window on the flip is what makes the two [Perf] SPLIT lines
-        // either side of it comparable; without it both sides average into one window and the
-        // experiment produces nothing.
         Toggle("Wände durchsichtig",
             () => Plugin.WallFade.Value,
-            v =>
-            {
-                Core.PerfMonitor.MarkChange($"wall see-through {(v ? "ON" : "OFF")} — A/B boundary "
-                                            + "(the mod's largest per-renderer material touch)");
-                Plugin.WallFade.Value = v;
-            });
+            v => Plugin.WallFade.Value = v);
 
         // User 7c: action-phase element hints (the tooltip parked at the board's top-left)
         // on/off. Live: WorldTooltips.LateTick reads WorldUIConfig.ActionElementHints every tick.

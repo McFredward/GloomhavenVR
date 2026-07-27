@@ -192,36 +192,6 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             });
         Tip(scrubRow, "debug_skip_scrub_note");
 
-        // The mod's own largest contribution to submission volume, and the only one it can switch
-        // off. Debug rather than Leistung because it is not a quality slider a player can reason
-        // about: it either buys frames at the price of one specific VFX artefact, or it does not,
-        // and which of those is true is what this row exists to find out.
-        RectTransform depthRow = Toggle(Loc.Mod("debug_depth_prepass"),
-            () => PerfConfig.HeadDepthPrepass.Value,
-            v =>
-            {
-                Core.PerfMonitor.MarkChange(
-                    $"head depth prepass {(v ? "ON" : "OFF")} — A/B boundary (a full extra scene "
-                    + "submission per eye on the forward path)");
-                PerfConfig.HeadDepthPrepass.Value = v;
-            });
-        Tip(depthRow, "debug_depth_prepass_note");
-
-        // Head-camera culling mask narrowing. Same tier and same reason as the row above: it is a
-        // measurement, not a preference — either the surplus layers hold geometry worth not
-        // submitting twice, or they are empty and it changes nothing. Defaults OFF because getting
-        // it wrong makes something invisible in the headset.
-        RectTransform maskRow = Toggle(Loc.Mod("debug_head_mask_scenario"),
-            () => PerfConfig.HeadMaskFromScenarioCamera.Value,
-            v =>
-            {
-                Core.PerfMonitor.MarkChange(
-                    $"head culling mask {(v ? "narrowed to the ScenarioCamera's" : "back to the anchor's")}"
-                    + " — A/B boundary");
-                PerfConfig.HeadMaskFromScenarioCamera.Value = v;
-            });
-        Tip(maskRow, "debug_head_mask_scenario_note");
-
         var stereoRow = Row();
         Label(stereoRow, Loc.Mod("debug_stereo_mode"), 16f, flexible: true);
         CycleButton(stereoRow, 150f, Core.StereoModeConfig.Label, Core.StereoModeConfig.Cycle);
