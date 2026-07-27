@@ -163,18 +163,22 @@ internal static class StaticBatcher
     //  Scan scratch — allocated once, reused every pass
     // ==========================================================================================
 
+    /// <summary>
+    /// One root's scan result. <see cref="Filters"/> is the SINGLE authoritative list of what may be
+    /// combined — there used to be a parallel list of the same objects' GameObjects, which is
+    /// exactly the two-lists-that-can-disagree shape <see cref="CombineRoot"/> guards against, so it
+    /// is gone and the array handed to Unity is derived from the ledger instead.
+    /// </summary>
     private sealed class RootScan
     {
         public Transform Root = null!;
         public string Name = string.Empty;
-        public readonly List<GameObject> Candidates = new(1024);
         public readonly List<MeshFilter> Filters = new(1024);
         public int Vertices;
         public int MaterialSlots;
 
         public void Reset()
         {
-            Candidates.Clear();
             Filters.Clear();
             Vertices = 0;
             MaterialSlots = 0;
@@ -570,7 +574,6 @@ internal static class StaticBatcher
                 // than the ones that were merely looked at.
                 TallyMaterials(slots);
 
-                scan.Candidates.Add(mf.gameObject);
                 scan.Filters.Add(mf);
                 scan.Vertices += mesh.vertexCount;
                 scan.MaterialSlots += slots;
@@ -589,9 +592,11 @@ internal static class StaticBatcher
     private static void ResolveRoots()
     {
         string spec = StaticBatchConfig.RootNames;
-        if (string.IsNullOrWhiteSpace(spec))
-            return;
-        string[] wanted = spec.Split(',');
+        // An EMPTY entry falls through to the survey and the auto-detect below rather than
+        // returning here. "No configured name matches" is exactly what an empty list means, and
+        // AutoDetectRoots is a separate, explicit switch — so an empty Roots with auto-detect ON
+        // has to behave like a wrong Roots with auto-detect on, not like a silent off switch.
+        string[] wanted = string.IsNullOrWhiteSpace(spec) ? Array.Empty<string>() : spec.Split(',');
 
         for (int s = 0; s < SceneManager.sceneCount; s++)
         {
@@ -659,7 +664,9 @@ internal static class StaticBatcher
     /// </summary>
     private static void SurveyRoots()
     {
-        RootSurvey.Clear();
+        // NOT cleared here — Scan() does it, and it has to, because this method only runs when no
+        // configured name matched. Clearing in both places would read as belt-and-braces and hide
+        // which of the two is load-bearing.
         for (int s = 0; s < SceneManager.sceneCount; s++)
         {
             try
@@ -1053,7 +1060,7 @@ internal static class StaticBatcher
 
     private static void CombineRoot(RootScan scan)
     {
-        if (scan.Root == null || scan.Candidates.Count == 0)
+        if (scan.Root == null || scan.Filters.Count == 0)
             return;
 
         int ledgerStart = Ledger.Count;
