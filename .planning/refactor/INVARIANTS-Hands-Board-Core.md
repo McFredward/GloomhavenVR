@@ -2232,6 +2232,31 @@ unrelated `Engaged` field). It is a lower bound, not a complete list.
 - **`VRCameraPolicy.PruneDead` and `MixedReality.PruneDead`** — both called from
   `VRRigDriver`'s scene-load path; they prune different maps.
 
+### Config entries that are bound but effectively dead (Batch E — kept, relabelled)
+
+`PLAN.md` §Batch E listed legacy config entries in **Cards and WorldUI only**. There are 22 more
+in this scope, none of them on any list. All are **kept bound** (unbinding drops the key from
+every existing `.cfg`, CHARTER §5) and their descriptions now open with
+`LEGACY — no effect, superseded by <X>.`:
+
+- `Plugin` `[Hands]`: `GripPitchOffsetDegrees`, `HandLateralOffset`, `HandVerticalOffset`,
+  `HandForwardOffset` + the 12 `{Glove,Plate,Arcane}{PitchTrimDegrees,LateralTrim,VerticalTrim,
+  ForwardTrim}` entries. Superseded by the ABSOLUTE per-style seat keys
+  (`[Hands] {Style}{GripPitchDegrees,LateralOffset,VerticalOffset,ForwardOffset}` in
+  `dev.gloomhavenvr.hands.cfg`). Read exactly once, via `HandsConfig.LegacySeat`, as the bind
+  default that seeds those keys; `StyleValue` prefers the per-style array whenever it exists,
+  which is always after `HandsConfig.Bind`.
+- `FigureGrabConfig` `[FigureGrab]`: `HeldScale`, `HeldOffsetForward`, `HeldOffsetUp`,
+  `HeldOffsetSide`, `HeldTiltDegrees`, `HeldFaceYawDegrees`. Same pattern via `StyleOr`,
+  superseded by `{Style}Held*` in the SAME file. `HeldUpright` is **not** legacy — it is a mode,
+  not geometry, and stayed global deliberately.
+- `Plugin` `[Hands] {Style}Scale` is **not** legacy either — `HandVisuals` and the settings
+  panel read it live. The scale/trim split inside one loop is the trap here.
+
+Note for the next sweep: a `.Value` grep does **not** find these, because the seed read is a
+`.Value` inside the entry's own config file. Look for entries whose only reads are in their
+declaring file.
+
 ### Log lines that are grep tokens, not debug residue (CHARTER §5)
 
 `Modal input-block ENGAGED/RELEASED`, `ray ON/OFF — <reason>`, `uGUI hover ENTER/EXIT`,
