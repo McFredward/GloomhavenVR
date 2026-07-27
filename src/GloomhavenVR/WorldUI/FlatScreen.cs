@@ -237,8 +237,6 @@ internal sealed class FlatScreen
     // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
     /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>
     private int _screenMaterialQueueDefault = -1;
-    /// <summary>Last render-queue policy applied to the backdrop material (menu vs scenario).</summary>
-    private bool _backdropMenuQueue;
     /// <summary>One-shot ground-truth log of the hands' render state while the menu screen is shown.</summary>
     private bool _handsDiagLogged;
 
@@ -457,7 +455,6 @@ internal sealed class FlatScreen
         if (_screenMaterial.renderQueue != wantQueue)
         {
             _screenMaterial.renderQueue = wantQueue;
-            _backdropMenuQueue = menuLike;
             VRLog.Info("WorldUI", $"ITEM1: flat-screen backdrop render queue → {wantQueue} " +
                                   (menuLike
                                       ? "(menu/intro — renders before the mod hands so hands held in front show)."

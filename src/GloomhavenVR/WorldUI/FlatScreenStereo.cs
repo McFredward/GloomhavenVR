@@ -645,8 +645,6 @@ internal sealed class FlatScreenStereo
 
     /// <summary>[WorldUI] MapAlbedoRender — render the map parchment unlit via a mod forward camera (class doc MAP ALBEDO RENDER).</summary>
     internal static bool MapAlbedoRenderOn => s_mapAlbedoRender?.Value ?? true;
-    /// <summary>[WorldUI] MapAlbedoOriginalMaterial — render the worldMap with its own Amplify material (GPU-computed UVs) instead of the Sprites/Default override (dead: mesh is not CPU-readable).</summary>
-    internal static bool MapAlbedoUseOriginalMat => s_mapAlbedoOriginalMat?.Value ?? true;
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
     private static float ParallaxScale => Mathf.Clamp(s_parallaxScale?.Value ?? 6f, 1f, 60f);
@@ -1891,9 +1889,6 @@ internal sealed class FlatScreenStereo
                                   "world-space quads (01=NW, 02=NE, 03=SW, 04=SE) at the map mesh's world position." + sb);
         }
     }
-
-    /// <summary>Compact viewport-point formatter for the frustum diagnostic (x,y in 0..1 on-screen; z = world depth).</summary>
-    private static string Fmt(Vector3 vp) => $"(x{vp.x:F2} y{vp.y:F2} z{vp.z:F1})";
 
     /// <summary>
     /// Ensure the worldMap renderer, override materials and mod camera all exist for the albedo
