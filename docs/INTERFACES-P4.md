@@ -2,7 +2,7 @@
 
 > Owned by the Rig module (feat/comfort), updated by the Phase-5 integration pass
 > (markers: **P5**). The **in-VR settings panel exists since P5**
-> (`WorldUI/SettingsPanel.cs`) and binds exactly to `ComfortSettings` + the runtime
+> (`WorldUI/SettingsPanel.*.cs`) and binds exactly to `ComfortSettings` + the runtime
 > ops below (open: 'SET' gear at the table edge, or hold the non-dominant A/X for
 > `[SettingsPanel] ChordHoldSeconds`).
 
