@@ -207,8 +207,17 @@ internal sealed partial class FlatScreen
     /// the game's scenario camera drawing the whole 3D board. Nothing ever reads the sink
     /// (<c>_scrubRt</c> is never sampled by a material, never blitted, never read back), so on
     /// top of the two eye passes the GPU is doing a third full scene render for a texture that is
-    /// discarded. On the hardware log's numbers — gpu 9.9-22.6 ms against an 11.11 ms budget,
-    /// with the runtime dropping to 45 Hz reprojection — that is not a rounding error.
+    /// discarded.
+    ///
+    /// <para>WHAT THE 2026-07 MEASUREMENT ACTUALLY SAYS ABOUT IT. The original note here cited the
+    /// runtime's <c>gpu</c> figure as evidence that this render matters. That figure turned out to
+    /// be unusable — it read the frame INTERVAL in every window and did not move when the
+    /// pixel-sample budget was cut 11×, because the runtime had locked the app to 45 Hz. So this
+    /// remains an untested suspect, but a well-motivated one for a reason the failed experiment
+    /// could not touch: it renders at DESKTOP resolution, so the eye-resolution and MSAA levers
+    /// cannot affect it at all, which is exactly the shape of a cost that stays constant across
+    /// every quality preset. <see cref="Core.PerfFrameSplit"/>'s per-camera breakdown prices it
+    /// directly, and toggling the switch marks an A/B boundary in the log.</para>
     ///
     /// <para>WHY CULLING RATHER THAN DISABLING: <c>cam.enabled = false</c> looks obvious and is
     /// wrong here. <see cref="Camera.main"/> only returns ENABLED cameras tagged MainCamera, the
@@ -239,7 +248,13 @@ internal sealed partial class FlatScreen
                                   "— the redirected game cameras still clear and still run image effects, " +
                                   "but their culling mask is zeroed for the duration of their own render, " +
                                   "so the full 3D scene is no longer drawn into a sink nothing reads. " +
-                                  "Compare the [Perf] FRAME 'gpu' figure against a run with this off.");
+                                  "READ THE RESULT ON THE [Perf] SPLIT LINE, not on the FRAME line's 'gpu' " +
+                                  "figure: that counter reads the frame INTERVAL whenever the runtime is " +
+                                  "rate-locked, which is most of the time here, so it cannot see this. SPLIT " +
+                                  "prices every camera's own cull+submit separately — the scenario and UI " +
+                                  "cameras should collapse toward zero while this is on — and the toggle " +
+                                  "closes the measurement window on both sides, so the A/B is two adjacent " +
+                                  "SPLIT lines with nothing straddling the change.");
         }
         else
         {

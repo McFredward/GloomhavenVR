@@ -562,7 +562,12 @@ internal static class RenderQuality
     {
         Bind();
         int idx = System.Array.IndexOf(MsaaSteps, Sanitize(MsaaLevel!.Value));
-        MsaaLevel!.Value = MsaaSteps[(idx + 1) % MsaaSteps.Length];
+        int next = MsaaSteps[(idx + 1) % MsaaSteps.Length];
+        // Close the measurement window on the OLD value before writing the new one, so the log
+        // carries one [Perf] FRAME/SPLIT summary per MSAA level instead of one summary averaging
+        // however many levels the tester happened to cycle inside a 30 s interval.
+        Core.PerfMonitor.MarkChange($"MSAA {Sanitize(MsaaLevel!.Value)}x → {next}x");
+        MsaaLevel!.Value = next;
         // No further plumbing needed: Tick's compare re-asserts QualitySettings and pushes
         // the new level to the XR display next frame; BepInEx persists on set.
     }
@@ -588,7 +593,10 @@ internal static class RenderQuality
     {
         Bind();
         float next = EyeResolutionScale!.Value + delta * 0.1f;
-        EyeResolutionScale.Value = Mathf.Clamp(Mathf.Round(next * 10f) / 10f, MinEyeScale, MaxEyeScale);
+        float clamped = Mathf.Clamp(Mathf.Round(next * 10f) / 10f, MinEyeScale, MaxEyeScale);
+        if (Mathf.Abs(clamped - EyeResolutionScale.Value) > 0.001f)
+            Core.PerfMonitor.MarkChange($"eye resolution {EyeResolutionScale.Value:F1}x → {clamped:F1}x");
+        EyeResolutionScale.Value = clamped;
     }
 
     // ---- settings-panel accessors (WorldUI SettingsPanel graphics-preset cycle row) -----------
@@ -628,6 +636,10 @@ internal static class RenderQuality
         Bind();
         int next = (CurrentPresetIndex() + 1) % Presets.Length;
         Preset p = Presets[next];
+        // The 2026-07 hardware sweep cycled all four presets inside ONE 30 s summary interval, so
+        // every window straddled several settings and the four "measurements" it produced could
+        // not be attributed to anything. Closing the window here is what makes the sweep readable.
+        Core.PerfMonitor.MarkChange($"graphics preset → '{p.LocId}' (MSAA {p.Msaa}x, eye {p.Scale:F2}x)");
         MsaaLevel!.Value = p.Msaa;
         EyeResolutionScale!.Value = p.Scale;
         VRLog.Info("Rig", $"Graphics preset '{p.LocId}' applied — MSAA {p.Msaa}x, eye resolution " +
