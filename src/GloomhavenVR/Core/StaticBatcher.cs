@@ -111,6 +111,25 @@ internal static class StaticBatcher
     /// <summary>A combine slower than this is called out as a hitch worth knowing about.</summary>
     private const double SlowCombineMs = 500d;
 
+    /// <summary>Ceiling on roots adopted by auto-detection when no configured name matched.</summary>
+    private const int MaxAutoRoots = 4;
+
+    /// <summary>
+    /// Mesh objects a root needs before AUTO-detection will adopt it — deliberately far above
+    /// <see cref="StaticBatchConfig.MinRenderers"/>.
+    ///
+    /// <para>A NAMED root was chosen by a person and needs only to be worth the memory. An
+    /// auto-detected one was chosen by a heuristic, and the heuristic runs in EVERY scene where the
+    /// configured name is absent — which includes the main menu, whose 3D backdrop would otherwise
+    /// qualify on a couple of dozen objects and earn a combine hitch for nothing. The target this
+    /// exists to find carries ~1440; a bar of 200 clears it by a factor of seven and clears menu
+    /// scenery by a comfortable margin in the other direction.</para>
+    /// </summary>
+    private const int MinAutoRootMeshes = 200;
+
+    /// <summary>Scene roots named on the PROBE line when nothing matched.</summary>
+    private const int SurveyRootsShown = 8;
+
     // ==========================================================================================
     //  The ledger — one entry per combined renderer, written BEFORE the combine
     // ==========================================================================================
@@ -168,6 +187,9 @@ internal static class StaticBatcher
 
     /// <summary>The objects actually handed to Unity — built from the ledger, see CombineRoot.</summary>
     private static readonly List<GameObject> CombineScratch = new(1024);
+
+    /// <summary>Scene roots and their mesh counts, filled only when no configured name matched.</summary>
+    private static readonly List<KeyValuePair<GameObject, int>> RootSurvey = new(32);
 
     private static readonly List<Material> MaterialScratch = new(8);
     private static readonly List<Transform> ChainScratch = new(32);
@@ -494,6 +516,9 @@ internal static class StaticBatcher
     private static int Scan()
     {
         Scans.Clear();
+        // Cleared HERE, not in SurveyRoots: the survey only runs when no configured name matched,
+        // so leaving it would let a successful pass report the previous failed pass's candidates.
+        RootSurvey.Clear();
         MoverCache.Clear();
         ShaderCache.Clear();
         DistinctMaterials.Clear();
@@ -603,15 +628,111 @@ internal static class StaticBatcher
             }
         }
 
+        if (Scans.Count > 0)
+            return;
+
+        // Nothing matched. Two things have to happen here, and neither is optional for a feature
+        // that is tested by handing a build to someone and reading the log afterwards.
+        SurveyRoots();
+        if (StaticBatchConfig.AutoRoots)
+            AutoDetectRoots();
+
         // INFO, not a warning: outside a scenario there IS no dungeon root, and that is the normal
         // state in every menu — a warning per scene load would train the reader to skim past it.
         // A genuine typo in the entry produces this same line, which is why it names the spec.
         if (Scans.Count == 0)
             VRLog.Info("Batch", $"None of the configured roots ({spec}) exists in the loaded "
-                                + "scene(s) — nothing to do. Normal outside a scenario. The [Perf] "
-                                + "SCENE line's 'by scene-root/child group' list names the roots "
-                                + "that are actually there.");
+                                + "scene(s) and nothing was auto-detected — nothing to do. Normal "
+                                + "outside a scenario. The PROBE line below lists the roots that ARE "
+                                + "there with their mesh counts, which is where the right name for "
+                                + "[Batching] Roots comes from.");
     }
+
+    /// <summary>
+    /// Every scene root with its mesh-object count, recorded for the PROBE line.
+    ///
+    /// <para>This exists because of a usability dead end, not for completeness: <c>Roots</c> is free
+    /// TEXT, and free text is the one control shape the in-VR config browser can only display. A
+    /// player whose scenario names its geometry root something other than "Maps" therefore cannot
+    /// fix it from inside the headset — so the log has to hand them the answer, in the same line
+    /// that tells them there was a problem.</para>
+    /// </summary>
+    private static void SurveyRoots()
+    {
+        RootSurvey.Clear();
+        for (int s = 0; s < SceneManager.sceneCount; s++)
+        {
+            try
+            {
+                Scene scene = SceneManager.GetSceneAt(s);
+                if (!scene.isLoaded)
+                    continue;
+                SceneRootScratch.Clear();
+                scene.GetRootGameObjects(SceneRootScratch);
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < SceneRootScratch.Count; i++)
+            {
+                GameObject go = SceneRootScratch[i];
+                if (go == null || IsModOwnedRoot(go.name))
+                    continue;
+                int meshes;
+                try
+                {
+                    meshes = go.GetComponentsInChildren<MeshFilter>(includeInactive: true).Length;
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+                if (meshes > 0)
+                    RootSurvey.Add(new KeyValuePair<GameObject, int>(go, meshes));
+            }
+        }
+        RootSurvey.Sort(static (a, b) => b.Value.CompareTo(a.Value));
+    }
+
+    /// <summary>
+    /// Adopt the busiest surveyed roots. Bounded three ways — the mod's own roots are skipped, a
+    /// candidate has to clear <see cref="StaticBatchConfig.MinRenderers"/>, and at most
+    /// <see cref="MaxAutoRoots"/> are taken — and every choice is named in the log, so an
+    /// auto-detected pass is a reported decision rather than a silent one.
+    /// </summary>
+    private static void AutoDetectRoots()
+    {
+        int min = Mathf.Max(StaticBatchConfig.MinRenderersPerRoot, MinAutoRootMeshes);
+        for (int i = 0; i < RootSurvey.Count && Scans.Count < MaxAutoRoots; i++)
+        {
+            if (RootSurvey[i].Value < min)
+                break; // sorted descending — everything after this is smaller too
+            GameObject go = RootSurvey[i].Key;
+            var scan = new RootScan { Root = go.transform, Name = go.name };
+            scan.Reset();
+            Scans.Add(scan);
+        }
+
+        if (Scans.Count == 0)
+            return;
+
+        Line.Clear();
+        for (int i = 0; i < Scans.Count; i++)
+            Line.Append(i == 0 ? "" : ", ").Append('\'').Append(Scans[i].Name).Append('\'');
+        VRLog.Info("Batch", $"AUTO-DETECTED {Scans.Count} root(s): {Line} (at least "
+                            + $"{MinAutoRootMeshes} mesh objects each — the bar for an auto-detected "
+                            + "root is deliberately far above MinRenderers so menu scenery cannot "
+                            + $"qualify). None of the configured names ({StaticBatchConfig.RootNames}) exists here, and "
+                            + "[Batching] AutoDetectRoots is on. To pin this down, copy the name(s) "
+                            + "above into [Batching] Roots in dev.gloomhavenvr.batching.cfg — the "
+                            + "PROBE line below lists every candidate that was considered.");
+    }
+
+    /// <summary>The mod's own scene roots, which auto-detection must never adopt.</summary>
+    private static bool IsModOwnedRoot(string name) =>
+        name.StartsWith("GloomhavenVR", StringComparison.Ordinal);
 
     // ---- eligibility: Unity's own rules, checked in cheapest-first order ----------------------
 
@@ -1420,6 +1541,24 @@ internal static class StaticBatcher
                         + "away. A mesh imported with Read/Write disabled has no system-memory copy, "
                         + "so nothing can concatenate it. If that count is most of the scene, static "
                         + "batching is impossible on this content and no setting changes that.");
+        }
+
+        // The scene roots that EXIST, whenever the configured names did not all match. This is the
+        // line a tester reads to learn what to put in [Batching] Roots — printed here rather than
+        // left to the [Perf] SCENE line, because that one is off by default and this one is not.
+        if (RootSurvey.Count > 0)
+        {
+            Line.Append(" | scene roots available (name: mesh objects):");
+            int shown = Mathf.Min(SurveyRootsShown, RootSurvey.Count);
+            for (int i = 0; i < shown; i++)
+            {
+                GameObject go = RootSurvey[i].Key;
+                Line.Append(i == 0 ? " " : ", ").Append(go == null ? "<gone>" : go.name)
+                    .Append(": ").Append(RootSurvey[i].Value);
+            }
+            if (RootSurvey.Count > shown)
+                Line.Append(", +").Append(RootSurvey.Count - shown).Append(" more");
+            Line.Append(" — put the right one into [Batching] Roots");
         }
 
         Line.Append(" | scan took ").Append(scanMs.ToString("F0")).Append(" ms");

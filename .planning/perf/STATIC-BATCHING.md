@@ -157,6 +157,19 @@ is free.
 Everything below is reachable from inside the headset:
 **Einstellungen ▸ Debug ▸ Leistung & Effekte ▸ Objekt-Bündelung.**
 
+### If the root is named differently
+
+`Roots` is free **text**, and free text is the one control shape the in-VR config browser can only
+*display* — so a wrongly-named root would be unfixable from inside the headset and the feature would
+silently do nothing. Two things close that:
+
+- **`AutoDetectRoots`** (default on, and a plain toggle on the panel: *Karte selbst finden*): when no
+  configured name matches, adopt the busiest scene roots instead. Bounded — the mod's own roots are
+  skipped, a candidate needs **≥ 200 mesh objects** (deliberately far above `MinRenderers`, so menu
+  scenery cannot qualify), at most four are taken, and every choice is logged.
+- The **`PROBE` line lists every scene root with its mesh count** whenever nothing matched, so the
+  correct value for `Roots` can be read straight off the log.
+
 ### Round 1 — is it possible at all? (no mutation)
 
 1. Start a scenario, let it load.

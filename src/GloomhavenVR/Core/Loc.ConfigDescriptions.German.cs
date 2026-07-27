@@ -42,6 +42,19 @@ internal static partial class Loc
                 + "Dungeon hängt (1440 der 1481 abgesetzten Renderer). Die Namen für DEIN Szenario stehen in "
                 + "der SCENE-Zeile unter \"by scene-root/child group\". Ein Name, der auf nichts passt, wird "
                 + "gemeldet und ignoriert — nie geraten.",
+            ["Batching/AutoDetectRoots"] =
+                "Existiert KEINER der in Roots genannten Namen in den geladenen Szenen, ersatzweise die "
+                + "Szenen-Wurzeln mit den meisten Mesh-Objekten suchen und diese verwenden. WARUM "
+                + "STANDARDMÄSSIG AN: Roots ist Freitext, und Freitext ist das Einzige, was der "
+                + "VR-Konfigurationsbrowser nur ANZEIGEN kann — wer ein Szenario spielt, dessen "
+                + "Geometrie-Wurzel anders als \"Maps\" heißt, könnte das aus dem Headset heraus nicht "
+                + "korrigieren, und die Funktion liefe still ins Leere. Dies ist der Ausweg, und er ist "
+                + "kein Blindflug: die eigenen Wurzeln des Mods werden übersprungen, ein Kandidat muss "
+                + "weiterhin MinRenderers erreichen, höchstens vier werden genommen, und die [Batch] "
+                + "PROBE-Zeile NENNT jede gewählte Wurzel und jede geprüfte samt Mesh-Anzahl — ein "
+                + "automatisch gewählter Durchlauf ist also nie ein Rätsel, und der richtige Name für "
+                + "Roots lässt sich direkt aus dem Log ablesen. Aus = nur die konfigurierten Namen "
+                + "verwenden und melden, dass keiner davon existiert.",
             ["Batching/MinRenderers"] =
                 "Ein Wurzelobjekt mit weniger geeigneten Renderern als hier wird übersprungen. Eine Handvoll "
                 + "Objekte zusammenzufassen kostet Speicher und bringt nichts Messbares, und jedes "

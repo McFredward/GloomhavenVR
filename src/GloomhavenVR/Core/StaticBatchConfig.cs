@@ -51,6 +51,9 @@ internal static class StaticBatchConfig
     /// <summary>Scene-root object names the pass is allowed to walk (comma-separated).</summary>
     internal static ConfigEntry<string> Roots = null!;
 
+    /// <summary>Fall back to finding the busiest scene roots when no configured name matches.</summary>
+    internal static ConfigEntry<bool> AutoDetectRoots = null!;
+
     /// <summary>A root with fewer eligible renderers than this is left alone.</summary>
     internal static ConfigEntry<int> MinRenderers = null!;
 
@@ -99,6 +102,8 @@ internal static class StaticBatchConfig
     internal static BatchMode CurrentMode => Mode == null ? BatchMode.Off : Mode.Value;
 
     internal static string RootNames => Roots == null ? "Maps" : Roots.Value ?? string.Empty;
+
+    internal static bool AutoRoots => AutoDetectRoots == null || AutoDetectRoots.Value;
 
     internal static int MinRenderersPerRoot =>
         MinRenderers == null ? 8 : UnityEngine.Mathf.Clamp(MinRenderers.Value, 2, 2000);
@@ -159,6 +164,19 @@ internal static class StaticBatchConfig
             + "of the scenario's 1481 submitted renderers). Read the SCENE line's "
             + "'by scene-root/child group' list for the names in YOUR scenario; a name that matches "
             + "nothing is reported and ignored, never guessed at.");
+
+        AutoDetectRoots = _file.Bind("Batching", "AutoDetectRoots", true,
+            "When NONE of the names in Roots exists in the loaded scene(s), fall back to finding the "
+            + "scene roots that hold the most mesh objects and using those instead. WHY THIS IS ON BY "
+            + "DEFAULT: Roots is free text, and free text is the one thing the in-VR config browser "
+            + "can only SHOW — a player whose scenario names its geometry root something other than "
+            + "'Maps' could not fix it from inside the headset, and the feature would silently do "
+            + "nothing with no way out. This is the way out, and it is not a guess in the dark: the "
+            + "mod's own roots are skipped, a candidate still has to clear MinRenderers, at most four "
+            + "are taken, and the [Batch] PROBE line NAMES every root it picked and every root it "
+            + "considered with its mesh count — so an auto-detected pass is never a mystery, and the "
+            + "right name for Roots can be read straight off the log. Off = only ever use the "
+            + "configured names, and report that none of them exists.");
 
         MinRenderers = _file.Bind("Batching", "MinRenderers", 8, new ConfigDescription(
             "A root offering fewer eligible renderers than this is skipped. Combining a handful of "

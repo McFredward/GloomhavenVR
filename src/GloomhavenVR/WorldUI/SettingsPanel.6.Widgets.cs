@@ -375,6 +375,18 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             });
         Tip(minRow, "batch_min_renderers_note");
 
+        // Reachable from in here on purpose: the entry it rescues (Roots) is free TEXT, which the
+        // config browser can only display — so without this toggle a wrongly-named root would be
+        // unfixable from inside the headset, and the feature would silently do nothing.
+        RectTransform autoRootRow = Toggle(Loc.Mod("batch_auto_roots"),
+            () => Core.StaticBatchConfig.AutoRoots,
+            v =>
+            {
+                if (Core.StaticBatchConfig.AutoDetectRoots != null)
+                    Core.StaticBatchConfig.AutoDetectRoots.Value = v;
+            });
+        Tip(autoRootRow, "batch_auto_roots_note");
+
         RectTransform inactiveRow = Toggle(Loc.Mod("batch_include_inactive"),
             () => Core.StaticBatchConfig.Inactive,
             v =>
