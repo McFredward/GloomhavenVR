@@ -40,7 +40,32 @@ link() {
     echo "linked  $rel"
 }
 
-link libs/RuntimeDeps
+# Link the CONTENTS of a directory that itself is tracked.
+#
+# libs/RuntimeDeps and libs/Natives exist in git (a .gitkeep and a README) while their
+# actual payload — the harvested Unity XR assemblies and the OpenXR natives — is ignored.
+# So the directory is always present in a fresh worktree and `link` short-circuits on it,
+# leaving the build to fail with "libs/RuntimeDeps is not populated" — which reads like a
+# repo problem and is not. (Found by the WorldUI worker, whose first guard baseline died
+# on exactly this after the script reported success.)
+link_contents() {
+    local rel="$1" n=0
+    [[ -d "$MAIN/$rel" ]] || { echo "warn: $rel missing in the main checkout — skipped" >&2; return 0; }
+    mkdir -p "$HERE/$rel"
+    local f base
+    for f in "$MAIN/$rel"/*; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f")"
+        case "$base" in .gitkeep|README.md) continue ;; esac
+        [[ -e "$HERE/$rel/$base" ]] && continue
+        ln -s "$f" "$HERE/$rel/$base"
+        n=$((n+1))
+    done
+    echo "linked  $rel ($n entries)"
+}
+
+link_contents libs/RuntimeDeps
+link_contents libs/Natives
 link ressources
 link Directory.Build.props.user
 
