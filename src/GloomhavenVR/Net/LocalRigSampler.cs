@@ -15,6 +15,31 @@ internal static class LocalRigSampler
 {
     private static bool s_loggedHeldItem; // one-time confirm the held-item MP parity path fired (#3)
 
+    // COMPILE-TIME WIRE GUARD — do not delete. Sibling of NetAvatarDriver.PileKindWireOrderGuard,
+    // for the OTHER enum whose member values ride the wire.
+    //
+    // Cards.ControlBoard's numeric values are transmitted: LocalBoardStyle() below casts the enum
+    // to int and hands it to NetProtocol.EncodeBoardStyle, which packs it into the extras packet's
+    // trailing-block byte A (bits 5..6); the receiver casts the decoded code straight back to a
+    // ControlBoard. Two things must hold and neither is expressible any other way:
+    //
+    //   1. Oak == BoardStyleDefaultCode (0). "Style bits absent" and "Oak" MUST render the same —
+    //      that equality is the whole reason the board style shipped with no presence bit and no
+    //      wire-version bump, and it is what makes a pre-board-style peer read as Oak rather than
+    //      as garbage.
+    //   2. Every board id fits the 2-bit field (<= BoardStyleMaxCode). A fifth board needs a
+    //      trailing wire byte, not a silently clamped id — EncodeBoardStyle would clamp Bronze
+    //      onto some other board's material on every peer.
+    //
+    // Violate either and the divisor is 0, so THIS LINE STOPS COMPILING (CS0020 "Division by
+    // constant zero"). Known limit, stated honestly: Net/ names no constant for Steel or Bronze,
+    // so swapping just those two is NOT caught here — that case is covered by the explicit
+    // numbering and the warning at the enum itself.
+    private const int ControlBoardWireOrderGuard = 1 / (
+        (int)Cards.ControlBoard.Oak == NetProtocol.BoardStyleDefaultCode &&
+        Cards.ControlBoards.Count - 1 <= NetProtocol.BoardStyleMaxCode &&
+        (int)Cards.ControlBoard.Bronze <= NetProtocol.BoardStyleMaxCode ? 1 : 0);
+
     public static bool TrySample(IBoardAnchor anchor, bool includeFingers, out AvatarState state)
     {
         state = default;

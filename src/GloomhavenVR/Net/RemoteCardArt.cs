@@ -39,6 +39,10 @@ namespace GloomhavenVR.Net;
 /// Cheap to drive per frame: the clone is (re)built only when the shown card identity changes (or a
 /// front first appears), and torn down on hide/rebuild/teardown — no per-frame allocations.
 /// </summary>
+/// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. It renders a face from a game-owned widget
+/// resolved by <see cref="RemoteAbilityCardSource"/> off the host-replicated model. No card
+/// identity, art reference or enhancement state ever crosses the wire; all of it is
+/// DELIBERATELY-NOT. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteCardArt
 {
     // Physical card size the clone is fit to (matches the slab it overlays).

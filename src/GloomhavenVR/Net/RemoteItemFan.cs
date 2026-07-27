@@ -27,6 +27,11 @@ namespace GloomhavenVR.Net;
 /// Faces away from the owner's head so the owner's side reads as the "front" and everyone else sees
 /// backs — the same convention as every other remote card visual.
 /// </summary>
+/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes: extras <c>FlagItemFan</c> + one count byte,
+/// plus the two pure flags <c>FlagItemFanHeld</c> / <c>FlagItemFanLeft</c> (0 B each). Item
+/// IDENTITY and per-item face size are DELIBERATELY-NOT transmitted — backs only; the item's real
+/// effect syncs authoritatively through <c>UseItemService</c>, not through here. See
+/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteItemFan
 {
     // ---- geometry (mirror of ItemsPile's arc constants) --------------------------------------

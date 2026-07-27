@@ -315,6 +315,18 @@ where that player's board actually is.
   `Cards.PileKind` — a file outside this subsystem — silently corrupts this field.**
 - `Cards.ControlBoard` ids (0 Oak / 1 Steel / 2 Bronze) — same coupling via
   `NetProtocol.EncodeBoardStyle` / `LocalRigSampler.LocalBoardStyle`.
+
+  **Both of these two are now defended in code** (batch B1), because the danger sits in a file
+  outside this subsystem where none of this document is visible:
+  1. Both enums number themselves explicitly (`= 0, 1, 2`), which makes an alphabetising sort
+     harmless — it was previously the most likely way to break either.
+  2. Both carry the wire-constant warning **at the enum**, in `Cards/`.
+  3. Both are checked at compile time, at the cast site:
+     `NetAvatarDriver.PileKindWireOrderGuard` and `LocalRigSampler.ControlBoardWireOrderGuard`.
+     A renumber makes the divisor 0 and the build fails with CS0020 instead of shipping a
+     desync. Verified by deliberately breaking each enum. **Known gap:** `Net/` names no
+     constant for Steel or Bronze, so swapping only those two is caught by (1)+(2), not by (3).
+  A legal APPEND (a fourth pile, a fourth board) still compiles — verified.
 - `Hands.HandStyle` ids (0 Glove / 1 Plate / 2 Arcane).
 - `HeadMaskLibrary` mask ids 0..2.
 - `NetProtocol.Magic`, `Version`, `MsgRig`, `MsgExtras`, `SentinelActionTypeId`,
@@ -1004,6 +1016,7 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 | Empty-fan hint | its trigger is the palm-roll gate EDGE; the hand-card count cannot distinguish "gate opened with zero cards" from "fan closed" |
 
 - **Where:** `RemoteBoardContent`, `RemoteBoardFurniture`, `RemoteAbilityCardSource`, `NetPlayerActors`, `PresenceState`, `AvatarState`
+- **Now greppable in code** (batch B3): every remote-content type carries a `CLASSIFICATION:` tag in a `<remarks>` on its own doc comment, from the closed set `GLOBAL` / `PER-ACTOR MODEL` / `VR-ONLY` / `DELIBERATELY-NOT` / `MIXED (…)`, each citing the source expression it is derived from — `grep -rn "CLASSIFICATION:" src/GloomhavenVR/Net/`. `RemoteBoardContent`'s header, which used to say "TWO DATA CLASSES", now names all four. Marker interfaces were considered and rejected: four of the types are genuinely MIXED and an interface would have to lie about them (recorded as a Tier-3 candidate).
 - **Rule:** New remote-board content must be classified before it is built, and the classification decides whether it may touch the wire at all.
 - **Why:** Adding a wire field for something already replicated wastes a scarce flag bit (there is exactly one left) and creates a second source of truth that can disagree with the game — which looks exactly like a desync. Conversely, rendering a VR-only fact "locally" shows the *local* player's value on the *peer's* board.
 - **Established by:** `1899421` feat(net): a peer's control board now shows what their own board shows; `cf38066` feat(net): the peer's board shows ALL its furniture — as inert visuals; `c5df48e` feat(net): peers' played cards render at full detail once the phase reveals them
@@ -1631,12 +1644,31 @@ added"*, and gives instructions plus a stale line number. **It has been register
 The class-level `<summary>` repeats the claim. **Stale documentation, actively misleading.**
 Safe to correct (documentation only, Tier 0). Confidence: high.
 
-### `NetProtocol.FlagPileBrowse` doc comment: "bits4..7 reserved (0)"
-The XML doc for `FlagPileBrowse` still describes byte A as *"bits4..7 reserved (0)"*. Bit 4
-is now the mask-size bit and bits 5..6 the board style; **only bit 7 is still reserved.**
-The correct map is documented on `PileBrowseMaskSizeBit` and `PileBrowseBoardStyleShift`.
-Same drift in a `PresenceSerializer.Write` inline comment: *"Bits 5..7 stay zero for the next
-extension after this one."* **Doc only — the code is correct.** Confidence: high.
+### `NetProtocol.FlagPileBrowse` doc comment: "bits4..7 reserved (0)" — **FIXED in batch B2**
+The XML doc for `FlagPileBrowse` described byte A as *"bits4..7 reserved (0)"*. Bit 4 is the
+mask-size bit and bits 5..6 the board style; **only bit 7 is still reserved.** It now names
+each bit and points at `PileBrowseReservedBit`. Fixed because it sat directly at one of the
+two "FLAG BYTE IS FULL" terminator sites B2 added and would have contradicted it.
+**Still outstanding:** the same drift in a `PresenceSerializer.Write` inline comment,
+*"Bits 5..7 stay zero for the next extension after this one."* **Doc only — the code is
+correct.** Confidence: high.
+
+### `NetProtocol.PileBrowseReservedBit` — added by batch B2, never read BY DESIGN
+Extras trailing-block byte A, bit 7: **the last free bit in the entire protocol.** It has no
+call site and never will until it is deliberately claimed — it is a reservation, not a field.
+It exists as a symbol rather than a comment so it is greppable and appears in IntelliSense
+beside the bits it neighbours, which is where somebody hunting for a free bit is standing.
+**Keep. Same rule and same reason as `PileBrowseKindItems` and `BoardStyleMaxCode` below.**
+Verified that no sender sets it: `PresenceSerializer.Write` builds byte A from bits 0..1
+(masked `0x03`), bits 2/3/4 and the 5..6 style field, and never touches bit 7. Confidence: high.
+
+### `NetAvatarDriver.PileKindWireOrderGuard` / `LocalRigSampler.ControlBoardWireOrderGuard`
+Added by batch B1. Two `private const int` with no reader, whose initialiser is
+`1 / (<wire-order predicate> ? 1 : 0)`. They look exactly like nonsense constants to a
+"private, never read" analysis, which is why each carries a comment longer than the code.
+**They are the only mechanism in the subsystem that turns a silent multiplayer desync into a
+build failure** (CS0020, "Division by constant zero"). Deleting one restores the trap in full.
+**Keep.** Confidence: high.
 
 ### `NetAvatarDriver.RemovePlayer`
 Public, no callers. Its own doc says it is the *"immediate teardown entry point for a future

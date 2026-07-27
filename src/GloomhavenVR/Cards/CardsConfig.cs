@@ -18,12 +18,30 @@ internal enum CardGrabButton
 /// <see cref="VRCardFactory.GetTrayPrefab"/>. Oak is the original bundled board (default);
 /// a selected prefab that is not yet in the bundle falls back to Oak, then to the
 /// procedural board, so this compiles and runs before the new bundle ships.
+///
+/// WIRE CONSTANT — THE NUMERIC VALUES OF THESE MEMBERS ARE TRANSMITTED.
+/// <c>Net.LocalRigSampler.LocalBoardStyle</c> casts this enum through
+/// <c>Net.NetProtocol.EncodeBoardStyle</c> onto the extras packet's trailing-block byte A
+/// (bits 5..6), and the receiver casts the decoded code straight back to a
+/// <see cref="ControlBoard"/>. Nothing in the compiler links these two files, so the values are
+/// APPEND-ONLY: never renumber, never insert in the middle. The field is 2 bits — a FOURTH board
+/// appends for free, a FIFTH needs a trailing wire byte (see <c>NetProtocol.BoardStyleMaxCode</c>).
+///
+/// Oak MUST stay 0: <c>BoardStyleDefaultCode == 0</c> is what makes "style bits absent" and "Oak"
+/// render identically, which is the entire reason this field cost no presence bit and no version
+/// bump. A mistake here is invisible locally — the sender never parses its own packet — and shows
+/// up only as every OTHER player seeing the wrong board material.
+///
+/// The explicit <c>= 0/1/2</c> makes an alphabetising sort harmless; Oak's anchoring at 0 and the
+/// two-bit range are checked at compile time by
+/// <c>Net.LocalRigSampler.ControlBoardWireOrderGuard</c>.
+/// See <c>.planning/refactor/INVARIANTS-Net-Rig.md</c> Part I §4c.
 /// </summary>
 internal enum ControlBoard
 {
-    Oak,
-    Steel,
-    Bronze,
+    Oak = 0,
+    Steel = 1,
+    Bronze = 2,
 }
 
 /// <summary>

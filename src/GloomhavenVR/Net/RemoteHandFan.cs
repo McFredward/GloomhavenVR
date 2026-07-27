@@ -67,6 +67,12 @@ namespace GloomhavenVR.Net;
 ///     or tuned). A sender who retunes their own fan geometry therefore reads slightly differently
 ///     to others than to themselves.
 /// </summary>
+/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes: one card-COUNT byte in the extras packet
+/// (<c>HandCardCount</c>, always written) plus the sender's hand pose and dominant-hand flag, which
+/// the rig packet already carries. Card IDENTITY is DELIBERATELY-NOT transmitted — backs only. The
+/// fan's whole geometry is DERIVED on the receiver from the synced hand + head, so curvature,
+/// toe-in, bow and fan-out timing cost nothing; the KNOWN GAPS above are the fields deliberately
+/// not bought. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteHandFan
 {
     // ---- fan geometry (real meters / degrees, seeded to CardsConfig Fan* defaults) -----------

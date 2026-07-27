@@ -50,6 +50,17 @@ namespace GloomhavenVR.Net;
 /// four-peer table stays inside the existing budget. The only per-frame work is the single
 /// <see cref="RemoteGlowPulse"/> component, and only while a pulse is actually visible.
 /// </summary>
+/// <remarks>CLASSIFICATION: MIXED (DELIBERATELY-NOT + PER-ACTOR MODEL + VR-ONLY-derived) — and it
+/// adds NO wire field of its own. The "NEUTRAL LOOKS" and "LOCAL-ONLY STATE" blocks called out on
+/// individual members ARE the DELIBERATELY-NOT class, not a fifth thing: the peer's own button
+/// interactability, their Confirm label, their follow/pin toggle, their drawer state and their
+/// personal tuning offsets are knowable-but-not-worth-a-field, so peers are drawn at the AUTHORED
+/// defaults. Slot occupancy and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse, snap
+/// glow and half divider are DERIVED from state the board already draws. The only wire input is the
+/// already-synced <see cref="RemoteAvatar"/> passed to <c>Refresh</c> — this is the one widget that
+/// takes it, and it takes NO new bytes for it. Note that <c>Refresh</c> also takes a
+/// <c>CPlayerActor</c> it discards (<c>_ = actor;</c>): reserved, per the note there.
+/// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteBoardFurniture
 {
     // ---------------------------------------------------------------- layout (board-local) --

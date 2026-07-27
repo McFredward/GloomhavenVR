@@ -16,6 +16,11 @@ namespace GloomhavenVR.Net;
 /// Degrades gracefully: no avatar sprite → name only (centred); no username → "Player &lt;id&gt;".
 /// Purely cosmetic; never touches game state. Owned/torn down by <see cref="RemoteControlBoard"/>.
 /// </summary>
+/// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire on OUR side channel. The Steam avatar and
+/// the masked username are read out of the GAME's own netcode by reflection
+/// (<c>NetPlayerActors.AvatarFor</c> / <c>NameFor</c>), which already replicates them; adding an
+/// identity field to our packet would be a second source of truth for something the game is
+/// authoritative about. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class OwnerTag
 {
     private const float AvatarSize = 0.055f;   // square avatar quad, local metres
