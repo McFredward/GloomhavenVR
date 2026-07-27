@@ -10,10 +10,10 @@ namespace GloomhavenVR.Cards;
 // PlayTray part 7 of 7 (see PlayTray.1.Core.cs for the split map and its rules) — the four
 // NESTED types, in their original mutual order:
 //
-//     LaserTarget          (was PlayTray.cs:327)   collider -> IPokeable pair
-//     SlotPulse            (was PlayTray.cs:2271)  self-animated wanted-slot hint
-//     BoardSurfaceTarget   (was PlayTray.cs:3386)  no-op full-board laser target
-//     BoardButton          (was PlayTray.cs:3401)  one physical board button (987 lines)
+//     LaserTarget          (pre-split PlayTray.cs:327)   collider -> IPokeable pair
+//     SlotPulse            (pre-split PlayTray.cs:2271)  self-animated wanted-slot hint
+//     BoardSurfaceTarget   (pre-split PlayTray.cs:3386)  no-op full-board laser target
+//     BoardButton          (pre-split PlayTray.cs:3401)  one physical board button (987 lines)
 //
 // They stay NESTED (not promoted to top-level types) because BoardButton reaches into
 // PlayTray's private statics — Tint, NewKeycapMaterial, BoxCapShader, OverlayMaterial,
