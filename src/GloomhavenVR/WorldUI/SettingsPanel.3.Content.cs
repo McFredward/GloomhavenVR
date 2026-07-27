@@ -35,6 +35,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         _rowVisible.Clear();
         _rowParent = null;
         _rowGate = null;
+        ResetTooltip(); // the previous bubble died with the previous holder
 
         MixedReality.Bind(); // MR config may be read below before VRRigDriver's first tick
 
@@ -367,6 +368,11 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
 
         _rowParent = null;
         _rowGate = null;
+
+        // The hover bubble the "…_note" paragraphs moved into. Built LAST so it is the canvas
+        // root's last sibling (drawn over the rows) and still inside the subtree VRLayers.Apply
+        // re-layers a few lines below.
+        BuildTooltip();
 
         // Single visibility pass: each gated row shown iff its own predicate (category, or
         // category + selected element) is satisfied. Never more than one category's rows

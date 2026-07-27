@@ -345,6 +345,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         _rowVisible.Clear();
         _rowParent = null;
         _rowGate = null;
+        ResetTooltip();
         SetOpen(true); // Build() re-runs with the new language and re-registers everything
     }
 
@@ -420,6 +421,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         _rowVisible.Clear();
         _rowParent = null;
         _rowGate = null;
+        ResetTooltip();
     }
 
     // ---- open/close ----------------------------------------------------------------------
@@ -455,6 +457,9 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         }
         else if (_holder != null)
         {
+            // A bubble left open across a close would be the first thing on screen at the next
+            // open, describing a row nobody is pointing at.
+            HideTooltip();
             if (_canvas != null)
                 UguiPokeSurfaces.Unregister(_canvas);
             CanvasConversion.RemoveMaskRequest();

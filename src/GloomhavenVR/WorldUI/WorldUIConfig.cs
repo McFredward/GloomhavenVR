@@ -411,7 +411,12 @@ internal static class WorldUIConfig
             + "still report unchanged pixel dimensions and culling masks to game code, but draw "
             + "nothing. Expected to be invisible; the reason it defaults OFF is that 'expected' is "
             + "not 'measured', and the failure mode if some game system does depend on that render "
-            + "would be visible in the headset.");
+            + "would be visible in the headset. HOW TO MEASURE IT (2026-07): toggling this row in "
+            + "the Debug pane closes the [Perf] measurement window on both sides of the flip, so "
+            + "the log carries one FRAME/SPLIT summary per state with nothing straddling the "
+            + "change. Read the SPLIT line's per-camera breakdown, NOT the FRAME line's 'gpu' "
+            + "figure — that counter reports the frame interval whenever the runtime is "
+            + "rate-locked and is blind to this.");
         WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", 0f,
             "Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base.");
         WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", 0f, "Wrist overview HUD yaw (degrees).");

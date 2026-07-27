@@ -76,6 +76,12 @@ internal static class PerfConfig
     /// <summary>Query the XR display's own counters (dropped/presented frames, GPU time, motion-to-photon).</summary>
     internal static ConfigEntry<bool> XrStats = null!;
 
+    /// <summary>Decompose the frame into main-thread logic / render-loop / blocked (the SPLIT line).</summary>
+    internal static ConfigEntry<bool> FrameSplit = null!;
+
+    /// <summary>Count the scene's renderers once per window and append it to the SPLIT line.</summary>
+    internal static ConfigEntry<bool> SceneCensus = null!;
+
     // ---- [Optimize] behaviour ---------------------------------------------------------------
 
     /// <summary>Cache the per-frame TickGuard delegates instead of re-allocating them every frame.</summary>
@@ -202,6 +208,24 @@ internal static class PerfConfig
             + "time, motion-to-photon latency — which is the only way to see reprojection (the "
             + "compositor covering for us) rather than just our CPU timings. Counters the runtime "
             + "does not expose are reported as 'n/a' in the log, never as a fake zero.");
+        FrameSplit = _file.Bind("Perf", "FrameSplit", true,
+            "Decompose every frame into MAIN-THREAD LOGIC (Update->LateUpdate), RENDER LOOP "
+            + "(culling + draw-call submission, also broken down per camera and per pass) and "
+            + "BLOCKED (waiting on the GPU / the XR compositor) — the [Perf] SPLIT line. This is the "
+            + "measurement that says which LAYER owns the frame, which neither the frame interval "
+            + "nor the runtime's own GPU counter can answer: on 2026-07 hardware that counter read "
+            + "the frame interval in every window and did not move when the pixel-sample budget was "
+            + "cut 11x, because the runtime had locked the app to 45 Hz throughout. The spans here "
+            + "are built from the mod's own clock reads at known points in Unity's frame, so they "
+            + "bind on every platform with no player-setting prerequisite. Cost: two timer reads per "
+            + "frame plus two per camera render, and no allocation.");
+        SceneCensus = _file.Bind("Perf", "SceneCensus", true,
+            "Append a renderer census (total / enabled / visible to at least one camera) to the "
+            + "[Perf] SPLIT line. UnityStats' batch and draw-call counters are editor-only, so this "
+            + "is the closest runtime proxy for 'how much is there to submit', and together with the "
+            + "camera-pass count it prices one extra full-scene render. Deliberately sampled ONCE "
+            + "PER WINDOW: the object walk behind it allocates and would be a stutter of its own at "
+            + "frame rate. Switch OFF for a capture where even a per-window hitch matters.");
 
         // ---- [Optimize] ----------------------------------------------------------------------
         CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", true,

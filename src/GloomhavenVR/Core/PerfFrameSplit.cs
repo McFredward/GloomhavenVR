@@ -1,0 +1,596 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using UnityEngine;
+
+namespace GloomhavenVR.Core;
+
+/// <summary>
+/// WHERE THE FRAME ACTUALLY GOES — the measurement that decides the 2026-07 judder
+/// investigation, added after the pixel-budget hypothesis was refuted on hardware.
+///
+/// <para>WHY THIS EXISTS. <see cref="PerfMonitor"/> measures the frame INTERVAL and the mod's own
+/// share of it. Both were unambiguous: the mod costs ~2 % of the frame, and the frame is ~23 ms
+/// against an 11.11 ms budget. What neither could answer is WHICH LAYER is spending the other
+/// 98 %. The one counter that looked like an answer — the XR runtime's <c>gpu</c> figure — read
+/// almost exactly the frame interval in every window, and a "GPU time" that equals total frame
+/// time and does not move when the pixel-sample budget is cut 11× is not reporting GPU busy time;
+/// it is reporting the interval or a wait. So a preset sweep on hardware moved it by 7 % and
+/// taught us nothing. This class replaces that guess with a decomposition that CANNOT be fooled,
+/// because it is built out of the mod's own clock reads at known points in Unity's frame.</para>
+///
+/// <para>THE DECOMPOSITION. Unity's main thread runs a frame as
+/// <c>Update → LateUpdate → render loop (cull + submit, per camera) → present/wait → next
+/// Update</c>. Three timestamps bracket that:</para>
+/// <list type="number">
+/// <item><b>logic span</b> — from <see cref="PerfMonitor"/>'s host <c>Update</c> (execution order
+/// −30000, the first thing in the frame) to this class's tail <c>LateUpdate</c> (order +30000,
+/// the last). Everything the game and the mod COMPUTE lives in here.</item>
+/// <item><b>render-loop span</b> — from the first <see cref="Camera.onPreCull"/> to the last
+/// <see cref="Camera.onPostRender"/> of the same frame. This is the main thread inside Unity's
+/// rendering: culling plus draw-call submission (and, when the render thread's queue is full,
+/// the main thread's own blocking inside those submits). It is also measured PER CAMERA, which
+/// is the number that prices the scenario camera's third full-scene render into a sink texture
+/// nothing reads.</item>
+/// <item><b>blocked</b> — the remainder of the frame interval. The main thread is neither
+/// computing nor submitting: it is waiting for the GPU, for the compositor's next present slot,
+/// or for the XR runtime. A frame that is nearly all "blocked" is NOT a CPU problem, and no
+/// amount of draw-call or logic optimisation will move it.</item>
+/// </list>
+///
+/// <para>READING IT. The verdict line states which of the three owns the frame, in words, so the
+/// next hardware log answers the question by itself:</para>
+/// <list type="bullet">
+/// <item><c>logic ≈ frame</c> → the game's own <c>Update</c>/<c>LateUpdate</c> is the wall.</item>
+/// <item><c>render ≈ frame</c> → draw-call submission is the wall. MultiPass doubling the head
+/// camera's passes is then the direct cause, and the sink renders are pure waste on top.</item>
+/// <item><c>blocked ≈ frame</c> → the CPU is idle and we are waiting on the GPU or the
+/// compositor. Note that a runtime that has locked the app to half rate produces exactly this
+/// signature WITHOUT the GPU being full, which is why <see cref="PerfMonitor"/> now shouts when
+/// the display rate changes: below a rate lock every timing is quantised to the new interval and
+/// comparisons across the boundary are meaningless.</item>
+/// </list>
+///
+/// <para>FRAMETIMINGMANAGER. Unity's own <c>FrameTimingManager</c> is queried too, because when
+/// it binds it gives a real GPU-timer number to cross-check the XR runtime's figure against. On
+/// 2021.3 its <c>FrameTiming</c> struct carries only <c>cpuFrameTime</c> and <c>gpuFrameTime</c>
+/// (the per-thread main/render split arrived in a later Unity), and the whole subsystem returns
+/// NOTHING unless the player was built with frame-timing stats enabled — which is a build-time
+/// decision we do not control. It is therefore a BONUS, never the primary: when it does not
+/// bind, every one of its figures prints <c>n/a</c> and the spans above still answer the
+/// question on their own. The call is latched behind its own try/catch so a struct-shape
+/// mismatch on some other Unity version degrades to n/a instead of taking the instrumentation
+/// down.</para>
+///
+/// <para>COST. Two <see cref="Stopwatch.GetTimestamp"/> reads per frame for the logic span, two
+/// per camera render (four cameras in a scenario), one int-keyed dictionary lookup per camera
+/// render, and no steady-state allocation at all — camera records are keyed by
+/// <c>GetInstanceID()</c> precisely so the hot path never touches <c>Camera.name</c>, which
+/// allocates a fresh string on every read. Single-digit microseconds. Off, it is one static bool
+/// test per frame and the hooks are not even registered.</para>
+///
+/// <para>MULTIPLAYER / REVERSIBILITY. Reads clocks, writes log lines. It adds one component and
+/// two static camera-callback subscriptions, both dropped in <see cref="Shutdown"/>. It never
+/// touches a game object, game state or wire traffic.</para>
+/// </summary>
+internal static class PerfFrameSplit
+{
+    private const string Scope0 = "Perf";
+
+    /// <summary>Ring capacity for the per-frame span samples — matches PerfMonitor's frame ring.</summary>
+    private const int Capacity = 8192;
+
+    // ---- per-camera records ------------------------------------------------------------------
+
+    /// <summary>
+    /// One camera's main-thread render cost. Keyed by instance id (never by name: reading
+    /// <c>UnityEngine.Object.name</c> allocates a string on EVERY access, and this runs per camera
+    /// per frame). The name is captured once, when the record is created.
+    /// </summary>
+    private sealed class CamRec
+    {
+        public CamRec(string name) => Name = name;
+
+        public readonly string Name;
+
+        /// <summary>Seconds this camera spent between onPreCull and onPostRender in the window.</summary>
+        public double WindowSeconds;
+
+        /// <summary>Render PASSES in the window (MultiPass makes the head camera two per frame).</summary>
+        public int WindowPasses;
+
+        /// <summary>Frames in the window in which this camera rendered at all.</summary>
+        public int WindowFrames;
+
+        /// <summary>Passes so far in the CURRENT frame (rolled into the window each frame).</summary>
+        public int FramePasses;
+
+        /// <summary>Seconds so far in the CURRENT frame.</summary>
+        public double FrameSeconds;
+    }
+
+    private static readonly Dictionary<int, CamRec> Cameras = new(8);
+    private static readonly List<CamRec> CameraOrder = new(8);
+    private static readonly List<CamRec> Ranked = new(8);
+
+    // ---- per-frame state ---------------------------------------------------------------------
+
+    /// <summary>HOT-PATH GATE — a plain static field so the camera hooks cost one load+branch.</summary>
+    private static bool _active;
+
+    private static long _logicStart;      // set at the top of the frame (PerfMonitor's host)
+    private static long _logicEnd;        // set by the tail component's LateUpdate
+    private static bool _logicEndSeen;
+
+    private static long _renderFirst;     // first onPreCull of the frame
+    private static long _renderLast;      // last onPostRender of the frame
+    private static bool _renderSeen;
+
+    private static long _camOpen;         // open onPreCull timestamp
+    private static int _camOpenId;
+
+    // ---- window accumulators -------------------------------------------------------------------
+
+    private static readonly float[] LogicMs = new float[Capacity];
+    private static readonly float[] RenderMs = new float[Capacity];
+    private static readonly float[] SortScratch = new float[Capacity];
+    private static int _count;
+
+    private static double _logicSum, _renderSum;
+    private static float _logicMax, _renderMax;
+    private static int _passSum;          // total camera passes over the window
+
+    // ---- Unity FrameTimingManager (bonus; n/a when the player disabled frame-timing stats) -----
+
+    private static readonly FrameTiming[] Timings = new FrameTiming[1];
+    private static double _ftCpuSum, _ftGpuSum;
+    private static int _ftSamples;
+    private static bool _ftFaulted;
+    private static string _ftFault = string.Empty;
+
+    private static PerfSplitTail? _tail;
+    private static bool _hooked;
+
+    // ==========================================================================================
+    //  Lifecycle
+    // ==========================================================================================
+
+    /// <summary>
+    /// Attach the tail component. Idempotent. The camera hooks are (un)registered lazily by
+    /// <see cref="SetActive"/> so a disabled measurement costs nothing at all, not even a
+    /// delegate invoke per camera.
+    /// </summary>
+    internal static void Install(GameObject root)
+    {
+        if (_tail == null)
+            _tail = root.AddComponent<PerfSplitTail>();
+    }
+
+    /// <summary>Drop the component, the hooks and every record (hot-reload teardown; never throws).</summary>
+    internal static void Shutdown()
+    {
+        SetActive(false);
+        if (_tail != null)
+        {
+            UnityEngine.Object.Destroy(_tail);
+            _tail = null;
+        }
+        Cameras.Clear();
+        CameraOrder.Clear();
+        Ranked.Clear();
+        ResetWindow();
+        _ftFaulted = false;
+        _ftFault = string.Empty;
+    }
+
+    /// <summary>
+    /// Arm or disarm the measurement. Registering the camera callbacks only while armed is what
+    /// keeps the OFF state free — an unregistered <see cref="Camera.onPreCull"/> is not a null
+    /// check per camera, it is no call at all.
+    /// </summary>
+    private static void SetActive(bool on)
+    {
+        if (on == _hooked)
+        {
+            _active = on;
+            return;
+        }
+        if (on)
+        {
+            Camera.onPreCull += OnPreCull;
+            Camera.onPostRender += OnPostRender;
+        }
+        else
+        {
+            Camera.onPreCull -= OnPreCull;
+            Camera.onPostRender -= OnPostRender;
+        }
+        _hooked = on;
+        _active = on;
+    }
+
+    // ==========================================================================================
+    //  Per-frame sampling — driven by PerfMonitor's host, which owns the frame boundary
+    // ==========================================================================================
+
+    /// <summary>
+    /// Close out the frame that just ended and open the next one. Called from
+    /// <see cref="PerfMonitor"/>'s host <c>Update</c> (execution order −30000), so "now" is the
+    /// first instant of frame N and every span recorded below belongs to frame N−1, whose logic,
+    /// rendering and present have all completed. <paramref name="record"/> is false for the very
+    /// first sampled frame (which carries the load hitch) and while the monitor is off.
+    /// </summary>
+    internal static void RollFrame(bool enabled, bool record)
+    {
+        SetActive(enabled);
+        long now = Stopwatch.GetTimestamp();
+
+        if (enabled && record && _logicStart != 0L)
+        {
+            double freq = Stopwatch.Frequency;
+
+            // Logic span: host Update (first) → tail LateUpdate (last). A frame in which the tail
+            // never ran (component disabled mid-frame, scene teardown) contributes nothing rather
+            // than a bogus zero. Everything derived per frame — including the camera-pass total —
+            // is gated on the SAME condition, so no reported average is ever a sum over one
+            // population divided by the count of another.
+            bool recorded = _logicEndSeen && _count < Capacity;
+            if (recorded)
+            {
+                float logicMs = (float)((_logicEnd - _logicStart) / freq * 1000d);
+                float renderMs = _renderSeen
+                    ? (float)((_renderLast - _renderFirst) / freq * 1000d)
+                    : 0f;
+                LogicMs[_count] = logicMs;
+                RenderMs[_count] = renderMs;
+                _count++;
+                _logicSum += logicMs;
+                _renderSum += renderMs;
+                if (logicMs > _logicMax)
+                    _logicMax = logicMs;
+                if (renderMs > _renderMax)
+                    _renderMax = renderMs;
+            }
+
+            for (int i = 0; i < CameraOrder.Count; i++)
+            {
+                CamRec c = CameraOrder[i];
+                if (recorded && c.FramePasses > 0)
+                {
+                    c.WindowSeconds += c.FrameSeconds;
+                    c.WindowPasses += c.FramePasses;
+                    c.WindowFrames++;
+                    _passSum += c.FramePasses;
+                }
+                c.FramePasses = 0;
+                c.FrameSeconds = 0d;
+            }
+
+            SampleFrameTimings();
+        }
+        else
+        {
+            for (int i = 0; i < CameraOrder.Count; i++)
+            {
+                CameraOrder[i].FramePasses = 0;
+                CameraOrder[i].FrameSeconds = 0d;
+            }
+        }
+
+        _logicStart = now;
+        _logicEnd = now;
+        _logicEndSeen = false;
+        _renderSeen = false;
+        _camOpenId = 0;
+    }
+
+    /// <summary>Tail hook: the last main-thread instant before Unity's render loop.</summary>
+    private static void MarkLogicEnd()
+    {
+        if (!_active)
+            return;
+        _logicEnd = Stopwatch.GetTimestamp();
+        _logicEndSeen = true;
+    }
+
+    private static void OnPreCull(Camera cam)
+    {
+        if (!_active || cam == null)
+            return;
+        long t = Stopwatch.GetTimestamp();
+        // Only renders that happen AFTER the logic phase belong to Unity's render loop. A camera
+        // driven manually from a LateUpdate (the mod's stereo compositor does exactly that) would
+        // otherwise start the "render loop" span inside the logic span, double-counting the
+        // overlap and understating the blocked time. Such renders are still attributed to their
+        // camera below — they just do not move the span boundary.
+        if (_logicEndSeen)
+        {
+            if (!_renderSeen)
+            {
+                _renderFirst = t;
+                _renderSeen = true;
+            }
+            _renderLast = t;   // a render with no matching post-render still bounds the span
+        }
+        _camOpen = t;
+        _camOpenId = cam.GetInstanceID();
+    }
+
+    private static void OnPostRender(Camera cam)
+    {
+        if (!_active || cam == null)
+            return;
+        long t = Stopwatch.GetTimestamp();
+        if (_renderSeen)
+            _renderLast = t;
+        int id = cam.GetInstanceID();
+        if (id != _camOpenId)
+            return; // a nested/foreign render closed out of order — do not attribute it
+        _camOpenId = 0;
+
+        if (!Cameras.TryGetValue(id, out CamRec rec))
+        {
+            // Cold path, once per camera per session: this is the ONLY place Camera.name is read.
+            rec = new CamRec(cam.name);
+            Cameras[id] = rec;
+            CameraOrder.Add(rec);
+        }
+        rec.FrameSeconds += (t - _camOpen) / (double)Stopwatch.Frequency;
+        rec.FramePasses++;
+    }
+
+    /// <summary>
+    /// Unity's own frame timings, when the player was built with them enabled. Latched: the first
+    /// throw (a <c>FrameTiming</c> field this Unity does not have) disables the probe for the
+    /// session and is reported once, rather than throwing every frame into the caller's guard.
+    /// </summary>
+    private static void SampleFrameTimings()
+    {
+        if (_ftFaulted)
+            return;
+        try
+        {
+            FrameTimingManager.CaptureFrameTimings();
+            uint got = FrameTimingManager.GetLatestTimings(1, Timings);
+            if (got == 0u)
+                return; // stats disabled in this build — stays n/a, never a fake zero
+            _ftCpuSum += Timings[0].cpuFrameTime;
+            _ftGpuSum += Timings[0].gpuFrameTime;
+            _ftSamples++;
+        }
+        catch (Exception e)
+        {
+            _ftFaulted = true;
+            _ftFault = e.GetType().Name;
+        }
+    }
+
+    // ==========================================================================================
+    //  Window reporting
+    // ==========================================================================================
+
+    internal static void ResetWindow()
+    {
+        _count = 0;
+        _logicSum = 0d;
+        _renderSum = 0d;
+        _logicMax = 0f;
+        _renderMax = 0f;
+        _passSum = 0;
+        _ftCpuSum = 0d;
+        _ftGpuSum = 0d;
+        _ftSamples = 0;
+        for (int i = 0; i < CameraOrder.Count; i++)
+        {
+            CamRec c = CameraOrder[i];
+            c.WindowSeconds = 0d;
+            c.WindowPasses = 0;
+            c.WindowFrames = 0;
+        }
+    }
+
+    /// <summary>True once the window holds enough samples for the SPLIT line to mean anything.</summary>
+    internal static bool HasWindow => _count > 1;
+
+    /// <summary>
+    /// Compose the <c>[Perf] SPLIT</c> line: the three spans, the per-camera render cost, and a
+    /// verdict in words naming which layer owns the frame. <paramref name="frameMeanMs"/> is
+    /// PerfMonitor's own mean frame interval for the same window, so the two lines are directly
+    /// comparable.
+    /// </summary>
+    internal static void AppendSplit(System.Text.StringBuilder sb, float windowSeconds, float frameMeanMs)
+    {
+        float logicMean = (float)(_logicSum / _count);
+        float renderMean = (float)(_renderSum / _count);
+        float logicP95 = Percentile(LogicMs, 0.95f);
+        float renderP95 = Percentile(RenderMs, 0.95f);
+        // The render loop runs INSIDE neither span's overlap: logic ends before the first cull.
+        float blockedMean = Mathf.Max(0f, frameMeanMs - logicMean - renderMean);
+
+        sb.Append("SPLIT ").Append(windowSeconds.ToString("F1")).Append("s n=").Append(_count)
+          .Append(" — where the ").Append(frameMeanMs.ToString("F2"))
+          .Append("ms frame goes on the MAIN THREAD")
+          .Append(" | logic (Update→LateUpdate) ").Append(logicMean.ToString("F2"))
+          .Append(" p95 ").Append(logicP95.ToString("F2"))
+          .Append(" max ").Append(_logicMax.ToString("F2")).Append("ms (")
+          .Append(Share(logicMean, frameMeanMs)).Append(')')
+          .Append(" | render loop (cull+submit) ").Append(renderMean.ToString("F2"))
+          .Append(" p95 ").Append(renderP95.ToString("F2"))
+          .Append(" max ").Append(_renderMax.ToString("F2")).Append("ms (")
+          .Append(Share(renderMean, frameMeanMs)).Append(')')
+          .Append(" | blocked (waiting on GPU/compositor) ").Append(blockedMean.ToString("F2"))
+          .Append("ms (").Append(Share(blockedMean, frameMeanMs)).Append(')');
+
+        sb.Append(" | camera passes/frame ")
+          .Append((_passSum / (float)_count).ToString("F1"));
+        AppendCameras(sb);
+        AppendFrameTimings(sb);
+
+        sb.Append(" | VERDICT: ").Append(Verdict(logicMean, renderMean, blockedMean, frameMeanMs));
+    }
+
+    private static void AppendCameras(System.Text.StringBuilder sb)
+    {
+        Ranked.Clear();
+        for (int i = 0; i < CameraOrder.Count; i++)
+        {
+            if (CameraOrder[i].WindowPasses > 0)
+                Ranked.Add(CameraOrder[i]);
+        }
+        if (Ranked.Count == 0)
+        {
+            sb.Append(" | per camera: none rendered this window");
+            return;
+        }
+        Ranked.Sort(CompareCameraDesc);
+        sb.Append(" | per camera (main-thread cull+submit, avg per frame it rendered):");
+        for (int i = 0; i < Ranked.Count && i < 8; i++)
+        {
+            CamRec c = Ranked[i];
+            sb.Append(i == 0 ? " " : ", ").Append(c.Name).Append(' ')
+              .Append((c.WindowSeconds * 1000d / Mathf.Max(1, c.WindowFrames)).ToString("F2"))
+              .Append("ms x").Append((c.WindowPasses / (float)Mathf.Max(1, c.WindowFrames)).ToString("F1"))
+              .Append(" pass");
+        }
+    }
+
+    private static void AppendFrameTimings(System.Text.StringBuilder sb)
+    {
+        sb.Append(" | Unity FrameTimingManager ");
+        if (_ftFaulted)
+        {
+            sb.Append("n/a (probe threw ").Append(_ftFault).Append(" — this Unity's FrameTiming has a "
+                      + "different shape; the spans above do not depend on it)");
+            return;
+        }
+        if (_ftSamples == 0)
+        {
+            sb.Append("n/a (this player was built without frame-timing stats — GetLatestTimings "
+                      + "returns no samples. NOT zero: the counter simply does not exist here)");
+            return;
+        }
+        sb.Append("cpu ").Append((_ftCpuSum / _ftSamples).ToString("F2"))
+          .Append("ms gpu ").Append((_ftGpuSum / _ftSamples).ToString("F2"))
+          .Append("ms (n=").Append(_ftSamples).Append("; per-thread main/render split is n/a on this "
+                  + "Unity — its FrameTiming carries only cpu/gpu totals)");
+    }
+
+    /// <summary>
+    /// The whole point of the line: say, in words, which layer owns the frame — and say plainly
+    /// when the answer is "none of the ones the mod can move".
+    /// </summary>
+    private static string Verdict(float logic, float render, float blocked, float frame)
+    {
+        if (frame <= 0.01f)
+            return "no frame time to attribute";
+        float l = logic / frame, r = render / frame, b = blocked / frame;
+        if (l >= 0.5f)
+            return $"MAIN-THREAD LOGIC owns the frame ({l * 100f:F0}%). The game's own Update/LateUpdate "
+                   + "is the wall — draw calls and pixels are not. The mod's share of that is on the "
+                   + "STEPS line above; if it is small, this is the game's own code and the mod cannot "
+                   + "move it.";
+        if (r >= 0.35f)
+            return $"the RENDER LOOP owns the frame ({r * 100f:F0}%). The main thread is inside culling "
+                   + "and draw-call submission, so the levers are the NUMBER of things submitted, not "
+                   + "their pixel cost: MultiPass renders the head camera twice, and every extra camera "
+                   + "listed above is a whole additional scene submission.";
+        if (b >= 0.5f)
+            return $"the main thread is BLOCKED for {b * 100f:F0}% of the frame — it is neither computing "
+                   + "nor submitting, it is waiting. That is the GPU, the XR compositor, or a runtime "
+                   + "rate lock (check the display Hz on the FRAME line: a halved rate produces exactly "
+                   + "this signature with the GPU nowhere near full). CPU-side optimisation cannot move "
+                   + "a frame that looks like this.";
+        return $"no single layer dominates (logic {l * 100f:F0}%, render {r * 100f:F0}%, blocked "
+               + $"{b * 100f:F0}%) — the frame is spread across all three.";
+    }
+
+    private static string Share(float part, float whole) =>
+        whole <= 0.01f ? "n/a" : (100f * part / whole).ToString("F0") + "%";
+
+    private static int CompareCameraDesc(CamRec a, CamRec b) => b.WindowSeconds.CompareTo(a.WindowSeconds);
+
+    private static float Percentile(float[] source, float q)
+    {
+        Array.Copy(source, SortScratch, _count);
+        Array.Sort(SortScratch, 0, _count);
+        int idx = Mathf.Clamp(Mathf.CeilToInt(q * _count) - 1, 0, _count - 1);
+        return SortScratch[idx];
+    }
+
+    /// <summary>
+    /// HOW MUCH THERE IS TO DRAW. <c>UnityStats</c> (batches, draw calls, tris) is editor-only, so
+    /// the closest runtime proxy is a census of the renderers that COULD be submitted: total,
+    /// enabled, and how many the culling actually kept last frame. Together with the camera-pass
+    /// count above it prices a scene submission — an extra camera costs roughly "visible × its own
+    /// culling", which is exactly the question the sink-render experiment asks.
+    ///
+    /// <para>DELIBERATELY ONCE PER WINDOW, NEVER PER FRAME: <c>FindObjectsOfType</c> walks every
+    /// loaded object and allocates the array, which is far too expensive for a frame budget and
+    /// would make the instrumentation the stutter. At a 30 s cadence it is one hitch of a few
+    /// milliseconds per window, and it is skipped entirely while the census is switched off.</para>
+    /// </summary>
+    internal static void AppendSceneCensus(System.Text.StringBuilder sb)
+    {
+        Renderer[] all;
+        try
+        {
+            all = UnityEngine.Object.FindObjectsOfType<Renderer>();
+        }
+        catch (Exception e)
+        {
+            sb.Append(" | scene census n/a (").Append(e.GetType().Name).Append(')');
+            return;
+        }
+        int enabled = 0, visible = 0;
+        for (int i = 0; i < all.Length; i++)
+        {
+            Renderer r = all[i];
+            if (r == null || !r.enabled)
+                continue;
+            enabled++;
+            if (r.isVisible)
+                visible++;
+        }
+        sb.Append(" | scene census: ").Append(all.Length).Append(" renderer(s), ")
+          .Append(enabled).Append(" enabled, ").Append(visible)
+          .Append(" visible to at least one camera (sampled once per window — the per-frame cost of "
+                  + "this walk would itself be a stutter)");
+    }
+
+    /// <summary>One clause for the startup CAPS line.</summary>
+    internal static string Describe() =>
+        "frameSplit=ok (own clocks: logic span, render-loop span, per-camera passes) "
+        + "frameTimingManager=probed-per-frame";
+
+    // ==========================================================================================
+    //  Tail component
+    // ==========================================================================================
+
+    /// <summary>
+    /// The LAST main-thread instant of the logic phase. <see cref="DefaultExecutionOrder"/>
+    /// +30000 puts its <c>LateUpdate</c> after every other component's, which — paired with
+    /// PerfMonitor's host at −30000 — brackets the frame's whole logic phase exactly. Fully
+    /// guarded: instrumentation that throws would take the rest of the frame's LateUpdates with
+    /// it, which is strictly worse than no instrumentation.
+    /// </summary>
+    [DefaultExecutionOrder(30000)]
+    private sealed class PerfSplitTail : MonoBehaviour
+    {
+        private bool _faulted;
+
+        private void LateUpdate()
+        {
+            if (_faulted)
+                return;
+            try
+            {
+                MarkLogicEnd();
+            }
+            catch (Exception e)
+            {
+                _faulted = true;
+                VRLog.Error(Scope0, $"Frame-split tail threw and DISABLED ITSELF: {e}");
+            }
+        }
+    }
+}

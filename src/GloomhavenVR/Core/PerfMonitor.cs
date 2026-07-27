@@ -43,7 +43,18 @@ namespace GloomhavenVR.Core;
 /// <item><c>[Perf] STEPS</c> — the periodic per-subsystem cost ranking.</item>
 /// <item><c>[Perf] SPIKE</c> — one line per over-budget frame (rate-limited, suppressed ones counted).</item>
 /// <item><c>[Perf] CAPS</c> — one startup line stating which counters resolved and which did not.</item>
+/// <item><c>[Perf] SPLIT</c> — <see cref="PerfFrameSplit"/>'s decomposition of the frame into
+/// main-thread logic, render-loop submission and blocked time, with a verdict naming the wall.</item>
+/// <item><c>[Perf] MARK</c> — an A/B boundary: a setting changed, so the window is closed here and
+/// the next summary describes ONLY the new state.</item>
+/// <item><c>[Perf] DISPLAY</c> — the runtime changed presentation rate (a reprojection lock).</item>
 /// </list>
+///
+/// <para>WHY THE MARK LINE EXISTS (2026-07). The four-preset sweep on hardware produced four
+/// numbers that looked like a clean refutation and were in fact unreadable: the presets were
+/// cycled inside a single 30 s window, so every summary straddled several settings. A measurement
+/// that cannot be attributed to a state is not evidence. <see cref="MarkChange"/> therefore closes
+/// the window at the instant a graphics setting is written, so one window = one state, always.</para>
 ///
 /// <para>COST AND SELF-DISCIPLINE. The monitor must never become the stutter it is hunting:</para>
 /// <list type="bullet">
@@ -162,6 +173,18 @@ internal static class PerfMonitor
     private static float _budgetSeconds = 1f / 90f;
     private static float _budgetResolvedAt = float.NegativeInfinity;
 
+    // ---- GPU counter, sampled per frame ---------------------------------------------------------
+
+    /// <summary>
+    /// The XR runtime's own GPU figure, accumulated EVERY frame rather than read once at the
+    /// summary. It used to be a single instantaneous sample of whichever frame happened to be
+    /// finishing when the window closed — one frame in 1300, presented as the window's GPU cost.
+    /// A mean plus the worst case is the difference between evidence and an anecdote.
+    /// </summary>
+    private static double _gpuSum;
+    private static float _gpuMax;
+    private static int _gpuSamples;
+
     /// <summary>False until one full frame has been sampled — the very first sampled frame carries
     /// the load/init hitch and would poison every percentile of the first window.</summary>
     private static bool _firstSampleDone;
@@ -262,8 +285,38 @@ internal static class PerfMonitor
         if (_host != null)
             return;
         _host = root.AddComponent<PerfHost>();
+        PerfFrameSplit.Install(root);
         ResetWindow(Time.unscaledTime);
     }
+
+    /// <summary>
+    /// A/B BOUNDARY. Call this the instant a setting that changes rendering work is written, so
+    /// the window just ending describes exactly ONE state and the next one describes exactly the
+    /// new state. Without this a tester who cycles four presets inside one summary interval gets
+    /// four settings averaged into one line — which is how the 2026-07 preset sweep produced four
+    /// numbers that could not be attributed to anything.
+    ///
+    /// <para>The closing window is only SUMMARISED when it holds enough frames to mean something
+    /// (a double-click on a cycle button must not emit a line built from twelve frames); either
+    /// way the accumulators are reset, so no window ever spans a change.</para>
+    /// </summary>
+    internal static void MarkChange(string what)
+    {
+        PerfConfig.Bind();
+        if (_host == null || !PerfConfig.Enabled.Value)
+            return;
+        float now = Time.unscaledTime;
+        float elapsed = now - _windowStart;
+        VRLog.Info(Scope0, $"MARK: {what} — closing the measurement window here ({elapsed:F1}s, "
+                           + $"{_frameCount} frame(s) in it). Everything below the next FRAME/SPLIT line "
+                           + "describes ONLY the new state; nothing straddles the change.");
+        if (_frameCount >= MinMarkFrames)
+            LogSummary(elapsed);
+        ResetWindow(now);
+    }
+
+    /// <summary>Frames a window must hold before <see cref="MarkChange"/> bothers to summarise it.</summary>
+    private const int MinMarkFrames = 120;
 
     /// <summary>Drop the host and every record (hot-reload teardown; never throws).</summary>
     internal static void Shutdown()
@@ -274,6 +327,7 @@ internal static class PerfMonitor
             UnityEngine.Object.Destroy(_host);
             _host = null;
         }
+        PerfFrameSplit.Shutdown();
         Steps.Clear();
         StepOrder.Clear();
         Ranked.Clear();
@@ -304,6 +358,7 @@ internal static class PerfMonitor
                 ResetWindow(Time.unscaledTime);
             _frameModSeconds = 0d;
             _depth = 0;
+            PerfFrameSplit.RollFrame(enabled: false, record: false);
             return;
         }
 
@@ -323,13 +378,17 @@ internal static class PerfMonitor
 
         // The very first sampled frame carries the whole load/init hitch and would poison every
         // percentile for the first window; skip it rather than explain it in every log.
+        bool splitOn = PerfConfig.FrameSplit.Value;
         if (!_firstSampleDone)
         {
             _firstSampleDone = true;
             _frameModSeconds = 0d;
             _depth = 0;
+            PerfFrameSplit.RollFrame(splitOn, record: false);
             return;
         }
+        PerfFrameSplit.RollFrame(splitOn, record: true);
+        SampleGpuTime();
 
         FrameMs[_frameWrite] = dt * 1000f;
         _frameWrite = (_frameWrite + 1) % FrameCapacity;
@@ -396,6 +455,23 @@ internal static class PerfMonitor
         }
     }
 
+    /// <summary>
+    /// Accumulate the XR runtime's GPU figure once per frame. Sampled here rather than read once
+    /// at the summary so the reported number is a mean over the window with a worst case, not
+    /// whichever single frame happened to be finishing when the log line was built.
+    /// </summary>
+    private static void SampleGpuTime()
+    {
+        if (!PerfConfig.XrStats.Value)
+            return;
+        if (!XrProbe.TryGetGpuTimeMs(out float ms))
+            return;
+        _gpuSum += ms;
+        _gpuSamples++;
+        if (ms > _gpuMax)
+            _gpuMax = ms;
+    }
+
     private static void SampleAllocations()
     {
         if (!PerfConfig.Allocations.Value)
@@ -422,6 +498,10 @@ internal static class PerfMonitor
         _spikeFrames = 0;
         _spikesSuppressed = 0;
         _windowAllocBytes = 0L;
+        _gpuSum = 0d;
+        _gpuMax = 0f;
+        _gpuSamples = 0;
+        PerfFrameSplit.ResetWindow();
         _lastHeapBytes = GC.GetTotalMemory(false);
         _gc0 = GC.CollectionCount(0);
         _gc1 = GC.CollectionCount(1);
@@ -468,9 +548,37 @@ internal static class PerfMonitor
             hz = 90f;
             source = "fallback default (nothing reported a rate)";
         }
+
+        // A CHANGED RATE IS THE HEADLINE, NOT A DETAIL. When the runtime drops the app to half
+        // (or quarter) rate it is reprojecting, and from that moment every timing the process can
+        // see is quantised to the new interval: frame time pins to the interval, and the runtime's
+        // own "GPU time" pins with it. Two windows either side of this line are not comparable,
+        // and a settings sweep run entirely below a rate lock — which is what happened on
+        // 2026-07 — measures the lock, not the setting. So say it, loudly, once per change.
+        float previous = _refreshHz;
+        bool changed = previous > 0f && Mathf.Abs(previous - hz) > 0.5f;
+        // Close the OLD window first, while _refreshHz/_budgetSeconds still describe the rate that
+        // window was actually measured under — a summary stamped with the new rate would be a lie
+        // about its own frames.
+        if (changed)
+            MarkChange($"display rate {previous:F1}Hz → {hz:F1}Hz");
         _refreshHz = hz;
         _refreshSource = source;
         _budgetSeconds = 1f / hz;
+        if (changed)
+        {
+            VRLog.Info(Scope0, $"DISPLAY presentation rate changed {previous:F1}Hz → {hz:F1}Hz "
+                               + $"(budget {1000f / previous:F2}ms → {1000f / hz:F2}ms, source {source}). "
+                               + (hz < previous
+                                   ? "A LOWER rate means the runtime is now REPROJECTING: the app is paced "
+                                     + "to the reduced interval, so frame time and the runtime's GPU figure "
+                                     + "both pin to it regardless of how much work we actually do. Timings "
+                                     + "across this boundary cannot be compared, and a quality setting "
+                                     + "changed below a rate lock will look like it does nothing even when "
+                                     + "it does."
+                                   : "A HIGHER rate means the runtime released the reprojection lock — "
+                                     + "measurements from here on reflect real work again."));
+        }
     }
 
     // ==========================================================================================
@@ -487,7 +595,9 @@ internal static class PerfMonitor
           .Append(" xr=").Append(PerfConfig.XrStats.Value ? "on" : "off")
           .Append(" | timer=Stopwatch(").Append(Stopwatch.IsHighResolution ? "high-res " : "LOW-RES ")
           .Append(Stopwatch.Frequency).Append("Hz)")
+          .Append(" split=").Append(PerfConfig.FrameSplit.Value ? "on" : "off")
           .Append(" | counters: ").Append(XrProbe.Describe())
+          .Append(' ').Append(PerfFrameSplit.Describe())
           .Append(". Counters marked n/a are NOT exposed by this runtime — they are reported as n/a, "
                   + "never as zero.");
         VRLog.Info(Scope0, sb.ToString());
@@ -549,10 +659,49 @@ internal static class PerfMonitor
         {
             sb.Append(" | xr ");
             XrProbe.AppendWindowStats(sb);
+            sb.Append(" gpu ");
+            if (_gpuSamples > 0)
+            {
+                sb.Append((_gpuSum / _gpuSamples).ToString("F2")).Append(" max ")
+                  .Append(_gpuMax.ToString("F2")).Append("ms over ").Append(_gpuSamples)
+                  .Append(" frame(s)");
+                // The figure is only worth reading when it is BELOW the interval. At or above it,
+                // it is indistinguishable from the runtime reporting the interval or a wait, and
+                // treating it as GPU busy time is how a whole test round gets spent on the wrong
+                // hypothesis (2026-07: an 11x pixel-budget cut "moved GPU time 7%" — it did not
+                // move anything, the counter was pinned to a 45 Hz lock the entire time).
+                double gpuMean = _gpuSum / _gpuSamples;
+                sb.Append(gpuMean >= mean * 0.9f
+                    ? " [AT the frame interval — NOT usable as GPU busy time; the runtime is "
+                      + "reporting the interval or a wait]"
+                    : " [below the frame interval — the GPU has headroom, so the wall is elsewhere; "
+                      + "see the SPLIT line]");
+            }
+            else
+            {
+                sb.Append("n/a (this runtime exposes no GPU-time counter)");
+            }
         }
 
         VRLog.Info(Scope0, sb.ToString());
         LogSteps(windowSeconds);
+        LogSplit(windowSeconds, mean);
+    }
+
+    /// <summary>
+    /// The decomposition line — which LAYER owns the frame. This is the measurement the 2026-07
+    /// investigation turns on, so it is emitted right under the FRAME line it shares a window with.
+    /// </summary>
+    private static void LogSplit(float windowSeconds, float frameMeanMs)
+    {
+        if (!PerfConfig.FrameSplit.Value || !PerfFrameSplit.HasWindow)
+            return;
+        StringBuilder sb = Sb;
+        sb.Length = 0;
+        PerfFrameSplit.AppendSplit(sb, windowSeconds, frameMeanMs);
+        if (PerfConfig.SceneCensus.Value)
+            PerfFrameSplit.AppendSceneCensus(sb);
+        VRLog.Info(Scope0, sb.ToString());
     }
 
     private static void LogSteps(float windowSeconds)
@@ -842,6 +991,21 @@ internal static class PerfMonitor
             return false;
         }
 
+        /// <summary>
+        /// The runtime's GPU figure for the frame that just finished, in milliseconds. Whichever
+        /// of the two known shapes bound; false when neither did (reported as n/a, never as 0).
+        /// </summary>
+        internal static bool TryGetGpuTimeMs(out float ms)
+        {
+            XRDisplaySubsystem? d = Display();
+            if (d != null && _gpuTime != null && _gpuTime(d, out ms))
+                return true;
+            if (_gpuTimeGlobal != null && _gpuTimeGlobal(out ms))
+                return true;
+            ms = 0f;
+            return false;
+        }
+
         /// <summary>Snapshot the cumulative counters at a window boundary so the next summary can
         /// report DELTAS (the raw totals are meaningless; the per-window change is the signal).</summary>
         internal static void Mark()
@@ -876,14 +1040,10 @@ internal static class PerfMonitor
             else
                 sb.Append("n/a");
 
-            sb.Append(" gpu ");
-            if (_gpuTime != null && _gpuTime(d, out float gpu))
-                sb.Append(gpu.ToString("F2")).Append("ms");
-            else if (_gpuTimeGlobal != null && _gpuTimeGlobal(out float gpu2))
-                sb.Append(gpu2.ToString("F2")).Append("ms");
-            else
-                sb.Append("n/a");
-
+            // NOTE: the GPU figure is NOT read here any more. It is sampled once per frame and
+            // reported by the caller as a window mean + worst case; a single instantaneous read
+            // taken at the moment the log line is built described one frame in thirteen hundred
+            // and was presented as the window's GPU cost.
             sb.Append(" motion2photon ");
             if (_motionToPhoton != null && _motionToPhoton(d, out float m2p))
                 sb.Append((m2p * 1000f).ToString("F1")).Append("ms");
