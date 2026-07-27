@@ -67,6 +67,11 @@ namespace GloomhavenVR.Net;
 /// deref is null-guarded and every failure returns <see cref="FacePath.None"/> so the caller keeps
 /// showing a card BACK — fail-safe is "no face", never "a face we could not verify".
 /// </summary>
+/// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. It resolves a peer's round-card face from
+/// the host-replicated model (their own live <c>AbilityCardUI</c>, or a widget borrowed from the
+/// game's pool by card id), never from a packet. This class is the reason card IDENTITY can stay
+/// DELIBERATELY-NOT on the wire while a peer's card is still fully readable. See
+/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal static class RemoteAbilityCardSource
 {
     /// <summary>Which mechanism produced the face a caller is currently showing — reported in the

@@ -80,6 +80,12 @@ namespace GloomhavenVR.Net;
 /// degrades to null there); everything is re-read each <see cref="Tick"/> (pose per frame, content
 /// on the <see cref="RemoteBoardContent.RefreshSeconds"/> cadence).
 /// </summary>
+/// <remarks>CLASSIFICATION: MIXED (VR-ONLY frame + GLOBAL / PER-ACTOR MODEL content). The board's
+/// world POSE, SCALE and STYLE are VR-ONLY and ride the wire (extras <c>FlagHasBoard</c> = 24 B,
+/// plus trailing-block byte A bits 5..6 for the style). Everything DRAWN on it is zero-wire and
+/// carries its own tag: see <see cref="RemoteBoardContent"/> and <see cref="RemoteBoardFurniture"/>.
+/// That split is the whole design — the wire pays only for where the board IS, never for what it
+/// says. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteControlBoard
 {
     // Frame geometry in the same "card real-metre" units as the local board (PlayTray BoardW/H),
@@ -148,13 +154,22 @@ internal sealed class RemoteControlBoard
     private int _appliedStyle = -1;
 
     // ---- full-parity content (all mod-drawn, all zero-wire — see the class note) ----------------
+    // Data class per widget — the same closed set as the CLASSIFICATION tags on the types
+    // themselves (grep -rn "CLASSIFICATION:" Net/). None of these costs a wire byte; the only
+    // wire input on this board is its own pose/scale/style plus the RemoteAvatar handed to
+    // _furniture. Keep this column in step with the tags — it is the manifest a reader sees first.
     private RemoteObjectivesPanel? _objectives;   // GLOBAL
     private RemoteElementStrip? _elements;        // GLOBAL
-    private RemoteStatusReadouts? _status;        // GLOBAL round + per-actor initiative/rest
-    private RemoteActiveCards? _active;           // per-actor active/persistent cards
-    private RemoteInitiativeTrack? _track;        // GLOBAL actor list + per-actor initiative (gated)
-    private RemoteBoardFurniture? _furniture;     // INERT copies of the board's interactive controls
-    private readonly PileCounter?[] _piles = new PileCounter?[3]; // discard / burnt / items
+    private RemoteStatusReadouts? _status;        // MIXED — GLOBAL round + PER-ACTOR initiative/rest
+    private RemoteActiveCards? _active;           // PER-ACTOR MODEL — active/persistent cards
+    private RemoteInitiativeTrack? _track;        // MIXED — GLOBAL actor list + PER-ACTOR initiative (gated)
+    private RemoteBoardFurniture? _furniture;     // MIXED — DELIBERATELY-NOT neutral looks + PER-ACTOR
+                                                  //   slots + VR-ONLY-derived pulses; INERT copies of
+                                                  //   the board's interactive controls. Reads the wire
+                                                  //   (RemoteAvatar) but adds no field to it.
+    private readonly PileCounter?[] _piles = new PileCounter?[3]; // PER-ACTOR MODEL — discard / burnt /
+                                                  //   items counts, deliberately UNGATED (vanilla lets
+                                                  //   anyone open any player's card overview)
 
     /// <summary>Next content re-read time (unscaled). The POSE follows every frame; the model reads
     /// and the TMP repaints run on the <see cref="RemoteBoardContent.RefreshSeconds"/> cadence so a

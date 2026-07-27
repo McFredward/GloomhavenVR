@@ -23,6 +23,14 @@ namespace GloomhavenVR.Net;
 /// player's 15 cm hand reads the same physical size above the shared board regardless of the
 /// sender's diorama zoom. Positions are absolute world (game units).
 /// </summary>
+/// <remarks>CLASSIFICATION: VR-ONLY — this is the type that HOLDS the wire-sourced state. Head and
+/// hand poses, finger curls, world scale, head-mask id + size, hand style, dominant hand, ghost
+/// strength, held figure and held card exist nowhere in the game model, so every one of them costs
+/// wire bytes (Part I §3–§4 of INVARIANTS-Net-Rig.md). Note the type-system tell: <c>RemoteAvatar</c>
+/// is the wire-sourced type, and it appears in exactly ONE remote-widget signature
+/// (<c>RemoteBoardFurniture.Refresh</c>) — everywhere else the widgets take a <c>CPlayerActor</c>,
+/// which is the model-sourced one. See INVARIANTS-Net-Rig.md "Net — content
+/// classification".</remarks>
 internal sealed class RemoteAvatar
 {
     private readonly GameObject _root;

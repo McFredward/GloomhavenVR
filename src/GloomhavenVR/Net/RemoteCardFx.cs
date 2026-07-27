@@ -29,6 +29,12 @@ namespace GloomhavenVR.Net;
 /// places either. Also requires the sender's board pose (<c>owner.HasBoard</c>, which the gate
 /// checks).
 /// </summary>
+/// <remarks>CLASSIFICATION: VR-ONLY — costs 2 wire bytes per event (extras <c>FlagCardFx</c>:
+/// <c>fxSeq</c> + <c>fxEndpoints</c>). Flight TRANSFORMS are DELIBERATELY-NOT transmitted: the
+/// endpoints are semantic <see cref="CardFxAnchor"/> ids the receiver resolves against the sender's
+/// OWN synced hand / board pose, which is what turns ~20 B × 15 Hz for a flight's duration into
+/// 2 bytes once. Card identity never rides it either. See INVARIANTS-Net-Rig.md "Net — content
+/// classification".</remarks>
 internal sealed class RemoteCardFx
 {
     /// <summary>Concurrent flights (a turn-clear can launch both round cards at once). Beyond this

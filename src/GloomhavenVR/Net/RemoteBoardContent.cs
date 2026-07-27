@@ -23,20 +23,42 @@ namespace GloomhavenVR.Net;
 /// draws its own picture from the SAME model data the local panels are fed from — a read-only
 /// mirror, exactly like <see cref="RemoteControlBoard"/>'s round-card panels.
 ///
-/// TWO DATA CLASSES, both zero-wire:
-///   • GLOBAL — objectives, element infusions, round number. Scenario-wide state that is bit-identical
-///     on every client (<c>ScenarioManager.CurrentScenarioState</c>, <c>ElementInfusionBoardManager</c>,
-///     <c>Choreographer</c>), so a peer's board just has to RENDER it at their pose.
-///   • PER-ACTOR MODEL — initiative, pile counts, rest state, active cards. Read locally off the
-///     already-host-replicated <c>CPlayerActor.CharacterClass</c>. Everything that the vanilla client
-///     itself hides during the secret selection phase goes through <see cref="RevealGate"/>; the rest
-///     is information vanilla already gives away for free (see the per-section notes).
+/// FOUR DATA CLASSES. Two of them are zero-wire and are what THIS file draws; the other two exist
+/// on a remote board too, and are named here because the first question about any new remote-board
+/// content is which of the four it is. Every remote-content type carries the answer as a greppable
+/// <c>CLASSIFICATION:</c> tag on its own doc comment — <c>grep -rn "CLASSIFICATION:" Net/</c>.
+///   • GLOBAL (zero wire) — objectives, element infusions, round number. Scenario-wide state that is
+///     bit-identical on every client (<c>ScenarioManager.CurrentScenarioState</c>,
+///     <c>ElementInfusionBoardManager</c>, <c>Choreographer</c>), so a peer's board just has to
+///     RENDER it at their pose.
+///   • PER-ACTOR MODEL (zero wire) — initiative, pile counts, rest state, active cards. Read locally
+///     off the already-host-replicated <c>CPlayerActor.CharacterClass</c>. Everything that the
+///     vanilla client itself hides during the secret selection phase goes through
+///     <see cref="RevealGate"/>; the rest is information vanilla already gives away for free (see
+///     the per-section notes).
+///   • VR-ONLY (costs wire bytes) — facts that exist NOWHERE in the game model: the board's world
+///     pose and scale, the chosen board style, hand/head poses, the reading fans, card-FX events.
+///     Nothing in THIS file is VR-only; the pose everything here is drawn at comes from
+///     <see cref="RemoteControlBoard"/>, which is.
+///   • DELIBERATELY-NOT (costs 0 B by decision) — knowable, but not worth a field or not safe to
+///     leak. <see cref="RemoteBoardFurniture"/>'s "NEUTRAL LOOKS" and "LOCAL-ONLY STATE" blocks are
+///     this class, not a fifth thing: button enabled-states, the local player's own tuning offsets,
+///     and card IDENTITY, which never crosses the wire in any form.
+///
+/// WHY THE HEADER NAMES ALL FOUR AND NOT JUST THIS FILE'S TWO: the decision rule for new remote
+/// content is "GLOBAL or PER-ACTOR MODEL by default; VR-ONLY must be justified", and there is
+/// exactly ONE free bit left in the whole protocol
+/// (<see cref="NetProtocol.PileBrowseReservedBit"/>). A reader who learns only that remote content
+/// is "zero-wire" has no framework for the one question they must answer first. See
+/// <c>.planning/refactor/INVARIANTS-Net-Rig.md</c> "Net — content classification".
 ///
 /// Style: unlit (<see cref="BoardVisual"/>) like every other remote-board visual, change-gated TMP
 /// writes (a per-frame <c>TMP.text</c> assignment re-triggers auto-size layout — the badge-flicker
 /// lesson), and content re-read on a 4 Hz cadence rather than per frame so a table of four peers
 /// costs nothing measurable.
 /// </summary>
+/// <remarks>CLASSIFICATION: n/a — this type is the shared TMP/label plumbing for the widgets below,
+/// not content of its own. Each widget carries its own CLASSIFICATION tag.</remarks>
 internal static class RemoteBoardContent
 {
     /// <summary>Content re-read cadence (seconds). The board POSE follows every frame; only the
@@ -112,6 +134,10 @@ internal static class RemoteBoardContent
 /// <c>LocalizeText</c> only formats strings. Both are wrapped — a YML miss or a half-initialised
 /// scenario state must degrade to a blank panel, never kill the remote-avatar tick.
 /// </summary>
+/// <remarks>CLASSIFICATION: GLOBAL — scenario-wide state, bit-identical on every client, ZERO wire.
+/// Source: <c>ScenarioManager.CurrentScenarioState.WinObjectives/LoseObjectives</c> +
+/// <c>CObjective.GetObjectiveProgress</c>. See INVARIANTS-Net-Rig.md "Net — content
+/// classification".</remarks>
 internal sealed class RemoteObjectivesPanel
 {
     // Mirrors PlayTray.ObjectivesMountBase (-BoardW/2 - 0.012, 0, -0.004) + ObjectivesMountWidth.
@@ -326,6 +352,9 @@ internal sealed class RemoteObjectivesPanel
 /// <c>UIInfoTools.GetElementHighlightColor</c> when that singleton is up, with a hardcoded fallback
 /// so the strip still reads in the menu/loading window where UIInfoTools is absent.
 /// </summary>
+/// <remarks>CLASSIFICATION: GLOBAL — scenario-wide state, bit-identical on every client, ZERO wire.
+/// Source: <c>ElementInfusionBoardManager.ElementColumn</c>. See INVARIANTS-Net-Rig.md
+/// "Net — content classification".</remarks>
 internal sealed class RemoteElementStrip
 {
     private const float MountX = -RemoteControlBoard.BoardHalfW - 0.012f;
@@ -453,6 +482,13 @@ internal sealed class RemoteElementStrip
 /// inside the <c>flag</c> = not-hidden test), so this one goes through
 /// <see cref="RevealGate.ShowRoundCardFronts"/> as well.
 /// </summary>
+/// <remarks>CLASSIFICATION: MIXED (GLOBAL + PER-ACTOR MODEL) — ZERO wire either way. The ROUND
+/// number is GLOBAL (<c>CardsGameApi.RoundNumber()</c>); the INITIATIVE number and the REST state
+/// are PER-ACTOR MODEL, read off the host-replicated <c>CPlayerActor.CharacterClass</c> via
+/// <c>NetPlayerActors.ActorFor</c> and gated by <see cref="RevealGate"/> (rest uses the SPLIT gate
+/// described above). One of the three genuinely MIXED types — which is why the classification is a
+/// doc tag and not a marker interface: an interface would have to lie about this one. See
+/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteStatusReadouts
 {
     private readonly TextMeshPro _round;
@@ -616,6 +652,12 @@ internal sealed class RemoteStatusReadouts
 /// (<c>CActor.ActorLocKey()</c>, the identical string vanilla's own <c>nameText</c> uses) over a
 /// class-tinted plate, which is the readable equivalent at VR distance.
 /// </summary>
+/// <remarks>CLASSIFICATION: MIXED (GLOBAL + PER-ACTOR MODEL) — ZERO wire either way. The actor LIST
+/// and its order are GLOBAL (<c>ScenarioManager.Scenario.AllAliveActors</c>, deduped by
+/// <c>CActor.Class</c>); the per-actor initiative NUMBERS are PER-ACTOR MODEL, gated by
+/// <see cref="RevealGate"/> with monsters following vanilla's own numeric rule. Portraits are
+/// DELIBERATELY-NOT reproduced (see NOT REPRODUCED above). One of the three genuinely MIXED types.
+/// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteInitiativeTrack
 {
     /// <summary>Bottom-centre origin above the board's top edge. The local dock sits at
@@ -820,6 +862,11 @@ internal sealed class RemoteInitiativeTrack
 /// In practice an active card is public by definition (it was played face-up in front of everybody),
 /// so the gate can only ever be stricter than vanilla, never looser.
 /// </summary>
+/// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. Source:
+/// <c>CCharacterClass.ActivatedAbilityCards</c> off the host-replicated actor
+/// (<c>NetPlayerActors.ActorFor</c>), fronts gated by <see cref="RevealGate"/>. Card IDENTITY is
+/// DELIBERATELY-NOT on the wire, ever — it is resolved locally through the gate instead. See
+/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteActiveCards
 {
     private const float MountX = RemoteControlBoard.BoardHalfW + 0.012f + 0.17f;
@@ -977,6 +1024,11 @@ internal sealed class RemoteActiveCards
 /// so no face object can ever render for a frame ahead of the gate; on <c>front: false</c> the face
 /// is torn down before anything else happens.
 /// </summary>
+/// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. Source: the peer's round-card slots off
+/// the host-replicated <c>CPlayerActor.CharacterClass</c> (<c>NetPlayerActors.ActorFor</c>), every
+/// face gated by <see cref="RevealGate"/>. Card IDENTITY is DELIBERATELY-NOT on the wire — drawing
+/// a readable card WITHOUT transmitting one is the requirement this panel exists to satisfy. See
+/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteBoardCard
 {
     private readonly GameObject _root;

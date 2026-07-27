@@ -49,6 +49,11 @@ namespace GloomhavenVR.Net;
 /// NEW stack and re-emerges them. This mirrors that — a kind change restarts the emerge from the new
 /// stack.
 /// </summary>
+/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes: the extras trailing block (byte A kind +
+/// placement bits, byte B count) behind <c>FlagPileBrowse</c>. Card IDENTITY is DELIBERATELY-NOT
+/// transmitted — backs only. The emerge/collapse ANIMATIONS are DERIVED locally from the same
+/// constants the sender uses, so no per-frame transform rides the wire. See INVARIANTS-Net-Rig.md
+/// "Net — content classification".</remarks>
 internal sealed class RemoteBrowserFan
 {
     // ---- geometry (mirror of PileBrowser's arc constants; local copies so this stays independent
