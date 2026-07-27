@@ -448,26 +448,6 @@ internal sealed class FlatScreenStereo
     /// <summary>Frame the map capture engaged (both modes) — the fast per-frame base-RT probe window starts here.</summary>
     private int _mapEngageFrame = int.MinValue;
 
-    // ---- passive-deferred capture (MapCaptureMode 1): strip the game MapCamera's image effects ----
-    /// <summary>One cached image-effect component on the game MapCamera, with its original enabled state so it can be restored verbatim.</summary>
-    private sealed class MapEffect
-    {
-        public Behaviour Comp = null!;
-        public string TypeName = "";
-        public bool OrigEnabled;
-        public bool HasOnRenderImage;
-        public bool IsBeautify;
-        public bool IsVolumetricFog;
-        public bool IsSSAO;
-        public bool IsPostProcess;
-    }
-    /// <summary>The MapCamera's image-effect components we may disable in passive-deferred mode (enumerated once per camera; restored from OrigEnabled on release).</summary>
-    private readonly List<MapEffect> _mapEffects = new(8);
-    /// <summary>The game MapCamera the current <see cref="_mapEffects"/> were enumerated from (rebuild trigger when it changes).</summary>
-    private Camera? _mapEffectCam;
-    /// <summary>One-shot log guard: the MAP DEFERRED CAPTURE enumeration line (per camera).</summary>
-    private bool _mapEffectsLogged;
-
     private bool _active;
     private bool _hooked;
     private bool _videoSuspended;
@@ -679,22 +659,6 @@ internal sealed class FlatScreenStereo
     /// <summary>[WorldUI] MapAlbedoLight — add a mod directional light during the map's forward render.</summary>
     internal static bool MapAlbedoLightOn => s_mapAlbedoLight?.Value ?? true;
 
-    /// <summary>[WorldUI] MapCaptureMode — 0 = albedo camera, 1 = passive-deferred, 2 = texture blit (draw the map's own GH_CampaignMap textures 2x2 into the base RT). Read live, clamped 0..2.</summary>
-    internal static int MapCaptureMode => Mathf.Clamp(s_mapCaptureMode?.Value ?? 2, 0, 2);
-    /// <summary>[WorldUI] MapTexFlipX/Y/Swap — orientation of the 2x2 texture-blit map (mode 2), tunable live.</summary>
-    internal static bool MapTexFlipX => s_mapTexFlipX?.Value ?? false;
-    internal static bool MapTexFlipY => s_mapTexFlipY?.Value ?? true;
-    internal static bool MapTexSwapDiag => s_mapTexSwapDiag?.Value ?? false;
-    /// <summary>[WorldUI] MapStripBeautify — passive-deferred: disable the MapCamera's Beautify effect.</summary>
-    internal static bool MapStripBeautify => s_mapStripBeautify?.Value ?? true;
-    /// <summary>[WorldUI] MapStripVolumetricFog — passive-deferred: disable the MapCamera's VolumetricFog effects.</summary>
-    internal static bool MapStripVolumetricFog => s_mapStripVolumetricFog?.Value ?? true;
-    /// <summary>[WorldUI] MapStripSSAO — passive-deferred: disable the MapCamera's SSAO effect.</summary>
-    internal static bool MapStripSSAO => s_mapStripSSAO?.Value ?? true;
-    /// <summary>[WorldUI] MapStripPostProcess — passive-deferred: disable the MapCamera's PostProcessLayer.</summary>
-    internal static bool MapStripPostProcess => s_mapStripPostProcess?.Value ?? true;
-    /// <summary>[WorldUI] MapStripAllImageEffects — passive-deferred: disable every OnRenderImage MonoBehaviour on the MapCamera.</summary>
-    internal static bool MapStripAllImageEffects => s_mapStripAllImageEffects?.Value ?? false;
 
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
@@ -1166,14 +1130,14 @@ internal sealed class FlatScreenStereo
                 : "Stereo screen RESUMED — per-eye rendering re-engaged.");
         }
 
-        // Campaign-map MIRROR (class doc MAP MIRROR): deferred→our-RT is a hard wall (the game's
+        // Campaign map (class doc MAP ALBEDO RENDER): deferred→our-RT is a hard wall (the game's
         // DeferredShading map camera renders pure black into any off-screen RT we own, stencil or not;
-        // only Forward content captures — proven by the Forward character portraits). So show the map on
-        // OUR OWN world-space quads (textured with the map's GH_CampaignMap textures) placed at the map
-        // mesh's world position, viewed by a mirror camera that copies the game map camera every frame —
-        // it pans/zooms 1:1 with the game so the glass-RT markers/laser align. RestoreStrippedEffects
-        // clears any leftover passive-deferred image-effect strip from a prior mode.
-        RestoreStrippedEffects();
+        // only Forward content captures — proven by the Forward character portraits). So the mod's own
+        // FORWARD camera re-renders the real parchment mesh unlit into a PRIVATE RT and the screen quad
+        // shows that. (Two other answers were tried here and are gone: mod-built world-space quads
+        // textured with the GH_CampaignMap textures — the renderer's world AABB does not match the
+        // camera's coordinate space, so the quads were mis-placed; and keeping the game's deferred
+        // render while stripping its image effects — the effects were never the cause.)
         ReconcileAlbedoCamera(mapSource);
 
         bool anyMirrorRendering = false;
@@ -1943,151 +1907,6 @@ internal sealed class FlatScreenStereo
 
     /// <summary>Compact viewport-point formatter for the frustum diagnostic (x,y in 0..1 on-screen; z = world depth).</summary>
     private static string Fmt(Vector3 vp) => $"(x{vp.x:F2} y{vp.y:F2} z{vp.z:F1})";
-
-    // ---- passive-deferred capture (MapCaptureMode 1) ----------------------------------------
-
-    /// <summary>
-    /// Passive-deferred map capture (MapCaptureMode 1): keep the game MapCamera rendering its
-    /// DETAILED deferred map into the base RT and merely DISABLE the image-effect components
-    /// suspected of blacking/flattening the redirected RT once they finish initialising. Does NOT
-    /// run the mod albedo camera, does NOT force renderingPath, does NOT override materials/mesh.
-    /// The strip config is read LIVE every tick, so flipping a knob re-enables or re-disables the
-    /// matching component; every component is restored to its original enabled state on release.
-    /// </summary>
-    private void ReconcileMapDeferred(Camera? mapSource)
-    {
-        // Never let the mod albedo camera run in this mode (it may exist from a prior mode-0 pass).
-        if (_mapAlbedoCam != null && _mapAlbedoCam.enabled)
-            _mapAlbedoCam.enabled = false;
-
-        if (mapSource == null)
-        {
-            RestoreStrippedEffects();
-            return;
-        }
-
-        // MapCamera changed (scene shuffle) — restore the previous camera's effects before re-enumerating.
-        if (_mapEffectCam != null && _mapEffectCam != mapSource)
-            RestoreStrippedEffects();
-        if (_mapEffectCam == null)
-            BuildMapEffects(mapSource);
-
-        ApplyMapEffectStrip();
-
-        if (!_mapEffectsLogged)
-        {
-            _mapEffectsLogged = true;
-            var all = new StringBuilder();
-            var stripped = new StringBuilder();
-            for (int i = 0; i < _mapEffects.Count; i++)
-            {
-                MapEffect e = _mapEffects[i];
-                if (all.Length > 0) all.Append(", ");
-                all.Append(e.TypeName).Append('(').Append(e.OrigEnabled ? "enabled" : "disabled").Append(')');
-                if (e.Comp != null && !e.Comp.enabled && e.OrigEnabled)
-                {
-                    if (stripped.Length > 0) stripped.Append(", ");
-                    stripped.Append(e.TypeName);
-                }
-            }
-            VRLog.Info("WorldUI", $"MAP DEFERRED CAPTURE: MapCamera '{mapSource.name}' image-effect " +
-                                  $"components = [{all}]; stripped = [{stripped}]. Passive-deferred mode: the " +
-                                  "game camera keeps rendering the detailed deferred map into the base RT; the " +
-                                  "listed effects are disabled so they cannot black/flatten it (restored on release).");
-        }
-    }
-
-    /// <summary>
-    /// Enumerate the game MapCamera's image-effect components ONCE (candidates = anything that
-    /// declares an OnRenderImage method, plus name-matched Beautify / VolumetricFog / SSAO /
-    /// PostProcessLayer that may drive the RT via command buffers instead). Caches each with its
-    /// ORIGINAL enabled state so the game camera is restored verbatim on release.
-    /// </summary>
-    private void BuildMapEffects(Camera cam)
-    {
-        _mapEffects.Clear();
-        _mapEffectsLogged = false;
-        var comps = cam.GetComponents<MonoBehaviour>();
-        for (int i = 0; i < comps.Length; i++)
-        {
-            MonoBehaviour c = comps[i];
-            if (c == null)
-                continue;
-            System.Type t = c.GetType();
-            string name = t.Name;
-            bool isBeautify = name.IndexOf("Beautify", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isFog = name.IndexOf("VolumetricFog", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isSSAO = name.IndexOf("ScreenSpaceAmbientOcclusion", System.StringComparison.OrdinalIgnoreCase) >= 0
-                          || name.IndexOf("SSAO", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isPost = name.IndexOf("PostProcessLayer", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            bool hasOri = DeclaresOnRenderImage(t);
-            if (!hasOri && !isBeautify && !isFog && !isSSAO && !isPost)
-                continue;
-            _mapEffects.Add(new MapEffect
-            {
-                Comp = c,
-                TypeName = name,
-                OrigEnabled = c.enabled,
-                HasOnRenderImage = hasOri,
-                IsBeautify = isBeautify,
-                IsVolumetricFog = isFog,
-                IsSSAO = isSSAO,
-                IsPostProcess = isPost,
-            });
-        }
-        _mapEffectCam = cam;
-    }
-
-    /// <summary>True if <paramref name="t"/> (or a base) declares an image-effect OnRenderImage(RenderTexture, RenderTexture).</summary>
-    private static bool DeclaresOnRenderImage(System.Type t)
-    {
-        MethodInfo? m = t.GetMethod("OnRenderImage",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            null, new[] { typeof(RenderTexture), typeof(RenderTexture) }, null);
-        return m != null;
-    }
-
-    /// <summary>
-    /// Apply the LIVE strip config to the cached MapCamera effects: a component that should be
-    /// stripped is forced disabled; one that should not is restored to its original enabled state.
-    /// Re-runs every tick, so live-flipping a knob takes effect immediately.
-    /// </summary>
-    private void ApplyMapEffectStrip()
-    {
-        bool all = MapStripAllImageEffects;
-        bool sB = MapStripBeautify, sF = MapStripVolumetricFog, sS = MapStripSSAO, sP = MapStripPostProcess;
-        for (int i = 0; i < _mapEffects.Count; i++)
-        {
-            MapEffect e = _mapEffects[i];
-            if (e.Comp == null)
-                continue;
-            bool strip = all
-                ? e.HasOnRenderImage
-                : ((e.IsBeautify && sB) || (e.IsVolumetricFog && sF) || (e.IsSSAO && sS) || (e.IsPostProcess && sP));
-            bool want = strip ? false : e.OrigEnabled;
-            if (e.Comp.enabled != want)
-                e.Comp.enabled = want;
-        }
-    }
-
-    /// <summary>Restore every stripped MapCamera effect to its original enabled state and drop the cache (never leave the game camera altered).</summary>
-    private void RestoreStrippedEffects()
-    {
-        if (_mapEffects.Count == 0)
-        {
-            _mapEffectCam = null;
-            return;
-        }
-        for (int i = 0; i < _mapEffects.Count; i++)
-        {
-            MapEffect e = _mapEffects[i];
-            if (e.Comp != null && e.Comp.enabled != e.OrigEnabled)
-                e.Comp.enabled = e.OrigEnabled;
-        }
-        _mapEffects.Clear();
-        _mapEffectCam = null;
-        _mapEffectsLogged = false;
-    }
 
     /// <summary>
     /// Ensure the worldMap renderer, override materials and mod camera all exist for the albedo
@@ -2964,7 +2783,6 @@ internal sealed class FlatScreenStereo
     /// <summary>Tear down the whole albedo render (restore game materials, destroy overrides + mod camera).</summary>
     private void ReleaseAlbedo()
     {
-        RestoreStrippedEffects();  // passive-deferred: re-enable the game MapCamera's image effects
         RestoreWorldMapOverride(); // never leave the override materials/mesh on the game renderer
         RestoreAmbientAfterMapRender(); // never leave the ambient boost / mod light on
         DestroyOverrideMaterials();
