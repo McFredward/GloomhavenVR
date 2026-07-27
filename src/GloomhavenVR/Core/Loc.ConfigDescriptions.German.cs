@@ -768,9 +768,9 @@ internal static partial class Loc
                 + "liest diesen Wert; trotz des \"PER-BOARD\", mit dem diese Beschreibung früher endete, ist er "
                 + "ein einzelner globaler Wert. ConfirmUndoOffset_<board> ist der brettweise Eintrag, den "
                 + "PlayTray.BuildButtons tatsächlich liest, aus diesem Oak-Wert als X = −0.014 vorbelegt. Er "
-                + "war der Versatz nach innen in lokalem X (echte Meter, zur Brettmitte), der auf Confirm/Undo "
-                + "angewendet wurde, damit sie mittig auf den Oak-Metallplatten sitzen. Bleibt gebunden, damit "
-                + "vorhandene cfg-Dateien unverändert laden.",
+                + "war der Versatz nach innen in lokalem X (echte Meter, zur Brettmitte), der auf "
+                + "Fortfahren/Rückgängig angewendet wurde, damit sie mittig auf den Oak-Metallplatten sitzen. "
+                + "Bleibt gebunden, damit vorhandene cfg-Dateien unverändert laden.",
             ["Cards/WantedSlotHint"] =
                 "Ruhiges, sanft pulsierendes Akzent-Leuchten auf den Slots, deren Befüllung das Spiel gerade "
                 + "erwartet (Test #28) — zu unterscheiden vom kurzzeitigen goldenen Einrast-Leuchten, das vorab "
@@ -817,15 +817,15 @@ internal static partial class Loc
             ["Cards/RestButtonDiameter_*"] =
                 "Durchmesser (Meter) der runden Scheiben für kurze/lange Rast. Von Oak übernommen (0.105).",
             ["Cards/ConfirmUndoOffset_*"] =
-                "Versatz der ECKIGEN Confirm/Undo-Knöpfe von ihren Knopf-Ankern, board-lokale Meter. X/Y in "
-                + "der Ebene (−X von der rechten Spalte zur Board-Mitte), Z = Herausstehen zum Spieler hin "
-                + "(NEGATIV = steht weiter heraus). Von Oak übernommen (ConfirmUndoInsetX −0.014, −5 mm "
+                "Versatz der ECKIGEN Fortfahren/Rückgängig-Knöpfe von ihren Knopf-Ankern, board-lokale Meter. "
+                + "X/Y in der Ebene (−X von der rechten Spalte zur Board-Mitte), Z = Herausstehen zum Spieler "
+                + "hin (NEGATIV = steht weiter heraus). Von Oak übernommen (ConfirmUndoInsetX −0.014, −5 mm "
                 + "heraus).",
             ["Cards/ConfirmUndoSize_*"] =
-                "Kantenlänge (Meter) der eckigen Confirm/Undo-Knöpfe. Von Oak übernommen (0.073).",
+                "Kantenlänge (Meter) der eckigen Fortfahren/Rückgängig-Knöpfe. Von Oak übernommen (0.073).",
             ["Cards/ItemUseSlotOffset_*"] =
                 "Versatz, der zur lokalen Position des Einsteck-Slots GEGENSTAND BENUTZEN ADDIERT wird "
-                + "(zusätzlich zu seiner festen Basis UNTER dem Board neben den Confirm/Undo-Knöpfen), "
+                + "(zusätzlich zu seiner festen Basis UNTER dem Board neben den Fortfahren/Rückgängig-Knöpfen), "
                 + "board-lokale Meter. X/Y in der Ebene, Z = Herausstehen zum Spieler hin (NEGATIV = steht "
                 + "weiter heraus). Lege eine gehaltene benutzbare Gegenstandskarte in diesen Slot, um sie zu "
                 + "BENUTZEN. Startwert 0 (Oak).",
@@ -869,14 +869,14 @@ internal static partial class Loc
                 + "wandert +½, die für die lange (unten) −½. Startwert 0 (die Anker im Bundle verteilen sie "
                 + "bereits; positiv zieht sie auseinander).",
             ["Cards/GenericButtonSpacing_*"] =
-                "ZUSÄTZLICHER Abstand (board-lokale Meter), der zwischen den GENERISCHEN Confirm/Undo-Knöpfen "
-                + "entlang der kurzen Board-Achse ADDIERT wird — Confirm (oben) +½, Undo (unten) −½. Startwert "
-                + "0.",
+                "ZUSÄTZLICHER Abstand (board-lokale Meter), der zwischen den GENERISCHEN "
+                + "Fortfahren/Rückgängig-Knöpfen entlang der kurzen Board-Achse ADDIERT wird — Fortfahren "
+                + "(oben) +½, Rückgängig (unten) −½. Startwert 0.",
             ["Cards/RestButtonShape_*"] =
                 "FORM der Kappen der RAST-Knopfgruppe (kurze/lange Rast). Round = Scheiben in den "
                 + "Aussparungen (heutiges Aussehen); Square = eckige Tastenkappen. Startwert Round.",
             ["Cards/GenericButtonShape_*"] =
-                "FORM der Kappen der GENERISCHEN Knopfgruppe (Confirm/Undo usw.). Square = eckige "
+                "FORM der Kappen der GENERISCHEN Knopfgruppe (Fortfahren/Rückgängig usw.). Square = eckige "
                 + "Tastenkappen (heutiges Aussehen); Round = Scheiben in den Aussparungen. Startwert Square.",
             ["Cards/ActiveOffset_*"] =
                 "Versatz, der zur lokalen Position der Aufhängung der AKTIVEN Karten ADDIERT wird (zusätzlich "
@@ -940,8 +940,8 @@ internal static partial class Loc
                 + "Startwert 0 (Oak).",
             ["Cards/ClusterOffset_*"] =
                 "Versatz, der zur lokalen Position der Aufhängung der KNOPFGRUPPE für den Zugablauf "
-                + "(Undo|Ready|Skip) ADDIERT wird (zusätzlich zu ihrer festen Basis unter den Slots), "
-                + "board-lokale Meter. Startwert 0 (Oak).",
+                + "(Rückgängig|Bereit|Überspringen) ADDIERT wird (zusätzlich zu ihrer festen Basis unter den "
+                + "Slots), board-lokale Meter. Startwert 0 (Oak).",
             ["Cards/ClusterScale_*"] =
                 "Größen-MULTIPLIKATOR der KNOPFGRUPPE für den Zugablauf (zusätzlich zu ihrer festen "
                 + "Dock-Skalierung von 0.7x). Startwert 1 (Oak).",
