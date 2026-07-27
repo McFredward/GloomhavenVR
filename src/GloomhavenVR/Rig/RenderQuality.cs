@@ -347,9 +347,13 @@ internal static class RenderQuality
             return;
         }
 
-        XRSettings.eyeTextureResolutionScale = wanted;
+        // Write ONCE per distinct target, tracked on our own side rather than on the property's
+        // readback. A provider that ignores this setter also never reflects it in the getter, so
+        // the compare above would be true forever and we would re-issue a swapchain-reallocating
+        // write every single frame — on exactly the runtimes where it buys nothing.
         if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f)
-            return; // engine hasn't reflected the write yet (device settling) — logged already
+            return;
+        XRSettings.eyeTextureResolutionScale = wanted;
         _lastLoggedEyeScale = wanted;
         VRLog.Info("Rig", $"Eye render resolution scale asserted → {wanted:F2} " +
                           $"(per-pixel GPU work ∝ scale² ≈ {wanted * wanted:F2}x; applies live). " +
