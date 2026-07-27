@@ -1078,9 +1078,16 @@ internal static class ConfigCatalog
 
     /// <summary>
     /// The row's hover explanation: where the entry lives, what the config file says about it, its
-    /// default and range, and — honestly — whether the change is live. The developer descriptions
-    /// are shown verbatim in the language they were written in; they are developer-facing text in a
-    /// Debug pane, and inventing translations for four hundred of them would be worse than useless.
+    /// default and range, and — honestly — whether the change is live.
+    ///
+    /// <para>ONE LANGUAGE, ALWAYS (user, 2026-07: "Die Tooltipps bitte nicht immer in beiden
+    /// Sprachen, sondern der jeweiligen Sprache des Spiels"). The chrome around the paragraph is
+    /// <see cref="Loc.Mod"/>, so it follows the game's language; the paragraph itself used to be the
+    /// raw BepInEx description, which is English because that is the language a config FILE is
+    /// written in — every tooltip was therefore half English, half German. It now asks
+    /// <see cref="Loc.ConfigDescription"/> first and falls back to the bound English text only when
+    /// the current language has no translation for that entry. The fallback is what keeps a
+    /// description added tomorrow readable instead of blank.</para>
     /// </summary>
     internal static string Tooltip(ConfigItem item)
     {
@@ -1088,7 +1095,8 @@ internal static class ConfigCatalog
         sb.Append('[').Append(item.Section).Append("] ").Append(item.Key).Append('\n');
         sb.Append(FileNameOf(item)).Append('\n');
 
-        string? desc = item.Entry.Description?.Description;
+        string? desc = Loc.ConfigDescription(item.Section, item.Key)
+                       ?? item.Entry.Description?.Description;
         if (!string.IsNullOrEmpty(desc))
             sb.Append('\n').Append(Clip(Collapse(desc!), MaxDescriptionChars)).Append('\n');
 
