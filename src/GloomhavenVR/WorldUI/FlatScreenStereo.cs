@@ -326,9 +326,6 @@ internal sealed class FlatScreenStereo
     private static ConfigEntry<int>? s_mapUvChannel;
     /// <summary>Which component pair of the chosen channel to use as uv0: 0 = .xy, 1 = .zw.</summary>
     private static ConfigEntry<int>? s_mapUvComponent;
-    /// <summary>Bumped whenever any Map UV knob changes — the corrected mesh is rebuilt live next tick.</summary>
-    private static int s_uvConfigRevision;
-
     // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
     private const int BlackProbeSize = 8;
@@ -439,27 +436,6 @@ internal sealed class FlatScreenStereo
     private Material[]? _worldMapOriginalMats;
     /// <summary>True while the override is currently on the worldMap renderer (between our onPreRender and onPostRender).</summary>
     private bool _overrideApplied;
-    /// <summary>
-    /// Mod-owned instanced COPY of the worldMap mesh with a corrected 2D uv0 and white vertex
-    /// colours, rendered by the albedo camera in place of the game mesh (scoped swap in
-    /// onPreRender/onPostRender — the game's own shared mesh is never mutated). Rebuilt when the
-    /// scene mesh changes or any Map UV knob is retuned (live). Sprites/Default samples uv0 and
-    /// multiplies texture × vertex colour, so a correct uv0 + white colours = the parchment detail
-    /// at full brightness.
-    /// </summary>
-    private Mesh? _worldMapCorrectedMesh;
-    /// <summary>The game shared mesh the current corrected copy was built from (rebuild trigger when it changes).</summary>
-    private Mesh? _worldMapOrigMesh;
-    /// <summary>The worldMap MeshFilter — the corrected copy is swapped onto it during our render.</summary>
-    private MeshFilter? _worldMapMeshFilter;
-    /// <summary>The game mesh swapped OUT for the corrected copy (captured live in onPreRender; restored in onPostRender).</summary>
-    private Mesh? _meshSwapOrig;
-    /// <summary>True while the corrected mesh is currently on the MeshFilter (between our onPreRender and onPostRender).</summary>
-    private bool _meshSwapped;
-    /// <summary>The <see cref="s_uvConfigRevision"/> the current corrected mesh was built at (rebuild when it lags).</summary>
-    private int _uvConfigRevisionApplied = -1;
-    /// <summary>One-shot log guard: the decisive UV/vertex-colour diagnostic dump (per engagement).</summary>
-    private bool _worldMapColorsLogged;
     /// <summary>One-shot log guard: the discovered material/albedo facts (per engagement).</summary>
     private bool _albedoMaterialsLogged;
     /// <summary>One-shot WARN guard: worldMap not found / no usable albedo (per engagement).</summary>
@@ -669,9 +645,10 @@ internal sealed class FlatScreenStereo
             "that declares an OnRenderImage method (reflection), overriding the individual strip toggles. " +
             "Use to bisect an unknown culprit effect. Live.");
 
-        // Map UV correction knobs (class doc MAP ALBEDO RENDER). Read LIVE each time the corrected
-        // worldMap mesh is rebuilt; a SettingChanged bumps s_uvConfigRevision so the rebuild happens
-        // the very next tick — orientation can be tuned from hardware logs WITHOUT a rebuild.
+        // Map UV correction knobs — DEPRECATED, no reader. They configured the CPU uv0-rebuild path
+        // (a mod-owned corrected mesh copy + Sprites/Default), which was removed once the mesh was
+        // proven to carry a correct TexCoord0 that GloomhavenVR/MapUnlit samples on the GPU
+        // (53af144). Kept BOUND so existing .cfg files keep loading unchanged; see charter §5.
         s_mapUvSource = file.Bind("WorldUI", "MapUvSource", 0,
             "Where the corrected campaign-map mesh gets its uv0 texture coordinates. 0 = auto (use " +
             "the mesh's real UVs if a channel has a usable 2D span, else project from vertex " +
@@ -691,22 +668,7 @@ internal sealed class FlatScreenStereo
             "Which component pair of the chosen channel the real-UV path uses as uv0: 0 = .xy, " +
             "1 = .zw (some Amplify shaders pack the texture UVs into .zw of a Vector4 channel).");
 
-        System.EventHandler bump = (_, _) => s_uvConfigRevision++;
-        s_mapUvSource.SettingChanged += bump;
-        s_mapUvSwapUV.SettingChanged += bump;
-        s_mapUvFlipU.SettingChanged += bump;
-        s_mapUvFlipV.SettingChanged += bump;
-        s_mapUvChannel.SettingChanged += bump;
-        s_mapUvComponent.SettingChanged += bump;
     }
-
-    // ---- map UV correction accessors (read live each rebuild) ------------------------------
-    internal static int MapUvSource => s_mapUvSource?.Value ?? 0;
-    internal static bool MapUvSwapUV => s_mapUvSwapUV?.Value ?? false;
-    internal static bool MapUvFlipU => s_mapUvFlipU?.Value ?? false;
-    internal static bool MapUvFlipV => s_mapUvFlipV?.Value ?? false;
-    internal static int MapUvChannel => Mathf.Clamp(s_mapUvChannel?.Value ?? 0, 0, 7);
-    internal static int MapUvComponent => Mathf.Clamp(s_mapUvComponent?.Value ?? 0, 0, 1);
 
     /// <summary>[WorldUI] MapAlbedoRender — render the map parchment unlit via a mod forward camera (class doc MAP ALBEDO RENDER).</summary>
     internal static bool MapAlbedoRenderOn => s_mapAlbedoRender?.Value ?? true;
@@ -2261,315 +2223,6 @@ internal sealed class FlatScreenStereo
     }
 
     /// <summary>
-    /// Build (or rebuild) the mod-owned corrected copy of the worldMap mesh: an instanced clone with
-    /// white vertex colours (brightness) and a proper 2D uv0 (detail). The game's shared mesh is
-    /// NEVER mutated — the copy is swapped onto the MeshFilter only for our render (onPreRender) and
-    /// restored right after (onPostRender), the same scoped way the material override is. Rebuilt when
-    /// the scene's mesh changes or any Map UV knob is retuned (live orientation tuning). The one-shot
-    /// decisive UV/vertex-colour diagnostic dump is logged on the first build per engagement; the MAP
-    /// UV FIX line logs on every (re)build so a live retune shows exactly which uv0 was produced.
-    /// </summary>
-    private void EnsureCorrectedMesh()
-    {
-        if (_worldMapRenderer == null)
-            return;
-        MeshFilter? mf = _worldMapRenderer.GetComponent<MeshFilter>();
-        Mesh? orig = mf != null ? mf.sharedMesh : null;
-        if (mf == null || orig == null)
-            return;
-        _worldMapMeshFilter = mf;
-
-        bool need = _worldMapCorrectedMesh == null
-                    || _worldMapOrigMesh != orig
-                    || _uvConfigRevisionApplied != s_uvConfigRevision;
-        if (!need)
-            return;
-
-        // Part A — decisive diagnostic dump (once per engagement), read from the untouched game mesh.
-        if (!_worldMapColorsLogged)
-        {
-            _worldMapColorsLogged = true;
-            Color[] colors = orig.colors; // empty when the mesh has no colour channel
-            string csample = colors.Length > 0
-                ? $"{colors.Length} verts, colour[0] = (r{colors[0].r:F2} g{colors[0].g:F2} b{colors[0].b:F2} a{colors[0].a:F2})"
-                : "NONE (no vertex-colour channel — default white)";
-            VRLog.Info("WorldUI", $"MAP ALBEDO vertex colours: {csample}. The corrected mesh forces white so Sprites/Default shows the albedo at full brightness.");
-            LogWorldMapUvs(orig);
-        }
-
-        if (_worldMapCorrectedMesh != null)
-        {
-            Object.Destroy(_worldMapCorrectedMesh);
-            _worldMapCorrectedMesh = null;
-        }
-        _worldMapOrigMesh = orig;
-        _uvConfigRevisionApplied = s_uvConfigRevision;
-
-        Mesh copy = Object.Instantiate(orig);
-        copy.name = orig.name + ".GHVR_AlbedoCorrected";
-
-        // White vertex colours — Sprites/Default multiplies texture × vertex colour; a dark/AO-baked
-        // channel would dim the parchment. Always set white (guarantees brightness regardless).
-        var white = new Color[copy.vertexCount];
-        for (int i = 0; i < white.Length; i++)
-            white[i] = Color.white;
-        copy.colors = white;
-
-        // Corrected uv0 (Part B) — real UVs if a channel carries a usable 2D span, else per-submesh
-        // positional projection; orientation (swap/flip) applied to both paths, all read live.
-        Vector2[] uv = BuildUv0(copy, out string path);
-        copy.uv = uv;
-        _worldMapCorrectedMesh = copy;
-
-        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
-        for (int i = 0; i < uv.Length; i++)
-        {
-            if (uv[i].x < minX) minX = uv[i].x; if (uv[i].x > maxX) maxX = uv[i].x;
-            if (uv[i].y < minY) minY = uv[i].y; if (uv[i].y > maxY) maxY = uv[i].y;
-        }
-        VRLog.Info("WorldUI", $"MAP UV FIX: path={path}, swapUV={MapUvSwapUV} flipU={MapUvFlipU} " +
-                              $"flipV={MapUvFlipV}; sample uv0 bounds [x {minX:F3}..{maxX:F3}, y {minY:F3}..{maxY:F3}] " +
-                              "(corrected mesh rendered by the albedo camera; the game mesh is untouched).");
-    }
-
-    /// <summary>
-    /// Part A — decisive UV dump: read ALL 8 UV channels as <c>List&lt;Vector4&gt;</c> (a channel
-    /// stored with 3/4 components reads EMPTY as List&lt;Vector2&gt;, which the old check hit — Amplify
-    /// PBR meshes commonly store UVs as Vector4). Per non-empty channel: element count + per-component
-    /// x/y/z/w min..max. Plus vertexCount, subMeshCount and mesh.bounds (center+size) so we know the
-    /// planar extent and flat axis. This says definitively whether real texture UVs exist (in some
-    /// channel's xy or zw) and, if not, the geometry to project from.
-    /// </summary>
-    private void LogWorldMapUvs(Mesh mesh)
-    {
-        var sb = new System.Text.StringBuilder();
-        Bounds b = mesh.bounds;
-        sb.Append($"MAP ALBEDO UVs: verts {mesh.vertexCount}, submeshes {mesh.subMeshCount}, ")
-          .Append($"bounds center({b.center.x:F2},{b.center.y:F2},{b.center.z:F2}) size({b.size.x:F2},{b.size.y:F2},{b.size.z:F2})");
-        var list = new System.Collections.Generic.List<Vector4>();
-        for (int ch = 0; ch < 8; ch++)
-        {
-            mesh.GetUVs(ch, list);
-            if (list.Count == 0)
-            {
-                sb.Append($"; uv{ch} NONE");
-                continue;
-            }
-            float minx = float.MaxValue, maxx = float.MinValue, miny = float.MaxValue, maxy = float.MinValue;
-            float minz = float.MaxValue, maxz = float.MinValue, minw = float.MaxValue, maxw = float.MinValue;
-            for (int i = 0; i < list.Count; i++)
-            {
-                Vector4 v = list[i];
-                if (v.x < minx) minx = v.x; if (v.x > maxx) maxx = v.x;
-                if (v.y < miny) miny = v.y; if (v.y > maxy) maxy = v.y;
-                if (v.z < minz) minz = v.z; if (v.z > maxz) maxz = v.z;
-                if (v.w < minw) minw = v.w; if (v.w > maxw) maxw = v.w;
-            }
-            sb.Append($"; uv{ch} {list.Count} x[{minx:F3}..{maxx:F3}] y[{miny:F3}..{maxy:F3}] ")
-              .Append($"z[{minz:F3}..{maxz:F3}] w[{minw:F3}..{maxw:F3}]");
-        }
-        sb.Append(". A channel whose xy (or zw) spans ~0..1 holds the real texture UVs; if none do, the map is projected from the planar bounds (smallest-extent axis = normal).");
-        VRLog.Info("WorldUI", sb.ToString());
-    }
-
-    /// <summary>
-    /// Part B — produce the corrected uv0 array. Priority (logged via <paramref name="path"/>):
-    /// (1) real UVs — a UV channel whose xy (or zw) spans a non-degenerate range reproduces the game's
-    /// exact texture mapping; (2) positional planar projection — each submesh's vertices mapped to its
-    /// texture's full 0..1 in the two largest-extent (in-plane) axes. MapUvSource forces a path;
-    /// MapUvSwapUV/FlipU/FlipV orient the result. All knobs read live.
-    /// </summary>
-    private Vector2[] BuildUv0(Mesh mesh, out string path)
-    {
-        int source = MapUvSource;
-        Vector2[]? uv = null;
-        path = "";
-
-        if (source != 2) // 0 = auto, 1 = force real-UV
-        {
-            if (source == 1)
-            {
-                uv = ReadRealUv(mesh, MapUvChannel, MapUvComponent, out path);
-                if (uv == null)
-                    path = $"forced real ch{MapUvChannel} .{(MapUvComponent == 1 ? "zw" : "xy")} EMPTY → fell back to ";
-            }
-            else
-            {
-                for (int ch = 0; ch <= 3 && uv == null; ch++)
-                    uv = ReadRealUvAuto(mesh, ch, out path);
-            }
-        }
-
-        if (uv == null)
-            uv = BuildPositionalUv(mesh, ref path);
-
-        ApplyOrientation(uv);
-        return uv;
-    }
-
-    /// <summary>
-    /// Auto real-UV read of one channel: use .xy if it spans &gt; 0.01 in BOTH axes; else use .zw if
-    /// IT spans &gt; 0.01 in both; else null (the caller tries the next channel or falls to positional).
-    /// </summary>
-    private static Vector2[]? ReadRealUvAuto(Mesh mesh, int channel, out string path)
-    {
-        path = "";
-        var list = new System.Collections.Generic.List<Vector4>();
-        mesh.GetUVs(channel, list);
-        if (list.Count == 0)
-            return null;
-
-        float minx = float.MaxValue, maxx = float.MinValue, miny = float.MaxValue, maxy = float.MinValue;
-        float minz = float.MaxValue, maxz = float.MinValue, minw = float.MaxValue, maxw = float.MinValue;
-        for (int i = 0; i < list.Count; i++)
-        {
-            Vector4 v = list[i];
-            if (v.x < minx) minx = v.x; if (v.x > maxx) maxx = v.x;
-            if (v.y < miny) miny = v.y; if (v.y > maxy) maxy = v.y;
-            if (v.z < minz) minz = v.z; if (v.z > maxz) maxz = v.z;
-            if (v.w < minw) minw = v.w; if (v.w > maxw) maxw = v.w;
-        }
-        var uv = new Vector2[list.Count];
-        if (maxx - minx > 0.01f && maxy - miny > 0.01f)
-        {
-            for (int i = 0; i < list.Count; i++)
-                uv[i] = new Vector2(list[i].x, list[i].y);
-            path = $"real ch{channel} .xy";
-            return uv;
-        }
-        if (maxz - minz > 0.01f && maxw - minw > 0.01f)
-        {
-            for (int i = 0; i < list.Count; i++)
-                uv[i] = new Vector2(list[i].z, list[i].w);
-            path = $"real ch{channel} .zw";
-            return uv;
-        }
-        return null;
-    }
-
-    /// <summary>Forced real-UV read of a specific channel/component (0 = .xy, 1 = .zw); null if the channel is empty.</summary>
-    private static Vector2[]? ReadRealUv(Mesh mesh, int channel, int component, out string path)
-    {
-        path = "";
-        var list = new System.Collections.Generic.List<Vector4>();
-        mesh.GetUVs(channel, list);
-        if (list.Count == 0)
-            return null;
-        var uv = new Vector2[list.Count];
-        if (component == 1)
-        {
-            for (int i = 0; i < list.Count; i++)
-                uv[i] = new Vector2(list[i].z, list[i].w);
-            path = $"forced real ch{channel} .zw";
-        }
-        else
-        {
-            for (int i = 0; i < list.Count; i++)
-                uv[i] = new Vector2(list[i].x, list[i].y);
-            path = $"forced real ch{channel} .xy";
-        }
-        return uv;
-    }
-
-    /// <summary>
-    /// Positional planar projection fallback: the mesh is a flat plane, so the smallest-extent axis of
-    /// mesh.bounds.size is the plane normal and the other two are the in-plane axes. For EACH submesh
-    /// independently (each = one map quadrant with its own 0..1 texture) map that submesh's vertices to
-    /// the texture's full 0..1 via (pos2d - submeshMin) / (submeshMax - submeshMin).
-    /// </summary>
-    private Vector2[] BuildPositionalUv(Mesh mesh, ref string path)
-    {
-        Vector3[] verts = mesh.vertices;
-        var uv = new Vector2[verts.Length];
-        Vector3 size = mesh.bounds.size;
-
-        // Smallest extent = plane normal; the two remaining axes (index order) = u, v.
-        int nAxis = 0;
-        float minExtent = size.x;
-        if (size.y < minExtent) { minExtent = size.y; nAxis = 1; }
-        if (size.z < minExtent) { nAxis = 2; }
-        int uAxis = -1, vAxis = -1;
-        for (int a = 0; a < 3; a++)
-        {
-            if (a == nAxis) continue;
-            if (uAxis < 0) uAxis = a; else vAxis = a;
-        }
-
-        int subCount = mesh.subMeshCount;
-        for (int s = 0; s < subCount; s++)
-        {
-            int[] tris = mesh.GetTriangles(s);
-            if (tris.Length == 0)
-                continue;
-            float uMin = float.MaxValue, uMax = float.MinValue, vMin = float.MaxValue, vMax = float.MinValue;
-            for (int i = 0; i < tris.Length; i++)
-            {
-                Vector3 p = verts[tris[i]];
-                float pu = AxisVal(p, uAxis), pv = AxisVal(p, vAxis);
-                if (pu < uMin) uMin = pu; if (pu > uMax) uMax = pu;
-                if (pv < vMin) vMin = pv; if (pv > vMax) vMax = pv;
-            }
-            float uRange = Mathf.Max(1e-5f, uMax - uMin);
-            float vRange = Mathf.Max(1e-5f, vMax - vMin);
-            for (int i = 0; i < tris.Length; i++)
-            {
-                Vector3 p = verts[tris[i]];
-                uv[tris[i]] = new Vector2((AxisVal(p, uAxis) - uMin) / uRange, (AxisVal(p, vAxis) - vMin) / vRange);
-            }
-        }
-        path += $"positional axes {AxisName(uAxis)}{AxisName(vAxis)} (normal {AxisName(nAxis)}), {subCount} submesh(es) each mapped to 0..1";
-        return uv;
-    }
-
-    private static float AxisVal(Vector3 v, int axis) => axis == 0 ? v.x : axis == 1 ? v.y : v.z;
-
-    private static string AxisName(int axis) => axis == 0 ? "X" : axis == 1 ? "Y" : "Z";
-
-    /// <summary>Apply the live orientation knobs (swap u/v, then flip each) to the final uv0 in place.</summary>
-    private static void ApplyOrientation(Vector2[] uv)
-    {
-        bool swap = MapUvSwapUV, flipU = MapUvFlipU, flipV = MapUvFlipV;
-        if (!swap && !flipU && !flipV)
-            return;
-        for (int i = 0; i < uv.Length; i++)
-        {
-            float u = uv[i].x, v = uv[i].y;
-            if (swap) { float t = u; u = v; v = t; }
-            if (flipU) u = 1f - u;
-            if (flipV) v = 1f - v;
-            uv[i] = new Vector2(u, v);
-        }
-    }
-
-    /// <summary>Restore the game mesh onto the MeshFilter and destroy the corrected copy (no leaks; game state untouched on release).</summary>
-    private void ReleaseCorrectedMesh()
-    {
-        if (_meshSwapped && _worldMapMeshFilter != null && _meshSwapOrig != null)
-            _worldMapMeshFilter.sharedMesh = _meshSwapOrig;
-        _meshSwapped = false;
-        _meshSwapOrig = null;
-        if (_worldMapCorrectedMesh != null)
-        {
-            Object.Destroy(_worldMapCorrectedMesh);
-            _worldMapCorrectedMesh = null;
-        }
-        _worldMapOrigMesh = null;
-        _worldMapMeshFilter = null;
-        _uvConfigRevisionApplied = -1;
-        _worldMapColorsLogged = false;
-    }
-
-    /// <summary>
-    /// Build one <c>GloomhavenVR/MapUnlit</c> override material per worldMap submesh: <c>_MainTex</c> =
-    /// that submesh's quadrant albedo (<c>_Alb</c> ?? <c>_MainTex</c> ?? <c>mainTexture</c>);
-    /// <c>_LocalMin</c>/<c>_LocalSize</c> = the mesh's LOCAL bounds (the shader derives the mesh-wide UV
-    /// from object-space position); <c>_UvScale</c> = (2,2) and <c>_UvOffset</c> = the quadrant offset
-    /// (indexed by the 0N number parsed from the material name — see <see cref="MapQuadrantUvOffset"/>),
-    /// so each submesh samples ITS quarter of the local plane across its full 0..1 texture. Cached; only
-    /// rebuilt when the renderer or its submesh count changes. Returns false (one-shot WARN) if the
-    /// shader is missing or no submesh yielded a usable albedo texture.
-    /// </summary>
-    /// <summary>
     /// Build (once, cached) the UV read-out texture used by the <see cref="MapUvDebug"/> diagnostic.
     /// Encodes the sampled UV directly as colour so a hardware screenshot reveals the object-space→UV
     /// mapping: R = u, G = v, dark 8×8 checker to count tiles, white 0..1 border, MAGENTA block at the
@@ -3047,6 +2700,19 @@ internal sealed class FlatScreenStereo
         }
     }
 
+    /// <summary>
+    /// Build one <c>GloomhavenVR/MapUnlit</c> override material per map submesh: <c>_MainTex</c> = that
+    /// submesh's quadrant albedo (the texture gathered by <see cref="GatherMapTextures"/> for the 0N
+    /// number parsed from the material name, else the material's own <c>_Alb</c> ?? <c>_MainTex</c> ??
+    /// <c>mainTexture</c>), <c>_UvChannel</c> = <see cref="MapUnlitUvChannel"/> (TexCoord0 — the mesh
+    /// carries a real one and the shader samples it on the GPU), <c>_UvScale</c> = (1,1) and
+    /// <c>_UvOffset</c> = (0,0), because each quadrant submesh's own UV already runs 0..1 across its own
+    /// texture. Cached; rebuilt when the ACTIVE RENDERER changes — a length-only check kept the world
+    /// textures on the city mesh, since both maps have four submeshes. Returns false (one-shot WARN) if
+    /// the bundle shader is missing or the renderer has no mesh.
+    /// (This doc block had been stranded above <see cref="UvDebugTexture"/> and still described the
+    /// disproven object-space-position UV with a (2,2) quadrant scale.)
+    /// </summary>
     private bool BuildOverrideMaterials()
     {
         if (_worldMapRenderer == null)
