@@ -194,6 +194,13 @@ public class Plugin : BaseUnityPlugin
     {
         VRLog.Init(Logger);
 
+        // The main plugin config is the one file the mod does NOT create through
+        // ModuleConfig.Create (BaseUnityPlugin owns it), so it is registered by hand — otherwise
+        // the in-VR config browser (Debug ▸ Alle Einstellungen) could not reach the cross-cutting
+        // [General]/[Core]/[Rig]/[Hands]/[Compat]/[Dev] sections. Registered BEFORE the first bind
+        // so the browser sees the file even if a later bind ever throws.
+        Core.ModuleConfig.Register(Core.ModuleConfig.MainModule, Config);
+
         Enabled = Config.Bind(
             "General", "Enabled", true,
             "Master switch. Set to false to run the game completely vanilla (the mod does nothing).");

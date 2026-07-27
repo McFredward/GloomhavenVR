@@ -152,6 +152,13 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // elements. Live-applied automatically: writing a bind bumps ButtonTuning.Version and the
         // NativeButtonSkin re-skins the caps (keycaps on the Version rebuild, cluster per-tick).
         ButtonColors,
+        // 2026-07 (user: "Alle config einstellungen sollen im VR Menu anpassbar sein!"): the GENERIC
+        // config browser's topics. One element per ConfigCatalog.ConfigTopic, in the SAME order, so
+        // the existing element chooser IS the topic chooser — no second navigation idiom. These are
+        // not board elements at all: they carry no offset/size/spacing/shape and no per-board
+        // meaning, which is exactly what ElementIsConfigTopic tells the per-board rows.
+        CfgDiagnostics, CfgVisual, CfgMovement, CfgHands, CfgCards, CfgButtons,
+        CfgPanels, CfgBoardTargeting, CfgBoardGeometry, CfgNetwork, CfgSystem, CfgOther,
     }
 
     /// <summary>
@@ -209,7 +216,13 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                 DebugElement.ItemUse, DebugElement.ItemCard,
                 DebugElement.WallFade,
                 DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets,
-                DebugElement.ButtonColors },                                                                 // Debug
+                DebugElement.ButtonColors,
+                // The generic config browser's topics (2026-07) — listed here too so this table
+                // stays the documented union of SubCatElements.
+                DebugElement.CfgDiagnostics, DebugElement.CfgVisual, DebugElement.CfgMovement,
+                DebugElement.CfgHands, DebugElement.CfgCards, DebugElement.CfgButtons,
+                DebugElement.CfgPanels, DebugElement.CfgBoardTargeting, DebugElement.CfgBoardGeometry,
+                DebugElement.CfgNetwork, DebugElement.CfgSystem, DebugElement.CfgOther },                    // Debug
     };
 
     /// <summary>
@@ -223,6 +236,16 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private static readonly DebugElement[][] SubCatElements =
     {
+        // Alle Einstellungen — the GENERIC config browser (2026-07, user: "Alle config
+        // einstellungen sollen im VR Menu anpassbar sein!"). FIRST on purpose: it is the umbrella
+        // that contains every entry the mod binds, including the ones the curated Debug panes
+        // below never got a hand-written row for, so it is what Debug should open on. Its
+        // "elements" are ConfigCatalog TOPICS in catalog order — measurement first, since that is
+        // what a power user opens this pane for.
+        new[] { DebugElement.CfgDiagnostics, DebugElement.CfgVisual, DebugElement.CfgMovement,
+                DebugElement.CfgHands, DebugElement.CfgCards, DebugElement.CfgButtons,
+                DebugElement.CfgPanels, DebugElement.CfgBoardTargeting, DebugElement.CfgBoardGeometry,
+                DebugElement.CfgNetwork, DebugElement.CfgSystem, DebugElement.CfgOther },
         // Board & Layout — the board itself + every board-attached panel/widget/overlay geometry.
         new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
                 DebugElement.Initiative, DebugElement.Readout, DebugElement.Pin, DebugElement.VRSettings },
@@ -239,8 +262,8 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     };
 
     /// <summary>Debug sub-categories (user 5b) — the FIRST-level chooser inside the Debug pane.</summary>
-    private enum DebugSubCat { BoardLayout, KartenStapel, Tasten, Offsets, WeltTuning }
-    private const int DebugSubCatCount = 5;
+    private enum DebugSubCat { AllSettings, BoardLayout, KartenStapel, Tasten, Offsets, WeltTuning }
+    private const int DebugSubCatCount = 6;
 
     /// <summary>The element-BEARING category (Debug) exposes the in-pane board + element chooser.</summary>
     private static bool CategoryHasElements(NavCat c) => NavElements[(int)c].Length > 0;
@@ -322,6 +345,10 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private void RefreshLanguage()
     {
+        // The config browser's group/section names are resolved once when its catalog is built (they
+        // are read four times a second afterwards), so a language change has to drop that cache too
+        // — otherwise the rebuilt pane would come back up with the previous language's group names.
+        ConfigCatalog.Invalidate();
         if (!_open)
             return;
         SetOpen(false); // unregister poke, drop the mask request, hide the holder

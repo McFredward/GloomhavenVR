@@ -379,6 +379,11 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // ===== Debug — the sole element-bearing tuning tab (board panels + button geometry + fade + per-style) =====
         BuildElementTuning();
 
+        // Debug ▸ Alle Einstellungen — the GENERIC config browser over every bound ConfigEntry
+        // (2026-07, user: "Alle config einstellungen sollen im VR Menu anpassbar sein!"). Fixed row
+        // POOL, nothing walked at build time; see SettingsPanel.8.ConfigBrowser.cs.
+        BuildConfigBrowser();
+
         _rowParent = null;
         _rowGate = null;
 

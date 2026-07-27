@@ -123,21 +123,31 @@ internal static class ActorBars
     private static ConfigFile? s_barsConfigFile;
     private static ConfigEntry<bool>? s_barsOccluded;
 
+    /// <summary>
+    /// Bind-once for the [WorldUI] BarsOccluded entry. Extracted from the property getter so the
+    /// in-VR config browser can force the file into existence (<c>ConfigCatalog.EnsureBound</c>)
+    /// instead of hiding this setting until the first bar scan happens to run. Pure — it creates
+    /// the config file and binds one key, and touches nothing else.
+    /// </summary>
+    internal static void BindConfig()
+    {
+        if (s_barsOccluded != null)
+            return;
+        s_barsConfigFile = ModuleConfig.Create("bars");
+        s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", true,
+            "Actor HP/effect bars depth-test against the world: walls occlude them like "
+            + "any world object instead of the bar shining through. Look-preserving — "
+            + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "
+            + "where a wall is in front. Disable to get the vanilla draw-on-top bars.");
+    }
+
     /// <summary>Config gate for the bar depth-test (lazily bound, read live every scan).</summary>
     private static bool BarsOccluded
     {
         get
         {
-            if (s_barsOccluded == null)
-            {
-                s_barsConfigFile = ModuleConfig.Create("bars");
-                s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", true,
-                    "Actor HP/effect bars depth-test against the world: walls occlude them like "
-                    + "any world object instead of the bar shining through. Look-preserving — "
-                    + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "
-                    + "where a wall is in front. Disable to get the vanilla draw-on-top bars.");
-            }
-            return s_barsOccluded.Value;
+            BindConfig();
+            return s_barsOccluded!.Value;
         }
     }
 

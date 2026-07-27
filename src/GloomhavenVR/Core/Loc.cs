@@ -291,6 +291,75 @@ internal static class Loc
         ["subcat_offsets"] = Pair("Hands/Offsets", "Hände/Offsets"),
         ["subcat_wall_seethrough"] = Pair("Wall see-through", "Wand-Durchsicht"),
 
+        // ---- Debug ▸ Alle Einstellungen — the generic config browser (2026-07) ----------------
+        // User: "Alle config einstellungen sollen im VR Menu anpassbar sein!" — nothing may be
+        // config-file-only any more. These are the browser's OWN chrome; the ~450 entry
+        // DESCRIPTIONS it shows on hover stay in the language they were authored in (developer
+        // text in a Debug pane — see ConfigCatalog.Tooltip).
+        ["subcat_all_settings"] = Pair("All settings", "Alle Einstellungen"),
+        ["cfg_group"] = Pair("Group", "Gruppe"),
+        ["cfg_page"] = Pair("Page", "Seite"),
+        ["cfg_step"] = Pair("Step size", "Schrittweite"),
+        ["cfg_step_fine"] = Pair("Fine", "Fein"),
+        ["cfg_step_normal"] = Pair("Normal", "Normal"),
+        ["cfg_step_coarse"] = Pair("Coarse", "Grob"),
+        ["cfg_default"] = Pair("Default", "Standard"),
+        ["cfg_range"] = Pair("Range", "Bereich"),
+        ["cfg_empty"] = Pair("(empty)", "(leer)"),
+        ["cfg_none"] = Pair("no entries", "keine Einträge"),
+        ["cfg_group_misc"] = Pair("General", "Allgemein"),
+        ["cfg_live_note"] = Pair(
+            "Applies live for every consumer that re-reads the entry each frame/tick — which is "
+            + "most of them. A few only take effect when the thing they describe is next rebuilt "
+            + "(rig, control board, a panel); if nothing changes, close and reopen that thing.",
+            "Wirkt sofort bei allen Verbrauchern, die den Wert pro Frame/Tick neu lesen — das ist "
+            + "die Mehrheit. Einzelne greifen erst, wenn das betroffene Ding neu aufgebaut wird "
+            + "(Rig, Kontrollbrett, eine Tafel); passiert nichts, schließe und öffne es erneut."),
+        ["cfg_needs_restart"] = Pair(
+            "NOT live: this entry is read once at startup. The value is saved immediately, but it "
+            + "takes effect on the next game/VR start.",
+            "NICHT sofort: dieser Wert wird nur beim Start gelesen. Er wird sofort gespeichert, "
+            + "greift aber erst beim nächsten Spiel-/VR-Start."),
+        ["cfg_readonly_note"] = Pair(
+            "Free text with no fixed set of valid values, so the panel shows it instead of "
+            + "pretending to edit it. Change it in the config file named above.",
+            "Freier Text ohne feste Auswahl — deshalb zeigt die Tafel den Wert an, statt eine "
+            + "Bearbeitung vorzutäuschen. Änderbar in der oben genannten Konfigurationsdatei."),
+        ["cfg_readonly_short"] = Pair("file only", "nur Datei"),
+        ["cfg_footer_note"] = Pair(
+            "Entries in this group / entries the whole mod binds · how many of them are free text "
+            + "with no fixed set of values, which the panel shows but does not edit.\n\n"
+            + "Every setting the mod binds is listed here, grouped by what it is about rather than "
+            + "by which file it happens to live in. An entry added to the mod later shows up by "
+            + "itself — this pane reads the bound entries, it does not hold a copy of them.",
+            "Einträge in dieser Gruppe / Einträge im ganzen Mod · davon freier Text ohne feste "
+            + "Auswahl, den die Tafel anzeigt, aber nicht bearbeitet.\n\n"
+            + "Hier steht jede Einstellung, die der Mod bindet — gruppiert nach Thema statt nach "
+            + "Datei. Ein später hinzugefügter Eintrag erscheint von selbst: diese Tafel liest die "
+            + "gebundenen Einträge, sie führt keine eigene Liste."),
+        ["cfg_topic_diagnostics"] = Pair("Measurement & diagnostics", "Messung & Diagnose"),
+        ["cfg_topic_visual"] = Pair("Picture & rendering", "Bild & Darstellung"),
+        ["cfg_topic_movement"] = Pair("Movement & world", "Bewegung & Welt"),
+        ["cfg_topic_hands"] = Pair("Hands & figures", "Hände & Figuren"),
+        ["cfg_topic_cards"] = Pair("Cards & fan", "Karten & Fächer"),
+        ["cfg_topic_panels"] = Pair("Menus & panels", "Menüs & Tafeln"),
+        ["cfg_topic_board"] = Pair("Board & targeting", "Brett & Zielen"),
+        ["cfg_topic_board_geometry"] = Pair("Board geometry (per board)", "Brett-Geometrie (pro Brett)"),
+        ["cfg_topic_network"] = Pair("Multiplayer", "Mehrspieler"),
+        ["cfg_topic_system"] = Pair("System & start-up", "System & Start"),
+        ["cfg_topic_other"] = Pair("Other", "Sonstiges"),
+        ["cfg_sec_perf"] = Pair("Measurement [Perf]", "Messung [Perf]"),
+        ["cfg_sec_optimize"] = Pair("Optimizations [Optimize]", "Optimierungen [Optimize]"),
+        ["cfg_sec_dev"] = Pair("Dev harness", "Entwickler-Werkzeuge"),
+        ["cfg_sec_comfort"] = Pair("Comfort", "Komfort"),
+        ["cfg_sec_settingspanel"] = Pair("This panel", "Diese Tafel"),
+        ["cfg_sec_buttonanim"] = Pair("Button animation", "Knopf-Animation"),
+        ["cfg_sec_transient"] = Pair("Transient buttons", "Kurzzeit-Knöpfe"),
+        ["cfg_sec_squarecaps"] = Pair("Square caps", "Eckige Kappen"),
+        ["cfg_sec_hexhighlight"] = Pair("Hex highlight", "Feld-Hervorhebung"),
+        ["cfg_sec_selectionready"] = Pair("Selection reminder", "Auswahl-Erinnerung"),
+        ["cfg_sec_renderquality"] = Pair("Render quality", "Bildqualität"),
+
         // ---- SettingsPanel: Leistung — the VR render trade (2026-07 GPU pass) ----
         // Wording rule for this block, from the user ("super verwirrend für den User"): every
         // label names the COMPROMISE, not the mechanism. A row belongs here only if the player

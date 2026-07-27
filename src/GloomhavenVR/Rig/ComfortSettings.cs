@@ -1,6 +1,4 @@
 using System;
-using System.IO;
-using BepInEx;
 using BepInEx.Configuration;
 using UnityEngine;
 
@@ -233,7 +231,10 @@ internal static class ComfortSettings
         if (IsBound)
             return;
 
-        _file = new ConfigFile(Path.Combine(Paths.ConfigPath, "dev.gloomhavenvr.comfort.cfg"), true);
+        // Same file, same saveOnInit — but routed through the canonical factory so the comfort
+        // entries land in the ModuleConfig registry and are therefore reachable from the in-VR
+        // config browser (Debug ▸ Alle Einstellungen) like every other module's.
+        _file = Core.ModuleConfig.Create("comfort");
 
         // Frozen shared entry from Plugin.cs, wrapped so the panel has ONE binding surface.
         WorldScaleBase = new ComfortSetting<float>(Plugin.WorldScale);

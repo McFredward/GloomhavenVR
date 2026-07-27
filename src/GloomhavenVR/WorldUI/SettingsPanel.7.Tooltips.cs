@@ -127,7 +127,16 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// <para>Opt-in per row rather than folded into <c>Row()</c>: only a handful of rows have an
     /// explanation worth the extra graphic, and the rest should stay free.</para>
     /// </summary>
-    private void Tip(RectTransform row, string locId)
+    private void Tip(RectTransform row, string locId) => Tip(row, () => Loc.Mod(locId));
+
+    /// <summary>
+    /// Same as <see cref="Tip(RectTransform,string)"/>, but with the text resolved by a delegate
+    /// instead of a Loc id. The config browser needs this: its rows are a REUSED POOL — the row that
+    /// showed "Cull Submit Split" a moment ago describes a different entry after a page turn — so the
+    /// explanation has to be produced at hover time from whatever the row is currently bound to. A
+    /// fixed string (or a fixed Loc id) would be the previous entry's description.
+    /// </summary>
+    private void Tip(RectTransform row, Func<string> text)
     {
         if (row == null)
             return;
@@ -139,7 +148,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             hit.raycastTarget = true;
         }
         var target = go.AddComponent<SettingsTooltipTarget>();
-        target.Text = () => Loc.Mod(locId);
+        target.Text = text;
         target.Hover = OnTooltipHover;
     }
 
@@ -179,6 +188,19 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         float y = rowRect != null
             ? _root.transform.InverseTransformPoint(rowRect.position).y
             : _tipRect.anchoredPosition.y;
+
+        // LONG, MULTI-LINE EXPLANATIONS (the config browser shows the config file's own paragraphs,
+        // and several run to a dozen wrapped lines). The bubble is centred on the row, so a tall one
+        // would hang below the panel's bottom edge and read as floating in mid-air. Rebuild the
+        // layout NOW — the ContentSizeFitter would otherwise only publish the new height at the end
+        // of the frame, and we would be clamping against the PREVIOUS row's bubble — then lift the
+        // bubble so its bottom never crosses the canvas root's bottom edge (local y = 0, the root's
+        // pivot). One synchronous rebuild of one small subtree, on a hover, is not a per-frame cost.
+        LayoutRebuilder.ForceRebuildLayoutImmediate(_tipRect);
+        float halfHeight = _tipRect.rect.height * 0.5f;
+        if (y < halfHeight)
+            y = halfHeight;
+
         _tipRect.anchoredPosition = new Vector2(PanelWidthPx * 0.5f + TipGapPx, y);
     }
 
