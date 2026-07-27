@@ -654,11 +654,30 @@ def cmd_check() -> int:
     want = render(classes)
     have = DOC.read_text(encoding='utf-8') if DOC.exists() else ""
     if want != have:
-        fail = True
-        print(
-            "error: docs/PATCH-INVENTORY.md is out of date with the source.\n"
-            "  Run `scripts/patch-inventory.sh generate` and commit the result.",
-            file=sys.stderr)
+        # Distinguish a SUBSTANTIVE drift from a line-number shift.
+        #
+        # The doc carries file:line for navigation, so any edit anywhere above a patch
+        # class or above a registration call re-renders those numbers — and the very first
+        # unrelated commit after this checker landed tripped it, over two shifted lines in
+        # CardsModule with no patch added, removed or unregistered.
+        #
+        # A checker that fails on something harmless teaches the reader to regenerate
+        # reflexively, which is precisely how it would come to be regenerated past a REAL
+        # drift. The hazards this exists for — a class nobody registers, a class registered
+        # twice — are checked above and stay hard errors. A stale line reference cannot make
+        # a patch ship inert, so it warns and does not fail.
+        strip_lines = lambda s: re.sub(r':\d+', ':<line>', s)
+        if strip_lines(want) == strip_lines(have):
+            print("warn: docs/PATCH-INVENTORY.md line references have shifted "
+                  "(no patch added, removed or unregistered).\n"
+                  "  Run `scripts/patch-inventory.sh generate` when convenient.",
+                  file=sys.stderr)
+        else:
+            fail = True
+            print(
+                "error: docs/PATCH-INVENTORY.md is out of date with the source.\n"
+                "  Run `scripts/patch-inventory.sh generate` and commit the result.",
+                file=sys.stderr)
 
     if not fail:
         n = sum(len(c.methods) for c in classes)
