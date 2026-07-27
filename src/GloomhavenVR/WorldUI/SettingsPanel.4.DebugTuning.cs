@@ -262,9 +262,12 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // the per-style folded-in elements (Hände-Offsets / Figuren-Offsets / Handgelenk): they carry
         // no per-board offset entry to reset and never had a reset control as top-level tabs, and
         // for the config-browser topics (2026-07), which reset nothing — a per-entry reset there
-        // would need one control per entry, and the entry's default is on hover instead.
+        // would need one control per entry, and the entry's default is on hover instead. Hidden for
+        // Zeitgeber / CPU for the same reason as the per-style elements: it owns no per-board entry,
+        // so the button would be a control that visibly does nothing.
         _rowGate = () => PerBoard() && !ElementIsPerStyle(CurrentElement())
-                         && !ElementIsConfigTopic(CurrentElement());
+                         && !ElementIsConfigTopic(CurrentElement())
+                         && CurrentElement() != DebugElement.Timing;
         var actionRow = Row();
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
@@ -598,7 +601,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     private static bool ElementIsGlobalTuning(DebugElement e) =>
         e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade
         or DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets
-        or DebugElement.ButtonColors
+        or DebugElement.ButtonColors or DebugElement.Timing
         || ElementIsConfigTopic(e);
 
     /// <summary>
@@ -654,6 +657,14 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// <summary>Visibility of the wall-fade fraction rows: Debug → Wandüberblendung element selected.</summary>
     private bool WallFadeRowsVisible() =>
         _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.WallFade;
+
+    /// <summary>
+    /// Visibility of the timing/CPU + GPU A/B rows: Debug → Zeitgeber / CPU element selected.
+    /// Before the 2026-07 restructure those rows had a CATEGORY-wide gate and therefore showed on
+    /// every Debug page at once.
+    /// </summary>
+    private bool TimingRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.Timing;
 
     /// <summary>Visibility of the [ButtonColors] rows: Debug → Knopf-Farben element selected.</summary>
     private bool ButtonColorRowsVisible() =>
@@ -1041,6 +1052,9 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         DebugElement.RoundButtons => Loc.Mod("round_buttons"),
         DebugElement.BoardDashboard => Loc.Mod("board_dashboard"),
         DebugElement.WallFade => Loc.Mod("wall_fade"),
+        // 2026-07 restructure: the timing/CPU + GPU A/B block as its own element (it used to be
+        // category-wide). Reuses the caption its section header already carried.
+        DebugElement.Timing => Loc.Mod("subcat_timing"),
         // Per-style elements folded in from the former top-level tabs (2026-07).
         DebugElement.HandOffsets => Loc.Mod("hand_offsets"),
         DebugElement.FigureOffsets => Loc.Mod("figure_offsets"),
@@ -1072,9 +1086,10 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         DebugSubCat.KartenStapel => Loc.Mod("subcat_cards_piles"),
         DebugSubCat.Tasten => Loc.Mod("cat_buttons"),
         DebugSubCat.Offsets => Loc.Mod("subcat_offsets"),
-        // User 3: the old "Welt-Tuning" was misleading — this sub-category only holds the wall
-        // see-through fade tuning, so it is named for what it actually controls.
-        DebugSubCat.WeltTuning => Loc.Mod("subcat_wall_seethrough"),
+        // 2026-07 restructure: the wall see-through fractions no longer sit alone in a
+        // sub-category of their own (a chooser with nothing to choose) — they share this one with
+        // the timing/CPU levers, since both are dials for FINDING a default rather than settings.
+        DebugSubCat.PerfEffects => Loc.Mod("subcat_perf_effects"),
         _ => s.ToString(),
     };
 

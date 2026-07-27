@@ -54,7 +54,7 @@ internal sealed class CoreModule : IVRModule
         VRLog.Info(Name, "Performance monitor installed — grep the log for '[Perf] FRAME' "
                          + "(pacing/GC/XR summary), '[Perf] STEPS' (mod subsystems ranked by cost) "
                          + "and '[Perf] SPIKE' (individual over-budget frames). Configure in "
-                         + "dev.gloomhavenvr.perf.cfg or under Einstellungen › Leistung.");
+                         + "dev.gloomhavenvr.perf.cfg or under Einstellungen › Grafik.");
 
         if (VRSession.IsRunning)
         {

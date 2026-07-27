@@ -51,12 +51,15 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     }
 
     // ==========================================================================================
-    //  Leistung — performance measurement + optimizations (2026-07 perf pass)
+    //  Grafik ▸ "Schärfe gegen Flüssigkeit" — the VR render trade (2026-07 perf pass)
     // ==========================================================================================
 
     /// <summary>
-    /// The whole "Leistung" category — RESHAPED 2026-07 after the user's verdict on what was
-    /// here before ("super verwirrend für den User"). It used to carry 20 rows: seven that only
+    /// The render-trade block that OPENS the "Grafik" tab — RESHAPED 2026-07 after the user's
+    /// verdict on what was here before ("super verwirrend für den User"), and folded into Grafik by
+    /// the 2026-07 menu restructure (it used to be a top-level "Leistung" tab of its own; keeping it
+    /// separate is what put post-processing and MSAA — two halves of one decision — on two different
+    /// tabs). It used to carry 20 rows: seven that only
     /// changed what the log records, five A/B switches for pure work removal, three CPU interval
     /// levers and a log-volume toggle. A player has no basis on which to decide any of those, and
     /// offering them implies they should.
@@ -86,7 +89,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private void BuildPerformanceCategory()
     {
-        GateCat(NavCat.Leistung);
+        GateCat(NavCat.Grafik);
 
         Section(Loc.Mod("perf_render_trade"));
 
@@ -114,31 +117,31 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
         Tip(msaaRow, "perf_msaa_note");
 
-        // Point at the game's own graphics panel rather than mirroring it, and say where the rows
-        // that used to be here went — both as ONE-LINE pointers with the reasoning on hover. They
-        // are not controls, so they carry the tooltip on their own (transparent) hit area.
-        var gameNote = Row(20f);
-        Label(gameNote, Loc.Mod("perf_game_graphics_short"), 12f, flexible: true);
-        Tip(gameNote, "perf_game_graphics_note");
-
-        var cfgNote = Row(20f);
-        Label(cfgNote, Loc.Mod("perf_config_short"), 12f, flexible: true);
-        Tip(cfgNote, "perf_config_note");
+        // The two one-line pointers that used to close this method (game graphics panel / config
+        // file) now close the whole GRAFIK tab instead — see the end of the Grafik block in
+        // SettingsPanel.3.Content.cs. Built there rather than here because rows land in the content
+        // column in build order, and a signpost that says "the rest is in Optionen › Grafik" belongs
+        // after the last setting on the tab, not in the middle of it.
 
         _rowGate = null;
     }
 
     /// <summary>
     /// Debug tier: the levers a power user needs to FIND good defaults, which no normal player
-    /// should be asked to reason about. Flat rows (not per-element), so they are visible whenever
-    /// the Debug category is open.
+    /// should be asked to reason about.
+    ///
+    /// <para>2026-07 RESTRUCTURE: these eight rows used to be gated to the whole Debug CATEGORY,
+    /// which meant they were appended to EVERY Debug page — under the button geometry, under the
+    /// hand offsets, under the config browser. They are now their own element
+    /// (Debug ▸ Leistung &amp; Effekte ▸ Zeitgeber / CPU), so a Debug page shows only what its
+    /// element is about. Nothing else changed: same entries, same order, same live-apply.</para>
     ///
     /// <para>The three interval steppers are CPU-side and default to exactly today's behaviour.
-    /// They are here rather than under Leistung because the measurement says the CPU is not the
+    /// They are here rather than under Grafik because the measurement says the CPU is not the
     /// problem — the mod costs ~2.5% of frame time — so presenting them to a player as
     /// "performance settings" would aim them at the wrong thing.</para>
     ///
-    /// <para>The stereo render mode is here rather than under Leistung for a harder reason: on
+    /// <para>The stereo render mode is here rather than under Grafik for a harder reason: on
     /// this game it is not a trade, it is a break. See
     /// <see cref="Core.StereoModeConfig"/> for the evidence.</para>
     /// </summary>
@@ -146,7 +149,9 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     {
         PerfConfig.Bind();
         Core.StereoModeConfig.Bind();
-        GateCat(NavCat.Debug);
+        // Ambient gate for every row below (Row() reads it): the Zeitgeber/CPU ELEMENT, not the
+        // whole category. The section header stays — it names the page inside the element pane.
+        _rowGate = TimingRowsVisible;
 
         Section(Loc.Mod("subcat_timing"));
 
@@ -176,7 +181,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         Tip(timingNote, "debug_timing_note");
 
         // The one GPU experiment that has no quality trade at all, so it cannot go under
-        // Leistung: it either changes nothing visible (expected) or it breaks something
+        // Grafik: it either changes nothing visible (expected) or it breaks something
         // (the reason it defaults off). Debug is exactly the tier for "help me find the default".
         RectTransform scrubRow = Toggle(Loc.Mod("debug_skip_scrub_draw"),
             () => WorldUIConfig.SkipDesktopScrubDraw.Value,
@@ -193,7 +198,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         Tip(scrubRow, "debug_skip_scrub_note");
 
         // The mod's own largest contribution to submission volume, and the only one it can switch
-        // off. Debug rather than Leistung because it is not a quality slider a player can reason
+        // off. Debug rather than Grafik because it is not a quality slider a player can reason
         // about: it either buys frames at the price of one specific VFX artefact, or it does not,
         // and which of those is true is what this row exists to find out.
         RectTransform depthRow = Toggle(Loc.Mod("debug_depth_prepass"),

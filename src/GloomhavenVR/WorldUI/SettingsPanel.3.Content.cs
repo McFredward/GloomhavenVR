@@ -95,8 +95,24 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // (or, for the two element-bearing tabs, to its category + selected element).
         _rowParent = content;
 
-        // ===== Welt — Komfort & Bewegung =====
-        GateCat(NavCat.Welt);
+        // ===== Komfort — sitting at the table: world, movement, hands =====
+        // ROW ORDER IS THE DESIGN (2026-07 restructure): most-used first. The recenter/recall pair
+        // is the single most-pressed control in the whole panel and the ONLY way back from a lost
+        // board, so it opens the tab instead of closing it; the three sections below then read
+        // world → movement → hands.
+        GateCat(NavCat.Komfort);
+
+        var recenterRow = Row();
+        Button(recenterRow, Loc.Mod("recenter_now"), 0f, Comfort.RequestRecenter, flexible: true);
+        // ESCAPE HATCH next to the recenter (incident: "the control board was gone after I walked
+        // around and briefly took the headset off"). The per-frame lost-board watchdog
+        // (PlayTray.TickLostWatchdog) recovers it by itself, but a board the player cannot find is
+        // an immediate hard stop — playing becomes impossible — so there must always be a manual,
+        // zero-latency way back. Routed through the driver's request queue so the pose is written
+        // on the main thread and the move stays a SANCTIONED one for the issue-C pose watchdog.
+        Button(recenterRow, Loc.Mod("recall_board"), 0f, Cards.CardsDriver.RequestBoardRecall, flexible: true);
+
+        Section(Loc.Mod("sec_table_world"));
 
         // Table scale: SetScaleMultiplier applies live around the head + persists.
         Stepper(Loc.Mod("table_scale"),
@@ -106,6 +122,25 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                 if (ComfortSettings.IsBound)
                     Comfort.SetScaleMultiplier(CurrentScaleMultiplier() + delta * 0.25f);
             });
+
+        Stepper(Loc.Mod("table_height"),
+            () => ComfortSettings.IsBound ? $"{ComfortSettings.TableHeightOffset.Value:+0.00;-0.00;0.00}m" : "-",
+            delta =>
+            {
+                if (!ComfortSettings.IsBound) return;
+                ComfortSettings.TableHeightOffset.Value =
+                    Mathf.Clamp(ComfortSettings.TableHeightOffset.Value + delta * 0.05f, -0.4f, 0.6f);
+            });
+
+        // Demeo-style world tilt ([Rig] WorldTiltDegrees, 5° steps, 0-60): the diorama appears
+        // tilted toward the player (rig-side counter-rotation — VRRigDriver.TickWorldTilt reads
+        // the entry every frame, so stepping applies live; BepInEx persists on set).
+        Stepper(Loc.Mod("world_tilt"),
+            () => $"{Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f):0}°",
+            delta => Plugin.WorldTiltDegrees.Value =
+                Mathf.Clamp(Plugin.WorldTiltDegrees.Value + delta * 5f, 0f, 60f));
+
+        Section(Loc.Mod("sec_movement"));
 
         // Turn mode + degrees.
         var turnRow = Row();
@@ -126,23 +161,6 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                     Mathf.Clamp(ComfortSettings.SnapTurnDegrees.Value + delta * 15f, 15f, 90f);
             });
 
-        Stepper(Loc.Mod("table_height"),
-            () => ComfortSettings.IsBound ? $"{ComfortSettings.TableHeightOffset.Value:+0.00;-0.00;0.00}m" : "-",
-            delta =>
-            {
-                if (!ComfortSettings.IsBound) return;
-                ComfortSettings.TableHeightOffset.Value =
-                    Mathf.Clamp(ComfortSettings.TableHeightOffset.Value + delta * 0.05f, -0.4f, 0.6f);
-            });
-
-        // Demeo-style world tilt ([Rig] WorldTiltDegrees, 5° steps, 0-60): the diorama appears
-        // tilted toward the player (rig-side counter-rotation — VRRigDriver.TickWorldTilt reads
-        // the entry every frame, so stepping applies live; BepInEx persists on set).
-        Stepper("Welt-Neigung",
-            () => $"{Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f):0}°",
-            delta => Plugin.WorldTiltDegrees.Value =
-                Mathf.Clamp(Plugin.WorldTiltDegrees.Value + delta * 5f, 0f, 60f));
-
         Toggle(Loc.Mod("free_movement"),
             () => ComfortSettings.IsBound && ComfortSettings.FreeMovement.Value,
             v => { if (ComfortSettings.IsBound) ComfortSettings.FreeMovement.Value = v; });
@@ -161,55 +179,41 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             () => ComfortSettings.IsBound && ComfortSettings.ScaleEnabled.Value,
             v => { if (ComfortSettings.IsBound) ComfortSettings.ScaleEnabled.Value = v; });
 
-        var recenterRow = Row();
-        Button(recenterRow, Loc.Mod("recenter_now"), 0f, Comfort.RequestRecenter, flexible: true);
-        // ESCAPE HATCH next to the recenter (incident: "the control board was gone after I walked
-        // around and briefly took the headset off"). The per-frame lost-board watchdog
-        // (PlayTray.TickLostWatchdog) recovers it by itself, but a board the player cannot find is
-        // an immediate hard stop — playing becomes impossible — so there must always be a manual,
-        // zero-latency way back. Routed through the driver's request queue so the pose is written
-        // on the main thread and the move stays a SANCTIONED one for the issue-C pose watchdog.
-        Button(recenterRow, Loc.Mod("recall_board"), 0f, Cards.CardsDriver.RequestBoardRecall, flexible: true);
+        Section(Loc.Mod("sec_hands_aim"));
 
         Toggle(Loc.Mod("dominant_hand_right"),
             () => !string.Equals(Plugin.PrimaryHand.Value, "Left", StringComparison.OrdinalIgnoreCase),
             v => Plugin.PrimaryHand.Value = v ? "Right" : "Left");
 
-        // ===== Anzeige — Display / Render / Mixed Reality =====
-        GateCat(NavCat.Anzeige);
+        // [Board] ForceFarMode. It used to sit under "Anzeige" among the render switches, which is
+        // where nobody would look for it: it disables fingertip near-touch picking and forces the
+        // far ray, i.e. it decides HOW YOUR HANDS REACH the board. That is an input decision and it
+        // belongs with the dominant hand, one row above.
+        Toggle(Loc.Mod("board_far_ray"),
+            () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
+            v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
 
-        // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag
-        // set by the panel's X button and reconverts it at the persisted pose; HIDE releases
-        // it back to its 2D home and keeps it from auto-reappearing.
-        Toggle(Loc.Mod("show_combat_log"),
-            () => CombatLogSurface.UserVisible,
-            v => CombatLogSurface.SetUserVisible(v, "settings"));
+        // ===== Grafik — the whole picture: the render trade, presentation, Mixed Reality =====
+        // The sharpness/smoothness block (preset + per-eye resolution + MSAA) is built FIRST by
+        // BuildPerformanceCategory so it opens the tab — it is what a player with a frame-rate
+        // problem came for. It is the former top-level "Leistung" tab, folded in here because
+        // post-processing (which was under "Anzeige") and MSAA are two halves of one decision and
+        // had no business being on two different tabs.
+        BuildPerformanceCategory();
 
-        // MSAA and the per-eye render resolution USED TO LIVE HERE, with a note claiming "MSAA
-        // wirkt nicht unter VDXR". Both moved to Leistung (2026-07 GPU pass) and the note is
-        // gone, because it was wrong: it repeated this file's since-retracted swapchain-desc
-        // inference (Rig/RenderQuality.cs class doc), while on hardware MSAA is plainly visible
-        // in the headset. They belong together under Leistung anyway — they are two halves of
-        // ONE sharpness-against-smoothness decision, and Anzeige is for what is shown, not for
-        // what it costs.
+        GateCat(NavCat.Grafik);
+        Section(Loc.Mod("sec_presentation"));
 
         Toggle(Loc.Mod("disable_post"),
             () => Plugin.DisablePostProcessing.Value,
             v => Plugin.DisablePostProcessing.Value = v);
 
-        Toggle(Loc.Mod("world_ui_surfaces"),
-            () => WorldUIConfig.Master.Value,
-            v => WorldUIConfig.Master.Value = v);
-
-        Toggle(Loc.Mod("board_far_ray"),
-            () => BoardConfigSafe(() => Board.BoardConfig.ForceFarMode.Value),
-            v => { if (Board.BoardConfig.ForceFarMode != null) Board.BoardConfig.ForceFarMode.Value = v; });
-
         // Optional game wall see-through ([Compat] WallFade): ON lets the game's own
         // view-dependent wall fade run (it follows the HMD); OFF (default) keeps walls solid.
         // Applies LIVE — the Harmony postfix consults the entry every frame. USER-FACING, and the
-        // old single-toggle "Wände" tab is gone (2026-07), so this normal-user switch now lives here
-        // in "Anzeige"; the developer-grade fade FRACTIONS live under Debug → Wandüberblendung.
+        // old single-toggle "Wände" tab is gone (2026-07), so this normal-user switch lives in the
+        // presentation block of "Grafik"; the developer-grade fade FRACTIONS live under
+        // Debug → Leistung & Effekte → Wandüberblendung.
         // The MarkChange is not cosmetic: this row is also the A/B handle for the 2026-07
         // submission-cost investigation. WallSegmentFade is the mod's highest-volume material
         // touch — a per-renderer MaterialPropertyBlock on every faded wall segment, re-applied
@@ -218,7 +222,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // Closing the measurement window on the flip is what makes the two [Perf] SPLIT lines
         // either side of it comparable; without it both sides average into one window and the
         // experiment produces nothing.
-        Toggle("Wände durchsichtig",
+        Toggle(Loc.Mod("wall_see_through"),
             () => Plugin.WallFade.Value,
             v =>
             {
@@ -227,34 +231,12 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                 Plugin.WallFade.Value = v;
             });
 
-        // User 7c: action-phase element hints (the tooltip parked at the board's top-left)
-        // on/off. Live: WorldTooltips.LateTick reads WorldUIConfig.ActionElementHints every tick.
-        Toggle("Element-Hinweise",
-            () => WorldUIConfig.ActionElementHints.Value,
-            v => WorldUIConfig.ActionElementHints.Value = v);
-
-        // User ("Ich will die Größe der Infotafeln, die beim Mouseover erscheinen, einstellen
-        // können"): SIZE of the hover info panels — the cards the game raises over a board field
-        // ("2 Gold", "Geschlossene Tür", chest/obstacle/trap/quest item) AND the element hint
-        // toggled right above, since both are the same mouseover-info family to the player. Lives
-        // here next to the hints toggle, the only other tooltip setting. GLOBAL (the panels ride no
-        // board — they dock at the PropInfo layout slot / above the board's measured top edge), so
-        // this is a flat "Anzeige" row, not a per-board Debug element. LIVE: PropInfoSurface and
-        // WorldTooltips both re-read [WorldUI] HoverInfoScale on every placement tick, so a shown
-        // panel resizes on the spot and the next hover comes up at the new size; BepInEx persists
-        // on set. 0.05 steps over the entry's 0.2-2 range, x readout like the other size steppers.
-        var hoverInfoRow = Row();
-        Label(hoverInfoRow, Loc.Mod("hover_info_size"), 16f, flexible: true);
-        MiniStepper(hoverInfoRow,
-            () => $"{WorldUIConfig.HoverInfoScale.Value:0.00}x",
-            d =>
-            {
-                ConfigEntry<float> e = WorldUIConfig.HoverInfoScale;
-                e.Value = Mathf.Clamp(e.Value + d * 0.05f, 0.2f, 2f);
-            });
-
+        // The footnote for the "*" in the post-processing caption, directly under the block it
+        // annotates (it used to be four rows further down, after two settings it says nothing about).
         var startNote = Row(22f);
         Label(startNote, Loc.Mod("applies_next_start"), 12f, flexible: true);
+
+        Section(Loc.Mod("mixed_reality"));
 
         // MR chroma-key mode (item 7): disables all skyboxes and clears the sky/background to
         // the key color so a compositor (Virtual Desktop) can passthrough-composite the room.
@@ -265,38 +247,74 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         Label(mrColorRow, Loc.Mod("key_color"), 16f, flexible: true);
         CycleButton(mrColorRow, 100f, () => MixedReality.KeyColorName, MixedReality.CycleKeyColor);
 
-        // (The control-board MODEL picker used to sit here in "Anzeige". User 2026-07: "Genau wie
-        // die Hände und die Maske soll auch das Board an sich außerhalb des Debug-Menüs umgestellt
-        // werden können" — it is the same KIND of choice as the head mask and the hand style, so it
-        // now sits WITH them under Avatar instead of between the MSAA/MR display switches. See the
-        // "Kontrollbrett" row in the Avatar section below.)
+        // Where the REST of the picture is set. Two one-line pointers, reasoning on hover, LAST on
+        // the tab because a signpost belongs at the exit: the game's own Optionen › Grafik owns
+        // shadows/textures/lighting/AA (we complement it, we never mirror it), and the measurement
+        // + internal A/B switches stay in the config file. These two rows used to be built inside
+        // BuildPerformanceCategory, which put them in the MIDDLE of the merged tab.
+        var gameNote = Row(20f);
+        Label(gameNote, Loc.Mod("perf_game_graphics_short"), 12f, flexible: true);
+        Tip(gameNote, "perf_game_graphics_note");
 
-        // Wall-fade thresholds (live [WallFade] config — WallSegmentFade re-reads the clamped
-        // accessors every evaluation tick). Issue 2: developer-grade fractions, so each row gates
-        // itself to Debug → Wandüberblendung (WallFadeRowsVisible). Built here in the content column
-        // for convenience; the build order is irrelevant since every row registers its own gate. The
-        // user-facing on/off toggle moved up into "Anzeige" (the one-row "Wände" tab is gone).
-        WallFadeTuning.Bind();
-        // Settings audit 2026-07: these four fractions shape the Schmitt trigger / dwell hysteresis
-        // INSIDE WallSegmentFade's evaluation loop, and that loop only runs while [Compat] WallFade
-        // is on (WallSegmentFade.Enabled). With "Wände durchsichtig" off they are live entries that
-        // change nothing you can see — so the pane says which switch they depend on rather than
-        // leaving four steppers that look broken. Shown red-flagged only while the toggle is OFF.
-        _rowGate = () => WallFadeRowsVisible() && (Plugin.WallFade == null || !Plugin.WallFade.Value);
-        var wallFadeNote = Row(20f);
-        Label(wallFadeNote, Loc.Mod("wall_fade_note"), 12f, flexible: true);
+        var cfgNote = Row(20f);
+        Label(cfgNote, Loc.Mod("perf_config_short"), 12f, flexible: true);
+        Tip(cfgNote, "perf_config_note");
 
-        AddWallFadeRow("Einblenden", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
-            v => $"{v * 100f:0}%");
-        AddWallFadeRow("Ausblenden", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
-            v => $"{v * 100f:0}%");
-        AddWallFadeRow("Wieder ein (bewegt)", WallFadeTuning.ExitDwellMoved, 0.5f, 0.1f, 60f,
-            v => $"{v:0.0}s");
-        AddWallFadeRow("Wieder ein (ruhig)", WallFadeTuning.ExitDwellStationary, 0.5f, 0.1f, 120f,
-            v => $"{v:0.0}s");
+        // (The control-board MODEL picker used to sit here among the display switches. User 2026-07:
+        // "Genau wie die Hände und die Maske soll auch das Board an sich außerhalb des Debug-Menüs
+        // umgestellt werden können" — it is the same KIND of choice as the head mask and the hand
+        // style, so it sits WITH them under Avatar. See the "Kontrollbrett" row below.)
 
-        // ===== Avatar — Mehrspieler-Erscheinung =====
+        // ===== Tafeln — the mod's own panels, hints and info cards =====
+        // Every row here is literally a panel/surface of the mod, which is what makes the tab name
+        // checkable instead of vague — and what got these four out of the old "Anzeige" grab bag,
+        // where they sat between render switches they have nothing to do with. Order: the two things
+        // a player toggles during a session, then the size dial for them, then the master switch
+        // last (it turns off everything above it).
+        GateCat(NavCat.Tafeln);
+
+        // Re-spawn / hide the combat log window (item 6): SHOW clears the user-closed flag
+        // set by the panel's X button and reconverts it at the persisted pose; HIDE releases
+        // it back to its 2D home and keeps it from auto-reappearing.
+        Toggle(Loc.Mod("show_combat_log"),
+            () => CombatLogSurface.UserVisible,
+            v => CombatLogSurface.SetUserVisible(v, "settings"));
+
+        // User 7c: action-phase element hints (the tooltip parked at the board's top-left)
+        // on/off. Live: WorldTooltips.LateTick reads WorldUIConfig.ActionElementHints every tick.
+        Toggle(Loc.Mod("element_hints"),
+            () => WorldUIConfig.ActionElementHints.Value,
+            v => WorldUIConfig.ActionElementHints.Value = v);
+
+        // User ("Ich will die Größe der Infotafeln, die beim Mouseover erscheinen, einstellen
+        // können"): SIZE of the hover info panels — the cards the game raises over a board field
+        // ("2 Gold", "Geschlossene Tür", chest/obstacle/trap/quest item) AND the element hint
+        // toggled right above, since both are the same mouseover-info family to the player. Directly
+        // under the hints toggle, the only other tooltip setting. GLOBAL (the panels ride no board —
+        // they dock at the PropInfo layout slot / above the board's measured top edge), so this is a
+        // flat row, not a per-board Debug element. LIVE: PropInfoSurface and WorldTooltips both
+        // re-read [WorldUI] HoverInfoScale on every placement tick, so a shown panel resizes on the
+        // spot and the next hover comes up at the new size; BepInEx persists on set. 0.05 steps over
+        // the entry's 0.2-2 range, x readout like the other size steppers.
+        var hoverInfoRow = Row();
+        Label(hoverInfoRow, Loc.Mod("hover_info_size"), 16f, flexible: true);
+        MiniStepper(hoverInfoRow,
+            () => $"{WorldUIConfig.HoverInfoScale.Value:0.00}x",
+            d =>
+            {
+                ConfigEntry<float> e = WorldUIConfig.HoverInfoScale;
+                e.Value = Mathf.Clamp(e.Value + d * 0.05f, 0.2f, 2f);
+            });
+
+        // The master switch for the physicalized UI, LAST because it disables everything above it.
+        // (The panel deliberately stays reachable with this off — see the class doc.)
+        Toggle(Loc.Mod("world_ui_surfaces"),
+            () => WorldUIConfig.Master.Value,
+            v => WorldUIConfig.Master.Value = v);
+
+        // ===== Avatar — how your gear looks, to you and to your peers =====
         GateCat(NavCat.Avatar);
+        Section(Loc.Mod("sec_appearance"));
 
         // Multiplayer avatar: head mask (writes [Net] MaskId — synchronized), a local
         // self-preview mirror ([Net] MirrorEnabled), and how much of OTHER players' boards
@@ -335,7 +353,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // how your gear LOOKS, to you and to everyone else — and the board style now travels on the
         // wire exactly like the mask and the hand style do (extras trailing block, see
         // NetProtocol.PileBrowseBoardStyleShift), so a peer's board reads in the material that peer
-        // actually picked. That is what makes it belong next to them rather than in "Anzeige".
+        // actually picked. That is what makes it belong next to them rather than under "Grafik".
         //
         // LIVE: writing the entry fires SettingChanged → CardsDriver.OnBoardChanged sets a rebuild
         // flag → the next Update tears the tray down and rebuilds it from the newly selected prefab
@@ -345,9 +363,13 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         Label(boardModelRow, Loc.Mod("control_board"), 16f, flexible: true);
         CycleButton(boardModelRow, 120f, ControlBoardLabel, CycleControlBoard);
 
+        // The local self-preview mirror: it shows YOUR mask/hands/board, so it closes the appearance
+        // block rather than opening the multiplayer one.
         Toggle(Loc.Mod("mirror"),
             () => Net.NetModule.MirrorEnabled != null && Net.NetModule.MirrorEnabled.Value,
             v => { if (Net.NetModule.MirrorEnabled != null) Net.NetModule.MirrorEnabled.Value = v; });
+
+        Section(Loc.Mod("sec_multiplayer"));
 
         // How much of OTHER players' boards this client draws (Off / Aktionsphase / Immer). Purely
         // local — it never touches game state and is never transmitted, so every player picks their
@@ -362,27 +384,48 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         var remoteBoardsNote = Row(20f);
         Label(remoteBoardsNote, Loc.Mod("remote_boards_note"), 12f, flexible: true);
 
-        // ===== Debug elements folded in from the former top-level per-style tabs =====
-        // These build into the CONTENT column (still set from the GateCat sections above) but each
-        // row gates itself to Debug → its element (Hände-Offsets / Figuren-Offsets / Handgelenk), so
-        // they only appear when that Debug element is selected. Build order is irrelevant.
-        // ===== Leistung — measurement + one switch per optimization (2026-07 perf pass) =====
-        // ONE self-contained call: everything it builds gates itself to NavCat.Leistung, so the
-        // inbound category reorganization can move this line (and the enum member) and nothing else.
-        BuildPerformanceCategory();
-        BuildTimingCategory();  // Debug → CPU interval levers + the stereo render mode
-
-        BuildHandsCategory();   // Debug → Hände-Offsets (per-style seat + card-fan geometry)
-        BuildFiguresCategory(); // Debug → Figuren-Offsets (per-style held-mini pose)
-        BuildWristCategory();   // Debug → Handgelenk (per-style wrist-HUD pose)
-
-        // ===== Debug — the sole element-bearing tuning tab (board panels + button geometry + fade + per-style) =====
+        // ===== Debug — the sole element-bearing tuning tab =====
+        // CALL ORDER IS THE PAGE ORDER (2026-07 restructure). Every row registers its own gate, so
+        // moving these calls changes nothing about WHICH rows a page shows — but rows land in the
+        // content column in build order, so it decides what a Debug page shows FIRST. The choosers
+        // (Bereich ▸ Element, plus the board readout) are built by BuildElementTuning, so that call
+        // now comes BEFORE the per-element row blocks: the navigation is at the top of every Debug
+        // page instead of below the wall-fade steppers on one page and below the hand offsets on
+        // another. The user's standing rule is that Debug has to be navigable too.
         BuildElementTuning();
 
         // Debug ▸ Alle Einstellungen — the GENERIC config browser over every bound ConfigEntry
         // (2026-07, user: "Alle config einstellungen sollen im VR Menu anpassbar sein!"). Fixed row
         // POOL, nothing walked at build time; see SettingsPanel.8.ConfigBrowser.cs.
         BuildConfigBrowser();
+
+        BuildTimingCategory();  // Debug → Leistung & Effekte → Zeitgeber / CPU
+        BuildHandsCategory();   // Debug → Hände-Offsets (per-style seat + card-fan geometry)
+        BuildFiguresCategory(); // Debug → Figuren-Offsets (per-style held-mini pose)
+        BuildWristCategory();   // Debug → Handgelenk (per-style wrist-HUD pose)
+
+        // Debug → Leistung & Effekte → Wandüberblendung: the wall-fade thresholds (live [WallFade]
+        // config — WallSegmentFade re-reads the clamped accessors every evaluation tick). Issue 2:
+        // developer-grade fractions, so each row gates itself to that element (WallFadeRowsVisible).
+        // The user-facing on/off toggle lives under Grafik ▸ Darstellung.
+        WallFadeTuning.Bind();
+        // Settings audit 2026-07: these four fractions shape the Schmitt trigger / dwell hysteresis
+        // INSIDE WallSegmentFade's evaluation loop, and that loop only runs while [Compat] WallFade
+        // is on (WallSegmentFade.Enabled). With "Wände durchsichtig" off they are live entries that
+        // change nothing you can see — so the pane says which switch they depend on rather than
+        // leaving four steppers that look broken. Shown red-flagged only while the toggle is OFF.
+        _rowGate = () => WallFadeRowsVisible() && (Plugin.WallFade == null || !Plugin.WallFade.Value);
+        var wallFadeNote = Row(20f);
+        Label(wallFadeNote, Loc.Mod("wall_fade_note"), 12f, flexible: true);
+
+        AddWallFadeRow("Einblenden", WallFadeTuning.OnFraction, 0.05f, 0.05f, 0.95f,
+            v => $"{v * 100f:0}%");
+        AddWallFadeRow("Ausblenden", WallFadeTuning.OffFraction, 0.05f, 0.01f, 0.95f,
+            v => $"{v * 100f:0}%");
+        AddWallFadeRow("Wieder ein (bewegt)", WallFadeTuning.ExitDwellMoved, 0.5f, 0.1f, 60f,
+            v => $"{v:0.0}s");
+        AddWallFadeRow("Wieder ein (ruhig)", WallFadeTuning.ExitDwellStationary, 0.5f, 0.1f, 120f,
+            v => $"{v:0.0}s");
 
         _rowParent = null;
         _rowGate = null;
@@ -422,14 +465,18 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// <summary>Set the ambient row gate to "this sidebar category is selected".</summary>
     private void GateCat(NavCat c) => _rowGate = () => _navCat == (int)c;
 
-    /// <summary>Localized sidebar/breadcrumb name of a top-level category (reuses existing Loc keys).</summary>
+    /// <summary>
+    /// Localized sidebar/breadcrumb name of a top-level category. Every one of the five goes
+    /// through <see cref="Loc"/> — the sidebar used to hand out two German literals ("Welt",
+    /// "Debug") that an English player got in German.
+    /// </summary>
     private static string NavCatLabel(NavCat c) => c switch
     {
-        NavCat.Welt => "Welt",
-        NavCat.Anzeige => Loc.Mod("display"),
+        NavCat.Komfort => Loc.Mod("comfort"),
+        NavCat.Grafik => Loc.Mod("cat_graphics"),
+        NavCat.Tafeln => Loc.Mod("cat_panels"),
         NavCat.Avatar => Loc.Mod("avatar"),
-        NavCat.Leistung => Loc.Mod("performance"),
-        NavCat.Debug => "Debug",
+        NavCat.Debug => Loc.Mod("cat_debug"),
         _ => c.ToString(),
     };
 

@@ -126,6 +126,14 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // "Knöpfe" expander the user could not find. GLOBAL values (not per board), so the
         // generic per-board offset/board rows hide themselves for this element.
         RoundButtons,
+        // Restructure 2026-07 (user: "Achte im VR Menü immer auf eine übersichtliche Ordnung und
+        // Bedienbarkeit — AUCH im Debug-Menü"): the CPU interval levers, the three GPU A/B switches
+        // and the stereo mode used to be built with a CATEGORY-wide gate, so all eight rows showed
+        // on EVERY Debug page — including in the middle of the button geometry and under the config
+        // browser. They are now an element like everything else, so a Debug page shows only what its
+        // element is about. GLOBAL (no board, no style), and it carries no per-board offset, so the
+        // board selector and the offset/size/spacing/shape rows all hide for it.
+        Timing,
         // Category split (2026-07, user: "every value applies ONLY to its own category"):
         // [BoardDashboard] = the gear ("Einstellungen") + follow ("Fixiert") plates. GLOBAL like
         // RoundButtons (values ride every board). NOTE (settings audit 2026-07): the sibling
@@ -174,16 +182,34 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     // consolidated into ONE top-level "Debug" category. 2026-07 follow-up (user: "I count ALL
     // offsets as Debug — Debug should hold the individual sub-items one by one; the normal-user
     // choices belong OUTSIDE Debug, but no single-setting tab either"): the per-style Hände /
-    // Figuren / Handgelenk tabs also folded INTO Debug as elements, and the one-row "Wände" tab
-    // folded its user-facing see-through toggle into "Anzeige". What remains is a short, scannable
-    // top-level list of genuinely user-facing tabs (Welt / Anzeige / Avatar) plus the single Debug
-    // tab that holds ALL the deep per-element tuning. Debug is the sole element-bearing category.
-    // 2026-07 performance pass: "Leistung" is added as its OWN top-level category rather than being
-    // squeezed into "Anzeige". It is a coherent, self-contained block (frame-time measurement +
-    // one switch per optimization) built by the single method BuildPerformanceCategory(), so the
-    // inbound settings-menu reorganization can move it wholesale by moving that one call and this
-    // one enum member — nothing else in this file reaches into it.
-    private enum NavCat { Welt, Anzeige, Avatar, Leistung, Debug }
+    // Figuren / Handgelenk tabs also folded INTO Debug as elements. Debug is the sole
+    // element-bearing category.
+    //
+    // ---- 2026-07 RESTRUCTURE (user: "Es soll user-freundlich und übersichtlich sein. Und auch
+    // intuitiv zu bedienen.") --------------------------------------------------------------------
+    // The tabs are named for what the PLAYER IS TRYING TO DO, not for the subsystem that
+    // implemented the rows, because "buttons are not to be found under buttons" was the failure to
+    // avoid. The full inventory and the reasoning per row live in
+    // .planning/refactor/MENU-STRUCTURE.md; the short version:
+    //
+    //   Komfort  — sitting at the table: scale/height/tilt, turning, movement, recenter, and the
+    //              two rows that decide how your HANDS reach things (dominant hand, far-ray only).
+    //              "Board: nur Fernstrahl" ([Board] ForceFarMode) used to sit under "Anzeige"
+    //              although it disables fingertip picking — an input decision, not a display one.
+    //   Grafik   — the whole picture: the sharpness-against-smoothness trade (preset / per-eye
+    //              resolution / MSAA — the two gaps the game itself has no control for), plus
+    //              post-processing, see-through walls and Mixed Reality. This ABSORBS the former
+    //              "Leistung" tab: keeping them apart is exactly what put post-processing and MSAA
+    //              — two halves of one decision — on two different tabs.
+    //   Tafeln   — the mod's own panels and hints: combat log, element hints, hover info size and
+    //              the World-UI master switch. Every row in it is literally a panel, so the name is
+    //              checkable rather than vague (and it no longer collides with "Bild").
+    //   Avatar   — how your gear looks, to you and to peers, plus the one multiplayer render choice.
+    //   Debug    — ALL tuning and measurement, the sole element-bearing tab.
+    //
+    // Order = how often a tab is opened. Names are ONE WORD because the sidebar column is a pinned
+    // 132 px (BuildColumn) and a two-word caption wraps and clips at fontSize 15.
+    private enum NavCat { Komfort, Grafik, Tafeln, Avatar, Debug }
     private const int NavCatCount = 5;
 
     /// <summary>
@@ -191,17 +217,18 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// one table). Only the ONE element-BEARING category carries a list — <see cref="NavCat.Debug"/>
     /// (every board panel/overlay/widget PLUS every button group: rest keys, Confirm/Undo group
     /// including its [BoardButtons] rectangle geometry, cluster, the [RoundButtons] /
-    /// [BoardDashboard] geometry sets, the decision dock, and the wall-fade fractions). All other
+    /// [BoardDashboard] geometry sets, the decision dock, the wall-fade fractions and the
+    /// timing/CPU block). All other
     /// categories have an EMPTY list — <see cref="CategoryHasElements"/> keys off that and hides
     /// the board + element selectors, showing the category's own flat rows instead. Order matches
     /// <see cref="NavCat"/>.
     /// </summary>
     private static readonly DebugElement[][] NavElements =
     {
-        Array.Empty<DebugElement>(),                                                                          // Welt
-        Array.Empty<DebugElement>(),                                                                          // Anzeige
+        Array.Empty<DebugElement>(),                                                                          // Komfort
+        Array.Empty<DebugElement>(),                                                                          // Grafik
+        Array.Empty<DebugElement>(),                                                                          // Tafeln
         Array.Empty<DebugElement>(),                                                                          // Avatar
-        Array.Empty<DebugElement>(),                                                                          // Leistung (flat rows only)
         // Debug (issue 2 + 2026-07 fold-in): the union of the former Board (panels/widgets) + Tasten
         // (button geometry) elements, the wall-fade fractions as one global WallFade element, AND the
         // former per-style top-level tabs — Hände-Offsets / Figuren-Offsets / Handgelenk — now Debug
@@ -214,7 +241,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                 DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
                 DebugElement.ItemUse, DebugElement.ItemCard,
-                DebugElement.WallFade,
+                DebugElement.WallFade, DebugElement.Timing,
                 DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets,
                 DebugElement.ButtonColors,
                 // The generic config browser's topics (2026-07) — listed here too so this table
@@ -246,23 +273,33 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                 DebugElement.CfgHands, DebugElement.CfgCards, DebugElement.CfgButtons,
                 DebugElement.CfgPanels, DebugElement.CfgBoardTargeting, DebugElement.CfgBoardGeometry,
                 DebugElement.CfgNetwork, DebugElement.CfgSystem, DebugElement.CfgOther },
-        // Board & Layout — the board itself + every board-attached panel/widget/overlay geometry.
+        // Board & Layout — the board itself + the board-attached PANEL/READOUT geometry. Restructure
+        // 2026-07: the gear plate (VRSettings) and the FOLLOW/PIN plate (Pin) are GONE from here —
+        // they are buttons and moved to Tasten below. That was the user's literal complaint ("manche
+        // Buttons sind nicht in Buttons zu finden"): their POSITION was tuned here while the SIZE of
+        // the very same two caps was tuned under Tasten ▸ Zahnrad & Fixiert.
         new[] { DebugElement.Board, DebugElement.Objectives, DebugElement.Elements,
-                DebugElement.Initiative, DebugElement.Readout, DebugElement.Pin, DebugElement.VRSettings },
+                DebugElement.Initiative, DebugElement.Readout },
         // Karten & Stapel — the card piles, active-card grid, slot overlays, decision dock, item-use slot.
         new[] { DebugElement.Piles, DebugElement.Active, DebugElement.Overlays, DebugElement.Decision, DebugElement.ItemUse, DebugElement.ItemCard },
-        // Tasten — every button group's geometry + the new Knopf-Farben (label/cap colours).
-        new[] { DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
-                DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.ButtonColors },
-        // Hände/Offsets — the per-hand-style embodiment offsets folded in from the old top-level tabs.
+        // Tasten — EVERY button of the control board, in the order they are pressed while playing:
+        // Confirm/Undo (Generisch), the rest keys, the turn cluster, the transient round buttons,
+        // then the two dashboard plates (size, then each plate's position), then the colours.
+        new[] { DebugElement.Generic, DebugElement.Rest, DebugElement.Cluster,
+                DebugElement.RoundButtons, DebugElement.BoardDashboard,
+                DebugElement.VRSettings, DebugElement.Pin, DebugElement.ButtonColors },
+        // Hände & Offsets — the per-hand-style embodiment offsets folded in from the old top-level tabs.
         new[] { DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets },
-        // Wand-Durchsicht — the developer-grade wall see-through fade fractions (user 3: renamed
-        // from the misleading "Welt-Tuning" since it only controls wall see-through).
-        new[] { DebugElement.WallFade },
+        // Leistung & Effekte — the dials a power user turns to FIND a good default: the wall
+        // see-through fade fractions and the timing/CPU + GPU A/B block. The fade fractions used to
+        // be a sub-category of their own holding exactly ONE element (a navigation level with
+        // nothing to choose), and the timing rows had no element at all and therefore showed on
+        // every Debug page; pairing them fixes both.
+        new[] { DebugElement.WallFade, DebugElement.Timing },
     };
 
     /// <summary>Debug sub-categories (user 5b) — the FIRST-level chooser inside the Debug pane.</summary>
-    private enum DebugSubCat { AllSettings, BoardLayout, KartenStapel, Tasten, Offsets, WeltTuning }
+    private enum DebugSubCat { AllSettings, BoardLayout, KartenStapel, Tasten, Offsets, PerfEffects }
     private const int DebugSubCatCount = 6;
 
     /// <summary>The element-BEARING category (Debug) exposes the in-pane board + element chooser.</summary>
