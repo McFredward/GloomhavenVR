@@ -166,10 +166,12 @@ internal static class RenderQuality
     internal static ConfigEntry<float>? EyeResolutionScale;
     internal static ConfigEntry<bool>? RebuildRigOnMsaaChange;
     internal static ConfigEntry<bool>? ViewportScaleFallback;
+    internal static ConfigEntry<int>? PixelLightCount;
 
     private static readonly List<XRDisplaySubsystem> Displays = new(2);
     private static int _lastPushedDisplayMsaa = -1;
     private static float _lastLoggedEyeScale = -1f;
+    private static int _lastLoggedPixelLights = int.MinValue;
     private static int _diagCountdown;
     private static string _diagReason = "";
     private static bool _anisoForced;
@@ -242,6 +244,19 @@ internal static class RenderQuality
             + "this was originally written to settle — whether MSAA binds at all — is answered (it "
             + "does; it is visibly effective in the headset), so this is no longer a diagnostic. "
             + "Causes a brief view reset per MSAA change; leave off in normal play.");
+
+        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", -1, new ConfigDescription(
+            "Maximum number of PER-PIXEL lights (-1 = leave the game's own value alone, which is "
+            + "what ships). In the built-in forward renderer every per-pixel light beyond the first "
+            + "costs an ADDITIONAL FULL DRAW CALL for every renderer it touches — a scenario "
+            + "measured 4 per-pixel lights against ~1500 visible renderers, so this multiplies the "
+            + "submission volume that the [Perf] SPLIT line shows as the frame's wall. Lights beyond "
+            + "this count still light the scene, but per VERTEX, which costs no extra pass. THE "
+            + "TRADE IS REAL AND VISIBLE: point-light falloff on walls and floors gets flatter, and "
+            + "this dungeon is lit by 16 point lights. The game exposes no control for this, which "
+            + "is why the mod does. Re-asserted per frame like MsaaLevel, because the game rewrites "
+            + "QualitySettings on every quality-level swap.",
+            new AcceptableValueRange<int>(-1, 8)));
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>
@@ -253,6 +268,7 @@ internal static class RenderQuality
         ApplyMsaa();
         ApplyEyeScale();
         ApplyAniso();
+        ApplyPixelLights();
         if (_diagCountdown > 0 && --_diagCountdown == 0)
             LogEyeTargetDiagnostics(_diagReason);
     }
@@ -271,6 +287,42 @@ internal static class RenderQuality
     /// <summary>Snap an arbitrary persisted value to the nearest valid sample count.</summary>
     private static int Sanitize(int level) =>
         level >= 8 ? 8 : level >= 4 ? 4 : level >= 2 ? 2 : 0;
+
+    /// <summary>
+    /// Cap <see cref="QualitySettings.pixelLightCount"/> ([RenderQuality] PixelLightCount).
+    ///
+    /// <para>WHY THIS EXISTS. Six hardware sessions established that the frame's wall is
+    /// main-thread DRAW-CALL SUBMISSION, not pixels: culling measured 0.08 ms against 21.5 ms of
+    /// submission, and resolution, MSAA, shadows, the depth prepass and the culling mask each
+    /// moved it by under 10 %. The one multiplier nothing had touched is this one — in the
+    /// built-in FORWARD renderer each per-pixel light past the first re-submits every renderer it
+    /// affects. The scenario runs 4 of them over ~1500 visible renderers.</para>
+    ///
+    /// <para>-1 (the default) does NOTHING, deliberately: this is a visible trade, not a cleanup.
+    /// Lights above the cap still light the scene per VERTEX, so nothing goes dark — but the
+    /// falloff on walls and floors flattens, and this dungeon is lit by 16 point lights.</para>
+    /// </summary>
+    private static void ApplyPixelLights()
+    {
+        int wanted = PixelLightCount!.Value;
+        if (wanted < 0)
+            return; // sentinel: leave the game's own value untouched
+
+        int current = QualitySettings.pixelLightCount;
+        if (current == wanted)
+            return;
+
+        QualitySettings.pixelLightCount = wanted;
+        if (wanted != _lastLoggedPixelLights)
+        {
+            _lastLoggedPixelLights = wanted;
+            VRLog.Info("Rig", $"Per-pixel light cap asserted {current} → {wanted}. In forward "
+                              + "rendering each light past the first costs one extra draw call per "
+                              + "renderer it touches; lights above the cap fall back to per-vertex "
+                              + "shading (no extra pass, flatter falloff). Watch the [Perf] SPLIT "
+                              + "line's HeadCamera submit figure — that is the number this moves.");
+        }
+    }
 
     private static void ApplyMsaa()
     {
