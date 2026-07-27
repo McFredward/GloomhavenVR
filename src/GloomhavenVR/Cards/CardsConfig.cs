@@ -128,7 +128,8 @@ internal static class CardsConfig
     /// <summary>Fan arc radius in real meters (diorama scale applied automatically).</summary>
     internal static ConfigEntry<float> FanRadius = null!;
 
-    /// <summary>Max total fan arc in degrees.</summary>
+    /// <summary>LEGACY — no effect, superseded by <see cref="FanArcSweepDegrees"/> (seeded to this × 1.3).
+    /// Bound for cfg back-compat only; nothing reads it.</summary>
     internal static ConfigEntry<float> FanArcDegrees = null!;
 
     /// <summary>Height of the fan pivot above the palm, real meters.</summary>
@@ -140,7 +141,9 @@ internal static class CardsConfig
     /// <summary>Scale factor applied to a card while grabbed/inspected.</summary>
     internal static ConfigEntry<float> InspectScale = null!;
 
-    /// <summary>LEGACY (superseded by <see cref="HeldFaceBias"/>): old palm-aligned face tilt, unused.</summary>
+    /// <summary>LEGACY — no effect, superseded by <see cref="HeldFaceBias"/>: the old palm-aligned face
+    /// tilt. Bound for cfg back-compat only; nothing reads it. Not to be confused with the LIVE
+    /// <c>FigureGrabConfig.HeldTiltDegrees</c>, which a bare-name grep returns alongside this one.</summary>
     internal static ConfigEntry<float> HeldTiltDegrees = null!;
 
     /// <summary>Held card: face-normal lean from "out of the palm" back toward the wrist/eyes, degrees.</summary>
@@ -164,7 +167,8 @@ internal static class CardsConfig
     /// <summary>Tray placement offset, real meters: sideways (+right).</summary>
     internal static ConfigEntry<float> TrayRight = null!;
 
-    /// <summary>Tray tilt toward the player in degrees (0 = flat).</summary>
+    /// <summary>LEGACY — no effect, superseded by the per-board <c>BoardTilt_{board}</c> (seeded to 30,
+    /// this entry's default). Bound for cfg back-compat only; nothing reads it.</summary>
     internal static ConfigEntry<float> TrayTilt = null!;
 
     /// <summary>Tray yaw relative to the head's flat forward at placement, degrees (written by the tray grab).</summary>
@@ -185,16 +189,23 @@ internal static class CardsConfig
     /// <summary>Item 3: multiplier that scales a slotted card UP to (nearly) fill the physical slot recess.</summary>
     internal static ConfigEntry<float> SlotCardFill = null!;
 
-    /// <summary>Feature 6a: diameter (real meters) of the ROUND rest-notch buttons (short/long rest discs).</summary>
+    /// <summary>LEGACY — no effect, superseded by the per-board <c>RestButtonDiameter_{board}</c>, which
+    /// <c>RestControls.EnsureBuilt</c> reads. Bound for cfg back-compat only. ("Round" here means the
+    /// circular disc SHAPE; everywhere else <c>[RoundButtons]</c> means the round-PHASE button group.)</summary>
     internal static ConfigEntry<float> RoundButtonDiameter = null!;
 
-    /// <summary>Feature 6a: thickness (real meters) of the round rest-button pressable puck.</summary>
+    /// <summary>LEGACY — no effect, superseded by <c>[RestButtons] Depth</c> (WorldUI
+    /// <c>ButtonTuning.RestCapDepth</c>, same 0.012 default). Bound for cfg back-compat only.</summary>
     internal static ConfigEntry<float> RoundButtonThickness = null!;
 
-    /// <summary>Item 2 (Oak-tuned): inward local-X nudge (real meters) centering the round rest discs in the notches.</summary>
+    /// <summary>LEGACY — no effect, superseded by the per-board <c>RestButtonOffset_{board}</c> (its X
+    /// carries this nudge, its Z the proud depth), which <c>RestControls.EnsureBuilt</c> reads. Bound for
+    /// cfg back-compat only. Its description used to advertise itself as a LIVE FIT KNOB.</summary>
     internal static ConfigEntry<float> RestButtonInsetX = null!;
 
-    /// <summary>Item 3 (Oak-tuned): inward local-X nudge (real meters) centering Confirm/Undo on the metal pads.</summary>
+    /// <summary>LEGACY — no effect, superseded by the per-board <c>ConfirmUndoOffset_{board}</c>, which
+    /// <c>PlayTray.BuildButtons</c> reads. Bound for cfg back-compat only; it is a single global despite
+    /// its old description ending "PER-BOARD".</summary>
     internal static ConfigEntry<float> ConfirmUndoInsetX = null!;
 
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
@@ -474,7 +485,10 @@ internal static class CardsConfig
         FanRadius = _file.Bind("Cards", "FanRadius", 0.16f,
             "Palm fan arc radius in real-world meters (diorama scale is applied automatically).");
         FanArcDegrees = _file.Bind("Cards", "FanArcDegrees", 70f,
-            "Maximum total fan arc in degrees (cards overlap more as the hand grows).");
+            "LEGACY — no effect, superseded by FanArcSweepDegrees. Nothing reads this value. It was " +
+            "the maximum total fan arc in degrees; FanArcSweepDegrees replaced it and was seeded to " +
+            "this default × 1.3 (= 91°). Kept bound so existing cfg files load unchanged — an " +
+            "unbound key is silently dropped from your file on the next save.");
         FanPalmOffset = _file.Bind("Cards", "FanPalmOffset", 0.09f,
             "Height of the fan pivot above the palm center, real-world meters.");
         CardWidth = _file.Bind("Cards", "CardWidth", 0.0635f,
@@ -482,9 +496,10 @@ internal static class CardsConfig
         InspectScale = _file.Bind("Cards", "InspectScale", 1.6f,
             "Scale multiplier applied to a card while it is held (natural-size inspection).");
         HeldTiltDegrees = _file.Bind("Cards", "HeldTiltDegrees", 20f,
-            "LEGACY — no longer used (hardware test #13). The old palm-aligned held pose " +
-            "required a hard supination to read the card; the pose is now controlled by " +
-            "HeldFaceBias instead. Kept only so existing config files load cleanly.");
+            "LEGACY — no effect, superseded by HeldFaceBias. Nothing reads this value (hardware " +
+            "test #13). The old palm-aligned held pose required a hard supination to read the card; " +
+            "the pose is now controlled by HeldFaceBias instead. Kept bound only so existing config " +
+            "files load cleanly. NOTE: [FigureGrab] HeldTiltDegrees is a DIFFERENT, live entry.");
         HeldFaceBias = _file.Bind("Cards", "HeldFaceBias", 65f,
             "Held card readability (test #13): degrees the card FACE leans from 'flat on the " +
             "palm' (0 = old pose, face along the palm normal — readable only by twisting the " +
@@ -514,8 +529,11 @@ internal static class CardsConfig
         TrayRight = _file.Bind("Cards", "TrayRight", 0.0f,
             "Control board placement: sideways offset (+right), meters.");
         TrayTilt = _file.Bind("Cards", "TrayTilt", 30f,
-            "Control board tilt, degrees FROM HORIZONTAL toward the player: 0 = flat like a " +
-            "desk, 90 = upright panel. 30 reads like a card-table edge / lectern.");
+            "LEGACY — no effect, superseded by the per-board BoardTilt_<board>. Nothing reads this " +
+            "value. It was the control board tilt in degrees FROM HORIZONTAL toward the player (0 = " +
+            "flat like a desk, 90 = upright panel); BoardTilt_<board> replaced it in the pose math " +
+            "and was seeded to 30 so Oak is unchanged. Tune BoardTilt_<board> instead. Kept bound so " +
+            "existing cfg files load unchanged.");
         TrayYaw = _file.Bind("Cards", "TrayYaw", 0f,
             "Control board yaw relative to the head's flat forward at placement time, degrees. " +
             "Written automatically when you grip-move the tray by its handle bar; edit only to reset.");
@@ -549,32 +567,36 @@ internal static class CardsConfig
             "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
             "(that is SlotCardInset).");
         RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", 0.105f,
-            "Feature 6a / item 2: diameter (real meters) of the ROUND short-rest / long-rest " +
-            "buttons that seat in the control board's two round rest-notches. Raised to 0.105 " +
-            "(from 0.096) — the user wanted the rest discs BIGGER so they fill the round notches. " +
-            "Dial this in from a hardware test until the discs drop cleanly into the notches without " +
-            "overhanging the rim — NO baked notch dimension exists in code, so this is the fit knob. " +
-            "PER-BOARD: the two upcoming control boards have differently sized notches; this default " +
-            "is Oak-tuned and a future per-board descriptor will override it (see RestControls.EnsureBuilt).");
+            "LEGACY — no effect, superseded by the per-board RestButtonDiameter_<board>. Nothing " +
+            "reads this value: the per-board descriptor this entry's old text called 'a future' one " +
+            "already exists and already wins (RestControls.EnsureBuilt reads " +
+            "RestButtonDiameter_<board>). It was the diameter (real meters) of the ROUND short-rest / " +
+            "long-rest discs that seat in the board's two round rest-notches. Tune " +
+            "RestButtonDiameter_<board> instead — same meaning, same 0.105 default. Kept bound so " +
+            "existing cfg files load unchanged.");
         RoundButtonThickness = _file.Bind("Cards", "RoundButtonThickness", 0.012f,
-            "Feature 6a: thickness (real meters) of the round rest-button pressable puck " +
-            "along the press axis. Higher = a chunkier disc that stands prouder of the notch " +
-            "floor; the puck still travels the same fixed 4 mm on press. May differ per " +
-            "control board (see RoundButtonDiameter).");
+            "LEGACY — no effect, superseded by [RestButtons] Depth. Nothing reads this value; the " +
+            "live one is ButtonTuning.RestCapDepth, which defaults to this exact 0.012 so the look " +
+            "is unchanged. It was the thickness (real meters) of the round rest-button puck along " +
+            "the press axis. Tune [RestButtons] Depth instead. Kept bound so existing cfg files " +
+            "load unchanged.");
         RestButtonInsetX = _file.Bind("Cards", "RestButtonInsetX", 0.024f,
-            "LIVE FIT KNOB (dial in dev.gloomhavenvr.cards.cfg without a rebuild): sideways nudge of " +
-            "the round short/long-rest discs along the rest anchor's LOCAL X, real meters. DIRECTION: " +
-            "POSITIVE = toward the board CENTER (the anchor local +X == the slot0->slot1 long axis; the " +
-            "rest zone sits on the LEFT, so +X moves the discs RIGHT/inward). NEGATIVE = toward the " +
-            "board EDGE, i.e. 'nach links' (further out from center) — this value MAY be negative. The " +
-            "correct sign depends on the board frame, which is uncertain per board, so tune it live: if " +
-            "the discs sit too far right, lower the value (into the negatives) until they drop into the " +
-            "notches; too far left, raise it. Default 0.024 (Oak: bundle anchors sit ~0.02 m too far " +
-            "toward the edge). PER-BOARD: a future per-board descriptor overrides this (see RestControls.EnsureBuilt).");
+            "LEGACY — no effect, superseded by the per-board RestButtonOffset_<board>. Nothing reads " +
+            "this value: RestControls.EnsureBuilt reads RestButtonOffset_<board>, whose X carries the " +
+            "same nudge (and whose Z adds the proud depth the old raycast seat used to guess). Dialling " +
+            "this key changes NOTHING, whatever this description used to promise. It was the sideways " +
+            "nudge of the round short/long-rest discs along the rest anchor's LOCAL X, real meters: " +
+            "POSITIVE = toward the board CENTER, NEGATIVE = toward the board EDGE, and the correct sign " +
+            "depends on the board frame. That direction convention still applies — to " +
+            "RestButtonOffset_<board>.X, which is seeded from this 0.024 Oak value. Kept bound so " +
+            "existing cfg files load unchanged.");
         ConfirmUndoInsetX = _file.Bind("Cards", "ConfirmUndoInsetX", 0.014f,
-            "Item 3 (Oak-tuned): inward nudge in local X (real meters, toward board center) applied to " +
-            "Confirm/Undo so they center on the Oak metal pads (the ButtonZone anchor X ~+0.235 sits " +
-            "~0.015 m too far toward the board edge; pad center X ~+0.235... nudged in). PER-BOARD.");
+            "LEGACY — no effect, superseded by the per-board ConfirmUndoOffset_<board>. Nothing reads " +
+            "this value; despite the 'PER-BOARD' this description used to end on, it is a single " +
+            "global. ConfirmUndoOffset_<board> is the per-board one PlayTray.BuildButtons actually " +
+            "reads, seeded from this Oak value as X = −0.014. It was the inward nudge in local X (real " +
+            "meters, toward board center) applied to Confirm/Undo so they center on the Oak metal pads. " +
+            "Kept bound so existing cfg files load unchanged.");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", true,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
             "filled (test #28) — distinct from the transient gold snap glow that previews where a " +
