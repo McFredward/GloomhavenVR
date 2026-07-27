@@ -106,6 +106,13 @@ internal static class NetProtocol
     /// the unknown flag bit and the trailing bytes, and simply don't show the held card.</summary>
     public const byte FlagHeldCard = 1 << 7;
 
+    // ---- THE RIG FLAG BYTE IS FULL — bits 0..7 are all spent, up to FlagHeldCard above. ----
+    //      There is no free rig flag bit. Do not look for one here; there isn't one, and adding
+    //      a ninth would move the fixed header and cost a wire-version bump that breaks every
+    //      peer in the wild (that is what v2 cost — see Version above).
+    //      The ONLY remaining extension slot in the entire protocol is PileBrowseReservedBit
+    //      (extras trailing-block byte A, bit 7), declared at the bottom of this file.
+
     // ---- extras (type 1) flag bits --------------------------------------------------------
 
     /// <summary>Extras packet: a control-board pose (pos+rot+scale) is present.</summary>
@@ -177,7 +184,11 @@ internal static class NetProtocol
     /// block contract in <c>PresenceState</c>):
     ///   byte A: bits0..1 pile kind (<see cref="PileBrowseKindDiscard"/> /
     ///           <see cref="PileBrowseKindBurnt"/> / <see cref="PileBrowseKindItems"/>),
-    ///           bit2 hand-held (else board-anchored), bit3 held in the LEFT hand, bits4..7 reserved (0)
+    ///           bit2 hand-held (else board-anchored), bit3 held in the LEFT hand,
+    ///           bit4 <see cref="PileBrowseMaskSizeBit"/> (a byte C follows), bits5..6 the
+    ///           control-board style (<see cref="PileBrowseBoardStyleMask"/>), bit7
+    ///           <see cref="PileBrowseReservedBit"/> — reserved, written 0. Two of those four
+    ///           "reserved" bits have since been claimed exactly as intended; ONE is left.
     ///   byte B: card count in the fan (0..255, clamped)
     ///
     /// ADDITIVE and backward-compatible exactly like every block before it: appended behind every
@@ -186,6 +197,15 @@ internal static class NetProtocol
     /// simply shows no browse fan. No version bump in either direction.
     /// </summary>
     public const byte FlagPileBrowse = 1 << 7;
+
+    // ---- THE EXTRAS FLAG BYTE IS FULL — bits 0..7 are all spent, up to FlagPileBrowse above. ----
+    //      Both flag bytes are now exhausted. If you came here looking for a free bit for a new
+    //      extras feature, THERE IS NONE, and the answer is not a version bump: go to
+    //      PileBrowseReservedBit (trailing-block byte A, bit 7) at the bottom of this file. That
+    //      is the last extension slot in the protocol, and bit 7 above was deliberately spent on
+    //      "a block follows" rather than on a boolean precisely so this path would exist — two
+    //      features (head-mask size, control-board style) have already shipped through it with
+    //      no wire-version bump at all.
 
     /// <summary>Pile-browse block, byte A bits 0..1: the DISCARD ("Abgelegt") pile. Wire constants —
     /// they mirror <c>Cards.PileKind</c>'s member order; append only, never renumber.</summary>
@@ -306,6 +326,34 @@ internal static class NetProtocol
     /// <summary>Extract the board-style code from trailing-block byte A (0 = default/older peer).</summary>
     public static byte DecodeBoardStyle(byte kindFlags) =>
         (byte)((kindFlags & PileBrowseBoardStyleMask) >> PileBrowseBoardStyleShift);
+
+    /// <summary>
+    /// Trailing-block byte A, bit 7 — THE LAST FREE BIT IN THE ENTIRE PROTOCOL.
+    ///
+    /// Everything else is spent: the rig flag byte (offset 6) uses bits 0..7 up to
+    /// <see cref="FlagHeldCard"/>, the extras flag byte (offset 6) uses bits 0..7 up to
+    /// <see cref="FlagPileBrowse"/>, and byte A's own bits 0..6 are the pile kind, the two
+    /// placement bits, <see cref="PileBrowseMaskSizeBit"/> and the board-style field. This one
+    /// bit is the only extension slot left.
+    ///
+    /// MUST BE WRITTEN 0 by every sender until it is deliberately claimed, and it is NEVER READ
+    /// BY DESIGN — it is a reservation, not a field. It exists as a named constant rather than as
+    /// a comment so that it is greppable, shows up in IntelliSense beside the bits it neighbours,
+    /// and cannot be "found free" by someone counting bits by hand.
+    ///
+    /// HOW TO SPEND IT, when the time comes: the way <see cref="FlagPileBrowse"/> was spent — on
+    /// "a further sub-block follows", not on a boolean. That is what let head-mask size and
+    /// control-board style ship additively with no wire-version bump, and it is what keeps a
+    /// SEVENTH feature possible after the sixth. Spending it on a single boolean ends the
+    /// protocol's extensibility and the next feature after that needs a version bump and a
+    /// coordinated release of every peer. See the compatibility contract on
+    /// <see cref="PresenceSerializer"/>.
+    ///
+    /// DO NOT DELETE AS UNUSED. It has no call site on purpose, exactly like
+    /// <see cref="PileBrowseKindItems"/> (understood by readers, never emitted by senders today)
+    /// and <see cref="BoardStyleMaxCode"/>.
+    /// </summary>
+    public const byte PileBrowseReservedBit = 1 << 7;
 
     /// <summary>How long a remote card-FX flight takes (seconds) — matched to the LOCAL
     /// <c>CardsDriver.FlyToPileSeconds</c> so a peer's flight lasts as long as the real one.</summary>
