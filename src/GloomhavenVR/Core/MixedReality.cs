@@ -25,8 +25,9 @@ namespace GloomhavenVR.Core;
 /// SolidColor(key) so the desktop mirror keys identically and nothing sky-clears anywhere.
 ///
 /// PRECEDENCE (documented, keyed off the MR flag)
-/// - HeadCamera: MR owns its clear WHILE ON. <c>VRRigDriver.Tick()</c> calls
-///   <see cref="Tick"/> AFTER its own TickHeadClearColor, so MR's key color wins the frame
+/// - HeadCamera: MR owns its clear WHILE ON. <see cref="Tick"/> is the LAST entry
+///   (<c>"Rig.MixedReality"</c>) of <c>VRRigDriver</c>'s per-frame tail-step array, i.e. it runs
+///   AFTER that array's own TickHeadClearColor step, so MR's key color wins the frame
 ///   (TickHeadClearColor only pins backgroundColor when clearFlags==SolidColor, then MR
 ///   overrides it). When MR turns OFF the head clear is restored and TickHeadClearColor
 ///   resumes its VoidColor management.

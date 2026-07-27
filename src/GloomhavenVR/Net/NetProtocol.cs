@@ -138,6 +138,8 @@ internal static class NetProtocol
     /// this flag bit and the trailing byte and simply render solid hands.
     /// </summary>
     public const byte FlagExtrasGhostHand = 1 << 2;
+
+    /// <summary>
     /// Extras packet: a 1-byte ITEM-fan card count trails the packet (the sender's equipped-item fan
     /// — <c>Cards.ItemsPile</c> — is open with that many item cards). ADDITIVE extension exactly
     /// like the rig packet's <see cref="FlagHandStyle"/>: appended AFTER every field older readers

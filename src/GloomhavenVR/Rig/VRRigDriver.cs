@@ -752,7 +752,16 @@ internal sealed class VRRigDriver : MonoBehaviour
     {
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
-        MixedReality.RestoreAll(); // put every keyed camera + the skybox back before the policy release
+        // RESTORE ORDER IS LOAD-BEARING: MixedReality FIRST, then VRCameraPolicy. MR is the
+        // narrower mutation and it lives ON cameras the policy owns — it resolves the head camera
+        // through VRCameraPolicy.AllowedHead, and every camera it keyed was swept while the policy
+        // was in force. VRCameraPolicy.RestoreAll releases that ownership and nulls AllowedHead,
+        // so it must be the LAST step of camera teardown: release first and the keyed cameras are
+        // left green with the state that recorded them already gone.
+        // Do not alphabetise or "group the restores"; this pair is an ordering, not a list.
+        // (INVARIANTS-Net-Rig.md "MixedReality.RestoreAll runs BEFORE VRCameraPolicy.RestoreAll",
+        //  established by 5c881e7.)
+        MixedReality.RestoreAll();
         VRCameraPolicy.RestoreAll();
         if (Instance == this)
             Instance = null;

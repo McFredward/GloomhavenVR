@@ -50,7 +50,24 @@ internal sealed class RigModule : IVRModule
         if (vr)
             _driverGo.AddComponent<VRRigDriver>();
 
-        // Phase-4 comfort stack (each self-gates on rig presence / config).
+        // Comfort stack (each component self-gates on rig presence / config).
+        //
+        // THIS ORDER IS NOT LOAD-BEARING — stated explicitly because it looks like it is.
+        // AddComponent order is what decides Unity's Update order between components on the SAME
+        // GameObject, so a reader is right to ask; the answer is that nothing here depends on it,
+        // and nothing here may be "hardened" with a [DefaultExecutionOrder] attribute. Freezing an
+        // order the code does not depend on is a behaviour change wearing a tidy-up costume, and it
+        // invites a later edit to start depending on it. Why it does not matter:
+        //   • Only WorldGrab and SnapTurn write the rig in Update, and in the common case they are
+        //     mutually exclusive — SnapTurn ignores a hand that is world-grabbing.
+        //   • When they do both run in a frame, neither integrates a private copy of the rig pose:
+        //     each re-derives its correction from the rig's LIVE transform every frame (WorldGrab
+        //     from the hand-vs-anchor delta, SnapTurn from the live HMD pivot), so a sibling's
+        //     write in the same frame is absorbed, not lost.
+        //   • VRRigDriver.TickWorldTilt then reconstructs the rig in LateUpdate, after every
+        //     Update-phase writer, whatever order they ran in.
+        //   • Comfort writes no transform at all (it latches the recenter chord and requests a
+        //     recenter that VRRigDriver consumes), and ComfortGizmos is OnGUI-only.
         _driverGo.AddComponent<WorldGrab>();
         _driverGo.AddComponent<SnapTurn>();
         _driverGo.AddComponent<Comfort>();
