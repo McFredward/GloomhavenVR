@@ -41,6 +41,81 @@ internal sealed partial class VRRigDriver
         return drop == 0 ? mask : mask & ~drop;
     }
 
+    /// <summary>
+    /// The game's own scenario renderer, resolved by name and cached. Probed on the same cadence
+    /// as the camera-policy sweep and only while unresolved, because <c>Camera.allCameras</c>
+    /// allocates an array on every read. A Unity-null here (scene unloaded the camera) simply
+    /// re-arms the probe.
+    /// </summary>
+    private Camera? _scenarioCam;
+    private int _scenarioCamProbe;
+
+    /// <summary>
+    /// Layers the scenario mask narrowing must NEVER drop, whatever the ScenarioCamera's own mask
+    /// says. The mod layer carries every mod visual (hands, cards, control board, panels) and the
+    /// built-in UI layer carries the game's own uGUI, which <c>CanvasConversion</c> re-parents into
+    /// world space and which the flat ScenarioCamera therefore never had to render — its mask
+    /// excludes layer 5 on hardware. Dropping either would blank the headset with no way back
+    /// inside it, which is exactly the failure mode a "safe by default" switch must not have.
+    /// </summary>
+    private static int MaskNarrowingFloor => VRLayers.ModLayerMask | (1 << 5);
+
+    /// <summary>Last mask actually written, so the change is logged once and not per frame.</summary>
+    private int _loggedHeadMask;
+
+    private Camera? ResolveScenarioCamera()
+    {
+        if (_scenarioCam != null)
+            return _scenarioCam;
+        if (--_scenarioCamProbe > 0)
+            return null;
+        _scenarioCamProbe = SweepIntervalFrames;
+        Camera[] all = Camera.allCameras;
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i] != null && all[i].name == "ScenarioCamera")
+            {
+                _scenarioCam = all[i];
+                break;
+            }
+        }
+        return _scenarioCam;
+    }
+
+    /// <summary>
+    /// Say, once per distinct mask, exactly which layers the head camera stopped rendering and
+    /// what was on them. A narrowing that makes something invisible has to be diagnosable from the
+    /// log alone — the tester is inside a headset and cannot inspect a bitmask there.
+    /// </summary>
+    private void LogHeadMaskChange(int wanted, int source, bool narrowed)
+    {
+        if (wanted == _loggedHeadMask)
+            return;
+        _loggedHeadMask = wanted;
+        if (!narrowed)
+            return;
+        var sb = new System.Text.StringBuilder(256);
+        sb.Append("Head culling mask narrowed to the ScenarioCamera's ([Optimize] ")
+          .Append("HeadMaskFromScenarioCamera): 0x").Append(source.ToString("X8"))
+          .Append(" → 0x").Append(wanted.ToString("X8")).Append(". No longer rendered:");
+        int dropped = _anchor != null ? _anchor.cullingMask & ~wanted : 0;
+        bool any = false;
+        for (int layer = 0; layer < 32; layer++)
+        {
+            if ((dropped & (1 << layer)) == 0)
+                continue;
+            string name = LayerMask.LayerToName(layer);
+            sb.Append(any ? ", " : " ").Append(layer).Append('=')
+              .Append(string.IsNullOrEmpty(name) ? "<unnamed>" : name);
+            any = true;
+        }
+        if (!any)
+            sb.Append(" nothing (the ScenarioCamera's mask was no narrower than the anchor's)");
+        sb.Append(". The [Perf] SCENE line's per-layer counts say how many renderers that removes; "
+                  + "if something you need went invisible, switch the entry back off.");
+        VRLog.Info("Rig", sb.ToString());
+    }
+
     private void TickHeadCullingMask()
     {
         if (_kind == RigKind.None || _camera == null)
@@ -58,7 +133,25 @@ internal sealed partial class VRRigDriver
             // Follow the live anchor mask while the anchor exists (the game may toggle
             // layers scene-side); once the anchor died, keep re-asserting our own.
             int source = _anchor != null ? _anchor.cullingMask : _camera.cullingMask;
+
+            // 2026-07 submission-cost pass, opt-in: the scenario ANCHOR is 'Main Camera' and its
+            // mask is 0xFFFFFFFF — every layer — while the camera the flat game actually renders
+            // the dungeon with excludes thirteen of them. Following the anchor therefore makes the
+            // head camera cull and submit a surplus the game never draws, twice per frame under
+            // MultiPass. Seeding from the ScenarioCamera instead removes exactly that surplus,
+            // with the mod layer and the UI layer added back unconditionally (see the floor).
+            bool narrowed = false;
+            if (PerfConfig.HeadMaskFromScenarioCam)
+            {
+                Camera? scenario = ResolveScenarioCamera();
+                if (scenario != null && scenario.cullingMask != 0)
+                {
+                    source = scenario.cullingMask | MaskNarrowingFloor;
+                    narrowed = true;
+                }
+            }
             wanted = ComposeHeadMask(source);
+            LogHeadMaskChange(wanted, source, narrowed);
         }
         if (_camera.cullingMask != wanted)
             _camera.cullingMask = wanted;

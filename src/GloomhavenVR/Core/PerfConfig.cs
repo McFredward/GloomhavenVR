@@ -1,3 +1,4 @@
+using System;
 using BepInEx.Configuration;
 using UnityEngine;
 
@@ -120,6 +121,9 @@ internal static class PerfConfig
     /// <summary>Layer names/indices removed from the head camera's culling mask (comma-separated; empty = none).</summary>
     internal static ConfigEntry<string> HeadCullingMaskDrop = null!;
 
+    /// <summary>Seed the scenario head mask from the game's ScenarioCamera instead of the blanket anchor mask.</summary>
+    internal static ConfigEntry<bool> HeadMaskFromScenarioCamera = null!;
+
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
     // successful Bind — a module whose Init threw, a hot-reload mid-frame, the flat-screen path.
@@ -159,6 +163,10 @@ internal static class PerfConfig
     /// <summary>[Optimize] HeadDepthPrepass, defaulting to on (today's behaviour) while unbound.</summary>
     internal static bool DepthPrepassOn => HeadDepthPrepass == null || HeadDepthPrepass.Value;
 
+    /// <summary>[Optimize] HeadMaskFromScenarioCamera, defaulting to off (today's behaviour) while unbound.</summary>
+    internal static bool HeadMaskFromScenarioCam =>
+        HeadMaskFromScenarioCamera != null && HeadMaskFromScenarioCamera.Value;
+
     // ---- [Optimize] HeadCullingMaskDrop: parsed once per distinct string, not per frame --------
     // The entry is human-written text ("Water, 14, TransparentFX") and it is read from the rig's
     // per-frame mask re-assert, so parsing it there would allocate and split a string every frame
@@ -185,7 +193,10 @@ internal static class PerfConfig
         get
         {
             string source = HeadCullingMaskDrop?.Value ?? string.Empty;
-            if (!ReferenceEquals(source, _dropSource))
+            // Ordinal VALUE compare, not ReferenceEquals: a config backend that ever handed back
+            // a fresh string instance for the same text would otherwise re-parse — and re-LOG —
+            // every single frame. One short-string compare per frame is not worth that risk.
+            if (!string.Equals(source, _dropSource, StringComparison.Ordinal))
             {
                 _dropSource = source;
                 _dropMask = ParseLayerMask(source);
@@ -416,5 +427,21 @@ internal static class PerfConfig
             + "compare the render-loop split. Unknown names are reported and ignored, never "
             + "silently applied, so a typo cannot blank the view. Re-asserted every frame, so "
             + "clearing the entry restores the normal mask immediately.");
+        HeadMaskFromScenarioCamera = _file.Bind("Optimize", "HeadMaskFromScenarioCamera", false,
+            "In a SCENARIO, seed the head camera's culling mask from the game's own ScenarioCamera "
+            + "instead of from the anchor camera. Why this exists: the scenario anchor resolves to "
+            + "'Main Camera', whose mask is 0xFFFFFFFF — ALL 32 layers — while the camera the flat "
+            + "game actually renders the dungeon with carries 0x700FFF17 and deliberately excludes "
+            + "thirteen of them. The head camera therefore culls and submits a surplus the game "
+            + "never draws, twice per frame under MultiPass. OFF (default) keeps the blanket mask, "
+            + "which was the safe original choice for a good reason: the head camera legitimately "
+            + "renders things the ScenarioCamera never did — the mod's hands, cards, control board, "
+            + "remote avatars and the converted world-space UI. The mod layer and the UI layer are "
+            + "therefore ADDED BACK unconditionally and can never be dropped by this switch; "
+            + "anything else that turns out to be needed will simply go invisible, which is why "
+            + "this defaults off and why the log names every layer it drops, with its renderer "
+            + "count, at the moment it drops it. Read the [Perf] SCENE line's per-layer breakdown "
+            + "first: a layer with no renderers on it costs nothing to keep and gains nothing to "
+            + "drop. Applies live; switching it back off restores the blanket mask immediately.");
     }
 }

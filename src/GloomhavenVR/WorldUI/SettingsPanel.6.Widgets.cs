@@ -207,6 +207,21 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             });
         Tip(depthRow, "debug_depth_prepass_note");
 
+        // Head-camera culling mask narrowing. Same tier and same reason as the row above: it is a
+        // measurement, not a preference — either the surplus layers hold geometry worth not
+        // submitting twice, or they are empty and it changes nothing. Defaults OFF because getting
+        // it wrong makes something invisible in the headset.
+        RectTransform maskRow = Toggle(Loc.Mod("debug_head_mask_scenario"),
+            () => PerfConfig.HeadMaskFromScenarioCamera.Value,
+            v =>
+            {
+                Core.PerfMonitor.MarkChange(
+                    $"head culling mask {(v ? "narrowed to the ScenarioCamera's" : "back to the anchor's")}"
+                    + " — A/B boundary");
+                PerfConfig.HeadMaskFromScenarioCamera.Value = v;
+            });
+        Tip(maskRow, "debug_head_mask_scenario_note");
+
         var stereoRow = Row();
         Label(stereoRow, Loc.Mod("debug_stereo_mode"), 16f, flexible: true);
         CycleButton(stereoRow, 150f, Core.StereoModeConfig.Label, Core.StereoModeConfig.Cycle);
