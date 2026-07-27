@@ -59,7 +59,10 @@ internal static class CardGlow
         return quad;
     }
 
-    // NOTE (removed): an AddPulse/GlowPulse pair used to live here so a glow QUAD could breathe on its
+    // NOTE (removed) — KEEP THIS COMMENT. It documents code that is deliberately absent, which is
+    // the only kind of note a reader cannot reconstruct from the source, and deleting it as "a
+    // comment about nothing" invites exactly the re-addition it forbids.
+    // An AddPulse/GlowPulse pair used to live here so a glow QUAD could breathe on its
     // own. Its only two callers were the item-card and items-stack "usable now" cues, and the user
     // rejected that whole flat-quad look — the card is now framed by WorldUI.SoftCueArt's outline
     // (breathing via SoftFramePulse) and the stack drifts embers, so nothing wanted a pulsing quad any

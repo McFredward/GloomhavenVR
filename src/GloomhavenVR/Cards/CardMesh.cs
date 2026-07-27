@@ -74,6 +74,12 @@ internal static class CardMesh
     /// <see cref="VRCard.SetRenderOnTop"/>; this mirrors the held-mini render-on-top fix.
     /// NOTE: applied per-instance on the card renderers, NEVER on the shared card materials
     /// (which <see cref="Net.RemoteHandFan"/> reuses for the opponent's hand backs).
+    ///
+    /// RETAINED BUT INACTIVE: the bump was reverted (it swallowed all card TEXT), so this constant
+    /// has no live reader — its one code reference is inside the retained-but-uncalled
+    /// <c>VRCard.ApplyRenderOnTop</c>. It stays because the 4200 &gt; 4100 &gt; 4003 ordering it
+    /// records is still the design rationale for the widget queues in <c>PlayTray</c> and
+    /// <c>ButtonCluster</c>. Do not "free up" the number.
     /// </summary>
     internal const int HeldCardRenderQueue = 4200;
 

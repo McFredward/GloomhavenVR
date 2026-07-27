@@ -108,7 +108,17 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private BoxCollider? _box;
     private Vector3 _fullColliderSize;
 
-    // Render-on-top (Bug #2): a card shown in FRONT of the opaque control board was painted
+    // Render-on-top (Bug #2) — RETAINED BUT INACTIVE. Read SetRenderOnTop's revert note before
+    // touching any of this: the bump below is NEVER applied. SetRenderOnTop's whole body is
+    // `_ = on; RestoreRenderOnTop();`, so _renderOnTop can never become true, ApplyRenderOnTop has
+    // no caller, RestoreRenderOnTop's guard always returns, and every field in this block stays
+    // null. It is kept deliberately, exactly like Board/FigureGrab/FigureGrabbable's analogous
+    // block: it is the record of a tested-and-REJECTED approach, and the queue ordering it
+    // documents (4200 > 4100 > 4003) is still the design rationale for PlayTray's and
+    // ButtonCluster's widget queues. Do not delete it, and do not re-enable it.
+    //
+    // What it did, and why the description below is written in the present tense: a card shown in
+    // FRONT of the opaque control board was painted
     // over by the board's action-button TMP label (ButtonCluster, queue 4003, ZTest Always +
     // ZWrite Off) — its text bled through the card. While a VRCard is visible we push BOTH the
     // opaque backing slab AND the world-space face-art graphics past those widgets
@@ -520,6 +530,10 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         RestoreRenderOnTop();
     }
 
+    /// <summary>
+    /// RETAINED BUT INACTIVE — no callers, and no way to acquire one without reverting the revert
+    /// documented at <see cref="SetRenderOnTop"/>. Kept as the record of the rejected approach.
+    /// </summary>
     private void ApplyRenderOnTop()
     {
         bool wasOn = _renderOnTop;
@@ -591,6 +605,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         }
     }
 
+    /// <summary>
+    /// The only half of the render-on-top machinery that still RUNS (from <see cref="SetRenderOnTop"/>),
+    /// and it returns immediately in practice: nothing ever applies the bump, so there is never
+    /// anything to restore. Kept so the no-op-forward at the five call sites stays honest.
+    /// </summary>
     private void RestoreRenderOnTop()
     {
         if (!_renderOnTop && _backingRenderers == null && _faceGraphics == null)

@@ -28,8 +28,8 @@ namespace GloomhavenVR.Cards;
 ///   initiative swap — the redundant numbered badge was removed in test #24 item 3,
 ///   the initiative already reads on the docked track); the modal single-card pick
 ///   flows now home their candidate into the LEFT recess (Slot1) instead of a
-///   centre field (test #28) — the old <see cref="BuildPickField"/> centre field is
-///   retained but unused. A steady pulsing "wanted slot" hint marks the recess the
+///   centre field (test #28); the old centre pick field has since been removed as dead
+///   code (see the "pick field (REMOVED)" note). A steady pulsing "wanted slot" hint marks the recess the
 ///   game is waiting for (<see cref="SetWantedSlots"/>),
 /// - RIGHT: CONFIRM (drives the game's own Ready button path), UNDO and a settings
 ///   gear; the PIN follow-toggle sits on the bottom-right frame corner,
@@ -285,16 +285,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// target (DEFECT 2) — then <see cref="BuildBoardSurface"/> skips its synthetic plane.</summary>
     private bool _boardColliderRegistered;
 
-    /// <summary>
-    /// The bundled board's real MeshCollider(s), stored in <see cref="EnsureBuilt"/> (they are
-    /// also pushed into <see cref="LaserTargets"/>). <see cref="SeatOnBoardFace"/> raycasts these
-    /// from the player side at each widget's own XY so mod-built widgets seat PROUD of the TRUE
-    /// local top surface (the raised rim/ornaments), not the flat slot-floor plane — the runtime
-    /// equivalent of BuildBoard.cs's per-anchor projection. Empty for the procedural fallback
-    /// board (no mesh), where <see cref="SeatOnBoardFace"/> falls back to the slot-plane projection.
-    /// </summary>
-    private readonly List<Collider> _boardColliders = new(2);
-
     /// <summary>The board's functional-face frame in <c>_root</c>-LOCAL space (a child's
     /// localRotation = this reproduces the same world facing the bundle slot anchors get:
     /// readable −Z toward the player). Derived from the bundle anchor axes in
@@ -462,11 +452,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
                 var t = mc.gameObject.GetComponent<BoardSurfaceTarget>();
                 if (t == null) t = mc.gameObject.AddComponent<BoardSurfaceTarget>();
                 RegisterLaserTarget(mc, t);
-                _boardColliders.Add(mc); // CORE FIX: SeatOnBoardFace raycasts these to seat widgets proud
                 _boardColliderRegistered = true;
             }
 
-            // PART B: the old unreliable raycast reseat (ReseatProud) is GONE. Every attached
+            // PART B: the old unreliable raycast reseat (ReseatProud, since deleted) is GONE. Every attached
             // element (rest discs, Confirm/Undo, gear/toggle/readout) now seats at anchor +
             // PER-BOARD offset with a predictable proud Z — no more −50 mm surprises. The bundle
             // anchors stay at their authored positions; the per-board offset supplies the proud
@@ -494,7 +483,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         BuildDashboardControls();
         BuildRoundReadout();
         BuildMounts();
-        BuildPickField();
         BuildBoardSurface();
         // Mod layer (render-only — zones & tokens poke via registries).
         Core.VRLayers.Apply(_root.gameObject);
@@ -537,9 +525,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         plate.transform.SetParent(readoutGo.transform, worldPositionStays: false);
         plate.transform.localScale = new Vector3(0.13f, 0.036f, 1f);
         plate.transform.localPosition = new Vector3(0f, 0f, 0.006f); // behind the text, toward the board body
-        // CORE FIX: the readout now seats PROUD of the true surface (SeatOnBoardFace raycast), so it is
-        // depth-correct — drop the RenderOnTop shine-through. Lit (Standard) plate so it shades like a
-        // real object instead of the flat unlit Overlay.
+        // CORE FIX: the readout now seats PROUD (NewAnchor at the fixed FixedProudZ, plus the
+        // per-board ReadoutOffset), so it is depth-correct — drop the forced draw-over-the-board.
+        // Lit (Standard) plate so it shades like a real object instead of the flat unlit Overlay.
+        // (This used to credit a "SeatOnBoardFace raycast"; that seating path never ran for the
+        // readout and has since been removed — see the "raycast seating (REMOVED)" note.)
         Tint(plate, new Color(0.12f, 0.11f, 0.10f));
 
         _roundLabel = readoutGo.AddComponent<TextMeshPro>();
@@ -771,10 +761,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         if (_root == null)
             return;
 
-        // CORE FIX: gear + follow-toggle now seat PROUD of the true surface (NewAnchor →
-        // SeatOnBoardFace raycast) and are LIT (overlay:false → Standard base + cap), so their
-        // side walls shade and they read as solid protruding buttons. Drop the RenderOnTop
-        // shine-through — they are depth-correct and self-occlude like real buttons now.
+        // CORE FIX: gear + follow-toggle now seat PROUD via NewAnchor's fixed FixedProudZ (this
+        // used to say "→ SeatOnBoardFace raycast"; NewAnchor seats at a fixed Z instead, and that
+        // raycast path has since been removed) and are LIT (overlay:false → Standard base + cap),
+        // so their side walls shade and they read as solid protruding buttons. Drop the forced
+        // draw-over-the-board — they are depth-correct and self-occlude like real buttons now.
         Transform pinAnchor = NewAnchor("FollowToggle",
             new Vector3(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.002f));
         // Items 4/6: nudge the follow/pin toggle by the per-board offset (base PinBase set by NewAnchor).
@@ -921,10 +912,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _wantedHighlights[0] = _wantedHighlights[1] = null; // children of _root, destroyed with it
         _wantedMask = -1;
         _pickActive = false;
-        _pickField = null; // child of _root, destroyed with it
-        _pickFieldHighlight = null;
-        _pickFieldVisible = false;
-        _pickFieldHighlighted = false;
         _roundLabel = null; // child of _root, destroyed with it
         _roundShown = int.MinValue;
         _confirmedLabel = null;
@@ -954,7 +941,6 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         _placementDeferLogged = false;
         _lastSlotActivity = float.NegativeInfinity;
         _boardColliderRegistered = false;
-        _boardColliders.Clear(); // mesh colliders were children of _root, destroyed with it
         // Lost-board watchdog state: the PlayTray INSTANCE outlives its root (board switch /
         // rebuild), so a stale dwell timer or pin bookkeeping would otherwise be applied to the
         // next root and could recover a board that was never lost.
@@ -1401,7 +1387,10 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         }
         _pinPoseVersion = version;
 
-        // (1) NO live holder rescale. An earlier cut of this housekeeping re-asserted
+        // (1) NO live holder rescale. DO NOT DELETE THIS COMMENT BLOCK BECAUSE IT HAS NO CODE
+        // UNDER IT — the absence of code IS the invariant, and the block is the only thing that
+        // stops the removed rescale from being "restored" as an obvious omission.
+        // An earlier cut of this housekeeping re-asserted
         // _pinRoot.localScale from the LIVE rig scale every frame, on the theory that a world-grab
         // zoom would otherwise drift the pinned board. That theory was wrong twice over:
         //   * it cannot drift. The holder sits at the world ORIGIN with identity rotation and a
@@ -1997,140 +1986,24 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         return best;
     }
 
-    // ------------------------------------------------------------------ pick field --
+    // ------------------------------------------------------------------ pick field (REMOVED) --
 
-    private Transform? _pickField;
-    private GameObject? _pickFieldHighlight;
-    private bool _pickFieldVisible;
-    private bool _pickFieldHighlighted;
-
-    /// <summary>Card anchor of the pick drop field (null until built). Cards home at scale 1.</summary>
-    internal Transform? PickFieldAnchor => _pickField;
-
-    /// <summary>True while a modal pick mode shows the drop field (CardsDriver drives this).</summary>
-    internal bool PickFieldVisible => _pickFieldVisible;
-
-    /// <summary>
-    /// The DROP FIELD for the modal pick flows (test #21 B): a single slot-style
-    /// frame in the CENTER of the slot zone — lay a candidate card onto it to
-    /// select it (same accept mechanics as the play slots: highlight-on-hover
-    /// primary rule + capture-radius fallback, CardsDriver routes the release).
-    /// While visible it REPLACES the two play-slot visuals (SetPickFieldVisible
-    /// toggles the slot roots): the slots are guaranteed empty in pick modes
-    /// (Rebuild calls ClearSlots outside CardsSelection), and two empty slot
-    /// frames flanking a third frame read as three competing targets.
-    /// Layout: anchored at the slot-zone center (0, 0.015) with the slots'
-    /// 1.3× SlotScale — the field card reads exactly like a slotted card. Frame
-    /// half-extents ≈ (0.046, 0.064)·1.3 → x ±0.060, y -0.068..+0.098: clear of
-    /// the rest plate (right edge -0.1925), the CONFIRM column (left edge
-    /// 0.1735) and the cluster mount (top edge -0.073 — the game's live confirm
-    /// mirror docks DIRECTLY under the field, see BuildMounts). The mode's
-    /// confirm affordance is therefore already adjacent on two sides: the
-    /// ButtonCluster Ready below (mirrors ReadyButton in all 16 states incl.
-    /// EREADYBUTTONRECOVERCARD "Confirm") and the tray CONFIRM to the right
-    /// (accented while the field shows, see TickStatus).
-    /// </summary>
-    private void BuildPickField()
-    {
-        if (_root == null || _pickField != null)
-            return;
-        float w = CardsConfig.CardWidth.Value;
-        float h = CardsConfig.CardHeight;
-
-        _pickField = new GameObject("PickField").transform;
-        _pickField.SetParent(_root, worldPositionStays: false);
-        _pickField.localPosition = new Vector3(0f, 0.015f, 0f);
-        _pickField.localScale = Vector3.one * SlotScale; // field card = slot card density (test #18)
-
-        var frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        frame.name = "Frame";
-        Object.Destroy(frame.GetComponent<Collider>());
-        frame.transform.SetParent(_pickField, worldPositionStays: false);
-        frame.transform.localScale = new Vector3(w * 1.12f, h * 1.12f, 1f);
-        frame.transform.localPosition = new Vector3(0f, 0f, 0.003f);
-        Tint(frame, new Color(0.62f, 0.42f, 0.18f)); // warm accent — distinct from the play slots
-
-        var inner = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        inner.name = "FrameInner";
-        Object.Destroy(inner.GetComponent<Collider>());
-        inner.transform.SetParent(_pickField, worldPositionStays: false);
-        inner.transform.localScale = new Vector3(w * 1.04f, h * 1.04f, 1f);
-        inner.transform.localPosition = new Vector3(0f, 0f, 0.0025f);
-        Tint(inner, new Color(0.12f, 0.10f, 0.08f));
-
-        // Snap-glow behind the frame — the same telegraph the play slots use.
-        var glow = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        glow.name = "FieldHighlight";
-        Object.Destroy(glow.GetComponent<Collider>());
-        glow.transform.SetParent(_pickField, worldPositionStays: false);
-        glow.transform.localScale = new Vector3(w * 1.24f, h * 1.24f, 1f);
-        glow.transform.localPosition = new Vector3(0f, 0f, -0.006f); // PROUD of the top (toward the player)
-        // Emissive gold via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud) and NO
-        // RenderOnTop — the pick-field insert telegraph is depth-correct now, no shine-through.
-        Material? glowMat = MakeGlowMaterial(new Color(1f, 0.85f, 0.3f, 0.95f));
-        if (glowMat != null)
-            glow.GetComponent<MeshRenderer>().sharedMaterial = glowMat;
-        glow.SetActive(false);
-        _pickFieldHighlight = glow;
-
-        // Caption under the field (box metrics divide by SlotScale — test #18 pattern).
-        AddCaption(_pickField, new Vector3(0f, -h * 0.62f, -0.004f),
-            Core.Loc.Game("GUI_SELECT", "SELECT"), new Color(1f, 0.85f, 0.55f),
-            maxUpper: true, width: 0.14f / SlotScale, height: 0.024f / SlotScale,
-            maxFontSize: 0.28f / SlotScale);
-
-        _pickField.gameObject.SetActive(false);
-    }
-
-    /// <summary>
-    /// Show/hide the pick drop field; while shown the two play-slot visuals hide
-    /// (see <see cref="BuildPickField"/>) and come back on hide. No-ops unless the
-    /// state changes.
-    /// </summary>
-    internal void SetPickFieldVisible(bool visible)
-    {
-        if (_pickField == null || _pickFieldVisible == visible)
-            return;
-        _pickFieldVisible = visible;
-        _pickField.gameObject.SetActive(visible);
-        for (int i = 0; i < 2; i++)
-        {
-            Transform? slot = _slots[i];
-            if (slot != null && slot.gameObject.activeSelf == visible)
-                slot.gameObject.SetActive(!visible);
-        }
-        if (!visible)
-            SetPickFieldHighlight(false);
-        VRLog.Info("Cards", $"Board: pick drop field {(visible ? "shown (slots hidden)" : "hidden (slots restored)")}.");
-    }
-
-    /// <summary>
-    /// Would the field capture a card released now? Same generous dual-sample rule
-    /// as <see cref="SlotNear"/> (card center OR holding palm within the capture
-    /// radius, test #13) with the distances exposed for the one-line drop log.
-    /// </summary>
-    internal bool PickFieldNear(Vector3 cardPos, Vector3 handPos, out float dist, out float radius)
-    {
-        dist = float.PositiveInfinity;
-        radius = 0f;
-        if (_pickField == null || !_pickFieldVisible || _root == null || !IsVisible)
-            return false;
-        radius = SlotCaptureRadius * _root.lossyScale.x;
-        dist = Mathf.Min(
-            Vector3.Distance(cardPos, _pickField.position),
-            Vector3.Distance(handPos, _pickField.position));
-        return dist <= radius;
-    }
-
-    /// <summary>Snap-preview glow on the field (change-gated, like SetHighlightedSlot).</summary>
-    internal void SetPickFieldHighlight(bool highlighted)
-    {
-        if (_pickFieldHighlighted == highlighted)
-            return;
-        _pickFieldHighlighted = highlighted;
-        if (_pickFieldHighlight != null && _pickFieldHighlight.activeSelf != highlighted)
-            _pickFieldHighlight.SetActive(highlighted);
-    }
+    // The modal-pick DROP FIELD (test #21 B) is GONE — removed as dead code, not as a design
+    // decision. It was a slot-style frame in the CENTER of the slot zone that a candidate card
+    // could be laid onto. BuildPickField ran on EVERY board build and allocated five GameObjects,
+    // a glow material and a TMP caption, then ended with SetActive(false) — and nothing ever
+    // turned it on: SetPickFieldVisible had zero external callers, so _pickFieldVisible could
+    // never be true, which in turn made SetPickFieldHighlight and PickFieldNear unreachable and
+    // PickFieldAnchor/PickFieldVisible unread. Test #28 superseded it: pick candidates home into
+    // the slot recesses (see the class doc), and this class doc already recorded that.
+    //
+    // Two things a re-adder must know, which is why this note stays:
+    //  - While a pick field shows, BOTH play-slot roots must hide. Two empty slot frames flanking
+    //    a third read as three competing targets, and the slots are guaranteed empty in pick modes
+    //    (Rebuild calls ClearSlots outside CardsSelection). That rule is in INVARIANTS-Cards.md §8.
+    //  - Net/RemoteBoardFurniture has its OWN BuildPickField and DOES show it via SetPickField(bool).
+    //    So peers may render a pick field the local player never sees. That inconsistency predates
+    //    this removal and is an open question for the user, not something this commit changed.
 
     // ------------------------------------------------------------------ highlight --
 
@@ -3054,8 +2927,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     // sat in the recessed slot-floor plane and clipped THROUGH the seated card at the
     // player's oblique angle; the initiative already reads on the docked track and the
     // second slot needs no label. BuildSlotLabels + its call in EnsureBuilt were
-    // removed outright (no no-op stub) — AddCaption stays live for the pick field's
-    // "SELECT" caption, so nothing goes unused.
+    // removed outright (no no-op stub). This note used to add "AddCaption stays live for the
+    // pick field's SELECT caption, so nothing goes unused" — the pick field has since gone too,
+    // and AddCaption with it.
 
     private void BuildButtons(Transform? confirmAnchor, Transform? undoAnchor)
     {
@@ -3204,94 +3078,19 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>Base local-Z of the wanted-slot glow (per-board SlotOverlayOffset.z adds on top).</summary>
     private const float WantedGlowBaseZ = -0.004f;
 
-    /// <summary>Ray start standoff in front of the functional face, <c>_root</c>-local meters (mirrors BuildBoard.cs standoff 0.15).</summary>
-    private const float SeatStandoff = 0.15f;
+    // ------------------------------------------------------------------ raycast seating (REMOVED) --
 
-    /// <summary>How far PROUD (toward the player, −normal) of the TRUE surface a widget is seated, <c>_root</c>-local meters.</summary>
-    private const float SeatProud = 0.003f;
-
-    /// <summary>
-    /// Re-seat a bundle anchor (a child of the bundled TrayVisual, NOT a direct <c>_root</c>
-    /// child) proud of the TRUE surface: convert its world position into <c>_root</c>-local,
-    /// run it through <see cref="SeatOnBoardFace"/>, and write the seated world position back.
-    /// No-op when the anchor or the root is missing. Logged (next test-log ground truth).
-    /// </summary>
-    private void ReseatProud(Transform? anchor, string label)
-    {
-        if (anchor == null || _root == null)
-            return;
-        Vector3 before = _root.InverseTransformPoint(anchor.position);
-        Vector3 after = SeatOnBoardFace(before);
-        anchor.position = _root.TransformPoint(after);
-        VRLog.Info("Cards", $"Board: '{label}' anchor re-seated {(after - before).magnitude * 1000f:F1} mm " +
-                            $"proud of the true surface (was {before.z * 1000f:F1} mm, now {after.z * 1000f:F1} mm local-Z).");
-    }
-
-    /// <summary>
-    /// CORE FIX (depth): map an authored <c>_root</c>-local position onto the board's TRUE
-    /// local top surface at that point and lift it a few mm PROUD toward the player, so
-    /// mod-built widgets (round readout, gear, follow-toggle, re-seated Confirm/Undo/rest
-    /// anchors) rest ON the real surface — the raised rim/ornaments — instead of the flat
-    /// slot-floor plane (where widgets over a rim were buried and only shone through via
-    /// RenderOnTop). Raycasts the stored board MeshCollider(s) from the player side at the
-    /// point's OWN XY (the runtime twin of BuildBoard.cs:243-296); only the along-normal
-    /// depth is corrected, the in-plane (x/y) component is preserved.
-    ///
-    /// Fallback when the ray misses or the board has no mesh (procedural board): the previous
-    /// slot-floor-plane projection lifted by <see cref="CardsConfig.SlotCardInset"/>. For the
-    /// procedural board (identity frame, slots at z 0) that is simply z → −SlotCardInset.
-    /// </summary>
-    private Vector3 SeatOnBoardFace(Vector3 authoredLocal)
-    {
-        // nLocal = +Z away from the viewer (INTO the board), in _root-local space; −nLocal = toward the player.
-        Vector3 nLocal = _boardFaceFrame * Vector3.forward;
-
-        if (_root != null && _boardColliders.Count > 0)
-        {
-            // Shoot from SeatStandoff in FRONT of the point (toward the player, −nLocal) straight
-            // INTO the board (+nLocal), and take the nearest hit — the true local surface at this XY.
-            // Collider.Raycast is world-space + geometric (layer-independent, non-convex OK), so build
-            // the ray in world space from _root and convert the hit back to local. Scale-correct: the
-            // segment length carries the tray lossyScale through _root.TransformPoint.
-            Vector3 startWorld = _root.TransformPoint(authoredLocal - nLocal * SeatStandoff);
-            Vector3 endWorld = _root.TransformPoint(authoredLocal + nLocal * SeatStandoff);
-            Vector3 segment = endWorld - startWorld;
-            float maxDist = segment.magnitude;
-            if (maxDist > 1e-5f)
-            {
-                var ray = new Ray(startWorld, segment / maxDist);
-                float best = float.PositiveInfinity;
-                Vector3 bestPt = default;
-                foreach (Collider c in _boardColliders)
-                {
-                    if (c == null)
-                        continue;
-                    if (c.Raycast(ray, out RaycastHit hit, maxDist) && hit.distance < best)
-                    {
-                        best = hit.distance;
-                        bestPt = hit.point;
-                    }
-                }
-                if (!float.IsInfinity(best))
-                {
-                    Vector3 hitLocal = _root.InverseTransformPoint(bestPt);
-                    // Keep the authored XY; move ONLY along the normal onto the hit surface, then proud.
-                    float depthToSurface = Vector3.Dot(hitLocal - authoredLocal, nLocal);
-                    return authoredLocal + nLocal * depthToSurface - nLocal * SeatProud;
-                }
-            }
-        }
-
-        // Fallback: slot-floor plane projection lifted by SlotCardInset (missed ray / procedural board).
-        float inset = CardsConfig.SlotCardInset.Value;
-        if (_root == null || _slots[0] == null || _slots[1] == null)
-            return authoredLocal - nLocal * inset;
-        Vector3 s0 = _root.InverseTransformPoint(_slots[0]!.position);
-        Vector3 s1 = _root.InverseTransformPoint(_slots[1]!.position);
-        Vector3 faceCenter = (s0 + s1) * 0.5f;
-        float depthDiff = Vector3.Dot(faceCenter - authoredLocal, nLocal);
-        return authoredLocal + nLocal * depthDiff - nLocal * inset;
-    }
+    // SeatStandoff / SeatProud / ReseatProud / SeatOnBoardFace are GONE — dead code, ~85 lines.
+    // ReseatProud had ZERO callers, so SeatOnBoardFace's only caller was itself dead, and the two
+    // consts were used only inside SeatOnBoardFace. 17862bb replaced raycast auto-seating with
+    // per-board config offsets and a fixed proud Z, and every widget has gone through NewAnchor /
+    // FixedProudZ since. The registry ("Suspected vestigial") claimed these still had callers,
+    // read off the surrounding prose rather than the call graph; they did not.
+    //
+    // KEEP THE REASON, because re-adding this is the tempting move: the raycast reseat floated the
+    // gear -30..-50 mm off the Oak and Steel boards. "No more -50 mm surprises" is the whole point
+    // of the fixed proud Z. Do not route NewAnchor back through a surface raycast because it is
+    // "more accurate". See INVARIANTS-Cards.md, "Raycast auto-seating is GONE".
 
     /// <summary>
     /// ITEM 2 ground truth (logged once per board, after placement): for the round
@@ -3347,20 +3146,9 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
             $"{(headDot > 0.2f ? "FACES the player" : "faces AWAY from the player")}.");
     }
 
-    private static void AddCaption(Transform parent, Vector3 localPos, string text,
-        Color color, bool maxUpper, float width, float height, float maxFontSize)
-    {
-        var go = new GameObject("Caption");
-        go.transform.SetParent(parent, worldPositionStays: false);
-        go.transform.localPosition = localPos;
-        var tmp = go.AddComponent<TextMeshPro>();
-        tmp.text = maxUpper ? text.ToUpperInvariant() : text;
-        tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color = color;
-        // Single-line captions: long localizations shrink to fit the given box
-        // instead of overflowing across the board (TmpFit, test #12).
-        Core.TmpFit.Fit(tmp, width, height, maxFontSize, wrap: false);
-    }
+    // AddCaption is gone with the pick field, its last caller. It built a TextMeshPro caption
+    // that shrank to fit a given box (Core.TmpFit.Fit, test #12) — that helper is still the way
+    // to add a board caption; there is simply no board caption left in this class.
 
     private static void Tint(GameObject go, Color color, bool overlay = false)
     {
@@ -3385,9 +3173,11 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// <summary>
     /// The bundled <c>GloomhavenVR/Overlay</c> shader (loaded from the asset bundle at
     /// runtime): an unlit shader that — unlike <c>Sprites/Default</c> and <c>Standard</c>
-    /// — EXPOSES <c>_ZTest</c>, so <see cref="RenderOnTop"/> can force a board-HUD widget
-    /// to draw over the opaque control board (the root cause of the invisible readout /
-    /// gear / toggle / glows). Cached; re-found until present so a late bundle load still
+    /// — EXPOSES <c>_ZTest</c>, which is what let the (now removed) RenderOnTop helper force a
+    /// board-HUD widget to draw over the opaque control board — the root cause of the invisible
+    /// readout / gear / toggle / glows. The shader is still used as an unlit/additive base for
+    /// the glow and readout materials; nothing forces ZTest any more (the widgets seat proud
+    /// instead). Cached; re-found until present so a late bundle load still
     /// resolves. Null when the bundle lacks it — callers fall back to Standard/Sprites and
     /// the widget may be occluded until the new bundle ships. Logged once each way.
     /// </summary>
@@ -3562,41 +3352,23 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     private static Material? MakeGlowMaterial(Color color) => CardGlow.MakeGlowMaterial(color);
 
-    /// <summary>
-    /// Items 3/5/7: draw a board-mounted HUD widget ON TOP of the now-OPAQUE two-sided
-    /// control board, immune to recess occlusion. The board was made opaque (_Cull=0)
-    /// to fill MR passthrough holes; these readout widgets (round number, settings
-    /// gear, follow toggle, slot insert-telegraph glows) sit in the recessed slot-floor
-    /// plane, BELOW the board's raised outer rim, which now hides them at the player's
-    /// oblique angle. Push them past every scene depth: a high render queue (drawn after
-    /// the opaque scene) PLUS ZTest Always (never depth-culled by the board rim) and
-    /// ZWrite off. The property names differ per shader — the quad/Tint (Standard) path
-    /// uses <c>_ZTest</c>, TextMeshPro's distance-field material uses <c>_ZTestMode</c>
-    /// — so both are set under HasProperty guards (a shader lacking one is left alone,
-    /// never crashes). Uses <c>.materials</c> (per-renderer INSTANCES) so no shared
-    /// bundle material is mutated globally. The user has explicitly accepted these as
-    /// always-visible board readouts. NOT applied to the seated cards (they stay
-    /// normally depth-tested).
-    /// </summary>
-    private static void RenderOnTop(GameObject go, int queueBase = 4000)
-    {
-        if (go == null)
-            return;
-        foreach (Renderer r in go.GetComponentsInChildren<Renderer>(true))
-        {
-            if (r == null)
-                continue;
-            foreach (Material m in r.materials) // instance materials (never the shared bundle asset)
-            {
-                if (m == null)
-                    continue;
-                m.renderQueue = queueBase;
-                if (m.HasProperty("_ZTest")) m.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
-                if (m.HasProperty("_ZTestMode")) m.SetInt("_ZTestMode", (int)UnityEngine.Rendering.CompareFunction.Always); // TMP distance-field
-                if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
-            }
-        }
-    }
+    // ---- RenderOnTop (REMOVED) -------------------------------------------------------
+    //
+    // The forced draw-over-the-board helper is GONE — 0 call sites at HEAD (19 repo-wide hits:
+    // 1 declaration and 18 comments, every one of them saying the widget in question no longer
+    // uses it: "drop the RenderOnTop shine-through", "NO RenderOnTop", "depth-correct now"). The
+    // method outlived every caller: once the readout/gear/toggle/glows were seated PROUD with
+    // negative local Z, they occlude naturally and shining them through the board became a
+    // regression rather than a fix.
+    //
+    // TWO LESSONS SURVIVE IT, and both are implemented elsewhere — WorldUI/NativeButtonSkin.cs
+    // and WorldUI/ActorBars.cs. Whoever writes the next such helper needs them:
+    //  - Use `.materials` (per-renderer INSTANCES), never `sharedMaterial`: the shared bundle
+    //    material clothes other objects, and a shared write is global.
+    //  - Set BOTH `_ZTest` AND `_ZTestMode` under HasProperty guards. The quad/Tint (Standard)
+    //    path exposes `_ZTest`; TextMeshPro's distance-field material exposes `_ZTestMode`. An
+    //    earlier version set only `_ZTest` under a guard and was therefore a SILENT NO-OP on
+    //    every non-TMP widget (cb62991, corrected in d56e4c8).
 
     private static Transform? FindDeep(Transform root, string name)
     {
@@ -4178,7 +3950,14 @@ internal sealed class PlayTray : WorldUI.IPanelGrabOwner
         /// dwelled — <see cref="Press"/> with source "laser" stays immediate.
         /// No button sets this anymore — every physical press fires on contact
         /// (user directive round 7); the accident protection that remains is
-        /// <see cref="ActivationGuard"/>. Machinery kept for a possible config.
+        /// <see cref="ActivationGuard"/>.
+        ///
+        /// CONFIGURED OFF BY USER DIRECTIVE — NOT vestigial, and the distinction matters in BOTH
+        /// directions. `239acb5` removed the dwell because the user asked for it, while explicitly
+        /// keeping the ActivationGuard accident window. So: do not delete DwellHoldRange /
+        /// _dwellHand / TickDwell / BeginDwell / CancelDwell / DwellChargeColor as unused code
+        /// (~90 lines that look dead only because this value is 0), and do not set this above 0
+        /// as "clearly what it was for" — that reverses a decision the user made.
         /// </summary>
         internal float DwellSeconds = 0f;
 

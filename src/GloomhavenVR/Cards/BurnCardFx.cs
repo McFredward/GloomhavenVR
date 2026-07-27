@@ -121,89 +121,20 @@ internal sealed class BurnCardFx
         RestoreBound();
     }
 
-    /// <summary>
-    /// Item 4 (fully-consumed items = the burn display): spawn the game's own CardSmoke
-    /// plume on an arbitrary chip (an <see cref="ItemsPile"/> item card, which has no
-    /// game <c>CardEffects</c> of its own) and clamp it card-local with the SAME
-    /// simulation/scaling/shrink this class applies to a burning ability card's smoke,
-    /// so a consumed item reads exactly like a burnt card. Returns the spawned instance
-    /// (parented under <paramref name="chip"/>) for the caller to <c>Object.Destroy</c>
-    /// when the chip goes away — self-contained, no pool bookkeeping. Null when the
-    /// prefab / global settings are not available yet (harmless: no plume).
-    /// </summary>
-    internal static GameObject? SpawnConsumedPlume(Transform chip)
-    {
-        if (chip == null)
-            return null;
-        GameObject? prefab = null;
-        try
-        {
-            GlobalSettings settings = GlobalSettings.Instance;
-            if (settings != null && settings.VisualEffects != null)
-                prefab = settings.VisualEffects.CardSmoke;
-        }
-        catch (System.Exception ex)
-        {
-            VRLog.Warn("Cards", $"Consumed-item plume: GlobalSettings.VisualEffects.CardSmoke unavailable ({ex.Message}).");
-            return null;
-        }
-        if (prefab == null)
-            return null;
-
-        GameObject go = Object.Instantiate(prefab, chip);
-        go.transform.localPosition = Vector3.zero;
-        go.transform.localRotation = Quaternion.identity;
-
-        // ITEM 10 (field-covering consumed-item fog) ROOT CAUSE: the burning-ABILITY-card path
-        // (Bind) reparents the game's ONE managed smoke instance onto the small world card, which
-        // shrinks its WHOLE child hierarchy by the huge screen-card scale it is removed from — so
-        // every sub-emitter comes down to card size for free. This spawn path has NO such reparent
-        // and the old code clamped only the FIRST ParticleSystem (GetComponentInChildren), leaving
-        // the CardSmoke prefab's OTHER emitters at World simulation + authored screen scale — they
-        // sprayed across the whole diorama. Fix: (1) clamp EVERY ParticleSystem in the instance to
-        // Local sim + Hierarchy scaling + the extra shrink, cap start lifetime so nothing drifts far,
-        // and (2) force the plume root's WORLD scale to a fixed card-relative size, so the plume is
-        // bounded to the card regardless of the item chip's own scale hierarchy (the reparent-shrink
-        // the ability path gets for free). Small and on/near the card only — never a large field fog.
-        float parentLossy = chip.lossyScale.x;
-        if (parentLossy > 1e-4f)
-        {
-            float target = CardsConfig.CardWidth.Value * ItemPlumeCardSpan; // world extent ≈ 1.4 card widths
-            float local = target / parentLossy;
-            go.transform.localScale = new Vector3(local, local, local);
-        }
-
-        ParticleSystem[] systems = go.GetComponentsInChildren<ParticleSystem>(includeInactive: true);
-        foreach (ParticleSystem ps in systems)
-        {
-            if (ps == null)
-                continue;
-            ParticleSystem.MainModule main = ps.main;
-            // Ride the small world chip, size to it, shrink so the plume stays localized instead of
-            // spraying at authored screen scale — the same clamp Bind applies to a burning card's smoke.
-            main.simulationSpace = ParticleSystemSimulationSpace.Local;
-            main.scalingMode = ParticleSystemScalingMode.Hierarchy;
-            main.startSizeMultiplier = main.startSizeMultiplier * StartSizeMultiplier;
-            main.startSpeedMultiplier = main.startSpeedMultiplier * StartSpeedMultiplier;
-            // Cap lifetime so a stray large-velocity particle can't waft across the map before dying.
-            ParticleSystem.MinMaxCurve life = main.startLifetime;
-            if (life.mode == ParticleSystemCurveMode.Constant && life.constant > ItemPlumeMaxLifetime)
-                main.startLifetime = ItemPlumeMaxLifetime;
-        }
-        VRLog.Info("Cards", $"Consumed-item plume: bounded to the card ({systems.Length} emitter(s) → " +
-                            $"Local/Hierarchy, size/speed ×{StartSizeMultiplier:F2}, world span ≈ " +
-                            $"{CardsConfig.CardWidth.Value * ItemPlumeCardSpan:F3} m) — no more field-covering fog.");
-        return go;
-    }
-
-    /// <summary>ITEM 10: the consumed-item plume's target WORLD extent, in card widths — the plume root
-    /// is scaled so its lossy size is this × the card width, bounding it to the card no matter what the
-    /// item chip's scale hierarchy is (the ability-card path gets this from its reparent-shrink instead).</summary>
-    private const float ItemPlumeCardSpan = 1.4f;
-
-    /// <summary>ITEM 10: hard cap (seconds) on any consumed-item plume emitter's constant start lifetime,
-    /// so a fast particle can't drift far from the card before it dies.</summary>
-    private const float ItemPlumeMaxLifetime = 1.4f;
+    // SpawnConsumedPlume(Transform) is REMOVED, together with its two consts ItemPlumeCardSpan
+    // (1.4 card widths) and ItemPlumeMaxLifetime (1.4 s). It spawned the game's CardSmoke prefab on
+    // a consumed ItemsPile chip. It had no call sites: aa63e87 removed both spawn sites and b9e48b5
+    // routed the consumed look through the hosted card's OWN clamped effects instead.
+    //
+    // THE PLUME STAYS REMOVED. Re-adding it is a documented temptation, and here is the price of
+    // getting it wrong (ITEM 10, "field-covering consumed-item fog"): the burning-ABILITY-card path
+    // below (Bind) reparents the game's ONE managed smoke instance onto the small world card, so the
+    // whole child hierarchy shrinks by the screen-card scale it leaves behind — every sub-emitter
+    // comes down to card size for free. A spawn path has NO such reparent, and the first version
+    // clamped only the FIRST ParticleSystem (GetComponentInChildren), leaving the prefab's OTHER
+    // emitters at World simulation and authored screen scale, spraying across the whole diorama.
+    // Any revival must clamp EVERY emitter (Local sim + Hierarchy scaling + the shrink), cap start
+    // lifetime, AND pin the plume root's WORLD scale to a fixed card-relative size.
 
     private void Bind(ParticleSystem smoke, Transform cardTransform)
     {

@@ -220,7 +220,8 @@ internal static class CardsConfig
     // and there is nothing for it to switch any more.
 
     // ---- Per-board board-element tuning (in-VR debug menu, indexed by (int)ControlBoard) ----
-    // These REPLACE the old unreliable raycast auto-seating (SeatOnBoardFace/ReseatProud):
+    // These REPLACE the old unreliable raycast auto-seating (PlayTray.SeatOnBoardFace /
+    // ReseatProud, both since deleted — they had no callers left):
     // every board-attached element seats at anchor + PER-BOARD offset, so the depth is
     // PREDICTABLE (no more −50 mm surprises) and dial-able PER BOARD from the debug menu.
     // Offset convention: X/Y lie in the board plane, Z is the "proud" depth toward the
