@@ -97,6 +97,8 @@ case "${1:-check}" in
             || { echo "error: frame ordering drifted (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-mirrors.sh" \
             || { echo "error: mirrored constants drifted (see above)" >&2; exit 1; }
+        "$ROOT/scripts/wire-tests.sh" \
+            || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         snapshot "$CURR"
         if [[ "${2:-}" == "--summary" ]]; then
             echo "=== compiled form vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="
