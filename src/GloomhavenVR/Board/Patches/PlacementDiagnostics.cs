@@ -8,6 +8,30 @@ namespace GloomhavenVR.Board.Patches;
 // Info-level evidence at the two stages the vanilla placement flow gates on.
 // Event-driven and change-deduped — no per-frame log spam, no allocations
 // between transitions. Remove after the placement flow is confirmed on HMD.
+//
+// KEEP FOR NOW — USER DECISION, refactor Batch D. This file was raised for
+// removal and the answer was KEEP until the next placement question comes up.
+// The reasoning, so nobody re-raises it as a fresh finding:
+//
+//   - the three root causes these were written for ARE fixed (96d8351, a6e2739,
+//     2253b0c), so on code evidence alone they look removable;
+//   - but "[Placement]" is a grep token the hardware reports use
+//     (INVARIANTS §15), and hero placement is the flow that cost three separate
+//     root causes. What removal needs is a clean HMD placement pass, i.e.
+//     EVIDENCE, not a code argument — and a refactor is not allowed to spend
+//     the user's headset time (CHARTER §1: nothing that needs re-testing).
+//   - the cost of keeping them is bounded and was measured: all three are
+//     observationally pure. Hover and Click read statics only;
+//     Placement_UpdateGate_Diagnostics calls __instance.Interactable(), traced
+//     through the decompiled source to MF.FindInteractableAtMousePosition —
+//     a Camera.main ScreenPointToRay + Physics.Raycast + GetComponentInParent,
+//     with no state mutation on that path. So the price is ONE extra raycast per
+//     frame, and only while WaitingForCardSelection AND display ==
+//     CharacterPlacement.
+//
+// When they do go, remove all three IN ONE COMMIT: Placement_Hover_Diagnostics
+// owns the TileName helper the other two call, so a piecemeal removal does not
+// build. Also drop the three PatchAll lines from BoardModule.Init.
 // ---------------------------------------------------------------------------
 
 /// <summary>

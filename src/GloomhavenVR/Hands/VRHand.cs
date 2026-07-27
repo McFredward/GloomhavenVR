@@ -12,7 +12,13 @@ internal enum HandPose
     /// <summary>Nothing special held/pressed.</summary>
     Idle,
 
-    /// <summary>All curls low — flat open hand.</summary>
+    /// <summary>All curls low — flat open hand.
+    ///
+    /// <para>KEEP — assigned by <c>UpdatePoseClassification</c> but never compared against
+    /// (refactor Batch D, verified at HEAD; <c>Point</c> and <c>Fist</c> ARE read). The
+    /// ASSIGNMENT is what makes the classification TOTAL: remove it and the classifier
+    /// silently reports <c>Idle</c> for a flat open hand, which is a behaviour change wearing
+    /// a cleanup costume. The member itself is frozen Phase-2 API.</para></summary>
     OpenPalm,
 
     /// <summary>Grip held, trigger released — index extended (UI/board pointing).</summary>

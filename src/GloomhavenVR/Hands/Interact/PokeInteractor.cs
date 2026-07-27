@@ -40,6 +40,15 @@ internal sealed class PokeInteractor
 {
     // Distances in meters (scale 1). Canvas distances are per-canvas since P5
     // (UguiPokeSurfaces.Register(canvas, PokeSurfaceTuning) — MISSION A.10).
+    //
+    // MIRRORED (FingertipRadius, ReleaseRange): the near board click and three other
+    // fingertip-contact sites carry their own copies of these two values so their press and
+    // re-arm edges land on the SAME depths as the poke — a mismatch means the surfaces feel
+    // different under one finger. Deliberately not merged into a shared constant (it would
+    // either leak an interactor private onto the frozen P2 surface or hide the number in a
+    // Core file nobody opens when tuning — REVIEW-Hands-Board-Core §P3). The copies are held
+    // together by scripts/check-mirrors.sh, which fails the guard and NAMES every site when
+    // one is tuned alone. Tune them together or document why they may now diverge.
     private const float FingertipRadius = 0.008f;
     private const float HoverRange = 0.035f;
     private const float ReleaseRange = 0.02f;

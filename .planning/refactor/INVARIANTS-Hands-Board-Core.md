@@ -2150,6 +2150,13 @@
 
 ### Marked TEMPORARY by their own authors — needs a user decision, not a unilateral delete
 
+> **DECIDED (Batch D): the `PlacementDiagnostics` trio is KEPT** until the next placement
+> question. Removing them needs a clean HMD placement pass — evidence, not a code argument —
+> and a refactor may not spend the user's headset time (CHARTER §1). The decision and the
+> measured cost (one raycast per frame, only while `WaitingForCardSelection` **and**
+> display == `CharacterPlacement`; all three verified observationally pure) are now recorded
+> at the top of the file itself. **Do not re-raise this as a fresh finding.**
+
 - **`Board/Patches/PlacementDiagnostics.cs`** — all three classes
   (`Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `Placement_Click_Diagnostics`)
   carry "TEMPORARY … remove after the placement flow is confirmed on HMD". The root causes they
@@ -2177,6 +2184,29 @@
   the enum member. Confidence **medium**.
 - **`FigureGhosts` `Ghost.Pos`/`Ghost.Rot`** are read every Tick — NOT vestigial despite looking
   like inert snapshot state.
+
+#### Added in Batch D — found by an independent sweep, NOT on the review's list
+
+A comment-stripped sweep for members whose identifier occurs exactly once in the whole
+compiled-source corpus turned up four more. **None were removed**: all four are the same shape
+as `HandRig.PalmNormal` — documented contract or API statements that cost one line — and
+CHARTER §2 puts the burden of proof on the change. Recorded so the next pass does not redo the
+search, and so a future pass does not delete them without an argument:
+
+- **`Hands.Interact.UguiPointer.IsPressed`** (`_pressed != null`) — the natural inspection hook
+  for a pointer-state debug line; the class is otherwise entirely private state.
+- **`Hands.VRHand.IndexTouchSupported`** — the public statement of a capability the trigger
+  fallback chain (§5, "index touch source:") logs about. Removing it hides *why* the fallback
+  chain exists.
+- **`Board.BoardPick.TryGetCursorWorld`** — documented P5/MISSION A.1 API. The live path is
+  `ResolveCursorWorld → TryGetCursorScreenPoint`; this world-space accessor has no caller. Note
+  `RayInteractor.cs`'s do-not-resurrect comment used to point at it (corrected in Batch C).
+- **`Board.FigureGrab.FigureGrabConfig.HeldOffset`** — the canonical RIGHT-hand held pose; its
+  doc is where the left-hand mirroring rule is stated. `HeldOffsetFor(side)` is what runs.
+
+Caveat on the sweep: it cannot see members whose name collides with an unrelated symbol
+elsewhere (that is why `HandGhost.Engaged` did not appear — `WorldUI/HexHintFacing` has an
+unrelated `Engaged` field). It is a lower bound, not a complete list.
 
 ### Looks redundant, is not — do not "dedupe"
 

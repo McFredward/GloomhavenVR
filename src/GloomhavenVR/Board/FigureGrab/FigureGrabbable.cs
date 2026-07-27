@@ -353,6 +353,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // grab/release call sites are unchanged; the board-widget occlusion is handled proud-seat +
         // LEqual on the widget side in the mod-wide occlusion pass, not by pulling the mini forward.
         return;
+        // KEEP — DO NOT DELETE THIS BLOCK (refactor Batch D, verified at HEAD).
+        // It is unreachable on purpose: a tested-and-REJECTED approach kept as the record of
+        // WHY not to re-add it (4ef1d76). Deleting it saves ~18 lines and discards the answer
+        // to "why don't held minis just draw on top?", which is the question that produced the
+        // bug above. Note also:
+        //   - RestoreRenderers is NOT dead. It is still called from two release paths and is
+        //     idempotent, so grab/release symmetry survives a future re-enable.
+        //   - the CS0162 suppression below is why this does not show up in the repo's build
+        //     warnings. A future "eliminate every #pragma warning disable" pass must skip it.
 #pragma warning disable CS0162 // unreachable — retained for quick re-enable if ever needed
         GameObject? root = Root;
         if (root == null)

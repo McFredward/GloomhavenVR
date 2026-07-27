@@ -50,7 +50,16 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Seat multiple VR players evenly around the board (distinct azimuth per player) instead of stacking them at one shared seat. No effect single-player.</summary>
     internal static ConfigEntry<bool> SpawnInCircle = null!;
 
-    /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.</summary>
+    /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.
+    ///
+    /// <para>KEEP — DO NOT UNBIND, even though no code reads <c>.Value</c> (refactor Batch D,
+    /// verified at HEAD). A bound entry is a PERSISTED USER SETTING (CHARTER §5): unbinding it
+    /// drops the key from every existing .cfg. Its 9-line description is also the only
+    /// surviving record of the test-#8 decision to keep the campaign map flat, and
+    /// <c>VRRigDriver</c> carries the matching comment at the site that would implement it.
+    /// It is deliberately NOT prefixed "LEGACY — superseded by X" (Batch E) either: nothing
+    /// superseded it, it was never implemented, and the description already says so
+    /// plainly.</para></summary>
     internal static ConfigEntry<bool> Experimental3DMap = null!;
 
     /// <summary>

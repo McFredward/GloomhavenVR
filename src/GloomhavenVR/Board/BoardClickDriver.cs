@@ -43,7 +43,11 @@ internal static class BoardClickDriver
     /// <summary>Fingertip depth (real meters) that commits a near-mode click (mirrors PokeInteractor's contact radius).</summary>
     private const float ContactDepth = 0.008f;
 
-    /// <summary>Fingertip must retract past this (real meters) to re-arm the near click.</summary>
+    /// <summary>Fingertip must retract past this (real meters) to re-arm the near click.
+    /// Mirrors <c>PokeInteractor.ReleaseRange</c> — the board click and the poke must arm and
+    /// re-arm at the same depths or the two surfaces feel different under one finger. Both
+    /// mirrors are enforced by <c>scripts/check-mirrors.sh</c> (deliberately a lint rather
+    /// than a shared constant — REVIEW-Hands-Board-Core §P3).</summary>
     private const float ReleaseDepth = 0.02f;
 
     private static bool _pending;
