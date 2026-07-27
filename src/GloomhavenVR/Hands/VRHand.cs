@@ -433,6 +433,11 @@ internal sealed class VRHand : MonoBehaviour
 
     private void UpdateBody()
     {
+        // FRAME-ORDER VRHand.UpdateBody.pose [ReadSimulated, ReadDevice, UpdateVelocity, UpdatePoseClassification, UpdateCurlTargets, _curler.Tick, Poke.Tick]
+        //   Every later step consumes the step before it: velocity is differentiated from the
+        //   pose read THIS frame, the pose classifier reads that velocity, the curl targets read
+        //   the classification, and the interactors must see all of it settled. Machine-checked
+        //   against .planning/refactor/FRAME-ORDER.lock — reordering is Tier 3.
         WorldScale = transform.lossyScale.x;
         SyncVisualOffset();
 
@@ -446,11 +451,14 @@ internal sealed class VRHand : MonoBehaviour
         UpdateCurlTargets();
         _curler.Tick(Time.deltaTime);
 
+        // FRAME-ORDER VRHand.UpdateBody.interactors [Poke, Ray, RayUgui, RayGrab, Grabber, PalmGate]
         // Interactors see the fresh pose; deterministic order (RayUgui consumes the
         // ray's pick of THIS frame, so it ticks right after the ray). RayGrab ticks AFTER
         // RayUgui so a UI click on a window wins over dragging its bar, and BEFORE the
         // Grabber so a laser-carry it starts (Held set via ForceGrab) suppresses any
         // proximity trigger-grab that frame (Grabber early-outs on Held != null).
+        //   Every adjacency above is an arbitration decision — INVARIANTS §6. Reordering is
+        //   Tier 3, and is invisible to refactor-guard.sh, which is why it is locked.
         Poke.Tick();
         Ray.Tick();
         RayUgui.Tick();

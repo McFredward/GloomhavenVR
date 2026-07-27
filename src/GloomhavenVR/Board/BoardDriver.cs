@@ -31,6 +31,11 @@ internal sealed class BoardDriver : MonoBehaviour
         // of the anonymous per-frame NullReferenceException flood. Static method groups →
         // the delegates are cached by the compiler, so no per-frame allocation. Call order
         // is unchanged (SyncRayMask → CameraArrival → Click → Aoe → Targeting).
+        // FRAME-ORDER BoardDriver.Update [Board.SyncRayMask, Board.CameraArrival, Board.Click, Board.Aoe, Board.Targeting]
+        //   All five run in Update, i.e. BEFORE the game's Controller.LateUpdate consumes the
+        //   cursor and click state they write. The order above is the one the sentence directly
+        //   above states in prose; the marker is the machine-checked copy of it (the prose has
+        //   drifted elsewhere in this repo — see VRRigDriver._tailSteps).
         TickGuard.Run("Board.SyncRayMask", SyncRayMask);
         TickGuard.Run("Board.CameraArrival", CameraArrivalGuard.Tick);
         TickGuard.Run("Board.Click", BoardClickDriver.Tick);
@@ -44,6 +49,16 @@ internal sealed class BoardDriver : MonoBehaviour
     // snaps the GAME-side cursor projection (BoardPick.ResolveCursorWorld), so the
     // game's own hex hover highlight communicates the snapped hex.
 
+    /// <summary>
+    /// NO FRAME-ORDER MARKER, DELIBERATELY. This writes <c>hand.Ray.Mask</c> and
+    /// <c>VRHand.Update</c> reads it — different GameObjects, so Unity's relative Update order
+    /// is undefined. That is fine and is not to be "fixed": the mask is STICKY across frames
+    /// (it is only rewritten when the game's selection layer actually changes, see the
+    /// inequality guards below), so a one-frame-stale mask is the same mask.
+    /// Adding <c>[DefaultExecutionOrder]</c> here would freeze an order the code does not rely
+    /// on — a Tier-3 behaviour change — and would let a later edit start depending on it
+    /// without anyone noticing. See .planning/refactor/REVIEW-Hands-Board-Core.md §P2.
+    /// </summary>
     private static void SyncRayMask()
     {
         Controller? controller = Controller.Instance;

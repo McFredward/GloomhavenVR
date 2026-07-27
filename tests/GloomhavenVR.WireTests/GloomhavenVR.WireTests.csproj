@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    GOLDEN-VECTOR WIRE TESTS — byte-exact, deliberately NOT round-trip.
+
+    WHY NOT ROUND-TRIP. A sender never parses its own packet, and both serializers are
+    index-walkers with no tags. The most likely damaging refactor is therefore one that
+    moves a block in `Write` AND in `TryRead` together — exactly what a "tidy the
+    serializer by grouping the ifs per feature" pass does. Writer and reader stay mutually
+    consistent, so `Write(x); TryRead(...) == x` still passes while every peer on the old
+    build is corrupted. Only expected BYTES catch that.
+    (.planning/refactor/REVIEW-Net-Rig.md §2.1 and §W5.)
+
+    WHY SOURCE-LINKED AND NOT `InternalsVisibleTo`. Adding
+    `[assembly: InternalsVisibleTo("GloomhavenVR.Tests")]` to the mod would put an assembly
+    attribute in the shipped DLL, and `ilspycmd -p` emits assembly attributes — so the
+    refactor guard would report a diff for a test-only change. Compiling the five wire
+    files into this assembly instead makes them internal TO THIS ASSEMBLY, needs no
+    attribute, and leaves the shipped DLL untouched. Guard diff: empty.
+
+    NOT IN GloomhavenVR.sln, ON PURPOSE. `refactor-guard.sh` builds the solution and greps
+    the output for "error"; a test project in the solution puts test compilation on the
+    critical path of the mod's safety net. Run it with `scripts/wire-tests.sh`.
+
+    NOT SHIPPED. `scripts/package-release.sh` copies named artifacts out of
+    src/*/bin — it never looks at tests/.
+
+    UNITY TYPES ARE THE REAL ONES. `Mathf`/`Vector3`/`Quaternion` come from the game's own
+    UnityEngine.CoreModule.dll and run fine outside Unity (they are managed code for
+    everything these serializers touch). A hand-written shim was rejected: `Mathf.RoundToInt`
+    is banker's rounding (RoundToInt(0.5f) == 0, RoundToInt(1.5f) == 2), which a shim would
+    almost certainly have got wrong — and it sits directly on the quantization path.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>GloomhavenVR.WireTests</AssemblyName>
+    <RootNamespace>GloomhavenVR.WireTests</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- The mod's own analyzers/publicizer are irrelevant here and would need the game refs. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <!-- The wire files, compiled into the test assembly verbatim. If one of these is split or
+       moved during the refactor, this list is what fails first — which is intended. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetProtocol.cs" Link="wire\NetProtocol.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\AvatarState.cs" Link="wire\AvatarState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Shims.cs" />
+    <Compile Include="Hex.cs" />
+    <Compile Include="GoldenVectors.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
+  </ItemGroup>
+
+  <Target Name="_CheckGameManaged" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(GameManaged)\UnityEngine.CoreModule.dll')"
+           Text="Set GameManaged (Directory.Build.props.user) — the wire tests use the game's real UnityEngine.CoreModule so Mathf's rounding matches the shipped build exactly." />
+  </Target>
+
+</Project>
