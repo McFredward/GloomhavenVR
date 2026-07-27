@@ -27,9 +27,18 @@ namespace GloomhavenVR.Core;
 /// defaults to TODAY'S behaviour and has to be switched on deliberately.</item>
 /// </list>
 ///
-/// <para>A separate settings-menu reorganization is inbound, so the panel rows that drive these
-/// entries are deliberately kept in ONE self-contained block
-/// (<c>SettingsPanel.BuildPerformanceCategory</c>) that can be moved wholesale.</para>
+/// <para>NOT IN THE VR SETTINGS ANY MORE (2026-07, user: the performance pane was "super
+/// verwirrend für den User"): every [Perf] entry and every pure work-removal [Optimize] entry is
+/// CONFIG-FILE ONLY now. A settings row asks the player to make a decision, and these offer no
+/// decision to make — the measurement changes nothing visible, and the work-removal switches are
+/// invisible by construction (that is exactly why they default ON). They are A/B harnesses for
+/// this debug phase, so they live here, described here, and nowhere else. The three interval
+/// levers below (<see cref="FanRelayoutMinInterval"/>, <see cref="WallFadeEvalInterval"/>,
+/// <see cref="RemoteContentInterval"/>) DO trade freshness for work, so they kept a UI row — but
+/// in the Debug pane (<c>SettingsPanel.BuildTimingCategory</c>), not the user-facing category,
+/// because the measurement says the CPU is ~2.5% of frame time and pointing a stuttering player
+/// at a CPU lever would aim them at the wrong problem. The user-facing performance rows are the
+/// GPU quality trade only (<c>SettingsPanel.BuildPerformanceCategory</c> → Rig.RenderQuality).</para>
 /// </summary>
 internal static class PerfConfig
 {

@@ -241,6 +241,15 @@ internal sealed partial class FlatScreen
     private bool _scrubActive;
     /// <summary>Scene name whose backbuffer inventory we already logged (re-log once per scene/state).</summary>
     private string? _scrubInventoryScene;
+    /// <summary>True while the scrubbed cameras' draw-skip hooks are registered on Camera.onPreCull/onPostRender.</summary>
+    private bool _scrubDrawSkipHooked;
+    /// <summary>
+    /// The one scrubbed camera whose culling mask is currently zeroed, and its real value.
+    /// Single-slot by construction: Unity culls, renders and post-renders one camera at a time,
+    /// so a save/restore pair can never nest (FlatScreen.3.Desktop SyncScrubDrawSkip).
+    /// </summary>
+    private Camera? _maskedCam;
+    private int _maskedValue;
 
     // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
     /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>

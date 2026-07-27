@@ -55,98 +55,101 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     // ==========================================================================================
 
     /// <summary>
-    /// The whole "Leistung" category, in ONE self-contained block. Two sections:
+    /// The whole "Leistung" category — RESHAPED 2026-07 after the user's verdict on what was
+    /// here before ("super verwirrend für den User"). It used to carry 20 rows: seven that only
+    /// changed what the log records, five A/B switches for pure work removal, three CPU interval
+    /// levers and a log-volume toggle. A player has no basis on which to decide any of those, and
+    /// offering them implies they should.
     ///
-    /// <para><b>Messung</b> drives <c>[Perf]</c> — what the log records. Nothing here changes a
-    /// single pixel; it decides whether the next hardware log can answer "which subsystem owned
-    /// that hitch" at all. Defaults ON, because a performance report nobody switched on is worth
-    /// nothing, and the measurement is built to cost microseconds.</para>
+    /// The rule now is a THREE-TIER split, and only the first tier is here:
+    /// <list type="bullet">
+    /// <item>NORMAL SETTINGS (this method) — only rows where the player genuinely gives something
+    /// up to gain frames. Today that is exactly two levers, plus one preset that sets both.</item>
+    /// <item>DEBUG (<see cref="BuildTimingCategory"/>) — power-user tuning to FIND good defaults:
+    /// the CPU interval levers and the stereo render mode.</item>
+    /// <item>CONFIG FILE ONLY — everything that exists to produce numbers in the log during this
+    /// debug phase ([Perf] measurement) and every pure work-removal A/B switch. Reachable in
+    /// dev.gloomhavenvr.perf.cfg, described there, absent from the UI.</item>
+    /// </list>
     ///
-    /// <para><b>Optimierungen</b> drives <c>[Optimize]</c> — one row per optimization, so any of
-    /// them can be A/B'd on hardware against the [Perf] numbers without a rebuild. The toggles
-    /// default to the OPTIMIZED behaviour only where the change is invisible by construction (pure
-    /// work removal); the two interval steppers and the quiet-diagnostics switch default to exactly
-    /// TODAY'S behaviour, so nothing the player can perceive changes without them asking for it.</para>
+    /// COMPLEMENTARY, NOT REPLACING: verified against the decompiled <c>GraphicSettings</c> /
+    /// <c>DisplaySettings</c>, the base game already exposes quality preset, post-process AA
+    /// (FXAA/SMAA/TAA), anisotropic filtering, shadows + shadow resolution, texture quality, skin
+    /// weights, v-sync, FPS cap, pixel lights, soft particles, reflection probes and desktop
+    /// resolution. It exposes NO MSAA at all (nothing in the game ever writes
+    /// <c>QualitySettings.antiAliasing</c>) and nothing per-eye. Those two gaps are precisely
+    /// what the rows below fill, so nothing here shadows a game control that could disagree with
+    /// it — and the closing note points at Optionen › Grafik for the rest instead of mirroring it.
     ///
-    /// <para>Every row registers its own gate via <see cref="GateCat"/>, so this method may be
-    /// called from anywhere in <c>Build()</c> and moved to any other category by changing the one
-    /// <see cref="GateCat"/> call below — which is what the inbound menu reorganization needs.</para>
+    /// Every row registers its own gate via <see cref="GateCat"/>, so this method may be called
+    /// from anywhere in <c>Build()</c> and moved wholesale by changing the one call below.
     /// </summary>
     private void BuildPerformanceCategory()
     {
-        PerfConfig.Bind();
         GateCat(NavCat.Leistung);
 
-        // ---- Messung ------------------------------------------------------------------------
-        Section(Loc.Mod("perf_measurement"));
+        Section(Loc.Mod("perf_render_trade"));
 
-        Toggle(Loc.Mod("perf_enabled"),
-            () => PerfConfig.Enabled.Value,
-            v => PerfConfig.Enabled.Value = v);
+        // One named choice that sets both levers below. Derived, not stored (RenderQuality
+        // .CurrentPresetIndex): touching either row afterwards simply reads back as "Eigene",
+        // so the preset can never hide or contradict the values it wrote.
+        var presetRow = Row();
+        Label(presetRow, Loc.Mod("perf_preset"), 16f, flexible: true);
+        CycleButton(presetRow, 150f, RenderQuality.PresetLabel, RenderQuality.CyclePreset);
+        var presetNote = Row(44f);
+        Label(presetNote, Loc.Mod("perf_preset_note"), 12f, flexible: true);
 
-        var noteRow = Row(30f);
-        Label(noteRow, Loc.Mod("perf_note"), 12f, flexible: true);
+        // [RenderQuality] EyeResolutionScale — the dominant GPU lever (all per-pixel work ∝
+        // scale²). Applies live; RenderQuality's readback decides whether the allocation or the
+        // viewport lever carries it and says so in the log.
+        var ssRow = Row();
+        Label(ssRow, Loc.Mod("perf_eye_resolution"), 16f, flexible: true);
+        MiniStepper(ssRow, RenderQuality.EyeScaleLabel, RenderQuality.StepEyeScale);
+        var ssNote = Row(44f);
+        Label(ssNote, Loc.Mod("perf_eye_resolution_note"), 12f, flexible: true);
 
-        Stepper(Loc.Mod("perf_interval"),
-            () => $"{Mathf.Clamp(PerfConfig.SummaryIntervalSeconds.Value, 5f, 600f):0}s",
-            d => PerfConfig.SummaryIntervalSeconds.Value =
-                Mathf.Clamp(PerfConfig.SummaryIntervalSeconds.Value + d * 5f, 5f, 600f));
+        // [RenderQuality] MsaaLevel — Off → 2x → 4x → 8x, applied live by the rig's per-frame
+        // re-assert. Kept fully reachable including 8x: this is a real, user-visible quality
+        // feature (hardware 2026-07), it is simply not a free one.
+        var msaaRow = Row();
+        Label(msaaRow, Loc.Mod("perf_msaa"), 16f, flexible: true);
+        CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
+        var msaaNote = Row(44f);
+        Label(msaaNote, Loc.Mod("perf_msaa_note"), 12f, flexible: true);
 
-        Toggle(Loc.Mod("perf_attribution"),
-            () => PerfConfig.Attribution.Value,
-            v => PerfConfig.Attribution.Value = v);
+        // Point at the game's own graphics panel rather than mirroring it.
+        var gameNote = Row(52f);
+        Label(gameNote, Loc.Mod("perf_game_graphics_note"), 12f, flexible: true);
 
-        Stepper(Loc.Mod("perf_top_steps"),
-            () => $"{Mathf.Clamp(PerfConfig.TopSteps.Value, 1, 20)}",
-            d => PerfConfig.TopSteps.Value = Mathf.Clamp(PerfConfig.TopSteps.Value + d, 1, 20));
+        // Say where the rows that used to be here went, so their absence reads as a decision.
+        var cfgNote = Row(40f);
+        Label(cfgNote, Loc.Mod("perf_config_note"), 12f, flexible: true);
 
-        Toggle(Loc.Mod("perf_spikes"),
-            () => PerfConfig.SpikeLines.Value,
-            v => PerfConfig.SpikeLines.Value = v);
+        _rowGate = null;
+    }
 
-        Stepper(Loc.Mod("perf_spike_factor"),
-            () => $"{Mathf.Clamp(PerfConfig.SpikeBudgetFactor.Value, 1.2f, 10f):0.0}x",
-            d => PerfConfig.SpikeBudgetFactor.Value =
-                Mathf.Clamp(PerfConfig.SpikeBudgetFactor.Value + d * 0.1f, 1.2f, 10f));
+    /// <summary>
+    /// Debug tier: the levers a power user needs to FIND good defaults, which no normal player
+    /// should be asked to reason about. Flat rows (not per-element), so they are visible whenever
+    /// the Debug category is open.
+    ///
+    /// <para>The three interval steppers are CPU-side and default to exactly today's behaviour.
+    /// They are here rather than under Leistung because the measurement says the CPU is not the
+    /// problem — the mod costs ~2.5% of frame time — so presenting them to a player as
+    /// "performance settings" would aim them at the wrong thing.</para>
+    ///
+    /// <para>The stereo render mode is here rather than under Leistung for a harder reason: on
+    /// this game it is not a trade, it is a break. See
+    /// <see cref="Core.StereoModeConfig"/> for the evidence.</para>
+    /// </summary>
+    private void BuildTimingCategory()
+    {
+        PerfConfig.Bind();
+        Core.StereoModeConfig.Bind();
+        GateCat(NavCat.Debug);
 
-        Stepper(Loc.Mod("perf_spike_rate"),
-            () => $"{Mathf.Clamp(PerfConfig.SpikeMaxPerSecond.Value, 0.1f, 20f):0.0}/s",
-            d => PerfConfig.SpikeMaxPerSecond.Value =
-                Mathf.Clamp(PerfConfig.SpikeMaxPerSecond.Value + d * 0.5f, 0.1f, 20f));
+        Section(Loc.Mod("subcat_timing"));
 
-        Toggle(Loc.Mod("perf_alloc"),
-            () => PerfConfig.Allocations.Value,
-            v => PerfConfig.Allocations.Value = v);
-
-        Toggle(Loc.Mod("perf_xr"),
-            () => PerfConfig.XrStats.Value,
-            v => PerfConfig.XrStats.Value = v);
-
-        // ---- Optimierungen -------------------------------------------------------------------
-        Section(Loc.Mod("perf_optimizations"));
-
-        Toggle(Loc.Mod("opt_cache_delegates"),
-            () => PerfConfig.CacheTickDelegates.Value,
-            v => PerfConfig.CacheTickDelegates.Value = v);
-
-        Toggle(Loc.Mod("opt_map_icons"),
-            () => PerfConfig.MapIconCache.Value,
-            v => PerfConfig.MapIconCache.Value = v);
-
-        Toggle(Loc.Mod("opt_figure_scan"),
-            () => PerfConfig.FigureScanCache.Value,
-            v => PerfConfig.FigureScanCache.Value = v);
-
-        Toggle(Loc.Mod("opt_lean_strings"),
-            () => PerfConfig.LeanLogStrings.Value,
-            v => PerfConfig.LeanLogStrings.Value = v);
-
-        Toggle(Loc.Mod("opt_tooltip_gate"),
-            () => PerfConfig.TooltipScanGate.Value,
-            v => PerfConfig.TooltipScanGate.Value = v);
-
-        // The three below trade freshness for work, so their DEFAULT is today's behaviour and the
-        // readout says "Aus"/"Off" rather than a number until the player deliberately raises it.
         Stepper(Loc.Mod("opt_fan_relayout"),
             () => PerfConfig.FanRelayoutMinInterval.Value <= 0f
                 ? Loc.Mod("off")
@@ -168,12 +171,23 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             d => PerfConfig.RemoteContentInterval.Value =
                 Mathf.Clamp(PerfConfig.RemoteContentInterval.Value + d * 0.05f, 0f, 2f));
 
-        Toggle(Loc.Mod("opt_quiet_diag"),
-            () => PerfConfig.QuietDiagnostics.Value,
-            v => PerfConfig.QuietDiagnostics.Value = v);
+        var timingNote = Row(44f);
+        Label(timingNote, Loc.Mod("debug_timing_note"), 12f, flexible: true);
 
-        var optNote = Row(30f);
-        Label(optNote, Loc.Mod("perf_opt_note"), 12f, flexible: true);
+        // The one GPU experiment that has no quality trade at all, so it cannot go under
+        // Leistung: it either changes nothing visible (expected) or it breaks something
+        // (the reason it defaults off). Debug is exactly the tier for "help me find the default".
+        Toggle(Loc.Mod("debug_skip_scrub_draw"),
+            () => WorldUIConfig.SkipDesktopScrubDraw.Value,
+            v => WorldUIConfig.SkipDesktopScrubDraw.Value = v);
+        var scrubNote = Row(64f);
+        Label(scrubNote, Loc.Mod("debug_skip_scrub_note"), 12f, flexible: true);
+
+        var stereoRow = Row();
+        Label(stereoRow, Loc.Mod("debug_stereo_mode"), 16f, flexible: true);
+        CycleButton(stereoRow, 150f, Core.StereoModeConfig.Label, Core.StereoModeConfig.Cycle);
+        var stereoNote = Row(64f);
+        Label(stereoNote, Loc.Mod("debug_stereo_note"), 12f, flexible: true);
 
         _rowGate = null;
     }
