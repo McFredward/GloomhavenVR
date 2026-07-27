@@ -291,36 +291,65 @@ internal static class Loc
         ["subcat_offsets"] = Pair("Hands/Offsets", "Hände/Offsets"),
         ["subcat_wall_seethrough"] = Pair("Wall see-through", "Wand-Durchsicht"),
 
-        // ---- SettingsPanel: Leistung (2026-07 performance pass) ----
-        // The category the frame-time instrumentation and every individually switchable
-        // optimization live in. Wording rule for this block: each label says WHAT it costs or
-        // WHAT it measures, because these are the only settings whose effect the player cannot
-        // see directly — they can only be read off the log.
+        // ---- SettingsPanel: Leistung — the VR render trade (2026-07 GPU pass) ----
+        // Wording rule for this block, from the user ("super verwirrend für den User"): every
+        // label names the COMPROMISE, not the mechanism. A row belongs here only if the player
+        // has to give something up to gain frames; anything else is config/Debug. And nothing
+        // here duplicates the game's own Optionen › Grafik — verified against the decompiled
+        // GraphicSettings/DisplaySettings: the game exposes quality preset, post-process AA
+        // (FXAA/SMAA/TAA), aniso, shadows, shadow resolution, texture quality, skin weights,
+        // v-sync, FPS cap, pixel lights, soft particles, reflection probes and desktop
+        // resolution — but NO MSAA (QualitySettings.antiAliasing is never written by the game)
+        // and nothing per-eye. Those two gaps are exactly what these rows fill.
+        ["perf_render_trade"] = Pair("Sharpness vs. smoothness", "Schärfe gegen Flüssigkeit"),
+        ["perf_preset"] = Pair("Graphics preset", "Grafik-Voreinstellung"),
+        ["preset_quality"] = Pair("Quality", "Qualität"),
+        ["preset_balanced"] = Pair("Balanced", "Ausgewogen"),
+        ["preset_performance"] = Pair("Performance", "Leistung"),
+        ["preset_minimum"] = Pair("Weak hardware", "Schwache Hardware"),
+        ["preset_custom"] = Pair("Custom", "Eigene"),
+        ["perf_preset_note"] = Pair(
+            "sets the two rows below together — Quality = sharpest and most GPU, Weak hardware = softest and least. Adjust either row afterwards and this reads 'Custom'.",
+            "setzt die beiden Regler darunter gemeinsam — Qualität = schärfstes Bild, höchste GPU-Last; Schwache Hardware = weichstes Bild, geringste Last. Danach einzeln nachjustierbar, dann steht hier \"Eigene\"."),
+        ["perf_eye_resolution"] = Pair("Render resolution (per eye)", "Renderauflösung (pro Auge)"),
+        ["perf_eye_resolution_note"] = Pair(
+            "the strongest lever: GPU load rises with the SQUARE of this. Lower = softer picture and less fine texture detail, but far more frames. 1.0x is what your headset software asks for — that is usually already above the panel's own resolution.",
+            "der stärkste Regler: die GPU-Last steigt im QUADRAT. Niedriger = weicheres Bild und weniger feine Texturdetails, dafür deutlich mehr Bilder/s. 1.0x ist das, was deine Headset-Software anfordert — das liegt meist schon über der Panelauflösung."),
+        ["perf_msaa"] = Pair("Edge smoothing (MSAA)", "Kantenglättung (MSAA)"),
+        ["perf_msaa_note"] = Pair(
+            "smooths geometry edges (control board, board tiles) — not textures. Costs GPU bandwidth per step. It works on top of the render resolution above, so at a high resolution the difference between 4x and 8x is small while the cost is not.",
+            "glättet Geometriekanten (Kontrollbrett, Bodenplatten) — keine Texturen. Kostet pro Stufe GPU-Bandbreite. Wirkt zusätzlich zur Renderauflösung oben: bei hoher Auflösung ist der Unterschied zwischen 4x und 8x klein, der Aufwand nicht."),
+        ["perf_game_graphics_note"] = Pair(
+            "Shadows, textures, lighting and the game's own anti-aliasing stay in Options › Graphics — these two rows only add what VR needs and the game has no control for. Note the game's anti-aliasing is post-processing and is switched off in VR (Display › Disable post-processing).",
+            "Schatten, Texturen, Beleuchtung und die spieleigene Kantenglättung bleiben unter Optionen › Grafik — diese beiden Regler ergänzen nur das, wofür das Spiel keinen Regler hat. Hinweis: die Kantenglättung des Spiels ist Post-Processing und ist in VR abgeschaltet (Anzeige › Post-Processing aus)."),
+        ["perf_config_note"] = Pair(
+            "Measurement logging and the internal A/B switches are not shown here — they change nothing you can see. They live in dev.gloomhavenvr.perf.cfg, the timing levers under Debug.",
+            "Mess-Protokollierung und interne A/B-Schalter stehen nicht hier — sie ändern nichts Sichtbares. Sie liegen in dev.gloomhavenvr.perf.cfg, die Zeitgeber-Regler unter Debug."),
+
+        // ---- SettingsPanel: Debug — timing levers moved out of the user-facing category ----
+        ["subcat_timing"] = Pair("Timing / CPU", "Zeitgeber / CPU"),
+        ["debug_timing_note"] = Pair(
+            "CPU-side refresh intervals. Measured at ~2.5% of frame time, so these are for finding defaults, not for fixing stutter — the GPU rows under Performance are the ones that move frames.",
+            "CPU-seitige Auffrischungs-Intervalle. Gemessen bei ~2,5 % der Bildzeit — also zum Ermitteln guter Vorgaben, nicht gegen Ruckler; dafür sind die GPU-Regler unter Leistung zuständig."),
+        ["debug_stereo_mode"] = Pair("Stereo mode (restart)", "Stereo-Modus (Neustart)"),
+        ["debug_stereo_note"] = Pair(
+            "MultiPass renders the scene once per eye. Single-Pass Instanced would halve that, but this game's shaders ship with no stereo variants (verified by disassembly), so it renders the right eye black/wrong. Leave on MultiPass; the setting exists for testing a future patched shader bundle. Takes effect on the next game start.",
+            "MultiPass rendert die Szene einmal pro Auge. Single-Pass Instanced würde das halbieren, aber die Shader dieses Spiels enthalten keine Stereo-Varianten (per Disassembly belegt) — das rechte Auge bleibt schwarz/falsch. Auf MultiPass lassen; die Einstellung dient dem Test eines künftig gepatchten Shader-Bundles. Wirkt beim nächsten Spielstart."),
+
+        // ---- SettingsPanel: Leistung — remaining row labels ----
+        // The measurement labels that used to live here (perf_measurement / perf_enabled /
+        // perf_interval / perf_attribution / perf_top_steps / perf_spikes / perf_spike_factor /
+        // perf_spike_rate / perf_alloc / perf_xr) and the pure work-removal switches
+        // (opt_cache_delegates / opt_map_icons / opt_figure_scan / opt_lean_strings /
+        // opt_tooltip_gate / opt_quiet_diag) are GONE, with their rows: they change nothing the
+        // player can see, so there is no compromise for a player to make and offering them
+        // implied there was. They are config-file entries now (dev.gloomhavenvr.perf.cfg), which
+        // is where a debug-phase instrument belongs. The three interval labels below survive
+        // because their rows moved to the Debug pane, not because they are user settings.
         ["performance"] = Pair("Performance", "Leistung"),
-        ["perf_measurement"] = Pair("Measurement (log only)", "Messung (nur Log)"),
-        ["perf_note"] = Pair("writes [Perf] FRAME / STEPS / SPIKE lines to the log — changes nothing you see",
-                             "schreibt [Perf] FRAME / STEPS / SPIKE ins Log — ändert nichts Sichtbares"),
-        ["perf_enabled"] = Pair("Measure performance", "Leistung messen"),
-        ["perf_interval"] = Pair("Summary every", "Zusammenfassung alle"),
-        ["perf_attribution"] = Pair("Per-subsystem breakdown", "Aufschlüsselung nach Subsystem"),
-        ["perf_top_steps"] = Pair("Subsystems listed", "Gelistete Subsysteme"),
-        ["perf_spikes"] = Pair("Log frame spikes", "Bildruckler protokollieren"),
-        ["perf_spike_factor"] = Pair("Spike threshold", "Ruckler-Schwelle"),
-        ["perf_spike_rate"] = Pair("Spike lines max", "Ruckler-Zeilen max"),
-        ["perf_alloc"] = Pair("Memory / GC pressure", "Speicher / GC-Druck"),
-        ["perf_xr"] = Pair("XR counters (dropped frames)", "XR-Zähler (verworfene Bilder)"),
-        ["perf_optimizations"] = Pair("Optimizations", "Optimierungen"),
-        ["opt_cache_delegates"] = Pair("Reuse per-frame delegates", "Delegates pro Bild wiederverwenden"),
-        ["opt_map_icons"] = Pair("Cache campaign-map icons", "Kampagnenkarten-Symbole zwischenspeichern"),
-        ["opt_figure_scan"] = Pair("Cache figure lookups", "Figuren-Suche zwischenspeichern"),
-        ["opt_lean_strings"] = Pair("Skip unused log text", "Ungenutzten Log-Text überspringen"),
-        ["opt_tooltip_gate"] = Pair("Tooltip scan only when shown", "Tooltip-Suche nur wenn sichtbar"),
         ["opt_fan_relayout"] = Pair("Card fan re-layout limit", "Kartenfächer-Neuaufbau max."),
         ["opt_wall_eval"] = Pair("Wall see-through check every", "Wand-Durchsicht prüfen alle"),
         ["opt_remote_content"] = Pair("Player board refresh", "Mitspieler-Board-Auffrischung"),
-        ["opt_quiet_diag"] = Pair("Quiet diagnostics", "Diagnose-Log leise"),
-        ["perf_opt_note"] = Pair("switches marked as intervals default to today's behaviour — raise them only to trade freshness for frames",
-                                 "Intervall-Regler stehen auf dem heutigen Verhalten — höher heißt weniger Aktualität für mehr Bilder/s"),
 
         // ---- figure-grab debug tuning (item 2b) ----
         ["cat_figures"] = Pair("Figures", "Figuren"),

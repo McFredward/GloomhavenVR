@@ -184,20 +184,13 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             () => CombatLogSurface.UserVisible,
             v => CombatLogSurface.SetUserVisible(v, "settings"));
 
-        // MSAA on the VR eye textures ([RenderQuality] MsaaLevel — Rig.RenderQuality):
-        // Cycles Off → 2x → 4x → 8x. Applies IMMEDIATELY (the rig's per-frame RenderQuality
-        // tick re-asserts it and re-allocates the eye textures live — no restart).
-        var msaaRow = Row();
-        Label(msaaRow, "MSAA", 16f, flexible: true);
-        CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
-
-        // Supersampling ([RenderQuality] EyeResolutionScale) — eye-texture resolution scale,
-        // 0.8–2.0 in 0.1 steps. The working AA lever under VDXR (MSAA capped at 1x there).
-        var ssRow = Row();
-        Label(ssRow, "Supersampling", 16f, flexible: true);
-        MiniStepper(ssRow, RenderQuality.EyeScaleLabel, RenderQuality.StepEyeScale);
-        var msaaNote = Row(28f);
-        Label(msaaNote, "MSAA wirkt nicht unter VDXR – Supersampling nutzen", 12f, flexible: true);
+        // MSAA and the per-eye render resolution USED TO LIVE HERE, with a note claiming "MSAA
+        // wirkt nicht unter VDXR". Both moved to Leistung (2026-07 GPU pass) and the note is
+        // gone, because it was wrong: it repeated this file's since-retracted swapchain-desc
+        // inference (Rig/RenderQuality.cs class doc), while on hardware MSAA is plainly visible
+        // in the headset. They belong together under Leistung anyway — they are two halves of
+        // ONE sharpness-against-smoothness decision, and Anzeige is for what is shown, not for
+        // what it costs.
 
         Toggle(Loc.Mod("disable_post"),
             () => Plugin.DisablePostProcessing.Value,
@@ -363,6 +356,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // ONE self-contained call: everything it builds gates itself to NavCat.Leistung, so the
         // inbound category reorganization can move this line (and the enum member) and nothing else.
         BuildPerformanceCategory();
+        BuildTimingCategory();  // Debug → CPU interval levers + the stereo render mode
 
         BuildHandsCategory();   // Debug → Hände-Offsets (per-style seat + card-fan geometry)
         BuildFiguresCategory(); // Debug → Figuren-Offsets (per-style held-mini pose)
