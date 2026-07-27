@@ -446,6 +446,16 @@ Current files:
 BepInEx persists every `ConfigEntry` write automatically; entries read live apply
 immediately, others document their apply point in the entry description.
 
+**Every file created through `ModuleConfig.Create` is REGISTERED** (`ModuleConfig
+.Snapshot`), and the in-VR settings panel browses that registry — Debug ▸ *Alle
+Einstellungen* lists and edits every bound entry, grouped by topic, so nothing is
+config-file-only. Two consequences for a module author: bind through
+`ModuleConfig.Create` (a hand-rolled `new ConfigFile(...)` is invisible to the
+browser), and write a real `description` on every entry, because that description IS
+the in-VR hover text. Nothing else is needed — a new entry appears by itself. If a
+module binds LAZILY rather than at init, name its binder in
+`ConfigCatalog.EnsureBound` so its entries are listed before that code path runs.
+
 ## 8. Dev harness (for your own testing)
 
 `[Dev] Enabled = true` in `BepInEx/config/dev.gloomhavenvr.cfg` runs the bus, mode

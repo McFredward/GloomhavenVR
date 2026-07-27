@@ -20,7 +20,15 @@ internal sealed partial class FlatScreenStereo
         BindConfig();
     }
 
-    private static void BindConfig()
+    /// <summary>
+    /// Bind-once for the stereo compositor's [WorldUI] entries. INTERNAL rather than private since
+    /// 2026-07: these 25 entries live on WorldUIConfig's file but are only bound when a
+    /// <see cref="FlatScreenStereo"/> is CONSTRUCTED, so the in-VR config browser force-binds them
+    /// (<c>ConfigCatalog.EnsureBound</c>) instead of showing a hole where a quarter of the
+    /// world-UI settings should be. Binding is pure — it touches no camera, no scene object and no
+    /// instance state — so calling it from the settings pane is safe at any time.
+    /// </summary>
+    internal static void BindConfig()
     {
         if (s_stereoScreen != null)
             return;
