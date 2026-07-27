@@ -85,7 +85,14 @@ internal sealed class HandRig
 
     private readonly FingerJoints[] _fingers = new FingerJoints[5];
 
-    /// <summary>World-space palm normal (points out of the palm).</summary>
+    /// <summary>World-space palm normal (points out of the palm).
+    ///
+    /// <para>KEEP — unread at HEAD, deliberately (refactor Batch D). This one line is the
+    /// NAMED statement of the palm-frame contract that <c>HandVisuals.FillMissingAnchors</c>'
+    /// 180° Z flip exists to satisfy (INVARIANTS §5) and that <c>docs/INTERFACES-P2.md</c>
+    /// §HandRig documents as frozen surface. Deleting it removes a contract statement to save
+    /// a line — and the next person to wire a glove asset would have to rediscover which way
+    /// "out of the palm" points.</para></summary>
     public Vector3 PalmNormal => PalmCenter.up;
 
     public FingerJoints GetFinger(Finger finger) => _fingers[(int)finger];

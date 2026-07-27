@@ -24,11 +24,18 @@ S="$ROOT/src/GloomhavenVR"
 
 # group-name : file:ConstName [file:ConstName ...]
 #
-# Note the FIVE-way group. REVIEW-Hands-Board-Core §P3 named three pairs; a repo-wide
+# Note the FOUR-way group. REVIEW-Hands-Board-Core §P3 named three PAIRS; a repo-wide
 # sweep for the value found two more copies of the fingertip radius — WorldUI's
 # ButtonCluster and Cards' PlayTray — each of whose doc comment already says
-# "mirror of PokeInteractor.FingertipRadius". The review undercounted; the exposure
-# is wider than it stated, which makes the lint worth more, not less.
+# "mirror of PokeInteractor.FingertipRadius". So the fingertip radius has FOUR copies
+# across FOUR subsystems (Hands/Board/WorldUI/Cards), not the two the review named: the
+# review undercounted, which makes the lint worth more, not less.
+#
+# Re-verified at Batch D by sweeping every `const float ... = 0.008f` in src/. The only
+# other 8 mm constants are DecisionDockSurface.BarClearanceMeters (grab-bar-to-prompt gap)
+# and ButtonTuning.DefaultRoundTravel (authored cluster-cap travel) — same number, unrelated
+# meaning, deliberately NOT in this group. An earlier draft of this header said "FIVE-way";
+# the table below has always listed four sites and four is correct.
 MIRRORS=(
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters"
   "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth WorldUI/ButtonCluster.cs:FingertipRadius Cards/PlayTray.cs:FingertipRadius"

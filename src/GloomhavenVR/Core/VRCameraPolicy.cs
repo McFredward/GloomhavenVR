@@ -92,7 +92,16 @@ internal static class VRCameraPolicy
                                $"{Originals.Count} tracked total, head={(head != null ? $"'{head.name}'" : "NONE")}.");
     }
 
-    /// <summary>Drop bookkeeping for cameras destroyed by scene unloads (called on scene-load sweeps).</summary>
+    /// <summary>Drop bookkeeping for cameras destroyed by scene unloads (called on scene-load sweeps).
+    ///
+    /// <para><c>MixedReality.PruneDead</c> is a same-named sibling called from the same
+    /// scene-load path in <c>VRRigDriver</c>. They are NOT duplicates and must not be merged:
+    /// they prune DIFFERENT maps (<c>Dictionary&lt;Camera, StereoTargetEyeMask&gt;</c> here vs
+    /// <c>Dictionary&lt;Camera,(CameraClearFlags,Color)&gt;</c> there), and MR's additionally
+    /// prunes its hidden-sky renderer list and resets three scan/log latches. The only truly
+    /// shared part is the six-line "collect Unity-null keys into a scratch list, then Remove"
+    /// idiom (§14.3 fake-null discipline) — making that a generic helper would add a generic
+    /// instantiation to a scene-load path to save twelve lines.</para></summary>
     internal static void PruneDead()
     {
         Scratch.Clear();

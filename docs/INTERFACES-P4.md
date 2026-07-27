@@ -72,16 +72,23 @@ ComfortSettings.AnyChanged                    // event Action<string /*key*/> �
 | `SnapTurnDegrees` | float | 45 | Degrees per snap step (15–90) |
 | `SmoothTurnSpeed` | float | 90 | Smooth turn °/s |
 | `TurnHand` | `TurnHandChoice` | Dominant | `Dominant / Left / Right` (Dominant = `[Hands] PrimaryHand`) |
-| `SeatedMode` | bool | false | Seated recenter preset (eyes 0.50 m above / 0.55 m back vs 0.70/0.70) |
+| `FreeMovement` | bool | **true** | Test #10: no positional clamps at all — drag the table anywhere, only the (widened) scale limits remain. Off restores the pre-test-#10 comfort clamps |
 | `TableHeightOffset` | float | 0 | Extra eye height above table on recenter, real m (−0.4…0.6) |
 | `RecenterHoldSeconds` | float | 1.0 | B+Y both-hands hold time; 0 disables the chord |
-| `VignetteEnabled` | bool | **false** | Comfort vignette during grab/turn |
-| `VignetteStrength` | float | 0.85 | Peak vignette opacity |
 | `SavedScaleMultiplier` | float | 1.0 | Auto-persisted pinch-scale (written after each two-grip gesture, re-applied on rig build) |
 | `DebugGizmos` | bool | false | `[Comfort] DebugGizmos` overlay |
 
-`SeatedMode` / `TableHeightOffset` changes **re-run recenter immediately** — a panel
-slider gets live feedback for free.
+`TableHeightOffset` changes **re-run recenter immediately** — a panel slider gets live
+feedback for free.
+
+#### SUPERSEDED — accessors this table used to list (none exist at HEAD)
+
+Kept, marked, rather than deleted: these names still appear in older commits and notes.
+
+| Named here before | Status at HEAD | Replaced by |
+|---|---|---|
+| `SeatedMode` | **gone.** `ComfortSettings.cs` says so in as many words: "the old seated preset is GONE (user: irrelevant — the world is freely draggable)". Only the standing preset constants remain (`StandingEyeHeightMeters`/`StandingEyeBackMeters`, 0.70/0.70) | `FreeMovement` + `TableHeightOffset` |
+| `VignetteEnabled`, `VignetteStrength` | **gone**, together with the whole `ComfortVignette` type (see §3) | nothing — no comfort vignette ships |
 
 ## 3. Runtime ops (panel actions / other modules)
 
@@ -91,9 +98,12 @@ GloomhavenVR.Rig.Comfort.SetScaleMultiplier(float);  // panel slider: scales aro
 GloomhavenVR.Rig.VRRigDriver.BaseWorldScale          // float — resolved base scale, 0 while no rig
 GloomhavenVR.Rig.WorldGrab.Instance?.IsGrabbing / .IsTwoHand / .CurrentMultiplier
 GloomhavenVR.Rig.WorldGrab.Instance?.IsHandGrabbing(VRHand)  // is this hand's grip consumed by world grab?
-GloomhavenVR.Rig.ComfortVignette.NotifyMotion(float01)       // report artificial motion from YOUR feature
-GloomhavenVR.Rig.ComfortVignette.Pulse()                     // full-strength blip (used by snap turn)
 ```
+
+**SUPERSEDED:** `ComfortVignette.NotifyMotion(float01)` and `ComfortVignette.Pulse()`
+were listed here. The `ComfortVignette` **type no longer exists** — there is no comfort
+vignette in the mod, and nothing replaced it. Do not call these; do not re-add them
+without the hardware round that would justify a vignette.
 
 P1 statics are unchanged: `VRRigDriver.RigRoot`, `VRRigDriver.HeadCamera` (frozen P2
 §6). New statics (`BaseWorldScale`, `Instance`, `RequestRecenter`) are additive.

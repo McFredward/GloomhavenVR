@@ -48,6 +48,10 @@ internal sealed class BoardDriver : MonoBehaviour
     // dot off the aim line visibly re-aimed the beam. [Board] SnapToHexCenter still
     // snaps the GAME-side cursor projection (BoardPick.ResolveCursorWorld), so the
     // game's own hex hover highlight communicates the snapped hex.
+    //
+    // DO NOT RESURRECT — INVARIANTS §7 makes "a reticle override is reintroduced in any
+    // form" a break condition. Both symbols named above are gone ON PURPOSE; a "clean up
+    // references to non-existent symbols" pass must leave this comment alone.
 
     /// <summary>
     /// NO FRAME-ORDER MARKER, DELIBERATELY. This writes <c>hand.Ray.Mask</c> and

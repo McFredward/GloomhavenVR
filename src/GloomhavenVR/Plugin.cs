@@ -50,7 +50,16 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Seat multiple VR players evenly around the board (distinct azimuth per player) instead of stacking them at one shared seat. No effect single-player.</summary>
     internal static ConfigEntry<bool> SpawnInCircle = null!;
 
-    /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.</summary>
+    /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.
+    ///
+    /// <para>KEEP — DO NOT UNBIND, even though no code reads <c>.Value</c> (refactor Batch D,
+    /// verified at HEAD). A bound entry is a PERSISTED USER SETTING (CHARTER §5): unbinding it
+    /// drops the key from every existing .cfg. Its 9-line description is also the only
+    /// surviving record of the test-#8 decision to keep the campaign map flat, and
+    /// <c>VRRigDriver</c> carries the matching comment at the site that would implement it.
+    /// It is deliberately NOT prefixed "LEGACY — superseded by X" (Batch E) either: nothing
+    /// superseded it, it was never implemented, and the description already says so
+    /// plainly.</para></summary>
     internal static ConfigEntry<bool> Experimental3DMap = null!;
 
     /// <summary>
@@ -171,8 +180,13 @@ public class Plugin : BaseUnityPlugin
     private Harmony? _harmony;
 
     /// <summary>
-    /// Feature module registry. Order matters: Core first (XR bootstrap),
-    /// Compat last (fixups on top of everything else).
+    /// Feature module registry. Order matters: Core first (XR bootstrap), Compat last
+    /// AMONG THE FEATURE MODULES (its fixups must land on top of everything else). The
+    /// Dev harness is appended after Compat and is inert unless <c>[Dev] Enabled</c> —
+    /// <c>DevModule.Init</c> returns immediately otherwise, and even when enabled it only
+    /// adds a <c>DevConsole</c> overlay GameObject: it applies no fixups, patches nothing
+    /// and touches no game state, so it cannot get between Compat and anything.
+    /// See <see cref="RegisterModules"/>; shutdown runs this list in REVERSE.
     /// </summary>
     private readonly List<IVRModule> _modules = [];
 
@@ -294,7 +308,11 @@ public class Plugin : BaseUnityPlugin
             "bundle.");
         GripPitchOffsetDegrees = Config.Bind(
             "Hands", "GripPitchOffsetDegrees", -30f,
-            "Pitch offset (degrees) between the tracked OpenXR grip pose and the visual hand " +
+            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneGripPitchDegrees in " +
+            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
+            "seed for those per-style keys the first time they are created, and never again. " +
+            "Kept bound so existing config files keep loading. Historical meaning: " +
+            "pitch offset (degrees) between the tracked OpenXR grip pose and the visual hand " +
             "model, around the controller's X axis. NEGATIVE tilts the fingertips DOWN from " +
             "the grip-pose forward. The OpenXR grip pose points up along the controller " +
             "handle, not where a relaxed hand points. Together with HandLateralOffset / " +
@@ -306,7 +324,11 @@ public class Plugin : BaseUnityPlugin
             "hands re-pose on the next frame. Tuning guide: docs/TESTING-P2.md.");
         HandLateralOffset = Config.Bind(
             "Hands", "HandLateralOffset", 0f,
-            "Lateral offset (meters) of the visual hand model from the tracked OpenXR grip " +
+            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneLateralOffset in " +
+            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
+            "seed for those per-style keys the first time they are created, and never again. " +
+            "Kept bound so existing config files keep loading. Historical meaning: " +
+            "lateral offset (meters) of the visual hand model from the tracked OpenXR grip " +
             "pose, along the controller's local X axis. POSITIVE shifts the hand toward the " +
             "thumb side (device-space; the sign is mirrored per hand by the rig geometry). " +
             "One of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
@@ -317,7 +339,11 @@ public class Plugin : BaseUnityPlugin
             "re-seat on the next frame.");
         HandVerticalOffset = Config.Bind(
             "Hands", "HandVerticalOffset", 0f,
-            "Vertical offset (meters) of the visual hand model from the tracked OpenXR grip " +
+            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneVerticalOffset in " +
+            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
+            "seed for those per-style keys the first time they are created, and never again. " +
+            "Kept bound so existing config files keep loading. Historical meaning: " +
+            "vertical offset (meters) of the visual hand model from the tracked OpenXR grip " +
             "pose, along the controller's local up (Y) axis. POSITIVE raises the hand. One " +
             "of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
             "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
@@ -329,7 +355,11 @@ public class Plugin : BaseUnityPlugin
             "and the hands re-seat on the next frame.");
         HandForwardOffset = Config.Bind(
             "Hands", "HandForwardOffset", -0.06f,
-            "Forward/depth offset (meters) of the visual hand model from the tracked OpenXR " +
+            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneForwardOffset in " +
+            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
+            "seed for those per-style keys the first time they are created, and never again. " +
+            "Kept bound so existing config files keep loading. Historical meaning: " +
+            "forward/depth offset (meters) of the visual hand model from the tracked OpenXR " +
             "grip pose, along the controller's local forward (Z) axis. POSITIVE pushes the " +
             "hand toward the fingertips; NEGATIVE sits the wrist behind the grip origin. One " +
             "of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
@@ -430,7 +460,13 @@ public class Plugin : BaseUnityPlugin
 
     /// <summary>
     /// Bind the per-STYLE [Hands] entries (scale + 4 seat trims for each of Glove/Plate/
-    /// Arcane). Scale defaults are EVIDENCE-BASED: all three meshes are normalized to the
+    /// Arcane). NOTE the split: <c>{Style}Scale</c> is LIVE (HandVisuals and the settings
+    /// panel read it every frame), while the four <c>{Style}*Trim</c> entries are LEGACY —
+    /// superseded by the ABSOLUTE per-style seat keys in <c>dev.gloomhavenvr.hands.cfg</c> and
+    /// read only as their first-run seed (<c>HandsConfig.LegacySeat</c>). They stay bound
+    /// because unbinding drops the keys from every existing .cfg (CHARTER §5); their
+    /// descriptions say so, so a knob that does nothing at least admits it.
+    /// Scale defaults are EVIDENCE-BASED: all three meshes are normalized to the
     /// same 0.19 m hand length by the prep pipeline, but the armored styles are 1.5-2x
     /// bulkier (knuckle-region width 0.198/0.14+ m and palm thickness 0.084/0.072 m vs
     /// the glove's 0.123/0.042 m; four-finger MCP span 0.101/0.113 m vs 0.074 m —
@@ -462,21 +498,36 @@ public class Plugin : BaseUnityPlugin
                 "their own size (the rig sockets they attach to are scale-compensated).");
             HandStylePitchTrim[i] = Config.Bind(
                 "Hands", $"{s}PitchTrimDegrees", 0f,
-                $"Extra pitch (degrees) ADDED to GripPitchOffsetDegrees while the {s} " +
-                "style is worn. Lets a bulky style seat differently on the controller " +
-                "without disturbing the other styles. Applies live.");
+                $"LEGACY — no effect, superseded by [Hands] {s}GripPitchDegrees in " +
+                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
+                "a trim. This entry is read once, as part of the seed for that key the first " +
+                "time it is created, and never again. Kept bound so existing config files keep " +
+                $"loading. Historical meaning: extra pitch (degrees) ADDED to " +
+                $"GripPitchOffsetDegrees while the {s} style is worn.");
             HandStyleLateralTrim[i] = Config.Bind(
                 "Hands", $"{s}LateralTrim", 0f,
-                $"Extra lateral (X) offset (meters) ADDED to HandLateralOffset while " +
-                $"the {s} style is worn. Applies live.");
+                $"LEGACY — no effect, superseded by [Hands] {s}LateralOffset in " +
+                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
+                "a trim. This entry is read once, as part of the seed for that key the first " +
+                "time it is created, and never again. Kept bound so existing config files keep " +
+                $"loading. Historical meaning: extra lateral (X) offset (meters) ADDED to " +
+                $"HandLateralOffset while the {s} style is worn.");
             HandStyleVerticalTrim[i] = Config.Bind(
                 "Hands", $"{s}VerticalTrim", 0f,
-                $"Extra vertical (Y) offset (meters) ADDED to HandVerticalOffset while " +
-                $"the {s} style is worn. Applies live.");
+                $"LEGACY — no effect, superseded by [Hands] {s}VerticalOffset in " +
+                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
+                "a trim. This entry is read once, as part of the seed for that key the first " +
+                "time it is created, and never again. Kept bound so existing config files keep " +
+                $"loading. Historical meaning: extra vertical (Y) offset (meters) ADDED to " +
+                $"HandVerticalOffset while the {s} style is worn.");
             HandStyleForwardTrim[i] = Config.Bind(
                 "Hands", $"{s}ForwardTrim", 0f,
-                $"Extra forward (Z) offset (meters) ADDED to HandForwardOffset while " +
-                $"the {s} style is worn. Applies live.");
+                $"LEGACY — no effect, superseded by [Hands] {s}ForwardOffset in " +
+                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
+                "a trim. This entry is read once, as part of the seed for that key the first " +
+                "time it is created, and never again. Kept bound so existing config files keep " +
+                $"loading. Historical meaning: extra forward (Z) offset (meters) ADDED to " +
+                $"HandForwardOffset while the {s} style is worn.");
         }
     }
 
@@ -525,6 +576,10 @@ public class Plugin : BaseUnityPlugin
         VRSession.Harmony = null;
     }
 
+    // This order is the module init order and (reversed) the shutdown order — INVARIANTS §12.
+    // DevModule sitting AFTER CompatModule is correct and deliberate, not a slip: see the
+    // _modules field doc. Do not "fix" it by moving CompatModule down; changing module init
+    // order for a cosmetic match with a comment is a Tier-3 behaviour change.
     private void RegisterModules()
     {
         _modules.Add(new Core.CoreModule());

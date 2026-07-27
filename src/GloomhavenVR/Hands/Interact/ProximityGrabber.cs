@@ -17,7 +17,14 @@ namespace GloomhavenVR.Hands.Interact;
 /// </summary>
 internal sealed class ProximityGrabber
 {
-    /// <summary>Palm reach in meters (scale 1).</summary>
+    /// <summary>Palm reach in meters (scale 1). MIRRORED — a second copy of this value exists
+    /// in Board (a private const of the same name there). Deliberately NOT merged: a shared
+    /// constant would need this interactor detail promoted onto the frozen P2 surface, or a
+    /// Core constants file neither owner reads when tuning (REVIEW-Hands-Board-Core §P3). The
+    /// price of that decision is that the copies must be tuned TOGETHER, which is what
+    /// scripts/check-mirrors.sh enforces — it names the other site when they disagree. Hands
+    /// deliberately does not name Board here; the lint carries the coupling, not the layering.
+    /// </summary>
     private const float ReachMeters = 0.13f;
 
     /// <summary>

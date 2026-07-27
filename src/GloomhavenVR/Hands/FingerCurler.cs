@@ -66,6 +66,12 @@ internal sealed class FingerCurler
     /// (59-72 mm) — with no tip-through-palm in the 9-pose render matrix. So all
     /// styles now run the full default-angle range. Kept as a tuning point for
     /// future styles whose authored rest pose over- or under-closes.
+    ///
+    /// <para>KEEP — this is NOT dead code, despite being all-1.0 (refactor Batch D, verified at
+    /// HEAD): the constructor below indexes it every time a hand is built, so it is a live
+    /// lookup whose current values happen to be identity. "All entries are 1" is the RESULT the
+    /// round-3 rig achieved, and the history above is the record of what the earlier
+    /// 0.72/0.85 clamps cost.</para>
     /// </summary>
     private static readonly float[] StyleCurlScale = { 1f, 1f, 1f };
 

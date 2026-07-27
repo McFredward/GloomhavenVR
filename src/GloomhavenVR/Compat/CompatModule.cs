@@ -12,7 +12,9 @@ namespace GloomhavenVR.Compat;
 /// data-driven by component type name so no compile-time reference to
 /// Unity.Postprocessing.Runtime / ThirdParty is needed.
 ///
-/// Phase 1 scope (registered last on purpose — fixups on top of everything else):
+/// Phase 1 scope (registered last among the FEATURE modules on purpose — fixups on top of
+/// everything else; <c>Core.DevModule</c> is appended after it and is inert unless
+/// <c>[Dev] Enabled</c>, see <c>Plugin._modules</c>):
 /// - <c>DisablePostProcessing</c> (default true): PPv2 <c>PostProcessLayer</c> +
 ///   <c>PostProcessVolume</c> (Unity.Postprocessing.Runtime.dll) — image-effect stack
 ///   unverified under stereo/MultiPass.
@@ -108,8 +110,13 @@ internal sealed class CompatModule : IVRModule
 
     public void Shutdown()
     {
-        // WallFadeDisable is a Harmony patch reverted by VRSession's UnpatchAll on hot-reload;
-        // the segment fade clears every property block and destroys its textures.
+        // WallFadeDisable is a Harmony patch, removed on hot-reload by Plugin.OnDestroy's
+        // _harmony.UnpatchSelf() (INVARIANTS §9) — NOT by anything on VRSession, which only
+        // HOLDS the shared Harmony instance. There is no VRSession.UnpatchAll; UnpatchAll and
+        // UnpatchSelf are different Harmony APIs with different blast radii, and this module's
+        // whole design is "degrade cleanly", so the distinction is worth stating correctly.
+        // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
+        // which clears every property block and destroys its textures.
         WallSegmentFade.Uninstall();
         if (_hooked)
         {

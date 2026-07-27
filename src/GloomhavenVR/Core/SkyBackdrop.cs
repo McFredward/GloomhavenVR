@@ -396,6 +396,16 @@ internal static class SkyBackdrop
         _applied = true;
     }
 
+    /// <summary>
+    /// Undo what we APPLIED (render queue, ZWrite, the depth-reset object) and nothing else —
+    /// the acquired sky, the chosen <see cref="Mechanism"/> and the saved originals all stay.
+    /// This is the MR-handover path: MR hides the sky and hands it back, and re-deciding the
+    /// mechanism on every MR toggle would re-run the shader property dump each time.
+    ///
+    /// NOT a near-duplicate of <see cref="FullReset"/>, which CALLS this and then additionally
+    /// forgets the sphere, the mechanism decision and the reset material. The two are already
+    /// correctly factored: the only thing to preserve is that the shorter one FORGETS LESS.
+    /// </summary>
     private static void RemoveEffects()
     {
         Material? mat = _mat;
@@ -410,6 +420,13 @@ internal static class SkyBackdrop
         _applied = false;
     }
 
+    /// <summary>
+    /// <see cref="RemoveEffects"/> PLUS forget everything we learned: the acquired sky, its
+    /// material, the mechanism decision, the saved render queue and the reset material/mesh.
+    /// Used when the scene the sky belonged to is gone (VR off, hot reload, scene change), so
+    /// the next acquisition must start from a clean scan. Deliberately layered on
+    /// <see cref="RemoveEffects"/> rather than duplicating it.
+    /// </summary>
     private static void FullReset()
     {
         RemoveEffects();

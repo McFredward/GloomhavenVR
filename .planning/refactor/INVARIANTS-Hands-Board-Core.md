@@ -1989,12 +1989,22 @@
 - **Breaks if:** converted to typed references, or the restore list is dropped.
 - **Confidence:** high
 
-### `CompatModule` is registered LAST
+### `CompatModule` is registered LAST among the FEATURE modules
 - **Where:** `Plugin.RegisterModules`
-- **Rule:** Core first (XR bootstrap), Compat last (fixups on top of everything else).
+- **Rule:** Core first (XR bootstrap), Compat last among the feature modules (fixups on top of
+  everything else). `Core.DevModule` is appended *after* `CompatModule` and does not violate
+  this: `DevModule.Init` returns immediately unless `[Dev] Enabled`, and even then it only adds
+  a `DevConsole` overlay GameObject — it applies no fixups, patches nothing and touches no game
+  state, so it cannot get between Compat and anything.
 - **Why:** the kill-switches and the wall-fade pin must apply over whatever the other modules
   installed.
+- **Breaks if:** a module that mutates game state is inserted after `CompatModule`, or
+  `RegisterModules` is reordered to make the older, imprecise wording literally true — the
+  CODE is right and the wording was wrong (`REVIEW-Hands-Board-Core.md` §P4.3). Reordering
+  module init for a cosmetic match is a Tier-3 change.
 - **Confidence:** high
+- **Corrected:** Batch C. The earlier text said "`CompatModule` is registered LAST" full stop,
+  which is false at HEAD (`DevModule` follows it) and would have led a reader to "fix" the code.
 
 ---
 
@@ -2140,6 +2150,13 @@
 
 ### Marked TEMPORARY by their own authors — needs a user decision, not a unilateral delete
 
+> **DECIDED (Batch D): the `PlacementDiagnostics` trio is KEPT** until the next placement
+> question. Removing them needs a clean HMD placement pass — evidence, not a code argument —
+> and a refactor may not spend the user's headset time (CHARTER §1). The decision and the
+> measured cost (one raycast per frame, only while `WaitingForCardSelection` **and**
+> display == `CharacterPlacement`; all three verified observationally pure) are now recorded
+> at the top of the file itself. **Do not re-raise this as a fresh finding.**
+
 - **`Board/Patches/PlacementDiagnostics.cs`** — all three classes
   (`Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `Placement_Click_Diagnostics`)
   carry "TEMPORARY … remove after the placement flow is confirmed on HMD". The root causes they
@@ -2168,6 +2185,29 @@
 - **`FigureGhosts` `Ghost.Pos`/`Ghost.Rot`** are read every Tick — NOT vestigial despite looking
   like inert snapshot state.
 
+#### Added in Batch D — found by an independent sweep, NOT on the review's list
+
+A comment-stripped sweep for members whose identifier occurs exactly once in the whole
+compiled-source corpus turned up four more. **None were removed**: all four are the same shape
+as `HandRig.PalmNormal` — documented contract or API statements that cost one line — and
+CHARTER §2 puts the burden of proof on the change. Recorded so the next pass does not redo the
+search, and so a future pass does not delete them without an argument:
+
+- **`Hands.Interact.UguiPointer.IsPressed`** (`_pressed != null`) — the natural inspection hook
+  for a pointer-state debug line; the class is otherwise entirely private state.
+- **`Hands.VRHand.IndexTouchSupported`** — the public statement of a capability the trigger
+  fallback chain (§5, "index touch source:") logs about. Removing it hides *why* the fallback
+  chain exists.
+- **`Board.BoardPick.TryGetCursorWorld`** — documented P5/MISSION A.1 API. The live path is
+  `ResolveCursorWorld → TryGetCursorScreenPoint`; this world-space accessor has no caller. Note
+  `RayInteractor.cs`'s do-not-resurrect comment used to point at it (corrected in Batch C).
+- **`Board.FigureGrab.FigureGrabConfig.HeldOffset`** — the canonical RIGHT-hand held pose; its
+  doc is where the left-hand mirroring rule is stated. `HeldOffsetFor(side)` is what runs.
+
+Caveat on the sweep: it cannot see members whose name collides with an unrelated symbol
+elsewhere (that is why `HandGhost.Engaged` did not appear — `WorldUI/HexHintFacing` has an
+unrelated `Engaged` field). It is a lower bound, not a complete list.
+
 ### Looks redundant, is not — do not "dedupe"
 
 - **`VRLayers.Apply` calls in `HandVisuals.Build`, `RayInteractor.CreateVisuals`,
@@ -2179,14 +2219,43 @@
 - **`PokeInteractor.ContactDepth`/`ReleaseDepth`-equivalents in `BoardClickDriver`** (0.008 /
   0.02) — same values, different subsystems, deliberately mirrored so the near board click and
   the poke press arm/re-arm together. Same Tier-2 caveat.
-- **`SkyBackdrop.RemoveEffects` vs `FullReset`** — `RemoveEffects` is called on the MR handover
-  path and must NOT forget the mechanism decision; `FullReset` must. Merging them re-runs the
-  shader property dump on every MR toggle.
+- ~~**`SkyBackdrop.RemoveEffects` vs `FullReset`**~~ — **not a near-duplicate at all; struck so
+  a future reviewer does not go looking.** `FullReset` **calls** `RemoveEffects` and then
+  additionally forgets the sphere, the mechanism decision and the reset material. They are
+  already correctly factored: there is no duplication to resist, only a split to preserve
+  (`RemoveEffects` alone is the MR handover path and must NOT forget the mechanism decision —
+  merging the two would re-run the shader property dump on every MR toggle). Verified at HEAD,
+  Batch D; the difference is now stated at both methods in `SkyBackdrop.cs`.
 - **`HeldFigures` and `NetHeldFigures`** — near-identical shapes, deliberately separate: one is
   owned by the local grab flow, the other is REPLACED wholesale by `Net/NetFigures`
   (`ReplaceWith`). The patch gate ORs both. Merging couples local grab lifetime to the wire.
 - **`VRCameraPolicy.PruneDead` and `MixedReality.PruneDead`** — both called from
   `VRRigDriver`'s scene-load path; they prune different maps.
+
+### Config entries that are bound but effectively dead (Batch E — kept, relabelled)
+
+`PLAN.md` §Batch E listed legacy config entries in **Cards and WorldUI only**. There are 22 more
+in this scope, none of them on any list. All are **kept bound** (unbinding drops the key from
+every existing `.cfg`, CHARTER §5) and their descriptions now open with
+`LEGACY — no effect, superseded by <X>.`:
+
+- `Plugin` `[Hands]`: `GripPitchOffsetDegrees`, `HandLateralOffset`, `HandVerticalOffset`,
+  `HandForwardOffset` + the 12 `{Glove,Plate,Arcane}{PitchTrimDegrees,LateralTrim,VerticalTrim,
+  ForwardTrim}` entries. Superseded by the ABSOLUTE per-style seat keys
+  (`[Hands] {Style}{GripPitchDegrees,LateralOffset,VerticalOffset,ForwardOffset}` in
+  `dev.gloomhavenvr.hands.cfg`). Read exactly once, via `HandsConfig.LegacySeat`, as the bind
+  default that seeds those keys; `StyleValue` prefers the per-style array whenever it exists,
+  which is always after `HandsConfig.Bind`.
+- `FigureGrabConfig` `[FigureGrab]`: `HeldScale`, `HeldOffsetForward`, `HeldOffsetUp`,
+  `HeldOffsetSide`, `HeldTiltDegrees`, `HeldFaceYawDegrees`. Same pattern via `StyleOr`,
+  superseded by `{Style}Held*` in the SAME file. `HeldUpright` is **not** legacy — it is a mode,
+  not geometry, and stayed global deliberately.
+- `Plugin` `[Hands] {Style}Scale` is **not** legacy either — `HandVisuals` and the settings
+  panel read it live. The scale/trim split inside one loop is the trap here.
+
+Note for the next sweep: a `.Value` grep does **not** find these, because the seed read is a
+`.Value` inside the entry's own config file. Look for entries whose only reads are in their
+declaring file.
 
 ### Log lines that are grep tokens, not debug residue (CHARTER §5)
 
@@ -2200,14 +2269,28 @@
 
 ---
 
-## 16. Open questions for `PLAN.md` (not decided here)
+## 16. Open questions for `PLAN.md`
 
-- Retire the three `PlacementDiagnostics` patch classes? (§15)
-- Retire `PalmGate.UseDevicePalmNormal` together with the `CardsDriver` assignment? (cross-module)
-- Extract the mirrored reach/depth constants into a shared location? (Tier 2, needs the
-  side-by-side proof the charter requires)
-- `docs/PATCH-INVENTORY.md` is stale (Phase 5, 17 patches). §13 is now the accurate inventory
-  for these subsystems; the doc should be regenerated rather than hand-patched.
+Answered during Batches C/D/E; kept with their answers so the questions are not re-asked.
+
+- ~~Retire the three `PlacementDiagnostics` patch classes?~~ **KEEP** until the next placement
+  question — the blocker is a clean HMD pass, not a code argument. Decision and measured cost
+  recorded at the top of `Board/Patches/PlacementDiagnostics.cs` and in §15.
+- **STILL OPEN — retire `PalmGate.UseDevicePalmNormal` together with the `CardsDriver`
+  assignment.** Confirmed vestigial at HEAD (the gate never reads it; one write, in Cards).
+  **Not done**: the two halves are in different subsystems worked by different workers, and
+  removing the Hands half alone does not compile. Whoever removes the `CardsDriver` write must
+  delete the field in the SAME commit; the field's doc now carries the instruction and the
+  completed CHARTER §5 sweep. The `INTERFACES-P2.md` half of the job is done (Batch C).
+- ~~Extract the mirrored reach/depth constants into a shared location?~~ **NO** — replaced by
+  `scripts/check-mirrors.sh` (Batch A). Merging would worsen the Hands↔Board layering. Every
+  mirrored site now says so at the constant. Note the exposure is wider than the review stated:
+  the fingertip radius has FOUR copies across four subsystems, not two, and the lint covers all
+  four (re-verified in Batch C by sweeping every `const float ... = 0.008f`).
+- ~~`docs/PATCH-INVENTORY.md` is stale (Phase 5, 17 patches).~~ **DONE** — generated from source
+  by `scripts/patch-inventory.sh` (Batch A) and checked by `refactor-guard.sh`. It now reports
+  34 classes / 56 methods. **Never hand-edit it**; regenerate. It records declaration LINE
+  NUMBERS, so any comment edit inside a patch file requires a regenerate + commit.
 
 
 

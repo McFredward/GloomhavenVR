@@ -16,6 +16,15 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// Unity keeps ticking on its own — animations keep playing (see the patch doc). On
 /// release the actor leaves the set, the game's own Update resumes and snaps it straight
 /// back to its board cell (<c>m_LocoIntermediateTarget</c>) — no manual return math.
+///
+/// <para>DO NOT MERGE WITH <see cref="NetHeldFigures"/>, its near-identically-shaped twin.
+/// This set's membership is owned by the LOCAL grab flow (<see cref="FigureGrabbable"/>'s
+/// grab/glide/release lifetime); the other is REPLACED WHOLESALE by <c>Net/NetFigures</c>
+/// whenever a remote grab/release/switch arrives. Sharing one set would couple local grab
+/// lifetime to the wire — a dropped packet or a peer disconnect could then clear a figure
+/// the local hand is still physically holding. The patch gate deliberately ORs the two
+/// (<see cref="ActorBehaviour_HeldTransform_Patch"/>), which is the only place they need to
+/// agree.</para>
 /// </summary>
 internal static class HeldFigures
 {

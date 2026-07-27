@@ -5,6 +5,19 @@
 > the pre-P5 surface is behavior-preserving except where explicitly noted (per-hand
 > interactor matrix §4). Everything is `internal` — all modules compile into the same
 > `GloomhavenVR.dll`.
+>
+> **This file is cited by `CHARTER.md` §5 as a reason NOT to delete a member, so it is
+> only useful while it is true.** A stale authority is worse than no authority: the
+> `PalmGate` section below described the superseded P6/P7 gate for two hardware rounds,
+> including one switch whose description said the *opposite* of what the code did.
+> Rules learned from that:
+>
+> 1. **Point at the class doc; do not restate the mechanism.** Restating is what goes stale.
+> 2. When a member is retired, **mark the paragraph SUPERSEDED and say what replaced it** —
+>    do not silently delete it. Someone will meet the old name in a log or a commit.
+> 3. Verify a suspected-dead name against **`src/` AND `decompiled/`** before calling it
+>    dead. Several names here (`InputManager.DisableAllMouses`, `MethodType.Getter`) are
+>    *game* API, not ours; a `src/`-only grep reports them as dangling and they are not.
 
 ## Threading rules (apply to every event below)
 
@@ -151,10 +164,14 @@ struct PickPose { Vector3 Origin, Direction; bool HasHit; Vector3 HitPoint; floa
 - **Phase-3a contract**: your `MF.FindInteractableAtMousePosition` /
   `InputManager.CursorPosition` patches consume `VRHands.PrimaryPick` and may
   substitute their own `IPickProvider` (e.g. fingertip touch near the board).
-- **P5** `hand.Ray.ReticleOverride` (`Vector3?`) — world point that replaces the
-  VISIBLE reticle/laser end while the ray has a hit (Board snaps it to hex centers
-  under `[Board] SnapToHexCenter`). One-frame latch: set it every frame you want it;
-  it self-clears otherwise. Pick data is never affected.
+- ~~**P5** `hand.Ray.ReticleOverride`~~ — **REMOVED, and removing it was the fix.**
+  It let Board snap the visible reticle to hex centers under `[Board] SnapToHexCenter`;
+  test #14 item 2 established that the visible beam and reticle must stay on the
+  straight aim ray, and the snapped hex is shown by the game's own hex hover highlight
+  instead. `INVARIANTS §7` names "a reticle override is reintroduced in any form" as a
+  break condition, and `RayInteractor.cs` / `BoardDriver.cs` carry
+  do-not-resurrect comments at the sites. `[Board] SnapToHexCenter` still exists — it
+  feeds the GAME cursor projection only (`BoardPick.TryGetCursorWorld`), never a visual.
 - **P5** ModalUI visual constraint: in `VRMode.ModalUI` the laser only shows while
   pointing within `[Hands] ModalRayConeDegrees` (default 25°, 0 = always) of a UI
   surface — any registered `UguiPokeSurfaces` canvas or an extra target registered
@@ -163,7 +180,8 @@ struct PickPose { Vector3 Origin, Direction; bool HasHit; Vector3 HitPoint; floa
 - **P5/P6** `hand.Ray.UiHitOverride` (`Vector3?`) — world point where the ray hits a
   code-intersected UI surface (flat screen, world panels via `RayUguiDriver`, fan
   cards). While fresh, the visible beam is CLAMPED to it and the reticle sits exactly
-  there. One-frame latch like `ReticleOverride`; pick data unaffected.
+  there. A short self-clearing latch (`HasFreshUiHit` is true for **two** frames, so
+  producer and consumer may run in either `Update` phase); pick data unaffected.
   `hand.Ray.HasFreshUiHit` (bool, P6) tells far-click consumers the trigger currently
   belongs to a UI surface — `BoardClickDriver` skips its trigger click on it.
 - **P6** constant ANGULAR visual size: reticle (≈0.45°) and beam width (≈0.06°) are
@@ -229,18 +247,49 @@ test #10's self-triggered highlight loop).
 
 ### Palm gate (`PalmGate`) — Phase-3b's card-fan trigger
 
-`hand.PalmGate.IsOpen`, `hand.PalmGate.CurrentDot`,
-`event Action<VRHand,bool> Changed`. Opens at dot(palmNormal, toHMD) >
-`EnterThreshold`, closes below `ExitThreshold` (hysteresis; defaults 0.6/0.35 = the
-P2 constants). **P6:** thresholds are public fields (Cards sets them per frame from
-`[Cards] SupinationThreshold`), and `UseDevicePalmNormal` (default true) evaluates the
-RAW grip-pose palm (-Y of the device rotation) instead of the visual rig — the rig's
-`[Hands] GripPitchOffsetDegrees` (default -60°) used to demand ~60° of extra wrist
-supination to open the fan (test #8). Simulated hands keep the rig normal.
-**P7:** `RollAxisOnly` (Cards sets it true) measures pure SUPINATION — the roll of the
-palm normal around the forearm/controller axis, with world-up and to-head references
-projected into the roll plane, so arm pitch/yaw cannot open or close the gate
-(test #10). `CurrentDot` then reads -1 palm-down … +1 palm-up/toward-face.
+```csharp
+hand.PalmGate.IsOpen          // bool  — palm rolled toward the face
+hand.PalmGate.CurrentDot      // float — see the UNIT WARNING below
+hand.PalmGate.EnterDegrees    // float — open threshold (default 60)
+hand.PalmGate.ExitDegrees     // float — close threshold (default 45)
+hand.PalmGate.IgnoreWhenHandBusy   // bool — force closed while this hand grabs
+hand.PalmGate.Enabled         // bool — mode policy; disabling force-closes
+event Action<VRHand,bool> Changed
+```
+
+The gate measures a **signed roll in DEGREES about the hand's finger axis**, using the
+**visual** hand frame (`HandRig.Root`), and opens at `EnterDegrees` / closes at
+`ExitDegrees` (a 15° dead band; a minimum band is enforced in `Tick`, so a hand-edited
+config cannot invert the hysteresis). Cards overwrites both thresholds every frame from
+`[Cards] RevealEnterDegrees` / `RevealExitDegrees`.
+
+> **UNIT WARNING — `CurrentDot` does not return a dot product.** The name is kept for
+> this frozen surface (`DevConsole` prints it); the value has been **degrees** since roll
+> gate v3: `0` = knuckles-up flat hand, `90` = palm fully rolled toward the face,
+> negative = pronation. `PalmGate.cs`'s own doc comment says the same at the property.
+
+**Do not restate the measure here.** `PalmGate`'s class doc is the authority for *how*
+the roll is derived (v4: a parallel-transported reference up, re-anchored only away from
+vertical, which is what makes it pitch-invariant with the fingers pointing straight up).
+Restating it in this document is exactly how the paragraph below went stale.
+
+#### SUPERSEDED — the pre-v4 gate (kept as a record; none of it is live)
+
+Everything in this sub-section described the P6/P7 gate and was still printed here long
+after the code stopped doing it. It is retained, marked, rather than deleted, so a reader
+who finds one of these names in an old log, commit or design note can see it was retired.
+
+| Named here before | Status at HEAD | Replaced by |
+|---|---|---|
+| `EnterThreshold` / `ExitThreshold`, "defaults 0.6/0.35" as **dots** | gone | `EnterDegrees` / `ExitDegrees`, defaults **60° / 45°** |
+| `UseDevicePalmNormal` (documented as "evaluates the RAW grip-pose palm instead of the visual rig") | vestigial — **the description was the exact opposite of the code**; v4 always reads `HandRig.Root` and only falls back to the device transform when the rig is missing | nothing — the flag selects nothing |
+| `RollAxisOnly` | gone | roll-only is unconditional in v4 |
+| `[Cards] SupinationThreshold` | the config key no longer exists | `[Cards] RevealEnterDegrees` / `RevealExitDegrees` |
+| `[Hands] GripPitchOffsetDegrees (default -60°)` | the key exists but its default is **-30°** (hardware test #27), and it is itself superseded per hand style (`[Hands] <Style>GripPitchDegrees` in `dev.gloomhavenvr.hands.cfg`) | the per-style seat entries |
+
+Because the gate reads the **visual** frame, it deliberately *includes* the seat offsets
+and per-style trims the user tuned — it agrees with the hand they see, which is the whole
+reason the v3 "read the raw device pose" lever was removed.
 
 ## 3. Event bus — `GloomhavenVR.Core.Events.VREvents`
 
@@ -313,7 +362,7 @@ VRModeStateMachine.SetAuxModal(bool);  // P6: OR-input into ModalUI — WorldUI'
 | `CardSelection` | Poke + Grab + **Ray** | Poke + Grab + PalmGate | Dominant ray = hero placement / board picks during selection (P3a wish); non-dominant owns the fan, and having **no laser on the fan hand** keeps the beam out of the cards (P3b wish). |
 | `HalfSelection` | Poke + Grab + PalmGate | Poke + Grab + PalmGate | Played-card halves are poked; targeting has its own mode. |
 | `BoardTargeting` | Ray + Poke | Poke | The far pick consumes `VRHands.PrimaryPick` exclusively — a second laser was noise. Near-touch works with either hand. |
-| `ModalUI` | Poke + Ray† + Grab‡ | Poke + Ray† + Grab‡ | † Ray stays ACTIVE but its laser only shows within `[Hands] ModalRayConeDegrees` (default 25°) of a UI surface — see §2 Ray. P6: ModalUI is also entered by the WorldUI catch-all fallback (`SetAuxModal`) whenever an unconverted game window opens mid-scenario — the flat screen shows the full 2D composite so the window is always visible and clickable (window sets: `docs/TESTING-P3C.md` §11). The self-rescue chord (hold non-dominant A/X ~2 s, `[WorldUI] ManualScreenChord`) forces the screen in any scenario mode. ‡ Grab added in test #15 so the TRAY dashboard stays movable/scalable while a dialog floats (`TrayGrabHandle` accepts); CARD grabs are refused per-object there (`VRCard.CanGrab` gates on `CurrentMode != ModalUI` — the fan/slots are never manipulable mid-dialog). Pattern for new grabbables: the interactor mask provides the *primitive*, the grabbable's own `CanGrab` decides mode fitness. |
+| `ModalUI` | Poke + Ray† + Grab‡ | Poke + Ray† + Grab‡ | † Ray stays ACTIVE but its laser only shows within `[Hands] ModalRayConeDegrees` (default 25°) of a UI surface — see §2 Ray. P6: ModalUI is also entered by the WorldUI catch-all fallback (`SetAuxModal`) whenever an unconverted game window opens mid-scenario — the flat screen shows the full 2D composite so the window is always visible and clickable (window sets: `docs/TESTING-P3C.md` §11). The self-rescue chord (hold non-dominant A/X ~2 s, `[WorldUI] ManualScreenChord`) forces the screen in any scenario mode. ‡ Grab added in test #15 so the TRAY dashboard stays movable/scalable while a dialog floats (accepted by `WorldUI.PanelGrabHandle`, the shared grab core the tray, combat log, settings panel and modals all use — it replaced the tray-specific `TrayGrabHandle` this document used to name); CARD grabs are refused per-object there (`VRCard.CanGrab` gates on `CurrentMode != ModalUI` — the fan/slots are never manipulable mid-dialog). Pattern for new grabbables: the interactor mask provides the *primitive*, the grabbable's own `CanGrab` decides mode fitness. |
 
 `[Hands] RayAlwaysOn = true` ORs Ray into every cell. The `HandsDriver` applies the
 matrix to both hands on every mode change; you normally only *read* `CurrentMode`

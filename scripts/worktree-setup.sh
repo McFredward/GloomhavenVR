@@ -4,9 +4,14 @@
 # Three things the build needs are deliberately gitignored, so a worktree created by
 # `git worktree add` cannot build until they are linked in from the main checkout:
 #
-#   libs/RuntimeDeps/           harvested Unity XR assemblies (large, licence-bound)
+#   libs/RuntimeDeps/*          harvested Unity XR assemblies (large, licence-bound)
+#   libs/Natives/*              openxr_loader.dll / UnityOpenXR.dll (the preloader payload)
 #   ressources/                 the game's Managed folder (the reference assemblies)
 #   Directory.Build.props.user  the per-machine GameManaged path
+#
+# Note the two libs/ entries are the DIRECTORY CONTENTS, not the directories: the
+# directories themselves are tracked (.gitkeep + README) and therefore already exist in a
+# fresh worktree — see link_contents below for why that mattered.
 #
 # Without them `scripts/build.sh` fails on its first line with "libs/RuntimeDeps is not
 # populated", which is a confusing way to learn that your worktree is fine and your
@@ -40,28 +45,28 @@ link() {
     echo "linked  $rel"
 }
 
-# Link the CONTENTS of a directory that itself is tracked.
+# Link the CONTENTS of a directory, not the directory itself.
 #
-# libs/RuntimeDeps and libs/Natives exist in git (a .gitkeep and a README) while their
-# actual payload — the harvested Unity XR assemblies and the OpenXR natives — is ignored.
-# So the directory is always present in a fresh worktree and `link` short-circuits on it,
-# leaving the build to fail with "libs/RuntimeDeps is not populated" — which reads like a
-# repo problem and is not. (Found by the WorldUI worker, whose first guard baseline died
-# on exactly this after the script reported success.)
+# libs/RuntimeDeps and libs/Natives are TRACKED (each holds a .gitkeep and a README), so
+# git creates them in every fresh worktree and link()'s `-e` test skips them — silently,
+# because a skip is the normal outcome for an already-satisfied link. The worktree then
+# reports "ready" and the very next build fails with "libs/RuntimeDeps is not populated",
+# which is exactly the confusing failure this script exists to prevent. The payload files
+# (the harvested XR assemblies and the native loaders) are the gitignored part, so they
+# are what has to be linked.
 link_contents() {
-    local rel="$1" n=0
+    local rel="$1" n=0 f base
     [[ -d "$MAIN/$rel" ]] || { echo "warn: $rel missing in the main checkout — skipped" >&2; return 0; }
     mkdir -p "$HERE/$rel"
-    local f base
     for f in "$MAIN/$rel"/*; do
         [[ -e "$f" ]] || continue
         base="$(basename "$f")"
         case "$base" in .gitkeep|README.md) continue ;; esac
         [[ -e "$HERE/$rel/$base" ]] && continue
         ln -s "$f" "$HERE/$rel/$base"
-        n=$((n+1))
+        n=$((n + 1))
     done
-    echo "linked  $rel ($n entries)"
+    echo "linked  $rel ($n file(s))"
 }
 
 link_contents libs/RuntimeDeps

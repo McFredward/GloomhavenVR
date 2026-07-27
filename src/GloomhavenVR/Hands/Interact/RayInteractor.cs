@@ -42,8 +42,12 @@ internal sealed class RayInteractor : IPickProvider
     // dot to the hex center) is GONE — any override that moves the end point off the
     // aim line visibly re-aims the beam ('zaps' onto elements). The snapped hex is
     // communicated by the game's own hex hover highlight (HoverRegisterer/star
-    // display via the projected cursor, BoardPick.TryGetCursorWorld), never by
-    // bending the beam or dot.
+    // display via the projected cursor: BoardPick.ResolveCursorWorld feeds
+    // TryGetCursorScreenPoint), never by bending the beam or dot.
+    //
+    // DO NOT RESURRECT — INVARIANTS §7 makes "a reticle override is reintroduced in any
+    // form" a break condition. This comment names a symbol that no longer exists ON
+    // PURPOSE; a "clean up references to non-existent symbols" pass must leave it alone.
 
     /// <summary>
     /// World point where the ray hits a code-intersected UI surface (the WorldUI flat

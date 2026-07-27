@@ -134,6 +134,13 @@ internal static class MixedReality
     /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
     /// by rendering the MODAL on top (WorldUI.CanvasConversion 'renderOnTop'); the sky is never
     /// disabled for a menu any more, so there is nothing to do here.
+    ///
+    /// <para>KEEP — DO NOT DELETE (refactor Batch D, verified at HEAD: both call sites exist,
+    /// <c>ModalFallback.cs</c> around :800 and :1135, and pass real arguments). An empty method
+    /// looks like the obvious cleanup, but the comment block above it is the ONLY record of why
+    /// the sky is no longer disabled for a floated menu — and that comment states that
+    /// re-implementing this body IS the regression (b84817d: the user found the vanishing sky
+    /// very distracting). Removing the method deletes the question along with the answer.</para>
     /// </summary>
     internal static void KeepMenusUnclipped(bool wanted) { }
 
@@ -494,7 +501,12 @@ internal static class MixedReality
         }
     }
 
-    /// <summary>Drop bookkeeping for cameras destroyed by scene unloads (defensive).</summary>
+    /// <summary>Drop bookkeeping for cameras destroyed by scene unloads (defensive).
+    ///
+    /// <para>Same name as <c>VRCameraPolicy.PruneDead</c> and called from the same scene-load
+    /// path, but a DIFFERENT map (clear-flags/background colour, not stereo eye masks) plus the
+    /// hidden-sky renderer list and three scan/log latches this one alone owns. Not a duplicate;
+    /// do not merge (REVIEW-Hands-Board-Core §2 item 9).</para></summary>
     internal static void PruneDead()
     {
         Scratch.Clear();
