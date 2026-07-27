@@ -1,0 +1,676 @@
+using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
+using TMPro;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
+
+namespace GloomhavenVR.WorldUI;
+
+internal sealed partial class FlatScreen
+{
+    // ---- pointer ---------------------------------------------------------------------------
+
+    private void TickPointer()
+    {
+        if (_quad == null || _rt == null)
+            return;
+
+        // Handedness switch first: it may change which hand is "primary" below.
+        if (TickHandednessSwitch())
+        {
+            HideReticle();
+            return; // masks re-apply this frame; pointer resumes next frame
+        }
+
+        TickPoke();
+
+        VRHand? hand = VRHands.Primary;
+        IPickProvider? pick = VRHands.PrimaryPick;
+        if (pick == null || hand == null || !pick.TryGetPick(out PickPose pose))
+        {
+            HideReticle();
+            return;
+        }
+
+        if (_pokePressing)
+        {
+            // The fingertip owns the virtual mouse; the ray resumes after withdraw.
+            HideReticle();
+            return;
+        }
+
+        // Ray ∩ screen plane (quad faces -Z; plane normal = -forward toward viewer).
+        Transform t = _quad.transform;
+        Vector3 normal = -t.forward;
+        float denom = Vector3.Dot(pose.Direction, normal);
+        if (Mathf.Abs(denom) < 1e-4f)
+        {
+            HideReticle();
+            return;
+        }
+        float dist = Vector3.Dot(t.position - pose.Origin, normal) / denom;
+        if (dist < 0f)
+        {
+            HideReticle();
+            return;
+        }
+
+        Vector3 hit = pose.Origin + pose.Direction * dist;
+        Vector3 local = t.InverseTransformPoint(hit); // quad local: x/y in [-0.5, 0.5]
+        bool onQuad = Mathf.Abs(local.x) <= 0.5f && Mathf.Abs(local.y) <= 0.5f;
+        if (!onQuad && !_pressing)
+        {
+            HideReticle();
+            return;
+        }
+        // While pressed, edge tremor must not cancel the press — clamp instead of drop.
+        local.x = Mathf.Clamp(local.x, -0.5f, 0.5f);
+        local.y = Mathf.Clamp(local.y, -0.5f, 0.5f);
+
+        // UV → virtual mouse pixels.
+        var pixel = new Vector2((local.x + 0.5f) * _rt.width, (local.y + 0.5f) * _rt.height);
+
+        // On the campaign map, a moving held trigger PANS the map (grab-drag) instead of
+        // dragging a uGUI widget — see the map-pan block below. Suppress the generic
+        // latch→uGUI-drag here so the two gestures never fight.
+        bool mapActive = _stereo.MapActive;
+
+        // Click latch (requirement 1, class doc): while pressed and latched the warp
+        // position stays frozen at the press pixel; deliberate sustained ray movement
+        // opens the latch into a real drag.
+        if (_pressing && _latched && !mapActive)
+        {
+            float angle = Vector3.Angle(_pressDirection, pose.Direction);
+            if (angle > WorldUIConfig.DragUnlockDegrees.Value)
+            {
+                if (_dragOverSince < 0f)
+                {
+                    _dragOverSince = Time.unscaledTime;
+                }
+                else if (Time.unscaledTime - _dragOverSince >= WorldUIConfig.DragUnlockSeconds.Value)
+                {
+                    _latched = false;
+                    // Deliberate drag. virtualmouse/both modes press-and-follow the
+                    // virtual-mouse device; execute mode (the default) drives uGUI drag
+                    // events directly. The VM path never moved a menu slider on hardware:
+                    // the virtual-mouse BUTTON edges do not survive the input module
+                    // (test #7 — the very reason clicks default to ExecuteEvents), so a
+                    // held VM "drag" carried no pressed state, uGUI started no drag, and
+                    // the slider handle never followed — only the DirectClick on release
+                    // ever set a value (user report: sliders in the MAIN MENU can only be
+                    // clicked, never dragged, so 0 is unreachable). The ExecuteEvents drag
+                    // below moves Sliders/Scrollbars/ScrollRects the same way the in-game
+                    // world-space menus do (Hands.Interact.UguiPointer).
+                    if (WorldUIConfig.VirtualMouseButtons)
+                    {
+                        if (!_vmPressed)
+                        {
+                            VirtualMouse.WarpTo(_latchedPixel);
+                            VirtualMouse.Press();
+                            _vmPressed = true;
+                        }
+                    }
+                    else
+                    {
+                        BeginScreenDrag(_latchedPixel);
+                        UpdateScreenDrag(pixel); // catch the drag up to the current ray at once
+                    }
+                    VRLog.Info("WorldUI", $"FlatScreen pointer: click latch OPENED → drag " +
+                                          $"(ray {angle:F1}° off the press direction for " +
+                                          $">{WorldUIConfig.DragUnlockSeconds.Value:F2}s).");
+                }
+            }
+            else
+            {
+                _dragOverSince = -1f;
+            }
+        }
+
+        // MAP PAN (grab-drag): on the campaign map a held trigger that travels past a small
+        // pixel threshold grabs the parchment and drags it — the map follows the laser. This
+        // consumes the press latch so release does NOT select a location; a still trigger keeps
+        // the latch closed and clicks through to the location, exactly as before.
+        if (mapActive && _pressing)
+        {
+            if (!_mapPanGesture &&
+                (pixel - _latchedPixel).sqrMagnitude > MapPanStartPixels * MapPanStartPixels)
+            {
+                _mapPanGesture = true;
+                _latched = false;             // consume the click — release must not DirectClick
+                if (_vmPressed)
+                {
+                    VirtualMouse.Release();    // drop any held virtual-mouse button so no hover/drag leaks
+                    _vmPressed = false;
+                }
+                EndScreenDrag();
+                _stereo.BeginMapPan(_latchedPixel);
+                VRLog.Info("WorldUI", "FlatScreen pointer: map PAN started (trigger-drag grabbed the map).");
+            }
+            if (_mapPanGesture)
+                _stereo.UpdateMapPan(pixel);
+        }
+
+        // While frozen, keep re-warping to the SAME latched pixel: identical uGUI
+        // position (no drag delta), but the per-tick write keeps pointer currency
+        // reclaimed and the queued-event stream alive during a held press. During a map
+        // pan the virtual mouse is FROZEN at the press pixel so panning never drags the
+        // cursor across (and accidentally hovers) location markers.
+        bool frozen = _pressing && _latched;
+        if (!_mapPanGesture)
+            VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
+
+        // Execute-mode drag (default ClickMode): once the latch has opened, drive the
+        // uGUI IDragHandler under the press so sliders/scrollbars/scroll-rects follow
+        // the ray continuously — down/up/click alone never move a Slider handle.
+        if (_screenDragActive)
+            UpdateScreenDrag(pixel);
+
+        // Single convergent visual (test #7): the beam is CLAMPED to this exact world
+        // point and the RayInteractor's reticle shows there — no separate FlatScreen
+        // dot, no beam passing through the screen, no beam/dot parallax. While
+        // latched, the point is the frozen click position, so the beam visibly
+        // sticks to where the click will land.
+        Vector3 uiWorldPoint = frozen
+            ? t.TransformPoint(new Vector3(_latchedLocal.x, _latchedLocal.y, 0f))
+            : hit;
+        hand.Ray.UiHitOverride = uiWorldPoint;
+
+        // Trigger = left mouse button (press/release so drags work). The release
+        // condition is the trigger STATE, not the TriggerUp edge: a hands rebuild
+        // mid-press (HandsDriver re-creates VRHand instances on rig changes) would
+        // swallow the edge forever and leave uGUI in drag state — hover would die
+        // globally (I3 hardening; VirtualMouse has a second, time-based watchdog).
+        if (hand.TriggerDown && !_pressing)
+        {
+            _pressing = true;
+            _latched = WorldUIConfig.ClickLatch.Value;
+            _latchedLocal = new Vector2(local.x, local.y);
+            _latchedPixel = pixel;
+            _pressDirection = pose.Direction;
+            _dragOverSince = -1f;
+            VirtualMouse.WarpTo(pixel); // press lands exactly on the frozen pixel
+            if (WorldUIConfig.VirtualMouseButtons)
+            {
+                VirtualMouse.Press();
+                _vmPressed = true;
+            }
+            LogUnderPointer(pixel); // diagnostic: what the click will actually hit
+            VRLog.Info("WorldUI", $"FlatScreen pointer: trigger PRESS at RT pixel " +
+                                  $"({pixel.x:F0},{pixel.y:F0}), latch={_latched}, " +
+                                  $"mode={WorldUIConfig.ClickMode.Value}.");
+        }
+        else if (_pressing && !hand.TriggerPressed)
+        {
+            _pressing = false;
+            if (!hand.TriggerUp)
+                VRLog.Warn("WorldUI", "FlatScreen pointer: trigger release edge was missed " +
+                                      "(hands rebuilt mid-press?) — forced release.");
+            if (_vmPressed)
+            {
+                VirtualMouse.Release();
+                _vmPressed = false;
+            }
+            // A map pan consumed the press (latch already false) — end it, no click fires.
+            if (_mapPanGesture)
+            {
+                _stereo.EndMapPan();
+                _mapPanGesture = false;
+            }
+            // End any execute-mode drag first (endDrag + pointerUp). A drag opened the
+            // latch, so _latched is false here and DirectClick does not double-fire —
+            // the two paths are mutually exclusive (tap → DirectClick; drag → EndScreenDrag).
+            EndScreenDrag();
+            if (_latched && WorldUIConfig.ExecuteClicks)
+                DirectClick(_latchedPixel);
+            VRLog.Info("WorldUI", $"FlatScreen pointer: trigger RELEASE at RT pixel " +
+                                  $"({pixel.x:F0},{pixel.y:F0}) — " +
+                                  $"{(_latched ? "CLICK (latched)" : "drag end")}.");
+            _latched = false;
+        }
+    }
+
+    /// <summary>
+    /// Requirement 4: in Menu2D the NON-dominant trigger switches dominance to that
+    /// hand — only the dominant hand has a beam and clicks (per-hand Menu2D policy,
+    /// HandsModule). Writes <c>[Hands] PrimaryHand</c> (BepInEx persists on set;
+    /// HandsDriver reapplies the interactor masks via SettingChanged), so the card
+    /// fan / wrist HUD side stays consistent. Returns true when a switch happened —
+    /// the caller skips this frame so the freshly dominant hand's TriggerDown edge
+    /// cannot fire an immediate accidental click.
+    /// </summary>
+    private bool TickHandednessSwitch()
+    {
+        if (VRModeStateMachine.CurrentMode != VRMode.Menu2D)
+            return false;
+
+        VRHand? primary = VRHands.Primary;
+        VRHand? other = primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+        if (primary == null || other == null || !other.HasPose || !other.TriggerDown)
+            return false;
+        // Dev harness drives BOTH triggers from one key — a switch would flip-flop.
+        if (other.IsSimulated)
+            return false;
+
+        if (_pressing)
+        {
+            _pressing = false;
+            _latched = false;
+            if (_mapPanGesture)
+            {
+                _stereo.EndMapPan();
+                _mapPanGesture = false;
+            }
+            VirtualMouse.Release();
+            EndScreenDrag();
+        }
+
+        string side = other.Side == HandSide.Left ? "Left" : "Right";
+        Plugin.PrimaryHand.Value = side; // persisted (SaveOnConfigSet default true)
+        other.SendHaptic(HapticPreset.ClickPulse);
+        VRLog.Info("WorldUI", $"Handedness switch: {side} trigger pressed in Menu2D — dominant " +
+                              $"hand is now {side} (laser + click move; fan/HUD follow on the other hand).");
+        return true;
+    }
+
+    // ---- poke click (requirement 2) --------------------------------------------------------
+
+    /// <summary>
+    /// Fingertip poke on the flat screen = click at the poked RT position: quad-local
+    /// hit → RT pixel → latched VirtualMouse warp+press on plane contact, release on
+    /// withdraw. Both hands may poke (Menu2D grants Poke to both); the trigger-ray
+    /// press and the poke press are mutually exclusive.
+    /// </summary>
+    private void TickPoke()
+    {
+        if (_quad == null || _rt == null)
+            return;
+
+        if (!WorldUIConfig.PokeClick.Value)
+        {
+            if (_pokePressing)
+                EndPoke("poke click disabled");
+            return;
+        }
+
+        Transform t = _quad.transform;
+
+        if (_pokePressing)
+        {
+            VRHand? hand = _pokeHand;
+            if (hand == null || !hand.HasPose)
+            {
+                EndPoke("hand lost");
+                return;
+            }
+
+            float scale = hand.WorldScale;
+            Vector3 tip = hand.Rig.IndexTip.position;
+            float signed = Vector3.Dot(tip - t.position, t.forward); // viewer side < 0
+            Vector3 local = t.InverseTransformPoint(tip);
+            bool inRect = Mathf.Abs(local.x) <= 0.55f && Mathf.Abs(local.y) <= 0.55f;
+
+            if (signed < -PokeReleaseMeters * scale || signed > PokeThroughMeters * scale || !inRect)
+            {
+                EndPoke(null); // normal withdraw (or slid off) → release = click/drag end
+                return;
+            }
+
+            // Latch (same rationale as the trigger path): frozen at the press pixel
+            // until the fingertip deliberately slides sideways.
+            Vector3 onPlane = tip - t.forward * signed;
+            if (_pokeLatched
+                && (onPlane - _pokePressPoint).sqrMagnitude
+                   > PokeDragUnlockMeters * PokeDragUnlockMeters * scale * scale)
+            {
+                _pokeLatched = false;
+                // Same drag split as the trigger-ray path: execute mode (default) drives
+                // uGUI drag events (sliders/scrollbars follow); virtualmouse/both press
+                // the VM device. The VM path never moved a slider (test #7 button edges).
+                if (WorldUIConfig.VirtualMouseButtons)
+                {
+                    if (!_vmPressed)
+                    {
+                        VirtualMouse.WarpTo(_pokePressPixel);
+                        VirtualMouse.Press();
+                        _vmPressed = true;
+                    }
+                }
+                else
+                {
+                    BeginScreenDrag(_pokePressPixel);
+                }
+                VRLog.Info("WorldUI", "FlatScreen poke: latch OPENED → drag (fingertip slid " +
+                                      $">{PokeDragUnlockMeters * 1000f:F0} mm laterally).");
+            }
+            if (_pokeLatched)
+            {
+                // Same-pixel re-warp (see the trigger path): keeps currency reclaimed.
+                VirtualMouse.WarpTo(_pokePressPixel);
+            }
+            else
+            {
+                float px = (Mathf.Clamp(local.x, -0.5f, 0.5f) + 0.5f) * _rt.width;
+                float py = (Mathf.Clamp(local.y, -0.5f, 0.5f) + 0.5f) * _rt.height;
+                var p = new Vector2(px, py);
+                VirtualMouse.WarpTo(p);
+                if (_screenDragActive)
+                    UpdateScreenDrag(p);
+            }
+            return;
+        }
+
+        if (_pressing)
+            return; // trigger-ray press owns the pointer
+
+        TryBeginPoke(VRHands.Left, t);
+        if (!_pokePressing)
+            TryBeginPoke(VRHands.Right, t);
+    }
+
+    private void TryBeginPoke(VRHand? hand, Transform t)
+    {
+        // Respect the per-mode interactor matrix: only hands whose Poke interactor
+        // is enabled may poke the screen.
+        if (hand == null || !hand.HasPose || !hand.Poke.Enabled)
+            return;
+
+        float scale = hand.WorldScale;
+        Vector3 tip = hand.Rig.IndexTip.position;
+        float signed = Vector3.Dot(tip - t.position, t.forward); // viewer side < 0
+        if (signed < -PokeContactMeters * scale || signed > PokeThroughMeters * scale)
+            return; // not touching the plane / far behind it
+
+        Vector3 local = t.InverseTransformPoint(tip);
+        if (Mathf.Abs(local.x) > 0.5f || Mathf.Abs(local.y) > 0.5f)
+            return;
+
+        var pixel = new Vector2((local.x + 0.5f) * _rt!.width, (local.y + 0.5f) * _rt.height);
+        _pokePressing = true;
+        _pokeHand = hand;
+        _pokeLatched = WorldUIConfig.ClickLatch.Value;
+        _pokePressPoint = tip - t.forward * signed;
+        _pokePressPixel = pixel;
+        VirtualMouse.WarpTo(pixel);
+        if (WorldUIConfig.VirtualMouseButtons)
+        {
+            VirtualMouse.Press();
+            _vmPressed = true;
+        }
+        hand.SendHaptic(HapticPreset.ClickPulse);
+        LogUnderPointer(pixel);
+        VRLog.Info("WorldUI", $"FlatScreen poke: {hand.Side} fingertip PRESS at RT pixel " +
+                              $"({pixel.x:F0},{pixel.y:F0}), latch={_pokeLatched}.");
+    }
+
+    private void EndPoke(string? reason)
+    {
+        _pokePressing = false;
+        _pokeHand = null;
+        if (_vmPressed)
+        {
+            VirtualMouse.Release();
+            _vmPressed = false;
+        }
+        // End any execute-mode drag (endDrag + pointerUp); no-op for a plain latched tap.
+        EndScreenDrag();
+        // reason == null is the normal withdraw → deliver the click; any named reason
+        // (hand lost, poke disabled) is an abort.
+        if (_pokeLatched && reason == null && WorldUIConfig.ExecuteClicks)
+            DirectClick(_pokePressPixel);
+        VRLog.Info("WorldUI", $"FlatScreen poke: fingertip RELEASE — " +
+                              $"{reason ?? (_pokeLatched ? "CLICK (latched)" : "drag end")}.");
+        _pokeLatched = false;
+    }
+
+    private void HideReticle()
+    {
+        if (_pressing)
+        {
+            _pressing = false;
+            _latched = false;
+            if (_vmPressed)
+            {
+                VirtualMouse.Release();
+                _vmPressed = false;
+            }
+            EndScreenDrag();
+            VRLog.Info("WorldUI", "FlatScreen pointer: press released (ray left the screen / pose lost).");
+        }
+    }
+
+    // ---- direct click delivery (test #7) ----------------------------------------------------
+
+    private static readonly System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>
+        s_raycastResults = new(16);
+
+    /// <summary>
+    /// Delivers a latched click directly through uGUI ExecuteEvents at the given RT
+    /// pixel — the exact mechanism the game itself uses for programmatic clicks
+    /// (BaseButtons.clickButton, UI-ARCH §5). Bypasses the input module entirely, so
+    /// no frame-edge/pointer-currency quirk can swallow it. Modality is respected by
+    /// construction: EventSystem.RaycastAll only returns hits from ENABLED
+    /// GraphicRaycasters (UIManager.ToggleLockUI disables them to lock the UI).
+    /// </summary>
+    private void DirectClick(Vector2 pixel)
+    {
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+        {
+            VRLog.Warn("WorldUI", "DirectClick: no EventSystem — click dropped.");
+            return;
+        }
+
+        var data = new UnityEngine.EventSystems.PointerEventData(es)
+        {
+            position = pixel,
+            button = UnityEngine.EventSystems.PointerEventData.InputButton.Left,
+            clickCount = 1,
+            clickTime = Time.unscaledTime,
+            eligibleForClick = true,
+        };
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+        {
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): nothing under the pointer.");
+            return;
+        }
+
+        UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
+        data.pointerCurrentRaycast = data.pointerPressRaycast = top;
+
+        GameObject? pressTarget = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+            top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.pointerDownHandler);
+        GameObject? clickTarget = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler
+            <UnityEngine.EventSystems.IPointerClickHandler>(top.gameObject);
+        data.pointerPress = pressTarget ?? clickTarget;
+
+        if (data.pointerPress != null)
+            UnityEngine.EventSystems.ExecuteEvents.Execute(
+                data.pointerPress, data, UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
+
+        if (clickTarget != null)
+        {
+            UnityEngine.EventSystems.ExecuteEvents.Execute(
+                clickTarget, data, UnityEngine.EventSystems.ExecuteEvents.pointerClickHandler);
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}) → clicked '{clickTarget.name}'.");
+        }
+        else
+        {
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): top hit " +
+                                  $"'{top.gameObject.name}' has no IPointerClickHandler.");
+        }
+    }
+
+    // ---- execute-mode drag delivery (flat-menu sliders / scrollbars / scroll-rects) --------
+
+    /// <summary>
+    /// Begin an ExecuteEvents drag session at the press pixel — the click latch has just
+    /// opened into a deliberate drag. A uGUI <see cref="UnityEngine.UI.Slider"/> handle,
+    /// scrollbar or scroll-rect moves ONLY through <c>IDragHandler.OnDrag</c>; the
+    /// <see cref="DirectClick"/> down/up/click sets a value at the press pixel but can
+    /// never fine-adjust it or reach an extreme the press pixel is not on (drag a volume
+    /// slider to 0). Mirrors <see cref="Hands.Interact.UguiPointer"/> for the whole-screen
+    /// composite: hits come from <c>EventSystem.RaycastAll</c> at the RT pixel (= the
+    /// game's real screen pixel), exactly like <see cref="DirectClick"/>, so
+    /// <c>pointerPressRaycast.module.eventCamera</c> (the UICamera) resolves the slider's
+    /// local point correctly. pointerDown + <c>initializePotentialDrag</c> here;
+    /// <see cref="UpdateScreenDrag"/> fires beginDrag/dragHandler as the pointer follows;
+    /// <see cref="EndScreenDrag"/> fires endDrag + pointerUp on release.
+    /// </summary>
+    private void BeginScreenDrag(Vector2 pixel)
+    {
+        if (_screenDragActive)
+            return;
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+        {
+            VRLog.Warn("WorldUI", "Flat-menu drag: no EventSystem — drag dropped (slider cannot follow).");
+            return;
+        }
+
+        var data = new UnityEngine.EventSystems.PointerEventData(es)
+        {
+            pointerId = ScreenDragPointerId,
+            position = pixel,
+            pressPosition = pixel,
+            button = UnityEngine.EventSystems.PointerEventData.InputButton.Left,
+            eligibleForClick = false,  // a deliberate drag is not a click
+            useDragThreshold = false,  // VR: begin dragging on the first move, no pixel threshold
+        };
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+        {
+            VRLog.Info("WorldUI", $"Flat-menu drag: nothing under the pointer at ({pixel.x:F0},{pixel.y:F0}) — no drag.");
+            return;
+        }
+
+        UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
+        data.pointerCurrentRaycast = data.pointerPressRaycast = top;
+
+        GameObject? pressTarget = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+            top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.pointerDownHandler);
+        _screenDragPress = pressTarget != null ? pressTarget : top.gameObject;
+        data.pointerPress = _screenDragPress;
+
+        _screenDragTarget = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler
+            <UnityEngine.EventSystems.IDragHandler>(top.gameObject);
+        data.pointerDrag = _screenDragTarget;
+        if (_screenDragTarget != null)
+            UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+                top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.initializePotentialDrag);
+
+        _screenDragData = data;
+        _screenDragActive = true;
+        _screenDragBegun = false;
+        _screenDragLastPos = pixel;
+    }
+
+    /// <summary>
+    /// Drive the active flat-menu drag as the pointer follows: update position + delta,
+    /// fire beginDrag on the first move (ScrollRect wants it; Slider/Scrollbar have no
+    /// IBeginDragHandler and simply ignore it) and dragHandler every tick thereafter.
+    /// No-op when nothing draggable sits under the press.
+    /// </summary>
+    private void UpdateScreenDrag(Vector2 pixel)
+    {
+        if (!_screenDragActive || _screenDragData == null || _screenDragTarget == null)
+        {
+            _screenDragLastPos = pixel;
+            return;
+        }
+        UnityEngine.EventSystems.PointerEventData data = _screenDragData;
+        data.delta = pixel - _screenDragLastPos;
+        data.position = pixel;
+        _screenDragLastPos = pixel;
+
+        if (!_screenDragBegun)
+        {
+            _screenDragBegun = true;
+            data.dragging = true;
+            UnityEngine.EventSystems.ExecuteEvents.Execute(
+                _screenDragTarget, data, UnityEngine.EventSystems.ExecuteEvents.beginDragHandler);
+            if (Time.unscaledTime - _lastScreenDragLog >= ScreenDragLogSeconds)
+            {
+                _lastScreenDragLog = Time.unscaledTime;
+                VRLog.Info("WorldUI", $"Flat-menu drag BEGIN on '{_screenDragTarget.name}' at " +
+                                      $"({pixel.x:F0},{pixel.y:F0}) — sliders/scrollbars now follow the " +
+                                      "pointer via uGUI OnDrag (not just the click on the press pixel).");
+            }
+        }
+        UnityEngine.EventSystems.ExecuteEvents.Execute(
+            _screenDragTarget, data, UnityEngine.EventSystems.ExecuteEvents.dragHandler);
+    }
+
+    /// <summary>
+    /// End the active flat-menu drag (endDrag + pointerUp at the last dispatched pixel);
+    /// a safe no-op when none is active. A drag is never a click (it opened the latch), so
+    /// no pointerClick is fired — matching the old virtual-mouse drag path (release only).
+    /// </summary>
+    private void EndScreenDrag()
+    {
+        if (!_screenDragActive)
+            return;
+        UnityEngine.EventSystems.PointerEventData? data = _screenDragData;
+        if (data != null)
+        {
+            data.position = _screenDragLastPos;
+            if (_screenDragPress != null)
+                UnityEngine.EventSystems.ExecuteEvents.Execute(
+                    _screenDragPress, data, UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
+            if (_screenDragBegun && _screenDragTarget != null)
+                UnityEngine.EventSystems.ExecuteEvents.Execute(
+                    _screenDragTarget, data, UnityEngine.EventSystems.ExecuteEvents.endDragHandler);
+            data.dragging = false;
+            data.pointerDrag = null;
+            data.pointerPress = null;
+        }
+        if (_screenDragBegun && Time.unscaledTime - _lastScreenDragLog >= ScreenDragLogSeconds)
+        {
+            _lastScreenDragLog = Time.unscaledTime;
+            VRLog.Info("WorldUI", $"Flat-menu drag END at ({_screenDragLastPos.x:F0},{_screenDragLastPos.y:F0}).");
+        }
+        _screenDragActive = false;
+        _screenDragBegun = false;
+        _screenDragPress = null;
+        _screenDragTarget = null;
+        _screenDragData = null;
+    }
+
+    /// <summary>
+    /// Press-time diagnostic (all click modes): logs the top uGUI raycast hits under
+    /// the press pixel, so a click that lands on the wrong element (or on nothing) is
+    /// attributable from the log alone.
+    /// </summary>
+    private static void LogUnderPointer(Vector2 pixel)
+    {
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+            return;
+        var data = new UnityEngine.EventSystems.PointerEventData(es) { position = pixel };
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+        {
+            VRLog.Info("WorldUI", $"Under pointer ({pixel.x:F0},{pixel.y:F0}): nothing.");
+            return;
+        }
+        int n = Mathf.Min(3, s_raycastResults.Count);
+        var sb = new System.Text.StringBuilder(128);
+        sb.Append($"Under pointer ({pixel.x:F0},{pixel.y:F0}): ");
+        for (int i = 0; i < n; i++)
+        {
+            if (i > 0) sb.Append(" | ");
+            GameObject go = s_raycastResults[i].gameObject;
+            Canvas? root = go.GetComponentInParent<Canvas>();
+            sb.Append($"'{go.name}'");
+            if (root != null)
+                sb.Append($" (canvas '{root.rootCanvas.name}')");
+        }
+        VRLog.Info("WorldUI", sb.ToString());
+    }
+}

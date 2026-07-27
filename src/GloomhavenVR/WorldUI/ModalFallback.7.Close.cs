@@ -1,0 +1,301 @@
+using System;
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
+using GloomhavenVR.Hands;
+using Script.GUI.Popups;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+namespace GloomhavenVR.WorldUI;
+
+internal static partial class ModalFallback
+{
+    // ---- modal escape chord (test #17) --------------------------------------------------
+
+    /// <summary>
+    /// Modal escape hatch (test #17 hard-lock guarantee): while a floating modal
+    /// window is open, holding the non-dominant A/X to the manual-chord threshold
+    /// closes the TOP (most recently floated) modal through the game's own escape
+    /// path — <c>UIWindow.Escape()</c> (exactly what the ESC key runs per window,
+    /// honors escapeKeyAction), falling back to the public <c>UIWindow.Hide()</c>
+    /// when the window opts out of escape. Game state observes the close normally
+    /// (OnHide/onHidden fire); nothing is bypassed.
+    ///
+    /// Chord arbitration: this consumer runs BEFORE <see cref="FlatScreen"/> in the
+    /// driver order and CONSUMES the press — one press, one action. While a modal
+    /// floats the chord means "close it"; the flat-screen toggle (and the
+    /// settings-panel short hold) need a fresh press once no modal floats, so the
+    /// universal screen rescue stays reachable.
+    /// </summary>
+    private static void TickEscapeChord()
+    {
+        if (Converted.Count == 0 || NonDominantHold.HeldSeconds <= 0f)
+        {
+            _escapeChordFired = false;
+            _escapeArmingLogged = false;
+            return;
+        }
+        if (NonDominantHold.Consumed || _escapeChordFired)
+            return;
+
+        float threshold = Mathf.Max(0.5f, WorldUIConfig.ManualScreenChordSeconds.Value);
+        if (!_escapeArmingLogged && NonDominantHold.HeldSeconds >= threshold * 0.5f)
+        {
+            _escapeArmingLogged = true;
+            VRLog.Info("WorldUI", $"Modal escape chord ARMING: non-dominant A/X held " +
+                                  $"{NonDominantHold.HeldSeconds:F1}s with a floating modal open — " +
+                                  $"keep holding to {threshold:F1}s to close the top modal window.");
+        }
+        if (NonDominantHold.HeldSeconds < threshold)
+            return;
+
+        _escapeChordFired = true;
+        NonDominantHold.Consumed = true; // one press, one action (screen/settings skip it)
+        NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
+        CloseTopModal(threshold);
+    }
+
+    /// <summary>Close the top (most recently floated) modal via the game's own path.</summary>
+    private static void CloseTopModal(float heldSeconds)
+    {
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            UIWindow window = wp.Window;
+            // Item 6: a sticky menu the game already hid is still floated (force-visible) — the chord
+            // must be able to close it too. Skip only windows already flagged for release. Route
+            // through CloseFloatedWindow so both the game close (if open) and the sticky force-visible
+            // release path are handled in one place.
+            if (window == null || wp.UserClosing || (!window.IsOpen && !wp.Sticky))
+                continue;
+            VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: closing top modal '{window.name}' (ID {window.ID}) — " +
+                                  $"non-dominant A/X held {heldSeconds:F1}s.");
+            CloseFloatedWindow(window);
+            return;
+        }
+        VRLog.Info("WorldUI", "MODAL ESCAPE CHORD: no floating modal left to close.");
+    }
+
+    /// <summary>
+    /// Item 3c: close ONE floated window through the game's own escape/hide path (the mod X
+    /// button's action). Mirrors <see cref="CloseTopModal"/>: <c>UIWindow.Escape()</c> first
+    /// (honors escapeKeyAction, exactly what the ESC key runs), falling back to the public
+    /// <c>UIWindow.Hide()</c> when the window opts out of escape. Game state observes the close
+    /// normally (OnHide/onHidden fire); the mod's per-tick prune then releases the float.
+    /// </summary>
+    internal static void CloseFloatedWindow(UIWindow? window)
+    {
+        if (window == null)
+            return;
+        string name = window.name;
+
+        // Item 6: flag THIS floated window for release regardless of the game's own IsOpen. A sticky
+        // reachable menu the game's single-window toggle already hid stays floated in VR until its
+        // OWN X closes it, so here its game state may already be Hidden — the flag is what actually
+        // drops the parallel float, independent of whether the game close below does anything.
+        WindowPanel? wp = FindPanel(window);
+        if (wp != null)
+            wp.UserClosing = true;
+
+        try
+        {
+            if (window.IsOpen)
+            {
+                // Item 7a: close EXACTLY THIS window (submenus must be individually closable). The
+                // return value of UIWindow.Escape() is NOT proof the window closed — a submenu whose
+                // escapeKeyAction is Skip returns TRUE while doing nothing (decompiled UIWindow.cs:717),
+                // and None/HideIfFocused-when-unfocused return FALSE without hiding. So run Escape()
+                // for its honored per-window behavior, then FORCE this window hidden if it is still
+                // open — its own Hide() (OnHide/onHidden fire), never the parent's.
+                bool escaped = window.Escape();
+                bool hidden = false;
+                if (window.IsOpen)
+                {
+                    window.Hide();
+                    hidden = true;
+                }
+                VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) closed via " +
+                                      $"{(hidden ? (escaped ? "UIWindow.Escape()+Hide()" : "UIWindow.Hide()") : "UIWindow.Escape()")}.");
+            }
+            else
+            {
+                // Item 6: the game already hid this sticky window (a sibling opened) and the mod kept
+                // it floated + force-visible. There is nothing to close at the game level — reset the
+                // forced CanvasGroup to the game's hidden state and let the per-tick release drop the
+                // VR float (UserClosing flag above).
+                if (wp?.WindowCanvasGroup != null)
+                {
+                    wp.WindowCanvasGroup.alpha = 0f;
+                    wp.WindowCanvasGroup.blocksRaycasts = false;
+                    wp.WindowCanvasGroup.interactable = false;
+                }
+                VRLog.Info("WorldUI", $"MODAL CLOSE (X button): '{name}' (ID {window.ID}) — game had already " +
+                                      "hidden it (single-window toggle); releasing the parallel VR float only.");
+            }
+        }
+        catch (Exception ex)
+        {
+            VRLog.Error("WorldUI", $"MODAL CLOSE (X button): closing '{name}' FAILED " +
+                                   $"({ex.GetType().Name}: {ex.Message}).");
+        }
+
+        // Issue 4 (ESC menu unresponsive after closing a submenu): reset the ESC menu's ToggleGroup
+        // deterministically on EVERY X-close of an ESC submenu, in BOTH branches above — the game's
+        // own hide-callback (optionsButton.Deselect / OnHideOptionWindow → toggleGroup.SetAllTogglesOff)
+        // does NOT run when our X-close takes the "game had already hidden it" branch, so the tab's
+        // toggle is left ON. Clicking an already-on toggle in a single-select ToggleGroup does nothing,
+        // so submenus could not be reopened. Forcing the group off here leaves it clean regardless of
+        // which branch closed the window.
+        ResetEscMenuToggleGroup(window);
+    }
+
+    /// <summary>
+    /// Issue 4: turn the ESC menu's <c>ToggleGroup</c> fully off after an ESC SUBMENU (Options /
+    /// OptionsSubmenu / Multiplayer submenu / Compendium) is X-closed, so its tab toggle is not left
+    /// ON — an already-on toggle in a single-select group ignores the next click, which left the ESC
+    /// menu unable to reopen submenus. Reached via the persistent <c>Singleton&lt;ESCMenu&gt;</c>
+    /// (the pause menu the submenus belong to); no-op for non-submenu windows and when no ESC menu
+    /// exists. Reflection-free (publicized <c>toggleGroup</c>), fully null-guarded.
+    /// </summary>
+    private static void ResetEscMenuToggleGroup(UIWindow window)
+    {
+        UIWindowID id = window.ID;
+        if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu
+            && id != UIWindowID.ViceOptionsSubmenu && id != UIWindowID.CompendiumPanel)
+            return;
+        if (!Singleton<ESCMenu>.IsInitialized)
+            return;
+        ESCMenu esc = Singleton<ESCMenu>.Instance;
+        if (esc == null)
+            return;
+        try
+        {
+            ToggleGroup? group = esc.toggleGroup;
+            if (group == null)
+                return;
+            group.SetAllTogglesOff();
+            VRLog.Info("WorldUI", $"MODAL CLOSE (X button): reset the ESC-menu ToggleGroup after closing " +
+                                  $"submenu '{window.name}' (ID {id}) — its tab toggle is cleared so the ESC " +
+                                  "menu can reopen submenus again (Issue 4).");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"MODAL CLOSE (X button): could not reset the ESC-menu ToggleGroup " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — submenu reopen may need a second tap.");
+        }
+    }
+
+    /// <summary>
+    /// FIX A companion (controller-X close-all): close every still-floated STICKY menu window
+    /// the OptionsToggle live probes cannot see — a sticky float whose game window the ESC
+    /// menu's single-window toggle already hid reports <c>IsOpen == false</c>, so the open-state
+    /// probe skips it, yet its float would stay force-visible forever (only
+    /// <see cref="WindowPanel.UserClosing"/> ever drops a sticky float). Each is routed through
+    /// <see cref="CloseFloatedWindow"/> — exactly the corner-X path. The ESC menu itself is
+    /// EXCLUDED (the caller closes it LAST so its OnHide → SetAllTogglesOff cascade stays the
+    /// final word); windows already flagged UserClosing are skipped (already on their way out).
+    /// </summary>
+    internal static void CloseStickyFloatsExceptEscMenu()
+    {
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            UIWindow? window = wp.Window;
+            if (window == null || wp.UserClosing || !wp.Sticky || window.ID == UIWindowID.ESCMenu)
+                continue;
+            CloseFloatedWindow(window);
+        }
+    }
+
+    /// <summary>The floated <see cref="WindowPanel"/> for a game window, or null if not floated.</summary>
+    private static WindowPanel? FindPanel(UIWindow window)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Window, window))
+                return Converted[i];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Item 6 (parallel windows): keep a sticky menu visible + clickable in VR after the game hid it
+    /// (its single-window toggle set the window's visual state Hidden and tweened the CanvasGroup to
+    /// alpha 0). The window root lives under our host, so forcing its CanvasGroup back to alpha 1 with
+    /// raycasts on re-shows it in VR without calling <c>Show()</c> (no onShown side effects, no war
+    /// with the toggle — the deselect is a one-shot event). Change-gated writes; also re-activates a
+    /// <c>m_DisableOnZeroAlpha</c> window that went inactive at alpha 0.
+    ///
+    /// EMPTY-SHELL FIX: a <c>UIWindow</c> whose serialized <c>_disableCanvas</c> is set DISABLES its
+    /// own Canvas component when the hide fade completes (UIWindow.OnTransitionCompleted →
+    /// <c>_canvas.enabled = false</c>). A disabled Canvas renders NOTHING under it, so forcing only the
+    /// CanvasGroup/active state left the sticky menu an EMPTY shell — the game content gone, only the
+    /// mod-drawn grab bar + X visible (confirmed for Options when Spielanleitung/Compendium opens: the
+    /// ESC-menu single-selection toggle turns the Options toggle off → <c>UIOptionsWindow.Hide()</c>).
+    /// Re-enabling the window's own <see cref="WindowPanel.WindowCanvas"/> restores the full live
+    /// content. This is the exact Canvas <c>_disableCanvas</c> targets (the window root's own), so it
+    /// never re-shows sub-canvases the game legitimately keeps hidden (closed option tabs).
+    /// </summary>
+    private static void ReassertStickyVisible(WindowPanel wp)
+    {
+        CanvasGroup? cg = wp.WindowCanvasGroup;
+        if (cg != null)
+        {
+            if (cg.alpha < 1f) cg.alpha = 1f;
+            if (!cg.blocksRaycasts) cg.blocksRaycasts = true;
+            if (!cg.interactable) cg.interactable = true;
+        }
+        // Empty-shell fix: re-enable the window's own Canvas that a `_disableCanvas` UIWindow turned
+        // off on its hide-fade complete — otherwise the whole subtree stops rendering (empty shell).
+        Canvas? canvas = wp.WindowCanvas;
+        if (canvas != null && !canvas.enabled)
+            canvas.enabled = true;
+        GameObject go = wp.Window.gameObject;
+        if (!go.activeSelf)
+            go.SetActive(true);
+    }
+
+    // ---- window gathering helpers (allocation-free) -------------------------------------
+
+    private static void AddPollWindow(UIWindow? window)
+    {
+        if (window == null || ContainsWindow(OpenWindows, window))
+            return;
+        OpenWindows.Add(window);
+    }
+
+    /// <summary>Add a level-message group's UIWindow when that group is the visible one.</summary>
+    private static void AddGroupWindow(LevelMessageUILayoutGroup? group)
+    {
+        if (group == null)
+            return;
+        // `window` = GetComponent<UIWindow>() in Awake (LevelMessageUILayoutGroup.cs:37,
+        // RequireComponent :8); publicized field.
+        UIWindow? window = group.window;
+        if (window != null && (window.IsVisible || window.IsOpen))
+            AddPollWindow(window);
+    }
+
+    private static bool ContainsWindow(List<UIWindow> list, UIWindow window)
+    {
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (ReferenceEquals(list[i], window))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsConverted(UIWindow window)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Window, window))
+                return true;
+        }
+        return false;
+    }
+
+}
