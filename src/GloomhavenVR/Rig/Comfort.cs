@@ -16,7 +16,7 @@ namespace GloomhavenVR.Rig;
 /// - Recenter re-aligns the rig so the HMD sits at the configured spot at the table
 ///   edge: the standing preset (0.70 m above / 0.70 m back) plus
 ///   <c>[Comfort] TableHeightOffset</c>. Changing the offset re-runs recenter live (the
-///   P3c panel gets immediate feedback for free). The old seated-mode preset is GONE
+///   settings panel gets immediate feedback for free). The old seated-mode preset is GONE
 ///   (user: irrelevant — the world is freely draggable).
 /// - Dev harness: F11 recenters (desktop, [Dev] Enabled only).
 ///
@@ -42,7 +42,7 @@ internal sealed class Comfort : MonoBehaviour
         }
     }
 
-    // ---- runtime ops (P3c settings-panel surface, see docs/INTERFACES-P4.md) -------------
+    // ---- runtime ops (the settings-panel surface, see docs/INTERFACES-P4.md) -------------
 
     /// <summary>Recenter now (same path as the button chord). Safe no-op without a rig.</summary>
     internal static void RequestRecenter() => VRRigDriver.RequestRecenter();
