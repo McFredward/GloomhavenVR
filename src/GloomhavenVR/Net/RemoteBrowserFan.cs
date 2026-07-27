@@ -401,6 +401,11 @@ internal sealed class RemoteBrowserFan
     /// scale, while the held fan hangs off their palm and inherits their RIG scale. The sender's
     /// debug-menu <c>[Cards] BrowseFanOffset</c> is deliberately NOT applied — it is receiver-local
     /// tuning, not wire state, exactly as <see cref="RemoteItemFan"/> ignores the item-fan offset.
+    ///
+    /// That <paramref name="rootScale"/> rule is where this method and its near-twin
+    /// <c>RemoteItemFan.TryResolvePose</c> genuinely diverge: the item fan wears the sender's RIG
+    /// scale even when board-anchored. See the note on that method — the two look mergeable and are
+    /// not.
     /// </summary>
     private bool TryResolveAnchor(out Vector3 pos, out Quaternion rot, out float rootScale)
     {
