@@ -346,7 +346,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // list below wrong (see the note under the marker).
         // Cached delegates → zero per-frame allocation in the loop.
         //
-        // FRAME-ORDER VRRigDriver._tailSteps [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
+        // FRAME-ORDER VRRigDriver._tailSteps [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.DepthPrepass, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
         //   MixedReality is LAST on purpose: it reads the camera state every earlier step wrote
         //   (clear colour, clip planes, per-camera policy) and decides see-through from it.
         //   Promoting it — or inserting a step after it — silently changes what it sees.
@@ -363,6 +363,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             ("Rig.HeadCullingMask", TickHeadCullingMask),
             ("Rig.HeadClearColor", TickHeadClearColor),
             ("Rig.ClipPlanes", TickClipPlanes),
+            // Sits with the other head-camera render-state re-asserts and BEFORE MixedReality,
+            // which reads the camera state the earlier steps wrote. It writes only
+            // depthTextureMode, which no later step reads.
+            ("Rig.DepthPrepass", TickDepthTextureMode),
             ("Rig.RenderQuality", RenderQuality.Tick),
             ("Rig.CameraPolicy", () => TickCameraPolicy(_tickSceneLoaded)),
             ("Rig.MixedReality", MixedReality.Tick),
