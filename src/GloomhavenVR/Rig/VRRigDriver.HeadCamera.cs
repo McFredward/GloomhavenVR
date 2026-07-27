@@ -27,7 +27,19 @@ internal sealed partial class VRRigDriver
     /// survive every foreign write.
     /// </summary>
     private static int ComposeHeadMask(int sourceMask) =>
-        (sourceMask == 0 ? 1 : sourceMask) | VRLayers.ModLayerMask;
+        DropOptOutLayers((sourceMask == 0 ? 1 : sourceMask) | VRLayers.ModLayerMask);
+
+    /// <summary>
+    /// Subtract <c>[Optimize] HeadCullingMaskDrop</c> (2026-07 submission-cost pass). Empty by
+    /// default, so this is the identity until a tester names a layer — and the mod layer is
+    /// protected unconditionally, because dropping it would take the hands, the control board and
+    /// the settings panel with it and leave no way back inside the headset.
+    /// </summary>
+    private static int DropOptOutLayers(int mask)
+    {
+        int drop = Core.PerfConfig.HeadMaskDropMask & ~VRLayers.ModLayerMask;
+        return drop == 0 ? mask : mask & ~drop;
+    }
 
     private void TickHeadCullingMask()
     {
@@ -36,7 +48,9 @@ internal sealed partial class VRRigDriver
         int wanted;
         if (_kind == RigKind.Menu)
         {
-            // Mod layer only — never follow the anchor in Menu2D (test #10).
+            // Mod layer only — never follow the anchor in Menu2D (test #10). The opt-out list is
+            // deliberately NOT applied here: the menu mask is already the minimum that keeps the
+            // HMD usable, and it contains only the mod layer, which the drop can never remove.
             wanted = VRLayers.ModLayerMask;
         }
         else
@@ -48,6 +62,37 @@ internal sealed partial class VRRigDriver
         }
         if (_camera.cullingMask != wanted)
             _camera.cullingMask = wanted;
+    }
+
+    /// <summary>
+    /// Re-assert <c>[Optimize] HeadDepthPrepass</c> onto the head camera's
+    /// <see cref="Camera.depthTextureMode"/> (2026-07 submission-cost pass; one enum compare per
+    /// frame, same enforcement pattern as the MSAA/clip-plane re-asserts above).
+    ///
+    /// <para>WHY IT IS A LEVER AT ALL. On the built-in FORWARD path — which
+    /// <see cref="CreateHeadCamera"/> selects — <see cref="DepthTextureMode.Depth"/> is not a flag
+    /// the engine reads off some buffer it already has. Forward has no G-buffer, so Unity BUILDS
+    /// <c>_CameraDepthTexture</c> by rendering the whole opaque scene AGAIN through each shader's
+    /// shadow-caster pass. That is a second full scene submission per eye pass: four per frame
+    /// under MultiPass where the mod's own head camera already costs 15–17 ms of main-thread
+    /// cull+submit. It is the largest single piece of submission volume the mod adds, and the
+    /// 2026-07 measurement says submission volume is the wall.</para>
+    ///
+    /// <para>WHY IT IS NOT SIMPLY REMOVED. The depth texture is what makes the game's VFX shaders
+    /// soft-fade against geometry; without it the fade fails OPEN and torch glow renders through
+    /// thin walls — the exact bug <see cref="CreateHeadCamera"/>'s comment records fixing. So the
+    /// default is today's behaviour and the switch exists to be MEASURED, from the Debug pane,
+    /// with the measurement window closed on the boundary.</para>
+    /// </summary>
+    private void TickDepthTextureMode()
+    {
+        if (_camera == null)
+            return;
+        DepthTextureMode wanted = Core.PerfConfig.DepthPrepassOn
+            ? DepthTextureMode.Depth
+            : DepthTextureMode.None;
+        if (_camera.depthTextureMode != wanted)
+            _camera.depthTextureMode = wanted;
     }
 
     /// <summary>
@@ -186,7 +231,14 @@ internal sealed partial class VRRigDriver
         // shader pass states were proven clean (ZTest LEqual, walls ZWrite On) — the ONLY missing
         // piece was this depth texture. One extra depth prepass per eye is the cost; the visual
         // result is the game's ORIGINAL intended soft-particle look.
-        _camera.depthTextureMode = DepthTextureMode.Depth;
+        //
+        // COST, MEASURED 2026-07: on the forward path this is not a free flag — forward has no
+        // G-buffer, so Unity builds the texture by re-rendering every opaque object through its
+        // shadow-caster pass, a full extra scene submission PER EYE. See TickDepthTextureMode,
+        // which owns the value from here on and lets [Optimize] HeadDepthPrepass A/B it.
+        _camera.depthTextureMode = Core.PerfConfig.DepthPrepassOn
+            ? DepthTextureMode.Depth
+            : DepthTextureMode.None;
 
         // We drive the pose via TrackedPoseDriver — switch off the implicit XR camera
         // tracking the display subsystem would otherwise apply on top.
