@@ -83,12 +83,6 @@ internal sealed class HandGhost
         _label = label;
     }
 
-    /// <summary>True while material clones are installed (i.e. the hand is faded).</summary>
-    internal bool Engaged => _renderers != null;
-
-    /// <summary>How many renderers the ghost currently covers (0 while released).</summary>
-    internal int RendererCount => _renderers != null ? _renderers.Length : 0;
-
     /// <summary>
     /// Drive the ghost: fade <paramref name="rig"/> to <paramref name="alpha"/> (0 = invisible,
     /// 1 = opaque), or release when <paramref name="rig"/> is null / torn down. Idempotent and
