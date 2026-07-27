@@ -27,7 +27,94 @@ internal sealed partial class VRRigDriver
     /// survive every foreign write.
     /// </summary>
     private static int ComposeHeadMask(int sourceMask) =>
-        (sourceMask == 0 ? 1 : sourceMask) | VRLayers.ModLayerMask;
+        DropOptOutLayers((sourceMask == 0 ? 1 : sourceMask) | VRLayers.ModLayerMask);
+
+    /// <summary>
+    /// Subtract <c>[Optimize] HeadCullingMaskDrop</c> (2026-07 submission-cost pass). Empty by
+    /// default, so this is the identity until a tester names a layer — and the mod layer is
+    /// protected unconditionally, because dropping it would take the hands, the control board and
+    /// the settings panel with it and leave no way back inside the headset.
+    /// </summary>
+    private static int DropOptOutLayers(int mask)
+    {
+        int drop = Core.PerfConfig.HeadMaskDropMask & ~VRLayers.ModLayerMask;
+        return drop == 0 ? mask : mask & ~drop;
+    }
+
+    /// <summary>
+    /// The game's own scenario renderer, resolved by name and cached. Probed on the same cadence
+    /// as the camera-policy sweep and only while unresolved, because <c>Camera.allCameras</c>
+    /// allocates an array on every read. A Unity-null here (scene unloaded the camera) simply
+    /// re-arms the probe.
+    /// </summary>
+    private Camera? _scenarioCam;
+    private int _scenarioCamProbe;
+
+    /// <summary>
+    /// Layers the scenario mask narrowing must NEVER drop, whatever the ScenarioCamera's own mask
+    /// says. The mod layer carries every mod visual (hands, cards, control board, panels) and the
+    /// built-in UI layer carries the game's own uGUI, which <c>CanvasConversion</c> re-parents into
+    /// world space and which the flat ScenarioCamera therefore never had to render — its mask
+    /// excludes layer 5 on hardware. Dropping either would blank the headset with no way back
+    /// inside it, which is exactly the failure mode a "safe by default" switch must not have.
+    /// </summary>
+    private static int MaskNarrowingFloor => VRLayers.ModLayerMask | (1 << 5);
+
+    /// <summary>Last mask actually written, so the change is logged once and not per frame.</summary>
+    private int _loggedHeadMask;
+
+    private Camera? ResolveScenarioCamera()
+    {
+        if (_scenarioCam != null)
+            return _scenarioCam;
+        if (--_scenarioCamProbe > 0)
+            return null;
+        _scenarioCamProbe = SweepIntervalFrames;
+        Camera[] all = Camera.allCameras;
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i] != null && all[i].name == "ScenarioCamera")
+            {
+                _scenarioCam = all[i];
+                break;
+            }
+        }
+        return _scenarioCam;
+    }
+
+    /// <summary>
+    /// Say, once per distinct mask, exactly which layers the head camera stopped rendering and
+    /// what was on them. A narrowing that makes something invisible has to be diagnosable from the
+    /// log alone — the tester is inside a headset and cannot inspect a bitmask there.
+    /// </summary>
+    private void LogHeadMaskChange(int wanted, int source, bool narrowed)
+    {
+        if (wanted == _loggedHeadMask)
+            return;
+        _loggedHeadMask = wanted;
+        if (!narrowed)
+            return;
+        var sb = new System.Text.StringBuilder(256);
+        sb.Append("Head culling mask narrowed to the ScenarioCamera's ([Optimize] ")
+          .Append("HeadMaskFromScenarioCamera): 0x").Append(source.ToString("X8"))
+          .Append(" → 0x").Append(wanted.ToString("X8")).Append(". No longer rendered:");
+        int dropped = _anchor != null ? _anchor.cullingMask & ~wanted : 0;
+        bool any = false;
+        for (int layer = 0; layer < 32; layer++)
+        {
+            if ((dropped & (1 << layer)) == 0)
+                continue;
+            string name = LayerMask.LayerToName(layer);
+            sb.Append(any ? ", " : " ").Append(layer).Append('=')
+              .Append(string.IsNullOrEmpty(name) ? "<unnamed>" : name);
+            any = true;
+        }
+        if (!any)
+            sb.Append(" nothing (the ScenarioCamera's mask was no narrower than the anchor's)");
+        sb.Append(". The [Perf] SCENE line's per-layer counts say how many renderers that removes; "
+                  + "if something you need went invisible, switch the entry back off.");
+        VRLog.Info("Rig", sb.ToString());
+    }
 
     private void TickHeadCullingMask()
     {
@@ -36,7 +123,9 @@ internal sealed partial class VRRigDriver
         int wanted;
         if (_kind == RigKind.Menu)
         {
-            // Mod layer only — never follow the anchor in Menu2D (test #10).
+            // Mod layer only — never follow the anchor in Menu2D (test #10). The opt-out list is
+            // deliberately NOT applied here: the menu mask is already the minimum that keeps the
+            // HMD usable, and it contains only the mod layer, which the drop can never remove.
             wanted = VRLayers.ModLayerMask;
         }
         else
@@ -44,10 +133,72 @@ internal sealed partial class VRRigDriver
             // Follow the live anchor mask while the anchor exists (the game may toggle
             // layers scene-side); once the anchor died, keep re-asserting our own.
             int source = _anchor != null ? _anchor.cullingMask : _camera.cullingMask;
+
+            // 2026-07 submission-cost pass, opt-in: the scenario ANCHOR is 'Main Camera' and its
+            // mask is 0xFFFFFFFF — every layer — while the camera the flat game actually renders
+            // the dungeon with excludes thirteen of them. Following the anchor therefore makes the
+            // head camera cull and submit a surplus the game never draws, twice per frame under
+            // MultiPass. Seeding from the ScenarioCamera instead removes exactly that surplus,
+            // with the mod layer and the UI layer added back unconditionally (see the floor).
+            bool narrowed = false;
+            if (PerfConfig.HeadMaskFromScenarioCam)
+            {
+                Camera? scenario = ResolveScenarioCamera();
+                if (scenario != null && scenario.cullingMask != 0)
+                {
+                    source = scenario.cullingMask | MaskNarrowingFloor;
+                    narrowed = true;
+                }
+            }
             wanted = ComposeHeadMask(source);
+            LogHeadMaskChange(wanted, source, narrowed);
         }
         if (_camera.cullingMask != wanted)
             _camera.cullingMask = wanted;
+    }
+
+    /// <summary>
+    /// Re-assert <c>[Optimize] HeadDepthPrepass</c> onto the head camera's
+    /// <see cref="Camera.depthTextureMode"/> (2026-07 submission-cost pass; one enum compare per
+    /// frame, same enforcement pattern as the MSAA/clip-plane re-asserts above).
+    ///
+    /// <para>WHY IT IS A LEVER AT ALL. On the built-in FORWARD path — which
+    /// <see cref="CreateHeadCamera"/> selects — <see cref="DepthTextureMode.Depth"/> is not a flag
+    /// the engine reads off some buffer it already has. Forward has no G-buffer, so Unity BUILDS
+    /// <c>_CameraDepthTexture</c> by rendering the whole opaque scene AGAIN through each shader's
+    /// shadow-caster pass. That is a second full scene submission per eye pass: four per frame
+    /// under MultiPass where the mod's own head camera already costs 15–17 ms of main-thread
+    /// cull+submit. It is the largest single piece of submission volume the mod adds, and the
+    /// 2026-07 measurement says submission volume is the wall.</para>
+    ///
+    /// <para>WHY IT IS NOT SIMPLY REMOVED. The depth texture is what makes the game's VFX shaders
+    /// soft-fade against geometry; without it the fade fails OPEN and torch glow renders through
+    /// thin walls — the exact bug <see cref="CreateHeadCamera"/>'s comment records fixing. So the
+    /// default is today's behaviour and the switch exists to be MEASURED, from the Debug pane,
+    /// with the measurement window closed on the boundary.</para>
+    ///
+    /// <para>WHY THIS TOUCHES ONE BIT AND NOT THE WHOLE FIELD. <c>depthTextureMode</c> is a FLAGS
+    /// field that any image effect on the camera may OR its own requirement into (<c>DepthNormals</c>,
+    /// <c>MotionVectors</c>), and writing it forces the engine to reconfigure the camera's render
+    /// targets. Asserting a whole VALUE would therefore fight any such component for the field and
+    /// rewrite it EVERY FRAME — at 3072×3264 per eye that is a continuous target reconfiguration,
+    /// which is a stall, not a lever. The per-frame re-assert pattern that is correct for
+    /// <c>antiAliasing</c> (the game rewrites it on every quality-level swap) would be actively
+    /// harmful here. So this owns exactly the <see cref="DepthTextureMode.Depth"/> BIT, leaves
+    /// every other bit alone, and in the default state performs no write at all — the value
+    /// <see cref="CreateHeadCamera"/> already set is the value it wants.</para>
+    /// </summary>
+    private void TickDepthTextureMode()
+    {
+        if (_camera == null)
+            return;
+        DepthTextureMode current = _camera.depthTextureMode;
+        bool wantDepth = Core.PerfConfig.DepthPrepassOn;
+        if (wantDepth == ((current & DepthTextureMode.Depth) != 0))
+            return;
+        _camera.depthTextureMode = wantDepth
+            ? current | DepthTextureMode.Depth
+            : current & ~DepthTextureMode.Depth;
     }
 
     /// <summary>
@@ -186,7 +337,14 @@ internal sealed partial class VRRigDriver
         // shader pass states were proven clean (ZTest LEqual, walls ZWrite On) — the ONLY missing
         // piece was this depth texture. One extra depth prepass per eye is the cost; the visual
         // result is the game's ORIGINAL intended soft-particle look.
-        _camera.depthTextureMode = DepthTextureMode.Depth;
+        //
+        // COST, MEASURED 2026-07: on the forward path this is not a free flag — forward has no
+        // G-buffer, so Unity builds the texture by re-rendering every opaque object through its
+        // shadow-caster pass, a full extra scene submission PER EYE. See TickDepthTextureMode,
+        // which owns the value from here on and lets [Optimize] HeadDepthPrepass A/B it.
+        _camera.depthTextureMode = Core.PerfConfig.DepthPrepassOn
+            ? DepthTextureMode.Depth
+            : DepthTextureMode.None;
 
         // We drive the pose via TrackedPoseDriver — switch off the implicit XR camera
         // tracking the display subsystem would otherwise apply on top.

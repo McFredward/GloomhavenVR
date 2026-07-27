@@ -31,7 +31,11 @@ namespace GloomhavenVR.Core;
 /// rendering: culling plus draw-call submission (and, when the render thread's queue is full,
 /// the main thread's own blocking inside those submits). It is also measured PER CAMERA, which
 /// is the number that prices the scenario camera's third full-scene render into a sink texture
-/// nothing reads.</item>
+/// nothing reads — and each camera's figure is split again at <see cref="Camera.onPreRender"/>
+/// into CULL (visibility determination; scales with how many renderers exist and pass the culling
+/// mask) and SUBMIT (draw calls, including a forward camera's depth-texture prepass and every
+/// shadow map). "The render loop owns the frame" is true of both halves and their levers are
+/// different, so the split is measured rather than argued.</item>
 /// <item><b>blocked</b> — the remainder of the frame interval. The main thread is neither
 /// computing nor submitting: it is waiting for the GPU, for the compositor's next present slot,
 /// or for the XR runtime. A frame that is nearly all "blocked" is NOT a CPU problem, and no
@@ -63,7 +67,9 @@ namespace GloomhavenVR.Core;
 /// down.</para>
 ///
 /// <para>COST. Two <see cref="Stopwatch.GetTimestamp"/> reads per frame for the logic span, two
-/// per camera render (four cameras in a scenario), one int-keyed dictionary lookup per camera
+/// per camera render — three with <c>[Perf] CullSubmitSplit</c> on, which is what pays for the
+/// cull/submit seam and is why it is a switch and defaults off (four cameras in a scenario), one
+/// int-keyed dictionary lookup per camera
 /// render, and no steady-state allocation at all — camera records are keyed by
 /// <c>GetInstanceID()</c> precisely so the hot path never touches <c>Camera.name</c>, which
 /// allocates a fresh string on every read. Single-digit microseconds. Off, it is one static bool
@@ -96,6 +102,23 @@ internal static class PerfFrameSplit
         /// <summary>Seconds this camera spent between onPreCull and onPostRender in the window.</summary>
         public double WindowSeconds;
 
+        /// <summary>
+        /// Of <see cref="WindowSeconds"/>, the part spent CULLING — onPreCull → onPreRender, which
+        /// is exactly Unity's visibility determination for this camera/pass. Split out because the
+        /// two halves have DIFFERENT levers: culling scales with the number of renderers that
+        /// exist and pass the culling mask, submission with the number of draw calls the visible
+        /// ones produce. "The render loop owns the frame" does not say which, and picking the
+        /// wrong one is a wasted round on hardware.
+        /// </summary>
+        public double WindowCullSeconds;
+
+        /// <summary>
+        /// Of <see cref="WindowSeconds"/>, the part spent SUBMITTING — onPreRender → onPostRender.
+        /// Includes the built-in forward path's depth-texture prepass and any shadow-map passes,
+        /// because both happen inside this camera's render between those two callbacks.
+        /// </summary>
+        public double WindowSubmitSeconds;
+
         /// <summary>Render PASSES in the window (MultiPass makes the head camera two per frame).</summary>
         public int WindowPasses;
 
@@ -107,6 +130,12 @@ internal static class PerfFrameSplit
 
         /// <summary>Seconds so far in the CURRENT frame.</summary>
         public double FrameSeconds;
+
+        /// <summary>Culling seconds so far in the CURRENT frame.</summary>
+        public double FrameCullSeconds;
+
+        /// <summary>Submission seconds so far in the CURRENT frame.</summary>
+        public double FrameSubmitSeconds;
     }
 
     private static readonly Dictionary<int, CamRec> Cameras = new(8);
@@ -128,6 +157,7 @@ internal static class PerfFrameSplit
 
     private static long _camOpen;         // open onPreCull timestamp
     private static int _camOpenId;
+    private static long _camCullDone;     // that camera's onPreRender timestamp (0 = not seen)
 
     // ---- window accumulators -------------------------------------------------------------------
 
@@ -140,6 +170,18 @@ internal static class PerfFrameSplit
     private static float _logicMax, _renderMax;
     private static int _passSum;          // total camera passes over the window
 
+    /// <summary>
+    /// A single frame longer than this counts as a STALL, not as a frame: a synchronous scene
+    /// load, an asset-bundle decompress, or Apparance regenerating a room. Hardware 2026-07 caught
+    /// two of them at 1067 ms and 974 ms INSIDE otherwise ordinary windows, and one of those
+    /// single samples moved the window's logic mean from ~0.1 ms to 1.87 ms — which then read as
+    /// "the mean is above the p95", a reading that looks like a broken percentile and is not one.
+    /// Stalls are counted and named separately rather than silently averaged in.
+    /// </summary>
+    private const float StallMs = 100f;
+
+    private static int _logicStalls, _renderStalls;
+
     // ---- Unity FrameTimingManager (bonus; n/a when the player disabled frame-timing stats) -----
 
     private static readonly FrameTiming[] Timings = new FrameTiming[1];
@@ -150,6 +192,10 @@ internal static class PerfFrameSplit
 
     private static PerfSplitTail? _tail;
     private static bool _hooked;
+
+    /// <summary>Whether <see cref="OnPreRender"/> is currently subscribed (tracked apart from
+    /// <see cref="_hooked"/> because [Perf] CullSubmitSplit switches it on its own).</summary>
+    private static bool _splitHooked;
 
     // ==========================================================================================
     //  Lifecycle
@@ -187,9 +233,27 @@ internal static class PerfFrameSplit
     /// Arm or disarm the measurement. Registering the camera callbacks only while armed is what
     /// keeps the OFF state free — an unregistered <see cref="Camera.onPreCull"/> is not a null
     /// check per camera, it is no call at all.
+    ///
+    /// <para>SUBSCRIPTION SYMMETRY. All three handlers are STATIC methods of this static class, so
+    /// each <c>+=</c> adds the one and only delegate that method can produce and each <c>-=</c>
+    /// removes it. The <c>_hooked</c> latch makes the pair idempotent, so no number of rig builds,
+    /// scene loads or settings flips can grow the invocation list: it is either exactly these
+    /// three entries or none. Nothing here is subscribed per camera.</para>
     /// </summary>
     private static void SetActive(bool on)
     {
+        // The cull/submit seam is switchable on its own ([Perf] CullSubmitSplit), so its
+        // subscription is tracked separately from the other two rather than assumed to follow
+        // them — an asymmetric -= is how a hook leak starts.
+        bool splitOn = on && PerfConfig.CullSubmitSplitOn;
+        if (splitOn != _splitHooked)
+        {
+            if (splitOn)
+                Camera.onPreRender += OnPreRender;
+            else
+                Camera.onPreRender -= OnPreRender;
+            _splitHooked = splitOn;
+        }
         if (on == _hooked)
         {
             _active = on;
@@ -250,6 +314,10 @@ internal static class PerfFrameSplit
                     _logicMax = logicMs;
                 if (renderMs > _renderMax)
                     _renderMax = renderMs;
+                if (logicMs >= StallMs)
+                    _logicStalls++;
+                if (renderMs >= StallMs)
+                    _renderStalls++;
             }
 
             for (int i = 0; i < CameraOrder.Count; i++)
@@ -258,12 +326,16 @@ internal static class PerfFrameSplit
                 if (recorded && c.FramePasses > 0)
                 {
                     c.WindowSeconds += c.FrameSeconds;
+                    c.WindowCullSeconds += c.FrameCullSeconds;
+                    c.WindowSubmitSeconds += c.FrameSubmitSeconds;
                     c.WindowPasses += c.FramePasses;
                     c.WindowFrames++;
                     _passSum += c.FramePasses;
                 }
                 c.FramePasses = 0;
                 c.FrameSeconds = 0d;
+                c.FrameCullSeconds = 0d;
+                c.FrameSubmitSeconds = 0d;
             }
 
             SampleFrameTimings();
@@ -274,6 +346,8 @@ internal static class PerfFrameSplit
             {
                 CameraOrder[i].FramePasses = 0;
                 CameraOrder[i].FrameSeconds = 0d;
+                CameraOrder[i].FrameCullSeconds = 0d;
+                CameraOrder[i].FrameSubmitSeconds = 0d;
             }
         }
 
@@ -282,6 +356,7 @@ internal static class PerfFrameSplit
         _logicEndSeen = false;
         _renderSeen = false;
         _camOpenId = 0;
+        _camCullDone = 0L;
     }
 
     /// <summary>Tail hook: the last main-thread instant before Unity's render loop.</summary>
@@ -314,6 +389,24 @@ internal static class PerfFrameSplit
         }
         _camOpen = t;
         _camOpenId = cam.GetInstanceID();
+        _camCullDone = 0L;
+    }
+
+    /// <summary>
+    /// Unity fires this AFTER culling and BEFORE the camera's rendering, so it is the one seam
+    /// that separates the render loop's two halves. Culling scales with how many renderers EXIST
+    /// and pass the culling mask; submission scales with how many DRAW CALLS the survivors
+    /// produce (and a forward camera's depth-texture prepass and every shadow map are on the
+    /// submission side). The SPLIT line's "render loop owns the frame" verdict cannot distinguish
+    /// them, and their levers are different, so the distinction is measured rather than guessed.
+    /// </summary>
+    private static void OnPreRender(Camera cam)
+    {
+        if (!_active || cam == null)
+            return;
+        if (cam.GetInstanceID() != _camOpenId)
+            return; // out-of-order/nested render — leave the split unattributed rather than wrong
+        _camCullDone = Stopwatch.GetTimestamp();
     }
 
     private static void OnPostRender(Camera cam)
@@ -335,8 +428,15 @@ internal static class PerfFrameSplit
             Cameras[id] = rec;
             CameraOrder.Add(rec);
         }
-        rec.FrameSeconds += (t - _camOpen) / (double)Stopwatch.Frequency;
+        double freq = Stopwatch.Frequency;
+        rec.FrameSeconds += (t - _camOpen) / freq;
+        // No onPreRender for this pass (a camera that culled but never rendered, or a hook order
+        // we did not see) → the whole pass counts as submission rather than inventing a split.
+        long cullDone = _camCullDone > 0L ? _camCullDone : _camOpen;
+        rec.FrameCullSeconds += (cullDone - _camOpen) / freq;
+        rec.FrameSubmitSeconds += (t - cullDone) / freq;
         rec.FramePasses++;
+        _camCullDone = 0L;
     }
 
     /// <summary>
@@ -376,6 +476,8 @@ internal static class PerfFrameSplit
         _renderSum = 0d;
         _logicMax = 0f;
         _renderMax = 0f;
+        _logicStalls = 0;
+        _renderStalls = 0;
         _passSum = 0;
         _ftCpuSum = 0d;
         _ftGpuSum = 0d;
@@ -384,6 +486,8 @@ internal static class PerfFrameSplit
         {
             CamRec c = CameraOrder[i];
             c.WindowSeconds = 0d;
+            c.WindowCullSeconds = 0d;
+            c.WindowSubmitSeconds = 0d;
             c.WindowPasses = 0;
             c.WindowFrames = 0;
         }
@@ -402,6 +506,13 @@ internal static class PerfFrameSplit
     {
         float logicMean = (float)(_logicSum / _count);
         float renderMean = (float)(_renderSum / _count);
+        // p50 is reported alongside the mean because ONE stall frame is enough to make the mean
+        // meaningless: hardware 2026-07 produced "logic 1.87 mean, p95 0.24" from a single 1067 ms
+        // sample in a 703-frame window. That is not a broken percentile — it is a mean that no
+        // longer describes any frame. The median does, and printing both makes the difference
+        // visible instead of leaving it to be misread as an instrumentation bug.
+        float logicP50 = Percentile(LogicMs, 0.50f);
+        float renderP50 = Percentile(RenderMs, 0.50f);
         float logicP95 = Percentile(LogicMs, 0.95f);
         float renderP95 = Percentile(RenderMs, 0.95f);
         // The render loop runs INSIDE neither span's overlap: logic ends before the first cull.
@@ -411,15 +522,19 @@ internal static class PerfFrameSplit
           .Append(" — where the ").Append(frameMeanMs.ToString("F2"))
           .Append("ms frame goes on the MAIN THREAD")
           .Append(" | logic (Update→LateUpdate) ").Append(logicMean.ToString("F2"))
+          .Append(" p50 ").Append(logicP50.ToString("F2"))
           .Append(" p95 ").Append(logicP95.ToString("F2"))
           .Append(" max ").Append(_logicMax.ToString("F2")).Append("ms (")
           .Append(Share(logicMean, frameMeanMs)).Append(')')
           .Append(" | render loop (cull+submit) ").Append(renderMean.ToString("F2"))
+          .Append(" p50 ").Append(renderP50.ToString("F2"))
           .Append(" p95 ").Append(renderP95.ToString("F2"))
           .Append(" max ").Append(_renderMax.ToString("F2")).Append("ms (")
           .Append(Share(renderMean, frameMeanMs)).Append(')')
           .Append(" | blocked (waiting on GPU/compositor) ").Append(blockedMean.ToString("F2"))
           .Append("ms (").Append(Share(blockedMean, frameMeanMs)).Append(')');
+
+        AppendStalls(sb, logicMean, logicP50, renderMean, renderP50);
 
         sb.Append(" | camera passes/frame ")
           .Append((_passSum / (float)_count).ToString("F1"));
@@ -427,6 +542,33 @@ internal static class PerfFrameSplit
         AppendFrameTimings(sb);
 
         sb.Append(" | VERDICT: ").Append(Verdict(logicMean, renderMean, blockedMean, frameMeanMs));
+    }
+
+    /// <summary>
+    /// Name the stall frames instead of letting them hide inside a mean. A window that contains a
+    /// scene load, an asset-bundle decompress or a room regeneration is not a window about steady
+    /// state, and the difference is invisible in the mean alone — it shows up as the mean sitting
+    /// ABOVE the p95, which reads like a broken percentile and is not one.
+    /// </summary>
+    private static void AppendStalls(System.Text.StringBuilder sb,
+        float logicMean, float logicP50, float renderMean, float renderP50)
+    {
+        int stalls = _logicStalls + _renderStalls;
+        bool skewed = logicMean > logicP50 * 2f + 0.05f || renderMean > renderP50 * 2f + 0.05f;
+        if (stalls == 0 && !skewed)
+            return;
+
+        sb.Append(" | STALLS: ").Append(_logicStalls).Append(" logic and ").Append(_renderStalls)
+          .Append(" render frame(s) over ").Append(StallMs.ToString("F0")).Append("ms in this "
+                  + "window — a synchronous scene load, an asset-bundle decompress or a room "
+                  + "regeneration, NOT steady-state cost");
+        if (skewed)
+        {
+            sb.Append(". THE MEANS ABOVE ARE SKEWED BY THEM: read p50, not the mean. A mean that "
+                      + "sits above its own p95 is arithmetic, not a broken percentile — a single "
+                      + "1 s sample in a 700-frame window adds 1.5 ms to the mean and nothing at "
+                      + "all to the median");
+        }
     }
 
     private static void AppendCameras(System.Text.StringBuilder sb)
@@ -443,14 +585,29 @@ internal static class PerfFrameSplit
             return;
         }
         Ranked.Sort(CompareCameraDesc);
-        sb.Append(" | per camera (main-thread cull+submit, avg per frame it rendered):");
+        // The split is reported only if it was actually measured for the whole window. Printing
+        // "cull 0.00 + submit X" for a window in which the seam was off would read as a measured
+        // zero, and a measured zero is the one thing this instrumentation must never invent.
+        bool split = _splitHooked;
+        sb.Append(split
+            ? " | per camera (main-thread, avg per frame it rendered — 'cull' is onPreCull→"
+              + "onPreRender, 'submit' is onPreRender→onPostRender incl. any depth prepass and "
+              + "shadow maps):"
+            : " | per camera (main-thread cull+submit, avg per frame it rendered; the cull/submit "
+              + "seam is OFF — switch [Perf] CullSubmitSplit on to break these down):");
         for (int i = 0; i < Ranked.Count && i < 8; i++)
         {
             CamRec c = Ranked[i];
+            float frames = Mathf.Max(1, c.WindowFrames);
             sb.Append(i == 0 ? " " : ", ").Append(c.Name).Append(' ')
-              .Append((c.WindowSeconds * 1000d / Mathf.Max(1, c.WindowFrames)).ToString("F2"))
-              .Append("ms x").Append((c.WindowPasses / (float)Mathf.Max(1, c.WindowFrames)).ToString("F1"))
-              .Append(" pass");
+              .Append((c.WindowSeconds * 1000d / frames).ToString("F2")).Append("ms");
+            if (split)
+            {
+                sb.Append(" (cull ").Append((c.WindowCullSeconds * 1000d / frames).ToString("F2"))
+                  .Append(" + submit ").Append((c.WindowSubmitSeconds * 1000d / frames).ToString("F2"))
+                  .Append(')');
+            }
+            sb.Append(" x").Append((c.WindowPasses / frames).ToString("F1")).Append(" pass");
         }
     }
 
@@ -493,7 +650,14 @@ internal static class PerfFrameSplit
             return $"the RENDER LOOP owns the frame ({r * 100f:F0}%). The main thread is inside culling "
                    + "and draw-call submission, so the levers are the NUMBER of things submitted, not "
                    + "their pixel cost: MultiPass renders the head camera twice, and every extra camera "
-                   + "listed above is a whole additional scene submission.";
+                   + "listed above is a whole additional scene submission. WHICH HALF is the next question, "
+                   + "and the two have different levers — cull scales with how many renderers exist and "
+                   + "pass the culling mask (see the SCENE line's per-layer counts), submit with how many "
+                   + "draw calls the visible ones produce (materials, shadow passes, the forward depth "
+                   + "prepass; see the SCENE and GFX lines). "
+                   + (PerfConfig.CullSubmitSplitOn
+                       ? "The per-camera cull/submit figures above answer it."
+                       : "Switch [Perf] CullSubmitSplit on to have the per-camera figures above answer it.");
         if (b >= 0.5f)
             return $"the main thread is BLOCKED for {b * 100f:F0}% of the frame — it is neither computing "
                    + "nor submitting, it is waiting. That is the GPU, the XR compositor, or a runtime "
@@ -559,7 +723,9 @@ internal static class PerfFrameSplit
 
     /// <summary>One clause for the startup CAPS line.</summary>
     internal static string Describe() =>
-        "frameSplit=ok (own clocks: logic span, render-loop span, per-camera passes) "
+        "frameSplit=ok (own clocks: logic span, render-loop span, per-camera passes"
+        + (PerfConfig.CullSubmitSplitOn ? " split into cull/submit" : "; cull/submit split OFF")
+        + ") "
         + "frameTimingManager=probed-per-frame";
 
     // ==========================================================================================
