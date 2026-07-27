@@ -473,6 +473,85 @@ internal static partial class Loc
             "MultiPass renders the scene once per eye. Single-Pass Instanced would halve that, but this game's shaders ship with no stereo variants (verified by disassembly), so it renders the right eye black/wrong. Leave on MultiPass; the setting exists for testing a future patched shader bundle. Takes effect on the next game start.",
             "MultiPass rendert die Szene einmal pro Auge. Single-Pass Instanced würde das halbieren, aber die Shader dieses Spiels enthalten keine Stereo-Varianten (per Disassembly belegt) — das rechte Auge bleibt schwarz/falsch. Auf MultiPass lassen; die Einstellung dient dem Test eines künftig gepatchten Shader-Bundles. Wirkt beim nächsten Spielstart."),
 
+        // ---- SettingsPanel: Debug ▸ Leistung & Effekte ▸ Bündelung (2026-07, experimental) ----
+        // WORDING RULE, same as the render-trade block above: name the EFFECT and the RISK, never
+        // the mechanism. A player has never heard of static batching and does not need to — what
+        // they need to know is "this merges the dungeon's objects so the graphics card is asked
+        // fewer times", "it costs memory", and "it can be undone". The word "Batching" survives
+        // only in the config file and the log, where it has to match Unity's own vocabulary.
+        ["batching"] = Pair("Object merging", "Objekt-Bündelung"),
+        ["batch_experimental_short"] = Pair("Experimental — reversible at any time",
+                                            "Experimentell — jederzeit umkehrbar"),
+        ["batch_experimental_note"] = Pair(
+            "This is the only setting in the mod that changes the game's own objects rather than how they are drawn. It merges the dungeon's many separate pieces into a few large ones, so the graphics card is asked to draw far fewer times — which is exactly what the measurements say the VR frame is spending its time on. Everything it does is recorded and can be undone: set it back to off, press Undo, or simply load another scenario. It has never been through a hardware round, which is why it is off.",
+            "Dies ist die einzige Einstellung des Mods, die die Objekte des Spiels selbst verändert statt nur ihrer Darstellung. Sie fasst die vielen Einzelteile des Dungeons zu wenigen großen zusammen, sodass die Grafikkarte deutlich seltener zum Zeichnen aufgefordert wird — und genau dort verbringt das VR-Bild laut Messung seine Zeit. Alles wird protokolliert und ist umkehrbar: wieder auf Aus stellen, „Rückgängig\" drücken oder einfach ein anderes Szenario laden. Auf Hardware ist es noch nie gelaufen — deshalb ist es aus."),
+        ["batch_mode"] = Pair("Mode", "Modus"),
+        ["batch_mode_probe"] = Pair("Measure only", "Nur messen"),
+        ["batch_mode_on"] = Pair("On", "An"),
+        ["batch_mode_note"] = Pair(
+            "Off changes nothing and hands back anything already merged. 'Measure only' looks at the scene and writes one line to the log saying how much COULD be merged and what it would cost — it touches nothing at all, so it is the safe first step. On does the merging. Switching back down to 'Measure only' or Off undoes it immediately.",
+            "Aus ändert nichts und gibt bereits Zusammengefasstes wieder frei. „Nur messen\" untersucht die Szene und schreibt eine Zeile ins Protokoll, wie viel zusammengefasst werden KÖNNTE und was das kosten würde — es wird nichts angefasst, also der sichere erste Schritt. An führt es aus. Zurück auf „Nur messen\" oder Aus macht es sofort rückgängig."),
+        ["batch_status"] = Pair("Merged / meshes / memory", "Zusammengefasst / Meshes / Speicher"),
+        ["batch_status_note"] = Pair(
+            "Before a merge this reads 'suitable objects / objects examined' — the answer 'Measure only' produces. After one it reads how many objects were merged, into how many large meshes, and how much extra memory that costs. The memory is real and it is the price of the feature: the merged copy exists alongside the originals, which are kept precisely so this can be undone.",
+            "Vor einem Durchlauf steht hier „geeignete Objekte / untersuchte Objekte\" — das Ergebnis von „Nur messen\". Danach steht dort, wie viele Objekte zu wie vielen großen Meshes zusammengefasst wurden und wie viel zusätzlichen Speicher das kostet. Dieser Speicher ist real und der Preis der Funktion: die zusammengefasste Kopie existiert zusätzlich zu den Originalen, die genau deshalb erhalten bleiben, damit sich alles rückgängig machen lässt."),
+        ["batch_drawcalls"] = Pair("Draw requests", "Zeichenaufrufe"),
+        ["batch_drawcalls_note"] = Pair(
+            "How often the graphics card is asked to draw something, counting only the objects that were merged — before, against the estimate after. This is the number the whole experiment is about, and it is doubled in VR because each eye is drawn separately. It is an ESTIMATE; the honest answer is the head-camera figure in the performance log after the change.",
+            "Wie oft die Grafikkarte etwas zeichnen soll, gezählt nur über die zusammengefassten Objekte — vorher gegen die Schätzung danach. Um diese Zahl geht es bei dem ganzen Versuch, und in VR zählt sie doppelt, weil jedes Auge einzeln gezeichnet wird. Es ist eine SCHÄTZUNG; die ehrliche Antwort steht im Leistungsprotokoll als Wert der Kopfkamera nach der Umstellung."),
+        ["batch_apply_now"] = Pair("Apply now", "Jetzt anwenden"),
+        ["batch_revert"] = Pair("Undo", "Rückgängig"),
+        ["batch_actions_note"] = Pair(
+            "'Apply now' re-examines the scene and merges again — useful after opening new rooms, or to re-measure while in 'Measure only'. 'Undo' hands every object its own shape back and frees the extra memory, without switching the mode off, so the next 'Apply now' still works. Both are safe to press at any time.",
+            "„Jetzt anwenden\" untersucht die Szene erneut und fasst wieder zusammen — nützlich nach dem Öffnen neuer Räume oder zum erneuten Messen in „Nur messen\". „Rückgängig\" gibt jedem Objekt seine eigene Form zurück und den Zusatzspeicher frei, ohne den Modus abzuschalten — „Jetzt anwenden\" funktioniert danach weiter. Beides ist jederzeit gefahrlos drückbar."),
+        ["batch_max_vertices"] = Pair("Memory limit", "Speichergrenze"),
+        ["batch_max_vertices_note"] = Pair(
+            "The ceiling on the extra memory the merge may use. Objects are taken until this is spent and the rest are left alone, so raising it merges more of the map and lowering it merges less. A scenario is unlikely to need more than a few hundred MB; the log always says how much was actually used and how many objects were left out.",
+            "Die Obergrenze für den Zusatzspeicher der Zusammenfassung. Objekte werden aufgenommen, bis sie aufgebraucht ist, der Rest bleibt unangetastet — höher fasst mehr von der Karte zusammen, niedriger weniger. Ein Szenario braucht selten mehr als ein paar hundert MB; das Protokoll nennt immer den tatsächlichen Verbrauch und die Zahl der ausgelassenen Objekte."),
+        ["batch_settle"] = Pair("Delay after loading", "Verzögerung nach dem Laden"),
+        ["batch_settle_note"] = Pair(
+            "How long to wait after a scenario loads before merging. The dungeon is built piece by piece over several frames, and a piece that does not exist yet cannot be merged — so the wait is what makes one pass cover the whole map instead of racing the builder. The merge itself is a brief one-off pause; this delay puts it inside the loading screen.",
+            "Wie lange nach dem Laden eines Szenarios gewartet wird. Der Dungeon wird über mehrere Bilder hinweg Stück für Stück aufgebaut, und ein noch nicht existierendes Stück kann nicht zusammengefasst werden — die Wartezeit sorgt dafür, dass ein Durchlauf die ganze Karte erfasst, statt dem Aufbau davonzulaufen. Das Zusammenfassen selbst ist eine kurze einmalige Pause; diese Verzögerung legt sie in den Ladebildschirm."),
+        ["batch_rescan"] = Pair("Re-check for new rooms", "Auf neue Räume prüfen"),
+        ["batch_rescan_note"] = Pair(
+            "How often to look for parts of the map that have appeared since the last merge — rooms you have opened, props that spawned. The check itself is cheap; it only merges again once enough new pieces have turned up. Off means one merge per scenario and anything opened later simply stays unmerged, which is correct, just not faster.",
+            "Wie oft nach Kartenteilen gesucht wird, die seit dem letzten Durchlauf hinzugekommen sind — geöffnete Räume, neu erschienene Objekte. Die Prüfung selbst ist günstig; zusammengefasst wird erst wieder, wenn genug Neues aufgetaucht ist. Aus bedeutet einen Durchlauf pro Szenario; später Geöffnetes bleibt dann einfach unzusammengefasst — korrekt, nur nicht schneller."),
+        ["batch_min_renderers"] = Pair("Minimum objects", "Mindestanzahl Objekte"),
+        ["batch_min_renderers_note"] = Pair(
+            "A part of the map offering fewer suitable objects than this is left alone. Merging a handful of things costs memory and buys nothing measurable, and every merged object is one more thing that has to be handed back on undo.",
+            "Ein Kartenteil mit weniger geeigneten Objekten als hier angegeben bleibt unangetastet. Eine Handvoll Dinge zusammenzufassen kostet Speicher und bringt nichts Messbares — und jedes zusammengefasste Objekt ist eines mehr, das beim Rückgängigmachen zurückgegeben werden muss."),
+        ["batch_include_inactive"] = Pair("Include unopened rooms", "Unentdeckte Räume einbeziehen"),
+        ["batch_include_inactive_note"] = Pair(
+            "Also merge rooms you have not opened yet. On, a single pass at the start of a scenario covers the whole map and opening a room does not drop it back out. Off restricts the merge to what is on screen at the time — the cautious reading, worth trying if a scenario turns out to rebuild its rooms on reveal rather than just show them.",
+            "Auch noch nicht geöffnete Räume zusammenfassen. An erfasst ein einziger Durchlauf zu Szenariobeginn die ganze Karte, und das Öffnen eines Raums nimmt ihn nicht wieder heraus. Aus beschränkt die Zusammenfassung auf das gerade Sichtbare — die vorsichtige Lesart, einen Versuch wert, falls ein Szenario seine Räume beim Aufdecken neu aufbaut statt sie nur einzublenden."),
+        ["batch_free_cpu"] = Pair("Release the spare copy", "Zweitkopie freigeben"),
+        ["batch_free_cpu_note"] = Pair(
+            "After the merged shapes have been handed to the graphics card, throw away the copy in main memory. This halves what the feature costs and cannot change anything you see — the graphics card's copy is what gets drawn — and it does not affect the undo, which restores the originals and deletes the merged shapes without ever reading them back. Leave on unless the merged shapes need inspecting.",
+            "Nachdem die zusammengefassten Formen an die Grafikkarte übergeben wurden, die Kopie im Arbeitsspeicher verwerfen. Das halbiert die Kosten der Funktion und kann nichts Sichtbares ändern — gezeichnet wird die Kopie der Grafikkarte — und es beeinträchtigt das Rückgängigmachen nicht, das die Originale wiederherstellt und die zusammengefassten Formen löscht, ohne sie je zu lesen. An lassen, außer die zusammengefassten Formen sollen untersucht werden."),
+        ["batch_watchdog"] = Pair("Movement watch", "Bewegungswächter"),
+        ["batch_watchdog_note"] = Pair(
+            "Watch merged objects for movement. This is the one way the feature can go visibly wrong: a merged object's shape is baked in place, so if the game ever moves one it is drawn where it used to be. The watch samples merged objects a few dozen times a second, names any offender in the log, and moving the whole table (world grab) is correctly not counted as movement.",
+            "Zusammengefasste Objekte auf Bewegung überwachen. Das ist der eine Weg, auf dem die Funktion sichtbar schiefgehen kann: die Form eines zusammengefassten Objekts ist ortsfest eingebacken — bewegt das Spiel es doch, wird es an seiner alten Stelle gezeichnet. Der Wächter prüft einige Dutzend Objekte pro Sekunde und nennt den Verursacher im Protokoll; das Verschieben des ganzen Tisches (Welt-Griff) zählt korrekterweise nicht als Bewegung."),
+        ["batch_watchdog_auto"] = Pair("Undo automatically", "Automatisch rückgängig"),
+        ["batch_watchdog_auto_note"] = Pair(
+            "When the watch sees a merged object move, undo everything on the spot instead of only writing it to the log. On is the safe choice — the alternative is a correct log entry next to a wrong picture. Turn it off only to keep the wrong picture long enough to photograph the object that caused it.",
+            "Wenn der Wächter ein zusammengefasstes Objekt in Bewegung sieht, alles sofort rückgängig machen statt es nur zu protokollieren. An ist die sichere Wahl — die Alternative ist ein korrekter Protokolleintrag neben einem falschen Bild. Nur ausschalten, um das falsche Bild lange genug zu behalten, um das verursachende Objekt zu fotografieren."),
+        ["batch_unavailable"] = Pair("Unavailable on this build — measuring only",
+                                     "Auf diesem Build nicht verfügbar — es wird nur gemessen"),
+        ["batch_unavailable_note"] = Pair(
+            "The merge can only run when the mod can prove it is able to undo it, and on this build it cannot: one of the engine functions the undo needs was not found. So nothing is merged and nothing is changed — 'Measure only' still works and still writes its log line. The exact missing piece follows.",
+            "Zusammengefasst wird nur, wenn der Mod nachweisen kann, dass er es auch rückgängig machen kann — und auf diesem Build kann er das nicht: eine der dafür nötigen Engine-Funktionen wurde nicht gefunden. Es wird also nichts zusammengefasst und nichts verändert; „Nur messen\" funktioniert weiterhin und schreibt weiterhin seine Protokollzeile. Das genaue fehlende Teil folgt."),
+        ["batch_suspended"] = Pair("Paused for this scenario — something in it moves",
+                                   "Für dieses Szenario ausgesetzt — hier bewegt sich etwas"),
+        ["batch_suspended_note"] = Pair(
+            "Something in this scenario moves after being merged, so the movement watch has undone the merge several times. Rather than merge and undo over and over, it has stopped for this scenario. The log names the object that caused it: put a piece of its name into the exception list (Debug › All settings › Picture › Object merging) and switch the mode off and on again to try once more. Loading another scenario also clears this.",
+            "In diesem Szenario bewegt sich etwas, nachdem es zusammengefasst wurde, weshalb der Bewegungswächter die Zusammenfassung mehrfach rückgängig gemacht hat. Statt endlos zusammenzufassen und zurückzunehmen, ist die Funktion für dieses Szenario ausgesetzt. Das Protokoll nennt das verursachende Objekt: einen Teil seines Namens in die Ausnahmeliste eintragen (Debug › Alle Einstellungen › Bild › Objekt-Bündelung) und den Modus einmal aus- und wieder einschalten, um es erneut zu versuchen. Ein anderes Szenario zu laden setzt es ebenfalls zurück."),
+        ["batch_more_short"] = Pair("Areas and exceptions → Debug › All settings",
+                                    "Bereiche und Ausnahmen → Debug › Alle Einstellungen"),
+        ["batch_more_note"] = Pair(
+            "Which parts of the scene may be merged, and which layers or object names to leave out, are free text — they are edited under Debug › All settings › Picture › Object merging, or directly in dev.gloomhavenvr.batching.cfg. They are only needed when the log names an object that has to be excluded.",
+            "Welche Teile der Szene zusammengefasst werden dürfen und welche Ebenen oder Objektnamen auszunehmen sind, ist Freitext — bearbeitbar unter Debug › Alle Einstellungen › Bild › Objekt-Bündelung oder direkt in dev.gloomhavenvr.batching.cfg. Nötig nur, wenn das Protokoll ein Objekt nennt, das ausgenommen werden muss."),
+
         // ---- SettingsPanel: Leistung — remaining row labels ----
         // The measurement labels that used to live here (perf_measurement / perf_enabled /
         // perf_interval / perf_attribution / perf_top_steps / perf_spikes / perf_spike_factor /

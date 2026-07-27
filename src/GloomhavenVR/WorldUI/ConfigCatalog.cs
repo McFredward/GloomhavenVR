@@ -230,6 +230,7 @@ internal static class ConfigCatalog
 
         Bind("comfort", Rig.ComfortSettings.Bind);
         Bind("perf", PerfConfig.Bind);
+        Bind("batching", StaticBatchConfig.Bind);
         Bind("renderquality", Rig.RenderQuality.Bind);
         Bind("stereo", StereoModeConfig.Bind);
         Bind("mixedreality", MixedReality.Bind);
@@ -562,7 +563,11 @@ internal static class ConfigCatalog
             "buttons" => ConfigTopic.Buttons,
             "board" or "hexhighlight" or "selectionready" => ConfigTopic.BoardTargeting,
             "worldui" or "bars" => ConfigTopic.Panels,
-            "rig" or "mixedreality" or "stereo" or "wallfade" => ConfigTopic.Visual,
+            // Batching is a picture-side setting in the sense that matters to a player looking for
+            // it: it is the render experiment, and it sits next to the other Visual entries rather
+            // than under Diagnostics, because unlike [Perf] it CHANGES what happens rather than
+            // what is recorded.
+            "rig" or "mixedreality" or "stereo" or "wallfade" or "batching" => ConfigTopic.Visual,
             "net" => ConfigTopic.Network,
             "perf" => ConfigTopic.Diagnostics,
             _ => ConfigTopic.Other,
@@ -823,6 +828,7 @@ internal static class ConfigCatalog
         "SelectionReady" => Loc.Mod("cfg_sec_selectionready"),
         "MixedReality" => Loc.Mod("mixed_reality"),
         "RenderQuality" => Loc.Mod("cfg_sec_renderquality"),
+        "Batching" => Loc.Mod("batching"),
         "FigureGrab" => Loc.Mod("figure_offsets"),
         _ => Spaced(section),
     };

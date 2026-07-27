@@ -56,6 +56,14 @@ internal sealed class CoreModule : IVRModule
                          + "and '[Perf] SPIKE' (individual over-budget frames). Configure in "
                          + "dev.gloomhavenvr.perf.cfg or under Einstellungen › Grafik.");
 
+        // EXPERIMENTAL runtime static batching (2026-07 perf pass). Installed unconditionally and
+        // OFF by default: the driver's own first act every frame is to read the mode and return,
+        // so an installed-but-off pass costs one enum read. Installing it here rather than behind
+        // the VR gate is deliberate — the interop resolution and its verdict belong in EVERY log,
+        // including a session that never reached VR, because "can this mod undo a combine on your
+        // Unity build" is the question that decides whether the feature may run at all.
+        StaticBatcher.Install(_hostGo);
+
         if (VRSession.IsRunning)
         {
             _hostGo.AddComponent<VRHeartbeat>();
@@ -70,6 +78,9 @@ internal sealed class CoreModule : IVRModule
     public void Shutdown()
     {
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
+        // BEFORE the host GO dies: the batcher's undo needs its ledger and its driver alive, and a
+        // hot reload that left half the dungeon combined would leave a mutation with no owner.
+        StaticBatcher.Uninstall();
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
 
         if (_hostGo != null)

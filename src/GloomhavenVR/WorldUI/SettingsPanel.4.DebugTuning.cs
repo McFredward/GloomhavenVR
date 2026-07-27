@@ -601,7 +601,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     private static bool ElementIsGlobalTuning(DebugElement e) =>
         e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade
         or DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets
-        or DebugElement.ButtonColors or DebugElement.Timing
+        or DebugElement.ButtonColors or DebugElement.Timing or DebugElement.Batching
         || ElementIsConfigTopic(e);
 
     /// <summary>
@@ -665,6 +665,10 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     /// </summary>
     private bool TimingRowsVisible() =>
         _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.Timing;
+
+    /// <summary>Visibility of the static-batching rows: Debug → Leistung &amp; Effekte → Bündelung.</summary>
+    private bool BatchingRowsVisible() =>
+        _navCat == (int)NavCat.Debug && CurrentElement() == DebugElement.Batching;
 
     /// <summary>Visibility of the [ButtonColors] rows: Debug → Knopf-Farben element selected.</summary>
     private bool ButtonColorRowsVisible() =>
@@ -1055,6 +1059,8 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // 2026-07 restructure: the timing/CPU + GPU A/B block as its own element (it used to be
         // category-wide). Reuses the caption its section header already carried.
         DebugElement.Timing => Loc.Mod("subcat_timing"),
+        // 2026-07: the experimental static-batching pass.
+        DebugElement.Batching => Loc.Mod("batching"),
         // Per-style elements folded in from the former top-level tabs (2026-07).
         DebugElement.HandOffsets => Loc.Mod("hand_offsets"),
         DebugElement.FigureOffsets => Loc.Mod("figure_offsets"),

@@ -235,6 +235,210 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         _rowGate = null;
     }
 
+    // ==========================================================================================
+    //  Debug ▸ Leistung & Effekte ▸ Bündelung — the experimental static-batching pass
+    // ==========================================================================================
+
+    /// <summary>
+    /// The one page in the whole panel whose subject MUTATES GAME OBJECTS, and it is built to say
+    /// so. Everything else under Debug ▸ Leistung &amp; Effekte changes render state or a refresh
+    /// interval; <see cref="Core.StaticBatcher"/> rewrites which vertex buffer the dungeon's
+    /// renderers draw from. So this page carries three things the other Debug pages do not need:
+    ///
+    /// <list type="number">
+    /// <item>A STATUS READOUT. A setting that takes effect four seconds after a scene load, in
+    /// stages, cannot be judged from its own switch — the switch says what was asked for, not what
+    /// happened. Two live rows say what actually happened (objects/meshes/megabytes, and the
+    /// draw-call figure the whole experiment exists for), refreshed on the panel's own 0.25 s
+    /// cadence like every other readout.</item>
+    /// <item>AN EXPLICIT UNDO BUTTON. Setting the mode back to "off" already hands everything back,
+    /// so the button is not the only way out — it is the way out that does not also mean "and don't
+    /// do it again", which is what a tester flipping between two states actually wants.</item>
+    /// <item>A MIDDLE MODE. "Nur messen" writes one [Batch] PROBE line and touches nothing, so the
+    /// first hardware round answers "is this even possible on this content" before anything is
+    /// mutated. It is the first stop on the cycle for exactly that reason.</item>
+    /// </list>
+    ///
+    /// <para>ROW ORDER IS THE PROCEDURE: decide (mode) → see what happened (status, draw calls) →
+    /// act on it (apply/undo) → then the dials, coarse first. The safety rows close the page
+    /// because they default correctly and nobody should have to pass them to reach the mode.</para>
+    ///
+    /// <para>Every row gates itself to the Bündelung ELEMENT via
+    /// <see cref="BatchingRowsVisible"/>, so this method may be called from anywhere in
+    /// <c>Build()</c> — the same contract <see cref="BuildTimingCategory"/> has.</para>
+    /// </summary>
+    private void BuildBatchingCategory()
+    {
+        Core.StaticBatchConfig.Bind();
+        _rowGate = BatchingRowsVisible;
+
+        Section(Loc.Mod("batching"));
+
+        // The unmissable one-liner. This is the only feature in the mod that a player could
+        // conceivably see go wrong in a way they cannot immediately attribute, so the page says
+        // "experimental, reversible" before it says anything else.
+        var warnRow = Row(20f);
+        Label(warnRow, Loc.Mod("batch_experimental_short"), 12f, flexible: true);
+        Tip(warnRow, "batch_experimental_note");
+
+        // Off → Nur messen → An. The write is the whole action; Core.StaticBatcher's driver
+        // notices it next frame, closes the [Perf] measurement window on the boundary and either
+        // schedules the pass or hands back what the previous mode took.
+        var modeRow = Row();
+        Label(modeRow, Loc.Mod("batch_mode"), 16f, flexible: true);
+        CycleButton(modeRow, 150f, Core.StaticBatcher.ModeLabel, Core.StaticBatcher.CycleMode);
+        Tip(modeRow, "batch_mode_note");
+
+        // What actually happened, live. Before a pass this reads "eligible / scanned" (the probe's
+        // answer); after one it reads "objects / combined meshes / MB".
+        Readout(Loc.Mod("batch_status"), () => Core.StaticBatcher.ShortStatus, "batch_status_note");
+
+        // THE number the experiment is judged on — material slots submitted by exactly the
+        // combined renderers, before against the estimated floor after.
+        Readout(Loc.Mod("batch_drawcalls"), Core.StaticBatcher.DrawCallLabel, "batch_drawcalls_note");
+
+        // The row that says WHY nothing is happening, shown only when something is in the way
+        // (today: a Unity build whose internal batch members this mod cannot resolve, which makes
+        // the pass unable to guarantee its own undo and therefore refuse to run at all).
+        _rowGate = () => BatchingRowsVisible() && Core.StaticBatcher.Blocker.Length > 0;
+        var blockedRow = Row(20f);
+        Label(blockedRow, Loc.Mod("batch_unavailable"), 12f, flexible: true);
+        // Resolved at hover time and NAMING the actual missing member: "unavailable" without
+        // saying what is missing is a dead end for whoever has to fix it.
+        Tip(blockedRow, () => Loc.Mod("batch_unavailable_note") + "\n\n" + Core.StaticBatcher.Blocker);
+
+        // A pass that has given up on this scenario after repeated watchdog undos looks exactly
+        // like one that is switched off, and the log is not something anyone reads mid-scenario.
+        _rowGate = () => BatchingRowsVisible() && Core.StaticBatcher.Suspended;
+        var suspendedRow = Row(20f);
+        Label(suspendedRow, Loc.Mod("batch_suspended"), 12f, flexible: true);
+        Tip(suspendedRow, "batch_suspended_note");
+
+        _rowGate = BatchingRowsVisible;
+        var actionRow = Row();
+        Button(actionRow, Loc.Mod("batch_apply_now"), 0f,
+            () => Core.StaticBatcher.RequestPass("the settings panel asked for it"), flexible: true);
+        Button(actionRow, Loc.Mod("batch_revert"), 0f,
+            () => Core.StaticBatcher.RequestRevert("the settings panel asked for it"), flexible: true);
+        Tip(actionRow, "batch_actions_note");
+
+        // MEMORY, shown as memory. The entry counts vertices because that is what Unity copies,
+        // but a vertex count is not a decision a person can make — megabytes are. Modelled at the
+        // same 44 B/vertex the [Batch] PROBE line uses, so the row and the log agree.
+        var vertexRow = Row();
+        Label(vertexRow, Loc.Mod("batch_max_vertices"), 16f, flexible: true);
+        MiniStepper(vertexRow,
+            () => $"~{Core.StaticBatchConfig.VertexBudget * 44L / (1024f * 1024f):0} MB",
+            d =>
+            {
+                ConfigEntry<int>? e = Core.StaticBatchConfig.MaxVertices;
+                if (e != null)
+                    e.Value = Mathf.Clamp(e.Value + d * 250_000, 10_000, 20_000_000);
+            });
+        Tip(vertexRow, "batch_max_vertices_note");
+
+        var settleRow = Row();
+        Label(settleRow, Loc.Mod("batch_settle"), 16f, flexible: true);
+        MiniStepper(settleRow,
+            () => $"{Core.StaticBatchConfig.Settle:0.0}s",
+            d =>
+            {
+                ConfigEntry<float>? e = Core.StaticBatchConfig.SettleSeconds;
+                if (e != null)
+                    e.Value = Mathf.Clamp(e.Value + d * 0.5f, 0f, 60f);
+            });
+        Tip(settleRow, "batch_settle_note");
+
+        var rescanRow = Row();
+        Label(rescanRow, Loc.Mod("batch_rescan"), 16f, flexible: true);
+        MiniStepper(rescanRow,
+            () => Core.StaticBatchConfig.Rescan <= 0f
+                ? Loc.Mod("off")
+                : $"{Core.StaticBatchConfig.Rescan:0}s",
+            d =>
+            {
+                ConfigEntry<float>? e = Core.StaticBatchConfig.RescanSeconds;
+                if (e != null)
+                    e.Value = Mathf.Clamp(e.Value + d * 5f, 0f, 300f);
+            });
+        Tip(rescanRow, "batch_rescan_note");
+
+        var minRow = Row();
+        Label(minRow, Loc.Mod("batch_min_renderers"), 16f, flexible: true);
+        MiniStepper(minRow,
+            () => $"{Core.StaticBatchConfig.MinRenderersPerRoot}",
+            d =>
+            {
+                ConfigEntry<int>? e = Core.StaticBatchConfig.MinRenderers;
+                if (e != null)
+                    e.Value = Mathf.Clamp(e.Value + d * 4, 2, 2000);
+            });
+        Tip(minRow, "batch_min_renderers_note");
+
+        RectTransform inactiveRow = Toggle(Loc.Mod("batch_include_inactive"),
+            () => Core.StaticBatchConfig.Inactive,
+            v =>
+            {
+                if (Core.StaticBatchConfig.IncludeInactive != null)
+                    Core.StaticBatchConfig.IncludeInactive.Value = v;
+            });
+        Tip(inactiveRow, "batch_include_inactive_note");
+
+        RectTransform freeRow = Toggle(Loc.Mod("batch_free_cpu"),
+            () => Core.StaticBatchConfig.FreeCpuCopy,
+            v =>
+            {
+                if (Core.StaticBatchConfig.FreeCombinedCpuCopy != null)
+                    Core.StaticBatchConfig.FreeCombinedCpuCopy.Value = v;
+            });
+        Tip(freeRow, "batch_free_cpu_note");
+
+        RectTransform watchRow = Toggle(Loc.Mod("batch_watchdog"),
+            () => Core.StaticBatchConfig.WatchdogOn,
+            v =>
+            {
+                if (Core.StaticBatchConfig.Watchdog != null)
+                    Core.StaticBatchConfig.Watchdog.Value = v;
+            });
+        Tip(watchRow, "batch_watchdog_note");
+
+        RectTransform autoRow = Toggle(Loc.Mod("batch_watchdog_auto"),
+            () => Core.StaticBatchConfig.AutoRevert,
+            v =>
+            {
+                if (Core.StaticBatchConfig.WatchdogAutoRevert != null)
+                    Core.StaticBatchConfig.WatchdogAutoRevert.Value = v;
+            });
+        Tip(autoRow, "batch_watchdog_auto_note");
+
+        // Where the rest lives — the three text entries (roots, excluded layers, excluded names)
+        // are free-form and belong in the generic browser rather than as steppers nobody can type
+        // into from inside a headset.
+        var restRow = Row(20f);
+        Label(restRow, Loc.Mod("batch_more_short"), 12f, flexible: true);
+        Tip(restRow, "batch_more_note");
+
+        _rowGate = null;
+    }
+
+    /// <summary>
+    /// Label ..... value — a LIVE read-only row. The panel had steppers, toggles and cycles but no
+    /// way to simply SHOW a number that the mod computes rather than the user sets, which is what a
+    /// status line is. Refreshed on the panel's own cadence like every other readout; returns the
+    /// row so the caller can hang a <see cref="Tip"/> on it.
+    /// </summary>
+    private RectTransform Readout(string label, Func<string> read, string? tipId = null)
+    {
+        var row = Row();
+        Label(row, label, 16f, flexible: true);
+        TextMeshProUGUI value = Label(row, read(), 15f, center: true);
+        value.GetComponent<LayoutElement>().preferredWidth = 150f;
+        _refreshers.Add(() => value.text = read());
+        if (tipId != null)
+            Tip(row, tipId);
+        return row;
+    }
+
     private TextMeshProUGUI Label(RectTransform row, string text, float size,
         bool bold = false, bool flexible = false, bool center = false)
     {

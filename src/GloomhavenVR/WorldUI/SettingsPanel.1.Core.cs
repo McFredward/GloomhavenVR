@@ -134,6 +134,16 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // element is about. GLOBAL (no board, no style), and it carries no per-board offset, so the
         // board selector and the offset/size/spacing/shape rows all hide for it.
         Timing,
+        // EXPERIMENTAL runtime static batching (2026-07 perf pass, Core.StaticBatcher). Its own
+        // element beside Timing under "Leistung & Effekte", for the same reason Timing is one: it
+        // is a dial a power user turns to FIND a default, not a setting a player is asked to
+        // reason about — and it is the only one in the mod that MUTATES GAME OBJECTS, so it gets
+        // its own page with its own status readout and its own undo button rather than being a
+        // toggle among the timing levers. GLOBAL (no board, no style).
+        //
+        // POSITION IN THIS ENUM IS LOAD-BEARING: ElementIsConfigTopic is a RANGE test over
+        // CfgDiagnostics..CfgOther, so every non-topic member has to stay BEFORE CfgDiagnostics.
+        Batching,
         // Category split (2026-07, user: "every value applies ONLY to its own category"):
         // [BoardDashboard] = the gear ("Einstellungen") + follow ("Fixiert") plates. GLOBAL like
         // RoundButtons (values ride every board). NOTE (settings audit 2026-07): the sibling
@@ -241,7 +251,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
                 DebugElement.Rest, DebugElement.Generic, DebugElement.Cluster,
                 DebugElement.RoundButtons, DebugElement.BoardDashboard, DebugElement.Decision,
                 DebugElement.ItemUse, DebugElement.ItemCard,
-                DebugElement.WallFade, DebugElement.Timing,
+                DebugElement.WallFade, DebugElement.Timing, DebugElement.Batching,
                 DebugElement.HandOffsets, DebugElement.FigureOffsets, DebugElement.WristOffsets,
                 DebugElement.ButtonColors,
                 // The generic config browser's topics (2026-07) — listed here too so this table
@@ -295,7 +305,9 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // be a sub-category of their own holding exactly ONE element (a navigation level with
         // nothing to choose), and the timing rows had no element at all and therefore showed on
         // every Debug page; pairing them fixes both.
-        new[] { DebugElement.WallFade, DebugElement.Timing },
+        // 2026-07: the experimental static-batching pass joins them — same tier (a dial for finding
+        // a default), and the one place in the mod where "Leistung" is literally what the page does.
+        new[] { DebugElement.WallFade, DebugElement.Timing, DebugElement.Batching },
     };
 
     /// <summary>Debug sub-categories (user 5b) — the FIRST-level chooser inside the Debug pane.</summary>

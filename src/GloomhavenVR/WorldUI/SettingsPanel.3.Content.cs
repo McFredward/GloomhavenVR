@@ -400,6 +400,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         BuildConfigBrowser();
 
         BuildTimingCategory();  // Debug → Leistung & Effekte → Zeitgeber / CPU
+        BuildBatchingCategory();// Debug → Leistung & Effekte → Bündelung (experimentell)
         BuildHandsCategory();   // Debug → Hände-Offsets (per-style seat + card-fan geometry)
         BuildFiguresCategory(); // Debug → Figuren-Offsets (per-style held-mini pose)
         BuildWristCategory();   // Debug → Handgelenk (per-style wrist-HUD pose)
