@@ -63,6 +63,16 @@ is built on:
   a distinction, every Tier 1 motion would look like a failure. The guard now classifies each
   changed file: `MOVED` when the two versions are **permutations of the same lines**, `CHANGED`
   otherwise. Verified by swapping two methods in `VRLayers` — reported as `MOVED`, 0 changed.
+
+  **The safety rule for a partial split is narrower than "keep each run contiguous."** I first
+  wrote that rule together with "name the files so alphabetical order reproduces member order",
+  which is awkward and mostly unnecessary. The Net/Rig worker replaced it with the condition
+  that actually bites: **member order in a partial class is semantically inert *except* for
+  field initialisers, which run in declaration order** — and across partials that order follows
+  compilation order. So the rule is: **every instance field stays in the primary file, in its
+  original order.** Methods may then be distributed in any grouping, contiguous or not.
+  Verified on `VRRigDriver`: 422 lines repositioned, **zero of them field declarations**, every
+  moved line a whole method body.
   *This is not a safety proof:* swapping two statements that DO depend on each other is also a
   permutation. It narrows "what changed" to "only the order changed" — which is the question a
   human then has to answer, and is exactly where frame-ordering constraints live (§8).
