@@ -1721,6 +1721,25 @@ The body contains `_ = actor; // reserved: no per-actor furniture state is knowa
 slots (see notes)`. An **explicitly reserved seam**, not an oversight. Removing the parameter would
 be a signature change that the next furniture feature has to undo. Confidence: high.
 
+### `RemoteHandFan.PalmStandoff` — **REMOVED in batch D; it was never on this list**
+Found by an independent unreferenced-member scan of `Net/` and `Rig/` at HEAD, not by this
+registry: an `internal const float PalmStandoff = PalmOffset;` with **no call site anywhere**.
+It was added by `eaec5f8` for `RemoteCardFx` to aim a card flight at the fan, and `9a7f911`
+replaced that call with `RemoteHandFan.FanAnchorPoint(...)` **because aiming with the bare
+offset was a bug** — the hand ROOT's `+Y` points out of the BACK of the hand, so flights landed
+a palm-thickness on the wrong side. The constant survived its own supersession, still `internal`,
+still offered by IntelliSense, with a doc that said only "prefer `FanAnchorPoint`".
+Checked against Charter §5 before removal: not a Harmony target, not a Unity message, not a
+serialized field, no reflection or `nameof` reference, not a config key, not a log grep token,
+no debug-menu caller (the only other occurrences in the repo were the guard's own snapshots).
+The record is preserved where it belongs — `FanAnchorPoint`'s doc now states why the bare offset
+is not exposed. Guard: the single declaration line disappears from
+`GloomhavenVR.Net/RemoteHandFan.cs` and nothing else changes anywhere.
+
+**This is the only dead member in either subsystem.** Every other candidate the scan produced
+(`PileKindWireOrderGuard`, `ControlBoardWireOrderGuard`, `PileBrowseReservedBit`,
+`NetAvatarDriver.RemovePlayer`) is a Part III keep, below.
+
 ### `RemoteHandFan._sharedCardMesh`
 A `static Mesh?` built once and shared by every ghost card, and — unlike every other mesh in the
 subsystem — **never destroyed**. This is the one asymmetry in an otherwise uniform ownership rule
