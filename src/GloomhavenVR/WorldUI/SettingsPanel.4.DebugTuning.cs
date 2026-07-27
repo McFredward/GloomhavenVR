@@ -260,8 +260,11 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
 
         // Reset element (element-bearing categories only — resets the selected element). Hidden for
         // the per-style folded-in elements (Hände-Offsets / Figuren-Offsets / Handgelenk): they carry
-        // no per-board offset entry to reset and never had a reset control as top-level tabs.
-        _rowGate = () => PerBoard() && !ElementIsPerStyle(CurrentElement());
+        // no per-board offset entry to reset and never had a reset control as top-level tabs, and
+        // for the config-browser topics (2026-07), which reset nothing — a per-entry reset there
+        // would need one control per entry, and the entry's default is on hover instead.
+        _rowGate = () => PerBoard() && !ElementIsPerStyle(CurrentElement())
+                         && !ElementIsConfigTopic(CurrentElement());
         var actionRow = Row();
         Button(actionRow, Loc.Mod("reset_element"), 0f, ResetDebugElement, flexible: true);
 
@@ -595,7 +598,18 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
     private static bool ElementIsGlobalTuning(DebugElement e) =>
         e is DebugElement.RoundButtons or DebugElement.BoardDashboard or DebugElement.WallFade
         or DebugElement.HandOffsets or DebugElement.FigureOffsets or DebugElement.WristOffsets
-        or DebugElement.ButtonColors;
+        or DebugElement.ButtonColors
+        || ElementIsConfigTopic(e);
+
+    /// <summary>
+    /// The generic config browser's topics (2026-07). They are elements only in the sense that they
+    /// ride the existing element chooser — they name no board-attached object at all, so every
+    /// per-board row (board readout, offset/size/spacing/shape steppers, the element reset) must
+    /// hide for them. Contiguous in <see cref="DebugElement"/> by construction, so this is a range
+    /// test rather than a list that could fall out of date when a topic is added.
+    /// </summary>
+    private static bool ElementIsConfigTopic(DebugElement e) =>
+        e >= DebugElement.CfgDiagnostics && e <= DebugElement.CfgOther;
 
     /// <summary>
     /// The per-HAND-STYLE Debug elements folded in from the former top-level tabs (2026-07). They
@@ -1033,12 +1047,27 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         DebugElement.WristOffsets => Loc.Mod("cat_wrist"),
         // User 4: the keycap label/cap colour rows.
         DebugElement.ButtonColors => Loc.Mod("button_colors"),
+        // Generic config browser topics (2026-07) — named by ConfigCatalog so the chooser and the
+        // catalog can never disagree about what a topic is called.
+        DebugElement.CfgDiagnostics => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Diagnostics),
+        DebugElement.CfgVisual => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Visual),
+        DebugElement.CfgMovement => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Movement),
+        DebugElement.CfgHands => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Hands),
+        DebugElement.CfgCards => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Cards),
+        DebugElement.CfgButtons => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Buttons),
+        DebugElement.CfgPanels => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Panels),
+        DebugElement.CfgBoardTargeting => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.BoardTargeting),
+        DebugElement.CfgBoardGeometry => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.BoardGeometry),
+        DebugElement.CfgNetwork => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Network),
+        DebugElement.CfgSystem => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.System),
+        DebugElement.CfgOther => ConfigCatalog.TopicLabel(ConfigCatalog.ConfigTopic.Other),
         _ => e.ToString(),
     };
 
     /// <summary>German name of a Debug sub-category (user 5b) — the sub-category chooser readout.</summary>
     private static string DebugSubCatLabel(DebugSubCat s) => s switch
     {
+        DebugSubCat.AllSettings => Loc.Mod("subcat_all_settings"),
         DebugSubCat.BoardLayout => Loc.Mod("subcat_board_layout"),
         DebugSubCat.KartenStapel => Loc.Mod("subcat_cards_piles"),
         DebugSubCat.Tasten => Loc.Mod("cat_buttons"),
