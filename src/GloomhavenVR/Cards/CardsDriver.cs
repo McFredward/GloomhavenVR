@@ -1297,11 +1297,6 @@ internal sealed class CardsDriver : MonoBehaviour
         PalmGate gate = _gateHand.PalmGate;
         gate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
         gate.ExitDegrees = CardsConfig.RevealExitDegrees.Value;
-        // VESTIGIAL since roll gate v4, and PalmGate.UseDevicePalmNormal says so: the gate always
-        // reads the VISUAL hand frame now and only falls back to the device transform when the rig
-        // is missing, whatever this flag says. Kept as a live assignment (not deleted) so the
-        // property keeps a caller and the flag's history stays greppable.
-        gate.UseDevicePalmNormal = !_gateHand.IsSimulated;
         // G5 (DEMEO-HANDS-CARDS §4): while the dominant hand holds something the gate stays
         // put so a pluck never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
         gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
