@@ -1286,16 +1286,22 @@ internal sealed class CardsDriver : MonoBehaviour
             return;
         }
 
-        // Live-tunable gate feel (roll gate v3): PalmGate measures Demeo's own roll dot —
-        // the hand's RIGHT axis tilt toward world up — asin-mapped to DEGREES (0 knuckles-up
-        // flat, 90 palm fully toward the face; pitch/yaw of the arm are irrelevant BY
-        // CONSTRUCTION). Thresholds: [Cards] RevealEnterDegrees/RevealExitDegrees, defaults
-        // 60° enter / 45° exit — a comfortable supination with a hysteresis dead band so the
-        // gate cannot chatter. Live-tunable from the debug menu's Fan category.
+        // Live-tunable gate feel. The roll MEASURE itself is documented once, at
+        // PalmGate's class doc (Hands/Interact/PalmGate.cs) — read it there, do NOT restate
+        // it here: this comment used to describe roll gate v3 (the "Demeo roll dot" measure),
+        // which v4 replaced after it failed on hardware, and a reader of this file had no way
+        // to tell. All that belongs here is what the driver forwards.
+        // Thresholds are degrees on that measure: [Cards] RevealEnterDegrees/RevealExitDegrees,
+        // defaults 60° enter / 45° exit — a hysteresis dead band so the gate cannot chatter.
+        // Live-tunable from the debug menu's Fan category.
         PalmGate gate = _gateHand.PalmGate;
         gate.EnterDegrees = CardsConfig.RevealEnterDegrees.Value;
         gate.ExitDegrees = CardsConfig.RevealExitDegrees.Value;
-        gate.UseDevicePalmNormal = !_gateHand.IsSimulated; // sim hands pose the rig directly
+        // VESTIGIAL since roll gate v4, and PalmGate.UseDevicePalmNormal says so: the gate always
+        // reads the VISUAL hand frame now and only falls back to the device transform when the rig
+        // is missing, whatever this flag says. Kept as a live assignment (not deleted) so the
+        // property keeps a caller and the flag's history stays greppable.
+        gate.UseDevicePalmNormal = !_gateHand.IsSimulated;
         // G5 (DEMEO-HANDS-CARDS §4): while the dominant hand holds something the gate stays
         // put so a pluck never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
         gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
@@ -2319,12 +2325,19 @@ internal sealed class CardsDriver : MonoBehaviour
     // ------------------------------------------------------------------ modal input-block --
 
     /// <summary>
-    /// Menu-open gate (see <see cref="Update"/>): while a modal window floats
-    /// (<see cref="WorldUI.ModalFallback.WindowModalActive"/>) force EVERY card
-    /// non-poke/non-grab so nothing behind the menu can be plucked or fingertip-selected.
-    /// A card already HELD when the menu opens is left alone (it stays held, like the
+    /// Modal input-block (called ONLY from <see cref="TickInteractionsAndStatus"/>, which owns the
+    /// predicate): force EVERY card non-poke/non-grab so nothing behind a blocking modal can be
+    /// plucked or fingertip-selected.
+    ///
+    /// The gate is <see cref="WorldUI.ModalFallback.BlockingWindowModalActive"/>, NOT
+    /// <c>WindowModalActive</c>. That is not a detail — <c>WindowModalActive</c> ("ANY floated
+    /// window") was the bug here twice over, and the caller records both rounds. Do not widen the
+    /// predicate here or at the call site "to be safe"; the pause/ESC/Options family must impose
+    /// ZERO card restrictions.
+    ///
+    /// A card already HELD when the modal opens is left alone (it stays held, like the
     /// dialog-open grab gate in <see cref="VRCard.CanGrab"/>). The normal per-card flags
-    /// are restored by the next <see cref="Rebuild"/> once the menu closes.
+    /// are restored by the next <see cref="Rebuild"/> once the modal closes.
     /// </summary>
     private void BlockCardInteractions()
     {

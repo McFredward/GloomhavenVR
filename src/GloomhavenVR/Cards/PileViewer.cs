@@ -7,8 +7,8 @@ using UnityEngine;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// Discard/burnt pile stacks on the control board (hardware test #21, [Cards]
-/// PileViewer): two small physical card piles docked off the board's RIGHT edge
+/// Discard/burnt/items pile stacks on the control board (hardware test #21, [Cards]
+/// PileViewer): THREE small physical card piles docked off the board's RIGHT edge
 /// (<see cref="PlayTray.PileMount"/> — the only free edge, see the BuildMounts
 /// collision math), each rendered as a stack of card slabs with a live count and a
 /// localized caption. Poking a stack (finger or board laser) TOGGLES the pile
@@ -16,8 +16,10 @@ namespace GloomhavenVR.Cards;
 /// release (<see cref="PileBrowser"/>; open/close policy and content live in
 /// CardsDriver). Purely informational — counts are read straight from the
 /// authoritative piles (<see cref="CardsGameApi.DiscardedCount"/> /
-/// <see cref="CardsGameApi.BurntCount"/>, no game state is ever written) and logged
-/// change-deduped.
+/// <see cref="CardsGameApi.BurntCount"/>, plus the inventory for the items stack — no
+/// game state is ever written) and logged change-deduped. The items stack (item 4) is
+/// the odd one out: its browse is the <see cref="ItemsPile"/> fan, not a
+/// <see cref="PileBrowser"/>, and its caption is a MOD string, not a game loc key.
 /// </summary>
 internal sealed class PileViewer
 {
@@ -100,7 +102,9 @@ internal sealed class PileViewer
 
     // ------------------------------------------------------------------ lifecycle --
 
-    /// <summary>Local caption for one pile (real game loc keys with safe English fallbacks).</summary>
+    /// <summary>Local caption for one pile: real GAME loc keys for discard/burnt (safe English
+    /// fallbacks), and a MOD string for items — the game has no section header for the
+    /// inventory.</summary>
     // Pile captions use the game's OWN card-overview SECTION-HEADER keys — proper pile
     // NOUNS in every shipped language. The old GUI_TAKE_DAMAGE_* keys were action verb
     // phrases ("Burn 1 Available Card" / "1 verfügbare Karte verbrennen"), so the caption
@@ -167,7 +171,7 @@ internal sealed class PileViewer
         }
     }
 
-    /// <summary>Re-read both pile captions in the current language (live-follow, Loc.OnChanged).</summary>
+    /// <summary>Re-read all three pile captions in the current language (live-follow, Loc.OnChanged).</summary>
     internal void RefreshLabels()
     {
         _discard?.SetCaption(Caption(PileKind.Discard));
@@ -176,8 +180,9 @@ internal sealed class PileViewer
     }
 
     /// <summary>
-    /// Round-2 live-apply: re-seat both pile stacks from the active board's per-board SCALE and
-    /// inter-stack SPACING (discard upper at +spacing/2, burn lower at −spacing/2). Called from
+    /// Round-2 live-apply: re-seat all three pile stacks from the active board's per-board SCALE
+    /// and inter-stack SPACING — discard upper at +spacing/2, burn at −spacing/2, items lowest at
+    /// −spacing·1.5 (the items stack was added by item 4 and hangs below the original pair). Called from
     /// <see cref="EnsureBuilt"/> and by CardsDriver when the debug menu / cfg edits either.
     /// </summary>
     internal void ApplyLayout()
@@ -241,9 +246,14 @@ internal sealed class PileViewer
     // ------------------------------------------------------------------ status --
 
     /// <summary>
-    /// Refresh counts/dimming from the authoritative piles (per frame while the
-    /// tray shows; cheap — two list Counts). The Info line is change-deduped: one
-    /// log per actual pile change (test #21 C), never per frame.
+    /// Refresh counts/dimming from the authoritative piles (per frame while the tray shows).
+    /// The Info line is change-deduped: one log per actual pile change (test #21 C), never
+    /// per frame.
+    ///
+    /// NOT cheap — this doc used to advertise "two list Counts", which is an order of magnitude
+    /// off and is exactly the claim a perf pass would trust. Per frame it does three counts PLUS
+    /// <see cref="ItemsPile.Tick"/> (the whole item-fan tick, including its hand sweep) and
+    /// <see cref="TickItemsUsableHighlight"/> (which scans the inventory).
     /// </summary>
     internal void TickStatus(CardsHandUI? hand)
     {

@@ -10,7 +10,15 @@ namespace GloomhavenVR.Cards;
 /// the non-dominant palm, shown/hidden by the P2 <c>PalmGate</c>. Cards face the HMD,
 /// overlap slightly, and the grab-candidate card pops forward (VRCard handles the pop
 /// animation via <c>IGrabHighlight</c>). Pure layout — interaction routing lives in
-/// <see cref="CardsDriver"/>. No allocations in <see cref="Tick"/>.
+/// <see cref="CardsDriver"/>.
+///
+/// ALLOCATION RULE (this used to read "no allocations in Tick", which is false and is the
+/// kind of blanket claim a perf pass trusts): the STEADY per-frame path allocates nothing,
+/// but <see cref="Tick"/> does reach interpolated-string diagnostics (the live-tuning
+/// signature line, <c>UpdateGazeBias</c>, <c>Relayout</c>) and <c>ComposeDepths</c> regrows
+/// <c>_depths</c> when the hand outgrows its capacity. Every one of those sits BEHIND a
+/// change or throttle gate, never in front of one — that ordering is the invariant, not the
+/// absence of allocation. Keep new diagnostics on the same side of the gate.
 /// </summary>
 internal sealed class CardFan
 {
@@ -585,7 +593,8 @@ internal sealed class CardFan
         Quaternion baseFacing = Quaternion.LookRotation(away.normalized, Vector3.up);
 
         // Gaze-responsive facing (edge-read): OPT-IN and OFF by default — the user prefers the
-        // steady billboard plus the depth curvature (see SideDepth / Relayout) as the primary
+        // steady billboard plus the depth curvature (see RestBowDepth / Relayout, driven by
+        // [Cards] FanSideDepthCurve — there is no "SideDepth" member) as the primary
         // shape response. When [Cards] FanGazeBias is ON, UpdateGazeBias returns an eased extra
         // YAW (deg, about world up) that turns the fan partway toward the head's GAZE so the
         // looked-at end tips TOWARD the viewer; a WIDE deadzone + side-hysteresis stop it
@@ -1145,7 +1154,7 @@ internal sealed class CardFan
 
     /// <summary>
     /// Allocation-free weighted signature of every Fan config value that changes the STEADY layout
-    /// (<see cref="Relayout"/> + <see cref="SideDepth"/> + <see cref="SplitOffset"/>). Any edit to one
+    /// (<see cref="Relayout"/> + <see cref="RestBowDepth"/> + <see cref="SplitOffset"/>). Any edit to one
     /// term moves the sum, so Tick can detect a live tuning change with a single float compare. Animation
     /// durations (open/close/stagger), the gaze bias, the pop distance and the palm/follow params are
     /// EXCLUDED on purpose — they are already read live every frame (facing / follow / pop) or only matter

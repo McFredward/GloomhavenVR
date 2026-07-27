@@ -48,7 +48,8 @@
 ## 1. Laser hit geometry — the resting/live rect split
 
 ### Resting rect for laser-driven pops
-- **Where:** `VRCard.TryGetRestingLaserRect`, consumed by `CardFan.TryRaycast` and `PlayTray.TryRaycastCards`
+- **Where:** `VRCard.TryGetRestingLaserRect`, consumed by `CardFan.TryRaycast` (the pick this rule exists for), as the deliberate *second* accepted pose in `CardsDriver.TryHitLiftedCard`, and by two `VRCard` diagnostics (`LogLaserRectDecoupled`, `LogFanColliderFit`)
+- **CORRECTED (phase 4):** this entry used to name `PlayTray.TryRaycastCards` as the second consumer. It is not one — `PlayTray.cs` has **zero** `TryGetRestingLaserRect` hits, and `TryRaycastCards` builds its plane from the **live** transform (`Dot(direction, t.forward)`, `t.position`, `InverseTransformPoint`), i.e. literally the construction this entry's `Breaks if:` forbids. `3b86e72` did add the docked twin there; `4b7ac8a` reverted it. The rule below is unchanged and still binds `CardFan.TryRaycast`, whose pop-feedback loop is what it exists for. Note the one place both rects are accepted at once — `TryHitLiftedCard` tries live first and resting second, on purpose, because neither pose alone covers the card mid-raise; that is not a violation of this rule, it is the rule's companion entry below.
 - **Rule:** A pick whose *own* hover is what raises the card must intersect the card's **home** rect (`_homePos`/`_homeRot`/`_homeScale` under the current parent), never the live transform.
 - **Why:** Positive feedback loop. `VRCard.Update`'s pop lifts a laser-hovered card toward the viewer (−Z) and up (+Y); a plane built from the live transform therefore *moves into the beam the instant the card pops*. Sweeping the beam up the card lifted its plane to meet the beam; sweeping off sideways left the hover latched at the raised height — "an invisible collider above the card". Because a live fan hover gates the board laser off entirely, the adjacent board button became unreachable and the trigger grabbed the card.
 - **Established by:** `306e8ea` fix(cards): laser no longer sticks above a raised fan card (docked-card twin added in `3b86e72`, kept when the rest of that commit was reverted)
@@ -112,7 +113,8 @@
 - **Confidence:** high
 
 ### `IsRooted` — a card that refuses the grab must not promise one
-- **Where:** `VRCard.IsRooted` (`!IsHeld && !CanGrab`), consumed in `VRCard.UpdateBody`, `VRCard.OnPoke`, `CardsDriver.ScoreContact`, `CardsDriver.UpdateBoardLaser`
+- **Where:** `VRCard.IsRooted` (`!IsHeld && !CanGrab`), consumed in `VRCard.UpdateBody` and `VRCard.OnPokeEnter` — **all three references live inside `VRCard.cs`**
+- **CORRECTED (phase 4):** this entry used to add `CardsDriver.ScoreContact` and `CardsDriver.UpdateBoardLaser` as consumers, and to say `VRCard.OnPoke` where the use is `OnPokeEnter`. Those two driver sites inline `!card.CanGrab`, which is a **different predicate for a held card** (`IsRooted` is false while held, `!CanGrab` is true). The rule's substance is unaffected; do not "unify" the driver's `!CanGrab` tests with `IsRooted` on the strength of the old `Where:` line.
 - **Rule:** A rooted card produces **zero** pop, scale change and haptic from *every* hover source — but the laser beam still clamps to it.
 - **Why:** Every hover-pop is a grab-affordance promise. Popping a card that refuses the grab set up a pop↔drop oscillation the user reported as "the card pulses and vibrates constantly". The beam clamp stays so the trigger cannot fall through to a board click *behind* the card.
 - **Established by:** `bce9a63` fix(interact/cards): … rooted-card hover gate + face hover FX neutralization (bug B)
@@ -597,11 +599,12 @@
 - **Confidence:** high
 
 ### Raycast auto-seating is GONE; fixed proud Z replaces it
-- **Where:** `PlayTray.NewAnchor` / `PlayTray.FixedProudZ` (0.005); `PlayTray.SeatOnBoardFace` / `ReseatProud` retained only for paths that need the true-surface projection, and they correct only the along-normal component
+- **Where:** `PlayTray.NewAnchor` / `PlayTray.FixedProudZ` (0.005)
+- **CORRECTED (phase 4):** this entry used to add "`PlayTray.SeatOnBoardFace` / `ReseatProud` retained only for paths that need the true-surface projection". There were no such paths at HEAD — `ReseatProud` had **zero** callers, so `SeatOnBoardFace`'s only caller was itself dead, and the pair (plus `SeatStandoff`/`SeatProud`) is removed as Tier-0 dead code by Batch D of this refactor. Every widget seats at `FixedProudZ` through `NewAnchor`. The rule and the "no more −50 mm surprises" reason below are unchanged and are the whole point of the entry: they are what forbids re-adding a raycast seat.
 - **Rule:** Widgets the debug menu does not expose seat at a predictable proud Z, not at a raycast hit.
 - **Why:** The raycast reseat floated the gear −30…−50 mm off the Oak and Steel boards — "no more −50 mm surprises".
 - **Established by:** `17862bb`
-- **Breaks if:** Routing `NewAnchor` back through `SeatOnBoardFace` because it is "more accurate", or replacing the XY preservation with the raw hit point.
+- **Breaks if:** Re-introducing a raycast seat (the removed `SeatOnBoardFace`) under `NewAnchor` because it is "more accurate", or replacing the XY preservation with the raw hit point.
 - **Confidence:** high
 
 ### Board-extent measurement is local-space and clamped
@@ -728,8 +731,9 @@
 - **Breaks if:** Deleting the bundle probe as dead code because `Shader.Find` "works for BoardLit".
 - **Confidence:** high
 
-### `RenderOnTop` uses per-renderer instances and two ZTest property names
-- **Where:** `PlayTray.RenderOnTop`
+### A forced-ZTest helper uses per-renderer instances and two ZTest property names
+- **Where:** `WorldUI/NativeButtonSkin.cs` and `WorldUI/ActorBars.cs` — the two **live** implementations, both of which set `_ZTestMode` under a `HasProperty` guard
+- **CORRECTED (phase 4):** this entry's `Where:` used to be `PlayTray.RenderOnTop`, which had **zero** call sites at HEAD (19 repo-wide `RenderOnTop` hits: 1 declaration, 18 comments, all of them saying the widget in question no longer uses it) and is removed as Tier-0 dead code by Batch D of this refactor. The lesson is not dead — it is implemented in the two files named above — so the entry now points at them. Whoever writes the *next* draw-over-the-board helper is the audience.
 - **Rule:** `.materials` (instances, never `sharedMaterial`), and set `_ZTest` **and** `_ZTestMode` under `HasProperty` guards.
 - **Why:** Instances so no shared bundle material is mutated globally. Two names because the quad/Tint (Standard) path exposes `_ZTest` while TextMeshPro's distance-field material exposes `_ZTestMode` — an earlier version set only `_ZTest` under a `HasProperty` guard and was therefore a **silent no-op** on every non-TMP widget.
 - **Established by:** `cb62991`, corrected in `d56e4c8` fix(cards): Overlay-shader board HUD, Oak button sizing, dock gating
@@ -860,9 +864,10 @@
 - **Breaks if:** Unifying the two base Z values, or pushing them back to `RenderOnTop`.
 - **Confidence:** high
 
-### The pick field hides the play slots
-- **Where:** `PlayTray.SetPickFieldVisible`
-- **Rule:** While the pick field shows, both play-slot roots hide; hiding it restores them and clears the field highlight.
+### The pick field hides the play slots — HISTORICAL, the field no longer exists
+- **Where:** was `PlayTray.SetPickFieldVisible`
+- **CORRECTED (phase 4):** documented as live; it was not. `SetPickFieldVisible` had **zero** external callers, so `_pickFieldVisible` could never be true — `BuildPickField` allocated five `GameObject`s, a glow material and a TMP caption on every board build and ended with `SetActive(false)`, and nothing ever turned them on. The whole cluster is removed as Tier-0 dead code by Batch D of this refactor. Pick flows home into the slot recesses instead. Kept here because the *design* rule is what a future pick-field-shaped feature must obey, and because `Net/RemoteBoardFurniture` still builds and shows its own mirror of it — see the open MP question in `REVIEW-Cards.md` §7.
+- **Rule (if the field ever returns):** While the pick field shows, both play-slot roots hide; hiding it restores them and clears the field highlight.
 - **Why:** Two empty slot frames flanking a third read as three competing targets. The slots are guaranteed empty in pick modes.
 - **Established by:** `eb1e206` feat(cards): home single-card picks into the left slot…
 - **Breaks if:** Showing the field alongside the slots "since they're empty anyway".
@@ -1120,8 +1125,9 @@
 - **Breaks if:** Adding a visibility term "so we don't press an invisible button" — the game's own `OnClick` does not check it either.
 - **Confidence:** high
 
-### The mod CONFIRM hides only when the native is docked AND rendering
+### The mod CONFIRM hides only when the native is docked AND rendering — currently INERT
 - **Where:** `PlayTray.TickStatus` (`ContinueDocked && ContinueVisible`); note the deliberate asymmetry with `_undo`, which gates on `UndoDocked` alone
+- **CORRECTED (phase 4):** the branch **can never be taken today**. `WorldUI/Surfaces/TrayControlDockSurface.cs` hardcodes `ContinueDocked => false`, `ContinueVisible => false`, `UndoDocked => false`, `ShortRestDocked => false` and sets `_controls = Array.Empty<DockedControl>()` — nothing docks any native widget any more, which is also *why* `CardsGameApi`'s three `*Widget()` accessors had no callers (removed as Tier-0 dead code by Batch D of this refactor). The reasoning below is still the record of why the twin gating exists and must be restored intact if docking is ever re-enabled; the code is inert. The constants live in `WorldUI`, so this is not a Cards-only matter — see `REVIEW-Cards.md` §3.5.
 - **Rule:** Both terms are required for Continue.
 - **Why:** The native `ReadyButton` stays docked and interactable while the game drives its `CanvasGroup` alpha to ~0. Gating on `ContinueDocked` alone hid the mod Confirm too, leaving nothing visible yet still pressable through the docked host's raycaster.
 - **Established by:** `d56e4c8` (item 7)
@@ -1663,10 +1669,13 @@
 - **Breaks if:** Widening the bounds, dropping the centre test as paranoid, or relaxing the shader check to "any shader with alpha".
 - **Confidence:** high
 
-### Card materials are SHARED; the render queue bump is PER-INSTANCE
-- **Where:** `CardMesh._edgeMaterial` / `_backMaterial` (shared singletons, mutated in place by `SetSilhouette`) vs `VRCard.ApplyRenderOnTop` / `CardMesh.HeldCardRenderQueue` (4200, per-instance materials, ZTest **LEqual** + ZWrite **On** preserved)
-- **Rule:** Both constraints hold simultaneously. `Net.RemoteHandFan` is the third party that makes it so.
-- **Why:** Sharing is what lets a silhouette captured *after* cards exist re-shape every live card at once. The queue bump must be per-instance because those same shared materials clothe the opponent's hand backs — a shared write would draw every remote card on top of everything. The queue value (4200) is chosen to beat the `ButtonCluster` label's 4003 and the held mini's 4100; ZTest stays LEqual so the card still self-occludes and hides behind real walls and board geometry. An earlier attempt that used ZTest Always destroyed card text and figure depth and was reverted.
+### Card materials are SHARED (live) — and the render-queue bump is REVERTED
+- **Where (live half):** `CardMesh._edgeMaterial` / `_backMaterial` — shared singletons, mutated in place by `SetSilhouette`
+- **Where (reverted half):** `VRCard.ApplyRenderOnTop` / `CardMesh.HeldCardRenderQueue` (4200) — **retained but inactive**, and annotated as such at the code
+- **CORRECTED (phase 4):** this entry used to present both halves as current law. Only the first is. `VRCard.SetRenderOnTop(bool)`'s whole body is `_ = on; RestoreRenderOnTop();` — the bump was reverted because it swallowed all card TEXT (the revert note is in place at `VRCard.cs`). `ApplyRenderOnTop` has no caller, `_renderOnTop` can therefore never become true, `RestoreRenderOnTop`'s guard always returns, and all five `SetRenderOnTop` call sites are no-ops. The code is deliberately **kept** (same category as `PlayTray.SyncPinHolder`'s comment-with-no-code and `CardGlow`'s removed-pulse note, and matching the `FigureGrabbable` ruling in `INVARIANTS-Hands-Board-Core.md`) because it is the record of a tested-and-rejected approach.
+- **Rule (live):** Card materials stay shared.
+- **Rule (dormant, applies only if the bump is ever revived):** it must be per-instance, ZTest **LEqual** + ZWrite **On** preserved. `Net.RemoteHandFan` is the third party that makes it so.
+- **Why:** Sharing is what lets a silhouette captured *after* cards exist re-shape every live card at once. The queue bump must be per-instance because those same shared materials clothe the opponent's hand backs — a shared write would draw every remote card on top of everything. The queue value (4200) is chosen to beat the `ButtonCluster` label's 4003 and the held mini's 4100; ZTest stays LEqual so the card still self-occludes and hides behind real walls and board geometry. An earlier attempt that used ZTest Always destroyed card text and figure depth and was reverted — and the *whole* bump was reverted after it, for swallowing card text. The `4200 > 4100 > 4003` ordering survives the revert: it is still the design rationale for `PlayTray`'s and `ButtonCluster`'s widget queues.
 - **Established by:** `5b0cba0` (shared), `9e78031` fix(cards): draw VR cards over control-board button widgets (Bug #2) — after `4ef1d76` reverted the ZTest-Always version
 - **Breaks if:** Making materials per-card "for safety" (silhouette stops propagating), writing the queue on the shared instance (remote hand backs render on top), lowering 4200 toward 4003, or switching to ZTest Always.
 - **Confidence:** high
@@ -1967,7 +1976,9 @@
 ## 16. Config, migrations and diagnostics
 
 ### One-time migrations are marker-gated and never touch user-tuned values
-- **Where:** `CardsConfig.Bind` — `BoardScaleDefault04Applied` / `TableScaleDefault25Applied` markers; the roll-gate v3 scale migration; the `[TransientButtons]` → `[RoundButtons]` / `[SquareCaps]` fan-out migration
+- **Where:** `CardsConfig.Bind` — the `BoardScaleDefault04Applied` marker and the roll-gate v3 scale migration. `TableScaleDefault25Applied` lives in `Rig/ComfortSettings.cs`; the `[TransientButtons]` → `[RoundButtons]` / `[SquareCaps]` fan-out lives in `WorldUI/ButtonTuning.cs`
+- **CORRECTED (phase 4):** this entry (and the "config categories" entry below it) used to attribute all of that to `CardsConfig.Bind`, and the button sections with it. `CardsConfig.cs` binds **exactly one section, `[Cards]`** — 100 `_file.Bind("Cards", …)` calls and nothing else. `[RoundButtons]` / `[BoardButtons]` / `[BoardDashboard]` / `[RestButtons]` are all `WorldUI/ButtonTuning.cs`. Anyone auditing a migration from this entry would have looked in the wrong file.
+- **Also note:** `BoardScale_{board}` binds at default **0.5** while this migration writes **0.4** (and the marker key still says `04`). See the comment at the migration; harmonising the two numbers is a behaviour change, not a tidy-up.
 - **Rule:** A changed default is adopted only where the saved value is *exactly* the old default; a marker makes each migration run at most once per config file; a grab-written value (`TrayScale`) is **never** migrated.
 - **Why:** BepInEx keeps saved values, so a changed default alone only reaches fresh installs. Adopting it unconditionally would stomp deliberate tuning. The roll-gate migration is subtler still: it requires **both** enter ≥ 84.9° and exit ≥ 75° — a pair that is physically absurd on the new 0–90° scale but exactly what any old 0–180° config lands on after BepInEx clamps it — specifically so a deliberately step-maxed new-scale enter is not eaten.
 - **Established by:** `f7c9b88` feat(config): default table scale 2.5x, board default 0.4x to match; `d7ec01c` (roll-gate migration); `e0432fe` fix(buttons): per-category geometry binds, numeric defaults, Versatz Z, rigid cluster dock
@@ -1975,7 +1986,7 @@
 - **Confidence:** high
 
 ### Config categories must not leak across button families
-- **Where:** `[RoundButtons]` / `[BoardButtons]` / `[BoardDashboard]` / `[RestButtons]` accessors; `PlayTray.BoardButton.Create` takes press travel per instance
+- **Where:** the `[RoundButtons]` / `[BoardButtons]` / `[BoardDashboard]` / `[RestButtons]` accessors — **in `WorldUI/ButtonTuning.cs`, not `CardsConfig`** (see the correction above); `PlayTray.BoardButton.Create` takes press travel per instance
 - **Rule:** Nothing outside a category reads its binds; every bind's default is the exact authored value it replaced.
 - **Why:** The user's stated requirement — one shared `[SquareCaps]` set silently resized unrelated button families. Numeric defaults (rather than a `0 = auto` sentinel) are what make the shipped look bit-identical and the steppers show real numbers.
 - **Established by:** `e0432fe`
@@ -2041,16 +2052,19 @@
 - **Reasoning:** `aa63e87` removed both spawn sites ("no clamp bounded it either"), and `b9e48b5` then routed the consumed look through the hosted card's own clamped effects instead. The `ItemsPile` comment calls the destroy path "the safety net". Removable as a pair, but only as a pair — and the "stays removed" comment must survive, because re-adding the plume is a documented temptation.
 
 ### `CardsConfig` binds with no reader
-- **Status:** `HeldTiltDegrees`, `RoundButtonDiameter`, `RestButtonInsetX`, `ConfirmUndoInsetX`, `InspectForward`, `InspectUp`, `RevealPreset`, `RevealDemeo` are bound but read nowhere in the mod (verified by full-repo grep of `CardsConfig.<name>` outside `CardsConfig.cs`).
-- **Reasoning:** Each was superseded — `HeldTiltDegrees` by `HeldFaceBias` (`6db51a2`, "now legacy, kept bound so existing cfg files load"); the inset/diameter globals by the per-board offset entries (`17862bb`, "remain bound for back-compat"); `InspectForward`/`InspectUp` by the pinch-grip held pose (`5396956`); `RevealPreset`/`RevealDemeo` by the degrees-based roll gate (`bb3502c` → `d7ec01c`). **Charter §5 explicitly protects config entries**, and `CardsConfig`'s own `DebugMenu` note documents the consequence of unbinding (the key is dropped from the user's file). Treat these as a single decision for the user, not as dead code: either keep them all with a "legacy, unread" comment each, or retire them all with the `DebugMenu`-style note. Do not do it piecemeal.
+- **CORRECTED (phase 4):** the old list was wrong in both directions. `InspectForward`, `InspectUp`, `RevealPreset` and `RevealDemeo` **do not exist** — zero occurrences anywhere in `src/`; they survive only in `.planning/research/DEMEO-HANDS-CARDS.md` and in this registry, so a third of the entries this document asked the user to decide about were fictional. Two real ones were missing: `TrayTilt` and `RoundButtonThickness`. `FanArcDegrees` is a seventh.
+- **Status (verified at HEAD):** exactly seven `[Cards]` entries are bound and read by nothing — `HeldTiltDegrees`, `RoundButtonDiameter`, `RoundButtonThickness`, `RestButtonInsetX`, `ConfirmUndoInsetX`, `TrayTilt`, `FanArcDegrees`. Each is declared and bound in `CardsConfig.cs` and referenced from nowhere else in `src/`.
+- **Resolution (phase 4, user-approved):** **kept bound**, description prefixed `LEGACY — no effect, superseded by <X>.` Successors, each verified against the source: `HeldTiltDegrees` → `HeldFaceBias` (`6db51a2`, "now legacy, kept bound so existing cfg files load"); `RoundButtonDiameter` → `RestButtonDiameter_{board}` (read by `RestControls`); `RoundButtonThickness` → `ButtonTuning.RestCapDepth`; `RestButtonInsetX` → `RestButtonOffset_{board}`; `ConfirmUndoInsetX` → `ConfirmUndoOffset_{board}`; `TrayTilt` → `BoardTilt_{board}`; `FanArcDegrees` → `FanArcSweepDegrees` (seeded to the old 70 × 1.3 = 91). The per-board successors arrived with `17862bb` ("remain bound for back-compat"). `RoundButtonThickness`'s successor is not a `[Cards]` key at all — it is `[RestButtons] Depth`, reached through `WorldUI.ButtonTuning.RestCapDepth`.
+- **Why not unbind:** **Charter §5 explicitly protects config entries**, `CardsConfig`'s own `DebugMenu` note documents the consequence (an unbound key is silently dropped from the user's file), and the superseding commits promised in writing to keep them loadable. Removing them would reverse a deliberate promise. Re-labelling costs one line each and turns a misleading knob into an honest one. `RestButtonInsetX` was the worst case: its description opened `LIVE FIT KNOB (dial in dev.gloomhavenvr.cards.cfg without a rebuild)` and walked the user through tuning a value nothing reads.
+- **Guard note:** unlike every other doc fix, this one **is** visible to the guard — `Bind` descriptions are string literal *arguments* and do survive into the assembly.
 
 ### `PlayTray.BoardButton` dwell machinery
 - **Status:** `DwellHoldRange`, `_dwellHand`, `TickDwell` and the charge tint exist but the dwell duration is 0 everywhere.
 - **Reasoning:** `239acb5` removed the dwell **by user directive** while explicitly keeping the `ActivationGuard` accident window. This is a *configured-off feature*, not dead code — and it is also a documented reversal, so deleting it discards the record. Flagged so nobody removes it as unused **and** so nobody re-enables it as "clearly intended".
 
-### `PlayTray.SeatOnBoardFace` / `ReseatProud`
-- **Status:** Retained after `17862bb` replaced raycast auto-seating with per-board config offsets.
-- **Reasoning:** They still have callers (the bundle Confirm/Undo and rest anchors, which do need the true-surface projection), so this is **not** dead — but the surrounding narrative ("raycast reseat is GONE") reads as if it were. Flagged to prevent a future reader deleting them on the strength of the comment.
+### `PlayTray.SeatOnBoardFace` / `ReseatProud` — REMOVED (this entry was wrong)
+- **CORRECTED (phase 4):** this entry claimed *"They still have callers (the bundle Confirm/Undo and rest anchors …), so this is **not** dead."* That was false at HEAD. `ReseatProud` had **zero** callers; `SeatOnBoardFace`'s only caller was `ReseatProud`; `SeatStandoff`/`SeatProud` were used only inside `SeatOnBoardFace`. The bundle Confirm/Undo anchors come from `FindDeep` in `EnsureBuilt` and are used as-is, the rest anchors are built by `RestControls`, and the gear/pin/readout go through `NewAnchor`, which seats at the fixed `FixedProudZ` and says so. The entry was written from the surrounding prose rather than the call graph — precisely the trap this registry warns about, committed by the registry.
+- **Status:** removed as Tier-0 dead code by Batch D of this refactor (~85 lines). The *reason* survives in §6 "Raycast auto-seating is GONE; fixed proud Z replaces it".
 
 ### `CardFace.LogFaceTextureDiag`
 - **Status:** A one-shot diagnostic added to prove the game's card atlases ship mipless.

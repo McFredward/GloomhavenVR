@@ -543,9 +543,21 @@ internal sealed class PileBrowser
 
     /// <summary>
     /// Geometric ray hit-test over the browse arc (item 5, laser-hover to read /
-    /// pluck close) — the browse counterpart of <see cref="CardFan.TryRaycast"/>. Same
-    /// per-card plane+rect test, scale-aware (the arc's cards are enlarged), same
-    /// sticky-hover hysteresis so overlap doesn't flip the highlight. No allocations.
+    /// pluck close) — the browse counterpart of <see cref="CardFan.TryRaycast"/>, sharing
+    /// its shape (per-card plane + rect, nearest hit, sticky-hover hysteresis so overlap
+    /// doesn't flip the highlight) but NOT its geometry. No allocations.
+    ///
+    /// DELIBERATELY DIFFERENT from the fan's test, on two axes — this comment used to say
+    /// "same", which is an invitation to merge the two, and merging them reintroduces the
+    /// bug 306e8ea fixed:
+    ///  - FRAME: the browser intersects each card's LIVE transform (t.forward / t.position /
+    ///    InverseTransformPoint, so it is scale-aware for the arc's enlarged cards). The fan
+    ///    must use the RESTING rect (VRCard.TryGetRestingLaserRect) because a fan card pops
+    ///    toward the viewer under the laser, so a live-transform plane moves INTO the beam
+    ///    and latches the hover above the card. The browse arc has no such pop feedback loop,
+    ///    which is why the simple construction is correct HERE and wrong THERE.
+    ///  - MARGIN: the fan widens every rect by a 1.10 accept margin (overlapping fan strips,
+    ///    trigger-pull jerk). The browse arc uses exact half-extents.
     /// </summary>
     internal bool TryRaycast(Vector3 origin, Vector3 direction, VRCard? sticky,
         out VRCard? card, out Vector3 point, out float distance)

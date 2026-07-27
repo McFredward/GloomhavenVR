@@ -41,9 +41,9 @@ namespace GloomhavenVR.Cards;
 /// <c>new UseItemService(hand.PlayerActor).UseItem(cItem)</c> (which owns ALL multiplayer
 /// sync + re-validates the item).</item>
 /// </list>
-/// State → look: CONSUMED → ashen + the game's burn plume (<see cref="BurnCardFx"/>) and
-/// the card's own consumed FX; SPENT → rolled 90° ("tapped") in the fan + the card's spent
-/// FX; otherwise upright. A chip taken INTO the hand snaps upright + enlarged so it always
+/// State → look: CONSUMED → ashen + the hosted card's OWN consumed FX (the game's separate
+/// CardSmoke plume is deliberately NOT spawned here — see the note in ItemChip.Create);
+/// SPENT → rolled 90° ("tapped") in the fan + the card's spent FX; otherwise upright. A chip taken INTO the hand snaps upright + enlarged so it always
 /// reads. Layout mirrors <see cref="PileBrowser"/>; open/close is driven by
 /// <see cref="PileViewer"/>.
 /// </summary>
@@ -89,7 +89,10 @@ internal sealed class ItemsPile
     private readonly List<ItemChip> _chips = new(12);
     private Transform? _root;
     private TextMeshPro? _title;
-    private Transform? _anchor;   // the pile mount (rig-space, diorama-scaled) — placement scale ref
+    // The ITEMS stack transform (PileViewer.EnsureBuilt passes _items.transform; the shared pile
+    // MOUNT is only the null fallback). Used solely as the emerge/collapse converge point — it is
+    // not a parent and not a placement scale reference.
+    private Transform? _anchor;
     private VRHand? _followHand;
     private CardsHandUI? _hand;
     private string _signature = string.Empty; // last-built inventory state, for cheap live refresh
@@ -140,7 +143,11 @@ internal sealed class ItemsPile
 
     // ------------------------------------------------------------------ config --
 
-    /// <summary>The pile mount PileViewer built the item stack under (placement reference).</summary>
+    /// <summary>
+    /// The ITEMS stack transform (req #5 converge point), NOT the shared pile mount — the mount
+    /// sits up by the DISCARD stack, and "simplifying" this to it makes the fan emerge from the
+    /// wrong pile. PileViewer passes the mount only as a null fallback.
+    /// </summary>
     internal void SetAnchor(Transform anchor) => _anchor = anchor;
 
     /// <summary>Item count of the acting character's inventory (drives the board stack look).</summary>
@@ -422,8 +429,8 @@ internal sealed class ItemsPile
         _handWinner = null;
     }
 
-    /// <summary>World anchor the fan emerges from / collapses into (req #5): the item PILE stack
-    /// region (the pile mount PileViewer built the stacks under). Falls back to the fan root.</summary>
+    /// <summary>World anchor the fan emerges from / collapses into (req #5): the ITEMS stack
+    /// transform handed to <see cref="SetAnchor"/>. Falls back to the fan root.</summary>
     private Vector3 PileConvergeWorld() =>
         _anchor != null ? _anchor.position : (_root != null ? _root.position : Vector3.zero);
 
@@ -932,8 +939,8 @@ internal sealed class ItemsPile
     /// with a legacy colored slab + name as the fallback. Supports the full ability-card
     /// interaction set: fingertip hand-sweep POP (<see cref="SetFingertipPop"/>), dominant-hand
     /// LASER hover+pluck (via <see cref="IPokeable"/> + a <see cref="PlayTray"/> laser target),
-    /// pinch-GRAB, and read-in-hand (<see cref="GetHeldPose"/>). Consumed items carry the burn
-    /// plume; spent/consumed also show the card's own state FX (UpdateState).
+    /// pinch-GRAB, and read-in-hand (<see cref="GetHeldPose"/>). Spent/consumed chips show the
+    /// hosted card's own state FX (UpdateState); consumed chips carry NO separate burn plume.
     /// </summary>
     internal sealed class ItemChip : GrabbableBehaviour, IPokeable
     {
@@ -963,7 +970,6 @@ internal sealed class ItemsPile
         private Quaternion _homeRot;
         private float _homeScale = 1f;
         private BoxCollider? _box;
-        private GameObject? _plume;     // consumed-item smoke, destroyed with the chip
         private GameObject? _cardGo;    // hosted ItemCardUI GameObject (recycled to the pool on disable)
         private ItemCardUI? _cardUI;
         private SmokeClamp[]? _smokeClamps; // ItemCardEffects emitters bounded card-local; restored before recycle
@@ -1067,7 +1073,9 @@ internal sealed class ItemsPile
         // grabbable so the player can grab it BACK OUT to cancel (the #6 refinement); the grab hands it
         // back to the fan root first, so on release it glides to the fan as always.
         internal bool PendingUse { get; set; }
-        private bool _hasClip;
+        // (There is no _hasClip flag any more: the clip/unclip rework left behind a field that was
+        // written false in three places and never read — CS0414. The hierarchy owns the clipped
+        // pose now, so there is nothing for a flag to gate.)
 
         // Requirement 6 (use FX): after a CONFIRM the owner detaches the chip and plays a brief flourish
         // reflecting the result — a burn plume (Consumed) or a "tap" roll to 90° with a scale pulse
@@ -1149,12 +1157,14 @@ internal sealed class ItemsPile
             // NOTE: do NOT VRLayers.Apply(go) — it recurses into the hosted ItemCardUI, which is a
             // GAME-owned canvas that must keep its authored UI layer (reversibility rule; it renders
             // via the VR camera's UI-layer bit owned by CanvasConversion). The mod-owned pieces
-            // (backing above, fallback face + plume below) are layered individually instead.
+            // (backing above, fallback face below) are layered individually instead.
 
             // FULLY CONSUMED → the ashen tint here PLUS the game's own ItemCardEffects burn timeline,
             // which TryHostRealCard leaves live on the hosted card (bounded by ClampCardEffectSmoke).
-            // The SEPARATE BurnCardFx.SpawnConsumedPlume prefab stays removed: that one is authored for
-            // the full-size screen card and, spawned onto the item chip, was the second fog source.
+            // The SEPARATE CardSmoke plume stays removed — BurnCardFx.SpawnConsumedPlume, which spawned
+            // it, has itself been deleted for want of callers (its own file keeps the full reasoning).
+            // That prefab is authored for the full-size screen card and, spawned onto the item chip, was
+            // the second fog source.
 
             // Laser: register the chip's collider as a board laser target so the dominant hand's
             // beam pops it on hover (OnPokeEnter) and plucks it on trigger (OnPoke) — the same
@@ -1722,7 +1732,6 @@ internal sealed class ItemsPile
         {
             if (slot == null)
                 return;
-            _hasClip = false;   // no chase target any more — the hierarchy owns the pose
             _releaseGlide = 0f; // and no glide may fight the parent
             transform.SetParent(slot, worldPositionStays: false);
             transform.localPosition = Vector3.zero;
@@ -1755,7 +1764,6 @@ internal sealed class ItemsPile
         internal void ReturnToFan()
         {
             PendingUse = false;
-            _hasClip = false;
             _releaseGlide = ReleaseGlideSeconds; // Update's home-glide flies it back to the arc slot
         }
 
@@ -1768,7 +1776,6 @@ internal sealed class ItemsPile
         internal void PlayUseThenCollapse(bool consumed, bool spent, Vector3 collapseWorld)
         {
             PendingUse = false;
-            _hasClip = false;
             _useFxActive = true;
             _useFxTime = UseFxSeconds;
             _useFxSpent = spent && !consumed;
@@ -2185,11 +2192,6 @@ internal sealed class ItemsPile
             base.OnDisable();
             if (_box != null)
                 PlayTray.Current?.UnregisterLaserTarget(_box);
-            if (_plume != null)
-            {
-                Object.Destroy(_plume);
-                _plume = null;
-            }
             // Undo the emitter clamp BEFORE anything else touches the hosted card, so the widget the
             // pool gets back is byte-for-byte the one it handed out even if the recycle below fails.
             RestoreCardEffectSmoke();

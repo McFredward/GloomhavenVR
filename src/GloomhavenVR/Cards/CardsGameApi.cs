@@ -253,11 +253,6 @@ internal static class CardsGameApi
         return false;
     }
 
-    /// <summary>How many cards are currently selected in this hand (the game's own
-    /// <c>SelectedCards.Count</c> — CardsHandUI.cs:222).</summary>
-    internal static int SelectedCount(CardsHandUI hand) =>
-        hand != null && hand.SelectedCards != null ? hand.SelectedCards.Count : 0;
-
     // ---------------------------------------------------- selection (spin-wait path) --
 
     /// <summary>
@@ -469,12 +464,6 @@ internal static class CardsGameApi
     }
 
     /// <summary>
-    /// Verified: <c>public int Initiative { get; private set; }</c> (CBaseAbilityCard.cs:9).
-    /// Long rest initiative is 99 by game rule.
-    /// </summary>
-    internal static int InitiativeValue(CAbilityCard card) => card.Initiative;
-
-    /// <summary>
     /// Ready-state read (the physical Ready button itself is Phase-3c):
     /// verified extension <c>public static bool IsCardSelectionReady(this CPlayerActor)</c>
     /// (CPlayerActorExtensions.cs:5) — true when 2 cards or long rest are committed.
@@ -676,24 +665,14 @@ internal static class CardsGameApi
         return rest != null && rest.IsSelected;
     }
 
-    /// <summary>
-    /// The active hand's REAL short-rest widget root (test #23 item 4:
-    /// <see cref="Surfaces.TrayControlDockSurface"/> docks it on the control board).
-    /// Non-null only while the game itself would show it — the SelectAbilityCards
-    /// phase with the widget active (<c>CardsHandUI.UpdateShortRest</c>,
-    /// CardsHandUI.cs:700). Field verified: <c>private ShortRest shortRest</c>
-    /// (CardsHandUI.cs:140, publicized), a <c>MonoBehaviour</c> on a uGUI object.
-    /// </summary>
-    internal static RectTransform? ShortRestWidget()
-    {
-        CardsHandUI? hand = ActiveHand();
-        if (hand == null || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
-            return null;
-        ShortRest rest = hand.shortRest;
-        if (rest == null || !rest.gameObject.activeInHierarchy)
-            return null;
-        return rest.transform as RectTransform;
-    }
+    // ShortRestWidget() is REMOVED — it returned the game's real short-rest widget RectTransform
+    // for docking, and had no callers. Root cause, and it is the same for the removed ReadyWidget
+    // and UndoWidget: WorldUI/Surfaces/TrayControlDockSurface docks NOTHING any more (`_controls`
+    // is Array.Empty and ShortRestDocked / ContinueDocked / ContinueVisible / UndoDocked are all
+    // hardcoded false), so nobody asks a native widget for its RectTransform. The mod draws every
+    // one of these controls itself. If docking is ever revived, revive these with it — and keep
+    // the alpha check the Ready one carried: ReadyButton.IsVisibility is alpha > 0, and docking an
+    // alpha-0 button installs an INVISIBLE click-catcher on the board.
 
     /// <summary>
     /// The active hand's short-rest CONFIRMATION dialog (test #24 item 5:
@@ -902,41 +881,6 @@ internal static class CardsGameApi
     {
         Choreographer c = Choreographer.s_Choreographer;
         return c != null && c.m_UndoButton != null ? c.m_UndoButton : null;
-    }
-
-    /// <summary>
-    /// The REAL Ready/Continue widget root (test #23 item 4:
-    /// <see cref="Surfaces.TrayControlDockSurface"/> docks it on the control board so
-    /// "Fortfahren"/"End selection"/"Confirm"… render natively). Non-null only while
-    /// the game shows it — active AND visible (<c>IsVisibility =&gt; canvasGroup.alpha
-    /// &gt; 0</c>, ReadyButton.cs:93): an alpha-0 button would dock an invisible
-    /// click-catcher. ReadyButton is a bare HUD widget (own CanvasGroup, self-
-    /// SetActive; no UIWindow), so there is no window remainder to suppress.
-    /// </summary>
-    internal static RectTransform? ReadyWidget()
-    {
-        ReadyButton? b = Ready();
-        if (b == null || !b.gameObject.activeInHierarchy)
-            return null;
-        if (b.canvasGroup != null && b.canvasGroup.alpha <= 0.01f)
-            return null;
-        return b.transform as RectTransform;
-    }
-
-    /// <summary>
-    /// The REAL Undo widget root ("Rückgängig machen"; test #23 item 4). Non-null only
-    /// while the game shows it (active). Like ReadyButton it is a bare HUD widget
-    /// (own CanvasGroup, self-SetActive; no UIWindow) — nothing to suppress.
-    /// </summary>
-    internal static RectTransform? UndoWidget()
-    {
-        UndoButton? u = Undo();
-        if (u == null || !u.gameObject.activeInHierarchy)
-            return null;
-        CanvasGroup? cg = u.GetComponent<CanvasGroup>();
-        if (cg != null && cg.alpha <= 0.01f)
-            return null;
-        return u.transform as RectTransform;
     }
 
     /// <summary>
@@ -1249,36 +1193,12 @@ internal static class CardsGameApi
 
     // ------------------------------------------------------------ initiative order --
 
-    /// <summary>
-    /// Fill <paramref name="buffer"/> with the round's actors in ACTING ORDER
-    /// (acts-first first), read-only from the game's own initiative track.
-    /// Sources (all verified):
-    /// - <c>public static InitiativeTrack Instance</c> (InitiativeTrack.cs:108);
-    /// - <c>private List&lt;InitiativeTrackActorBehaviour&gt; actorsUI</c>
-    ///   (InitiativeTrack.cs:73, publicized) — the game keeps it sorted via
-    ///   <c>UpdateSortingOrder(): actorsUI.Sort()</c> (InitiativeTrack.cs:656) with
-    ///   <c>InitiativeTrackActorBehaviour.CompareTo</c> (IComparable,
-    ///   InitiativeTrackActorBehaviour.cs:124): ascending
-    ///   <c>GetOrderPriority() = 100 − actor.Initiative()</c> comparison, i.e. the
-    ///   LIST runs acts-LAST → acts-FIRST; the 2D display reverses it by iterating
-    ///   with <c>SetAsFirstSibling()</c> (InitiativeTrack.cs:662-666). We iterate the
-    ///   list backwards for acting order.
-    /// - <c>public CActor Actor</c> (InitiativeTrackActorBehaviour.cs:33).
-    /// No allocation — caller owns the buffer.
-    /// </summary>
-    internal static void GetInitiativeOrder(List<CActor> buffer)
-    {
-        buffer.Clear();
-        InitiativeTrack track = InitiativeTrack.Instance;
-        if (track == null)
-            return;
-        List<InitiativeTrackActorBehaviour> actors = track.actorsUI;
-        for (int i = actors.Count - 1; i >= 0; i--)
-        {
-            if (actors[i] != null && actors[i].Actor != null)
-                buffer.Add(actors[i].Actor);
-        }
-    }
+    // GetInitiativeOrder(List<CActor>) is REMOVED — no callers. It filled a caller-owned buffer
+    // with the round's actors in ACTING order by walking InitiativeTrack.actorsUI BACKWARDS. Keep
+    // that direction if it is ever needed again: the game sorts actorsUI ascending on
+    // GetOrderPriority() = 100 - Initiative(), so the LIST runs acts-LAST -> acts-FIRST, and the
+    // 2D track only looks right because it re-inserts with SetAsFirstSibling(). Reading the list
+    // forwards gives reverse turn order and looks plausible.
 
     /// <summary>
     /// The actor whose turn is running. Verified: <c>public CActor CurrentActor =&gt;
@@ -1311,15 +1231,6 @@ internal static class CardsGameApi
         }
         return actor.GetPrefabName();
     }
-
-    /// <summary>
-    /// Verified: <c>public virtual int Initiative()</c> (CActor.cs:1372; overridden
-    /// CPlayerActor.cs:156 / CEnemyActor.cs:204). 0 = not yet determined this round.
-    /// </summary>
-    internal static int ActorInitiative(CActor actor) => actor.Initiative();
-
-    /// <summary>Verified: <c>public virtual bool IsDeadPlayer</c> (CActor.cs:618) + <c>EType Type</c> (CActor.cs:299).</summary>
-    internal static bool IsPlayer(CActor actor) => actor is CPlayerActor;
 
     // ------------------------------------------------------- take-damage selection --
 
@@ -1607,25 +1518,9 @@ internal static class CardsGameApi
         }
     }
 
-    /// <summary>
-    /// Number of currently-active ability cards (the ACTIVE pile size) — cheap
-    /// per-frame change-gate counterpart to <see cref="GetActivePileWidgets"/>. Counts
-    /// <c>cardsUI</c> widgets tagged <c>CardPileType.Active</c> (see there).
-    /// </summary>
-    internal static int ActiveCount(CardsHandUI hand)
-    {
-        if (hand.PlayerActor == null)
-            return 0;
-        int n = 0;
-        List<AbilityCardUI> cards = hand.cardsUI;
-        for (int i = 0; i < cards.Count; i++)
-        {
-            AbilityCardUI card = cards[i];
-            if (card != null && card.CardType == CardPileType.Active)
-                n++;
-        }
-        return n;
-    }
+    // ActiveCount(CardsHandUI) is REMOVED — no callers. Careful with a bare-name grep here: it
+    // returned 4 hits, 3 of them Net.RemoteBoardContent.ActiveCount, an UNRELATED property that
+    // counts infused elements. GetActivePileWidgets below is the live way to read the ACTIVE pile.
 
     /// <summary>
     /// Which action HALVES of an active ability <paramref name="card"/> are the source
