@@ -1,0 +1,461 @@
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
+using GloomhavenVR.Rig;
+using TMPro;
+using UnityEngine;
+
+namespace GloomhavenVR.Cards;
+
+// PlayTray part 3 of 7 (see PlayTray.1.Core.cs for the split map and its rules).
+// Regions: debug-menu live apply, the fixed base positions for board-attached elements,
+// ReapplyOrientation, rebuild helpers, board-switch pose, PersistPoseToConfig.
+
+internal sealed partial class PlayTray
+{
+    // ------------------------------------------------------------------ debug-menu live apply --
+
+    /// <summary>
+    /// PART F live-apply: move the slot snap-glow / wanted-glow overlays to a new per-board
+    /// offset in place (no rebuild). Base local-Z is preserved; the offset adds on top.
+    /// Item 1: the two overlays are a PAIR, so a per-board SPACING spreads them apart along
+    /// the slot-local X (the board's long/inter-slot axis) — slot 0 (left) −½, slot 1 (right) +½.
+    /// </summary>
+    internal void SetOverlayOffset(Vector3 offset, float spacing)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            float xSpread = (i == 0 ? -0.5f : 0.5f) * spacing; // spread the pair apart along the slot axis
+            if (_slotHighlights[i] != null)
+                _slotHighlights[i]!.transform.localPosition =
+                    new Vector3(offset.x + xSpread, offset.y, SlotGlowBaseZ + offset.z);
+            if (_wantedHighlights[i] != null)
+                _wantedHighlights[i]!.transform.localPosition =
+                    new Vector3(offset.x + xSpread, offset.y, WantedGlowBaseZ + offset.z);
+            // Item B: the placed card's resting spot follows the SAME overlay offset/spread — the
+            // glow AND the physical card move together. Re-home any resting (non-held) occupant now;
+            // freshly placed cards read the coupled offset via SlotHomeOffsetFor.
+            VRCard? occ = _occupants[i];
+            if (occ != null && !occ.IsHeld)
+                occ.SetHome(_slots[i]!, SlotHomeOffsetFor(i), Quaternion.identity, SlotCardScale);
+        }
+    }
+
+    /// <summary>PART F live-apply: move the initiative-track mount to a new per-board local position.</summary>
+    internal void SetInitiativeOffset(Vector3 offset)
+    {
+        if (_initiativeMount != null)
+            _initiativeMount.localPosition = offset;
+    }
+
+    /// <summary>
+    /// PART F live-apply: move the generic Confirm/Undo buttons to a new per-board offset +
+    /// inter-button spacing (instant). Confirm (upper) takes +spacing/2 along the board's short
+    /// axis, Undo (lower) −spacing/2.
+    /// </summary>
+    internal void SetConfirmUndoOffset(Vector3 offset, float spacing)
+    {
+        // Item D / requirement 9a: auto-fit the generic cluster's buttons in a vertical stack. The
+        // member COUNT is dynamic — normally Confirm(0)/Undo(1); while a held usable item card is
+        // clipped into the use slot the item "Use" confirm joins as member 1 (the slot directly ABOVE
+        // Undo), pushing the pair to a 3-member stack. GenericClusterY packs any count into the column
+        // (at 2 it reproduces the tuned ±spacing/2 pair; at 3 it spreads within GenericColumnHeight so
+        // Use lands squarely above Undo). Undo is ALWAYS the bottom member (index count-1).
+        int count = GenericCount;
+        if (_confirm != null)
+            _confirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(0, count, spacing), 0f);
+        if (_itemUseConfirm != null && _itemUseActive)
+            _itemUseConfirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(1, count, spacing), 0f);
+        if (_undo != null)
+            _undo.transform.localPosition = offset + new Vector3(0f, GenericClusterY(count - 1, count, spacing), 0f);
+    }
+
+    /// <summary>
+    /// Item D: how many buttons the mod-owned GENERIC cluster currently lays out (Confirm + Undo).
+    /// The layout/size math below is parametric so the cluster can hold &gt;2 — the game can activate
+    /// up to four turn-flow buttons at once (readyButton/skip/undo/select, decompiled-confirmed).
+    /// </summary>
+    private const int GenericButtonCount = 2;
+
+    /// <summary>
+    /// Requirement 9a: true while the item "Use" confirm is a live member of the generic cluster (a held
+    /// usable item card is clipped into the use slot). It bumps <see cref="GenericCount"/> to 3 so Confirm
+    /// (top) / Use (middle, above Undo) / Undo (bottom) auto-fit the column; false restores the tuned pair.
+    /// </summary>
+    private bool _itemUseActive;
+
+    /// <summary>Live generic-cluster member count: the tuned pair, plus the item "Use" confirm while pending.</summary>
+    private int GenericCount => GenericButtonCount + (_itemUseActive ? 1 : 0);
+
+    /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into. Kept clear of
+    /// the round readout (top edge) and the settings gear (bottom edge) so a 3-member stack (with the item
+    /// "Use" confirm) fits between them without colliding.</summary>
+    private const float GenericColumnHeight = 0.16f;
+
+    /// <summary>Minimum inter-button gap (tray-local meters) when the generic cluster auto-fits &gt;2 buttons.</summary>
+    private const float GenericButtonGap = 0.010f;
+
+    /// <summary>
+    /// SUPERSEDED (user: "der Use-Button soll genauso groß sein und sich nach den Werten richten,
+    /// die die generischen Buttons vorgegeben haben"). Every generic-cluster member — Confirm, Undo
+    /// and the item "Use" confirm alike — now keeps the tuned [BoardButtons] cap size at ANY count,
+    /// and the stack makes room by SPACING instead (see <see cref="GenericClusterY"/>). The old
+    /// auto-shrink meant a cluster changed size depending on how many members happened to be live,
+    /// so the moment Use appeared all three caps snapped to a smaller auto-fit square and none of
+    /// them matched the size the player had dialled in. Kept only for callers that still want the
+    /// old fit answer; nothing in the cluster path uses it.
+    ///
+    /// Item D (original): per-button side length for a generic cluster of <paramref name="count"/>
+    /// buttons. A pair (or single) keeps the full authored size; from 3 up each cap shrinks so the whole stack
+    /// fits <see cref="GenericColumnHeight"/> (auto-scale from the count), floored so it stays pokeable.
+    /// </summary>
+    internal static float GenericClusterButtonSize(float baseSide, int count)
+    {
+        if (count <= 2)
+            return baseSide;
+        float avail = (GenericColumnHeight - (count - 1) * GenericButtonGap) / count;
+        return Mathf.Clamp(Mathf.Min(baseSide, avail), 0.02f, baseSide);
+    }
+
+    /// <summary>
+    /// Local-Y of button <paramref name="index"/> in a top-to-bottom generic stack of
+    /// <paramref name="count"/>, centred on the cluster anchor with the TUNED
+    /// <paramref name="spacing"/> as the step at every count. At count 2 this is exactly the old
+    /// ±spacing/2 pair, so nothing about the tuned Confirm/Undo layout changes.
+    ///
+    /// WHY the step is the tuned spacing and no longer <see cref="GenericColumnHeight"/>/(count−1):
+    /// the old form packed extra members into a FIXED column, which only works if the caps shrink
+    /// to match — and shrinking the caps is exactly what the user rejected ("the Use button should
+    /// be the same size and follow the values the generic buttons were given"). Sizes now come
+    /// purely from the [BoardButtons] tuning, so the stack has to grow instead of the caps
+    /// shrinking; growing it symmetrically keeps the cluster centred where the player placed it,
+    /// and both directions stay under the player's control through the same spacing/offset dials.
+    /// </summary>
+    internal static float GenericClusterY(int index, int count, float spacing)
+    {
+        if (count <= 1)
+            return 0f;
+        return ((count - 1) * 0.5f - index) * spacing; // member 0 at the top, descending
+    }
+
+    /// <summary>PART F live-apply: move the discard/burn pile mount to a new per-board offset (instant).</summary>
+    internal void SetPileOffset(Vector3 offset)
+    {
+        if (_pileMount != null)
+            _pileMount.localPosition = PileMountBase + offset;
+    }
+
+    /// <summary>PART F live-apply: move the ACTIVE-cards mount to a new per-board offset (instant).</summary>
+    internal void SetActiveOffset(Vector3 offset)
+    {
+        if (_activeMount != null)
+            _activeMount.localPosition = ActiveMountBase + offset;
+    }
+
+    /// <summary>Items 4/6 live-apply: move + resize the OBJECTIVES ('Aufgaben') dock mount (instant).</summary>
+    internal void SetObjectivesLayout(Vector3 offset, float scale)
+    {
+        if (_objectivesMount != null)
+        {
+            _objectivesMount.localPosition = ObjectivesMountBase + offset;
+            _objectivesMount.localScale = Vector3.one * scale;
+        }
+    }
+
+    /// <summary>Items 4/6 live-apply: move + resize the ELEMENT infusion ('Elemente') dock mount (instant).</summary>
+    internal void SetElementsLayout(Vector3 offset, float scale)
+    {
+        if (_elementMount != null)
+        {
+            _elementMount.localPosition = ElementMountBase + offset;
+            _elementMount.localScale = Vector3.one * scale;
+        }
+    }
+
+    /// <summary>Items 4/6 live-apply: move + resize the turn-flow ButtonCluster mount (instant).</summary>
+    internal void SetClusterLayout(Vector3 offset, float scale)
+    {
+        if (_clusterMount != null)
+        {
+            _clusterMount.localPosition = ClusterMountBase + offset;
+            _clusterMount.localScale = Vector3.one * (ButtonClusterMountScale * scale);
+        }
+    }
+
+    /// <summary>Item C live-apply: move + resize the shared DECISION DOCK mount (instant; the surface pose-follows it).</summary>
+    internal void SetDecisionLayout(Vector3 offset, float scale)
+    {
+        if (_decisionMount != null)
+        {
+            _decisionMount.localPosition = DecisionMountBase + offset;
+            _decisionMount.localScale = Vector3.one * scale;
+        }
+    }
+
+    /// <summary>Items 4/6 live-apply: move the round readout ('Runde N') to a new per-board offset (instant).</summary>
+    internal void SetReadoutOffset(Vector3 offset)
+    {
+        if (_roundLabel != null)
+            _roundLabel.transform.localPosition = ReadoutBase + offset;
+    }
+
+    /// <summary>Items 4/6 live-apply: move the VR-settings gear button to a new per-board offset (instant).</summary>
+    internal void SetVRSettingsOffset(Vector3 offset)
+    {
+        if (_gearAnchor != null)
+            _gearAnchor.localPosition = GearBase + offset;
+    }
+
+    /// <summary>Items 4/6 live-apply: move the FOLLOW/PIN toggle button to a new per-board offset (instant).</summary>
+    internal void SetPinOffset(Vector3 offset)
+    {
+        if (_followAnchor != null)
+            _followAnchor.localPosition = PinBase + offset;
+    }
+
+    /// <summary>Fixed base local position of the discard/burn pile mount (per-board PileOffset adds on top).</summary>
+    private static Vector3 PileMountBase => new(BoardW * 0.5f + 0.012f, 0f, -0.004f);
+
+    /// <summary>Fixed base local position of the ACTIVE-cards mount (per-board ActiveOffset adds on top).</summary>
+    private static Vector3 ActiveMountBase => new(BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
+
+    // ---- Fixed base positions for the remaining board-attached elements (items 4/6). Each
+    // per-board offset from the debug menu ADDS on top of these. ----
+
+    /// <summary>Fixed base local position of the OBJECTIVES ('Aufgaben') dock mount.</summary>
+    private static Vector3 ObjectivesMountBase => new(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
+
+    /// <summary>Fixed base local position of the ELEMENT infusion ('Elemente') dock mount (left column below objectives).</summary>
+    private static Vector3 ElementMountBase =>
+        new(-BoardW * 0.5f - 0.012f,
+            -(ObjectivesMountMaxHeight * 0.5f + 0.012f + ElementMountMaxHeight * 0.5f),
+            -0.004f);
+
+    /// <summary>Fixed base local position of the turn-flow ButtonCluster mount (under the slots).</summary>
+    private static Vector3 ClusterMountBase => new(0f, ButtonClusterMountY, -0.006f);
+
+    /// <summary>Item C: fixed base local position of the shared DECISION DOCK mount (hangs below the board).</summary>
+    private static Vector3 DecisionMountBase => new(0f, -0.29f, -0.020f);
+
+    /// <summary>
+    /// Fixed base local position of the ITEM-USE clip-in slot (items rework, requirement 3):
+    /// UNDER the board's bottom edge in the right (Confirm/Undo) column, proud toward the player.
+    /// The per-board <see cref="CardsConfig.ItemUseSlotOffset"/> adds on top (debug-menu tunable).
+    /// </summary>
+    private static Vector3 ItemUseSlotBase => new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
+
+    /// <summary>Gap between the item-use recess's bottom edge and the "USE" caption's centre line
+    /// (tray-local metres). Big enough that the caption clears the glow rim (1.28× the card) as well
+    /// as the card itself, so nothing ever overlaps the clipped-in card — see BuildItemUseSlot.</summary>
+    private const float ItemUseLabelDrop = 0.026f;
+
+    /// <summary>Height budget the "USE" caption is fitted into — the strip BELOW the recess, not the
+    /// card's own height (see BuildItemUseSlot for why fitting it to the card height re-created the
+    /// overlap the drop is there to prevent).</summary>
+    private const float ItemUseLabelHeight = 0.030f;
+
+    /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
+    private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
+
+    /// <summary>Fixed base local position of the VR-settings gear button (right column, under UNDO).</summary>
+    private static Vector3 GearBase => new(ButtonZoneX, -0.125f, -FixedProudZ);
+
+    /// <summary>Fixed base local position of the FOLLOW/PIN toggle button (bottom-right corner).</summary>
+    private static Vector3 PinBase => new(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -FixedProudZ);
+
+    /// <summary>
+    /// PART F live-apply: recompute the board rotation + scale from the ACTIVE board's config
+    /// (BoardTilt/Yaw/Scale/PosOffset). FOLLOW mode re-derives the full pose (incl. posOffset)
+    /// from the head; PINNED KEEPS the world position and only re-orients + rescales in place.
+    /// </summary>
+    internal void ReapplyOrientation()
+    {
+        if (_root == null)
+            return;
+        if (CardsConfig.TrayFollow.Value)
+        {
+            PlaceAtHead(); // re-derives position (incl. BoardPosOffset), rotation and scale
+            return;
+        }
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return;
+        Vector3 flatForward = head.transform.forward;
+        flatForward.y = 0f;
+        if (flatForward.sqrMagnitude < 1e-4f)
+            flatForward = Vector3.forward;
+        flatForward.Normalize();
+        ControlBoard board = CardsConfig.CurrentBoard;
+        _root.rotation = ComputeBoardRotation(flatForward, board); // KEEP position (pinned)
+        _root.localScale = Vector3.one * ComputeBoardScale(board);
+    }
+
+    /// <summary>
+    /// PART F live-apply: rebuild the square Confirm/Undo buttons in place (size changes need a
+    /// rebuilt cap). Re-parents onto the SAME anchors, purges the dead laser targets and rebuilds
+    /// them from current config. The rest discs are rebuilt separately by CardsDriver
+    /// (<c>RestControls.Destroy(); EnsureBuilt(...)</c>).
+    /// </summary>
+    internal void RebuildAttachedControls()
+    {
+        if (_root == null)
+            return;
+        Transform? confirmAnchor = _confirm != null ? _confirm.transform.parent : _confirmAnchor;
+        Transform? undoAnchor = _undo != null ? _undo.transform.parent : _undoAnchor;
+        if (_confirm != null)
+        {
+            Object.DestroyImmediate(_confirm.gameObject);
+            _confirm = null;
+        }
+        if (_undo != null)
+        {
+            Object.DestroyImmediate(_undo.gameObject);
+            _undo = null;
+        }
+        // Requirement 9a: the item "Use" cluster button is (re)built by BuildButtons — tear the old one
+        // down first so a tuning rebuild never leaks/doubles it.
+        if (_itemUseConfirm != null)
+        {
+            Object.DestroyImmediate(_itemUseConfirm.gameObject);
+            _itemUseConfirm = null;
+        }
+        LaserTargets.RemoveAll(static t => t.Collider == null); // drop the just-destroyed (and any other dead) targets
+        BuildButtons(confirmAnchor, undoAnchor);
+    }
+
+    /// <summary>
+    /// ButtonTuning live-apply, checked once per <see cref="TickStatus"/> tick: a geometry
+    /// entry changed (width/height/depth/travel — anything the pull-based
+    /// <see cref="WorldUI.ButtonTuning.Version"/> counter covers) → rebuild the affected
+    /// keycaps in place on their existing anchors; the rebuild bakes each category's own
+    /// travel per instance ([BoardButtons] Confirm/Undo, [BoardDashboard] gear/pin).
+    /// </summary>
+    private int _tuningVersion;
+
+    private void ApplyButtonTuningIfChanged()
+    {
+        if (_root == null || _tuningVersion == WorldUI.ButtonTuning.Version)
+            return;
+        _tuningVersion = WorldUI.ButtonTuning.Version;
+        RebuildAttachedControls();
+        RebuildDashboardButtons();
+        VRLog.Info("Cards", "Board: ButtonTuning changed → Confirm/Undo/gear/follow keycaps " +
+                            $"rebuilt live — {WorldUI.ButtonTuning.Describe()}.");
+    }
+
+    /// <summary>Rebuild the gear + follow-toggle keycaps on their existing anchors (ButtonTuning live-apply).</summary>
+    private void RebuildDashboardButtons()
+    {
+        if (_root == null)
+            return;
+        if (_followToggle != null)
+        {
+            Object.DestroyImmediate(_followToggle.gameObject);
+            _followToggle = null;
+        }
+        if (_gear != null)
+        {
+            Object.DestroyImmediate(_gear.gameObject);
+            _gear = null;
+        }
+        LaserTargets.RemoveAll(static t => t.Collider == null);
+        CreateDashboardButtons();
+    }
+
+    /// <summary>Remove laser targets whose collider was destroyed (e.g. a rest-button rebuild).</summary>
+    internal void PurgeDeadLaserTargets() => LaserTargets.RemoveAll(static t => t.Collider == null);
+
+    // ------------------------------------------------------------------ board-switch pose --
+
+    /// <summary>
+    /// PART D: capture the live board's world pose so a board SWITCH can re-apply it to the
+    /// new board (instead of re-anchoring to the head). Returns false when no board exists.
+    /// </summary>
+    internal bool TryCapturePose(out Vector3 position, out Quaternion rotation, out Vector3 localScale)
+    {
+        if (_root == null)
+        {
+            position = default;
+            rotation = Quaternion.identity;
+            localScale = Vector3.one;
+            return false;
+        }
+        position = _root.position;
+        rotation = _root.rotation;
+        localScale = _root.localScale;
+        return true;
+    }
+
+    /// <summary>
+    /// PART D: re-apply a captured world pose to a freshly built board on a SWITCH — the new
+    /// board spawns in the EXACT same place instead of re-placing at the head. Marks the tray
+    /// placed and re-pins it (PINNED) at the preserved pose.
+    /// </summary>
+    internal void RestorePose(Vector3 position, Quaternion rotation, Vector3 localScale)
+    {
+        if (_root == null)
+            return;
+        _root.position = position;
+        _root.rotation = rotation;
+        _root.localScale = localScale;
+        _placed = true;
+        _placementDeferLogged = false;
+        if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
+            ApplyFollowMode(); // re-pin at the preserved world pose (worldPositionStays)
+        VRLog.Info("Cards", "Control board switch: preserved the previous board's world pose (no re-place at head).");
+        LogBoardFaceDiagnostics();
+    }
+
+    /// <summary>
+    /// Persist the CURRENT root pose back into the config (called by
+    /// the shared <see cref="WorldUI.PanelGrabHandle"/> when the last gripping hand lets go): the inverse
+    /// of <see cref="PlaceAtHead"/> — head-relative offsets in real meters, yaw
+    /// relative to the head's flat forward, and the size multiplier. BepInEx writes
+    /// the ConfigFile on set, so the layout survives sessions.
+    /// </summary>
+    internal void PersistPoseToConfig()
+    {
+        if (_root == null)
+            return;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return;
+
+        Transform headT = head.transform;
+        Vector3 flatForward = headT.forward;
+        flatForward.y = 0f;
+        if (flatForward.sqrMagnitude < 1e-4f)
+            flatForward = Vector3.forward;
+        flatForward.Normalize();
+        Vector3 right = Vector3.Cross(Vector3.up, flatForward);
+
+        float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+        if (scale < 1e-5f)
+            return;
+        Vector3 delta = _root.position - headT.position;
+        CardsConfig.TrayForward.Value = Vector3.Dot(delta, flatForward) / scale;
+        CardsConfig.TrayRight.Value = Vector3.Dot(delta, right) / scale;
+        CardsConfig.TrayDown.Value = -delta.y / scale;
+
+        // Yaw: heading of the tray's flat forward relative to the head's. PART B: the pose now
+        // uses the per-board tilt for the pitch and adds BoardYaw on top of TrayYaw, so undo both
+        // here to recover the grab-written TrayYaw (BoardYaw/Tilt seeded so Oak is unchanged).
+        ControlBoard board = CardsConfig.CurrentBoard;
+        Vector3 trayFlat = _root.rotation * Quaternion.Euler(-(90f - CardsConfig.BoardTilt(board).Value), 0f, 0f)
+                           * Vector3.forward;
+        trayFlat.y = 0f;
+        if (trayFlat.sqrMagnitude > 1e-4f)
+        {
+            float headHeading = Mathf.Atan2(flatForward.x, flatForward.z) * Mathf.Rad2Deg;
+            float trayHeading = Mathf.Atan2(trayFlat.x, trayFlat.z) * Mathf.Rad2Deg;
+            CardsConfig.TrayYaw.Value = Mathf.DeltaAngle(headHeading, trayHeading) - CardsConfig.BoardYaw(board).Value;
+        }
+        // Divide out the per-board multiplier so TrayScale keeps its raw 0.5–2 grab semantics.
+        float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
+        CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x / boardScale, 0.5f, 2f);
+        VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
+                            $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
+                            $"yaw {CardsConfig.TrayYaw.Value:F0}°, scale {CardsConfig.TrayScale.Value:F2}×.");
+    }
+}

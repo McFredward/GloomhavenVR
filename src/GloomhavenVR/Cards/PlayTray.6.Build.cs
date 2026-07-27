@@ -1,0 +1,720 @@
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
+using GloomhavenVR.Rig;
+using TMPro;
+using UnityEngine;
+
+namespace GloomhavenVR.Cards;
+
+// PlayTray part 6 of 7 (see PlayTray.1.Core.cs for the split map and its rules).
+// Regions: build helpers, raycast seating (REMOVED), the Overlay / BoardLit shaders, the keycap
+// grain texture, RenderOnTop (REMOVED), MeasureBoardLocalExtents, board diagnostics.
+
+internal sealed partial class PlayTray
+{
+    // ------------------------------------------------------------------ build --
+
+    // Board layout constants (local meters; -Z = element/viewer side).
+    private const float BoardW = 0.64f;
+    private const float BoardH = 0.32f;
+
+    /// <summary>
+    /// The board's top (far) edge in board-LOCAL meters (+Y = the board's back/far edge). Board-
+    /// anchored floaters (e.g. the pile browse fan) offset UP from here so they hover above the
+    /// board face; a board-root child inherits the live board scale + pose automatically.
+    /// </summary>
+    internal const float BoardTopLocalY = BoardH * 0.5f;
+    private const float SlotSpacing = 0.155f; // between slot centers
+    private const float RestZoneX = -0.245f;
+    private const float ButtonZoneX = 0.235f;
+
+    /// <summary>
+    /// The board's authored half width in board-LOCAL meters (fallback for
+    /// <see cref="MeasureBoardLocalExtents"/> when the board has no renderers yet).
+    /// </summary>
+    internal const float BoardHalfWidthLocal = BoardW * 0.5f;
+
+    /// <summary>
+    /// Sanity band for the MEASURED top edge (board-local meters past the authored plate). The
+    /// visible board (bundled frame + decorations) overhangs the authored plate by a few cm at
+    /// most; anything beyond this is a transient outlier (e.g. a card mid-flight that is still
+    /// parented under the tray while it animates home) and must never drag a board-anchored
+    /// floater — or, worse, the enemy-info clearance — metres into the sky.
+    /// </summary>
+    private const float BoardExtentSanityMargin = 0.35f;
+
+    /// <summary>Reused scan buffer for <see cref="MeasureBoardLocalExtents"/> (no steady-state allocation).</summary>
+    private static readonly List<MeshRenderer> ExtentScratch = new(48);
+
+    /// <summary>
+    /// The control board's REAL rendered extents in the board's OWN LOCAL space: the top (far)
+    /// edge <paramref name="topLocalY"/> and the half width <paramref name="halfLocalX"/>, both in
+    /// board-local metres (multiply by the root's lossy scale for world metres).
+    ///
+    /// Derived from the tray's combined MESH-RENDERER bounds mapped into board-root-local coords —
+    /// so a board TILT does not inflate the extent the way a world AABB would — because the VISIBLE
+    /// board (bundled frame + decorations) is LARGER than the authored plate constants: anything
+    /// that clears "the board" using <see cref="BoardTopLocalY"/> alone under-estimates the real
+    /// edge and still ends up sitting inside the board (the WorldTooltips "still inside" report).
+    /// Degrades to the authored constants when the board has no renderers yet (procedural build
+    /// mid-frame), and clamps the measurement into a sane band (<see cref="BoardExtentSanityMargin"/>).
+    ///
+    /// Shared by every surface that must stay clear of the board (<c>WorldUI.WorldTooltips</c>'s
+    /// above-the-edge hint anchor and <c>WorldUI.Surfaces.EnemyRevealSurface</c>'s spawn clearance),
+    /// so both see the same board and neither carries its own copy of this math.
+    /// </summary>
+    internal static void MeasureBoardLocalExtents(Transform root, out float topLocalY, out float halfLocalX)
+    {
+        topLocalY = BoardTopLocalY;      // authored fallbacks
+        halfLocalX = BoardHalfWidthLocal;
+        if (root == null)
+            return;
+
+        ExtentScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, ExtentScratch);
+        Matrix4x4 worldToLocal = root.worldToLocalMatrix;
+        bool has = false;
+        float maxLocalY = float.NegativeInfinity;
+        float maxLocalAbsX = 0f;
+        for (int i = 0; i < ExtentScratch.Count; i++)
+        {
+            MeshRenderer mr = ExtentScratch[i];
+            if (mr == null || !mr.enabled)
+                continue;
+
+            // Prefer the renderer's own LOCAL mesh bounds mapped through (worldToLocal ×
+            // rendererLocalToWorld) → board-root-local, which is tilt-tight; fall back to the
+            // renderer's world AABB corners mapped into local space when there is no mesh.
+            Bounds b;
+            Matrix4x4 toBoardLocal;
+            MeshFilter mf = mr.GetComponent<MeshFilter>();
+            Mesh? mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh != null)
+            {
+                b = mesh.bounds;
+                toBoardLocal = worldToLocal * mr.transform.localToWorldMatrix;
+            }
+            else
+            {
+                b = mr.bounds; // world AABB
+                toBoardLocal = worldToLocal;
+            }
+
+            Vector3 c = b.center, e = b.extents;
+            for (int s = 0; s < 8; s++)
+            {
+                Vector3 corner = c + new Vector3(
+                    (s & 1) == 0 ? -e.x : e.x,
+                    (s & 2) == 0 ? -e.y : e.y,
+                    (s & 4) == 0 ? -e.z : e.z);
+                Vector3 local = toBoardLocal.MultiplyPoint3x4(corner);
+                if (local.y > maxLocalY)
+                    maxLocalY = local.y;
+                float absX = Mathf.Abs(local.x);
+                if (absX > maxLocalAbsX)
+                    maxLocalAbsX = absX;
+                has = true;
+            }
+        }
+        ExtentScratch.Clear();
+        if (!has)
+            return;
+
+        topLocalY = Mathf.Clamp(maxLocalY, BoardTopLocalY, BoardTopLocalY + BoardExtentSanityMargin);
+        halfLocalX = Mathf.Clamp(maxLocalAbsX, BoardHalfWidthLocal, BoardHalfWidthLocal + BoardExtentSanityMargin);
+    }
+
+    /// <summary>
+    /// The CONTROL BOARD's REAL top edge in WORLD space, horizontally centred on the board (board-
+    /// local X 0) and on the board face plane (local Z 0). <c>TransformPoint</c> carries the live
+    /// pose, tilt and lossy scale, so callers re-read it every tick and stay aligned through grabs,
+    /// resizes and board switches. See <see cref="MeasureBoardLocalExtents"/> for the derivation.
+    /// </summary>
+    internal static Vector3 BoardTopEdgeWorld(Transform root)
+    {
+        MeasureBoardLocalExtents(root, out float topLocalY, out _);
+        return root.TransformPoint(new Vector3(0f, topLocalY, 0f));
+    }
+
+    private void BuildProceduralBoard()
+    {
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+
+        var board = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        board.name = "TrayBoard";
+        Object.Destroy(board.GetComponent<Collider>());
+        board.transform.SetParent(_root, worldPositionStays: false);
+        board.transform.localScale = new Vector3(BoardW, BoardH, 0.012f);
+        board.transform.localPosition = new Vector3(0f, 0f, 0.010f);
+        Tint(board, new Color(0.16f, 0.13f, 0.10f));
+
+        // Subtle raised edge so the board reads as a desk/tray, not a floating slab.
+        var lip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        lip.name = "TrayLip";
+        Object.Destroy(lip.GetComponent<Collider>());
+        lip.transform.SetParent(_root, worldPositionStays: false);
+        lip.transform.localScale = new Vector3(BoardW + 0.015f, 0.02f, 0.018f);
+        lip.transform.localPosition = new Vector3(0f, -BoardH * 0.5f - 0.002f, 0.008f);
+        Tint(lip, new Color(0.11f, 0.09f, 0.07f));
+
+        for (int i = 0; i < 2; i++)
+        {
+            var slot = new GameObject($"Slot{i + 1}").transform;
+            slot.SetParent(_root, worldPositionStays: false);
+            slot.localPosition = new Vector3((i == 0 ? -0.5f : 0.5f) * SlotSpacing, 0.015f, 0f);
+            _slots[i] = slot;
+
+            var frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            frame.name = "Frame";
+            Object.Destroy(frame.GetComponent<Collider>());
+            frame.transform.SetParent(slot, worldPositionStays: false);
+            frame.transform.localScale = new Vector3(w * 1.12f, h * 1.12f, 1f);
+            frame.transform.localPosition = new Vector3(0f, 0f, 0.003f); // behind the card, in front of the board
+            Tint(frame, i == 0 ? new Color(0.55f, 0.45f, 0.22f) : new Color(0.30f, 0.29f, 0.27f));
+
+            var inner = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            inner.name = "FrameInner";
+            Object.Destroy(inner.GetComponent<Collider>());
+            inner.transform.SetParent(slot, worldPositionStays: false);
+            inner.transform.localScale = new Vector3(w * 1.04f, h * 1.04f, 1f);
+            inner.transform.localPosition = new Vector3(0f, 0f, 0.0025f);
+            Tint(inner, new Color(0.12f, 0.10f, 0.08f));
+        }
+
+        // Rest zone (test #24 item 3): backdrop + two button anchors. RestControls
+        // builds a comfortable BoardButton at each anchor (short rest on top, long
+        // rest below — they sit together); the REAL native "Kurze Rast" widget docks
+        // over the SHORT anchor (TrayControlDockSurface) and hides the mod short
+        // button while it holds. NO mod-drawn rest header anymore: the redundant
+        // "Kurze Rast" caption that used to sit above the button duplicated the
+        // native widget's own label (each button already carries its localized
+        // caption). Plate widened to 0.14 to seat the wider button footprints;
+        // centered at RestZoneX -0.245 it spans x -0.315..-0.175 (left edge clears
+        // the board edge -0.32; right edge clears slot 0's left content edge ≈ -0.129
+        // by 0.046), y -0.10..0.08 (height 0.18).
+        var restBack = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        restBack.name = "RestZone";
+        Object.Destroy(restBack.GetComponent<Collider>());
+        restBack.transform.SetParent(_root, worldPositionStays: false);
+        restBack.transform.localScale = new Vector3(0.14f, 0.18f, 1f);
+        restBack.transform.localPosition = new Vector3(RestZoneX, -0.01f, 0.003f);
+        Tint(restBack, new Color(0.12f, 0.11f, 0.10f));
+
+        // Button anchors: the RestControls BoardButton bases sit at z 0.004 in front
+        // of the plate (z-order like CONFIRM/UNDO at z -0.006), viewer-side caps
+        // proud. Short at y 0.04 (button 0.115×0.04 → y 0.02..0.06), long at y -0.05
+        // (→ y -0.07..-0.03): a 0.05 gap between them, both inside the plate.
+        _shortRestAnchor = new GameObject("ShortRestToken").transform;
+        _shortRestAnchor.SetParent(_root, worldPositionStays: false);
+        _shortRestAnchor.localPosition = new Vector3(RestZoneX, 0.04f, -0.006f);
+
+        _longRestAnchor = new GameObject("LongRestToken").transform;
+        _longRestAnchor.SetParent(_root, worldPositionStays: false);
+        _longRestAnchor.localPosition = new Vector3(RestZoneX, -0.05f, -0.006f);
+    }
+
+    /// <summary>
+    /// Test #24 item 7: a full-board LASER-RETICLE surface so the ray's hit dot
+    /// renders ANYWHERE on the control board's face, not only on its discrete
+    /// buttons/panels. An invisible thin plane collider matching the board face,
+    /// registered as a laser target — <see cref="CardsDriver"/> ray-tests it
+    /// geometrically (Collider.Raycast, layer-independent) with all the other
+    /// LaserTargets and clamps the beam to the hit (UiHitOverride → reticle).
+    ///
+    /// PRECEDENCE (no stolen clicks): the plane sits at z 0.002 — BEHIND every
+    /// viewer-side widget (board buttons at z ≤ -0.004, rest/CONFIRM/UNDO anchors
+    /// -0.006, the docked native uGUI hosts, the DecisionDock row) and behind the
+    /// slotted cards (z 0). CardsDriver keeps the NEAREST hit, so a real button /
+    /// token / card always wins where the ray crosses it; the docked native widgets
+    /// win through the game's own uGUI raycast (the RayUgui-closer guard stands the
+    /// board laser down entirely). The surface only wins where the ray points at
+    /// BARE board, where it shows the reticle and does NOTHING else — its
+    /// <see cref="BoardSurfaceTarget"/> OnPoke is a no-op, so a trigger on bare board
+    /// never activates anything and (as a bonus) the beam no longer passes THROUGH
+    /// the floating board to click a hex behind it. Laser reticle only: it is NOT a
+    /// PokeableBehaviour and is never registered for fingertip poke.
+    /// </summary>
+    private void BuildBoardSurface()
+    {
+        if (_root == null)
+            return;
+        // The bundled board already registered its real MeshCollider as the laser
+        // surface (DEFECT 2, EnsureBuilt) — the synthetic flat plane below is only for
+        // the procedural fallback board, which has no mesh collider of its own.
+        if (_boardColliderRegistered)
+            return;
+        var go = new GameObject("BoardSurface");
+        go.transform.SetParent(_root, worldPositionStays: false);
+        // Between the slotted cards (z 0) and the opaque board face (z 0.004): the
+        // reticle sits ~2 mm proud of the board, behind the cards and all widgets.
+        go.transform.localPosition = new Vector3(0f, 0f, 0.002f);
+        var box = go.AddComponent<BoxCollider>();
+        box.size = new Vector3(BoardW, BoardH, 0.002f);
+        box.isTrigger = true;
+        var target = go.AddComponent<BoardSurfaceTarget>();
+        RegisterLaserTarget(box, target);
+    }
+
+    // Item 6 (test #29): the card-slot captions ("INITIATIVE", "2") are GONE. They
+    // sat in the recessed slot-floor plane and clipped THROUGH the seated card at the
+    // player's oblique angle; the initiative already reads on the docked track and the
+    // second slot needs no label. BuildSlotLabels + its call in EnsureBuilt were
+    // removed outright (no no-op stub). This note used to add "AddCaption stays live for the
+    // pick field's SELECT caption, so nothing goes unused" — the pick field has since gone too,
+    // and AddCaption with it.
+
+    private void BuildButtons(Transform? confirmAnchor, Transform? undoAnchor)
+    {
+        if (_root == null)
+            return;
+
+        Transform confirmParent = confirmAnchor != null ? confirmAnchor : NewAnchor("ConfirmButton", new Vector3(ButtonZoneX, 0.045f, -0.006f));
+        Transform undoParent = undoAnchor != null ? undoAnchor : NewAnchor("UndoButton", new Vector3(ButtonZoneX, -0.06f, -0.006f));
+
+        // PART B + C: Confirm/Undo are real 3D keycaps, sized and positioned from the ACTIVE
+        // board's config. The full X/Y/Z offset (X/Y in plane, Z = proud toward the player)
+        // REPLACES the old inset + raycast reseat, so the buttons seat at a predictable depth per
+        // board (debug-menu tunable). Round-2: the cap SHAPE is per-board (Square boxy keycap by
+        // default, or Round disc), and a per-board SPACING spreads Confirm/Undo apart.
+        ControlBoard active = CardsConfig.CurrentBoard;
+        // Item D: the generic-button area is now a COUNT-DRIVEN cluster. The game can show up to
+        // FOUR turn-flow buttons at once (decompiled: Choreographer toggles readyButton + m_SkipButton
+        // + m_UndoButton, and occasionally m_selectButton, as independent GameObjects — see
+        // e.g. Choreographer.cs:6305-6309), so this consolidated area lays them out auto-fit
+        // (SetConfirmUndoOffset). It does NOT auto-scale the caps from the live count — this
+        // paragraph used to say it did, and the paragraph six lines below explains why that was
+        // taken out. Believe the lower one.
+        // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
+        // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
+        int count = GenericCount; // 2 (Confirm/Undo) or 3 while the item "Use" confirm is a cluster member
+        // Cap size is the TUNED size at every count (user: "der Use-Button soll genauso groß sein und
+        // sich nach den Werten richten, die die generischen Buttons vorgegeben haben"). It used to be
+        // run through GenericClusterButtonSize, which shrank every cap once a third member joined — so
+        // the instant an item clipped into the use slot, Confirm and Undo silently resized too and the
+        // whole cluster stopped matching the dialled-in values. The stack now makes room by SPACING
+        // (GenericClusterY), which is itself a tuned value, so every member is exactly the size the
+        // player asked for and the geometry stays theirs.
+        float side = CardsConfig.ConfirmUndoSize(active).Value;
+        Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
+        float spacing = CardsConfig.GenericButtonSpacing(active).Value;
+        bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
+
+        // Category split (user: "every value applies ONLY to its own category"): the
+        // Confirm/Undo keycaps read the [BoardButtons] set EXCLUSIVELY — independent
+        // WIDTH/HEIGHT (rectangular keycaps), DEPTH and TRAVEL, all with the authored
+        // numeric defaults (0.073 × 0.073 × 0.036 / 4 mm — no 0=Auto sentinel any more).
+        // Round caps keep the per-board authored diameter (the square set does not apply).
+        WorldUI.ButtonTuning.Bind();
+        // Square caps ALWAYS keep the tuned [BoardButtons] W×H, whatever the member count — the item
+        // "Use" confirm is built from the very same rectSize/depth/travel below, so it is identical
+        // to Confirm and Undo by construction and follows every tuning change with them.
+        var rectSize = round
+            ? new Vector2(side, side)
+            : new Vector2(WorldUI.ButtonTuning.BoardCapWidth, WorldUI.ButtonTuning.BoardCapHeight);
+        float capDepth = WorldUI.ButtonTuning.BoardCapDepth;
+        float capTravel = WorldUI.ButtonTuning.BoardCapTravel;
+
+        // Initial labels are overwritten by the live game-widget label each TickStatus
+        // (ConfirmLabel()/UndoLabel()); route the fallback literals through the game keys.
+        _confirm = BoardButton.Create(confirmParent, rectSize,
+            new Color(0.35f, 0.46f, 0.28f), // T4: muted sage green — antique, still clearly "go"
+            Core.Loc.Game("GUI_CONFIRM", "Confirm"),
+            () => ConfirmRequested?.Invoke(),
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
+        _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
+        RegisterLaserTarget(_confirm.Collider!, _confirm);
+
+        _undo = BoardButton.Create(undoParent, rectSize,
+            new Color(0.44f, 0.31f, 0.20f), // T4: worn leather brown (kept — already antique)
+            Core.Loc.Game("GUI_UNDO", "Undo"),
+            () => UndoRequested?.Invoke(),
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
+        RegisterLaserTarget(_undo.Collider!, _undo);
+
+        // Requirement 9a: while the item "Use" confirm is a live cluster member, build it as a GENERIC
+        // cluster board button in THIS column at index 1 (the slot directly ABOVE Undo) — same board
+        // keycap look as Confirm/Undo (never the old bespoke keycap beside the slot). Built only while
+        // active (SetItemUseConfirmVisible flips _itemUseActive + rebuilds); onClick routes to the
+        // ItemsPile-supplied use action.
+        if (_itemUseActive)
+        {
+            _itemUseConfirm = BoardButton.Create(confirmParent, rectSize,
+                new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
+                Core.Loc.Game("GUI_USE", "USE"),
+                () => _itemUseConfirmAction?.Invoke(),
+                round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+                capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
+            RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
+        }
+
+        SetConfirmUndoOffset(off, spacing); // count-aware: Confirm(top)/[Use]/Undo(bottom), Z proud
+        VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
+                            $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
+                            (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
+        VRLog.Info("Cards", $"Board: button geometry config applied — {WorldUI.ButtonTuning.Describe()}.");
+        _tuningVersion = WorldUI.ButtonTuning.Version; // fresh build reflects current config
+    }
+
+    private Transform NewAnchor(string name, Vector3 localPos)
+    {
+        var t = new GameObject(name).transform;
+        t.SetParent(_root, worldPositionStays: false);
+        // PART B: seat the gear / follow-toggle at a FIXED small proud depth toward the player,
+        // in place of the old raycast (which floated them up to 5 cm off the board). Predictable
+        // and depth-correct; the debug menu does not expose these individually, so a fixed proud
+        // keeps them consistent across every board.
+        Vector3 seated = new(localPos.x, localPos.y, -FixedProudZ);
+        t.localPosition = seated;
+        t.localRotation = _boardFaceFrame; // face the functional board face like the bundle anchors
+        VRLog.Info("Cards", $"Board: '{name}' seated at a fixed proud local-Z {seated.z * 1000f:F1} mm " +
+                            "toward the player (predictable, no raycast).");
+        return t;
+    }
+
+    /// <summary>
+    /// PART B: fixed predictable proud depth (toward the player, −Z) at which the mod-built
+    /// HUD widgets the debug menu does NOT expose individually — the settings gear, the
+    /// follow-toggle and the round readout — seat, in place of the old unreliable raycast.
+    /// Small and depth-correct: they rest just in front of the authored plane, always the
+    /// same amount, so they never float 5 cm off the board again.
+    /// </summary>
+    private const float FixedProudZ = 0.005f;
+
+    /// <summary>
+    /// Item A/4: local-Z thickness (meters) of the SQUARE Confirm/Undo keycaps — the total
+    /// protrusion toward the player. Raised over successive passes (0.014 → 0.03 → 0.036) so the
+    /// side walls + bevel have real area at the board's oblique angle; taller = physically more
+    /// side visible (item 4 lever c). Press travel (4 mm) is unchanged. Exact real-world
+    /// protrusion is logged per cap by <see cref="BoardButton.LogCapDiagnostics"/>.
+    /// </summary>
+    private const float SquareCapThickness = 0.036f;
+
+    /// <summary>
+    /// Item 4: width (meters) of the lit 45° CHAMFER ring around the front edge of the square
+    /// keycaps — the bright "catch-light" bevel that makes the cap read as raised even viewed
+    /// near top-down. It consumes this much of both the front plateau inset AND the front depth
+    /// (a true 45°). Clamped in <see cref="CardMesh.BuildBeveledKeycap"/> to ≤ 90 % of the cap's
+    /// half-size and depth. One line to retune how chunky the lit edge reads (~7 mm ≈ a fat,
+    /// clearly-visible chamfer on a ~120 mm cap).
+    /// </summary>
+    private const float SquareCapBevel = 0.007f;
+
+    /// <summary>Base local-Z of the slot snap-glow (per-board SlotOverlayOffset.z adds on top).</summary>
+    private const float SlotGlowBaseZ = -0.006f;
+
+    /// <summary>Base local-Z of the wanted-slot glow (per-board SlotOverlayOffset.z adds on top).</summary>
+    private const float WantedGlowBaseZ = -0.004f;
+
+    // ------------------------------------------------------------------ raycast seating (REMOVED) --
+
+    // SeatStandoff / SeatProud / ReseatProud / SeatOnBoardFace are GONE — dead code, ~85 lines.
+    // ReseatProud had ZERO callers, so SeatOnBoardFace's only caller was itself dead, and the two
+    // consts were used only inside SeatOnBoardFace. 17862bb replaced raycast auto-seating with
+    // per-board config offsets and a fixed proud Z, and every widget has gone through NewAnchor /
+    // FixedProudZ since. The registry ("Suspected vestigial") claimed these still had callers,
+    // read off the surrounding prose rather than the call graph; they did not.
+    //
+    // KEEP THE REASON, because re-adding this is the tempting move: the raycast reseat floated the
+    // gear -30..-50 mm off the Oak and Steel boards. "No more -50 mm surprises" is the whole point
+    // of the fixed proud Z. Do not route NewAnchor back through a surface raycast because it is
+    // "more accurate". See INVARIANTS-Cards.md, "Raycast auto-seating is GONE".
+
+    /// <summary>
+    /// ITEM 2 ground truth (logged once per board, after placement): for the round
+    /// readout, gear, follow toggle, a reference slot and its card — world position, the
+    /// readable-face direction (−forward), and how it compares to the board functional-
+    /// face normal and the head direction — so an in-game log SHOWS which way each element
+    /// faces and whether it sits proud, even without an HMD capture.
+    /// </summary>
+    private void LogBoardFaceDiagnostics()
+    {
+        if (_boardDiagLogged || _root == null)
+            return;
+        _boardDiagLogged = true;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        Vector3 headPos = head != null ? head.transform.position : Vector3.zero;
+        Vector3 headDir = head != null ? head.transform.forward : Vector3.forward;
+        // Functional face normal toward the viewer, in the CURRENT (placed) world pose.
+        Vector3 faceTowardViewer = (_root.rotation * _boardFaceFrame) * Vector3.back;
+        VRLog.Info("Cards", $"ITEM2 diag — board face: toward-viewer normal {faceTowardViewer}, " +
+            $"head dir {headDir}, head→board {(_root.position - headPos).normalized}, " +
+            $"root pos {_root.position}, buildNormal(nF world) {_boardFaceNormalWorld}.");
+        LogElementFacing("RoundReadout", _roundLabel != null ? _roundLabel.transform : null, faceTowardViewer, headPos);
+        LogElementFacing("SettingsGear", _gear != null ? _gear.transform : null, faceTowardViewer, headPos);
+        LogElementFacing("FollowToggle", _followToggle != null ? _followToggle.transform : null, faceTowardViewer, headPos);
+        LogElementFacing("Slot0", _slots[0], faceTowardViewer, headPos);
+        LogElementFacing("Slot0Card", _occupants[0] != null ? _occupants[0]!.transform : null, faceTowardViewer, headPos);
+        // Item A: conclusive square-cap wall diagnostic (real mm thickness + shader + queue).
+        _confirm?.LogCapDiagnostics("Confirm");
+        _undo?.LogCapDiagnostics("Undo");
+        // Item 7b: prove the gear/pin caps are now SOLID OPAQUE beveled keycaps (BoardLit, opaque
+        // queue, no alpha-blend, no Overlay/RenderOnTop) like the other keycaps — the diag reports
+        // "OPAQUE: YES" for both, settling the old see-through look.
+        _gear?.LogCapDiagnostics("Gear/EINST");
+        _followToggle?.LogCapDiagnostics("Pin/FIXIERT");
+    }
+
+    private static void LogElementFacing(string label, Transform? t, Vector3 faceTowardViewer, Vector3 headPos)
+    {
+        if (t == null)
+        {
+            VRLog.Info("Cards", $"ITEM2 diag — {label}: not present.");
+            return;
+        }
+        // TMP / quad / card all read on their LOCAL −Z. The readable face points at the
+        // player when −forward aligns with the toward-viewer face normal (dot ~ +1) and
+        // back toward the head (headDot > 0).
+        Vector3 readable = -t.forward;
+        float faceDot = Vector3.Dot(readable, faceTowardViewer);
+        Vector3 toElem = (t.position - headPos).normalized;
+        float headDot = Vector3.Dot(readable, -toElem);
+        VRLog.Info("Cards", $"ITEM2 diag — {label}: pos {t.position}, readable(-Z) {readable}, " +
+            $"vs faceNormal dot {faceDot:F2} (want ~+1), vs head dot {headDot:F2} (want >0) → " +
+            $"{(headDot > 0.2f ? "FACES the player" : "faces AWAY from the player")}.");
+    }
+
+    // AddCaption is gone with the pick field, its last caller. It built a TextMeshPro caption
+    // that shrank to fit a given box (Core.TmpFit.Fit, test #12) — that helper is still the way
+    // to add a board caption; there is simply no board caption left in this class.
+
+    private static void Tint(GameObject go, Color color, bool overlay = false)
+    {
+        var renderer = go.GetComponent<MeshRenderer>();
+        // Items 5/6: board-docked HUD widgets (round-readout plate, gear/follow-toggle
+        // bodies) route to the bundled GloomhavenVR/Overlay shader, the ONLY one that
+        // exposes _ZTest — so RenderOnTop's SetInt("_ZTest", Always) actually takes and
+        // the widget draws over the now-OPAQUE board. Everything else keeps Standard so it
+        // stays normally depth-tested. Overlay missing (bundle not updated) → fall back to
+        // Standard (widget may be occluded until the new bundle ships).
+        Shader? shader = overlay ? OverlayShader() : null;
+        shader ??= Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+        if (shader != null)
+            renderer.sharedMaterial = new Material(shader) { color = color };
+    }
+
+    // ---- Overlay shader (items 5/6) --------------------------------------------------
+    private static Shader? _overlayShader;
+    private static bool _overlayFoundLogged;
+    private static bool _overlayMissLogged;
+
+    /// <summary>
+    /// The bundled <c>GloomhavenVR/Overlay</c> shader (loaded from the asset bundle at
+    /// runtime): an unlit shader that — unlike <c>Sprites/Default</c> and <c>Standard</c>
+    /// — EXPOSES <c>_ZTest</c>, which is what let the (now removed) RenderOnTop helper force a
+    /// board-HUD widget to draw over the opaque control board — the root cause of the invisible
+    /// readout / gear / toggle / glows. The shader is still used as an unlit/additive base for
+    /// the glow and readout materials; nothing forces ZTest any more (the widgets seat proud
+    /// instead). Cached; re-found until present so a late bundle load still
+    /// resolves. Null when the bundle lacks it — callers fall back to Standard/Sprites and
+    /// the widget may be occluded until the new bundle ships. Logged once each way.
+    /// </summary>
+    internal static Shader? OverlayShader()
+    {
+        if (_overlayShader == null)
+        {
+            // A bundled shader is NOT discoverable via Shader.Find until something loads it
+            // into memory. BoardLit resolves only because a bundle PREFAB's material
+            // references it; GloomhavenVR/Overlay is referenced ONLY by runtime C#, so it is
+            // never loaded and Shader.Find returns null (root cause of the STILL-invisible
+            // gear/glows in build 0258fbb). Load it explicitly from whichever loaded bundle
+            // holds it (the tray/hands bundle is already loaded by the time widgets build).
+            _overlayShader = Shader.Find("GloomhavenVR/Overlay");
+            if (_overlayShader == null)
+            {
+                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+                {
+                    if (b == null) continue;
+                    var s = b.LoadAsset<Shader>("Assets/Bundle/Table/Overlay.shader");
+                    if (s != null) { _overlayShader = s; break; }
+                }
+            }
+        }
+        if (_overlayShader != null && !_overlayFoundLogged)
+        {
+            _overlayFoundLogged = true;
+            VRLog.Info("Cards", "Overlay shader 'GloomhavenVR/Overlay' loaded — board HUD widgets " +
+                                "(round readout, gear/follow-toggle, slot glows) will draw over the opaque board.");
+        }
+        else if (_overlayShader == null && !_overlayMissLogged)
+        {
+            _overlayMissLogged = true;
+            VRLog.Warn("Cards", "Overlay shader 'GloomhavenVR/Overlay' NOT found (bundle not updated yet) — " +
+                                "board HUD widgets fall back to Standard/Sprites and may be occluded by the board.");
+        }
+        return _overlayShader;
+    }
+
+    /// <summary>An Overlay-shader material tinted <paramref name="color"/>, or null when the shader is absent.</summary>
+    private static Material? OverlayMaterial(Color color)
+    {
+        Shader? s = OverlayShader();
+        return s != null ? new Material(s) { color = color } : null;
+    }
+
+    // ---- BoardLit shader (item 5: solid, shaded button walls) -------------------------
+    private static Shader? _boardLitShader;
+    private static bool _boardLitFoundLogged;
+    private static bool _boardLitMissLogged;
+
+    /// <summary>
+    /// Item 5: the bundled <c>GloomhavenVR/BoardLit</c> shader — a self-contained BAKED-lit
+    /// shader (two fixed studio directions + an ambient floor, independent of the scene's own
+    /// lights). The square keycaps (Confirm/Undo, and Rest when set to Square) used
+    /// <c>Shader.Find("Standard")</c>, which strips to the UNLIT <c>Sprites/Default</c> fallback
+    /// in the game build — every cube face then rendered the same flat colour, so the side WALLS
+    /// never shaded and the button read as a floating flat square ("the walls aren't rendered").
+    /// BoardLit shades by world normal, so the box's side walls visibly darken relative to its
+    /// front face and it reads as a solid protruding 3D button even in the unlit void/menu scenes
+    /// (the same reason the board mesh and the hands use it). Unlike <c>GloomhavenVR/Overlay</c>
+    /// it is referenced by bundle PREFAB materials, so <c>Shader.Find</c> resolves it directly;
+    /// still re-found until present and probed across loaded bundles, mirroring
+    /// <see cref="OverlayShader"/>. Null only when the bundle lacks it — callers fall back to
+    /// Standard/Legacy/Sprites (the pre-fix flat look). Logged once each way.
+    /// </summary>
+    internal static Shader? BoardLitShader()
+    {
+        if (_boardLitShader == null)
+        {
+            _boardLitShader = Shader.Find("GloomhavenVR/BoardLit");
+            if (_boardLitShader == null)
+            {
+                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+                {
+                    if (b == null) continue;
+                    var s = b.LoadAsset<Shader>("Assets/Bundle/Table/BoardLit.shader");
+                    if (s != null) { _boardLitShader = s; break; }
+                }
+            }
+        }
+        if (_boardLitShader != null && !_boardLitFoundLogged)
+        {
+            _boardLitFoundLogged = true;
+            VRLog.Info("Cards", "BoardLit shader 'GloomhavenVR/BoardLit' loaded — square board buttons " +
+                                "get shaded, solid side walls (baked-lit, works in the unlit scenes).");
+        }
+        else if (_boardLitShader == null && !_boardLitMissLogged)
+        {
+            _boardLitMissLogged = true;
+            VRLog.Warn("Cards", "BoardLit shader 'GloomhavenVR/BoardLit' NOT found — square board buttons " +
+                                "fall back to Standard/Sprites and their side walls may read flat.");
+        }
+        return _boardLitShader;
+    }
+
+    // ---- keycap grain texture (task #5a: carved-wood/parchment surface) ----------------
+    private const string GrainAlbedoPath = "Assets/Bundle/Table/KeycapGrain_albedo.png";
+    private const string GrainNormalPath = "Assets/Bundle/Table/KeycapGrain_normal.png";
+    private static Texture2D? _grainAlbedo;
+    private static Texture2D? _grainNormal;
+    private static bool _grainProbed; // includes the cached "not found" state (no per-material retry)
+
+    /// <summary>
+    /// Task #5a: load the shared tileable grain texture ONCE from whichever loaded bundle holds
+    /// it (same probe pattern as <see cref="BoardLitShader"/>/<see cref="OverlayShader"/>), so
+    /// every keycap material reuses one <see cref="Texture2D"/>. Caches the "not found" state
+    /// too, so an older bundle without the texture never retries. Sets Repeat wrap so the planar
+    /// keycap UVs (CardMesh.BuildBeveledKeycap) tile cleanly. Logged once each way.
+    /// </summary>
+    private static void EnsureGrainLoaded()
+    {
+        if (_grainProbed)
+            return;
+        _grainProbed = true;
+        foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
+        {
+            if (b == null) continue;
+            _grainAlbedo ??= b.LoadAsset<Texture2D>(GrainAlbedoPath);
+            _grainNormal ??= b.LoadAsset<Texture2D>(GrainNormalPath);
+            if (_grainAlbedo != null && _grainNormal != null) break;
+        }
+        if (_grainAlbedo != null)
+        {
+            _grainAlbedo.wrapMode = TextureWrapMode.Repeat;
+            if (_grainNormal != null)
+                _grainNormal.wrapMode = TextureWrapMode.Repeat;
+            VRLog.Info("Cards", $"Keycap grain texture loaded ('{GrainAlbedoPath}'" +
+                                $"{(_grainNormal != null ? " + normal map" : "")}) — 3D board keycaps get a " +
+                                "carved wood/parchment surface (grayscale grain × per-submesh state tint).");
+        }
+        else
+        {
+            VRLog.Info("Cards", $"Keycap grain texture '{GrainAlbedoPath}' not in bundle (older bundle) — " +
+                                "board keycaps keep the plain per-state tint (white _MainTex).");
+        }
+    }
+
+    /// <summary>
+    /// Task #5a: a BoardLit keycap material tinted <paramref name="color"/>, with the shared
+    /// carved-grain texture assigned to <c>_MainTex</c> (and the normal map to <c>_BumpMap</c>
+    /// when present) IF the bundle ships it. BoardLit does <c>alb = tex2D(_MainTex,uv) * _Color</c>,
+    /// so a grayscale grain × the per-submesh state colour keeps the top-state / lit-bevel /
+    /// dark-wall value signalling while adding surface texture. Graceful fallback: if the grain
+    /// texture is absent the material is EXACTLY as before (white _MainTex, plain tint).
+    /// </summary>
+    internal static Material NewKeycapMaterial(Shader shader, Color color)
+    {
+        var m = new Material(shader) { color = color };
+        EnsureGrainLoaded();
+        if (_grainAlbedo != null)
+        {
+            if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", _grainAlbedo);
+            if (_grainNormal != null && m.HasProperty("_BumpMap")) m.SetTexture("_BumpMap", _grainNormal);
+        }
+        return m;
+    }
+
+    /// <summary>
+    /// Item 5: the lit shader for the square keycap body, falling back to Standard/Legacy/Sprites
+    /// when the bundle lacks BoardLit. BoardLit shades side walls even in an unlit scene; the
+    /// built-in fallbacks only shade when the scene actually has lights (and go flat otherwise).
+    /// </summary>
+    private static Shader? BoxCapShader() =>
+        BoardLitShader()
+        ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
+
+    /// <summary>
+    /// Item 5: an emissive glow material for the slot/pick insert telegraphs. Now delegates to
+    /// the shared <see cref="CardGlow.MakeGlowMaterial"/> so the board slot glow and the hand-fan
+    /// insertion glow are produced by the SAME recipe (identical look). Behaviour unchanged.
+    /// </summary>
+    private static Material? MakeGlowMaterial(Color color) => CardGlow.MakeGlowMaterial(color);
+
+    // ---- RenderOnTop (REMOVED) -------------------------------------------------------
+    //
+    // The forced draw-over-the-board helper is GONE — 0 call sites at HEAD (19 repo-wide hits:
+    // 1 declaration and 18 comments, every one of them saying the widget in question no longer
+    // uses it: "drop the RenderOnTop shine-through", "NO RenderOnTop", "depth-correct now"). The
+    // method outlived every caller: once the readout/gear/toggle/glows were seated PROUD with
+    // negative local Z, they occlude naturally and shining them through the board became a
+    // regression rather than a fix.
+    //
+    // TWO LESSONS SURVIVE IT, and both are implemented elsewhere — WorldUI/NativeButtonSkin.cs
+    // and WorldUI/ActorBars.cs. Whoever writes the next such helper needs them:
+    //  - Use `.materials` (per-renderer INSTANCES), never `sharedMaterial`: the shared bundle
+    //    material clothes other objects, and a shared write is global.
+    //  - Set BOTH `_ZTest` AND `_ZTestMode` under HasProperty guards. The quad/Tint (Standard)
+    //    path exposes `_ZTest`; TextMeshPro's distance-field material exposes `_ZTestMode`. An
+    //    earlier version set only `_ZTest` under a guard and was therefore a SILENT NO-OP on
+    //    every non-TMP widget (cb62991, corrected in d56e4c8).
+
+    private static Transform? FindDeep(Transform root, string name)
+    {
+        if (root.name == name)
+            return root;
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform? found = FindDeep(root.GetChild(i), name);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+}

@@ -7,7 +7,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Cards;
 
-// PlayTray, part 2 of 2 — the four NESTED types, in their original mutual order:
+// PlayTray part 7 of 7 (see PlayTray.1.Core.cs for the split map and its rules) — the four
+// NESTED types, in their original mutual order:
 //
 //     LaserTarget          (was PlayTray.cs:327)   collider -> IPokeable pair
 //     SlotPulse            (was PlayTray.cs:2271)  self-animated wanted-slot hint
