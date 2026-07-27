@@ -96,8 +96,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         var presetRow = Row();
         Label(presetRow, Loc.Mod("perf_preset"), 16f, flexible: true);
         CycleButton(presetRow, 150f, RenderQuality.PresetLabel, RenderQuality.CyclePreset);
-        var presetNote = Row(44f);
-        Label(presetNote, Loc.Mod("perf_preset_note"), 12f, flexible: true);
+        Tip(presetRow, "perf_preset_note");
 
         // [RenderQuality] EyeResolutionScale — the dominant GPU lever (all per-pixel work ∝
         // scale²). Applies live; RenderQuality's readback decides whether the allocation or the
@@ -105,8 +104,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         var ssRow = Row();
         Label(ssRow, Loc.Mod("perf_eye_resolution"), 16f, flexible: true);
         MiniStepper(ssRow, RenderQuality.EyeScaleLabel, RenderQuality.StepEyeScale);
-        var ssNote = Row(44f);
-        Label(ssNote, Loc.Mod("perf_eye_resolution_note"), 12f, flexible: true);
+        Tip(ssRow, "perf_eye_resolution_note");
 
         // [RenderQuality] MsaaLevel — Off → 2x → 4x → 8x, applied live by the rig's per-frame
         // re-assert. Kept fully reachable including 8x: this is a real, user-visible quality
@@ -114,16 +112,18 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         var msaaRow = Row();
         Label(msaaRow, Loc.Mod("perf_msaa"), 16f, flexible: true);
         CycleButton(msaaRow, 100f, RenderQuality.MsaaLabel, RenderQuality.CycleMsaa);
-        var msaaNote = Row(44f);
-        Label(msaaNote, Loc.Mod("perf_msaa_note"), 12f, flexible: true);
+        Tip(msaaRow, "perf_msaa_note");
 
-        // Point at the game's own graphics panel rather than mirroring it.
-        var gameNote = Row(52f);
-        Label(gameNote, Loc.Mod("perf_game_graphics_note"), 12f, flexible: true);
+        // Point at the game's own graphics panel rather than mirroring it, and say where the rows
+        // that used to be here went — both as ONE-LINE pointers with the reasoning on hover. They
+        // are not controls, so they carry the tooltip on their own (transparent) hit area.
+        var gameNote = Row(20f);
+        Label(gameNote, Loc.Mod("perf_game_graphics_short"), 12f, flexible: true);
+        Tip(gameNote, "perf_game_graphics_note");
 
-        // Say where the rows that used to be here went, so their absence reads as a decision.
-        var cfgNote = Row(40f);
-        Label(cfgNote, Loc.Mod("perf_config_note"), 12f, flexible: true);
+        var cfgNote = Row(20f);
+        Label(cfgNote, Loc.Mod("perf_config_short"), 12f, flexible: true);
+        Tip(cfgNote, "perf_config_note");
 
         _rowGate = null;
     }
@@ -171,23 +171,31 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             d => PerfConfig.RemoteContentInterval.Value =
                 Mathf.Clamp(PerfConfig.RemoteContentInterval.Value + d * 0.05f, 0f, 2f));
 
-        var timingNote = Row(44f);
-        Label(timingNote, Loc.Mod("debug_timing_note"), 12f, flexible: true);
+        var timingNote = Row(20f);
+        Label(timingNote, Loc.Mod("debug_timing_short"), 12f, flexible: true);
+        Tip(timingNote, "debug_timing_note");
 
         // The one GPU experiment that has no quality trade at all, so it cannot go under
         // Leistung: it either changes nothing visible (expected) or it breaks something
         // (the reason it defaults off). Debug is exactly the tier for "help me find the default".
-        Toggle(Loc.Mod("debug_skip_scrub_draw"),
+        RectTransform scrubRow = Toggle(Loc.Mod("debug_skip_scrub_draw"),
             () => WorldUIConfig.SkipDesktopScrubDraw.Value,
-            v => WorldUIConfig.SkipDesktopScrubDraw.Value = v);
-        var scrubNote = Row(64f);
-        Label(scrubNote, Loc.Mod("debug_skip_scrub_note"), 12f, flexible: true);
+            v =>
+            {
+                // Close the measurement window on BOTH sides of the flip, so the log carries one
+                // [Perf] FRAME/SPLIT summary for "sink render on" and one for "sink render off"
+                // with nothing straddling the boundary. That is the entire A/B: the tester toggles
+                // this once, waits, toggles back, and the two SPLIT lines answer it.
+                Core.PerfMonitor.MarkChange(
+                    $"discarded desktop render {(v ? "SKIPPED" : "drawn")} — A/B boundary");
+                WorldUIConfig.SkipDesktopScrubDraw.Value = v;
+            });
+        Tip(scrubRow, "debug_skip_scrub_note");
 
         var stereoRow = Row();
         Label(stereoRow, Loc.Mod("debug_stereo_mode"), 16f, flexible: true);
         CycleButton(stereoRow, 150f, Core.StereoModeConfig.Label, Core.StereoModeConfig.Cycle);
-        var stereoNote = Row(64f);
-        Label(stereoNote, Loc.Mod("debug_stereo_note"), 12f, flexible: true);
+        Tip(stereoRow, "debug_stereo_note");
 
         _rowGate = null;
     }
@@ -246,12 +254,14 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         return (button, tmp);
     }
 
-    /// <summary>Label ..... [-] value [+]</summary>
-    private void Stepper(string label, Func<string> read, Action<int> step)
+    /// <summary>Label ..... [-] value [+]. Returns the row so the caller can hang a
+    /// <see cref="Tip"/> on it.</summary>
+    private RectTransform Stepper(string label, Func<string> read, Action<int> step)
     {
         var row = Row();
         Label(row, label, 16f, flexible: true);
         MiniStepper(row, read, step);
+        return row;
     }
 
     /// <summary>[-] value [+] appended to an existing row.</summary>
@@ -264,12 +274,14 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         _refreshers.Add(() => value.text = read());
     }
 
-    /// <summary>Label ..... [On/Off]</summary>
-    private void Toggle(string label, Func<bool> read, Action<bool> write)
+    /// <summary>Label ..... [On/Off]. Returns the row so the caller can hang a
+    /// <see cref="Tip"/> on it.</summary>
+    private RectTransform Toggle(string label, Func<bool> read, Action<bool> write)
     {
         var row = Row();
         Label(row, label, 16f, flexible: true);
         ToggleButton(row, read, write);
+        return row;
     }
 
     private void ToggleButton(RectTransform row, Func<bool> read, Action<bool> write)

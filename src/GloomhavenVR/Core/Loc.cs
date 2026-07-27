@@ -319,6 +319,16 @@ internal static class Loc
         ["perf_msaa_note"] = Pair(
             "smooths geometry edges (control board, board tiles) — not textures. Costs GPU bandwidth per step. It works on top of the render resolution above, so at a high resolution the difference between 4x and 8x is small while the cost is not.",
             "glättet Geometriekanten (Kontrollbrett, Bodenplatten) — keine Texturen. Kostet pro Stufe GPU-Bandbreite. Wirkt zusätzlich zur Renderauflösung oben: bei hoher Auflösung ist der Unterschied zwischen 4x und 8x klein, der Aufwand nicht."),
+        // 2026-07 (user: "Die Erklärtexte sind zu lang, sie da drin stehen zu lassen; mach ein
+        // Mouseover-Hinweis oder so etwas stattdessen."): every "…_note" paragraph below is now
+        // HOVER text, shown beside the row it explains and nowhere else. Two of them were not
+        // attached to a control at all, so they kept a one-line pointer on the panel — the short
+        // keys here — with the reasoning behind the hover. The paragraphs themselves are unchanged:
+        // they were good text in the wrong place, not bad text.
+        ["perf_game_graphics_short"] = Pair("Shadows, textures, lighting → Options › Graphics",
+                                            "Schatten, Texturen, Licht → Optionen › Grafik"),
+        ["perf_config_short"] = Pair("Measurement + internal switches: config file",
+                                     "Messung + interne Schalter: Konfigurationsdatei"),
         ["perf_game_graphics_note"] = Pair(
             "Shadows, textures, lighting and the game's own anti-aliasing stay in Options › Graphics — these two rows only add what VR needs and the game has no control for. Note the game's anti-aliasing is post-processing and is switched off in VR (Display › Disable post-processing).",
             "Schatten, Texturen, Beleuchtung und die spieleigene Kantenglättung bleiben unter Optionen › Grafik — diese beiden Regler ergänzen nur das, wofür das Spiel keinen Regler hat. Hinweis: die Kantenglättung des Spiels ist Post-Processing und ist in VR abgeschaltet (Anzeige › Post-Processing aus)."),
@@ -328,6 +338,8 @@ internal static class Loc
 
         // ---- SettingsPanel: Debug — timing levers moved out of the user-facing category ----
         ["subcat_timing"] = Pair("Timing / CPU", "Zeitgeber / CPU"),
+        ["debug_timing_short"] = Pair("CPU intervals — not the stutter lever",
+                                      "CPU-Intervalle — nicht der Ruckel-Regler"),
         ["debug_timing_note"] = Pair(
             "CPU-side refresh intervals. Measured at ~2.5% of frame time, so these are for finding defaults, not for fixing stutter — the GPU rows under Performance are the ones that move frames.",
             "CPU-seitige Auffrischungs-Intervalle. Gemessen bei ~2,5 % der Bildzeit — also zum Ermitteln guter Vorgaben, nicht gegen Ruckler; dafür sind die GPU-Regler unter Leistung zuständig."),
