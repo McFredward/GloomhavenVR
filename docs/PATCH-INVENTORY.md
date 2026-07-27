@@ -72,8 +72,8 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `InitialInputSkip` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/InitialInputSkip.cs:28</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:57 |
-| `WallFadeDisable` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/WallFadeDisable.cs:50</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:72 |
+| `InitialInputSkip` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/InitialInputSkip.cs:28</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:59 |
+| `WallFadeDisable` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/WallFadeDisable.cs:53</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:74 |
 
 ## Core
 

@@ -1989,12 +1989,22 @@
 - **Breaks if:** converted to typed references, or the restore list is dropped.
 - **Confidence:** high
 
-### `CompatModule` is registered LAST
+### `CompatModule` is registered LAST among the FEATURE modules
 - **Where:** `Plugin.RegisterModules`
-- **Rule:** Core first (XR bootstrap), Compat last (fixups on top of everything else).
+- **Rule:** Core first (XR bootstrap), Compat last among the feature modules (fixups on top of
+  everything else). `Core.DevModule` is appended *after* `CompatModule` and does not violate
+  this: `DevModule.Init` returns immediately unless `[Dev] Enabled`, and even then it only adds
+  a `DevConsole` overlay GameObject — it applies no fixups, patches nothing and touches no game
+  state, so it cannot get between Compat and anything.
 - **Why:** the kill-switches and the wall-fade pin must apply over whatever the other modules
   installed.
+- **Breaks if:** a module that mutates game state is inserted after `CompatModule`, or
+  `RegisterModules` is reordered to make the older, imprecise wording literally true — the
+  CODE is right and the wording was wrong (`REVIEW-Hands-Board-Core.md` §P4.3). Reordering
+  module init for a cosmetic match is a Tier-3 change.
 - **Confidence:** high
+- **Corrected:** Batch C. The earlier text said "`CompatModule` is registered LAST" full stop,
+  which is false at HEAD (`DevModule` follows it) and would have led a reader to "fix" the code.
 
 ---
 
@@ -2179,9 +2189,13 @@
 - **`PokeInteractor.ContactDepth`/`ReleaseDepth`-equivalents in `BoardClickDriver`** (0.008 /
   0.02) — same values, different subsystems, deliberately mirrored so the near board click and
   the poke press arm/re-arm together. Same Tier-2 caveat.
-- **`SkyBackdrop.RemoveEffects` vs `FullReset`** — `RemoveEffects` is called on the MR handover
-  path and must NOT forget the mechanism decision; `FullReset` must. Merging them re-runs the
-  shader property dump on every MR toggle.
+- ~~**`SkyBackdrop.RemoveEffects` vs `FullReset`**~~ — **not a near-duplicate at all; struck so
+  a future reviewer does not go looking.** `FullReset` **calls** `RemoveEffects` and then
+  additionally forgets the sphere, the mechanism decision and the reset material. They are
+  already correctly factored: there is no duplication to resist, only a split to preserve
+  (`RemoveEffects` alone is the MR handover path and must NOT forget the mechanism decision —
+  merging the two would re-run the shader property dump on every MR toggle). Verified at HEAD,
+  Batch D; the difference is now stated at both methods in `SkyBackdrop.cs`.
 - **`HeldFigures` and `NetHeldFigures`** — near-identical shapes, deliberately separate: one is
   owned by the local grab flow, the other is REPLACED wholesale by `Net/NetFigures`
   (`ReplaceWith`). The patch gate ORs both. Merging couples local grab lifetime to the wire.

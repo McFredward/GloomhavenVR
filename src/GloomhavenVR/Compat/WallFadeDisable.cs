@@ -42,8 +42,11 @@ namespace GloomhavenVR.Compat;
 /// <c>Update()</c> can't be found (renamed/removed by a game update), <see cref="TargetMethod"/>
 /// returns null so Harmony patches nothing and wall fade is left 100% vanilla. Registered only
 /// while VR runs (see <c>CompatModule.Init</c>), so desktop play is untouched; reversible on
-/// hot-reload via Harmony <c>UnpatchAll</c>. Purely visual and local (a shader global) —
-/// multiplayer peers never see a difference.
+/// hot-reload by <c>Plugin.OnDestroy</c>'s <c>_harmony.UnpatchSelf()</c>, which removes every
+/// patch this mod applied and nothing else (INVARIANTS §9). Note it is <c>UnpatchSelf</c>, not
+/// <c>UnpatchAll</c> — different Harmony APIs with different blast radii, and naming the wrong
+/// one in the doc of the patch whose whole design is "degrade cleanly" invites a bad edit.
+/// Purely visual and local (a shader global) — multiplayer peers never see a difference.
 /// </summary>
 [HarmonyPatch]
 internal static class WallFadeDisable

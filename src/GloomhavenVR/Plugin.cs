@@ -171,8 +171,13 @@ public class Plugin : BaseUnityPlugin
     private Harmony? _harmony;
 
     /// <summary>
-    /// Feature module registry. Order matters: Core first (XR bootstrap),
-    /// Compat last (fixups on top of everything else).
+    /// Feature module registry. Order matters: Core first (XR bootstrap), Compat last
+    /// AMONG THE FEATURE MODULES (its fixups must land on top of everything else). The
+    /// Dev harness is appended after Compat and is inert unless <c>[Dev] Enabled</c> —
+    /// <c>DevModule.Init</c> returns immediately otherwise, and even when enabled it only
+    /// adds a <c>DevConsole</c> overlay GameObject: it applies no fixups, patches nothing
+    /// and touches no game state, so it cannot get between Compat and anything.
+    /// See <see cref="RegisterModules"/>; shutdown runs this list in REVERSE.
     /// </summary>
     private readonly List<IVRModule> _modules = [];
 
@@ -525,6 +530,10 @@ public class Plugin : BaseUnityPlugin
         VRSession.Harmony = null;
     }
 
+    // This order is the module init order and (reversed) the shutdown order — INVARIANTS §12.
+    // DevModule sitting AFTER CompatModule is correct and deliberate, not a slip: see the
+    // _modules field doc. Do not "fix" it by moving CompatModule down; changing module init
+    // order for a cosmetic match with a comment is a Tier-3 behaviour change.
     private void RegisterModules()
     {
         _modules.Add(new Core.CoreModule());
