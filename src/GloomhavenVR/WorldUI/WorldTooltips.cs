@@ -342,7 +342,7 @@ internal sealed class WorldTooltips
     /// panels (their <c>mount.rotation == Root.rotation</c> faces the player).
     ///
     /// The top edge is the board's REAL rendered top, derived from the tray renderers' combined
-    /// bounds (see <see cref="TryGetBoardTopEdgeWorld"/>) — NOT the authored plate constants:
+    /// bounds (see <see cref="GetBoardTopEdgeWorld"/>) — NOT the authored plate constants:
     /// the visible board (bundled frame + decorations) is larger than the plate, so a
     /// constant-based half-height under-estimated the edge and the panel still sat inside the
     /// board (the "still inside" report). The pivot is then lifted above that edge by

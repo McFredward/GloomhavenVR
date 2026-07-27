@@ -39,7 +39,8 @@ internal interface IPanelGrabOwner
 ///   palm; with <see cref="IPanelGrabOwner.GrabCarriesYaw"/> the rotation follows
 ///   the hand's yaw (yaw-only — the configured tilt is preserved, the root can
 ///   never end up rolled/upside down).
-/// - TWO hands gripping resize it (spread = grow, pinch = shrink; clamped 0.5×–2×)
+/// - TWO hands gripping resize it (spread = grow, pinch = shrink; clamped to
+///   [<see cref="PanelGrabHandle.MinScale"/> = 0.15×, <see cref="PanelGrabHandle.MaxScale"/> = 2×)
 ///   while also moving (and, with yaw carry, heading-yawing) with the pair midpoint.
 /// - On final release the owner persists the pose
 ///   (<see cref="IPanelGrabOwner.OnGrabFinished"/>) so the layout survives sessions.
@@ -306,7 +307,8 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         }
         else
         {
-            // Two hands: midpoint carry + pinch scale (0.5×–2×) + optional pair-heading yaw.
+            // Two hands: midpoint carry + pinch scale ([MinScale, MaxScale] = 0.15×–2×) +
+            // optional pair-heading yaw.
             Vector3 pA = _handA.Rig.PalmCenter.position;
             Vector3 pB = _handB.Rig.PalmCenter.position;
             Vector3 mid = (pA + pB) * 0.5f;

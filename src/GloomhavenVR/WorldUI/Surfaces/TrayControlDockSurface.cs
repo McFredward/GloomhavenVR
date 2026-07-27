@@ -6,6 +6,19 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI.Surfaces;
 
 /// <summary>
+/// CURRENTLY INERT BY DESIGN — read this before the description below. <c>_controls</c> is
+/// <c>Array.Empty&lt;DockedControl&gt;()</c> and the four <c>*Docked</c>/<c>*Visible</c>
+/// constants are hard-coded <c>false</c>; see the constructor for the per-control reason each
+/// one was pulled (all three came down to the same occlusion bug: docked flat on the opaque
+/// board the widget reported <c>alpha ≈ 1</c> while its pixels never reached the headset).
+/// Nothing in this class docks anything today, and every turn-flow control is mod-drawn.
+/// The mechanism below is RETAINED as the only implementation of the native-widget dock and as
+/// a config-reachable alternative behind <c>[WorldUI] TrayNativeControls</c> (default false);
+/// the four constants are also what other modules read to decide whether to draw their
+/// mod-drawn twin, so removing them silently hides board buttons. Removing any of this is a
+/// user decision (Tier 3), not a cleanup. Everything from here on describes the mechanism as
+/// designed, i.e. what would happen if it were re-enabled — NOT what runs.
+///
 /// TRAY NATIVE CONTROLS (test #23 item 4): docks the game's REAL persistent
 /// turn-flow widgets onto the control board so they carry the familiar in-game
 /// style, replacing the mod-drawn CONFIRM/UNDO board buttons (<see cref="PlayTray"/>)

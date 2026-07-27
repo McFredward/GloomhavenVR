@@ -43,7 +43,8 @@ namespace GloomhavenVR.WorldUI;
 /// mod-owned frame — holder (identity pose, diorama scale) → frame (grab root, user
 /// size factor) → brass grab bar + FOLLOW/PINNED pin + the settings canvas. It drives
 /// the SAME shared <see cref="PanelGrabHandle"/> core: one hand moves, two hands resize
-/// (0.5×–2×), release persists the layout as [SettingsPanel] Right/Up/Forward/Scale.
+/// (<see cref="PanelGrabHandle.MinScale"/>–<see cref="PanelGrabHandle.MaxScale"/> = 0.15×–2×),
+/// release persists the layout as [SettingsPanel] Right/Up/Forward/Scale.
 /// Every OPEN routes the spawn through <see cref="PanelPlacement"/> so the panel always
 /// appears cleanly in the forward field of view (never clipped into the board or
 /// stranded off to the side), then behaves world-static (PINNED) or seat-anchored
@@ -56,14 +57,19 @@ internal sealed class SettingsPanel : IPanelGrabOwner
     private const float RefreshInterval = 0.25f;
 
     // Frame geometry (real meters at diorama scale 1 — mirrors CombatLogSurface).
-    private const float CanvasMetersPerPixel = 0.0007f; // 380 px ≈ 27 cm wide
+    private const float CanvasMetersPerPixel = 0.0007f; // PanelWidthPx (520) × this ≈ 36 cm wide
 
     /// <summary>
-    /// Item 6: the panel's FIXED real-world reference width (meters), roughly the control board
-    /// width (PlayTray.BoardW ≈ 0.64 m). The panel size is DECOUPLED from the diorama zoom
+    /// Item 6: the panel's FIXED real-world reference width (meters). It started at "roughly the
+    /// control board width" (PlayTray.BoardW = 0.64 m) but is an INDEPENDENT tunable and is now
+    /// 28 % wider than the board — it was widened together with PanelWidthPx to keep the text
+    /// density constant. Do not "re-sync" it to BoardW or to ModalFallback's 0.80 m; the three
+    /// are separate numbers. The panel size is DECOUPLED from the diorama zoom
     /// (PanelLayout.WorldScale): zooming the table no longer grows/shrinks the options menu.
     /// The holder scale is derived from this so the base canvas (PanelWidthPx × CanvasMetersPerPixel)
-    /// renders at this width at [WorldUI] SettingsScale = 1; SettingsScale (0.5×–2×) is then the
+    /// renders at this width at [WorldUI] SettingsScale = 1; SettingsScale — clamped everywhere to
+    /// the SHARED <see cref="PanelGrabHandle.MinScale"/>–<see cref="PanelGrabHandle.MaxScale"/>
+    /// range (0.15×–2×), not the 0.5× floor its config description still names — is then the
     /// user's ONLY size control. WorldScale is still used for POSITION/distance, not size.
     /// </summary>
     private const float SettingsPanelWidthMeters = 0.82f; // widened with PanelWidthPx to keep text density constant

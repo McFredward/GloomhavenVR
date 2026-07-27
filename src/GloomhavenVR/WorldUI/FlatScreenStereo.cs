@@ -187,20 +187,35 @@ namespace GloomhavenVR.WorldUI;
 /// materials, <c>_MainTex</c> otherwise — so the map does NOT need scene lighting to
 /// look right: a top-down painted map is essentially correct rendered UNLIT.
 ///
-/// THE FIX: while the campaign map is showing (detected by the reliable black-probe
-/// below — the game 'MapCamera' renders BLACK into any RenderTexture we own), a
-/// mod-owned FORWARD camera we fully control renders the worldMap mesh straight into
-/// the flat-screen base RT (<see cref="_leftRt"/>, = FlatScreen's <c>_rt</c>). It is
-/// cloned from the game MapCamera's transform + projection + mask (plus the worldMap
-/// layer), given a solid dark clear, and a depth just ABOVE the game MapCamera so it
-/// OWNS the base RT's final content each frame (the game camera's dark render is
-/// overwritten). The parchment is drawn UNLIT via a temporary MATERIAL OVERRIDE: one
-/// <c>Sprites/Default</c> material per submesh whose <c>_MainTex</c> is the original
-/// material's albedo (<c>_Alb</c> ?? <c>_MainTex</c> ?? <c>mainTexture</c>). The
-/// override is swapped onto the worldMap MeshRenderer in the mod camera's onPreRender
-/// and restored in its onPostRender — scoped to exactly our render, so the game's own
-/// state is untouched (rendering-only, MULTIPLAYER-SAFE). The base RT then reads
-/// bright, and the mono suspension drives BOTH eyes from it.
+/// THE FIX (as shipped — this paragraph was rewritten after the hunt closed; the earlier
+/// version described the two designs that were DISPROVEN, see below): while the campaign
+/// map is showing (detected by the reliable black-probe below — the game 'MapCamera'
+/// renders BLACK into any RenderTexture we own), a mod-owned FORWARD camera we fully
+/// control renders the map mesh into its OWN PRIVATE RenderTexture
+/// (<see cref="_mapRt"/>, <see cref="EnsureMapRt"/>), and the screen quad samples THAT in
+/// map mode. The private RT is load-bearing: the game's deferred MapCamera is force-pinned
+/// onto the SHARED base RT (<see cref="_leftRt"/>) by <c>FlatScreen.CaptureStack</c> and
+/// its murk out-competed our forward render there — a magenta-clear hardware test proved
+/// our output never survived <c>_leftRt</c>. FRAMING is ours, not the game's: the captured
+/// game MapCamera pose GRAZES the y≈0 parchment plane (<c>WorldToViewportPoint(meshCenter).z
+/// &lt; 0</c> — the mesh is literally behind it), so cloning its transform/projection is
+/// impossible; instead <see cref="MapDiagTopDown"/> + <see cref="MapMatchGameFraming"/>
+/// compute the pose from the live <c>CameraController</c> focal point/height and
+/// <see cref="MapDriveGameCamera"/> DRIVES the game's own map camera to it, which makes the
+/// game's marker projection and click raycasts (both of which go through that camera) line
+/// up with our render for free. The parchment is drawn UNLIT via a temporary MATERIAL
+/// OVERRIDE: one <c>GloomhavenVR/MapUnlit</c> material (bundle shader,
+/// <see cref="MapUnlitShader"/>) per submesh whose <c>_MainTex</c> is the original
+/// material's albedo (<c>_Alb</c> ?? <c>_MainTex</c> ?? <c>mainTexture</c>), sampled at the
+/// mesh's own UV on the GPU (<see cref="MapUnlitUvChannel"/> = TexCoord0). The override is
+/// swapped onto the map MeshRenderer in the mod camera's onPreRender and restored in its
+/// onPostRender — scoped to exactly our render, so the game's own state is untouched
+/// (rendering-only, MULTIPLAYER-SAFE). On top of the parchment the mod draws the location
+/// icons itself (<see cref="DrawMapIcons"/> — the game's are deferred Decalicious decals
+/// that never light into our RT) and dims, but keeps, the wind/cloud particles
+/// (<see cref="TuneMapWindParticles"/>). Zoom is camera FOV, matched to flat's map configs;
+/// pan is a trigger-drag on the focal point. Both the world and the city map are handled
+/// (<see cref="DetectActiveMap"/>).
 ///
 /// EVERY RT-CAPTURE PATH IS PROVEN DEAD (do not re-attempt): redirecting the game
 /// deferred MapCamera's targetTexture onto our RT gives flat unlit murk (a deferred
@@ -211,13 +226,25 @@ namespace GloomhavenVR.WorldUI;
 /// backbuffer grab reads pure black under active MULTIPASS XR. The albedo render
 /// sidesteps all of that by never relying on the map's own lighting.
 ///
+/// ALSO DISPROVEN AND REMOVED (their config keys stay bound, marked DEPRECATED, so
+/// existing .cfg files keep loading): rendering the map into the SHARED base RT instead
+/// of the private one; cloning the game MapCamera's transform/projection; the
+/// <c>Sprites/Default</c> + CPU uv0-REBUILD path (<c>MapUv*</c> keys — the mesh's own
+/// TexCoord0 is correct and the shader samples it directly); the "keep the deferred
+/// render, strip its image effects" strategy (<c>MapCaptureMode</c> 1 + the
+/// <c>MapStrip*</c> keys); the never-implemented texture-blit strategy
+/// (<c>MapCaptureMode</c> 2 + the <c>MapTex*</c> keys); and boosting ambient / adding a
+/// light for the render (<c>MapAlbedoAmbient</c>, <c>MapAlbedoLight</c> — MapUnlit is
+/// unlit, so lighting cannot affect it). Their code was deleted; do not re-add it.
+///
 /// Detection is a throttled, 8x8-downsampled, ASYNC non-black probe of the base RT
 /// (<see cref="AsyncGPUReadback"/> — no GPU stall) requiring several consecutive black
 /// reads, so no currently-working scene (menu video, guildmaster town whose camera
 /// renders fine) is ever switched. Engagement is sticky for the scene (the game base RT
-/// stays black) and re-arms on the next captured-stack release. [WorldUI]
-/// ScreenLeftMirrorFallback off = legacy (black map if the game camera renders black);
+/// stays black) and re-arms on the next captured-stack release.
 /// [WorldUI] MapAlbedoRender off = detect but do not render (base RT left as-is).
+/// ([WorldUI] ScreenLeftMirrorFallback is DEPRECATED — it is bound so old .cfg files load,
+/// but it has no reader at all and never selected anything.)
 /// </summary>
 internal sealed class FlatScreenStereo
 {
@@ -401,7 +428,10 @@ internal sealed class FlatScreenStereo
     private GameObject? _activeMapGo;
     /// <summary>True when the active map is the city map (ISSUE 3) — for logging.</summary>
     private bool _activeMapIsCity;
-    /// <summary>Unlit Sprites/Default override materials (one per submesh, _MainTex = the submesh's albedo).</summary>
+    /// <summary>Unlit <c>GloomhavenVR/MapUnlit</c> override materials (one per submesh, _MainTex =
+    /// the submesh's albedo, UV sampled on the GPU from the mesh's own TexCoord0). NOT
+    /// Sprites/Default — that path needed CPU-rebuilt uv0 and was removed; see
+    /// <see cref="BuildOverrideMaterials"/>.</summary>
     private Material[]? _worldMapOverrideMats;
     /// <summary>The renderer the current override materials were built for (rebuild on a world↔city switch).</summary>
     private Renderer? _overrideMatsRenderer;

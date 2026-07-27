@@ -42,9 +42,15 @@ namespace GloomhavenVR.WorldUI;
 /// 3. The pre-existing <c>UIManager.ToggleLockUI</c> observation (UiLockChanged →
 ///    ModalUI) still covers everything that locks the UI outright.
 ///
-/// While any of these hold in a scenario, this class asserts
-/// <see cref="VRModeStateMachine.SetAuxModal"/> (mode → ModalUI) and makes the window
-/// operable, per <c>[WorldUI] ModalStyle</c>:
+/// While any of these hold in a scenario, this class makes the window operable, per
+/// <c>[WorldUI] ModalStyle</c>. It does NOT assert ModalUI for every such window:
+/// floating a menu and asserting <see cref="VRModeStateMachine.SetAuxModal"/> are two
+/// SEPARATE wants (item 3b). `SetAuxModal` follows `wantLock`, which counts only genuine
+/// BLOCKERS — a converted window that is not one of the player-reachable
+/// <see cref="NonBlockingMenus"/>; see <see cref="BlockingWindowModalActive"/> for the
+/// full rule. Coupling the two made the pause/Options menu invisible and blocked card
+/// grabbing behind it, and was reverted the same round it was introduced. Do not
+/// "simplify" this back to a blanket assert:
 ///
 /// - "window" (default, P8): each open fallback window's root RectTransform is moved
 ///   onto a world-space host via <see cref="CanvasConversion"/> and floated in front
@@ -104,14 +110,18 @@ internal static class ModalFallback
     private const float WindowScaleFactor = 0.7f;
 
     /// <summary>
-    /// Item 1 (size): board-relative DEFAULT width for a floated menu, real meters — roughly the
-    /// control-board width (SettingsPanel targets 0.6 m ≈ PlayTray.BoardW), so the pause/Options
-    /// menu opens at a comfortable, board-sized default instead of the ~1.3 m full-screen slab
-    /// that read "too big". Like the VR settings panel, this is a REAL-world target: the diorama
+    /// Item 1 (size): board-relative DEFAULT width for a floated menu, real meters — the same
+    /// order as the control board and the VR settings panel, so the pause/Options menu opens at a
+    /// comfortable, board-sized default instead of the ~1.3 m full-screen slab that read "too big".
+    /// The three widths are deliberately INDEPENDENT tunables and are NOT in sync: this one is
+    /// 0.80, `SettingsPanel.SettingsPanelWidthMeters` is 0.82 (widened with its pixel width) and
+    /// `PlayTray.BoardW` is 0.64. Do not "re-sync" this to a number quoted from another file.
+    /// Like the VR settings panel, this is a REAL-world target: the diorama
     /// WorldScale cancels out (position still uses it), so table zoom does not grow/shrink it.
     /// Applied as a CAP on <see cref="WindowScaleFactor"/> — small dialogs (confirmations) keep
     /// the 0.7 factor; only windows wider than the board are shrunk to it. The user's two-hand
-    /// resize (0.5×–2×) still rides on top of this smaller default.
+    /// resize (<see cref="PanelGrabHandle.MinScale"/>–<see cref="PanelGrabHandle.MaxScale"/>,
+    /// 0.15×–2×) still rides on top of this smaller default.
     /// </summary>
     private const float ModalTargetWidthMeters = 0.80f;
 
