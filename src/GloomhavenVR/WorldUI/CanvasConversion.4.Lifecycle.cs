@@ -1,0 +1,529 @@
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace GloomhavenVR.WorldUI;
+
+internal static partial class CanvasConversion
+{
+    /// <summary>Restore the panel into its original 2D home and destroy the host.</summary>
+    internal static void Release(ConvertedPanel? panel)
+    {
+        if (panel == null)
+            return;
+        Active.Remove(panel);
+
+        if (panel.HostCanvas != null)
+            UguiPokeSurfaces.Unregister(panel.HostCanvas); // drops nested registrations too
+
+        // Restore the game's own nested canvases (tests #19/#20): overrideSorting and
+        // worldCamera back to their captured values; raycasters WE added are removed
+        // (ones the game serialized stay).
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            NestedCanvasRecord record = panel.AdoptedCanvases[i];
+            if (record.Canvas != null)
+            {
+                record.Canvas.overrideSorting = record.OriginalOverrideSorting;
+                record.Canvas.worldCamera = record.OriginalWorldCamera;
+            }
+            if (record.AddedRaycaster != null)
+                Object.Destroy(record.AddedRaycaster);
+        }
+        panel.AdoptedCanvases.Clear();
+
+        // User #8 part 1: restore every transform we moved onto the mod layer back to its
+        // original layer (game content re-joins the UI layer for the 2D restore).
+        for (int i = 0; i < panel.Relayered.Count; i++)
+        {
+            LayerRecord record = panel.Relayered[i];
+            if (record.Transform != null)
+                record.Transform.gameObject.layer = record.OriginalLayer;
+        }
+        panel.Relayered.Clear();
+
+        // User #8 part 2: re-enable the full-window backing/blur we disabled while floated —
+        // EXCEPT for the full-screen-menu family (Issue 5). On an X-close the float is released
+        // before the game window is guaranteed hidden, and a momentary flat re-show of the ESC
+        // menu carrying a re-enabled full-window blur read as a translucent veil over the whole
+        // view (+ a left-edge stereo-split flicker). The blur is a flat-screen effect the mod
+        // removes anyway, so for those menus it is left disabled; the game re-enables it on its
+        // next genuine flat show. Non-menu modals restore normally.
+        if (panel.KeepBackgroundHidden)
+        {
+            if (panel.HiddenBackgrounds.Count > 0)
+                VRLog.Info("WorldUI", $"MODAL BACKGROUND: kept {panel.HiddenBackgrounds.Count} full-window " +
+                                      "backing/blur image(s) DISABLED on release (full-screen menu) — no " +
+                                      "veil on X-close if the game momentarily re-shows the menu flat.");
+        }
+        else
+        {
+            for (int i = 0; i < panel.HiddenBackgrounds.Count; i++)
+            {
+                Graphic g = panel.HiddenBackgrounds[i];
+                if (g != null)
+                    g.enabled = true;
+            }
+        }
+        panel.HiddenBackgrounds.Clear();
+
+        // Task #4: undo the world-space scroll clipping — masks WE added are destroyed, the
+        // game-owned disabled ones we enabled go back to disabled (exact 2D restore).
+        for (int i = 0; i < panel.AddedScrollMasks.Count; i++)
+        {
+            if (panel.AddedScrollMasks[i] != null)
+                Object.Destroy(panel.AddedScrollMasks[i]);
+        }
+        panel.AddedScrollMasks.Clear();
+        for (int i = 0; i < panel.EnabledScrollMasks.Count; i++)
+        {
+            if (panel.EnabledScrollMasks[i] != null)
+                panel.EnabledScrollMasks[i].enabled = false;
+        }
+        panel.EnabledScrollMasks.Clear();
+
+        // Un-flatten (test #21) BEFORE the root restore below: original local
+        // rotation and z go back per recorded transform (x/y stayed game-owned
+        // throughout), and the root's full-pose restore then wins as ever.
+        for (int i = 0; i < panel.Flattened.Count; i++)
+        {
+            FlattenRecord record = panel.Flattened[i];
+            if (record.Transform == null)
+                continue;
+            Vector3 pos = record.Transform.localPosition;
+            record.Transform.localPosition = new Vector3(pos.x, pos.y, record.OriginalLocalZ);
+            record.Transform.localRotation = record.OriginalLocalRotation;
+        }
+        panel.Flattened.Clear();
+
+        if (panel.Target != null)
+        {
+            RectTransform target = panel.Target;
+            // Detach the target from the float host UNCONDITIONALLY before the host is destroyed
+            // below. Previously the reparent ran ONLY when OriginalParent was still alive; if it had
+            // been destroyed/replaced (Unity-null), the target stayed a CHILD of the host and the
+            // Object.Destroy(HostGo) below CASCADED into it. That is exactly what destroyed the
+            // scenario pause menu (UIScenarioEscMenu) on a mod X-close — a Singleton the game never
+            // re-creates mid-scenario, so reopening it was impossible until a reload (confirmed via
+            // the ESCMenu.OnDestroy probe). Detaching to the scene root (null) keeps the object alive
+            // so OptionsToggle can reopen it; the game's flat placement doesn't matter because the
+            // mod re-converts/re-floats it on the next open anyway.
+            Transform? restoreParent = panel.OriginalParent != null ? panel.OriginalParent : null;
+            target.SetParent(restoreParent, worldPositionStays: false);
+            if (restoreParent != null)
+            {
+                target.SetSiblingIndex(panel.OriginalSiblingIndex);
+                target.anchorMin = panel.OriginalAnchorMin;
+                target.anchorMax = panel.OriginalAnchorMax;
+                target.pivot = panel.OriginalPivot;
+                target.anchoredPosition = panel.OriginalAnchoredPosition;
+                target.sizeDelta = panel.OriginalSizeDelta;
+                target.localScale = panel.OriginalLocalScale;
+                target.localPosition = panel.OriginalLocalPosition;
+                target.localRotation = panel.OriginalLocalRotation;
+            }
+
+            // FIX B (gray band): if the released window reports CLOSED at the game level, force
+            // the restored 2D window into the game's own hidden state. While a STICKY menu
+            // floated, ModalFallback.ReassertStickyVisible kept re-enabling the window's Canvas +
+            // CanvasGroup every tick after the game hid it; releasing it in that forced-visible
+            // state parked an ENABLED screen-space window at its 2D home — the ESC menu's
+            // width-hugged content column (~412/1920 px, docked LEFT) rendered as a gray band on
+            // the left edge of the view until the next float hid it again. Runs on EVERY release
+            // path (corner-X, both its branches; the controller-X CloseAll route; escape chord;
+            // scenario exit). Scope guards: only targets that ARE a UIWindow root (decision-dock
+            // rows / story content / mod-own panels carry no UIWindow → no-op), and only when the
+            // game says CLOSED — a window released while genuinely open (manual screen chord,
+            // style=screen, module shutdown) must stay visible in the 2D composite. The Canvas is
+            // disabled ONLY for a `_disableCanvas` window (mirroring UIWindow.OnTransitionCompleted;
+            // its own Show() re-enables it via OnTransitionStarted) — disabling any other window's
+            // Canvas would be PERMANENT, because the game never touches `_canvas` for those.
+            UIWindow? releasedWindow = target.GetComponent<UIWindow>();
+            if (releasedWindow != null && !releasedWindow.IsOpen)
+            {
+                bool canvasDisabled = false;
+                if (releasedWindow._disableCanvas)
+                {
+                    Canvas? windowCanvas = target.GetComponent<Canvas>();
+                    if (windowCanvas != null && windowCanvas.enabled)
+                    {
+                        windowCanvas.enabled = false;
+                        canvasDisabled = true;
+                    }
+                }
+                CanvasGroup? windowGroup = target.GetComponent<CanvasGroup>();
+                if (windowGroup != null)
+                {
+                    windowGroup.alpha = 0f;
+                    windowGroup.blocksRaycasts = false;
+                    windowGroup.interactable = false;
+                }
+                VRLog.Info("WorldUI", "release: restored 2D window forced hidden (game reports closed) — " +
+                                      $"'{target.name}' (ID {releasedWindow.ID}): canvas " +
+                                      $"{(canvasDisabled ? "disabled" : "left as-is")}, CanvasGroup " +
+                                      "alpha=0, raycasts off.");
+            }
+        }
+
+        if (panel.HostGo != null)
+            Object.Destroy(panel.HostGo);
+
+        if (Active.Count == 0)
+            RestoreCameraMask();
+    }
+
+    /// <summary>Restore every conversion (module shutdown / VR off).</summary>
+    internal static void ReleaseAll()
+    {
+        for (int i = Active.Count - 1; i >= 0; i--)
+            Release(Active[i]);
+        SoftLocks.Clear();
+        RestoreCameraMask();
+    }
+
+    // ---- per-frame service (called by the WorldUI driver) --------------------------------
+
+    /// <summary>
+    /// Cheap housekeeping: prune panels whose target died with a scene unload,
+    /// keep worldCamera bound to the live head camera, apply pending lock state.
+    /// </summary>
+    internal static void Tick()
+    {
+        Camera? cam = WorldCamera;
+        for (int i = Active.Count - 1; i >= 0; i--)
+        {
+            ConvertedPanel panel = Active[i];
+            if (!panel.IsAlive)
+            {
+                // The game destroyed the UI (scene unload) — drop our host too.
+                Active.RemoveAt(i);
+                if (panel.HostCanvas != null)
+                    UguiPokeSurfaces.Unregister(panel.HostCanvas);
+                if (panel.HostGo != null)
+                    Object.Destroy(panel.HostGo);
+                continue;
+            }
+            if (panel.HostCanvas.worldCamera != cam)
+                panel.HostCanvas.worldCamera = cam;
+
+            // Sub-item A: for the first EarlySettleSeconds after Convert, re-treat every
+            // frame (not on the ~0.4 s periodic schedule) so a backing the game fades in /
+            // instantiates late is caught before its first visible frame — the initial
+            // flicker fix. After the settle window the cheap periodic sweep takes over.
+            bool earlySettle = panel.EarlySettleUntil > 0f && Time.unscaledTime < panel.EarlySettleUntil;
+
+            // Tests #19/#20: pooled/late children may bring nested canvases after
+            // Convert, and the game can flip overrideSorting back on live.
+            // Task #7: MODAL hosts (Diagnostic) sweep EVERY frame — a uGUI Dropdown
+            // spawns its "Dropdown List"/"Blocker" canvases mid-life on a click, and on
+            // the 30-frame schedule the open list stayed laser-unclickable (not yet
+            // raycast-merged) for up to ~0.4 s. The scan is a cheap component walk of
+            // the (few) floated modal subtrees; writes stay change-gated. The heavier
+            // mod-layer re-sweep still runs only on schedule OR when this pass actually
+            // adopted a NEW canvas (the fresh list/blocker must leave the game UI layer
+            // before the game's mono UI Camera double-draws it).
+            bool sweepDue = Time.frameCount >= panel.CanvasSweepNextFrame;
+            if (earlySettle || sweepDue || panel.Diagnostic)
+            {
+                bool adoptedNew = AdoptNestedCanvases(panel);
+                // User #8: a freshly adopted/pooled child spawns on the game's UI layer —
+                // re-assert the mod-layer move so the UI Camera never picks it up.
+                if (panel.ModLayerEnabled && (earlySettle || sweepDue || adoptedNew))
+                    ApplyModLayer(panel, initial: false);
+            }
+
+            // Task #4: pooled/late children can bring ScrollRects after Convert — re-sweep on
+            // the periodic schedule so their viewports get a clipper too (change-gated inside).
+            if (sweepDue)
+                EnsureScrollClipping(panel);
+
+            // User #8 part 2: re-assert the background hide (menu fade-ins can enable the
+            // backing image a few frames after the window shows).
+            if (panel.HideBackground && (earlySettle || Time.frameCount >= panel.BackgroundSweepNextFrame))
+                HideFullScreenBackground(panel, initial: false);
+
+            // Item 3a: reveal the render-hidden modal host once its settle delay has passed. The
+            // treatments for THIS frame already ran above (canvas still disabled → harmless), and
+            // LateTick re-treats once more (canvas now enabled) before the frame renders — so the
+            // first visible frame is fully treated: a clean pop-in with zero flicker.
+            // Item 1: a one-shot full-screen menu waits to pop in until its single content
+            // fit has actually applied (so it appears already compact, never flashing at the
+            // full 1920x2040 rect first), with the fit deadline as a safety floor so an
+            // unmeasurable menu still reveals (never an invisible, un-dismissable menu).
+            bool oneShotReady = !panel.FitOneShot || panel.FitOneShotApplied
+                                || Time.unscaledTime >= panel.FitFirstDeadline;
+            if (panel.RevealPending && panel.HostCanvas != null
+                && Time.unscaledTime >= panel.RevealNotBefore && oneShotReady)
+            {
+                panel.HostCanvas.enabled = true;
+                panel.RevealPending = false;
+                VRLog.Info("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' shown after settle " +
+                                      "(mod layer + background hidden, stable frame) — zero-flicker pop-in.");
+            }
+
+            // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
+            // overrideSorting=false, but a WORLD-space modal that shares its canvas order
+            // with a nested canvas the game flips to overrideSorting=true even briefly
+            // renders that subtree at the nested order → it swaps in/out of the host's
+            // dominant order between sweeps = flicker. Re-assert every frame for the
+            // (few) modal hosts: cheap (a handful of adopted entries), change-gated writes.
+            if (panel.Diagnostic)
+                ReassertAdoptedSorting(panel);
+
+            TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
+
+            if (panel.Diagnostic)
+                DiagnoseModal(panel, force: false); // change-gated per-frame flicker snapshot
+        }
+
+        if (Active.Count > 0 || _maskRequests > 0)
+            EnsureCameraMask();
+        else
+            RestoreCameraMask();
+
+        if (_lockDirty)
+        {
+            _lockDirty = false;
+            bool enabled = !EffectiveLock;
+            for (int i = 0; i < Active.Count; i++)
+            {
+                if (Active[i].HostRaycaster != null)
+                    Active[i].HostRaycaster.enabled = enabled;
+            }
+        }
+    }
+
+    /// <summary>
+    /// LateUpdate service (test #21): re-assert flatness AFTER the game's Update-time
+    /// tween writers ran — an Update-time sweep would lose to any tween ticking after
+    /// it and the tilt would render anyway. Cost: one change-gated subtree scan per
+    /// FLATTENED panel per frame (only surfaces that opted in; combat log today).
+    /// </summary>
+    internal static void LateTick()
+    {
+        for (int i = 0; i < Active.Count; i++)
+        {
+            ConvertedPanel panel = Active[i];
+            if (!panel.IsAlive)
+                continue;
+            if (panel.FlattenEnabled)
+                FlattenSubtree(panel);
+
+            // Sub-item A (INITIAL flicker — the residual): the mod-layer move + background hide
+            // run from Tick() in Update, but the game instantiates / fades in / enables the
+            // full-window opaque backing from its OWN Update, which may run AFTER ours. That frame
+            // then RENDERS (rendering happens after all Updates) with the untreated backing still
+            // on the game UI layer and visible — the reported 1–2 frame flash right as the menu
+            // opens, before the next Update's sweep catches it. Re-running the treatment here in
+            // LateUpdate (after every Update, immediately before the frame renders) closes that
+            // one-frame gap: whatever the game did to the backing this frame is corrected before
+            // it is ever drawn. Bounded to the early-settle window (the menu show/fade animation);
+            // writes are change-gated inside each helper, so a steady modal costs a cheap scan.
+            bool earlySettle = panel.EarlySettleUntil > 0f && Time.unscaledTime < panel.EarlySettleUntil;
+            if (!earlySettle)
+                continue;
+            if (panel.ModLayerEnabled)
+            {
+                AdoptNestedCanvases(panel);
+                ApplyModLayer(panel, initial: false);
+            }
+            if (panel.HideBackground)
+                HideFullScreenBackground(panel, initial: false);
+        }
+    }
+
+    // ---- floated-modal flicker instrumentation + per-frame sorting guard ------------------
+
+    /// <summary>
+    /// Modal-host flicker guard: re-assert <c>overrideSorting=false</c> (and the host's
+    /// worldCamera) on every adopted nested canvas EVERY frame, so a game writer that
+    /// flips overrideSorting on between the 30-frame adoption sweeps cannot pull a subtree
+    /// out of the host's dominant order for up to half a second (visible as flicker).
+    /// Change-gated writes; only the (few) adopted entries of modal hosts are touched.
+    /// </summary>
+    private static void ReassertAdoptedSorting(ConvertedPanel panel)
+    {
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            Canvas nested = panel.AdoptedCanvases[i].Canvas;
+            if (nested == null)
+                continue;
+            // Task #7: dropdown overlays (list/blocker) KEEP overrideSorting by design —
+            // AdoptCanvas re-asserts their top order; clearing it here would re-create
+            // the vanishing-dropdown bug this guard must not fight.
+            if (panel.AdoptedCanvases[i].KeepOverrideSorting)
+                continue;
+            if (nested.overrideSorting)
+            {
+                nested.overrideSorting = false;
+                VRLog.Info("WorldUI", $"MODAL DIAG: adopted canvas '{nested.name}' in " +
+                                      $"'{panel.HostGo.name}' had overrideSorting flipped back ON by the game — " +
+                                      "re-cleared (it was rendering at its own order, out of the host's).");
+            }
+            if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
+                nested.worldCamera = panel.HostCanvas.worldCamera;
+        }
+    }
+
+    // Scratch for the modal camera scan (double-draw detection); reused, no per-frame alloc.
+    private static readonly System.Text.StringBuilder DiagSb = new(256);
+
+    /// <summary>
+    /// FLOATED-MODAL FLICKER INSTRUMENTATION. Change-gated per-frame snapshot of a modal
+    /// host + its adopted child canvases, plus a scan of every OTHER enabled camera that
+    /// renders the host's layer (a second camera double-drawing the world-space modal is a
+    /// prime flicker suspect — the scenario head camera runs mask 0xFFFFFFFF and the game's
+    /// UICamera also renders the UI layer). Logs ONLY when a value actually changes, so a
+    /// genuinely stable float produces exactly one baseline line and then silence; any
+    /// per-frame churn (re-place, re-fit, enabled/sorting toggling, a child dropping out of
+    /// order, a camera appearing) prints a diff line the next hardware log can reason from.
+    /// </summary>
+    private static void DiagnoseModal(ConvertedPanel panel, bool force)
+    {
+        if (panel.HostGo == null || panel.HostCanvas == null || panel.HostRect == null)
+            return;
+
+        Transform t = panel.HostGo.transform;
+        Canvas c = panel.HostCanvas;
+        Vector3 p = t.position;
+        Vector3 s = t.lossyScale;
+        Rect r = panel.HostRect.rect;
+        string cam = c.worldCamera != null ? c.worldCamera.name : "<null>";
+        float age = Time.unscaledTime - panel.DiagConvertedAt;
+
+        // Host snapshot (rounded so sub-mm head jitter does not spam; a real re-place moves cm).
+        DiagSb.Clear();
+        DiagSb.Append("host pos=").Append(p.x.ToString("F2")).Append(',').Append(p.y.ToString("F2"))
+            .Append(',').Append(p.z.ToString("F2"))
+            .Append(" scale=").Append(s.x.ToString("F3"))
+            .Append(" rect=").Append(r.width.ToString("F0")).Append('x').Append(r.height.ToString("F0"))
+            .Append(" canvas.enabled=").Append(c.enabled)
+            .Append(" active=").Append(panel.HostGo.activeInHierarchy)
+            .Append(" order=").Append(c.sortingOrder)
+            .Append(" override=").Append(c.overrideSorting)
+            .Append(" mode=").Append(c.renderMode)
+            .Append(" cam=").Append(cam)
+            .Append(" targetAlive=").Append(panel.Target != null);
+        // Adopted children: the render state that actually decides draw order per subtree.
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            Canvas nc = panel.AdoptedCanvases[i].Canvas;
+            if (nc == null)
+            {
+                DiagSb.Append(" | child#").Append(i).Append("=<dead>");
+                continue;
+            }
+            DiagSb.Append(" | child '").Append(nc.name).Append("' enabled=").Append(nc.enabled)
+                .Append(" order=").Append(nc.sortingOrder).Append(" override=").Append(nc.overrideSorting);
+        }
+        string snapshot = DiagSb.ToString();
+        if (force || snapshot != panel.DiagLastSnapshot)
+        {
+            panel.DiagLastSnapshot = snapshot;
+            VRLog.Info("WorldUI", $"MODAL DIAG '{panel.HostGo.name}' (age {age:F1}s): {snapshot}");
+        }
+
+        // Camera scan (double-draw): every OTHER enabled camera whose cullingMask includes
+        // the host's layer bit will ALSO render this world-space host. Report each with its
+        // render target so a backbuffer/display double-draw is obvious vs. a harmless RT.
+        // Throttled (~every 20 frames) since Camera.allCameras allocates and cameras rarely
+        // change; the change-gate still collapses steady state to a single line.
+        if (!force && Time.frameCount < panel.DiagNextCameraScanFrame)
+            return;
+        panel.DiagNextCameraScanFrame = Time.frameCount + 20;
+        int layerBit = 1 << panel.HostGo.layer;
+        DiagSb.Clear();
+        Camera[] all = Camera.allCameras;
+        for (int i = 0; i < all.Length; i++)
+        {
+            Camera other = all[i];
+            if (other == null || !other.enabled || ReferenceEquals(other, WorldCamera))
+                continue;
+            if ((other.cullingMask & layerBit) == 0)
+                continue;
+            string tgt = other.targetTexture != null ? other.targetTexture.name : "BACKBUFFER";
+            if (string.IsNullOrEmpty(tgt))
+                tgt = "BACKBUFFER";
+            DiagSb.Append(" [").Append(other.name).Append(" depth=").Append(other.depth.ToString("F0"))
+                .Append(" stereo=").Append(other.stereoTargetEye).Append(" →").Append(tgt).Append(']');
+        }
+        string cams = DiagSb.Length == 0 ? "(none — head camera only)" : DiagSb.ToString();
+        if (force || cams != panel.DiagLastCameras)
+        {
+            panel.DiagLastCameras = cams;
+            VRLog.Info("WorldUI", $"MODAL DIAG '{panel.HostGo.name}' second cameras rendering layer " +
+                                  $"{panel.HostGo.layer}: {cams}");
+        }
+    }
+
+    // ---- modality -------------------------------------------------------------------------
+
+    private static bool EffectiveLock => _uiLocked || SoftLocks.Count > 0;
+
+    /// <summary>
+    /// Current mirrored modality (game UI lock OR module soft lock). Consumers that
+    /// bypass raycasters (physical buttons via ExecuteEvents) must check this.
+    /// </summary>
+    internal static bool IsLockedNow => EffectiveLock;
+
+    /// <summary>Mirror of the game's UI lock (subscribe VREvents.UiLockChanged → here).</summary>
+    internal static void SetUiLocked(bool locked)
+    {
+        if (_uiLocked == locked)
+            return;
+        _uiLocked = locked;
+        _lockDirty = true;
+    }
+
+    /// <summary>
+    /// Module-side soft lock (e.g. while the phase banner blocks input full-screen
+    /// in 2D — our converted surfaces must not accept pokes either, UI-ARCH §9.7).
+    /// </summary>
+    internal static void SetSoftLock(object requester, bool locked)
+    {
+        bool changed = locked ? SoftLocks.Add(requester) : SoftLocks.Remove(requester);
+        if (changed)
+            _lockDirty = true;
+    }
+
+    // ---- camera culling mask ---------------------------------------------------------------
+
+    /// <summary>Non-conversion users of world-space UI (tooltips) keep the mask alive.</summary>
+    internal static void AddMaskRequest() => _maskRequests++;
+
+    internal static void RemoveMaskRequest() => _maskRequests = Mathf.Max(0, _maskRequests - 1);
+
+    /// <summary>
+    /// The scenario/head camera does not render the UI layer (the UICamera does, but
+    /// only for its screen-space canvases). World-space UI needs the head camera to
+    /// include the UI bit; recorded and restored when the last conversion goes away.
+    /// </summary>
+    private static void EnsureCameraMask()
+    {
+        Camera? cam = WorldCamera;
+        if (cam == null)
+            return;
+
+        if (_maskedCamera != cam)
+        {
+            RestoreCameraMask();
+            if ((cam.cullingMask & (1 << UiLayer)) == 0)
+            {
+                _maskedCamera = cam;
+                _originalCullingMask = cam.cullingMask;
+                cam.cullingMask |= 1 << UiLayer;
+            }
+        }
+    }
+
+    private static void RestoreCameraMask()
+    {
+        if (_maskedCamera != null)
+        {
+            _maskedCamera.cullingMask = _originalCullingMask;
+            _maskedCamera = null;
+        }
+    }
+}
