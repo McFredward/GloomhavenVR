@@ -27,8 +27,13 @@ namespace GloomhavenVR.Core;
 /// All I2 access is wrapped in try/catch: at main-menu bootstrap the localization source
 /// is not loaded yet (mirrors <see cref="CardsGameApi.Localize"/>'s guard). We NEVER set
 /// the language — only read + subscribe.
+///
+/// <para>PARTIAL: the CONFIG-DESCRIPTION table (the ~490 bound settings' explanations, shown by
+/// the in-VR config browser) lives in <c>Loc.ConfigDescriptions.cs</c> — same class, same
+/// language resolution, just kept out of this file because it is long. See
+/// <see cref="ConfigDescription"/>.</para>
 /// </summary>
-internal static class Loc
+internal static partial class Loc
 {
     /// <summary>Raised (main thread) whenever the game's selected language actually changes.</summary>
     internal static event Action? OnChanged;
@@ -331,9 +336,10 @@ internal static class Loc
 
         // ---- Debug ▸ Alle Einstellungen — the generic config browser (2026-07) ----------------
         // User: "Alle config einstellungen sollen im VR Menu anpassbar sein!" — nothing may be
-        // config-file-only any more. These are the browser's OWN chrome; the ~450 entry
-        // DESCRIPTIONS it shows on hover stay in the language they were authored in (developer
-        // text in a Debug pane — see ConfigCatalog.Tooltip).
+        // config-file-only any more. These are the browser's OWN chrome; the entry DESCRIPTIONS
+        // it shows on hover are localized separately, keyed by section/key, in
+        // Loc.ConfigDescriptions.cs (user 2026-07: "Mach alles auf die jeweilige lokalisierte
+        // Sprache" — a tooltip must never be half English, half German).
         ["subcat_all_settings"] = Pair("All settings", "Alle Einstellungen"),
         ["cfg_group"] = Pair("Group", "Gruppe"),
         ["cfg_page"] = Pair("Page", "Seite"),
