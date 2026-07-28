@@ -226,6 +226,10 @@ internal static partial class Loc
         ["vr_cat_net"] = Pair("Multiplayer", "Mehrspieler"),
         ["vr_cat_system"] = Pair("System & start", "System & Start"),
         ["vr_cat_advanced"] = Pair("Advanced", "Erweitert"),
+        // Section headers inside the mod's tab of the game options window.
+        ["vr_sec_performance"] = Pair("Performance", "Leistung"),
+        ["vr_sec_panels"] = Pair("Panels & readouts", "Tafeln & Anzeigen"),
+        ["vr_sec_cards"] = Pair("Cards & board", "Karten & Brett"),
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
         // group instead of a sidebar entry), which is why the restructure uses them for grouping
         // and keeps the tab count at five.

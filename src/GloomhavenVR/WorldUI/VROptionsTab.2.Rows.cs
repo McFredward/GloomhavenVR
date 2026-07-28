@@ -324,10 +324,24 @@ internal static partial class VROptionsTab
         if (toggle != null)
             SafeDestroy(toggle);
 
-        Graphic? background = row.GetComponentInChildren<Graphic>(true);
+        // ITS OWN RAYCAST TARGET, and this is what made the first version unclickable. A Button
+        // needs a Graphic under the pointer for the event system to hit; the row itself has none
+        // (the background is a child, and its raycastTarget is off), so the click landed on
+        // nothing at all. An invisible full-rect Image is the smallest thing that fixes that
+        // without changing how the row looks.
+        var hit = new GameObject("ClickArea", typeof(RectTransform)).AddComponent<Image>();
+        var hitRect = (RectTransform)hit.transform;
+        hitRect.SetParent(row.transform, worldPositionStays: false);
+        hitRect.SetAsFirstSibling();
+        hitRect.anchorMin = Vector2.zero;
+        hitRect.anchorMax = Vector2.one;
+        hitRect.offsetMin = Vector2.zero;
+        hitRect.offsetMax = Vector2.zero;
+        hit.color = new Color(1f, 1f, 1f, 0f);
+        hit.raycastTarget = true;
+
         var button = row.AddComponent<Button>();
-        if (background != null)
-            button.targetGraphic = background;
+        button.targetGraphic = hit;
         button.onClick.AddListener(() => onClick());
     }
 

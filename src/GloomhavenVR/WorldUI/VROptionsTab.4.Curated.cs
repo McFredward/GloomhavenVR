@@ -22,8 +22,8 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static partial class VROptionsTab
 {
-    /// <summary>One everyday category: a caption and the entries it shows, in the order shown.</summary>
-    internal sealed class CuratedCategory
+    /// <summary>A titled block of settings inside a category — the second level of order.</summary>
+    internal sealed class CuratedSection
     {
         internal string LocKey = string.Empty;
         internal (string Section, string Key)[] Entries = System.Array.Empty<(string, string)>();
@@ -31,103 +31,173 @@ internal static partial class VROptionsTab
         internal string Label => Loc.Mod(LocKey);
     }
 
+    /// <summary>One sub-tab: a caption and the sections beneath it.</summary>
+    internal sealed class CuratedCategory
+    {
+        internal string LocKey = string.Empty;
+        internal CuratedSection[] Sections = System.Array.Empty<CuratedSection>();
+
+        internal string Label => Loc.Mod(LocKey);
+    }
+
     /// <summary>
-    /// Order is deliberate: what a player changes on the first day first (how they move, how their
-    /// hands behave), then how it looks, then the table, then the things touched once — multiplayer
-    /// identity and start-up.
+    /// THE SAME FIVE TABS THE MOD'S OWN PANEL USED — Komfort, Grafik, Tafeln, Avatar, Debug — and
+    /// the same reasoning behind them: each names what the player is trying to DO (sit comfortably,
+    /// make the picture right, deal with the mod's panels, decide how they look, tune). That
+    /// arrangement was arrived at once already; re-deriving it differently here would only make the
+    /// two menus disagree during the changeover.
+    ///
+    /// <para>Section headers inside a tab are one navigation level cheaper than another tab, which
+    /// is why grouping happens there and the tab count stays at five.</para>
+    ///
+    /// <para>DEBUG IS THE ODD ONE and gets no hand-picked list at all. Hand-curating several
+    /// hundred tuning constants would be guesswork with no user to serve, and any list would rot
+    /// silently as entries are added. It is instead the catalog's own topic index: a page of topic
+    /// links, one topic at a time behind each. That subdivision maintains itself — a new setting
+    /// appears under its topic without anyone remembering to add it — and it is the only place in
+    /// the tab where completeness matters more than selection.</para>
     /// </summary>
     internal static readonly CuratedCategory[] Curated =
     {
         new()
         {
-            LocKey = "vr_cat_comfort",
-            Entries = new[]
+            LocKey = "comfort",
+            Sections = new CuratedSection[]
             {
-                ("Comfort", "FreeMovement"),
-                ("Comfort", "TurnMode"),
-                ("Comfort", "SnapTurnDegrees"),
-                ("Comfort", "SmoothTurnSpeed"),
-                ("Comfort", "TurnHand"),
-                ("Comfort", "WorldGrabEnabled"),
-                ("Comfort", "VerticalDrag"),
-                ("Comfort", "RotateEnabled"),
-                ("Comfort", "ScaleEnabled"),
-                ("Comfort", "TableHeightOffset"),
-                ("Comfort", "RecenterHoldSeconds"),
-                ("Rig", "WorldScale"),
-                ("Rig", "WorldTiltDegrees"),
+                new()
+                {
+                    LocKey = "sec_table_world",
+                    Entries = new[]
+                    {
+                        ("Rig", "WorldScale"),
+                        ("Comfort", "TableHeightOffset"),
+                        ("Rig", "WorldTiltDegrees"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_movement",
+                    Entries = new[]
+                    {
+                        ("Comfort", "TurnMode"),
+                        ("Comfort", "SnapTurnDegrees"),
+                        ("Comfort", "SmoothTurnSpeed"),
+                        ("Comfort", "TurnHand"),
+                        ("Comfort", "FreeMovement"),
+                        ("Comfort", "WorldGrabEnabled"),
+                        ("Comfort", "VerticalDrag"),
+                        ("Comfort", "RotateEnabled"),
+                        ("Comfort", "ScaleEnabled"),
+                        ("Comfort", "RecenterHoldSeconds"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_hands_aim",
+                    Entries = new[]
+                    {
+                        ("Hands", "PrimaryHand"),
+                        ("Hands", "RayAlwaysOn"),
+                        ("Hands", "LaserFingerOrigin"),
+                        ("Hands", "ModalRayConeDegrees"),
+                    },
+                },
             },
         },
         new()
         {
-            LocKey = "vr_cat_hands",
-            Entries = new[]
+            LocKey = "cat_graphics",
+            Sections = new CuratedSection[]
             {
-                ("Hands", "PrimaryHand"),
-                ("Hands", "HandStyle"),
-                ("Hands", "HandColor"),
-                ("Hands", "RayAlwaysOn"),
-                ("Hands", "LaserFingerOrigin"),
-                ("Hands", "ModalRayConeDegrees"),
-                ("Hands", "HandForwardOffset"),
-                ("Hands", "HandVerticalOffset"),
-                ("Hands", "HandLateralOffset"),
-                ("Hands", "GripPitchOffsetDegrees"),
+                new()
+                {
+                    LocKey = "sec_presentation",
+                    Entries = new[]
+                    {
+                        ("Compat", "DisablePostProcessing"),
+                        ("Compat", "DisableVolumetricFog"),
+                        ("Compat", "WallFade"),
+                        ("Rig", "ForwardRendering"),
+                        ("Rig", "VoidColor"),
+                        ("Rig", "MenuRig"),
+                        ("Rig", "SpawnInCircle"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "vr_sec_performance",
+                    Entries = new[]
+                    {
+                        ("Core", "EnableGraphicsJobs"),
+                        ("Core", "AutoRestartForGraphicsJobs"),
+                    },
+                },
             },
         },
         new()
         {
-            LocKey = "vr_cat_view",
-            Entries = new[]
+            LocKey = "cat_panels",
+            Sections = new CuratedSection[]
             {
-                ("Compat", "DisablePostProcessing"),
-                ("Compat", "DisableVolumetricFog"),
-                ("Compat", "WallFade"),
-                ("Rig", "ForwardRendering"),
-                ("Rig", "VoidColor"),
-                ("Rig", "MenuRig"),
-                ("Rig", "SpawnInCircle"),
+                new()
+                {
+                    LocKey = "vr_sec_panels",
+                    Entries = new[]
+                    {
+                        ("WorldUI", "CombatLog"),
+                        ("WorldUI", "ActorBars"),
+                        ("WorldUI", "ActionElementHints"),
+                        ("WorldUI", "ButtonCluster"),
+                        ("WorldUI", "Dialogs"),
+                        ("WorldUI", "DecisionDock"),
+                        ("WorldUI", "EnemyReveal"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "vr_sec_cards",
+                    Entries = new[]
+                    {
+                        ("Cards", "Board"),
+                        ("Cards", "TrayScale"),
+                        ("Cards", "TrayFollow"),
+                        ("Cards", "InspectScale"),
+                        ("Cards", "RevealMode"),
+                        ("Cards", "GrabButton"),
+                    },
+                },
             },
         },
         new()
         {
-            LocKey = "vr_cat_table",
-            Entries = new[]
+            LocKey = "avatar",
+            Sections = new CuratedSection[]
             {
-                ("Cards", "Board"),
-                ("Cards", "TrayScale"),
-                ("Cards", "TrayFollow"),
-                ("Cards", "InspectScale"),
-                ("Cards", "RevealMode"),
-                ("Cards", "GrabButton"),
-                ("WorldUI", "CombatLog"),
-                ("WorldUI", "ActorBars"),
-                ("WorldUI", "ActionElementHints"),
-                ("WorldUI", "ButtonCluster"),
-                ("WorldUI", "Dialogs"),
-            },
-        },
-        new()
-        {
-            LocKey = "vr_cat_net",
-            Entries = new[]
-            {
-                ("Net", "Enabled"),
-                ("Net", "MirrorEnabled"),
-                ("Net", "MaskId"),
-                ("Net", "MaskSize"),
-                ("Net", "RemoteBoards"),
-            },
-        },
-        new()
-        {
-            LocKey = "vr_cat_system",
-            Entries = new[]
-            {
-                ("Core", "EnableGraphicsJobs"),
-                ("Core", "AutoRestartForGraphicsJobs"),
-                ("Core", "RuntimePriority"),
-                ("General", "Enabled"),
+                new()
+                {
+                    LocKey = "sec_appearance",
+                    Entries = new[]
+                    {
+                        ("Hands", "HandStyle"),
+                        ("Hands", "HandColor"),
+                        ("Hands", "HandForwardOffset"),
+                        ("Hands", "HandVerticalOffset"),
+                        ("Hands", "HandLateralOffset"),
+                        ("Hands", "GripPitchOffsetDegrees"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_multiplayer",
+                    Entries = new[]
+                    {
+                        ("Net", "MaskId"),
+                        ("Net", "MaskSize"),
+                        ("Net", "MirrorEnabled"),
+                        ("Net", "Enabled"),
+                        ("Net", "RemoteBoards"),
+                    },
+                },
             },
         },
     };

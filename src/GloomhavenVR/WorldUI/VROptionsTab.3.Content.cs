@@ -56,7 +56,7 @@ internal static partial class VROptionsTab
     private static readonly List<(Toggle toggle, int index)> CategoryToggles = new(16);
 
     /// <summary>
-    /// Which sub-tab is lit. Both advanced views light "Erweitert" — drilling into a topic is
+    /// Which sub-tab is lit. Both advanced views light Debug — drilling into a topic is
     /// still being in the advanced section, and unlighting the column there would leave the player
     /// with no indication of where they are.
     /// </summary>
@@ -118,17 +118,22 @@ internal static partial class VROptionsTab
             return 0;
 
         CuratedCategory category = Curated[_curated];
-        BuildHeader(ContentRoot, category.Label);
-
         int rows = 0;
-        for (int i = 0; i < category.Entries.Length; i++)
-        {
-            (string section, string key) = category.Entries[i];
-            ConfigCatalog.ConfigItem? item = Lookup(section, key);
-            if (item == null)
-                continue;
 
-            rows += BuildItem(item);
+        for (int s = 0; s < category.Sections.Length; s++)
+        {
+            CuratedSection section = category.Sections[s];
+            BuildHeader(ContentRoot, section.Label);
+
+            for (int i = 0; i < section.Entries.Length; i++)
+            {
+                (string sectionName, string key) = section.Entries[i];
+                ConfigCatalog.ConfigItem? item = Lookup(sectionName, key);
+                if (item == null)
+                    continue;
+
+                rows += BuildItem(item);
+            }
         }
         return rows;
     }
@@ -143,7 +148,7 @@ internal static partial class VROptionsTab
         if (ContentRoot == null)
             return 0;
 
-        BuildHeader(ContentRoot, Loc.Mod("vr_cat_advanced"));
+        BuildHeader(ContentRoot, Loc.Mod("cat_debug"));
 
         int rows = 0;
         for (int t = 0; t < ConfigCatalog.TopicCount; t++)
@@ -169,7 +174,7 @@ internal static partial class VROptionsTab
         if (ContentRoot == null)
             return 0;
 
-        BuildLinkRow(ContentRoot, "‹ " + Loc.Mod("vr_cat_advanced"), () =>
+        BuildLinkRow(ContentRoot, "‹ " + Loc.Mod("cat_debug"), () =>
         {
             _view = View.AdvancedIndex;
             TickGuard.Run("VROptionsTab.Back", Rebuild, "WorldUI");
@@ -226,9 +231,9 @@ internal static partial class VROptionsTab
         for (int i = 0; i < Curated.Length; i++)
             BuildCategoryButton(bar, i, Curated[i].Label);
 
-        // "Erweitert" last, and set apart by being last: the everyday categories read as the menu,
-        // and everything else is one deliberate step further in.
-        BuildCategoryButton(bar, AdvancedTabIndex, Loc.Mod("vr_cat_advanced"));
+        // Debug last, and set apart by being last: the four everyday tabs read as the menu, and
+        // the tuning constants are one deliberate step further in.
+        BuildCategoryButton(bar, AdvancedTabIndex, Loc.Mod("cat_debug"));
     }
 
     /// <summary>
