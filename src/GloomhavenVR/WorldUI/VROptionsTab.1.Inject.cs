@@ -383,6 +383,9 @@ internal static partial class VROptionsTab
             root.offsetMax = new Vector2(0f, 0f);
 
             var layout = root.gameObject.AddComponent<VerticalLayoutGroup>();
+            // The gap the sub-tab column sits in. Padding OUR content is the one way to reserve it
+            // that no animation of the game's can undo — see BuildTabBar.
+            layout.padding = new RectOffset(Mathf.RoundToInt(TabColumnWidth), 0, 0, 0);
             layout.childControlWidth = true;
             layout.childControlHeight = true;
             layout.childForceExpandWidth = true;
@@ -415,24 +418,25 @@ internal static partial class VROptionsTab
         if (scroll == null)
             return null;
 
-        // The ScrollRect sits ON the tab's "Main Area" (the probe), so that transform IS the
-        // scrolling pane: insetting its left edge and putting the column in the gap needs no
-        // reparenting of anything the game owns. The column is a SIBLING of the pane, inside it,
-        // so it cannot land outside the visible panel the way the top strip did.
+        // NOTHING THE GAME OWNS IS MOVED. The first version insetting the pane's left edge to make
+        // room, and the column then drew straight over the settings: "Main Area" carries a
+        // LeanTweenGUIAnimator that tweens the pane every time the tab is shown, and that tween
+        // wrote the offsets back. Room is made instead by PADDING THE MOD'S OWN CONTENT (see
+        // BuildContentRoot), which nothing else touches.
+        //
+        // The column is parented to the pane itself so it inherits the pane's exact rect and rides
+        // that same show animation. It is not under the Viewport, so the scroll mask does not clip
+        // it, and it is created after the Viewport so it draws over the padding strip rather than
+        // under it.
         var area = (RectTransform)scroll.transform;
-        if (area.parent == null)
-            return null;
-
-        area.offsetMin = new Vector2(area.offsetMin.x + TabColumnWidth, area.offsetMin.y);
 
         var column = (RectTransform)new GameObject("GloomhavenVR.SubTabs", typeof(RectTransform)).transform;
-        column.SetParent(area.parent, worldPositionStays: false);
+        column.SetParent(area, worldPositionStays: false);
         column.anchorMin = new Vector2(0f, 0f);
         column.anchorMax = new Vector2(0f, 1f);
         column.pivot = new Vector2(0f, 0.5f);
-        column.offsetMin = new Vector2(area.offsetMin.x - TabColumnWidth, area.offsetMin.y);
-        column.offsetMax = new Vector2(area.offsetMin.x - TabColumnWidth + TabColumnWidth, area.offsetMax.y);
-        column.sizeDelta = new Vector2(TabColumnWidth, column.sizeDelta.y);
+        column.sizeDelta = new Vector2(TabColumnWidth, 0f);
+        column.anchoredPosition = Vector2.zero;
 
         var layout = column.gameObject.AddComponent<VerticalLayoutGroup>();
         layout.childAlignment = TextAnchor.UpperCenter;

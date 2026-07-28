@@ -102,7 +102,8 @@ internal static partial class VROptionsTab
 
         MarkSelectedCategory();
         VRLog.Info("WorldUI", $"VR options tab: built '{ConfigCatalog.TopicLabel(_category)}' — "
-                              + $"{groups.Count} group(s), {rows} row(s).");
+                              + $"{groups.Count} group(s), {rows} row(s); "
+                              + $"{CategoryToggles.Count} sub-tab(s) in the column.");
     }
 
     /// <summary>
@@ -146,7 +147,15 @@ internal static partial class VROptionsTab
         {
             label.text = ConfigCatalog.TopicLabel(topic);
             label.enableWordWrapping = false;
-            label.overflowMode = TextOverflowModes.Ellipsis;
+
+            // SHRINK RATHER THAN TRUNCATE. The donor caption is sized for a one-word tab
+            // ("Grafik", "Ton"); the mod's topics are two and three words, and ellipsis turned
+            // them into "Messung...", "Bild&D...", "Bewegun..." — captions that no longer say
+            // which category they are, which is the entire job of this column.
+            label.enableAutoSizing = true;
+            label.fontSizeMax = label.fontSize;
+            label.fontSizeMin = 9f;
+            label.overflowMode = TextOverflowModes.Overflow;
         }
 
         Toggle? toggle = go.GetComponentInChildren<Toggle>(true);
