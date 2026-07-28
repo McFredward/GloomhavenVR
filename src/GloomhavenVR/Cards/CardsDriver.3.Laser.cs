@@ -43,6 +43,112 @@ internal sealed partial class CardsDriver
     /// <summary>One-shot session log guard for the fan grab-rescue confirmation line.</summary>
     private static bool s_loggedFanRescue;
 
+    // -------------------------------------------- fan hover ownership (laser vs hand) --
+
+    /// <summary>Which of the two hover sources owns the fan's ONE highlight this frame.</summary>
+    private enum FanHoverOwner
+    {
+        None,
+        Laser,
+        Hand,
+    }
+
+    /// <summary>
+    /// USER ISSUE (pulling a card out of the fan): the laser could highlight one card while the
+    /// physically reaching hand highlighted a DIFFERENT one — two lifted cards at once, and the
+    /// trigger silently belonged to the laser's card, so the fan promised two things and honoured
+    /// the one the player was not looking at. The two sources were independent by construction:
+    /// <see cref="UpdateFanLaser"/> pops via <c>_laserPopped</c>, the hand pops via
+    /// <c>_popped</c>/<c>_pokeHover</c>, and <see cref="VRCard"/>'s pop is an OR of the two —
+    /// <see cref="UpdateHandContactArbitration"/> only ever arbitrated hand candidates AGAINST EACH
+    /// OTHER (and deliberately exempted the laser card), never hand against laser.
+    ///
+    /// ARBITRATION RULE — sticky first-engaged ownership: the source that engaged FIRST keeps the
+    /// fan highlight until IT disengages; the other source may not raise a second one meanwhile.
+    /// Chosen over "laser always wins" because on marginal geometry (the hand reaching in is
+    /// exactly when the same controller's ray also sweeps the fan) an unconditional priority makes
+    /// the highlight jump between the two sources as the hand moves, and flapping is worse than
+    /// either choice. Two refinements:
+    ///   * both sources on the SAME card is not a conflict — the laser takes it so the beam clamps
+    ///     visibly to the card the trigger will grab;
+    ///   * a fresh engagement with BOTH sources live in the same frame goes to the LASER, matching
+    ///     the split's existing laser-first precedence (see <see cref="UpdateFanHoverSplit"/>) and
+    ///     the trigger arbitration in <c>ProximityGrabber</c> (<c>Ray.HasFreshUiHit</c>).
+    /// Ownership is released the moment the owner has no candidate left, so the other source can
+    /// take over in the SAME frame — there is never a frame with no highlight.
+    ///
+    /// The loser loses the trigger too, not just the pop: whichever source owns the highlight also
+    /// owns the grab (the hand branch in <see cref="UpdateFanLaser"/> / the pop-suppression in
+    /// <see cref="UpdateHandContactArbitration"/>). That is the same "what pops is what you grab"
+    /// contract the hand-side single-winner arbitration already enforces — splitting them here
+    /// would recreate exactly the lie the user reported.
+    /// </summary>
+    private FanHoverOwner _fanHoverOwner;
+
+    /// <summary>Throttle clock (unscaled seconds) for the ownership-change log.</summary>
+    private static float s_nextFanOwnerLogAt;
+
+    /// <summary>
+    /// Elect the owner of the fan's single highlight for this frame (see
+    /// <see cref="_fanHoverOwner"/> for the rule and why it is sticky).
+    /// <paramref name="rayCard"/> is the fan card the beam is on this frame (null = none, uGUI
+    /// test already applied). Allocation-free.
+    /// </summary>
+    private FanHoverOwner ResolveFanHoverOwner(VRHand dom, VRCard? rayCard)
+    {
+        VRCard? handCard = HandOwnedFanCard(dom);
+        bool laserLive = rayCard != null;
+        bool handLive = handCard != null;
+
+        FanHoverOwner owner;
+        if (!laserLive && !handLive)
+            owner = FanHoverOwner.None;
+        else if (laserLive && handLive && ReferenceEquals(rayCard, handCard))
+            owner = FanHoverOwner.Laser; // same card — not a conflict; prefer the honest beam clamp
+        else if (_fanHoverOwner == FanHoverOwner.Laser && laserLive)
+            owner = FanHoverOwner.Laser; // incumbent holds while its own source still has a card
+        else if (_fanHoverOwner == FanHoverOwner.Hand && handLive)
+            owner = FanHoverOwner.Hand;
+        else
+            owner = laserLive ? FanHoverOwner.Laser : FanHoverOwner.Hand; // fresh engage; laser takes ties
+
+        if (owner != _fanHoverOwner)
+        {
+            _fanHoverOwner = owner;
+            float now = Time.unscaledTime;
+            if (now >= s_nextFanOwnerLogAt)
+            {
+                s_nextFanOwnerLogAt = now + 0.5f;
+                VRLog.Debug("Cards", $"Fan highlight owner → {owner} (laser='{rayCard?.name ?? "none"}', " +
+                                     $"hand='{handCard?.name ?? "none"}'). Sticky single-owner: the other " +
+                                     "source raises no second highlight and does not own the trigger.");
+            }
+        }
+        return owner;
+    }
+
+    /// <summary>
+    /// The ONE fan card the free hand is physically in contact with, or null. Reads the
+    /// hand-contact arbitration's winner (elected LAST tick — the arbitration deliberately runs
+    /// after the laser paths, see <see cref="UpdateHandContactArbitration"/>; a one-frame-old
+    /// winner is exactly right for a STICKY owner and keeps the frame order untouched) and falls
+    /// back to the ProximityGrabber highlight, which is the source the T2 lift-priority rescue was
+    /// written against. The winner is read rather than the highlight alone because while the laser
+    /// owns the fan every fan card refuses the hand in <c>AllowsHand</c>, so
+    /// <c>Grabber.Highlighted</c> is null then — the contact winner keeps being elected regardless,
+    /// which is what makes the laser→hand handoff instant instead of costing a re-acquire frame.
+    /// </summary>
+    private VRCard? HandOwnedFanCard(VRHand dom)
+    {
+        // Unity's lifetime-aware != (a destroyed card is "null" without being a null reference).
+        VRCard? winner = _handContactWinner;
+        if (winner != null && !winner.IsHeld && winner.CanGrab && _fan.Contains(winner))
+            return winner;
+        if (dom.Grabber.Highlighted is VRCard prox && !prox.IsHeld && prox.CanGrab && _fan.Contains(prox))
+            return prox;
+        return null;
+    }
+
     /// <summary>
     /// Demeo pluck (P6): the dominant hand's laser highlights fan cards (pop + one
     /// haptic tick per card change) and TriggerDown pulls the pointed card into the
@@ -64,6 +170,12 @@ internal sealed partial class CardsDriver
     /// Both yield to a live game-UI hit (RayUgui) exactly like the tray pattern, so a
     /// UI click can never double-fire with a grab; the beam clamp keeps suppressing the
     /// board far-click (Cards ticks before Board). Single-winner by construction.
+    ///
+    /// SINGLE OWNER (user issue: two cards highlighted at once): the beam only acts when it OWNS
+    /// the fan hover this frame — see <see cref="_fanHoverOwner"/> for the sticky first-engaged
+    /// rule. While the reaching HAND owns it instead, the laser raises no pop, clamps no beam and
+    /// hands the trigger to the hand's card (which is exactly the shape of T2 rescue path 1, so
+    /// the two share one branch below).
     /// </summary>
     private void UpdateFanLaser()
     {
@@ -71,25 +183,51 @@ internal sealed partial class CardsDriver
         if (!_fan.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
             || !dom.Ray.Enabled || dom.Grabber.Held != null)
         {
+            _fanHoverOwner = FanHoverOwner.None;
             ClearLaserHover();
             return;
         }
 
+        // Where the beam is on the fan RIGHT NOW (null = nowhere, or a closer live game-UI hit).
         PickPose pick = dom.Ray.Current;
-        if (!_fan.TryRaycast(pick.Origin, pick.Direction, _laserHover, out VRCard? card, out Vector3 point, out float dist)
-            || card == null
-            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        VRCard? card = null;
+        Vector3 point = default;
+        if (_fan.TryRaycast(pick.Origin, pick.Direction, _laserHover, out VRCard? beamCard,
+                out Vector3 beamPoint, out float dist)
+            && beamCard != null
+            && !(dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
         {
-            // T2 rescue paths (see method doc): the highlighted/just-hovered fan card wins
-            // the trigger even though the ray misses it this frame. Yields to a live game-UI
-            // hit like the tray lift-priority accept.
+            card = beamCard;
+            point = beamPoint;
+        }
+
+        FanHoverOwner owner = ResolveFanHoverOwner(dom, card);
+        if (owner != FanHoverOwner.Laser)
+        {
+            // The laser does NOT own the fan hover this frame — either the reaching hand does, or
+            // neither source has a card. Two ways a card still owns the TRIGGER without the beam:
+            // 1. hand ownership (which subsumes the T2 proximity lift-priority rescue), and
+            // 2. the T2 pull-jerk grace on the card the beam just left.
+            // Yields to a live game-UI hit like the tray lift-priority accept.
+            if (owner == FanHoverOwner.Hand)
+            {
+                // Hand ownership is open-ended (it lasts as long as the hand stays in contact), so
+                // the laser pop must go NOW rather than be left standing on the rescue winner the
+                // way the 0.15 s grace does: a lingering _laserHover ALSO keeps gating the board /
+                // browse / active lasers off ("a fan hover owns the frame"), and that gate must
+                // never outlive the beam actually being on the fan — the same starvation
+                // UpdateBoardLaser's lift-priority branch had to be narrowed for. No visual blink:
+                // the winner is in contact range by construction and is the only fan card that
+                // still AllowsHand, so ProximityGrabber's highlight carries the very same pop.
+                ClearLaserHover();
+            }
             if (!dom.RayUgui.HasHit)
             {
-                VRCard? rescue = null;
-                if (dom.Grabber.Highlighted is VRCard prox && _fan.Contains(prox) && !prox.IsHeld)
-                    rescue = prox; // 1. the popped card under the reaching hand
-                else if (_laserHover != null && !_laserHover.IsHeld && _fan.Contains(_laserHover)
-                         && Time.unscaledTime <= _laserHoverGraceUntil)
+                VRCard? rescue = owner == FanHoverOwner.Hand
+                    ? HandOwnedFanCard(dom) // 1. the popped card under the reaching hand
+                    : null;
+                if (rescue == null && _laserHover != null && !_laserHover.IsHeld && _fan.Contains(_laserHover)
+                    && Time.unscaledTime <= _laserHoverGraceUntil)
                     rescue = _laserHover; // 2. trigger-pull jerk grace
 
                 if (rescue != null)
@@ -97,8 +235,9 @@ internal sealed partial class CardsDriver
                     // A stale laser pop on a DIFFERENT card than the rescue winner drops now.
                     if (_laserHover != null && !ReferenceEquals(_laserHover, rescue))
                         ClearLaserHover();
-                    // Own the trigger for the winner, but do NOT move the beam. This branch
-                    // runs precisely BECAUSE the ray missed the card this frame, so any point
+                    // Own the trigger for the winner, but do NOT move the beam. The beam is by
+                    // definition NOT on the winner here (either it missed the fan entirely, or it
+                    // is on a different card that lost the ownership arbitration), so any point
                     // published here is a fiction — and the beam ends at that point's
                     // PROJECTION onto the aim ray, so publishing the card CENTRE parked the
                     // reticle on the plane through the centre perpendicular to the beam: the
@@ -112,9 +251,10 @@ internal sealed partial class CardsDriver
                         if (!s_loggedFanRescue)
                         {
                             s_loggedFanRescue = true;
-                            VRLog.Info("Cards", "Fan grab RESCUE active (T2): highlighted fan card " +
-                                                "won a trigger whose ray missed the card strip " +
-                                                "(lift-priority / pull-jerk grace).");
+                            VRLog.Info("Cards", "Fan grab RESCUE active (T2): the HIGHLIGHTED fan card " +
+                                                "won a trigger the beam was not on (hand owns the fan " +
+                                                "hover / ray missed the card strip / pull-jerk grace) — " +
+                                                "what is lifted is always what gets grabbed.");
                         }
                         ClearLaserHover();
                         dom.Grabber.ForceGrab(rescue, releaseOnTriggerUp: true);
@@ -126,11 +266,13 @@ internal sealed partial class CardsDriver
             return;
         }
 
-        if (!ReferenceEquals(card, _laserHover))
+        // The laser owns the fan hover, which is only ever elected while the beam IS on a card.
+        VRCard beam = card!;
+        if (!ReferenceEquals(beam, _laserHover))
         {
             ClearLaserHover();
-            _laserHover = card;
-            card.SetLaserHover(true);
+            _laserHover = beam;
+            beam.SetLaserHover(true);
             dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
         _laserHoverGraceUntil = Time.unscaledTime + FanHoverGraceSeconds; // refresh the pull-jerk grace
@@ -139,11 +281,10 @@ internal sealed partial class CardsDriver
         // suppresses the board far-click for this trigger press.
         dom.Ray.UiHitOverride = point;
 
-        if (dom.TriggerDown && card.CanGrab)
+        if (dom.TriggerDown && beam.CanGrab)
         {
-            VRCard grab = card;
             ClearLaserHover();
-            dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
+            dom.Grabber.ForceGrab(beam, releaseOnTriggerUp: true);
         }
     }
 
@@ -183,7 +324,11 @@ internal sealed partial class CardsDriver
         }
 
         // Precedence: laser wins whenever a fan card is laser-hovered (primary controller
-        // path); the hand-contact arbitration winner fills in when the laser hovers nothing
+        // path); the hand-contact arbitration winner fills in when the laser hovers nothing.
+        // This ALSO reads the ownership arbitration for free and needs no branch of its own:
+        // _laserHover is null on exactly the frames the reaching hand owns the fan hover (see
+        // _fanHoverOwner / UpdateFanLaser), so the split always opens around the same single card
+        // that is popped — the two can no longer disagree about which source is speaking
         // (issue A: the split always opens around the ONE lifted card — the proximity
         // highlight follows the same winner via AllowsHand, so it stays the fallback for
         // the first frame after a winner change).
@@ -340,9 +485,19 @@ internal sealed partial class CardsDriver
             return;
         if (_fan.IsOpen)
         {
+            // SINGLE FAN HIGHLIGHT (user issue: laser on one card, hand near another, both lifted).
+            // While the LASER owns the fan hover (see _fanHoverOwner) the hand may not raise a
+            // second one, so EVERY fan card except the beam's own is suppressed here — this tick's
+            // contact winner included. Feeding _laserHover in as the fan-side winner reuses the
+            // existing exemption rather than adding a second suppression path, and leaves the
+            // "the laser-hovered card is never suppressed" invariant literally intact. The tray
+            // pool keeps the real contact winner: this arbitration is about the FAN's highlight.
+            VRCard fanWinner = _fanHoverOwner == FanHoverOwner.Laser && _laserHover != null
+                ? _laserHover
+                : winner;
             IReadOnlyList<VRCard> fanCards = _fan.Cards;
             for (int i = 0; i < fanCards.Count; i++)
-                SuppressContactLoser(fanCards[i], winner);
+                SuppressContactLoser(fanCards[i], fanWinner);
         }
         if (_tray.IsVisible)
         {

@@ -153,6 +153,7 @@
 - **Where:** `CardsDriver.UpdateFanLaser`, `CardsDriver.FanHoverGraceSeconds`
 - **Rule:** Three independent ways to own the trigger on a fan card — the beam is on it, the proximity highlight is on it, or it was the last laser-hovered card within `FanHoverGraceSeconds` (0.15 s, **unscaled**). All of them yield to a live `RayUgui` hit.
 - **Why:** The trigger pull jerks the aim ray off the narrow strip on the press frame, and the proximity fallback was itself deferred by the mod's own fan clamp raising `Ray.HasFreshUiHit` — so the proximity path never fired. Unscaled time because the card-selection phase pauses `timeScale`. The uGUI gate exists so a UI click can never double-fire with a grab.
+- **AMENDED (fan double-highlight fix):** the first two of the three are now selected by the fan hover-owner arbitration rather than by "did the ray miss" — the beam owns the trigger only on frames it owns the *highlight*, and the proximity path is now reached whenever the HAND owns it (which includes, but is wider than, the old "ray missed the strip" condition). The grace is unchanged and still ranks below the proximity winner. See *The fan has exactly ONE hover owner* in §3.
 - **Established by:** `6c90126` (T2, reliable fan grabs)
 - **Breaks if:** Deleting the grace as "redundant with the proximity rescue", or switching to `Time.time`.
 - **Confidence:** high
@@ -207,6 +208,14 @@
 - **Why:** The laser path arbitrates itself and its pluck must keep working. Running arbitration first would let a palm near a neighbour suppress the card the player is aiming at.
 - **Established by:** `1a9b071`
 - **Breaks if:** Reordering the tick calls "since they are all independent".
+- **Confidence:** high
+
+### The fan has exactly ONE hover owner — sticky, first-engaged
+- **Where:** `CardsDriver._fanHoverOwner` / `CardsDriver.ResolveFanHoverOwner` / `CardsDriver.HandOwnedFanCard`, consumed by `CardsDriver.UpdateFanLaser` (the non-owner branch) and by `CardsDriver.UpdateHandContactArbitration` (`fanWinner`)
+- **Rule:** The laser and the reaching hand are arbitrated **against each other**, not just each against itself. Whichever engaged first owns the fan's single highlight until *it* disengages; the loser raises no pop **and** does not own the trigger. Both sources on the same card is not a conflict (the laser takes it, so the beam clamps to the card the trigger will grab); a fresh engagement with both live in one frame goes to the laser.
+- **Why:** The two pop sources were independent by construction — `VRCard`'s pop is an OR of `_laserPopped` and the hand's `_popped`/`_pokeHover`, and the contact arbitration only ranked hand candidates against each other while *exempting* the laser card. Pulling a card out of the fan therefore lit two cards at once, and the trigger silently belonged to the laser's card (`Ray.HasFreshUiHit` defers `ProximityGrabber`), so the fan promised two things and honoured the one the player was not reaching for. Sticky rather than "laser always wins" because reaching in is exactly when the same controller's ray also sweeps the fan — an unconditional priority makes the highlight jump between sources as the hand moves, and flapping is worse than either choice.
+- **Established by:** the fan double-highlight fix (laser vs. hand single-owner arbitration)
+- **Breaks if:** Giving one source unconditional priority "to simplify"; re-electing the owner from scratch every frame (that *is* the flapping); or reading `Grabber.Highlighted` alone instead of `_handContactWinner` in `HandOwnedFanCard` — while the laser owns, every fan card refuses the hand in `AllowsHand`, so the highlight is null and the laser→hand handoff would cost a re-acquire frame with no highlight at all.
 - **Confidence:** high
 
 ### Non-grabbable cards cannot win
