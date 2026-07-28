@@ -745,14 +745,28 @@ internal sealed partial class CardsDriver
         float minArc = BoardArcMin();
         IReadOnlyList<VRCard> cards = _browser.Cards;
         int launched = 0;
+        int skippedActive = 0;
         for (int i = 0; i < cards.Count; i++)
         {
             VRCard card = cards[i];
             if (card == null || card.IsHeld || card.IsFlying || _flyingToPile.Contains(card)
                 || !card.gameObject.activeInHierarchy)
                 continue;
+
+            // A CARD THE BOARD IS STILL SHOWING IS NOT THE BROWSER'S TO PUT AWAY. During the action
+            // phase the cards lying on the control board are the Active pile, and the same
+            // underlying game card also appears in the pile being browsed — one VRCard serves both,
+            // so it is in this list. Flying it away swept the player's own played cards into the
+            // stack along with the discards, which is not what closing a fan means: closing a fan
+            // clears THAT fan. It is still re-parented out, so it survives the browser root
+            // deactivating, and the rebuild that follows re-homes it into the active area.
             if (anchor != null)
                 card.transform.SetParent(anchor, worldPositionStays: true); // survive the root deactivation
+            if (_active.Contains(card))
+            {
+                skippedActive++;
+                continue;
+            }
             _flyingToPile.Add(card);
             VRCard flying = card;
             PileKind dest = kind.Value;
@@ -764,9 +778,11 @@ internal sealed partial class CardsDriver
             }, minArc);
             launched++;
         }
-        if (launched > 0)
+        if (launched > 0 || skippedActive > 0)
             VRLog.Info("Cards", $"Browse collapse: {launched} {kind.Value} card(s) fly back into their stack " +
-                                $"({FlyToPileSeconds:F2}s) before parking — the discard/burnt fan now collapses like the item fan.");
+                                $"({FlyToPileSeconds:F2}s) before parking — the discard/burnt fan collapses like the item fan. " +
+                                $"{skippedActive} card(s) left alone because the control board is still showing them " +
+                                "(closing a fan clears that fan, not the cards lying on the board).");
     }
 
     /// <summary>
