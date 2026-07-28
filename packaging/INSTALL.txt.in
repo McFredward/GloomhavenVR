@@ -21,33 +21,40 @@ runtime (Quest Link / Virtual Desktop / Steam Link / SteamVR), BepInEx 5.4.23.5.
    OpenXR runtime; Virtual Desktop: VDXR; Steam Link: SteamVR), put the headset
    on standby-awake, then start the game normally.
 
-4. Double-click EnableGraphicsJobs.bat (it sits next to GH.exe after step 2).
-   One click, takes a second, and it is what makes the game run at full speed —
-   see below. Safe to run again any time.
+   ON THE VERY FIRST START THE GAME WILL CLOSE AND REOPEN BY ITSELF, once. That
+   is expected — see below. It happens only that one time.
 
-5. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
+4. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
    Set [General] Enabled = false in dev.gloomhavenvr.cfg to run vanilla.
 
+5. OPTIONAL: double-click EnableGraphicsJobs.bat (it sits next to GH.exe after
+   step 2) BEFORE you first start the game. Then step 3's automatic restart does
+   not happen at all, because the setting is already in place. Skipping this
+   costs you nothing but those few seconds.
 
-What EnableGraphicsJobs.bat does, and why it is not automatic
-------------------------------------------------------------
+
+Why the game restarts itself once
+---------------------------------
 Unity normally submits every draw call on ONE thread, and on this game that
 thread is the whole bottleneck in a scenario. Switching on "graphics jobs" moved
 the measured frame from 17.5 ms to 11.14 ms and the headset from a locked 45 Hz
 to a clean 90 Hz — the ghosting on head movement disappeared entirely.
 
-It is a one-line change to a file the game already has, and it cannot be done
-from inside the mod: Unity reads that file (GH_Data/boot.config)
-during engine startup, before any mod code exists. The mod DOES write it, but
-that write can only take effect on the following start — so without this script
-you would have to start the game, quit, and start it again. The script does it
-before the first start instead.
+It is a two-line change to a file the game already has (GH_Data/boot.config),
+and Unity reads that file during engine startup, before any mod code exists. So
+the mod can write the setting, but never for the run that writes it. Rather than
+telling you to quit and start again, it closes the game and brings it back.
 
-Skipping it is fine: the mod falls back to writing it itself, and you just start
-the game twice once. Nothing breaks either way.
+This happens once, after installing or updating the mod. It cannot repeat: the
+restarted game is marked as such and will not restart again, and a counter stops
+it after two attempts if the setting somehow never sticks. Nothing of yours is
+at risk — it runs during engine startup, before any save or campaign is loaded.
 
-Don't want a game file touched? Set [Core] EnableGraphicsJobs = false in
-dev.gloomhavenvr.cfg and add this to the game's Steam launch options instead:
+Don't want it? Set [Core] AutoRestartForGraphicsJobs = false in
+dev.gloomhavenvr.cfg and restart the game yourself when the log asks you to.
+
+Don't want a game file touched at all? Set [Core] EnableGraphicsJobs = false and
+add this to the game's Steam launch options instead:
   -force-gfx-jobs native
 That works from the very first start and no file is written.
 

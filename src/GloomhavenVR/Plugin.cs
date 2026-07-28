@@ -42,6 +42,13 @@ public class Plugin : BaseUnityPlugin
     /// </summary>
     internal static ConfigEntry<bool> EnableGraphicsJobs = null!;
 
+    /// <summary>
+    /// Let the preloader close and reopen the game once, on the single boot at which
+    /// <see cref="EnableGraphicsJobs"/> is newly written. Read by the PRELOADER only; bound here for
+    /// the config file and the in-VR browser, like <see cref="EnableGraphicsJobs"/> itself.
+    /// </summary>
+    internal static ConfigEntry<bool> AutoRestartForGraphicsJobs = null!;
+
     /// <summary>Escape hatch: delay mod init (and thus VR init) by N rendered frames.</summary>
     internal static ConfigEntry<int> InitDelayFrames = null!;
 
@@ -247,6 +254,19 @@ public class Plugin : BaseUnityPlugin
             + "options overrides this and the file is then left alone. If the game ever fails to "
             + "start, restore that backup by hand — the mod cannot help you there, because it never "
             + "runs.");
+        AutoRestartForGraphicsJobs = Config.Bind(
+            "Core", "AutoRestartForGraphicsJobs", true,
+            "On the ONE boot where the setting above is newly written, close the game and start it "
+            + "again automatically, so you get the performance immediately instead of being told to "
+            + "restart yourself. This happens once after installing or updating the mod, takes a few "
+            + "seconds, and cannot happen twice in a row: the relaunched process is marked as such "
+            + "and refuses to relaunch again, and a counter in BepInEx/patchers/GloomhavenVR/ caps it "
+            + "at two attempts until the setting actually takes hold. Nothing of yours is at risk — "
+            + "this runs during engine startup, before any save or campaign is loaded. Set to false "
+            + "if you would rather quit and start the game yourself; the log then says so. Has no "
+            + "effect at all when EnableGraphicsJobs is false, when you pass -force-gfx-jobs "
+            + "yourself, or once boot.config already has the setting — which is every start after "
+            + "the first.");
         InitDelayFrames = Config.Bind(
             "Core", "InitDelayFrames", 0,
             "Escape hatch: delay mod initialization (including OpenXR init) by this many rendered " +

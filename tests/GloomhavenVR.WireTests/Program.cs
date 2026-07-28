@@ -16,6 +16,7 @@ internal static class Program
             // vector below is only meaningful while they agree.
             Shims.VerifyAgainstSource(repoRoot);
             GoldenVectors.Run(t);
+            RelaunchVectors.Run(t);
         }
         catch (Exception e)
         {

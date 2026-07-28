@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
 using Mono.Cecil;
@@ -88,7 +91,7 @@ public static class Patcher
             // Independent of the OpenXR asset install and deliberately BEFORE it: this one is
             // worth doing even if VR then fails to come up, and it must not be skipped because a
             // native copy errored.
-            EnsureGraphicsJobs();
+            bool relaunch = EnsureGraphicsJobs();
 
             bool nativesOk = InstallNatives();
             bool manifestOk = InstallSubsystemsManifest();
@@ -102,6 +105,13 @@ public static class Patcher
             {
                 Log.LogError("OpenXR runtime asset install incomplete — VR will be unavailable this session (game itself is unaffected).");
             }
+
+            // LAST, deliberately: this ends the process. Doing it here rather than straight after
+            // the boot.config write means the natives and the manifest are already installed, so
+            // the relaunched process boots into a fully prepared install and its log is a clean
+            // first run rather than a half-done one.
+            if (relaunch)
+                RelaunchOnce();
         }
         catch (Exception e)
         {
@@ -338,7 +348,12 @@ public static class Patcher
     /// <c>boot.config.gloomhavenvr-backup</c> over <c>boot.config</c> and the game is exactly as it
     /// shipped.</para>
     /// </summary>
-    private static void EnsureGraphicsJobs()
+    /// <returns>
+    /// True when the file was just changed to ENABLE graphics jobs, i.e. this session is running
+    /// without them but the next one would have them — the only case in which relaunching buys the
+    /// player anything. <see cref="RelaunchOnce"/> decides separately whether it is allowed to.
+    /// </returns>
+    private static bool EnsureGraphicsJobs()
     {
         try
         {
@@ -352,7 +367,7 @@ public static class Patcher
                     continue;
                 Log.LogInfo("Graphics jobs: '-force-gfx-jobs' is on the command line — leaving "
                             + "boot.config alone, the launch option wins.");
-                return;
+                return false;
             }
 
             string bootConfig = Path.Combine(DataPath, "boot.config");
@@ -362,7 +377,7 @@ public static class Patcher
                                + "threaded render submission automatically. Add '-force-gfx-jobs native' "
                                + "to the game's launch options instead; it is worth roughly 12 ms per "
                                + "frame in a scenario.");
-                return;
+                return false;
             }
 
             string[] lines = File.ReadAllLines(bootConfig);
@@ -373,14 +388,20 @@ public static class Patcher
             // (2026-07-28: the plugin did exactly that and logged "Graphics jobs: ON" for a session
             // that was running without them. A diagnostic that reports the wrong state is worse than
             // no diagnostic — this is the handshake that makes it impossible.)
-            Environment.SetEnvironmentVariable(SessionStateVariable,
-                ReadKey(lines, "gfx-enable-native-gfx-jobs") == "1" ? "1" : "0");
+            bool runningWithJobs = ReadKey(lines, "gfx-enable-native-gfx-jobs") == "1";
+            Environment.SetEnvironmentVariable(SessionStateVariable, runningWithJobs ? "1" : "0");
+
+            // Running with them IS the goal state, so this is the moment the relaunch budget is
+            // handed back. Without this a single pathological launch would spend the budget
+            // permanently and no later install could ever auto-restart again.
+            if (runningWithJobs)
+                ClearRelaunchAttempts();
 
             string desired = wanted ? "1" : "0";
             if (!RewriteKeys(lines, desired, out string[] updated))
             {
                 Log.LogDebug($"Graphics jobs already {(wanted ? "enabled" : "disabled")} in boot.config.");
-                return;
+                return false;
             }
 
             // Back up the file as it was BEFORE this mod ever touched it, once. Never overwritten:
@@ -399,10 +420,6 @@ public static class Patcher
 
             if (wanted)
             {
-                Log.LogWarning("Graphics jobs: RESTART THE GAME ONCE to actually get them. They have "
-                               + "just been written into boot.config, and the engine read that file "
-                               + "before this mod existed — so THIS session is still running without "
-                               + "them. Nothing is wrong; the next start picks them up.");
                 Log.LogInfo("Graphics jobs ENABLED in boot.config (gfx-enable-gfx-jobs + "
                             + "gfx-enable-native-gfx-jobs = 1). This moves Unity's draw-call "
                             + "submission off the main thread and was measured at main-thread render "
@@ -410,12 +427,12 @@ public static class Patcher
                             + $"AT THE NEXT GAME START, not this one. Original saved as '{backup}' — "
                             + "restore that over boot.config to undo by hand, or set "
                             + "[Core] EnableGraphicsJobs = false to have this undo it for you.");
+                return true;
             }
-            else
-            {
-                Log.LogInfo("Graphics jobs DISABLED in boot.config ([Core] EnableGraphicsJobs = false). "
-                            + "Takes effect at the next game start.");
-            }
+
+            Log.LogInfo("Graphics jobs DISABLED in boot.config ([Core] EnableGraphicsJobs = false). "
+                        + "Takes effect at the next game start.");
+            return false;
         }
         catch (Exception e)
         {
@@ -423,15 +440,187 @@ public static class Patcher
             // costs performance, nothing else.
             Log.LogWarning($"Graphics jobs: could not update boot.config ({e.Message}). Add "
                            + "'-force-gfx-jobs native' to the game's launch options instead.");
+            return false;
         }
     }
 
+    // ==========================================================================================
+    //  The one automatic restart
+    // ==========================================================================================
+
     /// <summary>
-    /// Set every key in <see cref="GraphicsJobKeys"/> to <paramref name="value"/>, appending any
-    /// that are absent. Returns false when the file already says exactly that, so an unchanged file
-    /// is never rewritten (and no backup is taken for a no-op). Every other line is preserved
-    /// byte-for-byte — this must never reformat a file the engine parses.
+    /// Marks a process that IS the automatic restart, so it can never start another one. Set on the
+    /// relauncher's environment and inherited by the game it starts. Deliberately separate from the
+    /// persistent counter: this one cannot go stale, and it holds even if the disk write failed.
     /// </summary>
+    private const string RelaunchedVariable = "GLOOMHAVENVR_RELAUNCHED";
+
+    /// <summary>How many automatic restarts may be spent before the setting has ever taken hold.</summary>
+    private const int MaxAutoRelaunches = 2;
+
+    /// <summary>Persistent counter, in the patcher's own folder. Cleared the moment we boot WITH jobs.</summary>
+    private const string RelaunchMarkerFile = "gfxjobs-relaunch.txt";
+
+    /// <summary>Time given to BepInEx's disk log listener to flush before the process is killed.</summary>
+    private const int LogFlushGraceMs = 1200;
+
+    /// <summary>
+    /// RESTART THE GAME EXACTLY ONCE so the player never has to.
+    ///
+    /// <para>WHY THIS IS THE ONLY WAY. Unity reads <c>boot.config</c> before the mono runtime
+    /// exists, so no mod code — this patcher included — can affect the boot it is running in. The
+    /// setting is written for the NEXT start, and until now that meant telling the player to quit
+    /// and start again. This does it for them.</para>
+    ///
+    /// <para>WHY IT SPAWNS A DETACHED RELAUNCHER INSTEAD OF STARTING THE GAME DIRECTLY. A process
+    /// cannot restart itself: whatever it starts overlaps with its own shutdown, and a game with a
+    /// single-instance check answers that overlap by killing the NEW process — leaving the player
+    /// with no game at all, which is far worse than the restart being avoided. So a short-lived
+    /// <c>cmd.exe</c> waits for this process to be gone and only then starts the game.</para>
+    ///
+    /// <para>WHY IT CANNOT LOOP. Four independent brakes, in order: the player can turn it off
+    /// (<c>[Core] AutoRestartForGraphicsJobs</c>); the relaunched process carries
+    /// <see cref="RelaunchedVariable"/> and refuses to relaunch again; a persistent counter caps it
+    /// at <see cref="MaxAutoRelaunches"/> across launches; and the counter is cleared only by the
+    /// success condition itself — actually booting with graphics jobs on. In the normal case the
+    /// counter reaches 1, the next boot clears it, and it is never touched again.</para>
+    ///
+    /// <para>Nothing of the player's is at risk at this point: this runs during engine init, before
+    /// any game assembly is loaded, so no save, campaign or scenario exists to lose.</para>
+    /// </summary>
+    private static void RelaunchOnce()
+    {
+        const string manual = "RESTART THE GAME ONCE to actually get them: they have just been "
+            + "written into boot.config, and the engine read that file before this mod existed, so "
+            + "THIS session is still running without them. Nothing is wrong; the next start picks "
+            + "them up.";
+
+        try
+        {
+            if (!ReadConfigFlag("Core", "AutoRestartForGraphicsJobs", defaultValue: true))
+            {
+                Log.LogWarning($"Graphics jobs: {manual} (Restarting for you is switched off in "
+                               + "[Core] AutoRestartForGraphicsJobs.)");
+                return;
+            }
+
+            if (Environment.GetEnvironmentVariable(RelaunchedVariable) == "1")
+            {
+                Log.LogWarning("Graphics jobs: this process already IS the automatic restart, and "
+                               + "boot.config STILL had to be written — so the write is not "
+                               + $"sticking. Not restarting again. {manual}");
+                return;
+            }
+
+            string marker = Path.Combine(PatcherDir, RelaunchMarkerFile);
+            int attempts = ReadRelaunchAttempts(marker);
+            if (attempts >= MaxAutoRelaunches)
+            {
+                Log.LogWarning($"Graphics jobs: restarted automatically {attempts} times already "
+                               + "without the setting ever taking hold — something outside this mod "
+                               + "is reverting boot.config. Giving up rather than looping forever. "
+                               + $"Delete '{marker}' to let it try once more. {manual}");
+                return;
+            }
+
+            // Everything that can fail is done BEFORE the counter is spent, so a failure here does
+            // not quietly eat one of the two attempts.
+            string exe = Process.GetCurrentProcess().MainModule.FileName;
+            string command = RelaunchCommand.Build(
+                exe,
+                Environment.GetEnvironmentVariable("SteamGameId"),
+                Environment.GetCommandLineArgs(),
+                out string? droppedArgument);
+
+            if (droppedArgument != null)
+            {
+                Log.LogWarning("Graphics jobs: a launch option contains a character the relauncher "
+                               + $"cannot pass on safely ('{droppedArgument}') — restarting WITHOUT "
+                               + "any launch options. Add them again by hand if the game needs them.");
+            }
+
+            var starter = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/c " + command,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(exe),
+            };
+            starter.EnvironmentVariables[RelaunchedVariable] = "1";
+
+            Log.LogWarning("Graphics jobs: RESTARTING THE GAME NOW, once. They were just written "
+                           + "into boot.config and the engine had already read that file, so this "
+                           + "session cannot have them — rather than asking you to quit and start "
+                           + "again, the game closes and comes back by itself in about "
+                           + $"{RelaunchCommand.DelaySeconds} seconds. This happens once, after installing "
+                           + "or updating the mod. To stop it happening at all, set "
+                           + "[Core] AutoRestartForGraphicsJobs = false.");
+            Log.LogInfo($"Relaunch command: cmd /c {command}");
+
+            // THE COUNTER BEFORE THE START, AND THE START LAST. Both orderings are load-bearing.
+            // Counter first: if starting the relauncher fails we would rather have spent an attempt
+            // than have no record at all. Start last: from the moment it returns, a relaunch IS
+            // coming in a few seconds, so no statement may follow that could throw and send us down
+            // the catch — which returns WITHOUT killing this process, and the player would end up
+            // with two games running. Logging is therefore already done above.
+            File.WriteAllText(marker, (attempts + 1).ToString(CultureInfo.InvariantCulture));
+            Process.Start(starter);
+        }
+        catch (Exception e)
+        {
+            Log.LogWarning($"Graphics jobs: the automatic restart could not be arranged ({e.Message}). "
+                           + $"Nothing is broken and the game carries on. {manual}");
+            return;
+        }
+
+        // Past the point of no return: the relauncher is already counting down, so this process
+        // MUST end. Give the log a moment to reach disk first — the line explaining what just
+        // happened is the only thing the player has to go on.
+        try
+        {
+            Thread.Sleep(LogFlushGraceMs);
+            Process.GetCurrentProcess().Kill();
+        }
+        catch (Exception e)
+        {
+            Log.LogWarning($"Graphics jobs: could not close this process ({e.Message}) — exiting instead.");
+            Environment.Exit(0);
+        }
+    }
+
+    private static int ReadRelaunchAttempts(string marker)
+    {
+        try
+        {
+            return File.Exists(marker)
+                   && int.TryParse(File.ReadAllText(marker).Trim(), NumberStyles.Integer,
+                                   CultureInfo.InvariantCulture, out int n)
+                ? n
+                : 0;
+        }
+        catch
+        {
+            // Unreadable counter must not be read as "plenty of attempts left" NOR block a genuine
+            // first restart; the env-var brake still makes a loop impossible within one chain.
+            return 0;
+        }
+    }
+
+    private static void ClearRelaunchAttempts()
+    {
+        try
+        {
+            string marker = Path.Combine(PatcherDir, RelaunchMarkerFile);
+            if (File.Exists(marker))
+                File.Delete(marker);
+        }
+        catch
+        {
+            // Cosmetic bookkeeping only — never worth a log line at boot, never worth failing over.
+        }
+    }
+
     /// <summary>Value of one boot.config key as the file currently stands, or null when absent.</summary>
     private static string? ReadKey(string[] lines, string key)
     {
@@ -444,6 +633,12 @@ public static class Patcher
         return null;
     }
 
+    /// <summary>
+    /// Set every key in <see cref="GraphicsJobKeys"/> to <paramref name="value"/>, appending any
+    /// that are absent. Returns false when the file already says exactly that, so an unchanged file
+    /// is never rewritten (and no backup is taken for a no-op). Every other line is preserved
+    /// byte-for-byte — this must never reformat a file the engine parses.
+    /// </summary>
     private static bool RewriteKeys(string[] lines, string value, out string[] updated)
     {
         var result = new List<string>(lines.Length + GraphicsJobKeys.Length);

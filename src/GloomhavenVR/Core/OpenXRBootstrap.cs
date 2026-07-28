@@ -161,12 +161,14 @@ internal static class OpenXRBootstrap
                            + "call on ONE thread, which measured as the ENTIRE bottleneck in a "
                            + "scenario: with them on, main-thread render went 14.9 ms → 1.8 ms, the "
                            + "frame 17.5 ms → 11.14 ms, and the headset from locked-at-45 Hz to a "
-                           + "clean 90 Hz (2026-07-28, same scene and build). If the preloader has "
-                           + "just written the setting (its own log line says so), simply RESTART THE "
-                           + "GAME ONCE — the engine reads boot.config before any mod code exists, so "
-                           + "it can never apply to the run that wrote it. If it keeps saying this "
-                           + "after a restart, [Core] EnableGraphicsJobs is off, or the write failed "
-                           + "— add '-force-gfx-jobs native' to the launch options instead.");
+                           + "clean 90 Hz (2026-07-28, same scene and build). Normally you never read "
+                           + "this: the preloader writes the setting and restarts the game for you on "
+                           + "the one boot that needs it, and this message is only reached when it did "
+                           + "not. Its own log lines say which — [Core] EnableGraphicsJobs is off, "
+                           + "[Core] AutoRestartForGraphicsJobs is off (then simply RESTART THE GAME "
+                           + "ONCE yourself), or the write failed. '-force-gfx-jobs native' in the "
+                           + "launch options does the same job from the very first start, with no file "
+                           + "written at all.");
     }
 
     /// <summary>

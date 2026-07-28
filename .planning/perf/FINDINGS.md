@@ -76,11 +76,21 @@ the threshold.
 ## 5. What shipped
 
 - **`[Core] EnableGraphicsJobs`** (default **on**) — the preloader writes `gfx-enable-gfx-jobs` and
-  `gfx-enable-native-gfx-jobs` into `Gloomhaven_Data/boot.config`. It cannot be done in-process: the
+  `gfx-enable-native-gfx-jobs` into `GH_Data/boot.config`. It cannot be done in-process: the
   engine picks its job mode before managed code exists. **Takes effect at the next game start.**
   Original backed up once to `boot.config.gloomhavenvr-backup`; setting the entry to `false` writes
   the keys back to `0`. An explicit `-force-gfx-jobs` in the launch options wins and the file is left
   alone.
+- **`[Core] AutoRestartForGraphicsJobs`** (default **on**) — closes and reopens the game on the one
+  boot where the keys are newly written, so "takes effect at the next game start" costs the player
+  nothing. A detached `cmd` waits `RelaunchCommand.DelaySeconds` for this process to be gone before
+  starting the game, because a process cannot restart itself and a single-instance check would
+  answer the overlap by killing the *new* process. Steam is relaunched through
+  `steam://rungameid/$SteamGameId` so the overlay and playtime counter attach normally. Four brakes
+  against a loop: the config entry, an env var on the relaunched process, a persistent counter
+  capped at 2, and the counter being cleared *only* by booting with jobs actually on. The command
+  string is source-linked into `scripts/wire-tests.sh` — a quoting defect there is undiscoverable in
+  place, since the process that would report it is the one being killed.
 - **Startup diagnostic** — `OpenXRBootstrap` reports whether graphics jobs are on, from the command
   line or from `boot.config`. There is no runtime API for it, so the line states its evidence rather
   than a verdict it cannot support.

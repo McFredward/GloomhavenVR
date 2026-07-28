@@ -551,6 +551,19 @@ internal static partial class Loc
                 + "Startoptionen an, gewinnt das und die Datei bleibt unangetastet. Sollte das Spiel "
                 + "je nicht mehr starten: die Sicherungskopie von Hand zurückkopieren — der Mod kann "
                 + "dort nicht helfen, weil er gar nicht erst läuft.",
+            ["Core/AutoRestartForGraphicsJobs"] =
+                "Beim EINEN Start, an dem die Einstellung darüber neu geschrieben wird, schließt der "
+                + "Mod das Spiel und startet es selbst neu — damit du die Leistung sofort hast, statt "
+                + "aufgefordert zu werden, selbst neu zu starten. Das passiert einmal nach dem "
+                + "Installieren oder Aktualisieren des Mods, dauert ein paar Sekunden und kann sich "
+                + "nicht wiederholen: der neu gestartete Prozess ist als solcher markiert und startet "
+                + "nicht noch einmal neu, und ein Zähler in BepInEx/patchers/GloomhavenVR/ begrenzt "
+                + "das auf zwei Versuche, solange die Einstellung nicht greift. Es steht nichts auf "
+                + "dem Spiel: das läuft während des Engine-Starts, bevor überhaupt ein Spielstand "
+                + "oder eine Kampagne geladen ist. Auf false setzen, wenn du lieber selbst beendest "
+                + "und neu startest; das Protokoll sagt dir dann Bescheid. Ohne jede Wirkung, wenn "
+                + "EnableGraphicsJobs false ist, wenn du -force-gfx-jobs selbst angibst, oder sobald "
+                + "boot.config die Einstellung schon hat — also bei jedem Start nach dem ersten.",
             ["Core/InitDelayFrames"] =
                 "Notausstieg: verzögert die Mod-Initialisierung (samt OpenXR-Init) um so viele gerenderte "
                 + "Frames. Manche Runtime/GPU-Kombinationen brauchen ein vollständig hochgefahrenes "

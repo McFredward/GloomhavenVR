@@ -54,10 +54,18 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, same reasoning: the preloader's relaunch command is built at the one moment
+       the mod deliberately kills the game, so a quoting defect there is undiscoverable in place.
+       It was written free of BepInEx and process access precisely so it could be linked in here. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR.Preload\RelaunchCommand.cs" Link="preload\RelaunchCommand.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
     <Compile Include="GoldenVectors.cs" />
+    <Compile Include="RelaunchVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 
