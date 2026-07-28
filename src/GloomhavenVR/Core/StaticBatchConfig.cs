@@ -78,6 +78,9 @@ internal static class StaticBatchConfig
     /// <summary>Hand everything back automatically the moment the watchdog sees movement.</summary>
     internal static ConfigEntry<bool> WatchdogAutoRevert = null!;
 
+    /// <summary>Add the offender's name to the exclusion list and try again, instead of just giving up.</summary>
+    internal static ConfigEntry<bool> WatchdogAutoExclude = null!;
+
     /// <summary>Layer names/indices never batched (comma-separated; the mod's own layer always is).</summary>
     internal static ConfigEntry<string> ExcludeLayers = null!;
 
@@ -125,6 +128,8 @@ internal static class StaticBatchConfig
     internal static bool WatchdogOn => Watchdog == null || Watchdog.Value;
 
     internal static bool AutoRevert => WatchdogAutoRevert == null || WatchdogAutoRevert.Value;
+
+    internal static bool AutoExclude => WatchdogAutoExclude == null || WatchdogAutoExclude.Value;
 
     internal static bool FreeCpuCopy => FreeCombinedCpuCopy == null || FreeCombinedCpuCopy.Value;
 
@@ -243,6 +248,20 @@ internal static class StaticBatchConfig
             + "of only logging it. ON is the safe default: the alternative is a correct log line "
             + "next to a wrong picture. OFF keeps the batch so the misplaced object can be "
             + "photographed and identified — a diagnostic setting, not a preference.");
+
+        WatchdogAutoExclude = _file.Bind("Batching", "WatchdogAutoExclude", true,
+            "When the watchdog catches a combined object moving, add ITS NAME to ExcludeNames and "
+            + "try the pass again, instead of only undoing it. THIS IS WHAT MAKES THE FEATURE "
+            + "SELF-CORRECTING, and the 2026-07 hardware round is why it exists: the first pass "
+            + "combined 1666 renderers and cut the submitted material slots 1225 → ~130, then an "
+            + "object called 'Glow' moved one second later and the whole thing was correctly handed "
+            + "back — leaving a working optimisation unusable over a handful of torch flames. "
+            + "Excluding by NAME rather than by object is deliberate: these things come in families, "
+            + "and one name covers all of them. The name is written into your cfg so the next "
+            + "scenario starts out already knowing it, and the log names every addition, so an "
+            + "exclusion that turns out to be too broad can simply be deleted. Bounded by the same "
+            + "give-up counter as before, so a scene full of movers ends in one clear verdict rather "
+            + "than an endless combine/undo cycle. OFF = undo and stop, as before.");
 
         ExcludeLayers = _file.Bind("Batching", "ExcludeLayers", "",
             "Layer names or indices never combined, comma-separated (e.g. 'Hero, Monster'). Empty = "

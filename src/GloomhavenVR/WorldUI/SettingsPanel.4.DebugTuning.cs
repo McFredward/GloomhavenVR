@@ -40,7 +40,7 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         // Plain uGUI buttons via the shared helpers, so poke AND laser keep working unchanged.
         _rowGate = PerBoard;
         var subCatRow = Row();
-        Label(subCatRow, "Bereich", 16f, flexible: true);
+        Label(subCatRow, Loc.Mod("area"), 16f, flexible: true);
         CycleButton(subCatRow, 170f,
             () => DebugSubCatLabel(CurrentSubCat) + (_subCatListOpen ? " -" : " +"),
             () => _subCatListOpen = !_subCatListOpen);

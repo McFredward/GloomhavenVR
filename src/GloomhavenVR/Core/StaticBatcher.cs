@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using BepInEx.Configuration;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -106,7 +107,13 @@ internal static class StaticBatcher
     /// clear verdict and a stable picture. It resets on a scene load and on a mode change, so the
     /// giving-up is per scenario rather than for the session.</para>
     /// </summary>
-    private const int MaxWatchdogRevertsPerScene = 3;
+    /// <remarks>
+    /// Raised from 3 to 6 when the watchdog learned to EXCLUDE the offender rather than only undo
+    /// (see <see cref="StaticBatchConfig.WatchdogAutoExclude"/>): each round now removes one family
+    /// of movers instead of repeating the previous attempt, so the counter bounds a search rather
+    /// than a loop. The 2026-07 hardware round needed exactly one ('Glow').
+    /// </remarks>
+    private const int MaxWatchdogRevertsPerScene = 6;
 
     /// <summary>A combine slower than this is called out as a hitch worth knowing about.</summary>
     private const double SlowCombineMs = 500d;
@@ -1198,9 +1205,17 @@ internal static class StaticBatcher
                             + "materials per combined mesh — not a measurement; the number that "
                             + "settles it is the HeadCamera submit figure on the next [Perf] SPLIT "
                             + $"line. Memory: ~{megabytes:F0} MB of duplicated vertex data"
+                            // The 2026-07 log read "(FreeCombinedCpuCopy is off)" while it was ON.
+                            // freed==0 has three causes and the message asserted the only one that
+                            // was false. Unity's combined meshes come back non-readable, so there is
+                            // usually no CPU copy to release at all — which is the GOOD outcome, and
+                            // saying so beats accusing a setting the reader then goes and checks.
                             + (freed > 0
                                 ? $", CPU copy released on {freed} of them (so roughly half that in RAM)."
-                                : " in system AND video memory (FreeCombinedCpuCopy is off).")
+                                : StaticBatchConfig.FreeCpuCopy
+                                    ? " on the GPU; none of the combined meshes held a system-memory "
+                                      + "copy to release, so that figure is the whole cost."
+                                    : " in system AND video memory (FreeCombinedCpuCopy is off).")
                             + " Everything here is undoable: Mode = Off, or the button in "
                             + "Einstellungen › Debug › Leistung & Effekte › Bündelung.");
 
@@ -1402,32 +1417,78 @@ internal static class StaticBatcher
                 continue;
 
             string name = e.Filter.gameObject.name;
+            if (!StaticBatchConfig.AutoRevert)
+            {
+                VRLog.Warn("Batch", $"WATCHDOG — combined object '{name}' MOVED relative to its "
+                                    + "batch root, so it is now being drawn where it used to be. "
+                                    + "WatchdogAutoRevert is OFF, so the batch is being kept for "
+                                    + "inspection — the picture is wrong on purpose.");
+                return;
+            }
+
+            // SELF-CORRECTION, not just self-defence. Undoing a working 9x draw-call cut because a
+            // handful of torch flames move is the correct thing to do exactly once; doing it again
+            // on the next pass, forever, would make the whole feature unusable over a rounding error
+            // of the scene. Excluding by NAME is what generalises — these objects come in families.
+            bool excluded = StaticBatchConfig.AutoExclude && AddExclusion(name);
+
             VRLog.Warn("Batch", $"WATCHDOG — combined object '{name}' MOVED relative to its batch "
                                 + "root. A combined object's vertices are baked into that root's "
-                                + "space, so it is now being drawn where it used to be. "
-                                + (StaticBatchConfig.AutoRevert
-                                    ? "Handing the whole pass back now. Put a piece of that name into "
-                                      + "[Batching] ExcludeNames and the rest of the map still batches."
-                                    : "WatchdogAutoRevert is OFF, so the batch is being kept for "
-                                      + "inspection — the picture is wrong on purpose."));
-            if (!StaticBatchConfig.AutoRevert)
-                return;
+                                + "space, so it is now being drawn where it used to be. Handing the "
+                                + "whole pass back now."
+                                + (excluded
+                                    ? $" '{name}' has been added to [Batching] ExcludeNames and the "
+                                      + "pass will run again without it — delete it from the cfg if "
+                                      + "that turns out to exclude too much."
+                                    : " [Batching] WatchdogAutoExclude is off, so nothing will be "
+                                      + "retried. Put a piece of that name into ExcludeNames by hand "
+                                      + "and the rest of the map still batches."));
 
             Revert($"the watchdog saw '{name}' move");
             _watchdogReverts++;
-            if (_watchdogReverts >= MaxWatchdogRevertsPerScene)
+
+            if (_watchdogReverts < MaxWatchdogRevertsPerScene)
             {
-                _suspended = true;
-                VRLog.Warn("Batch", $"GIVING UP on this scene — the watchdog has undone the pass "
-                                    + $"{_watchdogReverts} time(s) here, which means something in "
-                                    + "it moves and would be undone again after every re-check. "
-                                    + "Nothing further will be combined until the scenario changes "
-                                    + $"or the mode is cycled. The last offender was '{name}': put "
-                                    + "a piece of that name into [Batching] ExcludeNames and the "
-                                    + "rest of the map will batch normally.");
+                // Only retry when the retry can differ from the attempt that just failed. Without a
+                // new exclusion the next pass would combine the same object again and be undone
+                // again — the oscillation the give-up counter exists to break.
+                if (excluded)
+                    Schedule(ManualDelay, $"retrying without '{name}'");
+                return;
             }
+
+            _suspended = true;
+            VRLog.Warn("Batch", $"GIVING UP on this scene — the watchdog has undone the pass "
+                                + $"{_watchdogReverts} time(s) here. Nothing further will be "
+                                + "combined until the scenario changes or the mode is cycled. "
+                                + $"Excluded so far: {StaticBatchConfig.ExcludeNames?.Value}. If that "
+                                + "list looks short for a map this busy, the movers are probably "
+                                + "sharing few names — read the WATCHDOG lines above for them.");
             return;
         }
+    }
+
+    /// <summary>
+    /// Append one object name to <c>[Batching] ExcludeNames</c>, persisted. Returns false when it is
+    /// already there — which is the signal the caller needs, because a retry that changes nothing is
+    /// the oscillation this whole area exists to prevent.
+    /// </summary>
+    private static bool AddExclusion(string name)
+    {
+        ConfigEntry<string>? entry = StaticBatchConfig.ExcludeNames;
+        if (entry == null || string.IsNullOrWhiteSpace(name))
+            return false;
+
+        for (int i = 0; i < ExcludeNameList.Count; i++)
+        {
+            if (string.Equals(ExcludeNameList[i], name, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        string current = entry.Value ?? string.Empty;
+        entry.Value = current.Length == 0 ? name : current + ", " + name;
+        ExcludeNameList.Add(name); // the next scan re-parses anyway; this keeps the dedup honest now
+        return true;
     }
 
     /// <summary>

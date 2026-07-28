@@ -1,9 +1,42 @@
 # Static batching — the last untested lever
 
-> Status: **implemented, never run on hardware.** Ships OFF.
+> Status: **first hardware round done (2026-07-28). It works; it was then correctly undone.**
+> Ships OFF.
 > Code: `src/GloomhavenVR/Core/StaticBatch{Config,Interop}.cs`, `StaticBatcher.cs`.
 > Menu: Einstellungen ▸ Debug ▸ Leistung & Effekte ▸ **Objekt-Bündelung**.
 > Config: `dev.gloomhavenvr.batching.cfg`.
+
+## 0. Round 1 result (2026-07-28)
+
+Everything worked, and the numbers beat the estimate:
+
+| | |
+|---|---|
+| interop | undo path resolved; **mesh test exact, shader test exact** |
+| eligible | **1672 of 2691** MeshFilters under `Maps` |
+| distinct materials | **42** → **39.8 renderers per material** |
+| rejected as unreadable | **0** — §4's blocker does not apply to this content |
+| combined | 1666 renderers (6 declined by Unity) into **47** meshes |
+| combine cost | **62 ms**, one-off (one 84.75 ms `[Perf] SPIKE`) |
+| memory | **97 MB**, GPU-side only |
+| **submitted material slots** | **1225 → ~130** (×2 passes: ~2450 → ~260 draw calls) — **9.4×** |
+
+**Then the watchdog undid all of it one second later**, because an object named `Glow` moves after
+being combined. It has no `Animator`/`Animation`/`Rigidbody`, so scan-time exclusion could not see
+it — it is script- or tween-driven. Correct behaviour, useless outcome: a working 9× cut lost to a
+handful of torch flames, and no `[Perf] SPLIT` line survived long enough to measure.
+
+**Fix landed:** the watchdog now *learns*. It appends the offender's name to `ExcludeNames`
+(persisted, logged) and schedules a retry, instead of only undoing — `WatchdogAutoExclude`, default
+on, bounded by the same give-up counter (raised 3 → 6, since each round now removes a family of
+movers rather than repeating the last attempt).
+
+Also fixed: the APPLY line claimed `FreeCombinedCpuCopy is off` while it was on. `freed == 0` has
+three causes and the message asserted the only false one — Unity's combined meshes come back
+non-readable, so there is usually no CPU copy to release, which is why the 97 MB is GPU-side only.
+
+**Still open:** whether ~260 draw calls actually moves `HeadCamera submit` from 21.5 ms. Round 2
+needs a batch that survives long enough for one `[Perf] SPLIT` window.
 
 ## 1. Why this and not something else
 
@@ -154,8 +187,12 @@ is free.
 
 ## 6. Hardware test protocol
 
-Everything below is reachable from inside the headset:
-**Einstellungen ▸ Debug ▸ Leistung & Effekte ▸ Objekt-Bündelung.**
+Reachable from inside the headset — but the two middle levels are **collapsed choosers, not visible
+tabs**, which is what made the first attempt hard to find:
+
+1. Sidebar → **Debug**
+2. Row **„Bereich"** → press the button (reads `Alle Einstellungen +`) → pick **Leistung & Effekte**
+3. Row **„Element"** → press the button → pick **Objekt-Bündelung**
 
 ### If the root is named differently
 

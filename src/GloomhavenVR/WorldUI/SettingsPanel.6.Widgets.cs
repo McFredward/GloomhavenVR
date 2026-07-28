@@ -414,6 +414,15 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
             });
         Tip(watchRow, "batch_watchdog_note");
 
+        RectTransform excludeRow = Toggle(Loc.Mod("batch_auto_exclude"),
+            () => Core.StaticBatchConfig.AutoExclude,
+            v =>
+            {
+                if (Core.StaticBatchConfig.WatchdogAutoExclude != null)
+                    Core.StaticBatchConfig.WatchdogAutoExclude.Value = v;
+            });
+        Tip(excludeRow, "batch_auto_exclude_note");
+
         RectTransform autoRow = Toggle(Loc.Mod("batch_watchdog_auto"),
             () => Core.StaticBatchConfig.AutoRevert,
             v =>

@@ -239,6 +239,10 @@ internal static partial class Loc
         ["debug_board_tuning"] = Pair("Debug — Board tuning", "Debug — Board-Justierung"),
         ["enable_board_tuning"] = Pair("Enable board tuning", "Board-Justierung aktivieren"),
         ["element"] = Pair("Element", "Element"),
+        // The Debug pane's FIRST navigation level. It was a hardcoded German literal — the one
+        // caption in the panel that an English player got in German, and the caption that has to be
+        // read to discover that the sub-category list expands at all.
+        ["area"] = Pair("Area", "Bereich"),
         ["size"] = Pair("Size", "Größe"),
         ["tilt_yaw"] = Pair("Tilt/Yaw", "Neigung/Gieren"),
         ["reset_element"] = Pair("Reset element", "Element zurücksetzen"),
@@ -540,6 +544,10 @@ internal static partial class Loc
         ["batch_watchdog_auto_note"] = Pair(
             "When the watch sees a merged object move, undo everything on the spot instead of only writing it to the log. On is the safe choice — the alternative is a correct log entry next to a wrong picture. Turn it off only to keep the wrong picture long enough to photograph the object that caused it.",
             "Wenn der Wächter ein zusammengefasstes Objekt in Bewegung sieht, alles sofort rückgängig machen statt es nur zu protokollieren. An ist die sichere Wahl — die Alternative ist ein korrekter Protokolleintrag neben einem falschen Bild. Nur ausschalten, um das falsche Bild lange genug zu behalten, um das verursachende Objekt zu fotografieren."),
+        ["batch_auto_exclude"] = Pair("Learn from what moved", "Aus Bewegtem lernen"),
+        ["batch_auto_exclude_note"] = Pair(
+            "When the watch catches something moving, remember its name and try again without it, instead of just giving up. This is what makes the feature usable: on the first hardware run it merged 1666 objects and cut the draw requests by a factor of nine — and was then correctly undone one second later because a few torch flames move. Names are remembered in the config file, so the next scenario starts out already knowing them, and the log names every one it adds. On by default; a name that turns out to exclude too much can simply be deleted from the file.",
+            "Erwischt der Wächter etwas in Bewegung, dessen Namen merken und es ohne dieses erneut versuchen, statt einfach aufzugeben. Erst das macht die Funktion brauchbar: im ersten Hardware-Lauf wurden 1666 Objekte zusammengefasst und die Zeichenaufrufe um den Faktor neun gesenkt — und eine Sekunde später korrekt wieder zurückgenommen, weil sich ein paar Fackelflammen bewegen. Die Namen werden in der Konfigurationsdatei gemerkt, das nächste Szenario startet also bereits mit diesem Wissen, und das Protokoll nennt jeden neuen Eintrag. Standardmäßig an; ein Name, der sich als zu weit gefasst erweist, lässt sich einfach aus der Datei löschen."),
         ["batch_unavailable"] = Pair("Unavailable on this build — measuring only",
                                      "Auf diesem Build nicht verfügbar — es wird nur gemessen"),
         ["batch_unavailable_note"] = Pair(

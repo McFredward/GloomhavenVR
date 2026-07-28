@@ -109,6 +109,21 @@ internal static partial class Loc
                 + "Alternative ist eine korrekte Logzeile neben einem falschen Bild. AUS behält die "
                 + "Bündelung, damit das verrutschte Objekt fotografiert und identifiziert werden kann: eine "
                 + "Diagnose-Einstellung, keine Vorliebe.",
+            ["Batching/WatchdogAutoExclude"] =
+                "Erwischt der Wächter ein zusammengefasstes Objekt in Bewegung, dessen NAMEN zu "
+                + "ExcludeNames hinzufügen und den Durchlauf erneut versuchen, statt ihn nur "
+                + "rückgängig zu machen. DAS MACHT DIE FUNKTION SELBSTKORRIGIEREND, und der "
+                + "Hardware-Lauf von 2026-07 ist der Grund dafür: der erste Durchlauf fasste 1666 "
+                + "Renderer zusammen und senkte die abgesetzten Materialslots von 1225 auf ~130 — "
+                + "eine Sekunde später bewegte sich ein Objekt namens \"Glow\" und alles wurde "
+                + "korrekterweise zurückgegeben, womit eine funktionierende Optimierung an einer "
+                + "Handvoll Fackelflammen scheiterte. Der Ausschluss über den NAMEN statt über das "
+                + "Objekt ist Absicht: solche Dinge treten in Familien auf, ein Name deckt alle ab. "
+                + "Der Name wird in die cfg geschrieben, das nächste Szenario startet also bereits "
+                + "mit diesem Wissen, und das Log nennt jede Ergänzung — ein zu weit gefasster "
+                + "Ausschluss lässt sich einfach löschen. Begrenzt durch denselben Aufgabe-Zähler wie "
+                + "zuvor, eine Szene voller Beweger endet also in einem klaren Urteil statt in einer "
+                + "Endlosschleife. AUS = zurücknehmen und aufhören, wie bisher.",
             ["Batching/ExcludeLayers"] =
                 "Ebenen, die nie zusammengefasst werden, kommagetrennt als Name oder Index (z. B. "
                 + "\"Hero, Monster\"). Leer = nichts zusätzlich ausschließen. Die EIGENE Ebene des Mods ist "
