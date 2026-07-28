@@ -1,7 +1,15 @@
-# Static batching — the last untested lever
+# Static batching — built, works, superseded
 
-> Status: **first hardware round done (2026-07-28). It works; it was then correctly undone.**
-> Ships OFF.
+> **Status: SUPERSEDED. Ships OFF, and should stay off unless you are testing weak hardware.**
+>
+> It works — 1666 renderers into 47 meshes, submitted material slots 1208 → ~132, worth about 8 ms.
+> It was not enough: the frame was still 17.5 ms and the headset still locked at 45 Hz. The actual
+> answer, found the same evening, was **threaded render submission** (`[Core] EnableGraphicsJobs`) —
+> main-thread render loop 14.9 ms → 1.8 ms, 45 Hz → 90 Hz, ghosting gone. See **`FINDINGS.md`**.
+>
+> With the main thread at 1.8 ms there is almost nothing left here to win. **Whether batching still
+> contributes anything at all is unmeasured** — §6 says how to find out. Costs ~100 MB and a ~60 ms
+> pause per scenario load.
 > Code: `src/GloomhavenVR/Core/StaticBatch{Config,Interop}.cs`, `StaticBatcher.cs`.
 > Menu: Einstellungen ▸ Debug ▸ Leistung & Effekte ▸ **Objekt-Bündelung**.
 > Config: `dev.gloomhavenvr.batching.cfg`.
@@ -185,7 +193,19 @@ same game — one submits fewer draw calls. Compatible with the standing MP requ
 construction** rather than by arrangement, and the only lever in this investigation for which that
 is free.
 
-## 6. Hardware test protocol
+## 6. The only test still worth running
+
+Everything below was written before the answer was known. The one question left is **whether this is
+worth keeping at all**, and one A/B settles it:
+
+1. Graphics jobs on (the default now). Load a scenario, batching **off**, play a minute.
+2. Switch to **On**, wait for it to apply, play the same minute.
+3. Compare `HeadCamera … submit` on the two `[Perf] SPLIT` lines — the mode change brackets them.
+
+If the difference is nil, **delete the feature** rather than leave a setting nobody can reason
+about. If it is real on weak hardware, keep it and say so at the row.
+
+## 7. Hardware test protocol (historical)
 
 Reachable from inside the headset — but the two middle levels are **collapsed choosers, not visible
 tabs**, which is what made the first attempt hard to find:

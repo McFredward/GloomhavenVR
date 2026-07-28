@@ -9,8 +9,23 @@ using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// EXPERIMENTAL runtime static batching — the last untested lever of the 2026-07 judder
-/// investigation, and the only one that attacks the measured wall directly.
+/// EXPERIMENTAL runtime static batching — built as the last untested lever of the 2026-07 judder
+/// investigation, and SUPERSEDED by the answer four hours later.
+///
+/// <para>READ THIS FIRST (2026-07-28). It works, and the numbers below are real: 1666 renderers
+/// combined into 47 meshes in 62 ms for 97 MB, submitted material slots 1208 → ~132, main-thread
+/// head camera 21.5 ms → 13.4 ms. But the frame was still 17.5 ms and the headset was still locked
+/// at 45 Hz — the win was large and still did not cross the line. The line was crossed by something
+/// else entirely: <b>Unity was submitting every draw call on one thread</b>, and turning on threaded
+/// submission (<c>[Core] EnableGraphicsJobs</c>, which the preloader now does by default) took the
+/// main-thread render loop from 14.9 ms to 1.8 ms and the display from 45 Hz to 90 Hz. With the main
+/// thread at 1.8 ms there is almost nothing left here to win, and whether this still contributes
+/// anything is UNMEASURED. It stays off by default, it stays because it may still matter on weak
+/// hardware, and the honest verdict lives in <c>.planning/perf/FINDINGS.md</c>.</para>
+///
+/// <para>The rest of this doc is the reasoning as it stood when the class was written. It is kept
+/// because the mechanism, the eligibility rules and the rollback contract are all still exactly
+/// true — only the conclusion about what the frame's wall was has moved.</para>
 ///
 /// <para>WHAT THE MEASUREMENT SAYS. Six hardware sessions eliminated every pixel-cost explanation:
 /// an 11x cut in the pixel-sample budget moved nothing, shadows off at minimum quality moved

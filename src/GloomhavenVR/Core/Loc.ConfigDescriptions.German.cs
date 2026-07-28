@@ -24,7 +24,17 @@ internal static partial class Loc
         {
             // ---- [Batching] — the experimental runtime static-batching pass (2026-07) ----
             ["Batching/Mode"] =
-                "EXPERIMENTELL. Was der Bündelungs-Durchlauf tun darf. AUS (Auslieferungszustand) tut "
+                "EXPERIMENTELL UND INZWISCHEN VERMUTLICH ÜBERFLÜSSIG — lies den letzten Absatz, bevor "
+                + "du es einschaltest. ÜBERHOLT am 28.07.2026: die Bündelung funktioniert (1666 "
+                + "Renderer zu 47 Meshes zusammengefasst, abgesetzte Materialslots 1208 → ~132, rund "
+                + "8 ms wert), aber die eigentliche Lösung war die PARALLELE BILDABGABE "
+                + "([Core] EnableGraphicsJobs, standardmäßig an): sie brachte den Renderloop auf dem "
+                + "Hauptthread von 14,9 ms auf 1,8 ms und das Headset von 45 Hz auf 90 Hz. Damit "
+                + "bleibt auf dem Hauptthread kaum noch etwas übrig, was die Bündelung gewinnen "
+                + "könnte — ob sie überhaupt noch etwas bringt, ist UNGEMESSEN. Sie kostet ~100 MB "
+                + "und eine ~60-ms-Pause pro Szenarioladen; lass sie aus, außer du testest schwache "
+                + "Hardware. Siehe .planning/perf/FINDINGS.md. — "
+                + "Was der Bündelungs-Durchlauf tun darf. AUS (Auslieferungszustand) tut "
                 + "nichts und gibt bereits Zusammengefasstes wieder frei. MESSEN untersucht die Szene und "
                 + "schreibt eine [Batch] PROBE-Zeile, wie viele Renderer zusammengefasst werden KÖNNTEN, "
                 + "über wie viele Materialien und zu welchen Speicherkosten — es wird NICHTS verändert. AN "

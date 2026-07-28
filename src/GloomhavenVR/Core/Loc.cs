@@ -480,11 +480,16 @@ internal static partial class Loc
         // fewer times", "it costs memory", and "it can be undone". The word "Batching" survives
         // only in the config file and the log, where it has to match Unity's own vocabulary.
         ["batching"] = Pair("Object merging", "Objekt-Bündelung"),
-        ["batch_experimental_short"] = Pair("Experimental — reversible at any time",
-                                            "Experimentell — jederzeit umkehrbar"),
+        // 2026-07-28: this block used to say "never been through a hardware round" and to present
+        // merging as THE answer to the judder. Both became false the same evening — it ran, it
+        // worked, and it was then superseded by graphics jobs (see .planning/perf/FINDINGS.md).
+        // User-facing text that oversells a setting is worse than none, so it now says what the
+        // measurement says.
+        ["batch_experimental_short"] = Pair("Experimental — rarely needed, reversible at any time",
+                                            "Experimentell — selten nötig, jederzeit umkehrbar"),
         ["batch_experimental_note"] = Pair(
-            "This is the only setting in the mod that changes the game's own objects rather than how they are drawn. It merges the dungeon's many separate pieces into a few large ones, so the graphics card is asked to draw far fewer times — which is exactly what the measurements say the VR frame is spending its time on. Everything it does is recorded and can be undone: set it back to off, press Undo, or simply load another scenario. It has never been through a hardware round, which is why it is off.",
-            "Dies ist die einzige Einstellung des Mods, die die Objekte des Spiels selbst verändert statt nur ihrer Darstellung. Sie fasst die vielen Einzelteile des Dungeons zu wenigen großen zusammen, sodass die Grafikkarte deutlich seltener zum Zeichnen aufgefordert wird — und genau dort verbringt das VR-Bild laut Messung seine Zeit. Alles wird protokolliert und ist umkehrbar: wieder auf Aus stellen, „Rückgängig\" drücken oder einfach ein anderes Szenario laden. Auf Hardware ist es noch nie gelaufen — deshalb ist es aus."),
+            "This is the only setting in the mod that changes the game's own objects rather than how they are drawn. It merges the dungeon's many separate pieces into a few large ones so the graphics card is asked to draw far fewer times. It works — measured, it merged 1666 objects and cut the draw requests ninefold — but it was overtaken by a much bigger fix: threaded render submission (Core › EnableGraphicsJobs), which removed the bottleneck this was fighting. So you probably do not need this. It may still help on weak hardware. Costs about 100 MB and a brief pause when a scenario loads. Everything it does is recorded and undoable: set it back to off, press Undo, or load another scenario.",
+            "Dies ist die einzige Einstellung des Mods, die die Objekte des Spiels selbst verändert statt nur ihrer Darstellung. Sie fasst die vielen Einzelteile des Dungeons zu wenigen großen zusammen, sodass die Grafikkarte deutlich seltener zum Zeichnen aufgefordert wird. Sie funktioniert — gemessen wurden 1666 zusammengefasste Objekte und neunmal weniger Zeichenaufrufe —, wurde aber von etwas viel Größerem überholt: der parallelen Bildabgabe (Core › EnableGraphicsJobs), die den Engpass beseitigt hat, gegen den diese Funktion ankämpfte. Du brauchst sie also vermutlich nicht. Auf schwacher Hardware kann sie trotzdem helfen. Kostet rund 100 MB und eine kurze Pause beim Laden eines Szenarios. Alles ist protokolliert und umkehrbar: wieder auf Aus stellen, „Rückgängig\" drücken oder ein anderes Szenario laden."),
         ["batch_mode"] = Pair("Mode", "Modus"),
         ["batch_mode_probe"] = Pair("Measure only", "Nur messen"),
         ["batch_mode_on"] = Pair("On", "An"),

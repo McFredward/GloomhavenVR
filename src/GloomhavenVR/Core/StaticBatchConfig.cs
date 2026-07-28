@@ -147,19 +147,28 @@ internal static class StaticBatchConfig
         _file = ModuleConfig.Create("batching");
 
         Mode = _file.Bind("Batching", "Mode", BatchMode.Off,
-            "EXPERIMENTAL. What the runtime static-batching pass may do. OFF (the shipped default) "
-            + "does nothing at all and hands back anything already combined. PROBE measures the "
-            + "scene and writes one [Batch] PROBE line saying how many renderers COULD be combined, "
-            + "over how many materials, at what memory cost — and mutates NOTHING, so it is safe to "
-            + "leave on. ON does the same and then combines. Why this exists: six hardware sessions "
-            + "put the VR frame's wall in main-thread DRAW-CALL SUBMISSION (culling 0.08 ms against "
-            + "21.5 ms of submission), and a scenario submits ~1481 renderers over only ~103 "
-            + "distinct materials — 14.4 renderers per material. Static batching is the one lever "
-            + "that can collapse that ratio, because it needs no shader variants (unlike single-pass "
-            + "stereo and unlike GPU instancing, which cannot help here: this dungeon's geometry is "
-            + "generated procedurally, so nearly every renderer has a mesh of its own). The game's "
-            + "own developers shipped the same call on a debug hotkey (PerformanceUtility.Combine "
-            + "→ Shift+F2 → StaticBatchingUtility.Combine on 'Maps').");
+            "EXPERIMENTAL, AND PROBABLY UNNECESSARY NOW — read the last paragraph before switching "
+            + "it on. What the runtime static-batching pass may do. OFF (the shipped default) does "
+            + "nothing at all and hands back anything already combined. PROBE measures the scene and "
+            + "writes one [Batch] PROBE line saying how many renderers COULD be combined, over how "
+            + "many materials, at what memory cost — and mutates NOTHING, so it is safe to leave on. "
+            + "ON does the same and then combines. Why this exists: the VR frame's wall was "
+            + "main-thread DRAW-CALL SUBMISSION (culling 0.08 ms against 21.5 ms of submission), and "
+            + "a scenario submits ~1481 renderers over only ~103 distinct materials — 14.4 renderers "
+            + "per material. Static batching is the one lever that can collapse that ratio, because "
+            + "it needs no shader variants (unlike single-pass stereo and unlike GPU instancing, "
+            + "which cannot help here: this dungeon's geometry is generated procedurally, so nearly "
+            + "every renderer has a mesh of its own). The game's own developers shipped the same call "
+            + "on a debug hotkey (PerformanceUtility.Combine → Shift+F2 → "
+            + "StaticBatchingUtility.Combine on 'Maps'). "
+            + "SUPERSEDED 2026-07-28: it works — 1666 renderers combined into 47 meshes, submitted "
+            + "material slots 1208 → ~132, worth about 8 ms — but the real fix turned out to be "
+            + "THREADED RENDER SUBMISSION ([Core] EnableGraphicsJobs, on by default), which took the "
+            + "main-thread render loop from 14.9 ms to 1.8 ms and the headset from 45 Hz to 90 Hz. "
+            + "With that in place there is almost nothing left on the main thread for batching to "
+            + "win, and whether it still helps at all is UNMEASURED. It costs ~100 MB and a ~60 ms "
+            + "pause per scenario load, so leave it off unless you are testing weak hardware. See "
+            + ".planning/perf/FINDINGS.md.");
 
         Roots = _file.Bind("Batching", "Roots", "Maps",
             "Comma-separated names of SCENE-ROOT objects the pass may walk. Nothing outside these "

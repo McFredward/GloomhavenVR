@@ -293,12 +293,19 @@ internal static class RenderQuality
     /// <summary>
     /// Cap <see cref="QualitySettings.pixelLightCount"/> ([RenderQuality] PixelLightCount).
     ///
-    /// <para>WHY THIS EXISTS. Six hardware sessions established that the frame's wall is
+    /// <para>WHY THIS EXISTS. Six hardware sessions established that the frame's wall WAS
     /// main-thread DRAW-CALL SUBMISSION, not pixels: culling measured 0.08 ms against 21.5 ms of
     /// submission, and resolution, MSAA, shadows, the depth prepass and the culling mask each
     /// moved it by under 10 %. The one multiplier nothing had touched is this one — in the
     /// built-in FORWARD renderer each per-pixel light past the first re-submits every renderer it
     /// affects. The scenario runs 4 of them over ~1500 visible renderers.</para>
+    ///
+    /// <para>THAT WALL IS GONE (2026-07-28, <c>.planning/perf/FINDINGS.md</c>): the submission was
+    /// serialised on one thread, and threaded submission (<c>[Core] EnableGraphicsJobs</c>) took the
+    /// main-thread render loop from 14.9 ms to 1.8 ms. This entry measured ~1 % even back when the
+    /// main thread WAS the bottleneck, so it is now a pure quality trade with no performance case
+    /// behind it. Kept because the game exposes no control for it and someone on weak hardware may
+    /// still want it — but it is not a lever anyone should be pointed at.</para>
     ///
     /// <para>-1 (the default) does NOTHING, deliberately: this is a visible trade, not a cleanup.
     /// Lights above the cap still light the scene per VERTEX, so nothing goes dark — but the

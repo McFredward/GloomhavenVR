@@ -8,8 +8,16 @@ using UnityEngine.XR;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// WHAT THE RENDER LOOP IS ACTUALLY SUBMITTING — the breakdown the 2026-07 judder investigation
-/// needs next, and the one number the previous instrumentation could not produce.
+/// WHAT THE RENDER LOOP IS ACTUALLY SUBMITTING — the per-object breakdown of the frame.
+///
+/// <para>THE INVESTIGATION THIS WAS BUILT FOR IS CLOSED (2026-07-28,
+/// <c>.planning/perf/FINDINGS.md</c>): the wall was that Unity submitted every draw call on ONE
+/// thread, and threaded submission (<c>[Core] EnableGraphicsJobs</c>) took the main-thread render
+/// loop from 14.9 ms to 1.8 ms and the headset from 45 Hz to 90 Hz. This line stays because it is
+/// how a regression would be seen at all — and because its own numbers are still exactly what they
+/// always were. Note what it can and cannot show now: it counts renderers and MATERIAL SLOTS, which
+/// is submission VOLUME, and volume is no longer the same thing as main-thread cost. Read it
+/// together with the <c>[Perf] SPLIT</c> line, which is the one that settled the question.</para>
 ///
 /// <para>WHERE THIS COMES FROM. <see cref="PerfFrameSplit"/> settled WHICH LAYER owns the frame:
 /// the main thread spends 78–84 % of it inside Unity's render loop, ~11–16 ms of that in the head
