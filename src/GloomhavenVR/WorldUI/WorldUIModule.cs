@@ -195,6 +195,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("NonDominantHold", NonDominantHold.Tick),  // before its consumers (settings panel, flat screen, options toggle)
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
+                ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached
                 ("ButtonCluster", _buttons.Tick),
             };
             for (int i = 0; i < _slotSurfaces.Length; i++)
@@ -272,6 +273,7 @@ internal sealed class WorldUIModule : IVRModule
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
             _settingsPanel.Shutdown();
+            VROptionsTab.Shutdown();
             _avatarMirror.Shutdown();
             _tooltips.Shutdown();
             _hexHintFacing.Shutdown();

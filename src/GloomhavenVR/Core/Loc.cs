@@ -213,6 +213,10 @@ internal static partial class Loc
         // suggest a tab that no longer exists.)
         ["cat_graphics"] = Pair("Graphics", "Grafik"),
         ["cat_debug"] = Pair("Debug", "Debug"),
+        // The caption of the mod's tab in the GAME's own options window. Two words here, unlike the
+        // one-word sidebar tabs above: this row is the game's full-width option list, not the
+        // mod's pinned 132 px column, so it has the room the others did not.
+        ["vr_options"] = Pair("VR Options", "VR Optionen"),
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
         // group instead of a sidebar entry), which is why the restructure uses them for grouping
         // and keeps the tab count at five.
