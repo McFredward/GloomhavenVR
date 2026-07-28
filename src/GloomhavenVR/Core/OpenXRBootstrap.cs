@@ -123,65 +123,58 @@ internal static class OpenXRBootstrap
     /// </summary>
     private static void LogGraphicsJobs(string[] args)
     {
-        bool viaCommandLine = args.Any(a => a.StartsWith("-force-gfx-jobs", StringComparison.OrdinalIgnoreCase));
-        bool? viaBootConfig = ReadBootConfigGraphicsJobs();
-
-        if (viaCommandLine || viaBootConfig == true)
+        if (args.Any(a => a.StartsWith("-force-gfx-jobs", StringComparison.OrdinalIgnoreCase)))
         {
-            VRLog.Info("Core", "Graphics jobs: ON ("
-                               + (viaCommandLine ? "-force-gfx-jobs in the launch options"
-                                                 : "gfx-enable-native-gfx-jobs in boot.config")
-                               + "). Unity submits draw calls on worker threads instead of the main "
-                               + "thread — worth main-thread render 14.9 ms → 1.8 ms and 45 Hz → 90 Hz "
-                               + "on the hardware this was measured on.");
+            VRLog.Info("Core", "Graphics jobs: ON for this session (-force-gfx-jobs in the launch "
+                               + "options). Unity submits draw calls on worker threads instead of the "
+                               + "main thread — worth main-thread render 14.9 ms → 1.8 ms and "
+                               + "45 Hz → 90 Hz on the hardware this was measured on.");
             return;
         }
 
-        VRLog.Warn("Core", "Graphics jobs: OFF — and this is the largest single performance factor "
-                           + "found in this project. Without it Unity submits every draw call on ONE "
-                           + "thread, which measured as the ENTIRE bottleneck in a scenario: with it "
-                           + "on, main-thread render went 14.9 ms → 1.8 ms, the frame 17.5 ms → "
-                           + "11.14 ms, and the headset from locked-at-45 Hz to a clean 90 Hz "
-                           + "(2026-07-28, same scene and build). [Core] EnableGraphicsJobs = true "
-                           + "(the default) makes the mod write it into boot.config for you — it "
-                           + "applies at the NEXT game start. Or add '-force-gfx-jobs native' to the "
-                           + "game's launch options yourself."
-                           + (viaBootConfig == null
-                               ? " (boot.config could not be read here, so this may be a false alarm.)"
-                               : string.Empty));
+        // The PRELOADER publishes what the engine actually booted with, read before it edited the
+        // file. Absent = the preloader did not run at all (it lives in BepInEx/patchers/), which is
+        // itself worth saying rather than papering over.
+        string? session = Environment.GetEnvironmentVariable(SessionGraphicsJobsVariable);
+        if (session == null)
+        {
+            VRLog.Warn("Core", "Graphics jobs: UNKNOWN — the mod's preloader did not run, so nothing "
+                               + "here knows what the engine booted with, and nothing wrote the "
+                               + "setting for you either. Check that "
+                               + "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll is installed. "
+                               + "Meanwhile '-force-gfx-jobs native' in the game's launch options does "
+                               + "the same job with no mod involvement.");
+            return;
+        }
+
+        if (session == "1")
+        {
+            VRLog.Info("Core", "Graphics jobs: ON for this session (boot.config). Unity submits draw "
+                               + "calls on worker threads instead of the main thread — worth "
+                               + "main-thread render 14.9 ms → 1.8 ms and 45 Hz → 90 Hz on the "
+                               + "hardware this was measured on.");
+            return;
+        }
+
+        VRLog.Warn("Core", "Graphics jobs: OFF FOR THIS SESSION — the largest single performance "
+                           + "factor found in this project. Without them Unity submits every draw "
+                           + "call on ONE thread, which measured as the ENTIRE bottleneck in a "
+                           + "scenario: with them on, main-thread render went 14.9 ms → 1.8 ms, the "
+                           + "frame 17.5 ms → 11.14 ms, and the headset from locked-at-45 Hz to a "
+                           + "clean 90 Hz (2026-07-28, same scene and build). If the preloader has "
+                           + "just written the setting (its own log line says so), simply RESTART THE "
+                           + "GAME ONCE — the engine reads boot.config before any mod code exists, so "
+                           + "it can never apply to the run that wrote it. If it keeps saying this "
+                           + "after a restart, [Core] EnableGraphicsJobs is off, or the write failed "
+                           + "— add '-force-gfx-jobs native' to the launch options instead.");
     }
 
     /// <summary>
-    /// True/false from the <c>gfx-enable-native-gfx-jobs</c> key in <c>Gloomhaven_Data/boot.config</c>,
-    /// or null when the file cannot be read — a diagnostic that guesses is worse than one that says
-    /// it does not know.
+    /// Mirror of <c>GloomhavenVR.Preload.Patcher.SessionStateVariable</c>. Duplicated as a literal
+    /// rather than referenced: the plugin does not link the patcher assembly, and it must degrade to
+    /// "unknown" when the patcher is absent, which a hard reference could not do.
     /// </summary>
-    private static bool? ReadBootConfigGraphicsJobs()
-    {
-        try
-        {
-            string path = System.IO.Path.Combine(Application.dataPath, "boot.config");
-            if (!System.IO.File.Exists(path))
-                return null;
-            foreach (string raw in System.IO.File.ReadAllLines(path))
-            {
-                int eq = raw.IndexOf('=');
-                if (eq <= 0)
-                    continue;
-                if (!string.Equals(raw.Substring(0, eq).Trim(), "gfx-enable-native-gfx-jobs",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                return raw.Substring(eq + 1).Trim() == "1";
-            }
-            return false;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
+    private const string SessionGraphicsJobsVariable = "GLOOMHAVENVR_GFXJOBS_SESSION";
 
     private static void LogEnvironment()
     {

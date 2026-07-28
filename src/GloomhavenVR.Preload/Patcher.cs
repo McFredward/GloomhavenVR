@@ -296,6 +296,17 @@ public static class Patcher
     private const string BootConfigBackupSuffix = ".gloomhavenvr-backup";
 
     /// <summary>
+    /// Process environment variable carrying whether THIS SESSION is actually running with graphics
+    /// jobs — "1"/"0", set from the boot.config value read BEFORE this patcher edits it.
+    ///
+    /// <para>It exists because the obvious alternative is wrong: the plugin cannot read boot.config
+    /// and conclude anything about the running session, since by then this patcher may already have
+    /// changed it. Process-scoped rather than a file, so it can never go stale and leaves nothing
+    /// behind. Absent = this patcher did not run, and the plugin says so rather than guessing.</para>
+    /// </summary>
+    internal const string SessionStateVariable = "GLOOMHAVENVR_GFXJOBS_SESSION";
+
+    /// <summary>
     /// TURN ON UNITY'S THREADED RENDER SUBMISSION, so the player does not have to know about a
     /// command-line flag.
     ///
@@ -355,6 +366,16 @@ public static class Patcher
             }
 
             string[] lines = File.ReadAllLines(bootConfig);
+
+            // WHAT THIS SESSION IS ACTUALLY RUNNING WITH — read BEFORE the edit, because the engine
+            // read the file before this patcher existed. Published to the process so the plugin can
+            // report the truth instead of reading the file back and seeing our own write.
+            // (2026-07-28: the plugin did exactly that and logged "Graphics jobs: ON" for a session
+            // that was running without them. A diagnostic that reports the wrong state is worse than
+            // no diagnostic — this is the handshake that makes it impossible.)
+            Environment.SetEnvironmentVariable(SessionStateVariable,
+                ReadKey(lines, "gfx-enable-native-gfx-jobs") == "1" ? "1" : "0");
+
             string desired = wanted ? "1" : "0";
             if (!RewriteKeys(lines, desired, out string[] updated))
             {
@@ -378,6 +399,10 @@ public static class Patcher
 
             if (wanted)
             {
+                Log.LogWarning("Graphics jobs: RESTART THE GAME ONCE to actually get them. They have "
+                               + "just been written into boot.config, and the engine read that file "
+                               + "before this mod existed — so THIS session is still running without "
+                               + "them. Nothing is wrong; the next start picks them up.");
                 Log.LogInfo("Graphics jobs ENABLED in boot.config (gfx-enable-gfx-jobs + "
                             + "gfx-enable-native-gfx-jobs = 1). This moves Unity's draw-call "
                             + "submission off the main thread and was measured at main-thread render "
@@ -407,6 +432,18 @@ public static class Patcher
     /// is never rewritten (and no backup is taken for a no-op). Every other line is preserved
     /// byte-for-byte — this must never reformat a file the engine parses.
     /// </summary>
+    /// <summary>Value of one boot.config key as the file currently stands, or null when absent.</summary>
+    private static string? ReadKey(string[] lines, string key)
+    {
+        foreach (string line in lines)
+        {
+            int eq = line.IndexOf('=');
+            if (eq > 0 && string.Equals(line.Substring(0, eq).Trim(), key, StringComparison.OrdinalIgnoreCase))
+                return line.Substring(eq + 1).Trim();
+        }
+        return null;
+    }
+
     private static bool RewriteKeys(string[] lines, string value, out string[] updated)
     {
         var result = new List<string>(lines.Length + GraphicsJobKeys.Length);

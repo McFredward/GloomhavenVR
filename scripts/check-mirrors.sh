@@ -47,6 +47,15 @@ MIRRORS=(
   # the deadzone and the notch rate must be tuned together.
   "thumbstick scroll deadzone : Hands/Interact/RayUguiDriver.cs:ScrollDeadzone WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollDeadzone WorldUI/FlatScreen.6.Pointer.cs:StickScrollDeadzone"
   "thumbstick scroll speed (wheel notches/s) : Hands/Interact/RayUguiDriver.cs:ScrollNotchesPerSecond WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollNotchesPerSecond WorldUI/FlatScreen.6.Pointer.cs:StickScrollNotchesPerSecond"
+
+  # The graphics-jobs handshake: the PRELOADER publishes what the engine actually booted
+  # with (read before it edits boot.config) and the PLUGIN reports it. They are separate
+  # assemblies and the plugin deliberately does not link the patcher — it has to degrade to
+  # "unknown" when the patcher is absent, which a hard reference could not express — so the
+  # variable NAME is duplicated as a literal. A rename on one side alone would silently turn
+  # the diagnostic back into the thing it was built to replace: a line reporting a state it
+  # cannot see. That happened once already (2026-07-28) and this is why it cannot again.
+  "graphics-jobs session handshake (env var name) : Preload/Patcher.cs:SessionStateVariable Core/OpenXRBootstrap.cs:SessionGraphicsJobsVariable"
 )
 
 fail=0
@@ -55,7 +64,12 @@ for entry in "${MIRRORS[@]}"; do
     first=""; report=""
     for site in $sites; do
         file="$S/${site%%:*}"; name="${site##*:}"
-        value="$(sed -nE "s/.*const[[:space:]]+float[[:space:]]+${name}[[:space:]]*=[[:space:]]*([^;]+);.*/\1/p" "$file")"
+        # A site may live in the sibling preloader project (it is a separate assembly
+        # the plugin deliberately does not link — see the graphics-jobs group below).
+        [[ "${site}" == Preload/* ]] && file="$ROOT/src/GloomhavenVR.${site%%:*}"
+        # float OR string: the graphics-jobs handshake mirrors an environment-variable NAME,
+        # which is exactly as breakable by a rename as a tuning constant is by a retune.
+        value="$(sed -nE "s/.*const[[:space:]]+(float|string)[[:space:]]+${name}[[:space:]]*=[[:space:]]*([^;]+);.*/\2/p" "$file")"
         if [[ -z "$value" ]]; then
             echo "error: mirrored constant ${site} not found — did it move or get renamed?" >&2
             fail=1; continue
