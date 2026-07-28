@@ -104,6 +104,11 @@ if [[ ! -f "$TEMPLATE" ]]; then
 fi
 sed "s/@VERSION@/$VERSION/g" "$TEMPLATE" > "$STAGE/INSTALL.txt"
 
+# The one-click graphics-jobs enabler, at the zip ROOT so it lands next to GH.exe
+# when the archive is extracted into the game folder. It is what removes the
+# "start the game twice" step for a drag-and-drop install (INSTALL.txt step 4).
+cp "$ROOT/packaging/EnableGraphicsJobs.bat" "$ROOT/packaging/EnableGraphicsJobs.ps1" "$STAGE/"
+
 # ---- zip + verify ----------------------------------------------------------------------------
 mkdir -p "$DIST"
 (cd "$STAGE" && zip -q -r "$ZIP" .)
@@ -120,7 +125,9 @@ for path in \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
     "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
-    "INSTALL.txt"; do
+    "INSTALL.txt" \
+    "EnableGraphicsJobs.bat" \
+    "EnableGraphicsJobs.ps1"; do
     if ! unzip -l "$ZIP" | grep -q "$path"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1

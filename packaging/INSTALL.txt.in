@@ -21,30 +21,30 @@ runtime (Quest Link / Virtual Desktop / Steam Link / SteamVR), BepInEx 5.4.23.5.
    OpenXR runtime; Virtual Desktop: VDXR; Steam Link: SteamVR), put the headset
    on standby-awake, then start the game normally.
 
-4. START THE GAME ONCE, QUIT, AND START IT AGAIN. Only ever this once, and only
-   for performance — see below. The mod works on the first start too.
+4. Double-click EnableGraphicsJobs.bat (it sits next to GH.exe after step 2).
+   One click, takes a second, and it is what makes the game run at full speed —
+   see below. Safe to run again any time.
 
 5. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
    Set [General] Enabled = false in dev.gloomhavenvr.cfg to run vanilla.
 
 
-Why the restart in step 4
--------------------------
+What EnableGraphicsJobs.bat does, and why it is not automatic
+------------------------------------------------------------
 Unity normally submits every draw call on ONE thread, and on this game that
 thread is the whole bottleneck in a scenario. Switching on "graphics jobs" moved
 the measured frame from 17.5 ms to 11.14 ms and the headset from a locked 45 Hz
 to a clean 90 Hz — the ghosting on head movement disappeared entirely.
 
-The mod switches it on for you by adding two lines to
-  <GameDir>/<GH>_Data/boot.config
-but the engine reads that file before any mod code exists, so the change can
-only take effect on the NEXT start. Hence: start once, restart, done forever.
+It is a one-line change to a file the game already has, and it cannot be done
+from inside the mod: Unity reads that file (<GameDir>/<GH>_Data/boot.config)
+during engine startup, before any mod code exists. The mod DOES write it, but
+that write can only take effect on the following start — so without this script
+you would have to start the game, quit, and start it again. The script does it
+before the first start instead.
 
-After the restart the log line
-
-  [Core] Graphics jobs: ON for this session
-
-confirms it. If it still says OFF, the line itself tells you why.
+Skipping it is fine: the mod falls back to writing it itself, and you just start
+the game twice once. Nothing breaks either way.
 
 Don't want a game file touched? Set [Core] EnableGraphicsJobs = false in
 dev.gloomhavenvr.cfg and add this to the game's Steam launch options instead:

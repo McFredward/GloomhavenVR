@@ -373,6 +373,12 @@ if (-not $NoPackage) {
     (Get-Content -LiteralPath $template -Raw).Replace('@VERSION@', $version) |
         Set-Content -LiteralPath (Join-Path $stage "INSTALL.txt") -Encoding UTF8 -NoNewline
 
+    # At the zip ROOT so it lands next to GH.exe when the archive is extracted into
+    # the game folder — that is what removes the "start the game twice" step for a
+    # drag-and-drop install (INSTALL.txt step 4).
+    Copy-Item (Join-Path $root "packaging\EnableGraphicsJobs.bat") $stage -Force
+    Copy-Item (Join-Path $root "packaging\EnableGraphicsJobs.ps1") $stage -Force
+
     Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
     Remove-Item -Recurse -Force $stage
 
@@ -383,7 +389,9 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",
         "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll",
         "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",
-        "INSTALL.txt")
+        "INSTALL.txt",
+        "EnableGraphicsJobs.bat",
+        "EnableGraphicsJobs.ps1")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try   { $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' } }
