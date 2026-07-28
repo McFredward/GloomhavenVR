@@ -460,10 +460,6 @@ internal static partial class Loc
         ["debug_timing_note"] = Pair(
             "CPU-side refresh intervals. Measured at ~2.5% of frame time, so these are for finding defaults, not for fixing stutter — the GPU rows under Graphics are the ones that move frames.",
             "CPU-seitige Auffrischungs-Intervalle. Gemessen bei ~2,5 % der Bildzeit — also zum Ermitteln guter Vorgaben, nicht gegen Ruckler; dafür sind die GPU-Regler unter Grafik zuständig."),
-        ["debug_skip_scrub_draw"] = Pair("Skip the discarded desktop render", "Verworfenes Desktop-Rendering überspringen"),
-        ["debug_skip_scrub_note"] = Pair(
-            "In a scenario the game still renders the whole 3D scene a third time, into a texture nothing reads, so the monitor stays clean. This skips only that drawing. Expected to be invisible and to be the single largest GPU saving here — but untested on hardware, which is why it is off. If anything looks wrong in the headset, switch it back.",
-            "Im Szenario rendert das Spiel die komplette 3D-Szene ein drittes Mal — in eine Textur, die niemand liest, nur damit der Monitor sauber bleibt. Dies überspringt genau dieses Zeichnen. Sollte unsichtbar sein und ist hier die größte einzelne GPU-Ersparnis — aber ungetestet, deshalb aus. Falls im Headset etwas falsch aussieht: wieder ausschalten."),
         ["debug_depth_prepass"] = Pair("Depth pass for VFX fading", "Tiefenpass für Effekt-Überblendung"),
         ["debug_depth_prepass_note"] = Pair(
             "On, the mod draws the whole scene a second time per eye just to build a depth image. That image is what makes torch glow and smoke fade correctly at walls instead of shining through them. Off removes that second drawing — the largest single piece of drawing work the mod itself adds — and brings the glow-through-walls artefact back. On by default; switch it off to see what it is worth in frames.",

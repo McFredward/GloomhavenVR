@@ -1388,25 +1388,6 @@ internal static partial class Loc
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "
                 + "Desktop in jedem Zustand ein sauberes Einzelaugen-Spiegelbild zeigt. Aus = altes Verhalten "
                 + "(2D-Menü-Composite in Menüs, sonst unkontrollierter XR-Standardspiegel).",
-            ["WorldUI/SkipDesktopScrubDraw"] =
-                "EXPERIMENT, AUF HARDWARE NOCH NICHT VERIFIZIERT — aus lassen, außer du testest es gerade. "
-                + "Solange die Leinwand ausgeblendet ist (also im Szenario), lenkt DesktopMirrorLeftEye die "
-                + "spieleigenen Kameras auf eine Offscreen-Senke um, damit sie vom Monitor fernbleiben. Die "
-                + "Szenario-Kamera des Spiels rendert deshalb in jedem Frame die VOLLE 3D-Szene in "
-                + "Desktop-Auflösung in eine Textur, die nie jemand liest (verifiziert: die Senke wird nie "
-                + "gesampelt, geblittet oder zurückgelesen) — ein drittes komplettes Szenen-Rendering "
-                + "zusätzlich zu den beiden Augen-Pässen. Dieser Schalter setzt die Culling-Masken dieser "
-                + "Kameras nur für die Dauer ihres eigenen Renderings auf null (danach sofort "
-                + "wiederhergestellt): sie clearen weiterhin, führen weiterhin alle Image Effects aus und "
-                + "melden dem Spielcode weiterhin unveränderte Pixelmaße und Culling-Masken — zeichnen aber "
-                + "nichts. Erwartet wird, dass das unsichtbar bleibt; standardmäßig AUS ist es, weil "
-                + "\"erwartet\" nicht \"gemessen\" heißt und der Fehlerfall — sollte doch ein Spielsystem von "
-                + "diesem Rendering abhängen — im Headset sichtbar wäre. SO MISST DU ES (2026-07): das "
-                + "Umschalten dieser Zeile im Debug-Bereich schließt das [Perf]-Messfenster auf beiden Seiten "
-                + "des Umschaltens, sodass das Log je Zustand genau eine FRAME/SPLIT-Zusammenfassung enthält "
-                + "und nichts über die Änderung hinweg läuft. Lies die Aufschlüsselung pro Kamera in der "
-                + "SPLIT-Zeile, NICHT den \"gpu\"-Wert der FRAME-Zeile — dieser Zähler meldet bei "
-                + "ratenbegrenzter Runtime nur das Frame-Intervall und ist dafür blind.",
             ["WorldUI/WristHudPitch"] =
                 "Neigung des Handgelenk-Übersichts-HUD (Pitch, Grad) zusätzlich zur flach auf der Hand "
                 + "liegenden Grundausrichtung.",

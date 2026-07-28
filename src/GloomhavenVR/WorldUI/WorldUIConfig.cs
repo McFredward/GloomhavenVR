@@ -122,13 +122,6 @@ internal static class WorldUIConfig
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
 
-    /// <summary>
-    /// Skip the DRAW of the game cameras the desktop scrub redirects offscreen (their output is
-    /// never read). Off by default — see the config description: the reasoning is sound, the
-    /// measurement is not in yet.
-    /// </summary>
-    internal static ConfigEntry<bool> SkipDesktopScrubDraw = null!;
-
     /// <summary>Item 10: wrist overview HUD pose, live-tunable in the debug menu's "Wrist" category.</summary>
     internal static ConfigEntry<float> WristHudPitch = null!;
     internal static ConfigEntry<float> WristHudYaw = null!;
@@ -399,24 +392,6 @@ internal static class WorldUIConfig
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
             "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
             "uncontrolled default XR mirror otherwise).");
-        SkipDesktopScrubDraw = _file.Bind("WorldUI", "SkipDesktopScrubDraw", false,
-            "EXPERIMENT, NOT YET VERIFIED ON HARDWARE — leave off unless you are testing it. While "
-            + "the flat screen is hidden (i.e. in a scenario) DesktopMirrorLeftEye retargets the "
-            + "game's own cameras onto an offscreen sink so they stay off the monitor. The game's "
-            + "scenario camera therefore renders the FULL 3D scene, at desktop resolution, every "
-            + "frame, into a texture nothing ever reads (verified: the sink is never sampled, "
-            + "blitted or read back) — a third full scene render on top of the two eye passes. This "
-            + "switch zeroes those cameras' culling masks for the duration of their own render only "
-            + "(restored immediately after), so they still clear, still run any image effects and "
-            + "still report unchanged pixel dimensions and culling masks to game code, but draw "
-            + "nothing. Expected to be invisible; the reason it defaults OFF is that 'expected' is "
-            + "not 'measured', and the failure mode if some game system does depend on that render "
-            + "would be visible in the headset. HOW TO MEASURE IT (2026-07): toggling this row in "
-            + "the Debug pane closes the [Perf] measurement window on both sides of the flip, so "
-            + "the log carries one FRAME/SPLIT summary per state with nothing straddling the "
-            + "change. Read the SPLIT line's per-camera breakdown, NOT the FRAME line's 'gpu' "
-            + "figure — that counter reports the frame interval whenever the runtime is "
-            + "rate-locked and is blind to this.");
         WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", 0f,
             "Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base.");
         WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", 0f, "Wrist overview HUD yaw (degrees).");
