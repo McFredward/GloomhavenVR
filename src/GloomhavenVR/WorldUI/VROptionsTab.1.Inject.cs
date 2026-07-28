@@ -68,16 +68,20 @@ internal static partial class VROptionsTab
     /// <summary>
     /// The sub-tab bar: a strip pinned to the TOP of the tab window, outside the scroll view.
     ///
-    /// <para>The first version put the category chooser in as the first row of the scrolled list,
-    /// where it scrolled away the moment the player looked at anything — with lists this long the
-    /// chooser was off-screen almost all the time, which is the opposite of what a chooser is for.
-    /// It now sits above the scroll area and stays put, and the scroll area is shortened by exactly
-    /// its height so nothing is covered.</para>
+    /// <para>It is a COLUMN DOWN THE LEFT, not a strip across the top, because that is the shape
+    /// this window already uses: the options window itself is a left column of tabs beside a
+    /// content pane, and the sub-chooser reads as part of the menu when it repeats that. The strip
+    /// version also had two practical faults — twelve captions across one width came out cramped
+    /// and staggered, and it was anchored to the window root rather than the content pane, so it
+    /// landed outside the visible panel where nothing could click it.</para>
+    ///
+    /// <para>Earlier still it was the first ROW of the scrolled list, where it scrolled out of
+    /// sight almost immediately — the opposite of what a chooser is for.</para>
     /// </summary>
     internal static RectTransform? TabBarRoot { get; private set; }
 
-    /// <summary>Height of that strip, and the amount the scroll area is pushed down by.</summary>
-    private const float TabBarHeight = 44f;
+    /// <summary>Width of that column, and the amount the scroll area is inset by.</summary>
+    private const float TabColumnWidth = 210f;
 
     /// <summary>True once the tab is live in the game's options window.</summary>
     internal static bool Injected => _host != null && _toggle != null;
@@ -196,15 +200,18 @@ internal static partial class VROptionsTab
     /// one screen, so cloning a non-scrolling tab would produce a list whose lower half is simply
     /// unreachable — and it would look wrong besides, since the game's own long lists all scroll.
     ///
-    /// <para>Active is preferred over inactive only as a tie-break WITHIN the scrolling group: an
-    /// inactive donor would hand us its hidden state, but a non-scrolling one would hand us a
-    /// broken menu, so the shape decides first.</para>
+    /// <para>Within the scrolling group an INACTIVE tab is preferred, which is the opposite of the
+    /// first version and the fix for the game's own keybindings appearing above the mod's settings.
+    /// The Controls tab POPULATES ITSELF: cloning it cloned whatever rebuilds that list, so the
+    /// donor rows were duly deactivated and then promptly rebuilt into the very content transform
+    /// the mod writes into. A tab the game hides on this platform (Perfomance, console-only) has
+    /// nothing maintaining it and nothing the player can miss.</para>
     /// </summary>
     private static UIOptionsWindow.OptionTab? PickDonor(UIOptionsWindow host, out int index)
     {
         index = -1;
-        UIOptionsWindow.OptionTab? scrollingInactive = null, plain = null;
-        int scrollingInactiveIndex = -1, plainIndex = -1;
+        UIOptionsWindow.OptionTab? scrollingActive = null, plain = null;
+        int scrollingActiveIndex = -1, plainIndex = -1;
 
         for (int i = 0; i < host.m_Tabs.Count; i++)
         {
@@ -216,16 +223,16 @@ internal static partial class VROptionsTab
 
             if (tab.TabWindow.GetComponentInChildren<ScrollRect>(true) != null)
             {
-                if (active)
+                if (!active)
                 {
                     index = i;
                     return tab;
                 }
 
-                if (scrollingInactive == null)
+                if (scrollingActive == null)
                 {
-                    scrollingInactive = tab;
-                    scrollingInactiveIndex = i;
+                    scrollingActive = tab;
+                    scrollingActiveIndex = i;
                 }
                 continue;
             }
@@ -237,10 +244,13 @@ internal static partial class VROptionsTab
             }
         }
 
-        if (scrollingInactive != null)
+        if (scrollingActive != null)
         {
-            index = scrollingInactiveIndex;
-            return scrollingInactive;
+            VRLog.Warn("WorldUI", "VR options tab: only ACTIVE scrolling donors exist — cloning one "
+                                  + "the game still maintains. If its own rows reappear above the "
+                                  + "mod's settings, that is why; the per-show sweep hides them.");
+            index = scrollingActiveIndex;
+            return scrollingActive;
         }
 
         if (plain != null)
@@ -405,30 +415,35 @@ internal static partial class VROptionsTab
         if (scroll == null)
             return null;
 
+        // The ScrollRect sits ON the tab's "Main Area" (the probe), so that transform IS the
+        // scrolling pane: insetting its left edge and putting the column in the gap needs no
+        // reparenting of anything the game owns. The column is a SIBLING of the pane, inside it,
+        // so it cannot land outside the visible panel the way the top strip did.
         var area = (RectTransform)scroll.transform;
         if (area.parent == null)
             return null;
 
-        area.offsetMax = new Vector2(area.offsetMax.x, area.offsetMax.y - TabBarHeight);
+        area.offsetMin = new Vector2(area.offsetMin.x + TabColumnWidth, area.offsetMin.y);
 
-        var bar = (RectTransform)new GameObject("GloomhavenVR.SubTabs", typeof(RectTransform)).transform;
-        bar.SetParent(area.parent, worldPositionStays: false);
-        bar.anchorMin = new Vector2(0f, 1f);
-        bar.anchorMax = new Vector2(1f, 1f);
-        bar.pivot = new Vector2(0.5f, 1f);
-        bar.sizeDelta = new Vector2(0f, TabBarHeight);
-        bar.anchoredPosition = Vector2.zero;
+        var column = (RectTransform)new GameObject("GloomhavenVR.SubTabs", typeof(RectTransform)).transform;
+        column.SetParent(area.parent, worldPositionStays: false);
+        column.anchorMin = new Vector2(0f, 0f);
+        column.anchorMax = new Vector2(0f, 1f);
+        column.pivot = new Vector2(0f, 0.5f);
+        column.offsetMin = new Vector2(area.offsetMin.x - TabColumnWidth, area.offsetMin.y);
+        column.offsetMax = new Vector2(area.offsetMin.x - TabColumnWidth + TabColumnWidth, area.offsetMax.y);
+        column.sizeDelta = new Vector2(TabColumnWidth, column.sizeDelta.y);
 
-        var layout = bar.gameObject.AddComponent<HorizontalLayoutGroup>();
-        layout.childAlignment = TextAnchor.MiddleCenter;
-        layout.spacing = 3f;
-        layout.padding = new RectOffset(6, 6, 4, 4);
+        var layout = column.gameObject.AddComponent<VerticalLayoutGroup>();
+        layout.childAlignment = TextAnchor.UpperCenter;
+        layout.spacing = 2f;
+        layout.padding = new RectOffset(0, 6, 0, 0);
         layout.childControlWidth = true;
         layout.childControlHeight = true;
         layout.childForceExpandWidth = true;
-        layout.childForceExpandHeight = true;
+        layout.childForceExpandHeight = false;
 
-        return bar;
+        return column;
     }
 
     /// <summary>

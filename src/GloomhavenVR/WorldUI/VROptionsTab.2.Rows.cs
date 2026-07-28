@@ -53,6 +53,14 @@ internal static partial class VROptionsTab
     private static GameObject? _dropdownTemplate;
     private static GameObject? _sliderTemplate;
 
+    /// <summary>
+    /// The sub-tab button, cloned from one of the window's OWN tab options (Allgemeine, Grafik,
+    /// Ton …). The first version drew these by hand and they read as foreign: wrong frame, wrong
+    /// font, wrong highlight. Reusing the very control the player is looking at one column over is
+    /// what makes the sub-chooser belong to this menu.
+    /// </summary>
+    private static GameObject? _categoryTemplate;
+
     /// <summary>Arrow art lifted off the game's dropdown, for the stepper's two buttons.</summary>
     private static Sprite? _arrowSprite;
 
@@ -122,6 +130,13 @@ internal static partial class VROptionsTab
         _sliderTemplate = Stamp(sliderRow, "Slider");
         _arrowSprite = HarvestArrowSprite(_dropdownTemplate);
         SampleTitleStyle(_toggleTemplate);
+
+        for (int i = 0; i < host.m_Tabs.Count && _categoryTemplate == null; i++)
+        {
+            UIMainMenuOption? option = host.m_Tabs[i]?.OptionToggle;
+            if (option != null)
+                _categoryTemplate = Stamp(option.transform, "Category");
+        }
 
         VRLog.Info("WorldUI",
             $"VR options tab: templates — toggle={Describe(toggleRow)}, dropdown={Describe(dropdownRow)}, "

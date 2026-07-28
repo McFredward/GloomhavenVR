@@ -31,8 +31,8 @@ internal static partial class VROptionsTab
     /// <summary>Topic currently displayed. Survives a rebuild so reopening returns where you were.</summary>
     private static ConfigCatalog.ConfigTopic _category = ConfigCatalog.ConfigTopic.Movement;
 
-    /// <summary>Category buttons, kept so the selected one can be marked without a full rebuild.</summary>
-    private static readonly List<(Button button, ConfigCatalog.ConfigTopic topic)> CategoryButtons = new(16);
+    /// <summary>Sub-tab switches, kept so the lit one can be marked without a full rebuild.</summary>
+    private static readonly List<(Toggle toggle, ConfigCatalog.ConfigTopic topic)> CategoryToggles = new(16);
 
     private static bool _showHooked;
 
@@ -63,6 +63,7 @@ internal static partial class VROptionsTab
 
         ConfigCatalog.EnsureFresh();
         ClearRows();
+        HideForeignContent();
 
         BuildCategoryStrip();
 
@@ -116,7 +117,7 @@ internal static partial class VROptionsTab
         if (bar == null || bar.childCount > 0)
             return;
 
-        CategoryButtons.Clear();
+        CategoryToggles.Clear();
         for (int t = 0; t < ConfigCatalog.TopicCount; t++)
         {
             var topic = (ConfigCatalog.ConfigTopic)t;
@@ -127,56 +128,104 @@ internal static partial class VROptionsTab
         }
     }
 
+    /// <summary>
+    /// One sub-tab, cloned from the window's own tab option so it carries the game's frame, font
+    /// and highlight. Its switch drives the category; the toggle group makes exactly one lit.
+    /// </summary>
     private static void BuildCategoryButton(Transform parent, ConfigCatalog.ConfigTopic topic)
     {
-        var go = new GameObject($"Cat.{topic}", typeof(RectTransform));
-        go.transform.SetParent(parent, worldPositionStays: false);
+        if (_categoryTemplate == null)
+            return;
 
-        var image = go.AddComponent<Image>();
-        image.sprite = NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Idle);
-        image.color = NativeButtonSkin.ColorFor(NativeButtonSkin.FaceState.Idle);
-        image.type = Image.Type.Sliced;
+        GameObject go = UnityEngine.Object.Instantiate(_categoryTemplate, parent);
+        go.name = $"Cat.{topic}";
+        go.SetActive(true);
 
-        var button = go.AddComponent<Button>();
-        button.targetGraphic = image;
-        button.onClick.AddListener(() =>
+        TMP_Text? label = go.GetComponentInChildren<TMP_Text>(true);
+        if (label != null)
         {
+            label.text = ConfigCatalog.TopicLabel(topic);
+            label.enableWordWrapping = false;
+            label.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        Toggle? toggle = go.GetComponentInChildren<Toggle>(true);
+        if (toggle == null)
+        {
+            UnityEngine.Object.Destroy(go);
+            return;
+        }
+
+        toggle.onValueChanged.RemoveAllListeners();
+        toggle.group = CategoryGroup(parent);
+        toggle.SetIsOnWithoutNotify(topic == _category);
+        toggle.onValueChanged.AddListener(on =>
+        {
+            if (!on || _category == topic)
+                return;
             _category = topic;
             TickGuard.Run("VROptionsTab.Switch", Rebuild, "WorldUI");
         });
 
-        var labelGo = new GameObject("Label", typeof(RectTransform));
-        labelGo.transform.SetParent(go.transform, worldPositionStays: false);
-        var label = labelGo.AddComponent<TextMeshProUGUI>();
-        label.text = ConfigCatalog.TopicLabel(topic);
-        label.alignment = TextAlignmentOptions.Center;
-        label.fontSize = 14f;
-        label.enableWordWrapping = false;
-        label.overflowMode = TextOverflowModes.Ellipsis;
-        label.color = NativeButtonSkin.LabelColor;
-        NativeButtonSkin.ApplyFont(label);
-
-        var labelRect = (RectTransform)labelGo.transform;
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = new Vector2(4f, 0f);
-        labelRect.offsetMax = new Vector2(-4f, 0f);
-
-        CategoryButtons.Add((button, topic));
+        CategoryToggles.Add((toggle, topic));
     }
 
-    /// <summary>Light the selected category the way the game lights a chosen option.</summary>
+    /// <summary>
+    /// One group for the column, created on it rather than reused from the window's own: sharing
+    /// the game's group would make choosing a sub-tab deselect the VR tab itself.
+    /// </summary>
+    private static ToggleGroup CategoryGroup(Transform column)
+    {
+        ToggleGroup? group = column.GetComponent<ToggleGroup>();
+        if (group == null)
+        {
+            group = column.gameObject.AddComponent<ToggleGroup>();
+            group.allowSwitchOff = false;
+        }
+        return group;
+    }
+
+    /// <summary>Keep the lit sub-tab in step with the category actually being shown.</summary>
     private static void MarkSelectedCategory()
     {
-        for (int i = 0; i < CategoryButtons.Count; i++)
+        for (int i = 0; i < CategoryToggles.Count; i++)
         {
-            (Button button, ConfigCatalog.ConfigTopic topic) = CategoryButtons[i];
-            if (button == null || button.targetGraphic == null)
+            (Toggle toggle, ConfigCatalog.ConfigTopic topic) = CategoryToggles[i];
+            if (toggle == null)
                 continue;
-
-            bool selected = topic == _category;
-            button.targetGraphic.color = NativeButtonSkin.ColorFor(
-                selected ? NativeButtonSkin.FaceState.Accent : NativeButtonSkin.FaceState.Idle);
+            toggle.SetIsOnWithoutNotify(topic == _category);
         }
+    }
+
+    /// <summary>
+    /// Hide anything in the scroll content that is not ours.
+    ///
+    /// <para>The donor tab can REBUILD ITS OWN ROWS after we deactivated them — that is how the
+    /// game's keybindings ("Aktion bestätigen", "Eine Karte verbrennen") ended up sitting above the
+    /// mod's settings in the same list. Choosing a donor the game does not maintain is the real
+    /// fix; this runs every time the tab is shown so that if any donor ever repopulates, it is
+    /// hidden again rather than shipped.</para>
+    /// </summary>
+    private static void HideForeignContent()
+    {
+        RectTransform? content = ContentRoot;
+        if (content == null || content.parent == null)
+            return;
+
+        Transform holder = content.parent;
+        int hidden = 0;
+
+        for (int i = 0; i < holder.childCount; i++)
+        {
+            Transform child = holder.GetChild(i);
+            if (ReferenceEquals(child, content) || !child.gameObject.activeSelf)
+                continue;
+            child.gameObject.SetActive(false);
+            hidden++;
+        }
+
+        if (hidden > 0)
+            VRLog.Info("WorldUI", $"VR options tab: hid {hidden} row block(s) the donor tab rebuilt "
+                                  + "into the shared content — the game's own rows, not the mod's.");
     }
 }
