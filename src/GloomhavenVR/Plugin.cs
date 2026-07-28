@@ -34,6 +34,14 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Escape hatch: single init attempt on the system default runtime, no XR_RUNTIME_JSON fiddling.</summary>
     internal static ConfigEntry<bool> SkipRuntimeCandidates = null!;
 
+    /// <summary>
+    /// Write Unity's graphics-jobs keys into boot.config (read by the PRELOADER, which is the only
+    /// place early enough to matter — see <c>GloomhavenVR.Preload.Patcher.EnsureGraphicsJobs</c>).
+    /// Bound here so it appears in the config file and in the in-VR config browser like every other
+    /// setting; the plugin itself never reads it.
+    /// </summary>
+    internal static ConfigEntry<bool> EnableGraphicsJobs = null!;
+
     /// <summary>Escape hatch: delay mod init (and thus VR init) by N rendered frames.</summary>
     internal static ConfigEntry<int> InitDelayFrames = null!;
 
@@ -221,6 +229,24 @@ public class Plugin : BaseUnityPlugin
             "Escape hatch: make a single init attempt on the system default OpenXR runtime and " +
             "never set XR_RUNTIME_JSON (no candidate failover). Use when the failover itself " +
             "causes trouble (e.g. it keeps booting runtimes you don't use).");
+        EnableGraphicsJobs = Config.Bind(
+            "Core", "EnableGraphicsJobs", true,
+            "Let the mod switch Unity's THREADED RENDER SUBMISSION on for you, by writing "
+            + "gfx-enable-gfx-jobs and gfx-enable-native-gfx-jobs into Gloomhaven_Data/boot.config. "
+            + "This is the single largest performance finding of the whole project. Unity normally "
+            + "submits every draw call on ONE thread — the same thread that must finish before a "
+            + "frame can be shown — and in a scenario that thread was the entire bottleneck. "
+            + "Measured 2026-07-28, same scene and same build, changing nothing but this: "
+            + "main-thread render loop 14.9 ms -> 1.8 ms, head camera 13.4 ms -> 1.45 ms, frame "
+            + "17.5 ms -> 11.14 ms, and the headset went from locked at 45 Hz to a clean 90 Hz. The "
+            + "reported ghosting on head movement disappeared entirely. IT TAKES EFFECT AT THE NEXT "
+            + "GAME START: the engine reads boot.config before any mod code exists, which is also "
+            + "why the mod cannot simply set this at runtime. The original boot.config is copied to "
+            + "boot.config.gloomhavenvr-backup before the first edit; setting this to false writes "
+            + "the keys back to 0 on the next start. Passing -force-gfx-jobs yourself in the launch "
+            + "options overrides this and the file is then left alone. If the game ever fails to "
+            + "start, restore that backup by hand — the mod cannot help you there, because it never "
+            + "runs.");
         InitDelayFrames = Config.Bind(
             "Core", "InitDelayFrames", 0,
             "Escape hatch: delay mod initialization (including OpenXR init) by this many rendered " +

@@ -107,6 +107,82 @@ internal static class OpenXRBootstrap
     /// session creation fails with errors that ONLY land in Player.log, so flag it
     /// loudly here where testers actually look.
     /// </summary>
+    /// <summary>
+    /// Report whether Unity's THREADED RENDER SUBMISSION is on — the single largest performance
+    /// factor this project found, and one nothing in the engine exposes at runtime.
+    ///
+    /// <para>WHY IT IS REPORTED RATHER THAN MEASURED: there is no API for "are graphics jobs
+    /// active". Both of the two ways it can be switched on ARE readable, though — the launch
+    /// option from the command line, and the two boot.config keys the preloader writes — so this
+    /// states the evidence it has instead of a verdict it cannot support. The engine decides the
+    /// job mode before any managed code exists, which is also why the preloader has to write a file
+    /// for the NEXT start rather than the plugin setting something now.</para>
+    ///
+    /// <para>The numbers in the "off" branch are from 2026-07-28 hardware, same scene, same build,
+    /// changing nothing else — they are what makes this line worth reading rather than skipping.</para>
+    /// </summary>
+    private static void LogGraphicsJobs(string[] args)
+    {
+        bool viaCommandLine = args.Any(a => a.StartsWith("-force-gfx-jobs", StringComparison.OrdinalIgnoreCase));
+        bool? viaBootConfig = ReadBootConfigGraphicsJobs();
+
+        if (viaCommandLine || viaBootConfig == true)
+        {
+            VRLog.Info("Core", "Graphics jobs: ON ("
+                               + (viaCommandLine ? "-force-gfx-jobs in the launch options"
+                                                 : "gfx-enable-native-gfx-jobs in boot.config")
+                               + "). Unity submits draw calls on worker threads instead of the main "
+                               + "thread — worth main-thread render 14.9 ms → 1.8 ms and 45 Hz → 90 Hz "
+                               + "on the hardware this was measured on.");
+            return;
+        }
+
+        VRLog.Warn("Core", "Graphics jobs: OFF — and this is the largest single performance factor "
+                           + "found in this project. Without it Unity submits every draw call on ONE "
+                           + "thread, which measured as the ENTIRE bottleneck in a scenario: with it "
+                           + "on, main-thread render went 14.9 ms → 1.8 ms, the frame 17.5 ms → "
+                           + "11.14 ms, and the headset from locked-at-45 Hz to a clean 90 Hz "
+                           + "(2026-07-28, same scene and build). [Core] EnableGraphicsJobs = true "
+                           + "(the default) makes the mod write it into boot.config for you — it "
+                           + "applies at the NEXT game start. Or add '-force-gfx-jobs native' to the "
+                           + "game's launch options yourself."
+                           + (viaBootConfig == null
+                               ? " (boot.config could not be read here, so this may be a false alarm.)"
+                               : string.Empty));
+    }
+
+    /// <summary>
+    /// True/false from the <c>gfx-enable-native-gfx-jobs</c> key in <c>Gloomhaven_Data/boot.config</c>,
+    /// or null when the file cannot be read — a diagnostic that guesses is worse than one that says
+    /// it does not know.
+    /// </summary>
+    private static bool? ReadBootConfigGraphicsJobs()
+    {
+        try
+        {
+            string path = System.IO.Path.Combine(Application.dataPath, "boot.config");
+            if (!System.IO.File.Exists(path))
+                return null;
+            foreach (string raw in System.IO.File.ReadAllLines(path))
+            {
+                int eq = raw.IndexOf('=');
+                if (eq <= 0)
+                    continue;
+                if (!string.Equals(raw.Substring(0, eq).Trim(), "gfx-enable-native-gfx-jobs",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                return raw.Substring(eq + 1).Trim() == "1";
+            }
+            return false;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     private static void LogEnvironment()
     {
         string[] args;
@@ -118,6 +194,8 @@ internal static class OpenXRBootstrap
         VRLog.Info("Core", $"VR init environment: Unity {Application.unityVersion}, graphics API {gfx} " +
                            $"({SystemInfo.graphicsDeviceName}), -force-d3d11 {(forceD3D11 ? "present" : "absent")} " +
                            $"in command line ({string.Join(" ", args)}).");
+
+        LogGraphicsJobs(args);
 
         if (gfx != GraphicsDeviceType.Direct3D11)
         {

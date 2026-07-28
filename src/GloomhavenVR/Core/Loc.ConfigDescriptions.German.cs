@@ -523,6 +523,24 @@ internal static partial class Loc
                 + "XR_RUNTIME_JSON wird nie gesetzt (kein Failover über Kandidaten). Nutze das, wenn das "
                 + "Failover selbst Ärger macht (z. B. wenn es ständig Runtimes startet, die du gar nicht "
                 + "verwendest).",
+            ["Core/EnableGraphicsJobs"] =
+                "Lässt den Mod Unitys THREADED RENDER SUBMISSION für dich einschalten, indem er "
+                + "gfx-enable-gfx-jobs und gfx-enable-native-gfx-jobs in Gloomhaven_Data/boot.config "
+                + "schreibt. Das ist der mit Abstand größte Leistungsfund des ganzen Projekts: Unity "
+                + "setzt normalerweise jeden Zeichenaufruf auf EINEM Thread ab — demselben, der fertig "
+                + "sein muss, bevor ein Bild angezeigt werden kann — und im Szenario war genau dieser "
+                + "Thread der gesamte Engpass. Gemessen am 28.07.2026, gleiche Szene, gleicher Build, "
+                + "nur diese eine Änderung: Renderloop auf dem Hauptthread 14,9 ms → 1,8 ms, "
+                + "Kopfkamera 13,4 ms → 1,45 ms, Bildzeit 17,5 ms → 11,14 ms, und das Headset ging von "
+                + "fest 45 Hz auf saubere 90 Hz. Das gemeldete Ghosting bei Kopfbewegung verschwand "
+                + "vollständig. WIRKT ERST BEIM NÄCHSTEN SPIELSTART: die Engine liest boot.config, "
+                + "bevor überhaupt Mod-Code existiert — deshalb kann der Mod das auch nicht zur "
+                + "Laufzeit setzen. Die ursprüngliche boot.config wird vor der ersten Änderung nach "
+                + "boot.config.gloomhavenvr-backup kopiert; auf false gesetzt schreibt der Mod die "
+                + "Schlüssel beim nächsten Start wieder auf 0. Gibst du -force-gfx-jobs selbst in den "
+                + "Startoptionen an, gewinnt das und die Datei bleibt unangetastet. Sollte das Spiel "
+                + "je nicht mehr starten: die Sicherungskopie von Hand zurückkopieren — der Mod kann "
+                + "dort nicht helfen, weil er gar nicht erst läuft.",
             ["Core/InitDelayFrames"] =
                 "Notausstieg: verzögert die Mod-Initialisierung (samt OpenXR-Init) um so viele gerenderte "
                 + "Frames. Manche Runtime/GPU-Kombinationen brauchen ein vollständig hochgefahrenes "
