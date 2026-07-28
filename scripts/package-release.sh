@@ -93,37 +93,16 @@ EOF
 fi
 
 # ---- INSTALL.txt ----------------------------------------------------------------------------
-cat > "$STAGE/INSTALL.txt" <<EOF
-GloomhavenVR $VERSION — install
-================================
-
-Requirements: Gloomhaven (digital, Steam/GOG, v1.1.x), Windows, a PC-VR OpenXR
-runtime (Quest Link / Virtual Desktop / Steam Link / SteamVR), BepInEx 5.4.23.5.
-
-1. Install BepInEx 5.4.23.5 (x64):
-   https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5
-   Extract BepInEx_win_x64_5.4.23.5.zip into the Gloomhaven install folder
-   (the folder containing GH.exe). Run the game once flat, quit, and check that
-   BepInEx/LogOutput.log now exists.
-
-2. Extract THIS zip into the same Gloomhaven install folder, merging the
-   BepInEx/ directory. You should end up with:
-     BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
-     BepInEx/plugins/GloomhavenVR/RuntimeDeps/  (Unity XR assemblies)
-     BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
-     BepInEx/patchers/GloomhavenVR/Natives/     (UnityOpenXR + openxr_loader)
-
-3. Make sure your OpenXR runtime is active (Meta: Quest Link app as active
-   OpenXR runtime; Virtual Desktop: VDXR; Steam Link: SteamVR), put the headset
-   on standby-awake, then start the game normally.
-
-4. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
-   Set [General] Enabled = false in dev.gloomhavenvr.cfg to run 100% vanilla.
-
-Headset black / no VR? Add the launch option -force-d3d11 (desktop OpenXR
-needs D3D11). Full troubleshooting: INSTALL.md and docs/TESTING-P1.md in the
-project repository.
-EOF
+# ONE source of truth for the text a drag-and-drop user reads: packaging/INSTALL.txt.in.
+# install.ps1 renders the same template, so the zip it produces and the zip this produces
+# cannot describe the install differently — which they silently did before the template
+# existed (this file's copy never mentioned the graphics-jobs restart at all).
+TEMPLATE="$ROOT/packaging/INSTALL.txt.in"
+if [[ ! -f "$TEMPLATE" ]]; then
+    echo "error: missing $TEMPLATE" >&2
+    exit 1
+fi
+sed "s/@VERSION@/$VERSION/g" "$TEMPLATE" > "$STAGE/INSTALL.txt"
 
 # ---- zip + verify ----------------------------------------------------------------------------
 mkdir -p "$DIST"

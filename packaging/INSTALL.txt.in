@@ -1,0 +1,66 @@
+GloomhavenVR @VERSION@ — install
+================================
+
+Requirements: Gloomhaven (digital, Steam/GOG, v1.1.x), Windows, a PC-VR OpenXR
+runtime (Quest Link / Virtual Desktop / Steam Link / SteamVR), BepInEx 5.4.23.5.
+
+1. Install BepInEx 5.4.23.5 (x64):
+   https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5
+   Extract BepInEx_win_x64_5.4.23.5.zip into the Gloomhaven install folder
+   (the folder containing GH.exe). Run the game once flat, quit, and check that
+   BepInEx/LogOutput.log now exists.
+
+2. Extract THIS zip into the same Gloomhaven install folder, merging the
+   BepInEx/ directory. You should end up with:
+     BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
+     BepInEx/plugins/GloomhavenVR/RuntimeDeps/  (Unity XR assemblies)
+     BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
+     BepInEx/patchers/GloomhavenVR/Natives/     (UnityOpenXR + openxr_loader)
+
+3. Make sure your OpenXR runtime is active (Meta: Quest Link app as active
+   OpenXR runtime; Virtual Desktop: VDXR; Steam Link: SteamVR), put the headset
+   on standby-awake, then start the game normally.
+
+4. START THE GAME ONCE, QUIT, AND START IT AGAIN. Only ever this once, and only
+   for performance — see below. The mod works on the first start too.
+
+5. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
+   Set [General] Enabled = false in dev.gloomhavenvr.cfg to run vanilla.
+
+
+Why the restart in step 4
+-------------------------
+Unity normally submits every draw call on ONE thread, and on this game that
+thread is the whole bottleneck in a scenario. Switching on "graphics jobs" moved
+the measured frame from 17.5 ms to 11.14 ms and the headset from a locked 45 Hz
+to a clean 90 Hz — the ghosting on head movement disappeared entirely.
+
+The mod switches it on for you by adding two lines to
+  <GameDir>/<GH>_Data/boot.config
+but the engine reads that file before any mod code exists, so the change can
+only take effect on the NEXT start. Hence: start once, restart, done forever.
+
+After the restart the log line
+
+  [Core] Graphics jobs: ON for this session
+
+confirms it. If it still says OFF, the line itself tells you why.
+
+Don't want a game file touched? Set [Core] EnableGraphicsJobs = false in
+dev.gloomhavenvr.cfg and add this to the game's Steam launch options instead:
+  -force-gfx-jobs native
+That works from the very first start and no file is written.
+
+This is the ONLY game file the mod writes: two key=value lines, every other line
+preserved, and the original copied once to boot.config.gloomhavenvr-backup.
+If the game ever fails to start, copy that backup over boot.config — the mod
+cannot help you there, because it never runs.
+
+
+Trouble
+-------
+Headset black / game stays flat? Add the launch option -force-d3d11 (desktop
+OpenXR needs D3D11).
+
+Full troubleshooting: INSTALL.md and docs/TESTING-P1.md in the project
+repository.

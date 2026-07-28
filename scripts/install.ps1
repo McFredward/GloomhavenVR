@@ -28,6 +28,10 @@
          shader-patched the game, it is RESTORED so the original shader assets
          are back (VR occlusion is now fixed in-code via Forward rendering, so
          no game ASSET is ever patched)
+     10. packages dist\GloomhavenVR-<version>.zip — the drag-and-drop archive
+         for the GitHub releases page, built from the tree just deployed (so it
+         cannot describe a layout different from the one that works) and
+         verified to contain the load-bearing paths. Skip with -NoPackage.
 
     Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
@@ -41,7 +45,11 @@
 param(
     [string]$GamePath = "",
     [ValidateSet("Debug", "Release")]
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    # Skip building dist\GloomhavenVR-<version>.zip. The zip is cheap (it copies the
+    # tree that was just deployed) and it is what goes on the GitHub releases page,
+    # so it is on by default — this is for a fast iterate-and-test loop.
+    [switch]$NoPackage
 )
 
 $ErrorActionPreference = "Stop"
@@ -328,6 +336,65 @@ if (-not (Test-Path $bootConfig)) {
         Set-Content -LiteralPath $bootConfig -Value $lines -Encoding UTF8
         Write-Host "    enabled in boot.config - active from the next launch (original saved as boot.config.gloomhavenvr-backup)." -ForegroundColor Green
     }
+}
+
+# ---------------------------------------------------------------------------
+# Release zip for the GitHub releases page - what a normal user drag-and-drops.
+#
+# BUILT FROM WHAT WAS JUST DEPLOYED, deliberately. The alternative was to stage
+# the layout a second time here, which would mean two definitions of "what a
+# working install looks like" that can drift - and a drifted release zip is a
+# silently broken download nobody notices until a stranger reports it. Zipping
+# the two GloomhavenVR subtrees that were just installed means the archive is by
+# construction the tree that works on this machine.
+#
+# The INSTALL.txt comes from packaging/INSTALL.txt.in, the same template
+# package-release.sh renders, so the two packagers cannot describe the install
+# differently.
+# ---------------------------------------------------------------------------
+if (-not $NoPackage) {
+    Step "Packaging release zip"
+    $version = (Select-String -Path (Join-Path $root "src\GloomhavenVR\GloomhavenVR.csproj") `
+                              -Pattern '<Version>(.*)</Version>').Matches[0].Groups[1].Value
+    $dist  = Join-Path $root "dist"
+    $stage = Join-Path $dist "stage-install"
+    $zip   = Join-Path $dist "GloomhavenVR-$version.zip"
+
+    if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+    if (Test-Path $zip)   { Remove-Item -Force $zip }
+    New-Item -ItemType Directory -Force -Path (Join-Path $stage "BepInEx\plugins"),
+                                              (Join-Path $stage "BepInEx\patchers") | Out-Null
+
+    Copy-Item -Recurse -Force $pluginDir  (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
+    Copy-Item -Recurse -Force $patcherDir (Join-Path $stage "BepInEx\patchers\GloomhavenVR")
+
+    $template = Join-Path $root "packaging\INSTALL.txt.in"
+    if (-not (Test-Path $template)) { Write-Error "Missing $template - cannot package." }
+    (Get-Content -LiteralPath $template -Raw).Replace('@VERSION@', $version) |
+        Set-Content -LiteralPath (Join-Path $stage "INSTALL.txt") -Encoding UTF8 -NoNewline
+
+    Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+    Remove-Item -Recurse -Force $stage
+
+    # The same four load-bearing paths package-release.sh asserts. A zip that is
+    # missing one of these looks fine and fails at the stranger's machine.
+    $required = @(
+        "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
+        "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",
+        "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll",
+        "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",
+        "INSTALL.txt")
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+    try   { $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' } }
+    finally { $archive.Dispose() }
+    $missing = $required | Where-Object { $entries -notcontains $_ }
+    if ($missing) {
+        Write-Error "Packaged zip is missing:`n  $($missing -join "`n  ")"
+    }
+
+    $sizeMb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+    Write-Host "    $zip ($sizeMb MB) - layout verified, ready for the GitHub release page." -ForegroundColor Green
 }
 
 Write-Host ""
