@@ -98,7 +98,33 @@ table edge (next to Ready/Undo/Skip) or hold the **A/X button on your
 non-dominant hand** for 0.6 s. Changes apply live and persist.
 
 **Recenter:** hold **B + Y (both controllers)** for 1 s.
-**Back to vanilla:** set `[General] Enabled = false` — the game runs 100% unmodified.
+**Back to vanilla:** set `[General] Enabled = false` — the game runs unmodified.
+(One exception, see below: `boot.config`. `scripts\uninstall.ps1` restores it, or
+delete the two `gfx-enable-…-jobs` lines by hand.)
+
+### Threaded render submission (the big one)
+
+The mod turns on Unity's **graphics jobs** by adding two lines to
+`<GameDir>\<GH>_Data\boot.config`. This is the largest performance factor found in
+the whole project — measured on a Quest 3: main-thread render **14.9 ms → 1.8 ms**,
+frame **17.5 ms → 11.14 ms**, and the headset went from locked at **45 Hz to a clean
+90 Hz**, with the ghosting on head movement gone entirely.
+
+- **Installed with `scripts\install.ps1`?** It is written at install time, so the
+  **first launch already has it**.
+- **Installed by unzipping the release?** The mod writes it on first run instead —
+  and because the engine reads `boot.config` before any mod code exists, that write
+  can only apply to the **next** start. So: **start the game once, then restart it.**
+  Only ever once. The log says so at startup, and afterwards reports
+  `[Core] Graphics jobs: ON for this session`.
+- **Prefer not to touch a game file?** Set `[Core] EnableGraphicsJobs = false` and
+  add `-force-gfx-jobs native` to the game's Steam launch options instead — that
+  works from the first launch and the file is left alone.
+
+This is the **only** game file the mod writes: two `key=value` lines, every other
+line preserved, and the original copied once to `boot.config.gloomhavenvr-backup`.
+If the game ever fails to start, restore that backup by hand — the mod cannot help
+there, because it never runs.
 
 ## 5. Troubleshooting
 

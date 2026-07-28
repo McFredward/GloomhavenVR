@@ -14,10 +14,20 @@
       5. builds the provisional Unity.XR.* RuntimeDeps if missing
       6. dotnet build -c Release
       7. copies plugin + RuntimeDeps + preloader + natives into BepInEx
-      8. leaves the game data UNMODIFIED. If a <GameDir>\GloomhavenVR_Backup
-         exists from a previous install that shader-patched the game, it is
-         RESTORED so the original shader assets are back (VR occlusion is now
-         fixed in-code via Forward rendering, so no game data is ever patched)
+      8. turns on Unity's threaded render submission by adding two keys to
+         <GameDir>\<GH>_Data\boot.config - the single largest performance
+         finding of the project (45Hz -> 90Hz on the hardware it was measured
+         on). This is the ONLY game file the mod writes: two key=value lines,
+         idempotent, every other line preserved, and the original copied once
+         to boot.config.gloomhavenvr-backup. uninstall.ps1 restores it.
+         Doing it here rather than only from the mod is what removes the
+         "start the game twice" step - the engine reads boot.config before any
+         mod code exists, so the mod's own write can only apply to the NEXT run.
+      9. leaves the rest of the game data UNMODIFIED. If a
+         <GameDir>\GloomhavenVR_Backup exists from a previous install that
+         shader-patched the game, it is RESTORED so the original shader assets
+         are back (VR occlusion is now fixed in-code via Forward rendering, so
+         no game ASSET is ever patched)
 
     Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
@@ -268,6 +278,56 @@ if (Test-Path $backupDir) {
     Write-Host "    restored $restoredCount file(s) from a previous shader patch - game data is now unmodified." -ForegroundColor Green
 } else {
     Write-Host "    no GloomhavenVR_Backup found - game data was never patched, nothing to restore."
+}
+
+# ---------------------------------------------------------------------------
+# Graphics jobs - the single largest performance finding of the project.
+#
+# Unity submits every draw call on ONE thread unless this is on, and that thread
+# was the entire bottleneck in a scenario: with it on, main-thread render went
+# 14.9ms -> 1.8ms, the frame 17.5ms -> 11.14ms, and the headset from locked-at-45Hz
+# to a clean 90Hz (2026-07-28 hardware). The reported ghosting disappeared.
+#
+# WHY HERE AND NOT ONLY IN THE MOD: the engine reads boot.config before any mod
+# code exists, so the preloader's own write can only ever apply to the NEXT start.
+# Writing it HERE, at install time, means the very first launch afterwards already
+# has it - no "start the game twice" step. The preloader keeps doing it too, as the
+# fallback for anyone who installs by unzipping the release instead of running this.
+# ---------------------------------------------------------------------------
+Step "Enabling threaded render submission (graphics jobs)"
+$bootConfig = Join-Path $gameDataDir "boot.config"
+if (-not (Test-Path $bootConfig)) {
+    Write-Host "    no boot.config under $gameDataDir - skipped. The mod will write it on first run instead." -ForegroundColor Yellow
+} else {
+    $keys    = @("gfx-enable-gfx-jobs", "gfx-enable-native-gfx-jobs")
+    $lines   = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $bootConfig)
+    $changed = $false
+
+    foreach ($key in $keys) {
+        $idx = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $eq = $lines[$i].IndexOf('=')
+            if ($eq -gt 0 -and $lines[$i].Substring(0, $eq).Trim() -ieq $key) { $idx = $i; break }
+        }
+        if ($idx -ge 0) {
+            if ($lines[$idx] -ne "$key=1") { $lines[$idx] = "$key=1"; $changed = $true }
+        } else {
+            $lines.Add("$key=1"); $changed = $true
+        }
+    }
+
+    if (-not $changed) {
+        Write-Host "    already enabled - boot.config untouched."
+    } else {
+        # Back up the file as it was BEFORE this mod ever touched it, once. Never
+        # overwritten: a second backup taken after our own edit would record our edit
+        # as the original. This is the escape hatch if the game ever fails to start -
+        # nothing in the mod can help there, because it never runs.
+        $backup = "$bootConfig.gloomhavenvr-backup"
+        if (-not (Test-Path $backup)) { Copy-Item -LiteralPath $bootConfig -Destination $backup }
+        Set-Content -LiteralPath $bootConfig -Value $lines -Encoding UTF8
+        Write-Host "    enabled in boot.config - active from the next launch (original saved as boot.config.gloomhavenvr-backup)." -ForegroundColor Green
+    }
 }
 
 Write-Host ""

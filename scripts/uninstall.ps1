@@ -109,6 +109,22 @@ if ($restored -gt 0) {
     }
 }
 
+# --- 3b. undo the boot.config graphics-jobs edit ----------------------------
+# The one game FILE install.ps1 writes. Restoring it is not optional politeness:
+# every mutation this mod makes has to be reversible, and this is the only one that
+# outlives the process. The backup is the file exactly as it was before the mod ever
+# touched it (never overwritten by a later install), so copying it back is exact.
+Step "Restoring boot.config (threaded render submission)"
+$bootConfig = Join-Path $gameDataDir "boot.config"
+$bootBackup = "$bootConfig.gloomhavenvr-backup"
+if (Test-Path $bootBackup) {
+    Copy-Item -LiteralPath $bootBackup -Destination $bootConfig -Force
+    Remove-Item -LiteralPath $bootBackup -Force
+    Write-Host "    restored - graphics jobs are back to whatever the game shipped with." -ForegroundColor Green
+} else {
+    Write-Host "    no backup found - boot.config was never modified by this mod, nothing to undo."
+}
+
 # --- 4. remove the mod's BepInEx deployment --------------------------------
 # Exactly what install.ps1 deploys; BepInEx itself stays.
 Step "Removing mod deployment"
