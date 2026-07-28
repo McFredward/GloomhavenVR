@@ -80,8 +80,15 @@ internal static partial class VROptionsTab
     /// </summary>
     internal static RectTransform? TabBarRoot { get; private set; }
 
-    /// <summary>Width of that column, and the amount the scroll area is inset by.</summary>
+    /// <summary>Width of that column.</summary>
     private const float TabColumnWidth = 210f;
+
+    /// <summary>
+    /// Clear space between the column and the first setting. The cloned tab option's frame art
+    /// overhangs its own rect, so padding the content by the column width alone still left the
+    /// buttons grazing the row backgrounds.
+    /// </summary>
+    private const float TabColumnGutter = 28f;
 
     /// <summary>True once the tab is live in the game's options window.</summary>
     internal static bool Injected => _host != null && _toggle != null;
@@ -385,7 +392,7 @@ internal static partial class VROptionsTab
             var layout = root.gameObject.AddComponent<VerticalLayoutGroup>();
             // The gap the sub-tab column sits in. Padding OUR content is the one way to reserve it
             // that no animation of the game's can undo — see BuildTabBar.
-            layout.padding = new RectOffset(Mathf.RoundToInt(TabColumnWidth), 0, 0, 0);
+            layout.padding = new RectOffset(Mathf.RoundToInt(TabColumnWidth + TabColumnGutter), 0, 0, 0);
             layout.childControlWidth = true;
             layout.childControlHeight = true;
             layout.childForceExpandWidth = true;

@@ -306,6 +306,31 @@ internal static partial class VROptionsTab
             frame.gameObject.SetActive(false);
     }
 
+    /// <summary>
+    /// A row that navigates instead of editing — the topic list under "Erweitert", and the way back
+    /// out of it. Built on the toggle row with its switch removed, so it keeps the row background
+    /// and the hover frame the rest of the list has.
+    /// </summary>
+    private static void BuildLinkRow(Transform parent, string caption, Action onClick)
+    {
+        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        if (title != null)
+            title.text = caption;
+
+        if (option != null)
+            option.gameObject.SetActive(false);
+
+        Toggle? toggle = row.GetComponentInChildren<Toggle>(true);
+        if (toggle != null)
+            SafeDestroy(toggle);
+
+        Graphic? background = row.GetComponentInChildren<Graphic>(true);
+        var button = row.AddComponent<Button>();
+        if (background != null)
+            button.targetGraphic = background;
+        button.onClick.AddListener(() => onClick());
+    }
+
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
     private static void BuildRow(Transform parent, ConfigCatalog.ConfigItem item, int component)
     {

@@ -217,6 +217,15 @@ internal static partial class Loc
         // one-word sidebar tabs above: this row is the game's full-width option list, not the
         // mod's pinned 132 px column, so it has the room the others did not.
         ["vr_options"] = Pair("VR Options", "VR Optionen"),
+        // The sub-tabs of that tab. Two or three words each: the column is 210 px and the captions
+        // shrink to fit rather than being cut, so they can afford to say what they mean.
+        ["vr_cat_comfort"] = Pair("Comfort & movement", "Komfort & Bewegung"),
+        ["vr_cat_hands"] = Pair("Hands & pointing", "Hände & Zeigen"),
+        ["vr_cat_view"] = Pair("Appearance", "Darstellung"),
+        ["vr_cat_table"] = Pair("Cards & board", "Karten & Brett"),
+        ["vr_cat_net"] = Pair("Multiplayer", "Mehrspieler"),
+        ["vr_cat_system"] = Pair("System & start", "System & Start"),
+        ["vr_cat_advanced"] = Pair("Advanced", "Erweitert"),
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
         // group instead of a sidebar entry), which is why the restructure uses them for grouping
         // and keeps the tab count at five.

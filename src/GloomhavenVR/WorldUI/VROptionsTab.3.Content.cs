@@ -28,11 +28,40 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static partial class VROptionsTab
 {
-    /// <summary>Topic currently displayed. Survives a rebuild so reopening returns where you were.</summary>
+    /// <summary>What the content pane is showing.</summary>
+    private enum View
+    {
+        /// <summary>One of the hand-picked everyday categories.</summary>
+        Curated,
+
+        /// <summary>The list of every catalog topic, as links.</summary>
+        AdvancedIndex,
+
+        /// <summary>One catalog topic in full.</summary>
+        AdvancedTopic,
+    }
+
+    private static View _view = View.Curated;
+
+    /// <summary>Selected everyday category; also the index of its sub-tab in the column.</summary>
+    private static int _curated;
+
+    /// <summary>Topic shown by <see cref="View.AdvancedTopic"/>.</summary>
     private static ConfigCatalog.ConfigTopic _category = ConfigCatalog.ConfigTopic.Movement;
 
+    /// <summary>Sub-tab index that stands for "Erweitert" — always the last one in the column.</summary>
+    private static int AdvancedTabIndex => Curated.Length;
+
     /// <summary>Sub-tab switches, kept so the lit one can be marked without a full rebuild.</summary>
-    private static readonly List<(Toggle toggle, ConfigCatalog.ConfigTopic topic)> CategoryToggles = new(16);
+    private static readonly List<(Toggle toggle, int index)> CategoryToggles = new(16);
+
+    /// <summary>
+    /// Which sub-tab is lit. Both advanced views light "Erweitert" — drilling into a topic is
+    /// still being in the advanced section, and unlighting the column there would leave the player
+    /// with no indication of where they are.
+    /// </summary>
+    private static int SelectedTabIndex =>
+        _view == View.Curated ? _curated : AdvancedTabIndex;
 
     private static bool _showHooked;
 
@@ -67,7 +96,86 @@ internal static partial class VROptionsTab
 
         BuildCategoryStrip();
 
-        IReadOnlyList<ConfigCatalog.ConfigGroup> groups = ConfigCatalog.Groups(_category);
+        int rows = _view switch
+        {
+            View.AdvancedIndex => BuildAdvancedIndex(),
+            View.AdvancedTopic => BuildTopic(_category),
+            _ => BuildCurated(),
+        };
+
+        if (rows == 0)
+            BuildHeader(ContentRoot, Loc.Mod("cfg_empty"));
+
+        MarkSelectedCategory();
+        VRLog.Info("WorldUI", $"VR options tab: built {_view} — {rows} row(s); "
+                              + $"{CategoryToggles.Count} sub-tab(s) in the column.");
+    }
+
+    /// <summary>One everyday category: its hand-picked entries, in the order the list declares.</summary>
+    private static int BuildCurated()
+    {
+        if (_curated < 0 || _curated >= Curated.Length || ContentRoot == null)
+            return 0;
+
+        CuratedCategory category = Curated[_curated];
+        BuildHeader(ContentRoot, category.Label);
+
+        int rows = 0;
+        for (int i = 0; i < category.Entries.Length; i++)
+        {
+            (string section, string key) = category.Entries[i];
+            ConfigCatalog.ConfigItem? item = Lookup(section, key);
+            if (item == null)
+                continue;
+
+            rows += BuildItem(item);
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// The advanced landing page: one link per topic rather than every setting at once. 440 rows
+    /// would be several seconds of cloning and a list nobody can navigate; a topic at a time is
+    /// both fast and findable.
+    /// </summary>
+    private static int BuildAdvancedIndex()
+    {
+        if (ContentRoot == null)
+            return 0;
+
+        BuildHeader(ContentRoot, Loc.Mod("vr_cat_advanced"));
+
+        int rows = 0;
+        for (int t = 0; t < ConfigCatalog.TopicCount; t++)
+        {
+            var topic = (ConfigCatalog.ConfigTopic)t;
+            if (ConfigCatalog.Groups(topic).Count == 0)
+                continue;
+
+            BuildLinkRow(ContentRoot, ConfigCatalog.TopicLabel(topic), () =>
+            {
+                _category = topic;
+                _view = View.AdvancedTopic;
+                TickGuard.Run("VROptionsTab.Topic", Rebuild, "WorldUI");
+            });
+            rows++;
+        }
+        return rows;
+    }
+
+    /// <summary>One catalog topic in full, with the way back out at the top.</summary>
+    private static int BuildTopic(ConfigCatalog.ConfigTopic topic)
+    {
+        if (ContentRoot == null)
+            return 0;
+
+        BuildLinkRow(ContentRoot, "‹ " + Loc.Mod("vr_cat_advanced"), () =>
+        {
+            _view = View.AdvancedIndex;
+            TickGuard.Run("VROptionsTab.Back", Rebuild, "WorldUI");
+        });
+
+        IReadOnlyList<ConfigCatalog.ConfigGroup> groups = ConfigCatalog.Groups(topic);
         int rows = 0;
 
         for (int g = 0; g < groups.Count; g++)
@@ -77,33 +185,29 @@ internal static partial class VROptionsTab
                 continue;
 
             BuildHeader(ContentRoot, group.Label);
-
             for (int i = 0; i < group.Items.Count; i++)
-            {
-                ConfigCatalog.ConfigItem item = group.Items[i];
-
-                // A vector or a colour is edited one component at a time — the same shape the
-                // catalog's own Step() takes, so nothing here has to know what the components mean.
-                // Everything else is a single row; BuildRow picks the control shape from the entry.
-                int components = item.Kind == ConfigCatalog.ConfigKind.Bool
-                    ? 1
-                    : Mathf.Max(1, item.Components);
-
-                for (int c = 0; c < components; c++)
-                {
-                    BuildRow(ContentRoot, item, c);
-                    rows++;
-                }
-            }
+                rows += BuildItem(group.Items[i]);
         }
+        return rows;
+    }
 
-        if (rows == 0)
-            BuildHeader(ContentRoot, Loc.Mod("cfg_empty"));
+    /// <summary>
+    /// One entry, as one row — except a vector or a colour, which is edited one component at a
+    /// time, the same shape the catalog's own Step() takes.
+    /// </summary>
+    private static int BuildItem(ConfigCatalog.ConfigItem item)
+    {
+        if (ContentRoot == null)
+            return 0;
 
-        MarkSelectedCategory();
-        VRLog.Info("WorldUI", $"VR options tab: built '{ConfigCatalog.TopicLabel(_category)}' — "
-                              + $"{groups.Count} group(s), {rows} row(s); "
-                              + $"{CategoryToggles.Count} sub-tab(s) in the column.");
+        int components = item.Kind == ConfigCatalog.ConfigKind.Bool
+            ? 1
+            : Mathf.Max(1, item.Components);
+
+        for (int c = 0; c < components; c++)
+            BuildRow(ContentRoot, item, c);
+
+        return components;
     }
 
     /// <summary>
@@ -119,33 +223,31 @@ internal static partial class VROptionsTab
             return;
 
         CategoryToggles.Clear();
-        for (int t = 0; t < ConfigCatalog.TopicCount; t++)
-        {
-            var topic = (ConfigCatalog.ConfigTopic)t;
-            if (ConfigCatalog.Groups(topic).Count == 0)
-                continue;
+        for (int i = 0; i < Curated.Length; i++)
+            BuildCategoryButton(bar, i, Curated[i].Label);
 
-            BuildCategoryButton(bar, topic);
-        }
+        // "Erweitert" last, and set apart by being last: the everyday categories read as the menu,
+        // and everything else is one deliberate step further in.
+        BuildCategoryButton(bar, AdvancedTabIndex, Loc.Mod("vr_cat_advanced"));
     }
 
     /// <summary>
     /// One sub-tab, cloned from the window's own tab option so it carries the game's frame, font
     /// and highlight. Its switch drives the category; the toggle group makes exactly one lit.
     /// </summary>
-    private static void BuildCategoryButton(Transform parent, ConfigCatalog.ConfigTopic topic)
+    private static void BuildCategoryButton(Transform parent, int index, string caption)
     {
         if (_categoryTemplate == null)
             return;
 
         GameObject go = UnityEngine.Object.Instantiate(_categoryTemplate, parent);
-        go.name = $"Cat.{topic}";
+        go.name = $"Cat.{index}";
         go.SetActive(true);
 
         TMP_Text? label = go.GetComponentInChildren<TMP_Text>(true);
         if (label != null)
         {
-            label.text = ConfigCatalog.TopicLabel(topic);
+            label.text = caption;
             label.enableWordWrapping = false;
 
             // SHRINK RATHER THAN TRUNCATE. The donor caption is sized for a one-word tab
@@ -167,16 +269,26 @@ internal static partial class VROptionsTab
 
         toggle.onValueChanged.RemoveAllListeners();
         toggle.group = CategoryGroup(parent);
-        toggle.SetIsOnWithoutNotify(topic == _category);
+        toggle.SetIsOnWithoutNotify(index == SelectedTabIndex);
         toggle.onValueChanged.AddListener(on =>
         {
-            if (!on || _category == topic)
+            if (!on || index == SelectedTabIndex)
                 return;
-            _category = topic;
+
+            if (index == AdvancedTabIndex)
+            {
+                _view = View.AdvancedIndex;
+            }
+            else
+            {
+                _view = View.Curated;
+                _curated = index;
+            }
+
             TickGuard.Run("VROptionsTab.Switch", Rebuild, "WorldUI");
         });
 
-        CategoryToggles.Add((toggle, topic));
+        CategoryToggles.Add((toggle, index));
     }
 
     /// <summary>
@@ -199,10 +311,10 @@ internal static partial class VROptionsTab
     {
         for (int i = 0; i < CategoryToggles.Count; i++)
         {
-            (Toggle toggle, ConfigCatalog.ConfigTopic topic) = CategoryToggles[i];
+            (Toggle toggle, int index) = CategoryToggles[i];
             if (toggle == null)
                 continue;
-            toggle.SetIsOnWithoutNotify(topic == _category);
+            toggle.SetIsOnWithoutNotify(index == SelectedTabIndex);
         }
     }
 
