@@ -155,7 +155,7 @@ internal static partial class VROptionsTab
             // The template comes from a LIVE row, so it has to be stamped while the donor tabs are
             // still intact — and the content is built on first show, not now, because the config
             // registry is not necessarily complete at injection time.
-            CaptureRowTemplate(host);
+            CaptureRowTemplates(host);
             HookContentBuild(window);
 
             // Join the game's own tab bookkeeping LAST, so a half-built tab is never reachable.

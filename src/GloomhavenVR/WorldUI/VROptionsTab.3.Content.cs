@@ -82,19 +82,16 @@ internal static partial class VROptionsTab
             {
                 ConfigCatalog.ConfigItem item = group.Items[i];
 
-                if (item.Kind == ConfigCatalog.ConfigKind.Bool)
-                {
-                    BuildBoolRow(ContentRoot, item);
-                    rows++;
-                    continue;
-                }
-
                 // A vector or a colour is edited one component at a time — the same shape the
                 // catalog's own Step() takes, so nothing here has to know what the components mean.
-                int components = Mathf.Max(1, item.Components);
+                // Everything else is a single row; BuildRow picks the control shape from the entry.
+                int components = item.Kind == ConfigCatalog.ConfigKind.Bool
+                    ? 1
+                    : Mathf.Max(1, item.Components);
+
                 for (int c = 0; c < components; c++)
                 {
-                    BuildValueRow(ContentRoot, item, c);
+                    BuildRow(ContentRoot, item, c);
                     rows++;
                 }
             }
