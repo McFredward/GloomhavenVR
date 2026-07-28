@@ -27,9 +27,9 @@ namespace GloomhavenVR.Preload;
 /// </code>
 /// Installed at boot (idempotent, hash-compared):
 /// <code>
-/// Gloomhaven_Data/Plugins/x86_64/UnityOpenXR.dll
-/// Gloomhaven_Data/Plugins/x86_64/openxr_loader.dll
-/// Gloomhaven_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json
+/// GH_Data/Plugins/x86_64/UnityOpenXR.dll
+/// GH_Data/Plugins/x86_64/openxr_loader.dll
+/// GH_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json
 /// </code>
 ///
 /// HARD RULE: <see cref="Initialize"/> must never throw. Any failure here must degrade
@@ -111,7 +111,7 @@ public static class Patcher
     }
 
     /// <summary>
-    /// <c>Gloomhaven_Data/</c> — derived from BepInEx's ManagedPath (…/Gloomhaven_Data/Managed)
+    /// <c>GH_Data/</c> — derived from BepInEx's ManagedPath (…/GH_Data/Managed)
     /// rather than hardcoding the product name.
     /// </summary>
     private static string DataPath => Path.GetDirectoryName(Paths.ManagedPath)!;
@@ -121,7 +121,7 @@ public static class Patcher
 
     /// <summary>
     /// Copy <c>UnityOpenXR.dll</c> + <c>openxr_loader.dll</c> (shipped next to this patcher
-    /// under <c>Natives/</c>) into <c>Gloomhaven_Data/Plugins/x86_64/</c>.
+    /// under <c>Natives/</c>) into <c>GH_Data/Plugins/x86_64/</c>.
     /// Idempotent: SHA256-compared, skipped when identical, overwritten when different.
     /// </summary>
     private static bool InstallNatives()
@@ -166,7 +166,7 @@ public static class Patcher
     }
 
     /// <summary>
-    /// Write <c>Gloomhaven_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json</c>
+    /// Write <c>GH_Data/UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json</c>
     /// (version-matched to the shipped OpenXR package) so the engine registers the
     /// "OpenXR Display"/"OpenXR Input" subsystem descriptors at boot.
     /// Idempotent: content-compared, only rewritten when different.

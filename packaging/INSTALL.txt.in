@@ -37,7 +37,7 @@ the measured frame from 17.5 ms to 11.14 ms and the headset from a locked 45 Hz
 to a clean 90 Hz — the ghosting on head movement disappeared entirely.
 
 It is a one-line change to a file the game already has, and it cannot be done
-from inside the mod: Unity reads that file (<GameDir>/<GH>_Data/boot.config)
+from inside the mod: Unity reads that file (GH_Data/boot.config)
 during engine startup, before any mod code exists. The mod DOES write it, but
 that write can only take effect on the following start — so without this script
 you would have to start the game, quit, and start it again. The script does it

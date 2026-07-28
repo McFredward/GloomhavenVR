@@ -32,7 +32,7 @@ game still fully mouse-playable in parallel.*
 
    The preloader then self-installs at every boot (idempotent, hash-compared).
    NOTE: the game's data folder is **`GH_Data`** (the executable is `GH.exe`), not
-   `Gloomhaven_Data` — the preloader derives the real name from BepInEx's ManagedPath:
+   `Gloomhaven_Data` — the preloader derives it from BepInEx's ManagedPath:
 
    ```
    GH_Data/Plugins/x86_64/UnityOpenXR.dll
@@ -51,7 +51,7 @@ game still fully mouse-playable in parallel.*
 
 | Stage | Expected line (prefix `[Info :GloomhavenVR.Preload]` / `[Info :GloomhavenVR]`) |
 |---|---|
-| Preloader ran | `Installed native: ...\Gloomhaven_Data\Plugins\x86_64\UnityOpenXR.dll` (first boot) or `Native up to date` (debug level); `OpenXR runtime assets ready (package 1.10.0).` |
+| Preloader ran | `Installed native: ...\GH_Data\Plugins\x86_64\UnityOpenXR.dll` (first boot) or `Native up to date` (debug level); `OpenXR runtime assets ready (package 1.10.0).` |
 | RuntimeDeps loaded | `[Core] Loaded 3 runtime dependencies: Unity.XR.CoreUtils, Unity.XR.Management, Unity.XR.OpenXR` then `[Core] RuntimeDeps declare 2 [RuntimeInitializeOnLoadMethod] hook(s) ...` + one `RuntimeInitializeOnLoad invoked: ... — OK` line each |
 | Environment | `[Core] VR init environment: Unity 2021.3.5f1, graphics API Direct3D11 (...), -force-d3d11 ...` — **graphics API must be Direct3D11** |
 | Pre-flight | `[Core] Pre-flight OK: OpenXR Display/Input subsystem descriptors are registered.` |
@@ -120,7 +120,7 @@ The BepInEx log's `VR init environment:` line states Unity version, graphics API
 | Stereo up but **world not table-scaled** / camera inside geometry | WorldScale heuristic off (s_TileSize not initialized at rig build) | Set `[Rig] WorldScale` explicitly; re-enter scenario |
 | Stereo up but **camera fights/jumps** with game camera moves | A camera writer not covered by the LateUpdate skip (SmartFocus/timeline) | Expected P1 edge; note the trigger (cutscene? door reveal?) for the Phase-4 comfort pass |
 | Broken/one-eye post effects | A PPv2/fog effect slipped through | Ensure `[Compat] DisablePostProcessing`/`DisableVolumetricFog` are true; add offender type name to `DisableComponents` |
-| `DllNotFoundException: UnityOpenXR` in diagnostics | Natives missing from `Gloomhaven_Data/Plugins/x86_64` | Same as first row — preloader install failed |
+| `DllNotFoundException: UnityOpenXR` in diagnostics | Natives missing from `GH_Data/Plugins/x86_64` | Same as first row — preloader install failed |
 | Crash/weird XR behavior with provisional RuntimeDeps | Provisional compile drift | Swap in the editor-harvested RuntimeDeps set (`unity/HARVESTING.md`) and retest |
 
 ## 5. Known P1 limitations (by design)

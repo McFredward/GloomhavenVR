@@ -535,7 +535,7 @@ internal static partial class Loc
                 + "verwendest).",
             ["Core/EnableGraphicsJobs"] =
                 "Lässt den Mod Unitys THREADED RENDER SUBMISSION für dich einschalten, indem er "
-                + "gfx-enable-gfx-jobs und gfx-enable-native-gfx-jobs in Gloomhaven_Data/boot.config "
+                + "gfx-enable-gfx-jobs und gfx-enable-native-gfx-jobs in GH_Data/boot.config "
                 + "schreibt. Das ist der mit Abstand größte Leistungsfund des ganzen Projekts: Unity "
                 + "setzt normalerweise jeden Zeichenaufruf auf EINEM Thread ab — demselben, der fertig "
                 + "sein muss, bevor ein Bild angezeigt werden kann — und im Szenario war genau dieser "

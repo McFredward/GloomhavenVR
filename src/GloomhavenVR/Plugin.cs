@@ -232,7 +232,7 @@ public class Plugin : BaseUnityPlugin
         EnableGraphicsJobs = Config.Bind(
             "Core", "EnableGraphicsJobs", true,
             "Let the mod switch Unity's THREADED RENDER SUBMISSION on for you, by writing "
-            + "gfx-enable-gfx-jobs and gfx-enable-native-gfx-jobs into Gloomhaven_Data/boot.config. "
+            + "gfx-enable-gfx-jobs and gfx-enable-native-gfx-jobs into GH_Data/boot.config. "
             + "This is the single largest performance finding of the whole project. Unity normally "
             + "submits every draw call on ONE thread — the same thread that must finish before a "
             + "frame can be shown — and in a scenario that thread was the entire bottleneck. "

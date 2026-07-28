@@ -38,12 +38,19 @@ $ErrorActionPreference = "Stop"
 
 if (-not $GamePath) { $GamePath = $PSScriptRoot }
 
-# The data folder is named after the product (GH_Data on the Steam build) and is
-# NOT guaranteed to be, which is why it is discovered rather than hardcoded. The
-# Managed check is what distinguishes it from any other *_Data folder.
-$dataDir = Get-ChildItem -Path $GamePath -Directory -Filter "*_Data" -ErrorAction SilentlyContinue |
-           Where-Object { Test-Path (Join-Path $_.FullName "Managed") } |
-           Select-Object -First 1 -ExpandProperty FullName
+# Gloomhaven's data folder is GH_Data on every build. The *_Data sweep below is a
+# three-line safety net, not a real case; the Managed check is what makes a folder
+# the right one either way.
+$dataDir = $null
+$ghData  = Join-Path $GamePath "GH_Data"
+if (Test-Path (Join-Path $ghData "Managed")) {
+    # Resolve-Path, because the .bat hands us "<dir>\." and this path gets printed.
+    $dataDir = (Resolve-Path -LiteralPath $ghData).Path
+} else {
+    $dataDir = Get-ChildItem -Path $GamePath -Directory -Filter "*_Data" -ErrorAction SilentlyContinue |
+               Where-Object { Test-Path (Join-Path $_.FullName "Managed") } |
+               Select-Object -First 1 -ExpandProperty FullName
+}
 
 if (-not $dataDir) {
     Write-Host ""
