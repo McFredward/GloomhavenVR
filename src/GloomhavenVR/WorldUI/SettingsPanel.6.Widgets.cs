@@ -180,23 +180,6 @@ internal sealed partial class SettingsPanel : IPanelGrabOwner
         Label(timingNote, Loc.Mod("debug_timing_short"), 12f, flexible: true);
         Tip(timingNote, "debug_timing_note");
 
-        // The one GPU experiment that has no quality trade at all, so it cannot go under
-        // Grafik: it either changes nothing visible (expected) or it breaks something
-        // (the reason it defaults off). Debug is exactly the tier for "help me find the default".
-        RectTransform scrubRow = Toggle(Loc.Mod("debug_skip_scrub_draw"),
-            () => WorldUIConfig.SkipDesktopScrubDraw.Value,
-            v =>
-            {
-                // Close the measurement window on BOTH sides of the flip, so the log carries one
-                // [Perf] FRAME/SPLIT summary for "sink render on" and one for "sink render off"
-                // with nothing straddling the boundary. That is the entire A/B: the tester toggles
-                // this once, waits, toggles back, and the two SPLIT lines answer it.
-                Core.PerfMonitor.MarkChange(
-                    $"discarded desktop render {(v ? "SKIPPED" : "drawn")} — A/B boundary");
-                WorldUIConfig.SkipDesktopScrubDraw.Value = v;
-            });
-        Tip(scrubRow, "debug_skip_scrub_note");
-
         // The mod's own largest contribution to submission volume, and the only one it can switch
         // off. Debug rather than Grafik because it is not a quality slider a player can reason
         // about: it either buys frames at the price of one specific VFX artefact, or it does not,

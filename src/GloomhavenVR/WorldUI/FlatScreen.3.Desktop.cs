@@ -199,25 +199,28 @@ internal sealed partial class FlatScreen
         SyncScrubDrawSkip();
     }
 
-    // ---- optional: stop PAYING for the scrubbed render ---------------------------------------
+    // ---- stop PAYING for the scrubbed render (unconditional) ---------------------------------
 
     /// <summary>
-    /// The scrub keeps the game's cameras off the monitor by giving them a sink RT — but they
-    /// still RENDER into it, every frame, at desktop resolution, and in a scenario that includes
-    /// the game's scenario camera drawing the whole 3D board. Nothing ever reads the sink
-    /// (<c>_scrubRt</c> is never sampled by a material, never blitted, never read back), so on
-    /// top of the two eye passes the GPU is doing a third full scene render for a texture that is
-    /// discarded.
+    /// Follows <see cref="_scrubActive"/>: while the scrub holds game cameras on the sink RT, those
+    /// cameras' draw is skipped. Always — there is no setting for this and no state in which the
+    /// discarded render is wanted.
     ///
-    /// <para>WHAT THE 2026-07 MEASUREMENT ACTUALLY SAYS ABOUT IT. The original note here cited the
-    /// runtime's <c>gpu</c> figure as evidence that this render matters. That figure turned out to
-    /// be unusable — it read the frame INTERVAL in every window and did not move when the
-    /// pixel-sample budget was cut 11×, because the runtime had locked the app to 45 Hz. So this
-    /// remains an untested suspect, but a well-motivated one for a reason the failed experiment
-    /// could not touch: it renders at DESKTOP resolution, so the eye-resolution and MSAA levers
-    /// cannot affect it at all, which is exactly the shape of a cost that stays constant across
-    /// every quality preset. <see cref="Core.PerfFrameSplit"/>'s per-camera breakdown prices it
-    /// directly, and toggling the switch marks an A/B boundary in the log.</para>
+    /// <para>WHY: the scrub keeps the game's cameras off the monitor by giving them a sink RT — but
+    /// they would still RENDER into it, every frame, at desktop resolution, and in a scenario that
+    /// includes the game's scenario camera drawing the whole 3D board. Nothing ever reads the sink
+    /// (<c>_scrubRt</c> is never sampled by a material, never blitted, never read back — the field
+    /// is private to this class and its only uses are the assignments and comparisons in this
+    /// file), so that would be a third full scene render, on top of the two eye passes, for a
+    /// texture that is discarded. It renders at DESKTOP resolution, so no eye-resolution or MSAA
+    /// lever can touch it — the cost is constant across every quality preset.
+    /// <see cref="Core.PerfFrameSplit"/>'s per-camera breakdown prices what is saved.</para>
+    ///
+    /// <para>WHY IT IS SAFE: the skip was carried as an opt-in switch through 2026-07 and verified
+    /// on hardware across repeated scenario sessions with nothing visibly or functionally different
+    /// — expected, because the cameras keep every property game code can observe (see below) and
+    /// the only thing lost is pixels in a texture with no reader. The switch was removed once that
+    /// was settled; do not reintroduce one.</para>
     ///
     /// <para>WHY CULLING RATHER THAN DISABLING: <c>cam.enabled = false</c> looks obvious and is
     /// wrong here. <see cref="Camera.main"/> only returns ENABLED cameras tagged MainCamera, the
@@ -229,32 +232,27 @@ internal sealed partial class FlatScreen
     /// <c>anchor.cullingMask</c> follow, which runs in Update/LateUpdate, before rendering — reads
     /// the untouched value.</para>
     ///
-    /// <para>Restore is belt-and-braces: <see cref="OnScrubPostRender"/> is the normal path, and
-    /// <see cref="OnScrubPreCull"/> restores any slot still occupied first, so a render that never
-    /// reaches post-render (camera disabled mid-frame, exception in an image effect) cannot leave
-    /// a game camera blinded. <see cref="ReleaseDesktopScrub"/> restores on the way out.</para>
+    /// <para>Restore is belt-and-braces and load-bearing: the mask is zeroed in
+    /// <see cref="OnScrubPreCull"/> and put back in <see cref="OnScrubPostRender"/>, i.e. within
+    /// the same camera's own render, so no other code ever observes a zeroed mask.
+    /// <see cref="OnScrubPreCull"/> also restores any slot still occupied first, so a render that
+    /// never reaches post-render (camera disabled mid-frame, exception in an image effect) cannot
+    /// leave a game camera blinded, and <see cref="ReleaseDesktopScrub"/> restores on the way out.
+    /// Every mutation here must stay reversible.</para>
     /// </summary>
     private void SyncScrubDrawSkip()
     {
-        bool want = _scrubActive && WorldUIConfig.SkipDesktopScrubDraw.Value;
-        if (want == _scrubDrawSkipHooked)
+        if (_scrubActive == _scrubDrawSkipHooked)
             return;
-        if (want)
+        if (_scrubActive)
         {
             Camera.onPreCull += OnScrubPreCull;
             Camera.onPostRender += OnScrubPostRender;
             _scrubDrawSkipHooked = true;
-            VRLog.Info("WorldUI", "ITEM9 desktop scrub: DRAW SKIP engaged ([WorldUI] SkipDesktopScrubDraw) " +
-                                  "— the redirected game cameras still clear and still run image effects, " +
-                                  "but their culling mask is zeroed for the duration of their own render, " +
-                                  "so the full 3D scene is no longer drawn into a sink nothing reads. " +
-                                  "READ THE RESULT ON THE [Perf] SPLIT LINE, not on the FRAME line's 'gpu' " +
-                                  "figure: that counter reads the frame INTERVAL whenever the runtime is " +
-                                  "rate-locked, which is most of the time here, so it cannot see this. SPLIT " +
-                                  "prices every camera's own cull+submit separately — the scenario and UI " +
-                                  "cameras should collapse toward zero while this is on — and the toggle " +
-                                  "closes the measurement window on both sides, so the A/B is two adjacent " +
-                                  "SPLIT lines with nothing straddling the change.");
+            VRLog.Info("WorldUI", "ITEM9 desktop scrub: DRAW SKIP engaged — the redirected game cameras " +
+                                  "still clear and still run image effects, but their culling mask is zeroed " +
+                                  "for the duration of their own render, so the full 3D scene is no longer " +
+                                  "drawn into a sink nothing reads.");
         }
         else
         {
@@ -262,8 +260,8 @@ internal sealed partial class FlatScreen
             Camera.onPostRender -= OnScrubPostRender;
             _scrubDrawSkipHooked = false;
             RestoreScrubMask();
-            VRLog.Info("WorldUI", "ITEM9 desktop scrub: draw skip released — the redirected cameras render " +
-                                  "their full culling mask into the sink again.");
+            VRLog.Info("WorldUI", "ITEM9 desktop scrub: draw skip released — the cameras are going back to " +
+                                  "the backbuffer, so they render their full culling mask again.");
         }
     }
 
