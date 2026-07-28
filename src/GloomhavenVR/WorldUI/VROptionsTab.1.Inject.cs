@@ -168,15 +168,23 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// Prefer a tab that is ACTIVE and fully wired: an inactive donor (the game hides Perfomance on
-    /// PC and Difficulty/HouseRules outside a campaign) would clone its inactive state and its
-    /// hidden-tab quirks along with it.
+    /// A SCROLLING tab is the only usable donor, and the probe is what settled that. The window
+    /// comes in two authored shapes: General/Audio/Combat Log put their rows straight into a
+    /// <c>VerticalLayoutGroupExtended</c> and simply run off the bottom when there are more of them
+    /// than fit, while Video/Controls/Perfomance wrap theirs in an <c>ExtendedScrollRect</c> with a
+    /// masked viewport and the game's own scrollbar art. The mod has far more settings than fit on
+    /// one screen, so cloning a non-scrolling tab would produce a list whose lower half is simply
+    /// unreachable — and it would look wrong besides, since the game's own long lists all scroll.
+    ///
+    /// <para>Active is preferred over inactive only as a tie-break WITHIN the scrolling group: an
+    /// inactive donor would hand us its hidden state, but a non-scrolling one would hand us a
+    /// broken menu, so the shape decides first.</para>
     /// </summary>
     private static UIOptionsWindow.OptionTab? PickDonor(UIOptionsWindow host, out int index)
     {
         index = -1;
-        UIOptionsWindow.OptionTab? fallback = null;
-        int fallbackIndex = -1;
+        UIOptionsWindow.OptionTab? scrollingInactive = null, plain = null;
+        int scrollingInactiveIndex = -1, plainIndex = -1;
 
         for (int i = 0; i < host.m_Tabs.Count; i++)
         {
@@ -184,21 +192,46 @@ internal static partial class VROptionsTab
             if (tab?.OptionToggle == null || tab.TabWindow == null)
                 continue;
 
-            if (tab.OptionToggle.gameObject.activeSelf)
+            bool active = tab.OptionToggle.gameObject.activeSelf;
+
+            if (tab.TabWindow.GetComponentInChildren<ScrollRect>(true) != null)
             {
-                index = i;
-                return tab;
+                if (active)
+                {
+                    index = i;
+                    return tab;
+                }
+
+                if (scrollingInactive == null)
+                {
+                    scrollingInactive = tab;
+                    scrollingInactiveIndex = i;
+                }
+                continue;
             }
 
-            if (fallback == null)
+            if (plain == null && active)
             {
-                fallback = tab;
-                fallbackIndex = i;
+                plain = tab;
+                plainIndex = i;
             }
         }
 
-        index = fallbackIndex;
-        return fallback;
+        if (scrollingInactive != null)
+        {
+            index = scrollingInactiveIndex;
+            return scrollingInactive;
+        }
+
+        if (plain != null)
+        {
+            VRLog.Warn("WorldUI", "VR options tab: no scrolling donor tab found — falling back to a "
+                                  + "plain one. The settings list will not scroll, so anything past "
+                                  + "the bottom of the panel will be out of reach.");
+        }
+
+        index = plainIndex;
+        return plain;
     }
 
     /// <summary>
@@ -251,10 +284,14 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// Clone the tab window and DEACTIVATE (never destroy) the donor's content, so our own root is
-    /// the only thing visible. Deactivating keeps the clone's serialized references intact —
-    /// destroying children would leave the window's own components pointing at dead objects, and
-    /// <c>UISubmenuGOWindow.Awake</c> has already run by then.
+    /// Clone the tab window and hand back a content root INSIDE the donor's own scroll view, so the
+    /// masked viewport, the scrollbar art and the wheel/drag behaviour are the game's rather than
+    /// ours. Only the donor's ROWS are deactivated — never destroyed, and never the scroll
+    /// machinery around them.
+    ///
+    /// <para>Deactivating rather than destroying keeps the clone's serialized references intact: the
+    /// window's own components already ran their <c>Awake</c> and hold pointers into this hierarchy,
+    /// and destroying children would leave them pointing at dead objects.</para>
     /// </summary>
     private static UISubmenuGOWindow? CloneWindow(UISubmenuGOWindow donor)
     {
@@ -265,33 +302,72 @@ internal static partial class VROptionsTab
 
         clone.name = "GloomhavenVR.OptionsTabWindow";
 
-        var host = (RectTransform)clone.transform;
+        ScrollRect? scroll = clone.GetComponentInChildren<ScrollRect>(true);
+        RectTransform holder = scroll != null && scroll.content != null
+            ? scroll.content
+            : (RectTransform)clone.transform;
+
         var deactivated = new List<string>();
-        for (int i = 0; i < host.childCount; i++)
+        for (int i = 0; i < holder.childCount; i++)
         {
-            Transform child = host.GetChild(i);
+            Transform child = holder.GetChild(i);
             if (!child.gameObject.activeSelf)
                 continue;
             child.gameObject.SetActive(false);
             deactivated.Add(child.name);
         }
 
-        var content = new GameObject("GloomhavenVR.Content", typeof(RectTransform));
-        var rect = (RectTransform)content.transform;
-        rect.SetParent(host, worldPositionStays: false);
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
-        ContentRoot = rect;
-
+        ContentRoot = BuildContentRoot(holder, scrolled: scroll != null && scroll.content != null);
         clone.gameObject.SetActive(false);
 
-        VRLog.Info("WorldUI", $"VR options tab: window cloned; donor content deactivated "
-                              + $"({deactivated.Count}: {string.Join(", ", deactivated.ToArray())}). "
-                              + "Content root is a child of the CLONE, so dropping the clone restores "
-                              + "everything.");
+        VRLog.Info("WorldUI",
+            $"VR options tab: window cloned from '{donor.name}'. "
+            + (scroll != null
+                ? $"Content sits inside the donor's own scroll view ('{holder.name}'), so the viewport "
+                  + "mask and scrollbar are the game's. "
+                : "NO scroll view on this donor — the list cannot scroll. ")
+            + $"Donor rows deactivated ({deactivated.Count}: {string.Join(", ", deactivated.ToArray())}); "
+            + "nothing was destroyed, so dropping the clone restores everything.");
         return clone;
+    }
+
+    /// <summary>
+    /// Our own root under the donor's holder. Inside a scroll view it must SIZE ITSELF to its rows
+    /// (a stretched rect would report a fixed height and the scroll range would stay zero no matter
+    /// how many settings are added); outside one it simply fills the window.
+    /// </summary>
+    private static RectTransform BuildContentRoot(RectTransform holder, bool scrolled)
+    {
+        var root = (RectTransform)new GameObject("GloomhavenVR.Content", typeof(RectTransform)).transform;
+        root.SetParent(holder, worldPositionStays: false);
+
+        if (scrolled)
+        {
+            root.anchorMin = new Vector2(0f, 1f);
+            root.anchorMax = new Vector2(1f, 1f);
+            root.pivot = new Vector2(0.5f, 1f);
+            root.offsetMin = new Vector2(0f, 0f);
+            root.offsetMax = new Vector2(0f, 0f);
+
+            var layout = root.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+
+            var fitter = root.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        }
+        else
+        {
+            root.anchorMin = Vector2.zero;
+            root.anchorMax = Vector2.one;
+            root.offsetMin = Vector2.zero;
+            root.offsetMax = Vector2.zero;
+        }
+
+        return root;
     }
 
     /// <summary>
@@ -334,12 +410,85 @@ internal static partial class VROptionsTab
                 }
             }
 
+            ProbeRowArchetypes(sb, host);
             VRLog.Info("WorldUI", sb.ToString());
         }
         catch (Exception e)
         {
             VRLog.Warn("WorldUI", $"VR options tab: probe threw ({e.Message}) — injection continues.");
         }
+    }
+
+    /// <summary>
+    /// Dump ONE real example of each control shape the mod needs to reproduce — a toggle row, a
+    /// slider row and a dropdown row — with their full sub-tree.
+    ///
+    /// <para>These are the rows the content stage clones, and cloning is only safe if the anatomy is
+    /// known: which child carries the caption, which carries the control, and which game component
+    /// is bound to the setting behind it and therefore has to go. Searching by COMPONENT TYPE
+    /// rather than by name means this keeps finding them if a game update renames the rows.</para>
+    /// </summary>
+    private static void ProbeRowArchetypes(StringBuilder sb, UIOptionsWindow host)
+    {
+        Transform? toggleRow = null, sliderRow = null, dropdownRow = null;
+
+        for (int i = 0; i < host.m_Tabs.Count; i++)
+        {
+            UISubmenuGOWindow? window = host.m_Tabs[i]?.TabWindow;
+            if (window == null)
+                continue;
+
+            toggleRow ??= FindRowWith<Toggle>(window.transform);
+            sliderRow ??= FindRowWith<Slider>(window.transform);
+            dropdownRow ??= FindRowWith<TMP_Dropdown>(window.transform);
+        }
+
+        AppendArchetype(sb, "TOGGLE row", toggleRow);
+        AppendArchetype(sb, "SLIDER row", sliderRow);
+        AppendArchetype(sb, "DROPDOWN row", dropdownRow);
+    }
+
+    /// <summary>
+    /// The ROW is the layout item, not the widget: walk up from the control to the child that sits
+    /// directly under a layout group, because that is the unit the content stage instantiates.
+    /// </summary>
+    private static Transform? FindRowWith<T>(Transform root) where T : Component
+    {
+        T[] found = root.GetComponentsInChildren<T>(true);
+        if (found.Length == 0)
+            return null;
+
+        Transform node = found[0].transform;
+        while (node.parent != null && node.parent != root)
+        {
+            if (node.GetComponent<LayoutElement>() != null)
+                return node;
+            node = node.parent;
+        }
+        return found[0].transform;
+    }
+
+    private static void AppendArchetype(StringBuilder sb, string what, Transform? row)
+    {
+        sb.Append("\n  ").Append(what).Append(": ");
+        if (row == null)
+        {
+            sb.Append("none found in any tab.");
+            return;
+        }
+
+        sb.Append('\'').Append(row.name).Append("' under '")
+          .Append(row.parent == null ? "?" : row.parent.name).Append('\'');
+        Component[] own = row.GetComponents<Component>();
+        sb.Append("  [");
+        for (int c = 0; c < own.Length; c++)
+        {
+            if (c > 0)
+                sb.Append(", ");
+            sb.Append(own[c] == null ? "<missing>" : own[c].GetType().Name);
+        }
+        sb.Append(']');
+        DescribeChildren(sb, row, "        ", depth: 3);
     }
 
     /// <summary>Component-annotated child listing, depth-limited: this is a diagnostic, not a dump.</summary>
