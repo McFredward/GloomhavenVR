@@ -65,6 +65,20 @@ internal static partial class VROptionsTab
     /// </summary>
     internal static RectTransform? ContentRoot { get; private set; }
 
+    /// <summary>
+    /// The sub-tab bar: a strip pinned to the TOP of the tab window, outside the scroll view.
+    ///
+    /// <para>The first version put the category chooser in as the first row of the scrolled list,
+    /// where it scrolled away the moment the player looked at anything — with lists this long the
+    /// chooser was off-screen almost all the time, which is the opposite of what a chooser is for.
+    /// It now sits above the scroll area and stays put, and the scroll area is shortened by exactly
+    /// its height so nothing is covered.</para>
+    /// </summary>
+    internal static RectTransform? TabBarRoot { get; private set; }
+
+    /// <summary>Height of that strip, and the amount the scroll area is pushed down by.</summary>
+    private const float TabBarHeight = 44f;
+
     /// <summary>True once the tab is live in the game's options window.</summary>
     internal static bool Injected => _host != null && _toggle != null;
 
@@ -324,7 +338,10 @@ internal static partial class VROptionsTab
         }
 
         ContentRoot = BuildContentRoot(holder, scrolled: scroll != null && scroll.content != null);
+        TabBarRoot = BuildTabBar(scroll);
         clone.gameObject.SetActive(false);
+
+        LogCloneHierarchy(clone);
 
         VRLog.Info("WorldUI",
             $"VR options tab: window cloned from '{donor.name}'. "
@@ -374,6 +391,65 @@ internal static partial class VROptionsTab
         }
 
         return root;
+    }
+
+    /// <summary>
+    /// Pin the sub-tab strip above the scroll area and shorten the scroll area by its height.
+    ///
+    /// <para>The ScrollRect sits ON the tab's "Main Area" (the probe), so that transform IS the
+    /// scrolling region: moving its top edge down and putting the strip in the gap needs no
+    /// reparenting of anything the game owns.</para>
+    /// </summary>
+    private static RectTransform? BuildTabBar(ScrollRect? scroll)
+    {
+        if (scroll == null)
+            return null;
+
+        var area = (RectTransform)scroll.transform;
+        if (area.parent == null)
+            return null;
+
+        area.offsetMax = new Vector2(area.offsetMax.x, area.offsetMax.y - TabBarHeight);
+
+        var bar = (RectTransform)new GameObject("GloomhavenVR.SubTabs", typeof(RectTransform)).transform;
+        bar.SetParent(area.parent, worldPositionStays: false);
+        bar.anchorMin = new Vector2(0f, 1f);
+        bar.anchorMax = new Vector2(1f, 1f);
+        bar.pivot = new Vector2(0.5f, 1f);
+        bar.sizeDelta = new Vector2(0f, TabBarHeight);
+        bar.anchoredPosition = Vector2.zero;
+
+        var layout = bar.gameObject.AddComponent<HorizontalLayoutGroup>();
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.spacing = 3f;
+        layout.padding = new RectOffset(6, 6, 4, 4);
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = true;
+
+        return bar;
+    }
+
+    /// <summary>
+    /// Dump the finished clone once. The player reports "control options at the very top that have
+    /// nothing to do with VR", and the donor is the Controls tab — so something authored is still
+    /// showing. Guessing at which node it is from a screenshot is how the last two rounds were
+    /// spent; this says it outright.
+    /// </summary>
+    private static void LogCloneHierarchy(UISubmenuGOWindow clone)
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.Append("VR options tab CLONE — '").Append(clone.name).Append('\'');
+            DescribeChildren(sb, clone.transform, "    ", depth: 3);
+            VRLog.Info("WorldUI", sb.ToString());
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options tab: clone dump threw ({e.Message}).");
+        }
     }
 
     /// <summary>
@@ -546,6 +622,7 @@ internal static partial class VROptionsTab
         _toggle = null;
         _window = null;
         ContentRoot = null;
+        TabBarRoot = null;
         _donorIndex = -1;
     }
 

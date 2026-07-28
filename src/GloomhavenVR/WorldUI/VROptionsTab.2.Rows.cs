@@ -56,6 +56,16 @@ internal static partial class VROptionsTab
     /// <summary>Arrow art lifted off the game's dropdown, for the stepper's two buttons.</summary>
     private static Sprite? _arrowSprite;
 
+    /// <summary>
+    /// The caption style every row is forced to, sampled once from the TOGGLE row.
+    ///
+    /// <para>The three templates do NOT share a caption style: the dropdown row's Title is authored
+    /// large and gold because it heads a language picker, and cloning it verbatim made every
+    /// enum setting read as a section heading rather than a setting. Sampling one style and
+    /// applying it everywhere is what makes a list of mixed control shapes look like one list.</para>
+    /// </summary>
+    private static (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)? _titleStyle;
+
     /// <summary>Rows built for the current content, in order — cleared and rebuilt on every refresh.</summary>
     private static readonly List<GameObject> Rows = new(64);
 
@@ -111,6 +121,7 @@ internal static partial class VROptionsTab
         _dropdownTemplate = Stamp(dropdownRow, "Dropdown");
         _sliderTemplate = Stamp(sliderRow, "Slider");
         _arrowSprite = HarvestArrowSprite(_dropdownTemplate);
+        SampleTitleStyle(_toggleTemplate);
 
         VRLog.Info("WorldUI",
             $"VR options tab: templates — toggle={Describe(toggleRow)}, dropdown={Describe(dropdownRow)}, "
@@ -147,27 +158,67 @@ internal static partial class VROptionsTab
         if (dropdown == null)
             return null;
 
+        // The named node is a CONTAINER in this prefab, not the glyph — its own Image carries no
+        // sprite, which is why the first version harvested null and every stepper drew a plain
+        // white quad (Unity's fallback for a sprite-less Image). So the subtree is searched, not
+        // just the node.
         Transform? named = dropdown.transform.Find("Arrow");
-        Image? arrow = named != null ? named.GetComponent<Image>() : null;
+        Sprite? sprite = named != null ? FirstSpriteIn(named) : null;
 
-        if (arrow == null)
+        if (sprite == null)
         {
-            float best = float.MaxValue;
+            // Anything with a sprite that is not the control's own background. Measuring rects is
+            // useless here: the template is inactive, so every rect reads as zero.
+            Image? background = dropdown.GetComponent<Image>();
             foreach (Image candidate in dropdown.GetComponentsInChildren<Image>(true))
             {
-                if (candidate == null || candidate.sprite == null)
+                if (candidate == null || candidate == background || candidate.sprite == null)
                     continue;
-                var rect = (RectTransform)candidate.transform;
-                float area = Mathf.Abs(rect.rect.width * rect.rect.height);
-                if (area > 0f && area < best)
-                {
-                    best = area;
-                    arrow = candidate;
-                }
+                sprite = candidate.sprite;
+                break;
             }
         }
 
-        return arrow != null ? arrow.sprite : null;
+        return sprite;
+    }
+
+    private static void SampleTitleStyle(GameObject? toggleTemplate)
+    {
+        if (toggleTemplate == null)
+            return;
+
+        TMP_Text? title = FindPart<TMP_Text>(toggleTemplate.transform, "Title");
+        if (title == null)
+            return;
+
+        _titleStyle = (title.font, title.fontSize, title.color, title.fontStyle, title.alignment);
+    }
+
+    /// <summary>Force one caption look across all three row shapes.</summary>
+    private static void ApplyTitleStyle(TMP_Text title)
+    {
+        if (_titleStyle == null)
+            return;
+
+        (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align) s = _titleStyle.Value;
+        if (s.font != null)
+            title.font = s.font;
+        title.enableAutoSizing = false;
+        title.fontSize = s.size;
+        title.color = s.colour;
+        title.fontStyle = s.style;
+        title.alignment = s.align;
+    }
+
+    /// <summary>First Image WITH a sprite anywhere under a node, itself included.</summary>
+    private static Sprite? FirstSpriteIn(Transform node)
+    {
+        foreach (Image image in node.GetComponentsInChildren<Image>(true))
+        {
+            if (image != null && image.sprite != null)
+                return image.sprite;
+        }
+        return null;
     }
 
     /// <summary>
@@ -349,8 +400,10 @@ internal static partial class VROptionsTab
         slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, v)));
 
         // The bar alone does not say what the value IS, and several of these settings are only
-        // meaningful as a number (turn degrees, hold seconds).
-        TMP_Text value = BuildValueLabel(row.transform);
+        // meaningful as a number (turn degrees, hold seconds). The donor row ALREADY has a label
+        // for exactly that — the volume row's "50/50" — so it is rebound rather than joined by a
+        // second one. Adding one left the donor's stale text sitting next to ours.
+        TMP_Text value = ExistingValueLabel(row, title) ?? BuildValueLabel(row.transform);
         value.text = ConfigCatalog.ValueText(item, 0);
         ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, 0)));
 
@@ -511,6 +564,10 @@ internal static partial class VROptionsTab
             title = made.AddComponent<TextMeshProUGUI>();
             NativeButtonSkin.ApplyFont(title);
         }
+        else
+        {
+            ApplyTitleStyle(title);
+        }
 
         Rows.Add(row);
         return row;
@@ -538,21 +595,55 @@ internal static partial class VROptionsTab
         var go = new GameObject(flip ? "ArrowLeft" : "ArrowRight", typeof(RectTransform));
         go.transform.SetParent(parent, worldPositionStays: false);
 
-        var image = go.AddComponent<Image>();
-        image.sprite = _arrowSprite;
-        image.preserveAspect = true;
-        image.color = NativeButtonSkin.LabelColor;
-        if (flip)
-            go.transform.localScale = new Vector3(-1f, 1f, 1f);
+        Graphic face;
+        if (_arrowSprite != null)
+        {
+            var image = go.AddComponent<Image>();
+            image.sprite = _arrowSprite;
+            image.preserveAspect = true;
+            image.color = NativeButtonSkin.LabelColor;
+            if (flip)
+                go.transform.localScale = new Vector3(-1f, 1f, 1f);
+            face = image;
+        }
+        else
+        {
+            // NEVER a sprite-less Image: Unity draws that as a solid white box, which is exactly
+            // what the first version shipped. ASCII, because the menu font demonstrably lacks the
+            // ◀ ▶ glyphs — the log names it: LiberationSans SDF.
+            var label = go.AddComponent<TextMeshProUGUI>();
+            label.text = flip ? "<" : ">";
+            label.alignment = TextAlignmentOptions.Center;
+            label.fontSize = 20f;
+            label.color = NativeButtonSkin.LabelColor;
+            NativeButtonSkin.ApplyFont(label);
+            face = label;
+        }
 
         var button = go.AddComponent<Button>();
-        button.targetGraphic = image;
+        button.targetGraphic = face;
         button.transition = Selectable.Transition.ColorTint;
         button.onClick.AddListener(() => onClick());
 
         var element = go.AddComponent<LayoutElement>();
         element.preferredWidth = 26f;
         element.preferredHeight = 26f;
+    }
+
+    /// <summary>
+    /// The donor row's own value caption: any TMP label that is not the row's Title. Returned so it
+    /// can be rebound in place, which keeps the game's authored position instead of dropping a
+    /// second label wherever it lands.
+    /// </summary>
+    private static TMP_Text? ExistingValueLabel(GameObject row, TMP_Text? title)
+    {
+        foreach (TMP_Text candidate in row.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (candidate == null || ReferenceEquals(candidate, title))
+                continue;
+            return candidate;
+        }
+        return null;
     }
 
     private static TMP_Text BuildValueLabel(Transform parent)

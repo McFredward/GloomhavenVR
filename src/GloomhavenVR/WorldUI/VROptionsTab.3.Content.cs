@@ -63,9 +63,8 @@ internal static partial class VROptionsTab
 
         ConfigCatalog.EnsureFresh();
         ClearRows();
-        CategoryButtons.Clear();
 
-        BuildCategoryStrip(ContentRoot);
+        BuildCategoryStrip();
 
         IReadOnlyList<ConfigCatalog.ConfigGroup> groups = ConfigCatalog.Groups(_category);
         int rows = 0;
@@ -106,36 +105,25 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// The category chooser, as the first item of the scrolled list. Only topics that actually hold
-    /// something get a button: an empty category is a dead end the player has to discover by
-    /// pressing it.
+    /// The sub-tab chooser, in the strip pinned above the scroll area. Built ONCE and then left
+    /// alone: it does not depend on which category is showing, and rebuilding it per switch would
+    /// destroy the very button the player just pressed. Only topics that actually hold something
+    /// get one — an empty sub-tab is a dead end the player has to discover by pressing it.
     /// </summary>
-    private static void BuildCategoryStrip(Transform parent)
+    private static void BuildCategoryStrip()
     {
-        var strip = new GameObject("Categories", typeof(RectTransform));
-        strip.transform.SetParent(parent, worldPositionStays: false);
-        Rows.Add(strip);
+        RectTransform? bar = TabBarRoot;
+        if (bar == null || bar.childCount > 0)
+            return;
 
-        var layout = strip.AddComponent<HorizontalLayoutGroup>();
-        layout.childAlignment = TextAnchor.MiddleLeft;
-        layout.spacing = 4f;
-        layout.childControlWidth = true;
-        layout.childControlHeight = true;
-        layout.childForceExpandWidth = true;
-        layout.childForceExpandHeight = false;
-
-        var element = strip.AddComponent<LayoutElement>();
-        element.preferredHeight = 40f;
-        element.minHeight = 40f;
-        element.flexibleHeight = 0f;
-
+        CategoryButtons.Clear();
         for (int t = 0; t < ConfigCatalog.TopicCount; t++)
         {
             var topic = (ConfigCatalog.ConfigTopic)t;
             if (ConfigCatalog.Groups(topic).Count == 0)
                 continue;
 
-            BuildCategoryButton(strip.transform, topic);
+            BuildCategoryButton(bar, topic);
         }
     }
 
