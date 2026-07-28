@@ -78,6 +78,11 @@ internal sealed partial class FlatScreen
         // latch→uGUI-drag here so the two gestures never fight.
         bool mapActive = _stereo.MapActive;
 
+        // Thumbstick scroll: the pointing hand's stick-Y scrolls the list under the laser,
+        // exactly like it does on the world-space panels during a scenario. Placed before
+        // the press/drag blocks so it works whether or not the trigger is held.
+        TickStickScroll(pixel, hand, mapActive);
+
         // Click latch (requirement 1, class doc): while pressed and latched the warp
         // position stays frozen at the press pixel; deliberate sustained ray movement
         // opens the latch into a real drag.
@@ -502,6 +507,121 @@ internal sealed partial class FlatScreen
         {
             VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): top hit " +
                                   $"'{top.gameObject.name}' has no IPointerClickHandler.");
+        }
+    }
+
+    // ---- thumbstick scroll on the flat composite (user: "auch im Hauptmenü") ---------------
+
+    /// <summary>Stick-Y deadzone (mirrors <c>Hands.Interact.RayUguiDriver.ScrollDeadzone</c>).</summary>
+    private const float StickScrollDeadzone = 0.3f;
+
+    /// <summary>
+    /// Wheel NOTCHES per second at full deflection (mirrors
+    /// <c>RayUguiDriver.ScrollNotchesPerSecond</c>), so a flat-screen list scrolls at exactly
+    /// the felt speed of the converted world-space lists — each ScrollRect applies its own
+    /// scrollSensitivity px/notch, just as for a real wheel.
+    /// </summary>
+    private const float StickScrollNotchesPerSecond = 40f;
+
+    /// <summary>Distinct pointer id for the synthesized wheel (clear of mouse -1..-3, poke/laser, drag).</summary>
+    private const int StickScrollPointerId = -121;
+
+    /// <summary>Minimum spacing of the stick-scroll diagnostic line (per scroll target).</summary>
+    private const float StickScrollLogSeconds = 2f;
+
+    /// <summary>Reused wheel payload (no per-frame allocation once the first scroll happened).</summary>
+    private UnityEngine.EventSystems.PointerEventData? _stickScrollData;
+    /// <summary>EventSystem the payload was built for — a scene load replaces it, so the
+    /// payload is rebuilt rather than left holding a destroyed one.</summary>
+    private UnityEngine.EventSystems.EventSystem? _stickScrollEventSystem;
+    private GameObject? _lastStickScrollTarget;
+    private float _lastStickScrollLog = float.NegativeInfinity;
+    private float _lastStickScrollMissLog = float.NegativeInfinity;
+
+    /// <summary>
+    /// Thumbstick scrolling for everything shown on the flat composite — the MAIN MENU and
+    /// every unconverted window (user report: "scrolling works during a scenario but not in
+    /// the main menu"). In a scenario the scrollable lists are converted world-space canvases
+    /// driven by <c>Hands.Interact.RayUguiDriver.TickStickScroll</c>; the main menu is not
+    /// converted at all — it is the screen-space game UI captured into this quad's
+    /// RenderTexture — so that path never sees it and the stick was inert. This synthesizes
+    /// the same mouse-wheel notch stream on the game's own UI, using the SAME
+    /// EventSystem.RaycastAll-at-the-RT-pixel mechanism as <see cref="DirectClick"/> /
+    /// <see cref="BeginScreenDrag"/>, and therefore inherits its modality guarantee: a locked
+    /// UI (UIManager.ToggleLockUI disables every GraphicRaycaster) yields no hits and no events.
+    ///
+    /// Stick contention — nothing that legitimately owns the stick loses it:
+    /// - X axis only: SnapTurn (engage |x| ≥ 0.7) and AoE rotation. This reads Y only.
+    /// - Y axis on the CAMPAIGN MAP is the map zoom (<c>FlatScreenStereo.TickMapInput</c>), so
+    ///   this stands down entirely while the map is active (and during a map pan).
+    /// - While a trigger-drag session already moves a slider/scrollbar under the pointer the
+    ///   stick stands down too, so one gesture owns the widget at a time.
+    /// Unscaled time: menus pause the game clock.
+    /// </summary>
+    private void TickStickScroll(Vector2 pixel, VRHand hand, bool mapActive)
+    {
+        if (mapActive || _mapPanGesture || _screenDragActive)
+            return;
+
+        float y = hand.Thumbstick.y;
+        if (Mathf.Abs(y) < StickScrollDeadzone)
+            return;
+
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+            return;
+
+        if (_stickScrollData == null || !ReferenceEquals(_stickScrollEventSystem, es))
+        {
+            _stickScrollEventSystem = es;
+            _stickScrollData = new UnityEngine.EventSystems.PointerEventData(es)
+            {
+                pointerId = StickScrollPointerId,
+            };
+        }
+        UnityEngine.EventSystems.PointerEventData data = _stickScrollData;
+        data.position = pixel;
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+            return;
+
+        UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
+        data.pointerCurrentRaycast = top;
+        GameObject? target = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler
+            <UnityEngine.EventSystems.IScrollHandler>(top.gameObject);
+        if (target == null)
+        {
+            // Nothing scrollable under the laser — the stick keeps its other meanings.
+            // Throttled diagnostic: "I pushed the stick and nothing scrolled" is then
+            // answerable from the log alone (which element the laser actually hit).
+            if (Time.unscaledTime - _lastStickScrollMissLog >= StickScrollLogSeconds)
+            {
+                _lastStickScrollMissLog = Time.unscaledTime;
+                VRLog.Info("WorldUI", $"Flat-menu stick scroll: nothing scrollable under the laser at RT " +
+                                      $"pixel ({pixel.x:F0},{pixel.y:F0}) — top hit '{top.gameObject.name}' " +
+                                      "has no IScrollHandler in its ancestors.");
+            }
+            return;
+        }
+
+        // Deadzone-normalized response: speed ramps from 0 at the deadzone edge to
+        // StickScrollNotchesPerSecond at full deflection (identical to the world-space path).
+        float response = (Mathf.Abs(y) - StickScrollDeadzone) / (1f - StickScrollDeadzone);
+        float notches = Mathf.Sign(y) * response * StickScrollNotchesPerSecond * Time.unscaledDeltaTime;
+        data.scrollDelta = new Vector2(0f, notches);
+        UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
+            top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.scrollHandler);
+        data.scrollDelta = Vector2.zero; // never leak a stale wheel into a later event
+
+        if (!ReferenceEquals(target, _lastStickScrollTarget)
+            || Time.unscaledTime - _lastStickScrollLog >= StickScrollLogSeconds)
+        {
+            _lastStickScrollTarget = target;
+            _lastStickScrollLog = Time.unscaledTime;
+            VRLog.Info("WorldUI", $"Flat-menu stick scroll on '{target.name}' at RT pixel " +
+                                  $"({pixel.x:F0},{pixel.y:F0}) — stick-Y {y:F2} → " +
+                                  $"{notches:F3} wheel notches this frame (top hit '{top.gameObject.name}').");
         }
     }
 
