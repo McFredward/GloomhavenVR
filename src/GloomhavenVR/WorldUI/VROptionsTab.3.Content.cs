@@ -180,6 +180,11 @@ internal static partial class VROptionsTab
             TickGuard.Run("VROptionsTab.Back", Rebuild, "WorldUI");
         });
 
+        // NAME THE OPEN TOPIC. The column keeps Debug lit, which says which SECTION you are in but
+        // not which page — every topic looked identically headed "Debug" and there was no way to
+        // tell from the screen what had just been opened.
+        BuildHeader(ContentRoot, ConfigCatalog.TopicLabel(topic));
+
         IReadOnlyList<ConfigCatalog.ConfigGroup> groups = ConfigCatalog.Groups(topic);
         int rows = 0;
 
@@ -204,6 +209,14 @@ internal static partial class VROptionsTab
     {
         if (ContentRoot == null)
             return 0;
+
+        // A hand-made control stands for the WHOLE entry — a colour behind a named-preset dropdown
+        // must not also produce four numeric component rows beside it.
+        if (HasSpecialRow(item))
+        {
+            BuildRow(ContentRoot, item, 0);
+            return 1;
+        }
 
         int components = item.Kind == ConfigCatalog.ConfigKind.Bool
             ? 1

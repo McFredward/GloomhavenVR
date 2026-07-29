@@ -75,13 +75,58 @@ internal static class MixedReality
     /// <summary>Sweep + disable the sky/background GEOMETRY (item 2). Safety valve — default on.</summary>
     internal static ConfigEntry<bool> HideSkyMeshes = null!;
 
-    /// <summary>Cycle presets for the settings UI (green → magenta → blue → green …).</summary>
+    /// <summary>
+    /// Key-colour presets offered by the settings UI.
+    ///
+    /// <para>Green, magenta and blue are the chroma keys a compositor expects — saturated colours
+    /// no game pixel is likely to share. BLACK is not a chroma key at all and is here for the other
+    /// use: a headset whose passthrough composites on black, and players who simply want the void
+    /// dark rather than lurid. It is last because picking it turns the chroma workflow off in
+    /// everything but name.</para>
+    /// </summary>
     private static readonly (string Name, Color Color)[] Presets =
     {
         ("Green", new Color(0f, 1f, 0f, 1f)),
         ("Magenta", new Color(1f, 0f, 1f, 1f)),
         ("Blue", new Color(0f, 0f, 1f, 1f)),
+        ("Black", new Color(0f, 0f, 0f, 1f)),
     };
+
+    /// <summary>Preset names, in offer order — the dropdown's option list.</summary>
+    internal static string[] KeyColorNames
+    {
+        get
+        {
+            var names = new string[Presets.Length];
+            for (int i = 0; i < Presets.Length; i++)
+                names[i] = Presets[i].Name;
+            return names;
+        }
+    }
+
+    /// <summary>Index of the current key colour among the presets, or -1 for a custom one.</summary>
+    internal static int KeyColorIndex
+    {
+        get
+        {
+            Color c = KeyColor.Value;
+            for (int i = 0; i < Presets.Length; i++)
+            {
+                if (Approximately(Presets[i].Color, c))
+                    return i;
+            }
+            return -1;
+        }
+    }
+
+    /// <summary>Pick a preset by index — what a dropdown needs, where cycling needed no index.</summary>
+    internal static void SetKeyColor(int index)
+    {
+        Bind();
+        if (index < 0 || index >= Presets.Length)
+            return;
+        KeyColor.Value = Presets[index].Color; // BepInEx persists on set
+    }
 
     // Recorded originals for full restore.
     private static readonly Dictionary<Camera, (CameraClearFlags Flags, Color Bg)> CamOriginals = new();

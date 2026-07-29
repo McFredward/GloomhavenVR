@@ -307,16 +307,57 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// A row that navigates instead of editing — the topic list under "Erweitert", and the way back
-    /// out of it. Built on the toggle row with its switch removed, so it keeps the row background
-    /// and the hover frame the rest of the list has.
+    /// A row that navigates instead of editing — the Debug topic list, and the way back out of it.
+    ///
+    /// <para>BUILT FROM THE TAB TEMPLATE, not the settings row. These behave like tabs, so they are
+    /// made of the same thing the tabs are: the window's own <c>UIMainMenuOption</c>. That is what
+    /// gives them the hover highlight and the click sound the rest of the menu has — hand-rolling
+    /// either onto a settings row would be an imitation that drifts, and the first attempt at a
+    /// hand-made link was not even clickable (a Button needs a Graphic under the pointer, and the
+    /// settings row has none of its own).</para>
     /// </summary>
     private static void BuildLinkRow(Transform parent, string caption, Action onClick)
     {
-        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        GameObject row;
+        if (_categoryTemplate != null)
+        {
+            row = UnityEngine.Object.Instantiate(_categoryTemplate, parent);
+            row.SetActive(true);
+            StripForReuse(row);
+            Rows.Add(row);
+
+            TMP_Text? tabLabel = row.GetComponentInChildren<TMP_Text>(true);
+            if (tabLabel != null)
+            {
+                tabLabel.text = caption;
+                tabLabel.enableWordWrapping = false;
+                tabLabel.enableAutoSizing = true;
+                tabLabel.fontSizeMin = 9f;
+                tabLabel.overflowMode = TextOverflowModes.Overflow;
+            }
+
+            Toggle? tabToggle = row.GetComponentInChildren<Toggle>(true);
+            if (tabToggle != null)
+            {
+                // No group: this is a button wearing a toggle. It never stays lit, because
+                // choosing it rebuilds the list out from under itself.
+                tabToggle.onValueChanged.RemoveAllListeners();
+                tabToggle.group = null;
+                tabToggle.SetIsOnWithoutNotify(false);
+                tabToggle.onValueChanged.AddListener(on =>
+                {
+                    if (on)
+                        onClick();
+                });
+                return;
+            }
+        }
+
+        // No tab template — fall back to a settings row made clickable. Keeps Debug reachable at
+        // the cost of the native hover and sound.
+        row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
             title.text = caption;
-
         if (option != null)
             option.gameObject.SetActive(false);
 
@@ -324,11 +365,6 @@ internal static partial class VROptionsTab
         if (toggle != null)
             SafeDestroy(toggle);
 
-        // ITS OWN RAYCAST TARGET, and this is what made the first version unclickable. A Button
-        // needs a Graphic under the pointer for the event system to hit; the row itself has none
-        // (the background is a child, and its raycastTarget is off), so the click landed on
-        // nothing at all. An invisible full-rect Image is the smallest thing that fixes that
-        // without changing how the row looks.
         var hit = new GameObject("ClickArea", typeof(RectTransform)).AddComponent<Image>();
         var hitRect = (RectTransform)hit.transform;
         hitRect.SetParent(row.transform, worldPositionStays: false);
@@ -345,9 +381,42 @@ internal static partial class VROptionsTab
         button.onClick.AddListener(() => onClick());
     }
 
+    /// <summary>
+    /// A dropdown over a hand-written list of named values, for an entry whose stored type says
+    /// nothing useful about how it should be edited (see TryBuildSpecialRow).
+    /// </summary>
+    private static void BuildPresetRow(Transform parent, ConfigCatalog.ConfigItem item,
+                                       string[] names, int current, Action<int> apply)
+    {
+        GameObject row = StampRow(_dropdownTemplate, parent, out TMP_Text? title, out Transform? _);
+        TMP_Dropdown? dropdown = row.GetComponentInChildren<TMP_Dropdown>(true);
+        if (dropdown == null)
+            return;
+
+        if (title != null)
+            title.text = Caption(item);
+
+        var options = new List<TMP_Dropdown.OptionData>(names.Length);
+        for (int i = 0; i < names.Length; i++)
+            options.Add(new TMP_Dropdown.OptionData(names[i]));
+
+        dropdown.onValueChanged.RemoveAllListeners();
+        dropdown.ClearOptions();
+        dropdown.AddOptions(options);
+        dropdown.SetValueWithoutNotify(Mathf.Clamp(current, 0, names.Length - 1));
+        dropdown.RefreshShownValue();
+        dropdown.onValueChanged.AddListener(index => Apply(item, () => apply(index)));
+
+        AttachTooltip(row, item);
+    }
+
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
     private static void BuildRow(Transform parent, ConfigCatalog.ConfigItem item, int component)
     {
+        // A few entries' stored type says nothing useful about how they should be edited.
+        if (component == 0 && TryBuildSpecialRow(parent, item))
+            return;
+
         if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item))
             return;
 

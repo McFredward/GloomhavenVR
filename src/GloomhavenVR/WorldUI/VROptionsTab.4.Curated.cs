@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -118,9 +120,22 @@ internal static partial class VROptionsTab
                         ("Compat", "DisableVolumetricFog"),
                         ("Compat", "WallFade"),
                         ("Rig", "ForwardRendering"),
-                        ("Rig", "VoidColor"),
                         ("Rig", "MenuRig"),
                         ("Rig", "SpawnInCircle"),
+                    },
+                },
+                new()
+                {
+                    // The mod's own panel offered Mixed Reality here, with a key-colour picker.
+                    // Rig/VoidColor is NOT the same setting and does not replace it: MR also
+                    // disables every skybox and sweeps the sky geometry, which is the half that
+                    // makes passthrough compositing work at all.
+                    LocKey = "mixed_reality",
+                    Entries = new[]
+                    {
+                        ("MixedReality", "Enabled"),
+                        ("MixedReality", "KeyColor"),
+                        ("MixedReality", "HideSkyMeshes"),
                     },
                 },
                 new()
@@ -240,6 +255,33 @@ internal static partial class VROptionsTab
     }
 
     private static string Id(string section, string key) => section + "/" + key;
+
+    /// <summary>
+    /// Rows whose CONTROL does not follow from the entry's type.
+    ///
+    /// <para>The key colour is stored as a Color, so the generic builder would offer four numeric
+    /// steppers — R, G, B and A. That is not a setting a player can use: the value is only
+    /// meaningful as one of a handful of named chroma keys, which is exactly how the mod's own
+    /// panel presented it. So this one entry gets a named-preset dropdown instead, over
+    /// <see cref="MixedReality"/>'s own preset list.</para>
+    ///
+    /// <para>Kept as a lookup rather than an if-chain inside the row kit: the kit stays free of
+    /// knowledge about individual settings, and the next entry that needs a hand-made control is
+    /// one table row rather than another branch.</para>
+    /// </summary>
+    private static bool HasSpecialRow(ConfigCatalog.ConfigItem item) =>
+        string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
+        && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal);
+
+    private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item)
+    {
+        if (!HasSpecialRow(item))
+            return false;
+
+        BuildPresetRow(parent, item, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
+                       MixedReality.SetKeyColor);
+        return true;
+    }
 
     /// <summary>
     /// Look one curated entry up. A miss is REPORTED, not silently skipped: it means a setting was
