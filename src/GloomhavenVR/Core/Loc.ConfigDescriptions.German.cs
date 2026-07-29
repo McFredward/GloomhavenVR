@@ -1103,10 +1103,6 @@ internal static partial class Loc
                 + "Aufgaben), board-lokale Meter. Startwert 0 (Oak).",
             ["Cards/ElementsScale_*"] =
                 "Größen-MULTIPLIKATOR des Docks für ELEMENT-Infusionen ('Elemente'). Startwert 1 (Oak).",
-            ["Cards/VRSettingsOffset_*"] =
-                "Versatz, der zur lokalen Position des ZAHNRAD-Knopfes für die VR-Einstellungen ADDIERT wird "
-                + "(zusätzlich zu seiner festen Basis in der rechten Spalte), board-lokale Meter (Z = "
-                + "Herausstehen zum Spieler hin). Startwert 0 (Oak).",
             ["Cards/PinOffset_*"] =
                 "Versatz, der zur lokalen Position des FOLGEN/FIXIERT-Schalters ADDIERT wird (zusätzlich zu "
                 + "seiner festen Basis unten rechts), board-lokale Meter (Z = Herausstehen zum Spieler hin). "
@@ -1564,7 +1560,7 @@ internal static partial class Loc
                 + "beiden nie in die Quere kommen.",
             ["WorldUI/ManualScreenChordSeconds"] =
                 "Haltedauer (Sekunden) von A/X der nicht-dominanten Hand für das manuelle Umschalten der "
-                + "Leinwand. Muss länger sein als [SettingsPanel] ChordHoldSeconds.",
+                + "Leinwand.",
             ["WorldUI/DemoteOverlaySolidClears"] =
                 "Solange die schwebende 2D-Leinwand die Kameras des Spiels in ihre RenderTexture aufnimmt, "
                 + "werden VOLLBILD-SolidColor-Clears erfasster NICHT-Basis-Kameras (z. B. die \"Video Camera\" "
@@ -1582,30 +1578,6 @@ internal static partial class Loc
                 + "Hintergrundebene mit augenweiser Stereotiefe rendern. Aus (oder bei jedem Fehler): Rückfall "
                 + "auf eine einzelne RT — eine flache Mono-Leinwand in beiden Augen, nie einäugig.",
             // ---- [SettingsPanel] ----
-            ["SettingsPanel/ChordHoldSeconds"] =
-                "So viele Sekunden die untere Fronttaste der NICHT-dominanten Hand (A oder X) halten, um die "
-                + "VR-Einstellungstafel umzuschalten — funktioniert auch im Menü. 0 schaltet die "
-                + "Tastenkombination ab. (Neu zentrieren bleibt auf B+Y, gehalten auf BEIDEN Händen.)",
-            ["SettingsPanel/FollowSeat"] =
-                "Ankermodus der Einstellungstafel (der FOLGEN/FIXIERT-Pin-Schalter der Tafel schaltet ihn "
-                + "um). False (FIXIERT, Standard): die Tafel wird beim Öffnen einmal ins Blickfeld gesetzt und "
-                + "dann in der Welt eingefroren, bis sie gegriffen wird. True (FOLGEN): sie leitet ihren Platz "
-                + "in jedem Tick neu aus Tischanker + Sitzdrehung ab (bewegt sich mit dem Neuzentrieren und dem "
-                + "Diorama). In beiden Fällen wird die Pose bei jedem Öffnen ins vordere Blickfeld begrenzt, "
-                + "damit sie nie außerhalb des Blicks auftauchen kann.",
-            ["SettingsPanel/Forward"] =
-                "Versatz der Einstellungstafel vom Tischanker in Sitz-Vorwärtsrichtung, echte Meter (wird "
-                + "beim Loslassen des Griffs gespeichert). Nur ein Startpunkt — die Tafel wird bei jedem Öffnen "
-                + "erneut vor den Kopf begrenzt.",
-            ["SettingsPanel/Right"] =
-                "Versatz der Einstellungstafel nach rechts vom Sitz aus, echte Meter (wird beim Loslassen des "
-                + "Griffs gespeichert).",
-            ["SettingsPanel/Up"] =
-                "Höhe der Einstellungstafel über der Tischebene, echte Meter (wird beim Loslassen des Griffs "
-                + "gespeichert).",
-            ["SettingsPanel/Scale"] =
-                "Größenfaktor der Einstellungstafel (Skalieren mit zwei Händen; begrenzt auf 0.5-2).",
-            // ---- [WorldUI] ----
             ["WorldUI/DevShowAllPanels"] =
                 "DEV: erzeugt das Welt-Tafel-Layout mit Platzhalter-Inhalt auf dem Desktop (kein HMD nötig).",
             ["WorldUI/DevForceConvert"] =
@@ -1759,9 +1731,6 @@ internal static partial class Loc
                 + "Druckstrecke der Tiefenauslösung. Gilt NUR für Fortfahren/Rückgängig. Live änderbar; "
                 + "begrenzt auf 0.002..0.02.",
             // ---- [BoardDashboard] ----
-            ["BoardDashboard/GearWidth"] =
-                "Kappenbreite (Meter) der Einstellungs-Zahnrad-Platte auf dem Kontrollbrett. Gilt NUR für das "
-                + "Zahnrad. Live änderbar; begrenzt auf 0.02..0.20.",
             ["BoardDashboard/PinWidth"] =
                 "Kappenbreite (Meter) der Platte des Folgen/Fixieren-Schalters ('Fixiert') auf dem "
                 + "Kontrollbrett. Gilt NUR für diesen Schalter. Live änderbar; begrenzt auf 0.02..0.20.",

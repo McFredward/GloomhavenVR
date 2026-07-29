@@ -715,8 +715,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     internal Collider? HandleZone => _handleZone;
 
     private BoardButton? _followToggle;
-    private BoardButton? _gear;
-    private Transform? _gearAnchor;   // items 4/6: gear anchor, moved by the per-board VRSettingsOffset
     private Transform? _followAnchor; // items 4/6: follow/pin toggle anchor, moved by the per-board PinOffset
 
     // ---- IPanelGrabOwner (test #19: the grab mechanics moved into the shared
@@ -786,12 +784,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         pinAnchor.localPosition += CardsConfig.PinOffset(CardsConfig.CurrentBoard).Value;
         _followAnchor = pinAnchor;
 
-        Transform gearAnchor = NewAnchor("SettingsGear",
-            new Vector3(ButtonZoneX, -0.125f, -0.006f));
-        // Items 4/6: nudge the VR-settings gear by the per-board offset (base GearBase set by NewAnchor).
-        gearAnchor.localPosition += CardsConfig.VRSettingsOffset(CardsConfig.CurrentBoard).Value;
-        _gearAnchor = gearAnchor;
-
         CreateDashboardButtons();
 
         // Baseline for the TickStatus language-change guard: the follow/gear labels self-heal
@@ -806,7 +798,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     /// </summary>
     private void CreateDashboardButtons()
     {
-        if (_followAnchor == null || _gearAnchor == null)
+        if (_followAnchor == null)
             return;
         // Item 5 (user): pin/gear were built NON-boxy (flat quad, no walls) while Confirm/Undo
         // pass boxy:true — that is why "Fixiert"/"Einstellungen" showed no walls but "Fortfahren"
@@ -827,15 +819,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
-        _gear = BoardButton.Create(_gearAnchor,
-            new Vector2(WorldUI.ButtonTuning.DashboardGearWidth, WorldUI.ButtonTuning.DashboardHeight),
-            new Color(0.37f, 0.36f, 0.38f), // T4: aged pewter (near-neutral, hint of cool)
-            Core.Loc.Mod("set"),
-            () => WorldUI.SettingsPanel.RequestToggle(),
-            thickness: capDepth, boxy: true, travel: capTravel, // Item 5: beveled keycap walls like Confirm/Undo
-            capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard);
-        _gear.SetState(true, accent: false);
-        RegisterLaserTarget(_gear.Collider!, _gear);
     }
 
     private void ToggleFollow()
@@ -940,8 +923,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _itemUseActive = false; // #9a: a fresh tray starts with the tuned 2-member cluster (no pending item)
         _handle = null; // child of _root, destroyed with it
         _followToggle = null;
-        _gear = null;
-        _gearAnchor = null; // child of _root, destroyed with it
         _followAnchor = null; // child of _root, destroyed with it
         _initiativeMount = null;
         _objectivesMount = null;

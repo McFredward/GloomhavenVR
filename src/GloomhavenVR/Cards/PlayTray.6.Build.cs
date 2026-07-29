@@ -448,7 +448,6 @@ internal sealed partial class PlayTray
             $"head dir {headDir}, head→board {(_root.position - headPos).normalized}, " +
             $"root pos {_root.position}, buildNormal(nF world) {_boardFaceNormalWorld}.");
         LogElementFacing("RoundReadout", _roundLabel != null ? _roundLabel.transform : null, faceTowardViewer, headPos);
-        LogElementFacing("SettingsGear", _gear != null ? _gear.transform : null, faceTowardViewer, headPos);
         LogElementFacing("FollowToggle", _followToggle != null ? _followToggle.transform : null, faceTowardViewer, headPos);
         LogElementFacing("Slot0", _slots[0], faceTowardViewer, headPos);
         LogElementFacing("Slot0Card", _occupants[0] != null ? _occupants[0]!.transform : null, faceTowardViewer, headPos);
@@ -458,7 +457,6 @@ internal sealed partial class PlayTray
         // Item 7b: prove the gear/pin caps are now SOLID OPAQUE beveled keycaps (BoardLit, opaque
         // queue, no alpha-blend, no Overlay/RenderOnTop) like the other keycaps — the diag reports
         // "OPAQUE: YES" for both, settling the old see-through look.
-        _gear?.LogCapDiagnostics("Gear/EINST");
         _followToggle?.LogCapDiagnostics("Pin/FIXIERT");
     }
 

@@ -59,7 +59,6 @@ internal sealed partial class PlayTray
             if (_followToggle != null)
                 _followToggle.SetLabel(CardsConfig.TrayFollow.Value
                     ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
-            _gear?.SetLabel(Core.Loc.Mod("set"));
         }
 
         // Round readout (test #18): the PhaseBanner world conversion is GONE — the

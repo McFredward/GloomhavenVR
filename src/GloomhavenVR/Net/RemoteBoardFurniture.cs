@@ -85,8 +85,9 @@ internal sealed class RemoteBoardFurniture
     /// <summary>PlayTray "UndoDockMount" (0.235, −0.06, −0.006) — the UNDO keycap / native Undo dock.</summary>
     private static readonly Vector3 UndoMount = new(ButtonZoneX, -0.06f, -0.006f);
 
-    /// <summary>PlayTray.GearBase (0.235, −0.125, −FixedProudZ) — the VR-settings gear.</summary>
-    private static readonly Vector3 GearMount = new(ButtonZoneX, -0.125f, -0.005f);
+    // The VR-settings gear cap is gone from both boards: the mod's settings live in the game's own
+    // options window now, so there is no local button for a remote board to mirror. Leaving the
+    // inert copy would have shown other players a control the local board does not have.
 
     /// <summary>PlayTray.PinBase (BoardW/2 − 0.045, −BoardH/2 − 0.030, −FixedProudZ) — FOLLOW/PIN.</summary>
     private static readonly Vector3 PinMount = new(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.005f);
@@ -113,7 +114,6 @@ internal sealed class RemoteBoardFurniture
     // the AUTHORED defaults so every remote board looks the same regardless of local tuning.
     private const float BoardCapW = 0.073f;   // ButtonTuning.DefaultBoardWidth
     private const float BoardCapH = 0.073f;   // ButtonTuning.DefaultBoardHeight
-    private const float GearCapW = 0.062f;    // ButtonTuning.DefaultGearWidth
     private const float PinCapW = 0.068f;     // ButtonTuning.DefaultPinWidth
     private const float DashCapH = 0.030f;    // ButtonTuning.DefaultDashHeight
     private const float TransientCapR = 0.042f; // ButtonTuning.DefaultRoundCapSize (cap RADIUS)
@@ -126,7 +126,6 @@ internal sealed class RemoteBoardFurniture
     // ---- palette (verbatim from the local widgets so the boards match) -------------------------
     private static readonly Color ConfirmColor = new(0.35f, 0.46f, 0.28f); // muted sage "go"
     private static readonly Color UndoColor = new(0.44f, 0.31f, 0.20f);    // worn leather
-    private static readonly Color GearColor = new(0.37f, 0.36f, 0.38f);    // aged pewter
     private static readonly Color PinColor = new(0.58f, 0.46f, 0.26f);     // aged brass
     private static readonly Color SkipColor = new(0.37f, 0.44f, 0.56f);    // slate
     private static readonly Color HandleColor = new(0.62f, 0.50f, 0.28f);  // brass bar
@@ -138,7 +137,6 @@ internal sealed class RemoteBoardFurniture
     private readonly InertCap _confirm;
     private readonly InertCap _undo;
     private readonly InertCap _use;
-    private readonly InertCap _gear;
     private readonly InertCap _pin;
     private readonly InertCap _skip;
 
@@ -207,7 +205,6 @@ internal sealed class RemoteBoardFurniture
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
         _use.SetShown(false);
 
-        _gear = new InertCap(_root, "SettingsGear", GearMount, new Vector2(GearCapW, DashCapH), GearColor);
         _pin = new InertCap(_root, "FollowToggle", PinMount, new Vector2(PinCapW, DashCapH), PinColor);
 
         // ---- grab-handle bar -------------------------------------------------------------------
@@ -396,7 +393,6 @@ internal sealed class RemoteBoardFurniture
         _confirm.SetLabel(Loc.Game("GUI_CONFIRM", "Confirm"));
         _undo.SetLabel(Loc.Game("GUI_UNDO", "Undo"));
         _use.SetLabel(Loc.Game("GUI_USE", "USE").ToUpperInvariant());
-        _gear.SetLabel(Loc.Mod("set"));
         _pin.SetLabel(Loc.Mod("follow"));
         // GUI_SKIP_MOVEMENT is the key SkipButton.Start() seeds its own label from; the live button
         // swaps in GUI_SKIP_ABILITY / GUI_SKIP_ATTACK per situation, which is peer-local state.

@@ -62,7 +62,6 @@ internal static class ButtonTuning
     internal const float DefaultBoardHeight = 0.073f;
     internal const float DefaultBoardDepth = 0.036f;    // PlayTray.SquareCapThickness
     internal const float DefaultBoardTravel = 0.004f;   // BoardButton.CapTravel
-    internal const float DefaultGearWidth = 0.062f;     // authored gear plate width
     internal const float DefaultPinWidth = 0.068f;      // authored follow/pin plate width
     internal const float DefaultDashHeight = 0.030f;    // authored gear/pin plate height
     internal const float DefaultDashDepth = 0.030f;     // authored gear/pin plate extrusion
@@ -106,7 +105,6 @@ internal static class ButtonTuning
     internal static ConfigEntry<float>? BoardTravel;
 
     // ---- [BoardDashboard] — gear + Fixiert plates (PlayTray.CreateDashboardButtons ONLY) --
-    internal static ConfigEntry<float>? DashGearWidth;
     internal static ConfigEntry<float>? DashPinWidth;
     internal static ConfigEntry<float>? DashHeight;
     internal static ConfigEntry<float>? DashDepth;
@@ -229,14 +227,11 @@ internal static class ButtonTuning
             "Press travel (meters) of the Confirm/Undo keycaps — cap sink distance and the " +
             "depth-fire push distance. Applies ONLY to Confirm/Undo. Live; clamped 0.002..0.02.");
 
-        DashGearWidth = config.Bind("BoardDashboard", "GearWidth", DefaultGearWidth,
-            "Cap width (meters) of the settings-gear plate on the control board. Applies ONLY " +
-            "to the gear. Live; clamped 0.02..0.20.");
         DashPinWidth = config.Bind("BoardDashboard", "PinWidth", DefaultPinWidth,
             "Cap width (meters) of the follow/pin toggle ('Fixiert') plate on the control " +
             "board. Applies ONLY to that toggle. Live; clamped 0.02..0.20.");
         DashHeight = config.Bind("BoardDashboard", "Height", DefaultDashHeight,
-            "Cap height (meters) of the gear + follow/pin plates. Applies ONLY to those two. " +
+            "Cap height (meters) of the follow/pin plate. Applies ONLY to that toggle. " +
             "Live; clamped 0.015..0.20.");
         DashDepth = config.Bind("BoardDashboard", "Depth", DefaultDashDepth,
             "Cap depth/extrusion (meters toward the player) of the gear + follow/pin plates. " +
@@ -345,7 +340,6 @@ internal static class ButtonTuning
         Hook(BoardHeight);
         Hook(BoardDepth);
         Hook(BoardTravel);
-        Hook(DashGearWidth);
         Hook(DashPinWidth);
         Hook(DashHeight);
         Hook(DashDepth);
@@ -442,7 +436,7 @@ internal static class ButtonTuning
         if (RoundCapSize != null && capSize.Value > 0f)
             RoundCapSize.Value = capSize.Value;
 
-        Copy("Width", width.Value, RoundWidth, BoardWidth, DashGearWidth, DashPinWidth);
+        Copy("Width", width.Value, RoundWidth, BoardWidth, DashPinWidth);
         Copy("Height", height.Value, RoundHeight, BoardHeight, DashHeight);
         Copy("Depth", depth.Value, RoundDepth, BoardDepth, DashDepth);
         Copy("Travel", travel.Value, RoundTravel, BoardTravel, DashTravel);
@@ -515,7 +509,6 @@ internal static class ButtonTuning
     internal static float BoardCapTravel => Clamped(BoardTravel, DefaultBoardTravel, 0.002f, 0.02f);
 
     /// <summary>[BoardDashboard] settings-gear plate width (gear ONLY).</summary>
-    internal static float DashboardGearWidth => Clamped(DashGearWidth, DefaultGearWidth, 0.02f, 0.20f);
 
     /// <summary>[BoardDashboard] follow/pin ('Fixiert') plate width (that toggle ONLY).</summary>
     internal static float DashboardPinWidth => Clamped(DashPinWidth, DefaultPinWidth, 0.02f, 0.20f);
@@ -630,7 +623,7 @@ internal static class ButtonTuning
         return $"round offset ({off.x:F3}, {off.y:F3}, {off.z:F3}) m, shape {(TransientRound ? "Round" : "Square")}, " +
                $"cap size {TransientCapRadius:F3} m, W/H/D {RoundCapWidth:F3}/{RoundCapHeight:F3}/{RoundCapDepth:F3} m, " +
                $"travel {RoundCapTravel:F3} m; board W/H/D {BoardCapWidth:F3}/{BoardCapHeight:F3}/{BoardCapDepth:F3} m, " +
-               $"travel {BoardCapTravel:F3} m; dashboard gear/pin W {DashboardGearWidth:F3}/{DashboardPinWidth:F3} m, " +
+               $"travel {BoardCapTravel:F3} m; dashboard pin W {DashboardPinWidth:F3} m, " +
                $"H/D {DashboardHeight:F3}/{DashboardDepth:F3} m, travel {DashboardTravel:F3} m; " +
                $"rest W/H/D {RestCapWidth:F3}/{RestCapHeight:F3}/{RestCapDepth:F3} m, travel {RestCapTravel:F3} m";
     }

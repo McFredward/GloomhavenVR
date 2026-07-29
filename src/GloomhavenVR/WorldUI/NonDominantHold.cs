@@ -8,7 +8,6 @@ namespace GloomhavenVR.WorldUI;
 /// Shared per-frame tracker for the NON-dominant lower face button (A/X) — the one
 /// button that carries TWO hold chords (P6):
 ///
-/// - settings panel: short hold, fires on RELEASE (<see cref="SettingsPanel"/>),
 /// - manual flat-screen toggle: long hold, fires AT the threshold while still held
 ///   (<see cref="FlatScreen"/>, the in-scenario self-rescue).
 ///
@@ -142,19 +141,17 @@ internal static class NonDominantHold
         ButtonIsUp = !down;
         _hadHand = true;
 
-        // Short-TAP edge: a fresh press released BELOW the settings-panel hold
-        // threshold and NOT consumed by a hold chord. Consumed reflects the hold
-        // chords (they set it WHILE held, i.e. before this release frame) and no
-        // consumer sets it on a release frame, so reading it here is settled. When
-        // the settings chord is disabled (ChordHoldSeconds ≤ 0) a fixed fallback
-        // window keeps the tap alive.
+        // Short-TAP edge: a fresh press released inside the tap window and NOT consumed by a hold
+        // chord. Consumed reflects the hold chords (they set it WHILE held, i.e. before this
+        // release frame) and no consumer sets it on a release frame, so reading it here is settled.
+        //
+        // The boundary used to be [SettingsPanel] ChordHoldSeconds, because the tap had to stay
+        // BELOW the short hold that opened the mod's settings panel. That panel is gone — its
+        // settings live in the game's own options window now — so there is no chord to stay below
+        // and no reason to keep a tuning knob for it. The fallback window this code already used
+        // whenever the chord was disabled is simply the window.
         if (ReleasedThisFrame && !Consumed)
-        {
-            float tapMax = WorldUIConfig.SettingsChordHoldSeconds.Value;
-            if (tapMax <= 0f)
-                tapMax = TapFallbackSeconds;
-            ShortTapThisFrame = ReleasedAfterSeconds < tapMax;
-        }
+            ShortTapThisFrame = ReleasedAfterSeconds < TapFallbackSeconds;
 
 
         // SELF-HEAL belt-and-suspenders. Now that the button is observed every frame the

@@ -150,7 +150,6 @@ internal sealed class WorldUIModule : IVRModule
         private readonly TrayControlDockSurface _trayControls = new();
         private readonly WristHud _wristHud = new();
         private readonly FlatScreen _flatScreen = new();
-        private readonly SettingsPanel _settingsPanel = new();
         // Local self-preview mirror (Net feature, but ticked here so it works even with the
         // networking hook off — it is a purely local cosmetic, independent of the net send).
         private readonly AvatarMirror _avatarMirror = new();
@@ -213,7 +212,6 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("TrayControlDockSurface", _trayControls.Tick));
             update.Add(("WristHud", _wristHud.Tick));
             update.Add(("FlatScreen", _flatScreen.Tick));
-            update.Add(("SettingsPanel", _settingsPanel.Tick));
             update.Add(("AvatarMirror", _avatarMirror.Tick));
             update.Add(("DevPanels", _devPanels.Tick));
             update.Add(("CanvasConversion", CanvasConversion.Tick));
@@ -272,7 +270,6 @@ internal sealed class WorldUIModule : IVRModule
             _trayControls.Shutdown();
             _wristHud.Shutdown();
             _flatScreen.Shutdown();
-            _settingsPanel.Shutdown();
             VROptionsTab.Shutdown();
             _avatarMirror.Shutdown();
             _tooltips.Shutdown();

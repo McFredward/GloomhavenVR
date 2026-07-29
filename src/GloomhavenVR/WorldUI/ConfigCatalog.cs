@@ -814,7 +814,6 @@ internal static class ConfigCatalog
         "Dev" => Loc.Mod("cfg_sec_dev"),
         "Comfort" => Loc.Mod("cfg_sec_comfort"),
         "WristHud" => Loc.Mod("cat_wrist"),
-        "SettingsPanel" => Loc.Mod("cfg_sec_settingspanel"),
         "RestButtons" => Loc.Mod("rest"),
         "RoundButtons" => Loc.Mod("round_buttons"),
         "BoardButtons" => Loc.Mod("generic"),

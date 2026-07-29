@@ -200,13 +200,6 @@ internal sealed partial class PlayTray
             _roundLabel.transform.localPosition = ReadoutBase + offset;
     }
 
-    /// <summary>Items 4/6 live-apply: move the VR-settings gear button to a new per-board offset (instant).</summary>
-    internal void SetVRSettingsOffset(Vector3 offset)
-    {
-        if (_gearAnchor != null)
-            _gearAnchor.localPosition = GearBase + offset;
-    }
-
     /// <summary>Items 4/6 live-apply: move the FOLLOW/PIN toggle button to a new per-board offset (instant).</summary>
     internal void SetPinOffset(Vector3 offset)
     {
@@ -257,9 +250,6 @@ internal sealed partial class PlayTray
 
     /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
     private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
-
-    /// <summary>Fixed base local position of the VR-settings gear button (right column, under UNDO).</summary>
-    private static Vector3 GearBase => new(ButtonZoneX, -0.125f, -FixedProudZ);
 
     /// <summary>Fixed base local position of the FOLLOW/PIN toggle button (bottom-right corner).</summary>
     private static Vector3 PinBase => new(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -FixedProudZ);
@@ -353,11 +343,6 @@ internal sealed partial class PlayTray
         {
             Object.DestroyImmediate(_followToggle.gameObject);
             _followToggle = null;
-        }
-        if (_gear != null)
-        {
-            Object.DestroyImmediate(_gear.gameObject);
-            _gear = null;
         }
         LaserTargets.RemoveAll(static t => t.Collider == null);
         CreateDashboardButtons();

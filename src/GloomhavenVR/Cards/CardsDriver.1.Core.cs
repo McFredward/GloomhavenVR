@@ -291,7 +291,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.ObjectivesScale(b).SettingChanged += OnObjectivesTuningChanged;
                 CardsConfig.ElementsOffset(b).SettingChanged += OnElementsTuningChanged;
                 CardsConfig.ElementsScale(b).SettingChanged += OnElementsTuningChanged;
-                CardsConfig.VRSettingsOffset(b).SettingChanged += OnHudWidgetTuningChanged;
                 CardsConfig.PinOffset(b).SettingChanged += OnHudWidgetTuningChanged;
                 CardsConfig.ReadoutOffset(b).SettingChanged += OnHudWidgetTuningChanged;
                 CardsConfig.ClusterOffset(b).SettingChanged += OnClusterTuningChanged;
@@ -328,7 +327,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.ObjectivesScale(b).SettingChanged -= OnObjectivesTuningChanged;
                 CardsConfig.ElementsOffset(b).SettingChanged -= OnElementsTuningChanged;
                 CardsConfig.ElementsScale(b).SettingChanged -= OnElementsTuningChanged;
-                CardsConfig.VRSettingsOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
                 CardsConfig.PinOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
                 CardsConfig.ReadoutOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
                 CardsConfig.ClusterOffset(b).SettingChanged -= OnClusterTuningChanged;
@@ -461,11 +459,10 @@ internal sealed partial class CardsDriver : MonoBehaviour
         if (_applyHudWidgets)
         {
             _applyHudWidgets = false;
-            _tray.SetVRSettingsOffset(CardsConfig.VRSettingsOffset(b).Value);
             _tray.SetPinOffset(CardsConfig.PinOffset(b).Value);
             _tray.SetReadoutOffset(CardsConfig.ReadoutOffset(b).Value);
-            VRLog.Info("Cards", $"Debug live-apply [{b}]: gear offset {CardsConfig.VRSettingsOffset(b).Value}, " +
-                                $"pin offset {CardsConfig.PinOffset(b).Value}, readout offset {CardsConfig.ReadoutOffset(b).Value}.");
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: pin offset {CardsConfig.PinOffset(b).Value}, " +
+                                $"readout offset {CardsConfig.ReadoutOffset(b).Value}.");
         }
         if (_applyCluster)
         {

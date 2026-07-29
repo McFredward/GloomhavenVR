@@ -230,26 +230,6 @@ internal static class WorldUIConfig
     internal static bool ModalWindowStyle =>
         !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
 
-    // ---- settings panel (MISSION B) ------------------------------------------------------
-    /// <summary>Hold the non-dominant A/X this long to toggle the settings panel (0 = off).</summary>
-    internal static ConfigEntry<float> SettingsChordHoldSeconds = null!;
-
-    // ---- settings panel layout (test #24: movable/scalable/pinnable like the combat log) --
-    /// <summary>Settings panel anchor mode: true = re-derive from the seat anchor, false = pinned in the world.</summary>
-    internal static ConfigEntry<bool> SettingsFollow = null!;
-
-    /// <summary>Settings panel offset from the table anchor along the seat forward, real meters.</summary>
-    internal static ConfigEntry<float> SettingsForward = null!;
-
-    /// <summary>Settings panel offset to the seat right, real meters.</summary>
-    internal static ConfigEntry<float> SettingsRight = null!;
-
-    /// <summary>Settings panel height above the table plane, real meters.</summary>
-    internal static ConfigEntry<float> SettingsUp = null!;
-
-    /// <summary>Settings panel size multiplier (two-hand resize; clamped 0.5–2).</summary>
-    internal static ConfigEntry<float> SettingsScale = null!;
-
     // ---- dev ---------------------------------------------------------------------------
     /// <summary>Spawn the world-panel layout with dummy content on the desktop.</summary>
     internal static ConfigEntry<bool> DevShowAllPanels = null!;
@@ -529,7 +509,7 @@ internal static class WorldUIConfig
             "fires on RELEASE (before the screen threshold) so the two never collide.");
         ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", 2f,
             "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
-            "toggle. Must be longer than [SettingsPanel] ChordHoldSeconds.");
+            "toggle.");
         DemoteOverlaySolidClears = _file.Bind("WorldUI", "DemoteOverlaySolidClears", true,
             "While the floating 2D screen captures the game's cameras into its RenderTexture, " +
             "demote FULLSCREEN SolidColor clears of NON-base captured cameras (e.g. the campaign " +
@@ -545,29 +525,6 @@ internal static class WorldUIConfig
             "eyes at the screen plane, while 3D scene cameras and videos render a background " +
             "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
             "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
-
-        SettingsChordHoldSeconds = _file.Bind("SettingsPanel", "ChordHoldSeconds", 0.6f,
-            "Hold the NON-dominant lower face button (A or X) this many seconds to toggle the " +
-            "in-VR settings panel — works in the menu too. 0 disables the chord. " +
-            "(Recenter stays on B+Y held on BOTH hands.)");
-
-        SettingsFollow = _file.Bind("SettingsPanel", "FollowSeat", false,
-            "Settings panel anchor mode (the panel's own FOLLOW/PINNED pin button flips this). " +
-            "False (PINNED, default): the panel is placed once in view when opened, then frozen " +
-            "in the world until grabbed. True (FOLLOW): it re-derives its place from the table " +
-            "anchor + seat yaw every tick (moves with recenters and the diorama). Either way the " +
-            "pose is clamped into the forward field of view on every open, so it can never appear " +
-            "out of view.");
-        SettingsForward = _file.Bind("SettingsPanel", "Forward", 0.6f,
-            "Settings panel offset from the table anchor along the seat forward, real meters " +
-            "(grab-persisted). Only a starting point — the panel is re-clamped in front of the " +
-            "head each time it is opened.");
-        SettingsRight = _file.Bind("SettingsPanel", "Right", 0f,
-            "Settings panel offset to the seat right, real meters (grab-persisted).");
-        SettingsUp = _file.Bind("SettingsPanel", "Up", -0.05f,
-            "Settings panel height above the table plane, real meters (grab-persisted).");
-        SettingsScale = _file.Bind("SettingsPanel", "Scale", 1.0f,
-            "Settings panel size multiplier (two-hand grab resize; clamped 0.5-2).");
 
         DevShowAllPanels = _file.Bind("WorldUI", "DevShowAllPanels", false,
             "DEV: spawn the world-panel layout with dummy content on the desktop (no HMD needed).");

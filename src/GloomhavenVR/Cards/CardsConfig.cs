@@ -201,7 +201,6 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _objectivesWidth = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _elementsOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _elementsScale = new ConfigEntry<float>[3];
-    private static readonly ConfigEntry<Vector3>[] _vrSettingsOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _pinOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _readoutOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _clusterOffset = new ConfigEntry<Vector3>[3];
@@ -673,9 +672,6 @@ internal static class CardsConfig
                 "of the fixed left-column base below the objectives), board-local meters. Seeded 0 (Oak).");
             _elementsScale[i] = _file.Bind("Cards", $"ElementsScale_{board}", 1f,
                 $"[{board}] size MULTIPLIER of the ELEMENT infusion ('Elemente') dock. Seeded 1 (Oak).");
-            _vrSettingsOffset[i] = _file.Bind("Cards", $"VRSettingsOffset_{board}", Vector3.zero,
-                $"[{board}] offset ADDED to the VR-settings GEAR button local position (on top of its fixed " +
-                "right-column base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
             _pinOffset[i] = _file.Bind("Cards", $"PinOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the FOLLOW/PIN toggle button local position (on top of its fixed " +
                 "bottom-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
@@ -1001,7 +997,6 @@ internal static class CardsConfig
     internal static ConfigEntry<float> ObjectivesWidth(ControlBoard b) => _objectivesWidth[(int)b];
     internal static ConfigEntry<Vector3> ElementsOffset(ControlBoard b) => _elementsOffset[(int)b];
     internal static ConfigEntry<float> ElementsScale(ControlBoard b) => _elementsScale[(int)b];
-    internal static ConfigEntry<Vector3> VRSettingsOffset(ControlBoard b) => _vrSettingsOffset[(int)b];
     internal static ConfigEntry<Vector3> PinOffset(ControlBoard b) => _pinOffset[(int)b];
     internal static ConfigEntry<Vector3> ReadoutOffset(ControlBoard b) => _readoutOffset[(int)b];
     internal static ConfigEntry<Vector3> ClusterOffset(ControlBoard b) => _clusterOffset[(int)b];
