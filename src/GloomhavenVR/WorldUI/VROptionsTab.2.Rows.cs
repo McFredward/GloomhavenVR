@@ -517,7 +517,7 @@ internal static partial class VROptionsTab
     /// nothing useful about how it should be edited (see TryBuildSpecialRow).
     /// </summary>
     private static void BuildPresetRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
-                                       string[] names, int current, Action<int> apply)
+                                       string? hintKey, string[] names, int current, Action<int> apply)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         TMP_Dropdown? dropdown = PlaceControl<TMP_Dropdown>(option, _dropdownControl);
@@ -541,37 +541,37 @@ internal static partial class VROptionsTab
         dropdown.RefreshShownValue();
         dropdown.onValueChanged.AddListener(index => Apply(item, () => apply(index)));
 
-        AttachTooltip(row, item, title);
+        AttachTooltip(row, item, title, hintKey);
     }
 
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
     private static void BuildRow(Transform parent, ConfigCatalog.ConfigItem item, int component,
-                                string? caption = null)
+                                string? caption = null, string? hintKey = null)
     {
         // A few entries' stored type says nothing useful about how they should be edited.
-        if (component == 0 && TryBuildSpecialRow(parent, item, caption))
+        if (component == 0 && TryBuildSpecialRow(parent, item, caption, hintKey))
             return;
 
-        if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item, caption))
+        if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item, caption, hintKey))
             return;
 
         if (item.Kind == ConfigCatalog.ConfigKind.Choice
             && item.Choices != null && item.Choices.Length > 0
-            && BuildChoiceRow(parent, item, caption))
+            && BuildChoiceRow(parent, item, caption, hintKey))
             return;
 
         // A slider needs a scalar with both ends known; a vector component or an open-ended number
         // has no bar to sit on.
         if (item.Kind != ConfigCatalog.ConfigKind.Choice
             && item.HasRange && item.Components == 1 && item.Max > item.Min
-            && BuildSliderRow(parent, item, caption))
+            && BuildSliderRow(parent, item, caption, hintKey))
             return;
 
-        BuildStepperRow(parent, item, component, caption);
+        BuildStepperRow(parent, item, component, caption, hintKey);
     }
 
     /// <summary>The game's own switch, rebound to the catalog entry.</summary>
-    private static bool BuildBoolRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
+    private static bool BuildBoolRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hintKey)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         Toggle? toggle = option == null ? null : option.GetComponentInChildren<Toggle>(true);
@@ -606,12 +606,12 @@ internal static partial class VROptionsTab
             if (now != on)
                 toggle.SetIsOnWithoutNotify(now);
         });
-        AttachTooltip(row, item, title);
+        AttachTooltip(row, item, title, hintKey);
         return true;
     }
 
     /// <summary>The game's own dropdown, filled from the entry's acceptable values.</summary>
-    private static bool BuildChoiceRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
+    private static bool BuildChoiceRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hintKey)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         TMP_Dropdown? dropdown = PlaceControl<TMP_Dropdown>(option, _dropdownControl);
@@ -652,12 +652,12 @@ internal static partial class VROptionsTab
                 Apply(item, () => item.Entry.BoxedValue = choices[index]);
         });
 
-        AttachTooltip(row, item, title);
+        AttachTooltip(row, item, title, hintKey);
         return true;
     }
 
     /// <summary>The game's own slider, over the entry's declared range.</summary>
-    private static bool BuildSliderRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
+    private static bool BuildSliderRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hintKey)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         Slider? slider = PlaceControl<Slider>(option, _sliderControl);
@@ -689,7 +689,7 @@ internal static partial class VROptionsTab
         value.text = ConfigCatalog.ValueText(item, 0);
         ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, 0)));
 
-        AttachTooltip(row, item, title);
+        AttachTooltip(row, item, title, hintKey);
         return true;
     }
 
@@ -698,7 +698,7 @@ internal static partial class VROptionsTab
     /// buttons over <see cref="ConfigCatalog"/>'s own <c>Step</c>, wearing the menu's arrow sprite.
     /// </summary>
     private static void BuildStepperRow(Transform parent, ConfigCatalog.ConfigItem item, int component,
-                                        string? caption)
+                                        string? caption, string? hintKey)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
@@ -738,7 +738,7 @@ internal static partial class VROptionsTab
         value.text = ConfigCatalog.ValueText(item, component);
         ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, component)));
 
-        AttachTooltip(row, item, title);
+        AttachTooltip(row, item, title, hintKey);
     }
 
     // ==========================================================================================
@@ -967,14 +967,15 @@ internal static partial class VROptionsTab
     /// name, so the target sits on the caption's own object and the caption is made to take
     /// raycasts (a TMP label does not by default).</para>
     /// </summary>
-    private static void AttachTooltip(GameObject row, ConfigCatalog.ConfigItem item, TMP_Text? title)
+    private static void AttachTooltip(GameObject row, ConfigCatalog.ConfigItem item, TMP_Text? title,
+                                     string? hintKey)
     {
         if (title == null)
             return;
 
         try
         {
-            string text = ConfigCatalog.Hint(item);
+            string text = HintFor(item, hintKey);
             if (string.IsNullOrEmpty(text))
                 return;
 
@@ -1004,20 +1005,55 @@ internal static partial class VROptionsTab
         }
     }
 
+    /// <summary>
+    /// The hint text: the SHORT curated sentence when the row has one, else the catalog's own
+    /// description.
+    ///
+    /// <para>The config descriptions are written for whoever is reading the config file — several
+    /// hundred words with measurements and reasoning in them. In a tooltip they were clipped
+    /// mid-sentence, which is worse than a short line: the player reads half a thought and then an
+    /// ellipsis. Curated rows therefore carry a one-or-two-sentence hint of their own; the Debug
+    /// pages keep the long text, which is the right register for the audience that opens them.</para>
+    ///
+    /// <para>A setting that only applies at the next start says so here, in a sentence, instead of
+    /// wearing an asterisk in its caption.</para>
+    /// </summary>
+    private static string HintFor(ConfigCatalog.ConfigItem item, string? hintKey)
+    {
+        string text = string.Empty;
+
+        if (!string.IsNullOrEmpty(hintKey))
+        {
+            // Loc.Mod hands the id back when a key is absent — that is the "no curated hint" signal.
+            string curated = Loc.Mod(hintKey!);
+            if (!string.Equals(curated, hintKey, StringComparison.Ordinal))
+                text = curated;
+        }
+
+        if (text.Length == 0)
+            text = ConfigCatalog.Hint(item);
+
+        if (item.NeedsRestart && text.Length > 0)
+            text += "\n\n" + Loc.Mod("vr_needs_restart");
+
+        return text;
+    }
+
     /// <summary>Width of the hint box, in the menu canvas's units.</summary>
     private const float HintWidth = 420f;
 
     /// <summary>
     /// What the row is called: the curated localized caption when there is one, else the catalog's
     /// display name (the config key with its camel humps spaced out — a programmer's name, and the
-    /// reason curated rows carry their own). Plus the marker for a setting that only takes effect at
-    /// the next start.
+    /// reason curated rows carry their own).
+    ///
+    /// <para>NO MARKER for a setting that only takes effect at the next start. It used to carry an
+    /// asterisk, which is a footnote to a footnote nobody wrote: it made the caption longer without
+    /// saying anything a player could act on. The information is not lost — it is a plain sentence
+    /// at the end of that setting's hint, where there is room to say it in words.</para>
     /// </summary>
-    private static string Caption(ConfigCatalog.ConfigItem item, string? caption)
-    {
-        string text = string.IsNullOrEmpty(caption) ? item.Display : caption!;
-        return item.NeedsRestart ? text + " *" : text;
-    }
+    private static string Caption(ConfigCatalog.ConfigItem item, string? caption) =>
+        string.IsNullOrEmpty(caption) ? item.Display : caption!;
 
     private static void PaintToggleState(TMP_Text? label, bool on)
     {

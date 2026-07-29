@@ -47,6 +47,9 @@ internal static partial class VROptionsTab
         }
 
         internal string Caption => Loc.Mod(CaptionKey);
+
+        /// <summary>Hint key, derived from the caption key so the two can never drift apart.</summary>
+        internal string HintKey => "h_" + CaptionKey;
     }
 
     /// <summary>A titled block of settings inside a category — the second level of order.</summary>
@@ -298,12 +301,13 @@ internal static partial class VROptionsTab
         string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
         && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal);
 
-    private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
+    private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
+                                           string? hintKey)
     {
         if (!HasSpecialRow(item))
             return false;
 
-        BuildPresetRow(parent, item, caption, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
+        BuildPresetRow(parent, item, caption, hintKey, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
                        MixedReality.SetKeyColor);
         return true;
     }
