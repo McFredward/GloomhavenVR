@@ -61,6 +61,24 @@ internal static partial class VROptionsTab
     /// </summary>
     private static GameObject? _categoryTemplate;
 
+    /// <summary>
+    /// The dropdown and slider CONTROLS, lifted out of their donor rows.
+    ///
+    /// <para>ONE ROW SKELETON FOR EVERYTHING — the toggle row — and only the control inside it
+    /// changes. Cloning three different rows was the root of a run of problems that no amount of
+    /// restyling could fix: the dropdown row is authored TALLER and with a TRANSPARENT background
+    /// (it holds a language picker), so those settings stood out however their caption was styled,
+    /// and their tooltip anchored to a differently-shaped rect and opened somewhere else. Copying
+    /// that row's properties around made it worse — its caption colour is barely opaque, and
+    /// applying it to the section headers made them vanish outright.</para>
+    ///
+    /// <para>Taking just the control and dropping it into the toggle row's own Option holder means
+    /// every row in the list is the same row. Nothing can stand out, because there is nothing left
+    /// to differ.</para>
+    /// </summary>
+    private static GameObject? _dropdownControl;
+    private static GameObject? _sliderControl;
+
     /// <summary>Arrow art lifted off the game's dropdown, for the stepper's two buttons.</summary>
     private static Sprite? _arrowSprite;
 
@@ -74,15 +92,8 @@ internal static partial class VROptionsTab
     /// </summary>
     private static (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)? _titleStyle;
 
-    /// <summary>
-    /// The EMPHASISED caption style, sampled from the dropdown row.
-    ///
-    /// <para>That row's Title is authored to head a language picker — larger and brighter than a
-    /// setting's name. Cloned as-is it made every enum setting shout while the actual section
-    /// headers, drawn plain with small caps, disappeared between them. The emphasis is not the
-    /// problem; it was on the wrong rows. It belongs to the headers, and it is used for them.</para>
-    /// </summary>
-    private static (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)? _headerStyle;
+    /// <summary>How much larger a section header is than a setting caption.</summary>
+    private const float HeaderSizeFactor = 1.16f;
 
     /// <summary>Rows built for the current content, in order — cleared and rebuilt on every refresh.</summary>
     private static readonly List<GameObject> Rows = new(64);
@@ -138,9 +149,10 @@ internal static partial class VROptionsTab
         _toggleTemplate = Stamp(toggleRow, "Toggle");
         _dropdownTemplate = Stamp(dropdownRow, "Dropdown");
         _sliderTemplate = Stamp(sliderRow, "Slider");
+        _dropdownControl = HarvestControl<TMP_Dropdown>(_dropdownTemplate, "Dropdown");
+        _sliderControl = HarvestControl<Slider>(_sliderTemplate, "Slider");
         _arrowSprite = HarvestArrowSprite(_dropdownTemplate);
         _titleStyle = SampleStyle(_toggleTemplate);
-        _headerStyle = SampleStyle(_dropdownTemplate) ?? _titleStyle;
 
         for (int i = 0; i < host.m_Tabs.Count && _categoryTemplate == null; i++)
         {
@@ -245,6 +257,73 @@ internal static partial class VROptionsTab
     /// <summary>Every setting caption, whatever control it belongs to, reads the same.</summary>
     private static void ApplyOptionCaption(TMP_Text? title) => ApplyStyle(title, _titleStyle);
 
+    /// <summary>
+    /// A section header: the plain caption style, DERIVED upward — larger, brighter, bold small
+    /// caps.
+    ///
+    /// <para>DERIVED AND NOT SAMPLED, because sampling is what made the headers disappear. The
+    /// emphasis was taken from the dropdown row, whose caption is barely opaque (it sits on a
+    /// transparent row), and copying its colour onto a header over a solid background left text
+    /// nobody could see. Deriving from the style that demonstrably reads, and forcing full alpha,
+    /// means a header cannot end up invisible no matter what any donor is authored like.</para>
+    /// </summary>
+    private static void ApplyHeaderCaption(TMP_Text? title)
+    {
+        ApplyOptionCaption(title);
+        if (title == null || _titleStyle == null)
+            return;
+
+        (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align) plain = _titleStyle.Value;
+        title.fontSize = plain.size * HeaderSizeFactor;
+        title.color = new Color(
+            Mathf.Clamp01(plain.colour.r * 1.25f + 0.10f),
+            Mathf.Clamp01(plain.colour.g * 1.25f + 0.10f),
+            Mathf.Clamp01(plain.colour.b * 1.25f + 0.10f),
+            1f); // full alpha, always — an inherited alpha of 0 is what hid these once already
+        title.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
+    }
+
+    /// <summary>Clone the sub-tree that carries a control, detached from the row it was authored in.</summary>
+    private static GameObject? HarvestControl<T>(GameObject? template, string label) where T : Component
+    {
+        T? control = template == null ? null : template.GetComponentInChildren<T>(true);
+        if (control == null)
+            return null;
+
+        GameObject clone = UnityEngine.Object.Instantiate(control.gameObject);
+        clone.name = $"GloomhavenVR.Control.{label}";
+        clone.SetActive(false);
+        UnityEngine.Object.DontDestroyOnLoad(clone);
+        StripForReuse(clone);
+        return clone;
+    }
+
+    /// <summary>
+    /// Put a harvested control into a row's own Option holder, filling it. The holder's existing
+    /// contents (the toggle row's switch) go first — a row shows one control.
+    /// </summary>
+    private static T? PlaceControl<T>(Transform? option, GameObject? control) where T : Component
+    {
+        if (option == null || control == null)
+            return null;
+
+        option.gameObject.SetActive(true);
+        for (int i = option.childCount - 1; i >= 0; i--)
+            UnityEngine.Object.Destroy(option.GetChild(i).gameObject);
+
+        GameObject placed = UnityEngine.Object.Instantiate(control, option);
+        placed.SetActive(true);
+
+        var rect = (RectTransform)placed.transform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+        rect.localScale = Vector3.one;
+
+        return placed.GetComponent<T>() ?? placed.GetComponentInChildren<T>(true);
+    }
+
     /// <summary>First Image WITH a sprite anywhere under a node, itself included.</summary>
     private static Sprite? FirstSpriteIn(Transform node)
     {
@@ -314,9 +393,8 @@ internal static partial class VROptionsTab
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
         {
-            ApplyStyle(title, _headerStyle);
             title.text = caption;
-            title.fontStyle |= FontStyles.SmallCaps;
+            ApplyHeaderCaption(title);
         }
 
         if (option != null)
@@ -441,8 +519,8 @@ internal static partial class VROptionsTab
     private static void BuildPresetRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
                                        string[] names, int current, Action<int> apply)
     {
-        GameObject row = StampRow(_dropdownTemplate, parent, out TMP_Text? title, out Transform? _);
-        TMP_Dropdown? dropdown = row.GetComponentInChildren<TMP_Dropdown>(true);
+        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        TMP_Dropdown? dropdown = PlaceControl<TMP_Dropdown>(option, _dropdownControl);
         if (dropdown == null)
             return;
 
@@ -535,8 +613,8 @@ internal static partial class VROptionsTab
     /// <summary>The game's own dropdown, filled from the entry's acceptable values.</summary>
     private static bool BuildChoiceRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
     {
-        GameObject row = StampRow(_dropdownTemplate, parent, out TMP_Text? title, out Transform? option);
-        TMP_Dropdown? dropdown = row.GetComponentInChildren<TMP_Dropdown>(true);
+        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        TMP_Dropdown? dropdown = PlaceControl<TMP_Dropdown>(option, _dropdownControl);
         if (dropdown == null)
         {
             UnityEngine.Object.Destroy(row);
@@ -581,8 +659,8 @@ internal static partial class VROptionsTab
     /// <summary>The game's own slider, over the entry's declared range.</summary>
     private static bool BuildSliderRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
     {
-        GameObject row = StampRow(_sliderTemplate, parent, out TMP_Text? title, out Transform? option);
-        Slider? slider = row.GetComponentInChildren<Slider>(true);
+        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        Slider? slider = PlaceControl<Slider>(option, _sliderControl);
         if (slider == null)
         {
             UnityEngine.Object.Destroy(row);
