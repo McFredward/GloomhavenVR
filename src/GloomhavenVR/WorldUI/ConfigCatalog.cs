@@ -1095,6 +1095,24 @@ internal static class ConfigCatalog
     /// the current language has no translation for that entry. The fallback is what keeps a
     /// description added tomorrow readable instead of blank.</para>
     /// </summary>
+    /// <summary>
+    /// The one-paragraph, localized explanation of what a setting DOES — nothing else.
+    ///
+    /// <para>Deliberately not <see cref="Tooltip"/>, which is the power-user readout: it leads with
+    /// "[Net] MaskId", the config file name, the default and the range, because that is what the
+    /// config BROWSER is for. Shown to a player next to a menu row it answers a question nobody
+    /// asked and buries the one they did. Same source text, none of the scaffolding.</para>
+    ///
+    /// <para>Falls back to the entry's own description when a language has no translation — English
+    /// prose is more use than an empty box — and returns empty only when there is no text at all.</para>
+    /// </summary>
+    internal static string Hint(ConfigItem item)
+    {
+        string? desc = Loc.ConfigDescription(item.Section, item.Key)
+                       ?? item.Entry.Description?.Description;
+        return string.IsNullOrEmpty(desc) ? string.Empty : Clip(Collapse(desc!), MaxDescriptionChars);
+    }
+
     internal static string Tooltip(ConfigItem item)
     {
         var sb = new StringBuilder(512);

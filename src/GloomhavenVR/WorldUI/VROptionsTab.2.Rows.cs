@@ -439,7 +439,7 @@ internal static partial class VROptionsTab
         dropdown.RefreshShownValue();
         dropdown.onValueChanged.AddListener(index => Apply(item, () => apply(index)));
 
-        AttachTooltip(row, item);
+        AttachTooltip(row, item, title);
     }
 
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
@@ -501,7 +501,7 @@ internal static partial class VROptionsTab
             if (now != on)
                 toggle.SetIsOnWithoutNotify(now);
         });
-        AttachTooltip(row, item);
+        AttachTooltip(row, item, title);
         return true;
     }
 
@@ -544,7 +544,7 @@ internal static partial class VROptionsTab
                 Apply(item, () => item.Entry.BoxedValue = choices[index]);
         });
 
-        AttachTooltip(row, item);
+        AttachTooltip(row, item, title);
         return true;
     }
 
@@ -578,7 +578,7 @@ internal static partial class VROptionsTab
         value.text = ConfigCatalog.ValueText(item, 0);
         ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, 0)));
 
-        AttachTooltip(row, item);
+        AttachTooltip(row, item, title);
         return true;
     }
 
@@ -624,7 +624,7 @@ internal static partial class VROptionsTab
         value.text = ConfigCatalog.ValueText(item, component);
         ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, component)));
 
-        AttachTooltip(row, item);
+        AttachTooltip(row, item, title);
     }
 
     // ==========================================================================================
@@ -838,27 +838,50 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// The catalog's own explanation, on the mod's tooltip component. A setting whose name does not
-    /// explain it is exactly what this menu exists to make approachable, so the text travels with
-    /// the row.
+    /// The setting's explanation, in the GAME'S OWN tooltip box — the same one that answers
+    /// "Optionen" with "Ändere die Spieleinstellungen…".
+    ///
+    /// <para>WHY THE GAME'S AND NOT OURS. A strip of our own worked but read as a mod bolted on;
+    /// <c>UITextTooltipTarget</c> drives the box the player already knows, positions it the way
+    /// every other tooltip in the menu is positioned, and inherits whatever the game does about
+    /// hiding tooltips. It needs no serialized wiring: the box itself is global (<c>UITooltip</c>),
+    /// the raycast filter comes with the component, and the geometry is set through the public
+    /// <c>Initialize</c> instead of relying on a prefab's defaults.</para>
+    ///
+    /// <para>ON THE CAPTION, NOT THE ROW. Hovering the switch or the dropdown is the player aiming
+    /// AT the control — they want to change it, not read about it. The explanation belongs to the
+    /// name, so the target sits on the caption's own object and the caption is made to take
+    /// raycasts (a TMP label does not by default).</para>
     /// </summary>
-    private static void AttachTooltip(GameObject row, ConfigCatalog.ConfigItem item)
+    private static void AttachTooltip(GameObject row, ConfigCatalog.ConfigItem item, TMP_Text? title)
     {
+        if (title == null)
+            return;
+
         try
         {
-            string text = ConfigCatalog.Tooltip(item);
+            string text = ConfigCatalog.Hint(item);
             if (string.IsNullOrEmpty(text))
                 return;
 
-            var target = row.GetComponent<SettingsTooltipTarget>() ?? row.AddComponent<SettingsTooltipTarget>();
-            target.Text = () => text;
-            target.Hover = (_, hovering) => ShowHint(hovering ? text : null);
+            title.raycastTarget = true;
+
+            var target = title.gameObject.GetComponent<UITextTooltipTarget>()
+                         ?? title.gameObject.AddComponent<UITextTooltipTarget>();
+            target.Initialize(UITooltip.Corner.Auto, Vector2.zero, anchorToExactMouseTargetInstead: false,
+                              width: HintWidth, height: 50f, autoAdjustHeight: true, hideBackground: false);
+            target.TooltipEnabled = true;
+            target.SetText(text);
         }
         catch (Exception e)
         {
-            VRLog.Warn("WorldUI", $"VR options tab: tooltip for {item.Key} threw ({e.Message}).");
+            VRLog.Warn("WorldUI", $"VR options tab: the game tooltip for {item.Key} could not be "
+                                  + $"attached ({e.Message}) — that row simply has no hint.");
         }
     }
+
+    /// <summary>Width of the hint box, in the menu canvas's units.</summary>
+    private const float HintWidth = 420f;
 
     /// <summary>
     /// What the row is called: the curated localized caption when there is one, else the catalog's

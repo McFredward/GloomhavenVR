@@ -356,7 +356,6 @@ internal static partial class VROptionsTab
 
         ContentRoot = BuildContentRoot(holder, scrolled: scroll != null && scroll.content != null);
         TabBarRoot = BuildTabBar(scroll);
-        BuildHintPanel(scroll);
         clone.gameObject.SetActive(false);
 
         LogCloneHierarchy(clone);
@@ -456,78 +455,6 @@ internal static partial class VROptionsTab
         layout.childForceExpandHeight = false;
 
         return column;
-    }
-
-    /// <summary>The hint strip and its label — hidden until the pointer is over a setting.</summary>
-    private static GameObject? _hintPanel;
-    private static TMPro.TMP_Text? _hintLabel;
-
-    /// <summary>
-    /// The per-setting explanation, on a strip across the bottom of the pane.
-    ///
-    /// <para>WHY A STRIP AND NOT THE GAME'S TOOLTIP. The game's own tooltip lives on
-    /// <c>UITextTooltipTarget</c>, which its OPTION TABS carry and its settings ROWS do not — there
-    /// is nothing on a row to hang one from, and a component like that cannot be added at runtime
-    /// without the serialized wiring it expects. A strip of our own always works, is always
-    /// readable, and shows the catalog's own localized description, which is the text the mod
-    /// already maintains in both languages.</para>
-    ///
-    /// <para>It is a child of the pane, so it rides the pane's show animation and needs no change to
-    /// any rect the game owns. It overlays the last row rather than reserving space, because a hint
-    /// that is only there while you point at something should not cost a row's worth of list.</para>
-    /// </summary>
-    private static void BuildHintPanel(ScrollRect? scroll)
-    {
-        if (scroll == null)
-            return;
-
-        var panel = (RectTransform)new GameObject("GloomhavenVR.Hint", typeof(RectTransform)).transform;
-        panel.SetParent(scroll.transform, worldPositionStays: false);
-        panel.anchorMin = new Vector2(0f, 0f);
-        panel.anchorMax = new Vector2(1f, 0f);
-        panel.pivot = new Vector2(0.5f, 0f);
-        panel.sizeDelta = new Vector2(0f, HintPanelHeight);
-        panel.anchoredPosition = Vector2.zero;
-
-        var backdrop = panel.gameObject.AddComponent<Image>();
-        backdrop.color = new Color(0f, 0f, 0f, 0.82f);
-        backdrop.raycastTarget = false; // never steal a click from the row it explains
-
-        var labelGo = new GameObject("Text", typeof(RectTransform));
-        var labelRect = (RectTransform)labelGo.transform;
-        labelRect.SetParent(panel, worldPositionStays: false);
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = new Vector2(14f, 8f);
-        labelRect.offsetMax = new Vector2(-14f, -8f);
-
-        var label = labelGo.AddComponent<TMPro.TextMeshProUGUI>();
-        label.fontSize = 15f;
-        label.alignment = TMPro.TextAlignmentOptions.TopLeft;
-        label.enableWordWrapping = true;
-        label.overflowMode = TMPro.TextOverflowModes.Truncate;
-        label.raycastTarget = false;
-        NativeButtonSkin.ApplyFont(label);
-
-        _hintPanel = panel.gameObject;
-        _hintLabel = label;
-        panel.gameObject.SetActive(false);
-    }
-
-    /// <summary>Height of the hint strip.</summary>
-    private const float HintPanelHeight = 74f;
-
-    /// <summary>Show one setting's explanation, or hide the strip when passed null.</summary>
-    internal static void ShowHint(string? text)
-    {
-        if (_hintPanel == null || _hintLabel == null)
-            return;
-
-        bool show = !string.IsNullOrEmpty(text);
-        if (show)
-            _hintLabel.text = text;
-        if (_hintPanel.activeSelf != show)
-            _hintPanel.SetActive(show);
     }
 
     /// <summary>
@@ -722,8 +649,6 @@ internal static partial class VROptionsTab
         _window = null;
         ContentRoot = null;
         TabBarRoot = null;
-        _hintPanel = null;
-        _hintLabel = null;
         _donorIndex = -1;
     }
 
