@@ -1,6 +1,5 @@
-using System.IO;
-using BepInEx;
 using BepInEx.Configuration;
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -345,7 +344,12 @@ internal static class CardsConfig
         if (_file != null)
             return;
 
-        _file = new ConfigFile(Path.Combine(Paths.ConfigPath, "dev.gloomhavenvr.cards.cfg"), true);
+        // THROUGH ModuleConfig, not a raw ConfigFile. This file was the one module that created its
+        // own and never registered it, so every [Cards] setting — the tray, the fan, the reveal
+        // gesture, the board choice — was invisible to ConfigCatalog: absent from the in-VR config
+        // browser all along, and the reason the new options tab's "Karten & Brett" section came up
+        // empty. Same path, same contents; only the registration is new.
+        _file = ModuleConfig.Create("cards");
 
         DevFakeHand = _file.Bind("Cards", "DevFakeHand", 0,
             "Spawn this many dummy VR cards (procedural placeholder faces) so the fan/tray/grab " +

@@ -325,6 +325,7 @@ internal static partial class VROptionsTab
             row.SetActive(true);
             StripForReuse(row);
             Rows.Add(row);
+            RestVisuals(row);
 
             TMP_Text? tabLabel = row.GetComponentInChildren<TMP_Text>(true);
             if (tabLabel != null)
@@ -382,10 +383,41 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
+    /// Put a freshly cloned tab option into the state the game would have put it in before the
+    /// player touched it.
+    ///
+    /// <para>The window itself calls SetFocused on its tabs when it opens; a clone nobody calls it
+    /// on starts in the prefab's authored state, which is faint — and the first hover then ran the
+    /// game's highlight and left the row permanently lit instead of returning it. So the resting
+    /// state is asserted once here: focused, not selected, caption at its default colour. Hovering
+    /// then changes appearance while the pointer is over the row and gives it back afterwards,
+    /// which is what hovering is supposed to do.</para>
+    /// </summary>
+    private static void RestVisuals(GameObject row)
+    {
+        var option = row.GetComponent<UIMainMenuOption>();
+        if (option == null)
+            return;
+
+        try
+        {
+            option.SetFocused(true);
+            option.Deselect();
+            if (option.text != null)
+                option.text.color = option.defaultTextColor;
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options tab: could not reset a link row's visuals ({e.Message}) — "
+                                  + "it may look faint until hovered.");
+        }
+    }
+
+    /// <summary>
     /// A dropdown over a hand-written list of named values, for an entry whose stored type says
     /// nothing useful about how it should be edited (see TryBuildSpecialRow).
     /// </summary>
-    private static void BuildPresetRow(Transform parent, ConfigCatalog.ConfigItem item,
+    private static void BuildPresetRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
                                        string[] names, int current, Action<int> apply)
     {
         GameObject row = StampRow(_dropdownTemplate, parent, out TMP_Text? title, out Transform? _);
@@ -394,7 +426,7 @@ internal static partial class VROptionsTab
             return;
 
         if (title != null)
-            title.text = Caption(item);
+            title.text = Caption(item, caption);
 
         var options = new List<TMP_Dropdown.OptionData>(names.Length);
         for (int i = 0; i < names.Length; i++)
@@ -411,32 +443,33 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
-    private static void BuildRow(Transform parent, ConfigCatalog.ConfigItem item, int component)
+    private static void BuildRow(Transform parent, ConfigCatalog.ConfigItem item, int component,
+                                string? caption = null)
     {
         // A few entries' stored type says nothing useful about how they should be edited.
-        if (component == 0 && TryBuildSpecialRow(parent, item))
+        if (component == 0 && TryBuildSpecialRow(parent, item, caption))
             return;
 
-        if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item))
+        if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item, caption))
             return;
 
         if (item.Kind == ConfigCatalog.ConfigKind.Choice
             && item.Choices != null && item.Choices.Length > 0
-            && BuildChoiceRow(parent, item))
+            && BuildChoiceRow(parent, item, caption))
             return;
 
         // A slider needs a scalar with both ends known; a vector component or an open-ended number
         // has no bar to sit on.
         if (item.Kind != ConfigCatalog.ConfigKind.Choice
             && item.HasRange && item.Components == 1 && item.Max > item.Min
-            && BuildSliderRow(parent, item))
+            && BuildSliderRow(parent, item, caption))
             return;
 
-        BuildStepperRow(parent, item, component);
+        BuildStepperRow(parent, item, component, caption);
     }
 
     /// <summary>The game's own switch, rebound to the catalog entry.</summary>
-    private static bool BuildBoolRow(Transform parent, ConfigCatalog.ConfigItem item)
+    private static bool BuildBoolRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         Toggle? toggle = option == null ? null : option.GetComponentInChildren<Toggle>(true);
@@ -448,17 +481,32 @@ internal static partial class VROptionsTab
         }
 
         if (title != null)
-            title.text = Caption(item);
+            title.text = Caption(item, caption);
 
+        // THE SWITCH HAS TO SAY WHICH WAY IT IS. Its caption is static text the game's own binder
+        // used to drive; with that binder stripped every row read "Ein" whether it was on or off,
+        // including the ones that were plainly unlit. Driven here, and localized — the game says
+        // "Aus" in German, so a mod row beside it must too.
+        TMP_Text? state = ExistingValueLabel(row, title);
         toggle.onValueChanged.RemoveAllListeners();
         toggle.isOn = item.Entry.BoxedValue is bool b && b;
-        toggle.onValueChanged.AddListener(_ => Apply(item, () => ConfigCatalog.ToggleBool(item)));
+        PaintToggleState(state, toggle.isOn);
+        toggle.onValueChanged.AddListener(on =>
+        {
+            Apply(item, () => ConfigCatalog.ToggleBool(item));
+            // Read the ENTRY back rather than trusting the click: a bool the catalog refused to
+            // change would otherwise leave a caption claiming a state the setting is not in.
+            bool now = item.Entry.BoxedValue is bool v && v;
+            PaintToggleState(state, now);
+            if (now != on)
+                toggle.SetIsOnWithoutNotify(now);
+        });
         AttachTooltip(row, item);
         return true;
     }
 
     /// <summary>The game's own dropdown, filled from the entry's acceptable values.</summary>
-    private static bool BuildChoiceRow(Transform parent, ConfigCatalog.ConfigItem item)
+    private static bool BuildChoiceRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
     {
         GameObject row = StampRow(_dropdownTemplate, parent, out TMP_Text? title, out Transform? option);
         TMP_Dropdown? dropdown = row.GetComponentInChildren<TMP_Dropdown>(true);
@@ -470,7 +518,7 @@ internal static partial class VROptionsTab
         }
 
         if (title != null)
-            title.text = Caption(item);
+            title.text = Caption(item, caption);
 
         object[] choices = item.Choices!;
         var labels = new List<TMP_Dropdown.OptionData>(choices.Length);
@@ -501,7 +549,7 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>The game's own slider, over the entry's declared range.</summary>
-    private static bool BuildSliderRow(Transform parent, ConfigCatalog.ConfigItem item)
+    private static bool BuildSliderRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
     {
         GameObject row = StampRow(_sliderTemplate, parent, out TMP_Text? title, out Transform? option);
         Slider? slider = row.GetComponentInChildren<Slider>(true);
@@ -513,7 +561,7 @@ internal static partial class VROptionsTab
         }
 
         if (title != null)
-            title.text = Caption(item);
+            title.text = Caption(item, caption);
 
         slider.onValueChanged.RemoveAllListeners();
         slider.minValue = (float)item.Min;
@@ -538,13 +586,14 @@ internal static partial class VROptionsTab
     /// The fallback for an unbounded number or one component of a vector or colour: two arrow
     /// buttons over <see cref="ConfigCatalog"/>'s own <c>Step</c>, wearing the menu's arrow sprite.
     /// </summary>
-    private static void BuildStepperRow(Transform parent, ConfigCatalog.ConfigItem item, int component)
+    private static void BuildStepperRow(Transform parent, ConfigCatalog.ConfigItem item, int component,
+                                        string? caption)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
             title.text = item.Components > 1
-                ? $"{Caption(item)} · {ConfigCatalog.ComponentLabel(item, component)}"
-                : Caption(item);
+                ? $"{Caption(item, caption)} · {ConfigCatalog.ComponentLabel(item, component)}"
+                : Caption(item, caption);
 
         if (option == null)
             return;
@@ -803,6 +852,7 @@ internal static partial class VROptionsTab
 
             var target = row.GetComponent<SettingsTooltipTarget>() ?? row.AddComponent<SettingsTooltipTarget>();
             target.Text = () => text;
+            target.Hover = (_, hovering) => ShowHint(hovering ? text : null);
         }
         catch (Exception e)
         {
@@ -810,9 +860,23 @@ internal static partial class VROptionsTab
         }
     }
 
-    /// <summary>Caption plus the marker for a setting that only takes effect at the next start.</summary>
-    private static string Caption(ConfigCatalog.ConfigItem item) =>
-        item.NeedsRestart ? item.Display + " *" : item.Display;
+    /// <summary>
+    /// What the row is called: the curated localized caption when there is one, else the catalog's
+    /// display name (the config key with its camel humps spaced out — a programmer's name, and the
+    /// reason curated rows carry their own). Plus the marker for a setting that only takes effect at
+    /// the next start.
+    /// </summary>
+    private static string Caption(ConfigCatalog.ConfigItem item, string? caption)
+    {
+        string text = string.IsNullOrEmpty(caption) ? item.Display : caption!;
+        return item.NeedsRestart ? text + " *" : text;
+    }
+
+    private static void PaintToggleState(TMP_Text? label, bool on)
+    {
+        if (label != null)
+            label.text = Loc.Mod(on ? "vr_on" : "vr_off");
+    }
 
     /// <summary>Drop every built row (the templates survive — they are reused).</summary>
     private static void ClearRows()

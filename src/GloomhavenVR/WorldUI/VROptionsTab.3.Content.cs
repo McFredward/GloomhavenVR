@@ -127,12 +127,12 @@ internal static partial class VROptionsTab
 
             for (int i = 0; i < section.Entries.Length; i++)
             {
-                (string sectionName, string key) = section.Entries[i];
-                ConfigCatalog.ConfigItem? item = Lookup(sectionName, key);
+                CuratedEntry entry = section.Entries[i];
+                ConfigCatalog.ConfigItem? item = Lookup(entry.Section, entry.Key);
                 if (item == null)
                     continue;
 
-                rows += BuildItem(item);
+                rows += BuildItem(item, entry.Caption);
             }
         }
         return rows;
@@ -205,7 +205,7 @@ internal static partial class VROptionsTab
     /// One entry, as one row — except a vector or a colour, which is edited one component at a
     /// time, the same shape the catalog's own Step() takes.
     /// </summary>
-    private static int BuildItem(ConfigCatalog.ConfigItem item)
+    private static int BuildItem(ConfigCatalog.ConfigItem item, string? caption = null)
     {
         if (ContentRoot == null)
             return 0;
@@ -214,7 +214,7 @@ internal static partial class VROptionsTab
         // must not also produce four numeric component rows beside it.
         if (HasSpecialRow(item))
         {
-            BuildRow(ContentRoot, item, 0);
+            BuildRow(ContentRoot, item, 0, caption);
             return 1;
         }
 
@@ -223,7 +223,7 @@ internal static partial class VROptionsTab
             : Mathf.Max(1, item.Components);
 
         for (int c = 0; c < components; c++)
-            BuildRow(ContentRoot, item, c);
+            BuildRow(ContentRoot, item, c, caption);
 
         return components;
     }

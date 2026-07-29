@@ -24,11 +24,36 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static partial class VROptionsTab
 {
+    /// <summary>
+    /// One curated row: which config entry it edits, and WHAT IT IS CALLED.
+    ///
+    /// <para>The caption is a localization key rather than the config key, because the config key is
+    /// a programmer's name. Left to itself the row reads "Actor Bars", "Action Element Hints",
+    /// "Masked Reaim Deadband" — in German too, since the catalog's display name is just the key
+    /// with its camel humps spaced out. A player-facing menu has to be in the player's language,
+    /// captions included, so every curated row carries its own.</para>
+    /// </summary>
+    internal readonly struct CuratedEntry
+    {
+        internal readonly string Section;
+        internal readonly string Key;
+        internal readonly string CaptionKey;
+
+        internal CuratedEntry(string section, string key, string captionKey)
+        {
+            Section = section;
+            Key = key;
+            CaptionKey = captionKey;
+        }
+
+        internal string Caption => Loc.Mod(CaptionKey);
+    }
+
     /// <summary>A titled block of settings inside a category — the second level of order.</summary>
     internal sealed class CuratedSection
     {
         internal string LocKey = string.Empty;
-        internal (string Section, string Key)[] Entries = System.Array.Empty<(string, string)>();
+        internal CuratedEntry[] Entries = System.Array.Empty<CuratedEntry>();
 
         internal string Label => Loc.Mod(LocKey);
     }
@@ -69,39 +94,39 @@ internal static partial class VROptionsTab
                 new()
                 {
                     LocKey = "sec_table_world",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Rig", "WorldScale"),
-                        ("Comfort", "TableHeightOffset"),
-                        ("Rig", "WorldTiltDegrees"),
+                        new("Rig", "WorldScale", "table_scale"),
+                        new("Comfort", "TableHeightOffset", "table_height"),
+                        new("Rig", "WorldTiltDegrees", "vr_o_worldtilt"),
                     },
                 },
                 new()
                 {
                     LocKey = "sec_movement",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Comfort", "TurnMode"),
-                        ("Comfort", "SnapTurnDegrees"),
-                        ("Comfort", "SmoothTurnSpeed"),
-                        ("Comfort", "TurnHand"),
-                        ("Comfort", "FreeMovement"),
-                        ("Comfort", "WorldGrabEnabled"),
-                        ("Comfort", "VerticalDrag"),
-                        ("Comfort", "RotateEnabled"),
-                        ("Comfort", "ScaleEnabled"),
-                        ("Comfort", "RecenterHoldSeconds"),
+                        new("Comfort", "TurnMode", "turning"),
+                        new("Comfort", "SnapTurnDegrees", "vr_o_snapdeg"),
+                        new("Comfort", "SmoothTurnSpeed", "vr_o_smoothspeed"),
+                        new("Comfort", "TurnHand", "vr_o_turnhand"),
+                        new("Comfort", "FreeMovement", "free_movement"),
+                        new("Comfort", "WorldGrabEnabled", "world_grab"),
+                        new("Comfort", "VerticalDrag", "vr_o_vdrag"),
+                        new("Comfort", "RotateEnabled", "vr_o_rotate"),
+                        new("Comfort", "ScaleEnabled", "vr_o_scale"),
+                        new("Comfort", "RecenterHoldSeconds", "vr_o_recenterhold"),
                     },
                 },
                 new()
                 {
                     LocKey = "sec_hands_aim",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Hands", "PrimaryHand"),
-                        ("Hands", "RayAlwaysOn"),
-                        ("Hands", "LaserFingerOrigin"),
-                        ("Hands", "ModalRayConeDegrees"),
+                        new("Hands", "PrimaryHand", "vr_o_primaryhand"),
+                        new("Hands", "RayAlwaysOn", "vr_o_rayalways"),
+                        new("Hands", "LaserFingerOrigin", "vr_o_laserorigin"),
+                        new("Hands", "ModalRayConeDegrees", "vr_o_raycone"),
                     },
                 },
             },
@@ -114,14 +139,14 @@ internal static partial class VROptionsTab
                 new()
                 {
                     LocKey = "sec_presentation",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Compat", "DisablePostProcessing"),
-                        ("Compat", "DisableVolumetricFog"),
-                        ("Compat", "WallFade"),
-                        ("Rig", "ForwardRendering"),
-                        ("Rig", "MenuRig"),
-                        ("Rig", "SpawnInCircle"),
+                        new("Compat", "DisablePostProcessing", "disable_post"),
+                        new("Compat", "DisableVolumetricFog", "vr_o_fog"),
+                        new("Compat", "WallFade", "wall_see_through"),
+                        new("Rig", "ForwardRendering", "vr_o_forward"),
+                        new("Rig", "MenuRig", "vr_o_menurig"),
+                        new("Rig", "SpawnInCircle", "vr_o_circle"),
                     },
                 },
                 new()
@@ -131,20 +156,20 @@ internal static partial class VROptionsTab
                     // disables every skybox and sweeps the sky geometry, which is the half that
                     // makes passthrough compositing work at all.
                     LocKey = "mixed_reality",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("MixedReality", "Enabled"),
-                        ("MixedReality", "KeyColor"),
-                        ("MixedReality", "HideSkyMeshes"),
+                        new("MixedReality", "Enabled", "mixed_reality"),
+                        new("MixedReality", "KeyColor", "key_color"),
+                        new("MixedReality", "HideSkyMeshes", "vr_o_hidesky"),
                     },
                 },
                 new()
                 {
                     LocKey = "vr_sec_performance",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Core", "EnableGraphicsJobs"),
-                        ("Core", "AutoRestartForGraphicsJobs"),
+                        new("Core", "EnableGraphicsJobs", "vr_o_gfxjobs"),
+                        new("Core", "AutoRestartForGraphicsJobs", "vr_o_autorestart"),
                     },
                 },
             },
@@ -157,28 +182,28 @@ internal static partial class VROptionsTab
                 new()
                 {
                     LocKey = "vr_sec_panels",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("WorldUI", "CombatLog"),
-                        ("WorldUI", "ActorBars"),
-                        ("WorldUI", "ActionElementHints"),
-                        ("WorldUI", "ButtonCluster"),
-                        ("WorldUI", "Dialogs"),
-                        ("WorldUI", "DecisionDock"),
-                        ("WorldUI", "EnemyReveal"),
+                        new("WorldUI", "CombatLog", "show_combat_log"),
+                        new("WorldUI", "ActorBars", "vr_o_actorbars"),
+                        new("WorldUI", "ActionElementHints", "element_hints"),
+                        new("WorldUI", "ButtonCluster", "vr_o_buttoncluster"),
+                        new("WorldUI", "Dialogs", "vr_o_dialogs"),
+                        new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
+                        new("WorldUI", "EnemyReveal", "vr_o_enemyreveal"),
                     },
                 },
                 new()
                 {
                     LocKey = "vr_sec_cards",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Cards", "Board"),
-                        ("Cards", "TrayScale"),
-                        ("Cards", "TrayFollow"),
-                        ("Cards", "InspectScale"),
-                        ("Cards", "RevealMode"),
-                        ("Cards", "GrabButton"),
+                        new("Cards", "Board", "control_board"),
+                        new("Cards", "TrayScale", "vr_o_trayscale"),
+                        new("Cards", "TrayFollow", "vr_o_trayfollow"),
+                        new("Cards", "InspectScale", "vr_o_inspectscale"),
+                        new("Cards", "RevealMode", "vr_o_revealmode"),
+                        new("Cards", "GrabButton", "vr_o_grabbutton"),
                     },
                 },
             },
@@ -191,26 +216,26 @@ internal static partial class VROptionsTab
                 new()
                 {
                     LocKey = "sec_appearance",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Hands", "HandStyle"),
-                        ("Hands", "HandColor"),
-                        ("Hands", "HandForwardOffset"),
-                        ("Hands", "HandVerticalOffset"),
-                        ("Hands", "HandLateralOffset"),
-                        ("Hands", "GripPitchOffsetDegrees"),
+                        new("Hands", "HandStyle", "hands"),
+                        new("Hands", "HandColor", "vr_o_handcolor"),
+                        new("Hands", "HandForwardOffset", "vr_o_handfwd"),
+                        new("Hands", "HandVerticalOffset", "hand_y"),
+                        new("Hands", "HandLateralOffset", "hand_x"),
+                        new("Hands", "GripPitchOffsetDegrees", "vr_o_grippitch"),
                     },
                 },
                 new()
                 {
                     LocKey = "sec_multiplayer",
-                    Entries = new[]
+                    Entries = new CuratedEntry[]
                     {
-                        ("Net", "MaskId"),
-                        ("Net", "MaskSize"),
-                        ("Net", "MirrorEnabled"),
-                        ("Net", "Enabled"),
-                        ("Net", "RemoteBoards"),
+                        new("Net", "MaskId", "head_mask"),
+                        new("Net", "MaskSize", "mask_size"),
+                        new("Net", "MirrorEnabled", "mirror"),
+                        new("Net", "Enabled", "vr_o_netenabled"),
+                        new("Net", "RemoteBoards", "remote_boards"),
                     },
                 },
             },
@@ -273,12 +298,12 @@ internal static partial class VROptionsTab
         string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
         && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal);
 
-    private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item)
+    private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption)
     {
         if (!HasSpecialRow(item))
             return false;
 
-        BuildPresetRow(parent, item, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
+        BuildPresetRow(parent, item, caption, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
                        MixedReality.SetKeyColor);
         return true;
     }
