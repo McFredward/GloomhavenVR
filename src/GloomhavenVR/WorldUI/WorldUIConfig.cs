@@ -230,6 +230,13 @@ internal static class WorldUIConfig
     internal static bool ModalWindowStyle =>
         !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
 
+    // ---- on-screen keyboard --------------------------------------------------------------
+    /// <summary>Show the game's own on-screen keyboard whenever a text field takes focus.</summary>
+    internal static ConfigEntry<bool> KeyboardEnabled = null!;
+
+    /// <summary>Capitalise the first letter of each word (the game's keyboard has no shift key).</summary>
+    internal static ConfigEntry<bool> KeyboardAutoCase = null!;
+
     // ---- dev ---------------------------------------------------------------------------
     /// <summary>Spawn the world-panel layout with dummy content on the desktop.</summary>
     internal static ConfigEntry<bool> DevShowAllPanels = null!;
@@ -525,6 +532,18 @@ internal static class WorldUIConfig
             "eyes at the screen plane, while 3D scene cameras and videos render a background " +
             "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
             "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
+
+        KeyboardEnabled = _file.Bind("Keyboard", "Enabled", true,
+            "Show the game's own on-screen keyboard whenever a text field takes focus, so a party " +
+            "can be named without reaching for a physical keyboard. The keyboard is the game's " +
+            "(UIKeyboard) rather than a mod-drawn one, so it carries the game's art and its " +
+            "per-language layouts; the game only ever shows it in gamepad mode, which VR never " +
+            "uses. Off = text fields need a real keyboard.");
+        KeyboardAutoCase = _file.Bind("Keyboard", "AutoCapitalise", true,
+            "Capitalise the first letter of each word typed on the on-screen keyboard and lower " +
+            "the rest. The game's keyboard emits key CODES and maps letters to their upper-case " +
+            "name, so typing straight through produces 'MY BRAVE PARTY'; this gives 'My Brave " +
+            "Party'. Off = every letter arrives exactly as the game's keyboard produces it.");
 
         DevShowAllPanels = _file.Bind("WorldUI", "DevShowAllPanels", false,
             "DEV: spawn the world-panel layout with dummy content on the desktop (no HMD needed).");

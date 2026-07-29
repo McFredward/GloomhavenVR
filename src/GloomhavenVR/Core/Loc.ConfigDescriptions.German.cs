@@ -1578,6 +1578,18 @@ internal static partial class Loc
                 + "Hintergrundebene mit augenweiser Stereotiefe rendern. Aus (oder bei jedem Fehler): Rückfall "
                 + "auf eine einzelne RT — eine flache Mono-Leinwand in beiden Augen, nie einäugig.",
             // ---- [SettingsPanel] ----
+            ["Keyboard/Enabled"] =
+                "Zeigt die spieleigene Bildschirmtastatur (UIKeyboard), sobald ein Textfeld den "
+                + "Fokus bekommt — damit lässt sich eine Gruppe benennen, ohne nach einer echten "
+                + "Tastatur zu greifen. Es ist die Tastatur DES SPIELS, keine nachgebaute: sie "
+                + "bringt dessen Gestaltung und dessen Layouts pro Sprache mit. Das Spiel selbst "
+                + "zeigt sie nur im Gamepad-Modus, den VR nie benutzt. Aus = Textfelder brauchen "
+                + "eine echte Tastatur.",
+            ["Keyboard/AutoCapitalise"] =
+                "Schreibt den ersten Buchstaben jedes Wortes groß und den Rest klein. Die Tastatur "
+                + "des Spiels sendet Tasten-CODES und bildet Buchstaben auf ihren Großbuchstaben-"
+                + "Namen ab; ohne diese Korrektur entsteht \"MEINE TAPFERE GRUPPE\". Aus = jeder "
+                + "Buchstabe kommt genau so an, wie die Spiel-Tastatur ihn liefert.",
             ["WorldUI/DevShowAllPanels"] =
                 "DEV: erzeugt das Welt-Tafel-Layout mit Platzhalter-Inhalt auf dem Desktop (kein HMD nötig).",
             ["WorldUI/DevForceConvert"] =

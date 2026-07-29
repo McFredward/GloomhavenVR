@@ -198,6 +198,15 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    LocKey = "vr_sec_keyboard",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Keyboard", "Enabled", "vr_o_keyboard"),
+                        new("Keyboard", "AutoCapitalise", "vr_o_keyboardcase"),
+                    },
+                },
+                new()
+                {
                     LocKey = "vr_sec_cards",
                     Entries = new CuratedEntry[]
                     {

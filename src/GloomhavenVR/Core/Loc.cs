@@ -304,6 +304,8 @@ internal static partial class Loc
         ["h_mask_size"] = Pair("How large your mask is.", "Wie groß deine Maske ist."),
         ["h_mirror"] = Pair("A mirror in front of you so you can see your own mask and hands.", "Ein Spiegel vor dir, damit du Maske und Hände selbst siehst."),
         ["h_vr_o_netenabled"] = Pair("Send your head and hand movement to the other players.", "Sendet deine Kopf- und Handbewegung an die anderen Spieler."),
+        ["h_vr_o_keyboard"] = Pair("Appears by itself when a text field is active, so you can type without a real keyboard.", "Erscheint von selbst, wenn ein Textfeld aktiv ist — Tippen ohne echte Tastatur."),
+        ["h_vr_o_keyboardcase"] = Pair("Turns MY PARTY into My Party. The game's keyboard only produces capitals.", "Macht aus MEINE GRUPPE Meine Gruppe. Die Spiel-Tastatur liefert nur Großbuchstaben."),
         ["h_remote_boards"] = Pair("Show the other players' control boards as well as your own.", "Zeigt auch die Kontrollbretter der anderen Spieler."),
         ["vr_needs_restart"] = Pair("Takes effect at the next game start.", "Wirkt erst beim nächsten Spielstart."),
 
@@ -312,6 +314,9 @@ internal static partial class Loc
         ["vr_sec_performance"] = Pair("Performance", "Leistung"),
         ["vr_sec_panels"] = Pair("Panels & readouts", "Tafeln & Anzeigen"),
         ["vr_sec_cards"] = Pair("Cards & board", "Karten & Brett"),
+        ["vr_sec_keyboard"] = Pair("Text entry", "Texteingabe"),
+        ["vr_o_keyboard"] = Pair("On-screen keyboard", "Bildschirmtastatur"),
+        ["vr_o_keyboardcase"] = Pair("Capitalise words", "Wörter großschreiben"),
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
         // group instead of a sidebar entry), which is why the restructure uses them for grouping
         // and keeps the tab count at five.
