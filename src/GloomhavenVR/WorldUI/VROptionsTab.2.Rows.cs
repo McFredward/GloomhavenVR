@@ -74,6 +74,16 @@ internal static partial class VROptionsTab
     /// </summary>
     private static (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)? _titleStyle;
 
+    /// <summary>
+    /// The EMPHASISED caption style, sampled from the dropdown row.
+    ///
+    /// <para>That row's Title is authored to head a language picker — larger and brighter than a
+    /// setting's name. Cloned as-is it made every enum setting shout while the actual section
+    /// headers, drawn plain with small caps, disappeared between them. The emphasis is not the
+    /// problem; it was on the wrong rows. It belongs to the headers, and it is used for them.</para>
+    /// </summary>
+    private static (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)? _headerStyle;
+
     /// <summary>Rows built for the current content, in order — cleared and rebuilt on every refresh.</summary>
     private static readonly List<GameObject> Rows = new(64);
 
@@ -129,7 +139,8 @@ internal static partial class VROptionsTab
         _dropdownTemplate = Stamp(dropdownRow, "Dropdown");
         _sliderTemplate = Stamp(sliderRow, "Slider");
         _arrowSprite = HarvestArrowSprite(_dropdownTemplate);
-        SampleTitleStyle(_toggleTemplate);
+        _titleStyle = SampleStyle(_toggleTemplate);
+        _headerStyle = SampleStyle(_dropdownTemplate) ?? _titleStyle;
 
         for (int i = 0; i < host.m_Tabs.Count && _categoryTemplate == null; i++)
         {
@@ -197,25 +208,31 @@ internal static partial class VROptionsTab
         return sprite;
     }
 
-    private static void SampleTitleStyle(GameObject? toggleTemplate)
+    private static (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)?
+        SampleStyle(GameObject? template)
     {
-        if (toggleTemplate == null)
-            return;
+        if (template == null)
+            return null;
 
-        TMP_Text? title = FindPart<TMP_Text>(toggleTemplate.transform, "Title");
-        if (title == null)
-            return;
-
-        _titleStyle = (title.font, title.fontSize, title.color, title.fontStyle, title.alignment);
+        TMP_Text? title = FindPart<TMP_Text>(template.transform, "Title");
+        return title == null
+            ? null
+            : (title.font, title.fontSize, title.color, title.fontStyle, title.alignment);
     }
 
-    /// <summary>Force one caption look across all three row shapes.</summary>
-    private static void ApplyTitleStyle(TMP_Text title)
+    /// <summary>
+    /// Force one look onto a caption. Applied by the ROW BUILDERS after the text is set, not only
+    /// when the row is stamped: a builder that assigns text last would otherwise be the final word
+    /// on a label whose style someone else set, which is how the dropdown rows kept their heading
+    /// look through a style pass that was supposed to level them.
+    /// </summary>
+    private static void ApplyStyle(TMP_Text? title,
+        (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align)? sampled)
     {
-        if (_titleStyle == null)
+        if (title == null || sampled == null)
             return;
 
-        (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align) s = _titleStyle.Value;
+        (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align) s = sampled.Value;
         if (s.font != null)
             title.font = s.font;
         title.enableAutoSizing = false;
@@ -224,6 +241,9 @@ internal static partial class VROptionsTab
         title.fontStyle = s.style;
         title.alignment = s.align;
     }
+
+    /// <summary>Every setting caption, whatever control it belongs to, reads the same.</summary>
+    private static void ApplyOptionCaption(TMP_Text? title) => ApplyStyle(title, _titleStyle);
 
     /// <summary>First Image WITH a sprite anywhere under a node, itself included.</summary>
     private static Sprite? FirstSpriteIn(Transform node)
@@ -294,6 +314,7 @@ internal static partial class VROptionsTab
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
         {
+            ApplyStyle(title, _headerStyle);
             title.text = caption;
             title.fontStyle |= FontStyles.SmallCaps;
         }
@@ -426,7 +447,10 @@ internal static partial class VROptionsTab
             return;
 
         if (title != null)
+        {
             title.text = Caption(item, caption);
+            ApplyOptionCaption(title);
+        }
 
         var options = new List<TMP_Dropdown.OptionData>(names.Length);
         for (int i = 0; i < names.Length; i++)
@@ -481,7 +505,10 @@ internal static partial class VROptionsTab
         }
 
         if (title != null)
+        {
             title.text = Caption(item, caption);
+            ApplyOptionCaption(title);
+        }
 
         // THE SWITCH HAS TO SAY WHICH WAY IT IS. Its caption is static text the game's own binder
         // used to drive; with that binder stripped every row read "Ein" whether it was on or off,
@@ -518,7 +545,10 @@ internal static partial class VROptionsTab
         }
 
         if (title != null)
+        {
             title.text = Caption(item, caption);
+            ApplyOptionCaption(title);
+        }
 
         object[] choices = item.Choices!;
         var labels = new List<TMP_Dropdown.OptionData>(choices.Length);
@@ -561,7 +591,10 @@ internal static partial class VROptionsTab
         }
 
         if (title != null)
+        {
             title.text = Caption(item, caption);
+            ApplyOptionCaption(title);
+        }
 
         slider.onValueChanged.RemoveAllListeners();
         slider.minValue = (float)item.Min;
@@ -591,9 +624,12 @@ internal static partial class VROptionsTab
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
+        {
             title.text = item.Components > 1
                 ? $"{Caption(item, caption)} · {ConfigCatalog.ComponentLabel(item, component)}"
                 : Caption(item, caption);
+            ApplyOptionCaption(title);
+        }
 
         if (option == null)
             return;
@@ -738,7 +774,7 @@ internal static partial class VROptionsTab
         }
         else
         {
-            ApplyTitleStyle(title);
+            ApplyOptionCaption(title);
         }
 
         Rows.Add(row);
@@ -870,6 +906,16 @@ internal static partial class VROptionsTab
                          ?? title.gameObject.AddComponent<UITextTooltipTarget>();
             target.Initialize(UITooltip.Corner.Auto, Vector2.zero, anchorToExactMouseTargetInstead: false,
                               width: HintWidth, height: 50f, autoAdjustHeight: true, hideBackground: false);
+
+            // THE ONE FLAG THAT DECIDES WHETHER THE BOX GROWS. UITooltip.Internal_SetVerticalControls
+            // branches on it, and in the "prefab tooltip" branch an auto-height tooltip gets
+            //   childControlHeight = false, verticalFit = Unconstrained
+            // — the box CANNOT follow its text, which is why it stayed a thin strip with the
+            // paragraph hanging out of it. The other branch gives childControlHeight = true and
+            // verticalFit = PreferredSize. It defaults to true because every authored tooltip in the
+            // game is on a prefab; ours is not.
+            target.tempIsPrefabTooltip = false;
+
             target.TooltipEnabled = true;
             target.SetText(text);
         }

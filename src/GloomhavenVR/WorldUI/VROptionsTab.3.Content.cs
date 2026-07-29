@@ -262,6 +262,12 @@ internal static partial class VROptionsTab
         go.name = $"Cat.{index}";
         go.SetActive(true);
 
+        // The same resting-state assertion the Debug links get. It was applied there and NOT here,
+        // which is why the sub-tabs kept the fault after the links were fixed: the window calls
+        // SetFocused on its own tabs when it opens, a clone nobody calls it on starts faint, and the
+        // first hover ran the game's highlight and never handed the row back.
+        RestVisuals(go);
+
         TMP_Text? label = go.GetComponentInChildren<TMP_Text>(true);
         if (label != null)
         {
