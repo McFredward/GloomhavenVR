@@ -339,6 +339,24 @@ internal static class ConfigCatalog
     internal static int RetiredEntries { get; private set; }
 
     /// <summary>
+    /// Entries left out of the menu for a reason their own description cannot carry, with that
+    /// reason written down beside them.
+    ///
+    /// <para>Separate from the retirement marker on purpose: these DO still work, so claiming
+    /// "LEGACY — no effect" in their description would be a lie to whoever reads the config file.
+    /// They are simply unreachable in a normal install, and a control the player can move with
+    /// nothing to show for it is worse than no control at all.</para>
+    /// </summary>
+    private static readonly Dictionary<string, string> NotOffered = new(StringComparer.Ordinal)
+    {
+        // Tints the PROCEDURAL hand — the capsule fallback built only when the asset bundle is
+        // missing (HandVisuals.CreateHandMaterial). Any install that loads the bundle wears one of
+        // the three hand models and never sees it. It is also an RRGGBB string, so the row offered
+        // a left/right stepper with nothing to step.
+        ["Hands/HandColor"] = "only tints the procedural fallback hand, which a normal install never shows",
+    };
+
+    /// <summary>
     /// True when this entry's own description says it no longer does anything. Read from the
     /// ENGLISH bound description (the one the mod authored), not from the translated text, so a
     /// translation can never accidentally hide or reveal a setting.
@@ -368,6 +386,12 @@ internal static class ConfigCatalog
         // one reserved placeholder — and five of them were sitting in the everyday Avatar tab.
         // They stay BOUND so existing config files keep loading; they simply stop being offered.
         if (IsRetired(entry))
+        {
+            RetiredEntries++;
+            return null;
+        }
+
+        if (NotOffered.ContainsKey((def.Section ?? string.Empty) + "/" + (def.Key ?? string.Empty)))
         {
             RetiredEntries++;
             return null;
@@ -803,7 +827,7 @@ internal static class ConfigCatalog
                 if ((int)item.Topic != topic)
                     continue;
                 perSection.TryGetValue(SectionCountKey(item), out int n);
-                string label = n > SectionSplitThreshold ? LeadingWord(item.Key) : SectionLabel(item.Section);
+                string label = n > SectionSplitThreshold ? GroupWord(item) : SectionLabel(item.Section);
                 if (string.IsNullOrEmpty(label))
                     label = MiscLabel;
                 if (!byLabel.TryGetValue(label, out ConfigGroup? group))
@@ -937,6 +961,9 @@ internal static class ConfigCatalog
         "RenderQuality" => Loc.Mod("cfg_sec_renderquality"),
         "Batching" => Loc.Mod("batching"),
         "FigureGrab" => Loc.Mod("figure_offsets"),
+        // Reached since per-variant keys group by SECTION rather than by the hand style in their
+        // name; without it a German menu would head the block with the English "Hands".
+        "Hands" => Loc.Mod("hands"),
         _ => Spaced(section),
     };
 
@@ -978,6 +1005,43 @@ internal static class ConfigCatalog
     /// ("FanArcSweepDegrees" → "Fan", "WristHudPitch" → "Wrist", "VRSettingsOffset" → "VR").
     /// Bounded by the key length; never returns empty for a non-empty key.
     /// </summary>
+    /// <summary>
+    /// Names that identify a VARIANT rather than a subject: the control boards and the hand styles.
+    /// Read from the enums, so a new board or hand style joins the list by existing.
+    /// </summary>
+    private static readonly HashSet<string> VariantWords = BuildVariantWords();
+
+    private static HashSet<string> BuildVariantWords()
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string n in Enum.GetNames(typeof(Cards.ControlBoard)))
+            set.Add(n);
+        foreach (string n in Enum.GetNames(typeof(Hands.HandStyle)))
+            set.Add(n);
+        return set;
+    }
+
+    /// <summary>
+    /// The label a big section's entry is grouped under.
+    ///
+    /// <para>NOT THE VARIANT. A section past the split threshold is grouped by the first word of the
+    /// key, which for the hand settings is the hand STYLE — so <c>GloveGripPitchDegrees</c>,
+    /// <c>PlateOffsetX</c> and <c>ArcaneHeldScale</c> produced groups called "Glove", "Plate" and
+    /// "Arcane": three grab-bags named after a choice, each mixing the hand's seat, the wrist HUD's
+    /// pose and the figure-grab pose. Someone looking for where the hands are aimed had to guess
+    /// that it lived under the name of the glove they happened to be wearing, and the pane now folds
+    /// per-variant rows down to the selected one anyway, so two of those three groups would be empty
+    /// and the third would be named after the one thing no longer shown.</para>
+    ///
+    /// <para>When the leading word names a variant, the SECTION is the meaningful axis instead —
+    /// "Hands", "Wrist HUD", "Figure grab" — which is what the settings are ABOUT.</para>
+    /// </summary>
+    private static string GroupWord(ConfigItem item)
+    {
+        string word = LeadingWord(item.Key);
+        return VariantWords.Contains(word) ? SectionLabel(item.Section) : word;
+    }
+
     internal static string LeadingWord(string key)
     {
         if (string.IsNullOrEmpty(key))
