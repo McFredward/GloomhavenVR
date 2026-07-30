@@ -507,6 +507,13 @@ internal sealed class UguiPointer
             : null;
         if (_pressedClickHandler != null && ReferenceEquals(hoveredClickHandler, _pressedClickHandler))
         {
+            // The on-screen keyboard opens and closes on clicks. This is the world-space half of
+            // that (converted panels, fingertip poke); FlatScreen.DirectClick is the flat-screen
+            // half. Told before the click is delivered, so the keyboard is already up when the field
+            // processes it. _hovered rather than the click handler: the keyboard needs the exact
+            // object hit, not the ancestor that happens to handle clicks.
+            WorldUI.VRKeyboard.NoticeClick(_hovered);
+
             ExecuteEvents.Execute(_pressedClickHandler, data, ExecuteEvents.pointerClickHandler);
             // Test #18 verification: every synthesized uGUI click carries its
             // provenance in the log — "did the initiative portrait click reach the

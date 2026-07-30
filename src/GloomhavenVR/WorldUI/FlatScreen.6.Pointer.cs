@@ -481,10 +481,17 @@ internal sealed partial class FlatScreen
         if (s_raycastResults.Count == 0)
         {
             VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): nothing under the pointer.");
+            VRKeyboard.NoticeClick(null); // clicking into nothing still means "away from the keyboard"
             return;
         }
 
         UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
+
+        // The on-screen keyboard opens and closes on CLICKS, and this is the one place where a
+        // click's target is known — the laser and the fingertip poke both arrive here. Told before
+        // the click is delivered, so the keyboard is already up when the field processes it.
+        VRKeyboard.NoticeClick(top.gameObject);
+
         data.pointerCurrentRaycast = data.pointerPressRaycast = top;
 
         GameObject? pressTarget = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(

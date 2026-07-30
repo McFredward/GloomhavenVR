@@ -13,8 +13,17 @@ using UnityEngine.Events;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Text entry in VR: an on-screen keyboard that appears by itself whenever a text field takes
-/// focus, so a player with no physical keyboard in reach can still name a party.
+/// Text entry in VR: an on-screen keyboard that appears when the player clicks into a text field
+/// and goes away when they click anywhere else, so a player with no physical keyboard in reach can
+/// still name a party.
+///
+/// <para>CLICKS, NOT FOCUS — and that distinction cost two attempts. Focus looks like the natural
+/// signal and is the wrong one in both directions: pressing a key on the keyboard hands the
+/// EventSystem's selection to that key, so the field deactivates and a focus-driven keyboard closes
+/// on the very first letter; and a field can hold focus long after the player has clicked away, so
+/// focus also fails to say when to close. <see cref="NoticeClick"/> owns opening and closing;
+/// <see cref="Tick"/> only watches for the two ways the keyboard can vanish without a click (the
+/// game's Escape, and its window closing) and for a field the game focuses by itself.</para>
 ///
 /// <para>THE GAME ALREADY HAS THE KEYBOARD. <c>UIKeyboard</c> exists for console controller input —
 /// a localized key layout (one <c>KeyboardConfig</c> per language), a pool of <c>UIKeyboardKey</c>
@@ -62,8 +71,9 @@ internal static class VRKeyboard
     private static ControllerInputKeyboard? _native;
 
     /// <summary>
-    /// A field whose keyboard the player dismissed. Held until that field loses focus, so Escape
-    /// closes the keyboard for good instead of for one frame.
+    /// A field whose keyboard was dismissed. Held until that field loses focus, so a dismissal
+    /// sticks instead of being undone a frame later by the fallback opener below. A fresh click
+    /// into the field clears it — dismissing is not the same as refusing forever.
     /// </summary>
     private static TMP_InputField? _refused;
 
@@ -109,25 +119,45 @@ internal static class VRKeyboard
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
-        // While the keyboard is up there are two cheap questions and no searching at all: does ITS
-        // field still have focus, and is the popup still there? The second one matters because the
-        // popup is an EscapableGameObject — the game's own Escape deactivates it behind our back,
-        // and that is a legitimate way for the player to dismiss it.
+        // FOCUS IS NOT WHAT KEEPS THE KEYBOARD OPEN — that was the second bug in a row, and this is
+        // the whole reason for the split below. Clicking a key moves the EventSystem's selection to
+        // that key, the field is deselected and deactivates itself, and a keyboard that closes when
+        // its field loses focus therefore closes on the first key the player presses. Opening and
+        // closing are click-driven (see NoticeClick); Tick only watches for the ways the keyboard can
+        // disappear WITHOUT a click, and keeps the field usable.
         if (IsShowing)
         {
-            bool dismissed = _keyboard != null && !_keyboard.IsActive;
-            if (!dismissed && _field != null && _field.isFocused && _field.IsInteractable())
+            if (_keyboard == null || !_keyboard.IsActive)
+            {
+                // The popup is an EscapableGameObject: the game's own Escape deactivates it.
+                _refused = _field;
+                Detach("closed by the game (Escape)");
                 return;
+            }
 
-            // A dismissed keyboard must STAY dismissed: the field keeps focus after Escape, so
-            // without this the next frame would re-open what the player just closed.
-            _refused = dismissed ? _field : null;
-            Detach(dismissed ? "closed by the game (Escape)" : "the text field lost focus");
+            if (_field == null || !_field.isActiveAndEnabled)
+            {
+                Detach("the text field went away (its window closed)");
+                return;
+            }
+
+            // AND THE FIELD IS DELIBERATELY LEFT UNFOCUSED. Re-activating it looks like the obvious
+            // improvement — a blinking caret in the field being typed into — and it destroys typing:
+            // on desktop ActivateInputFieldInternal calls OnFocus(), which does SelectAll() because
+            // TMP's onFocusSelectAll defaults to true. Re-focusing after every key would therefore
+            // select the whole text before every key, and each new character would REPLACE the field
+            // instead of extending it — the field could never hold more than one letter.
+            //
+            // Nothing needs the focus: ProcessEvent goes straight to KeyPressed with no focus check,
+            // DeactivateInputField leaves the caret where it was, and ForceLabelUpdate (called after
+            // every key) is what re-hides the placeholder. Losing focus is harmless here; only the
+            // old close-on-focus-loss rule made it look otherwise.
+            return;
         }
 
         // The refusal is answered by the refused field itself, not by the search below: the search is
         // throttled, so "found nothing" also means "did not look this frame", and reading that as
-        // "focus is gone" would quietly lift the refusal a fifth of a second after Escape.
+        // "focus is gone" would quietly lift the refusal a fifth of a second after a dismissal.
         if (_refused != null)
         {
             if (_refused.isFocused && _refused.IsInteractable())
@@ -135,13 +165,55 @@ internal static class VRKeyboard
             _refused = null; // that field is done; a later click may open the keyboard again
         }
 
+        // Fallback opener, for a field the game focuses by itself rather than by a click. A click
+        // never gets here — NoticeClick has already opened the keyboard by then.
         TMP_InputField? focused = FindFocusedField();
         if (focused != null)
             Attach(focused);
     }
 
     /// <summary>
-    /// The field the player is typing into.
+    /// A click landed on <paramref name="target"/> (null = on nothing). Called from
+    /// <c>FlatScreen.DirectClick</c>, which is where BOTH pointer paths — laser trigger and
+    /// fingertip poke — deliver their clicks, before the click itself is executed.
+    ///
+    /// <para>This is the whole open/close policy, and it is stated in clicks because that is what
+    /// the player is doing: click into a text field and the keyboard appears; click anywhere that is
+    /// neither the keyboard nor that field and it goes away. Focus cannot express it — pressing a
+    /// key takes focus off the field, and the field can keep focus long after the player has moved
+    /// on.</para>
+    /// </summary>
+    internal static void NoticeClick(GameObject? target)
+    {
+        if (!WorldUIConfig.KeyboardEnabled.Value)
+            return;
+        if (!VRSession.IsRunning && !Plugin.DevMode.Value)
+            return;
+
+        TMP_InputField? field = target != null ? target.GetComponentInParent<TMP_InputField>() : null;
+
+        if (field != null && field.IsInteractable() && !field.readOnly)
+        {
+            _refused = null; // an explicit click into a field always wins over an earlier dismissal
+            if (!ReferenceEquals(field, _field))
+                Attach(field);
+            return;
+        }
+
+        if (!IsShowing)
+            return;
+
+        // Inside the keyboard: a key, its background, its padding. All of it keeps the keyboard up.
+        if (target != null && _keyboard != null && target.transform.IsChildOf(_keyboard.transform))
+            return;
+
+        _refused = _field;
+        Detach("clicked away from the keyboard");
+    }
+
+    /// <summary>
+    /// A field the game has focused on its own, for the fallback opener — a click never reaches
+    /// here, because <see cref="NoticeClick"/> has already opened the keyboard by then.
     ///
     /// <para>Two sources, because neither alone is enough. <c>EventSystem.currentSelectedGameObject</c>
     /// is what a click sets, but selection survives the field being closed, so it can name a field
@@ -182,6 +254,11 @@ internal static class VRKeyboard
 
     private static void Attach(TMP_InputField field)
     {
+        // Clicking straight from one field into another: release the first, or its listener stays
+        // wired and its popup stays up.
+        if (IsShowing)
+            Detach("a different field was clicked");
+
         UIKeyboard? keyboard = FindKeyboard(field);
         ControllerInputKeyboard? native = keyboard != null ? FindNativeHandler(keyboard) : null;
         Probe(field, keyboard, native);
