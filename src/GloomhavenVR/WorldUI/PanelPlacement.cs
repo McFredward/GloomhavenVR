@@ -106,8 +106,16 @@ internal static class PanelPlacement
         return moved;
     }
 
-    /// <summary>Upright orientation facing the head (uGUI front toward the viewer → +Z away).</summary>
-    private static Quaternion Facing(Vector3 panelPos, Vector3 headPos)
+    /// <summary>
+    /// Upright orientation facing the head (uGUI front toward the viewer → +Z away).
+    ///
+    /// <para>THE one "faces the player" formula for mod panels — yaw-only, derived from the
+    /// panel-to-head vector (not the raw gaze forward, so an off-centre panel still turns to the
+    /// player). Shared with <c>ModalFallback</c>'s spawn facing and with <c>GrabbableModal</c>'s
+    /// re-face-on-release, so a released menu ends up at exactly the orientation a freshly
+    /// floated one has.</para>
+    /// </summary>
+    internal static Quaternion Facing(Vector3 panelPos, Vector3 headPos)
     {
         Vector3 away = Flatten(panelPos - headPos);
         return Quaternion.LookRotation(away, Vector3.up);

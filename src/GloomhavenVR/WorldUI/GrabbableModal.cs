@@ -228,7 +228,39 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     // Free placement: the menu stays wherever the user left it while open; a re-open
     // re-floats it at the HMD (ModalFallback), so there is nothing to persist here.
-    void IPanelGrabOwner.OnGrabFinished() { }
+    //
+    // RE-FACE ON RELEASE (user request): the one-hand carry yaws the panel with the HAND
+    // (GrabCarriesYaw), so dragging a window to the side leaves it turned to wherever the wrist
+    // happened to point — readable only edge-on. The moment the LAST hand lets go (this is the
+    // release edge: PanelGrabHandle.OnRelease calls it once _handA and _handB are both gone),
+    // snap the rotation back to facing the player. POSITION IS UNTOUCHED — the window stays
+    // exactly where it was put; only the orientation is re-derived, through the same
+    // PanelPlacement.Facing the spawn placement uses, so a moved window reads identically to a
+    // freshly floated one.
+    void IPanelGrabOwner.OnGrabFinished()
+    {
+        if (_frame == null)
+            return;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return;
+
+        Quaternion facing = PanelPlacement.Facing(_frame.position, head.transform.position);
+        // Nothing to say (and nothing to write) when the drag already left it facing the player.
+        if (Quaternion.Angle(_frame.rotation, facing) < ReFaceEpsilonDeg)
+            return;
+
+        float turned = Quaternion.Angle(_frame.rotation, facing);
+        _frame.rotation = facing;
+        // Push the new frame rotation onto the game-owned host in the same frame, so the panel
+        // does not visibly hang at the drag rotation until the next Tick.
+        Tick();
+        VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move — re-faced the player " +
+                              $"(turned {turned:F1}°, yaw now {_frame.eulerAngles.y:F1}°; position kept).");
+    }
+
+    /// <summary>Below this the released panel already faces the player — no snap, no log.</summary>
+    private const float ReFaceEpsilonDeg = 0.5f;
 
     // ---- per-frame follow -------------------------------------------------------------------
 

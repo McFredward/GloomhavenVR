@@ -132,6 +132,10 @@ internal sealed class WorldTooltips
     private Camera? _originalCamera;
     private float _originalPlaneDistance;
     private Vector3 _originalScale;
+    // Sorting is only touched while the hint rides on a floated menu panel; both fields are
+    // captured at the flip and written back verbatim in Restore() (reversibility).
+    private int _originalSortingOrder;
+    private bool _originalOverrideSorting;
 
     // ---- 2D flatten + frame clip (part A) ---------------------------------------------
     /// <summary>The persistent tooltip content singleton under the canvas (frame + text lines).</summary>
@@ -227,22 +231,37 @@ internal sealed class WorldTooltips
     /// with it.</para>
     /// </summary>
     private static bool TryResolveMenuPose(out Vector3 position, out Quaternion rotation,
-                                           out Vector3 scale)
+                                           out Vector3 scale, out int sortingOrder)
     {
-        RectTransform? host = ModalFallback.MenuPanelHost;
-        if (host == null)
+        ConvertedPanel? panel = ModalFallback.MenuPanel;
+        RectTransform? host = panel?.HostRect;
+        if (panel == null || host == null)
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
             scale = Vector3.one;
+            sortingOrder = 0;
             return false;
         }
 
         rotation = host.rotation;
         scale = host.lossyScale;
+        // TOWARD the viewer: the floated panel's +Z points AWAY from the head (PanelPlacement
+        // convention — uGUI fronts render along −forward), so subtracting forward moves the
+        // tooltip onto the viewer's side of the panel plane.
         position = host.position - host.forward * MenuPanelProudZ;
+        // GEOMETRY IS NOT ENOUGH (hover-hint bug, second half): both canvases are drawn by the
+        // SAME head camera in the transparent queue, where Unity sorts by sortingLayer →
+        // sortingOrder → distance. The floated menu host runs at sortingOrder 1000 (Convert),
+        // and the game's shared tooltip canvas keeps its authored (much lower) order, so the
+        // hint drew BEHIND the menu no matter how proud of the plane it sat. Ride just above
+        // the host — restored verbatim in Restore().
+        sortingOrder = panel.HostCanvas != null ? panel.HostCanvas.sortingOrder + MenuPanelSortingLift : 0;
         return true;
     }
+
+    /// <summary>Sorting steps the tooltip rides above the floated menu host it is laid on.</summary>
+    private const int MenuPanelSortingLift = 10;
 
     /// <summary>Metres in front of the floated menu panel the tooltip is laid, so it never z-fights.</summary>
     private const float MenuPanelProudZ = 0.004f;
@@ -315,6 +334,8 @@ internal sealed class WorldTooltips
             _originalCamera = _canvas.worldCamera;
             _originalPlaneDistance = _canvas.planeDistance;
             _originalScale = _canvas.transform.localScale;
+            _originalSortingOrder = _canvas.sortingOrder;
+            _originalOverrideSorting = _canvas.overrideSorting;
             _canvas.renderMode = RenderMode.WorldSpace;
             // Scale + park IMMEDIATELY: an unanchored flip must never leave the
             // canvas rect at pixel size in world meters (test-#5 giant tooltip).
@@ -335,9 +356,21 @@ internal sealed class WorldTooltips
         // coincide — and the game's own placement only lands where it means to — if they share a
         // pixels-to-metres factor. Off the menu, the board-derived scale above stands.
         bool onMenuPanel = TryResolveMenuPose(out Vector3 menuPos, out Quaternion menuRot,
-                                              out Vector3 menuScale);
+                                              out Vector3 menuScale, out int menuSorting);
         if (onMenuPanel)
+        {
             worldScale = menuScale;
+            // Draw IN FRONT of the panel it is laid on (see TryResolveMenuPose) — the 4 mm of
+            // geometric clearance alone loses to the host's sortingOrder.
+            if (_canvas.sortingOrder != menuSorting)
+                _canvas.sortingOrder = menuSorting;
+        }
+        else if (_canvas.sortingOrder != _originalSortingOrder)
+        {
+            // Off the menu the authored order is right again (the board anchor is nowhere near
+            // a floated panel), so hand it straight back instead of leaving the lift latched.
+            _canvas.sortingOrder = _originalSortingOrder;
+        }
 
         // Re-assert the scale every frame (config/diorama scale are live; the game
         // may rewrite the transform) — independent of placement.
@@ -406,8 +439,10 @@ internal sealed class WorldTooltips
             if (onMenuPanel)
             {
                 VRLog.Info("WorldUI",
-                    $"Tooltip laid FLAT ON the floated menu panel at {pos:F3} (panel scale "
-                    + $"{menuScale.x:F5} m/px). The two canvases share the window's screen rect, so "
+                    $"Tooltip laid FLAT ON the floated menu panel "
+                    + $"'{(ModalFallback.MenuPanel?.HostGo != null ? ModalFallback.MenuPanel!.HostGo.name : "?")}' "
+                    + $"at {pos:F3} (panel scale {menuScale.x:F5} m/px, sortingOrder {menuSorting} — "
+                    + "in front of the host). The two canvases share the window's screen rect, so "
                     + "the game's own placement puts the box beside the hovered row, on the panel.");
                 return;
             }
@@ -683,6 +718,8 @@ internal sealed class WorldTooltips
             _canvas.worldCamera = _originalCamera;
             _canvas.planeDistance = _originalPlaneDistance;
             _canvas.transform.localScale = _originalScale;
+            _canvas.sortingOrder = _originalSortingOrder;
+            _canvas.overrideSorting = _originalOverrideSorting;
             VRLog.Info("WorldUI", "Tooltip canvas restored to screen space (flatten + frame clip reverted).");
         }
     }

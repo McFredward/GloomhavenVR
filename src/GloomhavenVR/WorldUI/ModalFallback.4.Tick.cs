@@ -25,20 +25,34 @@ internal static partial class ModalFallback
     ///
     /// <para>The host carries the window's full screen rect converted to world space, so aligning
     /// another screen-space canvas to this transform makes the two coincide.</para>
+    ///
+    /// <para>TOPMOST, NOT FIRST (hover-hint bug): the menu family STACKS — opening Options from the
+    /// pause menu floats a SECOND full-screen panel (log: 'Modal_UI Scenario Esc Menu' converted,
+    /// then 'Modal_UI Options Window_unified') while the ESC root keeps floating in parallel
+    /// (item 6, reachable menus are not hidden by the game's single-window toggle). The hover the
+    /// tooltip answers can only have come from the window the player is actually looking at, which
+    /// is the LAST one floated — but this scanned FORWARD and always returned the ESC root, so the
+    /// hint was laid on the root's plane: at the root's height/rotation, and behind the Options
+    /// window that floats in front of it. <see cref="Converted"/> is append-ordered (Convert adds,
+    /// Release removes), so scanning BACKWARD yields the most recently floated menu and falls back
+    /// to the ESC root by itself the moment Options closes.</para>
     /// </summary>
-    internal static RectTransform? MenuPanelHost
+    internal static ConvertedPanel? MenuPanel
     {
         get
         {
-            for (int i = 0; i < Converted.Count; i++)
+            for (int i = Converted.Count - 1; i >= 0; i--)
             {
                 WindowPanel w = Converted[i];
                 if (w.FullScreenMenu && w.Panel != null && w.Panel.IsAlive && w.Panel.HostRect != null)
-                    return w.Panel.HostRect;
+                    return w.Panel;
             }
             return null;
         }
     }
+
+    /// <summary>World-space host rect of <see cref="MenuPanel"/> (null when no menu floats).</summary>
+    internal static RectTransform? MenuPanelHost => MenuPanel?.HostRect;
 
     /// <summary>Open windows whose conversion failed → the screen covers them (retry on re-open).</summary>
     private static readonly List<UIWindow> Failed = new(2);
