@@ -76,6 +76,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // "the slider does nothing on their screen") and so the confirmation log fires once per CHANGE
     // instead of five times a second. -1 = never sent.
     private int _lastSentMaskSizeCode = -1;
+    private int _lastSentHandScaleCode = -1;
 
     // CONTROL-BOARD STYLE: same contract as the mask size one row up. Switching the board is a
     // deliberate, human-paced act the user performs while looking at their board, so the edge
@@ -266,8 +267,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         byte boardStyleCode = LocalRigSampler.LocalBoardStyle();
         bool boardStyleChanged = boardStyleCode != _lastSentBoardStyleCode;
 
+        // PER-STYLE HAND SCALE — the last per-player choice that was still drawn from the
+        // RECEIVER's config, so a peer who never touched it rendered your hands at their own size.
+        // Quantized first, like the mask size, so a sub-0.01 wobble cannot trigger a packet.
+        byte handScaleCode = NetProtocol.EncodeHandScale(
+            Hands.HandVisuals.StyleScale(Hands.HandVisuals.LocalStyle()));
+        bool handScaleChanged = handScaleCode != _lastSentHandScaleCode;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
-            && !maskSizeChanged && !boardStyleChanged)
+            && !maskSizeChanged && !boardStyleChanged && !handScaleChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -336,6 +344,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasMaskSize = true;
             extras.MaskSizeCode = maskSizeCode;
         }
+        // Hand scale rides the EXTENSION TAIL, and only when it differs from 1.00x — an untuned
+        // player's packet then stays byte-identical to the previous build's.
+        if (handScaleCode != NetProtocol.HandScaleDefaultCode)
+        {
+            extras.HasHandScale = true;
+            extras.HandScaleCode = handScaleCode;
+        }
+        if (handScaleChanged)
+        {
+            _lastSentHandScaleCode = handScaleCode;
+            VRLog.Info("Net", $"Hand scale SENT: {NetProtocol.DecodeHandScale(handScaleCode):0.00}x " +
+                              $"(wire code {handScaleCode}, hundredths) — " +
+                              (extras.HasHandScale
+                                  ? "1 extension-tail record (id 1)."
+                                  : "default, record omitted (peers render 1.00x)."));
+        }
+
         if (maskSizeChanged)
         {
             VRLog.Info("Net", $"Mask size SENT: {NetProtocol.DecodeMaskSize(maskSizeCode):0.00}x " +

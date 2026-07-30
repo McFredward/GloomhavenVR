@@ -110,8 +110,9 @@ internal static class NetProtocol
     //      There is no free rig flag bit. Do not look for one here; there isn't one, and adding
     //      a ninth would move the fixed header and cost a wire-version bump that breaks every
     //      peer in the wild (that is what v2 cost — see Version above).
-    //      The ONLY remaining extension slot in the entire protocol is PileBrowseReservedBit
-    //      (extras trailing-block byte A, bit 7), declared at the bottom of this file.
+    //      Room for new fields now lives in the EXTENSION TAIL behind PileBrowseExtensionBit
+    //      (extras trailing-block byte A, bit 7), declared at the bottom of this file. It is
+    //      type-length-value, so it does not run out and adding a field costs no bit at all.
 
     // ---- extras (type 1) flag bits --------------------------------------------------------
 
@@ -189,8 +190,9 @@ internal static class NetProtocol
     ///           bit2 hand-held (else board-anchored), bit3 held in the LEFT hand,
     ///           bit4 <see cref="PileBrowseMaskSizeBit"/> (a byte C follows), bits5..6 the
     ///           control-board style (<see cref="PileBrowseBoardStyleMask"/>), bit7
-    ///           <see cref="PileBrowseReservedBit"/> — reserved, written 0. Two of those four
-    ///           "reserved" bits have since been claimed exactly as intended; ONE is left.
+    ///           <see cref="PileBrowseExtensionBit"/> — an extension TAIL follows byte C.
+    ///           All four "reserved" bits are now claimed, and the last of them was spent on
+    ///           unbounded room rather than on a field.
     ///   byte B: card count in the fan (0..255, clamped)
     ///
     /// ADDITIVE and backward-compatible exactly like every block before it: appended behind every
@@ -202,12 +204,11 @@ internal static class NetProtocol
 
     // ---- THE EXTRAS FLAG BYTE IS FULL — bits 0..7 are all spent, up to FlagPileBrowse above. ----
     //      Both flag bytes are now exhausted. If you came here looking for a free bit for a new
-    //      extras feature, THERE IS NONE, and the answer is not a version bump: go to
-    //      PileBrowseReservedBit (trailing-block byte A, bit 7) at the bottom of this file. That
-    //      is the last extension slot in the protocol, and bit 7 above was deliberately spent on
-    //      "a block follows" rather than on a boolean precisely so this path would exist — two
-    //      features (head-mask size, control-board style) have already shipped through it with
-    //      no wire-version bump at all.
+    //      extras feature, THERE IS NONE, and the answer is not a version bump: add an
+    //      EXTENSION-TAIL record (PileBrowseExtensionBit, trailing-block byte A bit 7, at the
+    //      bottom of this file). Bit 7 above was deliberately spent on "a block follows" rather
+    //      than on a boolean precisely so this path would exist — head-mask size, control-board
+    //      style and now the tail itself have all shipped through it with no version bump.
 
     /// <summary>Pile-browse block, byte A bits 0..1: the DISCARD ("Abgelegt") pile. Wire constants —
     /// they mirror <c>Cards.PileKind</c>'s member order; append only, never renumber.</summary>
@@ -330,32 +331,47 @@ internal static class NetProtocol
         (byte)((kindFlags & PileBrowseBoardStyleMask) >> PileBrowseBoardStyleShift);
 
     /// <summary>
-    /// Trailing-block byte A, bit 7 — THE LAST FREE BIT IN THE ENTIRE PROTOCOL.
+    /// Trailing-block byte A, bit 7 — AN EXTENSION TAIL FOLLOWS.
     ///
-    /// Everything else is spent: the rig flag byte (offset 6) uses bits 0..7 up to
-    /// <see cref="FlagHeldCard"/>, the extras flag byte (offset 6) uses bits 0..7 up to
-    /// <see cref="FlagPileBrowse"/>, and byte A's own bits 0..6 are the pile kind, the two
-    /// placement bits, <see cref="PileBrowseMaskSizeBit"/> and the board-style field. This one
-    /// bit is the only extension slot left.
+    /// <para>This was the last free bit in the protocol, and it is spent the way its own
+    /// reservation note said to spend it: on "a further sub-block follows", not on a boolean.
+    /// Spending it on one field would have ended the protocol's extensibility and made the next
+    /// feature a version bump plus a coordinated release of every peer.</para>
     ///
-    /// MUST BE WRITTEN 0 by every sender until it is deliberately claimed, and it is NEVER READ
-    /// BY DESIGN — it is a reservation, not a field. It exists as a named constant rather than as
-    /// a comment so that it is greppable, shows up in IntelliSense beside the bits it neighbours,
-    /// and cannot be "found free" by someone counting bits by hand.
+    /// <para>THE TAIL IS TYPE-LENGTH-VALUE, which is what makes it unbounded: one count byte, then
+    /// that many records of <c>[id][len][len bytes]</c>. A reader parses the ids it knows and SKIPS
+    /// the rest by their length — so a newer sender may add fields freely and an older reader
+    /// neither breaks nor has to be told. That is the property the fixed bits never had: every
+    /// previous field cost a bit nobody could reclaim.</para>
     ///
-    /// HOW TO SPEND IT, when the time comes: the way <see cref="FlagPileBrowse"/> was spent — on
-    /// "a further sub-block follows", not on a boolean. That is what let head-mask size and
-    /// control-board style ship additively with no wire-version bump, and it is what keeps a
-    /// SEVENTH feature possible after the sixth. Spending it on a single boolean ends the
-    /// protocol's extensibility and the next feature after that needs a version bump and a
-    /// coordinated release of every peer. See the compatibility contract on
-    /// <see cref="PresenceSerializer"/>.
-    ///
-    /// DO NOT DELETE AS UNUSED. It has no call site on purpose, exactly like
-    /// <see cref="PileBrowseKindItems"/> (understood by readers, never emitted by senders today)
-    /// and <see cref="BoardStyleMaxCode"/>.
+    /// <para>Rules for adding one: pick the next free <c>ExtId*</c>, never renumber an existing id,
+    /// and only write the record when the value differs from what a peer would assume in its
+    /// absence — an untuned player's packet then stays byte-identical to the previous build's.</para>
     /// </summary>
-    public const byte PileBrowseReservedBit = 1 << 7;
+    public const byte PileBrowseExtensionBit = 1 << 7;
+
+    /// <summary>Extension record id: the sender's per-style HAND SCALE (hundredths, 1 byte).
+    /// Their hands must read the same size to everyone, exactly like their hand style.</summary>
+    public const byte ExtIdHandScale = 1;
+
+    /// <summary>Hand-scale code standing for "1.00x" — the value assumed when the record is absent.</summary>
+    public const byte HandScaleDefaultCode = 100;
+
+    /// <summary>
+    /// Quantize a per-style hand scale to hundredths. Clamped to 0.20x..2.55x: the byte cannot
+    /// carry more, and <c>HandVisuals.StyleScale</c>'s own ceiling of 3.0x is far past any hand
+    /// anyone wears (the shipped styles sit at 0.62 and 1.00).
+    /// </summary>
+    public static byte EncodeHandScale(float scale)
+    {
+        if (float.IsNaN(scale) || float.IsInfinity(scale))
+            return HandScaleDefaultCode;
+        return (byte)UnityEngine.Mathf.Clamp(UnityEngine.Mathf.RoundToInt(scale * 100f), 20, 255);
+    }
+
+    /// <summary>Decode a hand-scale byte. Garbage degrades to 1.00x rather than to a hand of nothing.</summary>
+    public static float DecodeHandScale(byte code) =>
+        code < 20 ? HandScaleDefaultCode / 100f : code / 100f;
 
     /// <summary>How long a remote card-FX flight takes (seconds) — matched to the LOCAL
     /// <c>CardsDriver.FlyToPileSeconds</c> so a peer's flight lasts as long as the real one.</summary>

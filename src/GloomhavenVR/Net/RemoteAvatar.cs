@@ -194,6 +194,9 @@ internal sealed class RemoteAvatar
     /// which is why the wire only carries the byte when it differs.</summary>
     public float MaskSize { get; private set; } = 1f;
 
+    /// <summary>The SENDER's per-style hand scale (1 = they are on the default / predate the field).</summary>
+    public float HandScale { get; private set; } = 1f;
+
     /// <summary>
     /// The CONTROL BOARD this peer actually uses (their <c>Cards.ControlBoard</c> choice, received
     /// in the extras block's byte A bits 5..6). Oak for peers that predate the field or use the
@@ -336,6 +339,7 @@ internal sealed class RemoteAvatar
         // the field, or simply never tuned it), never a broken size; that is also how a peer
         // stepping back to 1.00× is communicated, since we then stop sending the byte.
         MaskSize = p.HasMaskSize ? NetProtocol.DecodeMaskSize(p.MaskSizeCode) : 1f;
+        HandScale = p.HasHandScale ? NetProtocol.DecodeHandScale(p.HandScaleCode) : 1f;
         if (!Mathf.Approximately(MaskSize, _loggedMaskSize))
         {
             VRLog.Info("Net", $"Mask size RECEIVED from player {PlayerId}: {MaskSize:0.00}x " +
@@ -421,11 +425,14 @@ internal sealed class RemoteAvatar
             HeadMaskLibrary.ApplySize(_headVisual, MaskSize);
         }
 
-        // Live re-apply of the receiver-local per-style visual scale (config stepper edit
-        // while a remote avatar is up) — same live check the local hands/mirror run.
+        // THE SENDER'S hand scale, not ours. This used to read the RECEIVER's
+        // [Hands] {Style}Scale, so a peer who had never touched it drew your hands at their own
+        // size — the last per-player choice that did not travel. It arrives in the extras
+        // extension tail; a sender who is on the default 1.00x sends no record and HandScale stays
+        // 1, which is exactly what the old default rendered.
         if (_leftRig != null)
         {
-            float styleScale = HandVisuals.StyleScale(_leftRig.VisualStyle);
+            float styleScale = HandScale;
             if (!Mathf.Approximately(styleScale, _appliedStyleScale))
             {
                 _appliedStyleScale = styleScale;
@@ -638,11 +645,14 @@ internal sealed class RemoteAvatar
         _rightRig = HandVisuals.Build(rightVisual, HandSide.Right, style);
         _rightCurler = _rightRig != null ? new FingerCurler(_rightRig, HandSide.Right) : null;
 
-        // Build applied the style scale for the built style (receiver-local config value
-        // for the SENDER'S style); remember it so the live check in Tick only re-applies
-        // on an actual config edit.
-        _appliedStyleScale = HandVisuals.StyleScale(
-            _leftRig != null ? _leftRig.VisualStyle : style);
+        // Build applied OUR config's scale for the sender's style; overwrite it with THEIRS
+        // straight away. Leaving it to the live check in Tick would show one frame at the wrong
+        // size every time a peer's hands are rebuilt.
+        _appliedStyleScale = HandScale;
+        if (_leftRig != null && _leftRig.Root != null)
+            HandVisuals.ApplyStyleScale(_leftRig.Root, _leftRig, HandScale);
+        if (_rightRig != null && _rightRig.Root != null)
+            HandVisuals.ApplyStyleScale(_rightRig.Root, _rightRig, HandScale);
 
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);

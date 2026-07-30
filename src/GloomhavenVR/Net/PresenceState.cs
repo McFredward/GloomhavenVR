@@ -117,6 +117,19 @@ internal struct PresenceState
     public byte MaskSizeCode;
 
     /// <summary>
+    /// True when this packet carries a non-default per-style HAND SCALE in the extension tail
+    /// (<see cref="NetProtocol.ExtIdHandScale"/>). False means "1.00x" — either the sender wears
+    /// the default size or predates the field; both render identically, which is why the record is
+    /// only written when it differs.
+    /// </summary>
+    public bool HasHandScale;
+
+    /// <summary>Quantized hand-scale multiplier (hundredths), meaningful only with
+    /// <see cref="HasHandScale"/>. The SENDER's value on purpose: their hands must read the same
+    /// size to everyone, exactly like their chosen hand style.</summary>
+    public byte HandScaleCode;
+
+    /// <summary>
     /// The sender's chosen CONTROL-BOARD STYLE (<c>Cards.ControlBoard</c> id: 0 Oak / 1 Steel /
     /// 2 Bronze), carried in trailing-block byte A bits 5..6 — see
     /// <see cref="NetProtocol.PileBrowseBoardStyleShift"/>. NO extra byte and no presence flag: 0
@@ -184,8 +197,8 @@ internal static class PresenceSerializer
 {
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39, rounded up
-    /// to 44 for headroom.</summary>
-    public const int MaxSize = 44;
+    /// to 44 for headroom — plus the extension tail (1 count byte + 3 per record), so 64.</summary>
+    public const int MaxSize = 64;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -213,7 +226,8 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle;
+        bool extensions = state.HasHandScale;
+        bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
 
@@ -245,12 +259,9 @@ internal static class PresenceSerializer
             // placement bits, and — first user of the reserved room the last flag bit was spent
             // to create — the "a mask-size byte follows" bit. Bits 5..6 are the SECOND user of
             // that room, the control-board style, written by the last statement in this block.
-            // Only bit 7 (NetProtocol.PileBrowseReservedBit) stays zero, and it is the last free
-            // bit in the entire protocol.
-            //
-            // (This comment used to say "bits 5..7 stay zero"; the style field was added four
-            // lines below it and the comment was not updated. Bits written here, bits described
-            // here: keep them in step.)
+            // Bit 7 (NetProtocol.PileBrowseExtensionBit) is now the EXTENSION TAIL flag: set it
+            // and a type-length-value tail follows byte C. That is what replaced "the last free
+            // bit" with room that does not run out.
             //
             // When only the mask size rides this packet, the pile-browse sub-fields are written
             // ZEROED and byte B (count) is 0: that is precisely how a reader — new or old — is
@@ -267,10 +278,28 @@ internal static class PresenceSerializer
             kindFlags |= (byte)((NetProtocol.EncodeBoardStyle(state.BoardStyleCode)
                                  << NetProtocol.PileBrowseBoardStyleShift)
                                 & NetProtocol.PileBrowseBoardStyleMask);
+            if (extensions) kindFlags |= NetProtocol.PileBrowseExtensionBit;
             buffer[i++] = kindFlags;
             buffer[i++] = state.HasPileBrowse ? state.PileBrowseCardCount : (byte)0;
             if (state.HasMaskSize)
                 buffer[i++] = state.MaskSizeCode;
+
+            // ---- EXTENSION TAIL: [count] then count x [id][len][payload] ----------------------
+            // Written LAST so every offset above is exactly where a pre-extension reader expects
+            // it, and self-describing so a reader that does not know an id can step over it.
+            if (extensions)
+            {
+                int countAt = i++;
+                byte records = 0;
+                if (state.HasHandScale)
+                {
+                    buffer[i++] = NetProtocol.ExtIdHandScale;
+                    buffer[i++] = 1;
+                    buffer[i++] = state.HandScaleCode;
+                    records++;
+                }
+                buffer[countAt] = records;
+            }
         }
         return i;
     }
@@ -364,6 +393,33 @@ internal static class PresenceSerializer
                 state.MaskSizeCode = buffer[i++];
             }
             // else: the sender wears the default size OR predates the field — identical rendering.
+
+            // ---- EXTENSION TAIL ------------------------------------------------------------
+            // [count] then count x [id][len][payload]. THE SKIP IS THE POINT: a record whose id
+            // this build does not know is stepped over by its own length, so a newer peer may add
+            // fields without this reader being taught about them and without breaking. Every read
+            // is bounds-checked first; a truncated tail abandons the tail and keeps everything
+            // parsed above it, because the fields above are complete and independently valid.
+            if ((kindFlags & NetProtocol.PileBrowseExtensionBit) != 0 && length >= i + 1)
+            {
+                int records = buffer[i++];
+                for (int r = 0; r < records; r++)
+                {
+                    if (length < i + 2)
+                        break;
+                    byte id = buffer[i++];
+                    int len = buffer[i++];
+                    if (length < i + len)
+                        break;
+
+                    if (id == NetProtocol.ExtIdHandScale && len >= 1)
+                    {
+                        state.HasHandScale = true;
+                        state.HandScaleCode = buffer[i];
+                    }
+                    i += len; // known or not, the record's own length is how we move past it
+                }
+            }
         }
         return true;
     }

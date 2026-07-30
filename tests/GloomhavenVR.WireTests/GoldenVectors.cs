@@ -110,6 +110,12 @@ internal static class GoldenVectors
         HasMaskSize = true, MaskSizeCode = 200,
     };
 
+    /// <summary>A non-default HAND SCALE and nothing else — the first extension-tail record.</summary>
+    private static PresenceState ExtrasHandScaleOnly() => new PresenceState
+    {
+        HasHandScale = true, HandScaleCode = 62,
+    };
+
     // ======================================================================================
 
     public static void Run(Harness t)
@@ -225,7 +231,7 @@ internal static class GoldenVectors
             09               // byte B: browse card count
             7D               // byte C: maskSizeCode = 125 (INSIDE the block)
             "), ext, m, "additive blocks in ascending flag-bit order, after handCardCount");
-        t.Equal(39, m, "worst-case extras packet is 39 bytes (MaxSize 44 has headroom)");
+        t.Equal(39, m, "worst-case extras packet is 39 bytes without a tail (MaxSize 64 has headroom)");
 
         // -- 7. Extras, mask-size only ---------------------------------------------------
         // §4d: a size-only packet writes the block with the pile-browse sub-fields ZEROED and
@@ -246,6 +252,50 @@ internal static class GoldenVectors
         t.Equal((byte)0, sz.PileBrowseCardCount, "count 0 -> every reader renders no fan");
         t.True(sz.HasMaskSize, "while the mask size is delivered");
         t.Equal((byte)200, sz.MaskSizeCode, "with the right code");
+
+        // -- 7b. Extension tail ----------------------------------------------------------
+        // Byte A bit 7 no longer means "reserved" but "a TLV tail follows". The tail is what
+        // makes the protocol extensible again: [count] then [id][len][payload] per record.
+        t.Case("7b. extras, extension tail (hand scale)");
+        m = PresenceSerializer.Write(ExtrasHandScaleOnly(), ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse -- 'a BLOCK follows'
+            00               // handCardCount
+            80               // byte A: PileBrowseExtensionBit only (bit 7)
+            00               // byte B: count 0 -> no fan
+            01               // tail: 1 record
+            01 01 3E         // record: id 1 (hand scale), len 1, value 62 (0.62x)
+            "), ext, m, "the tail is [count][id][len][payload]");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hs), "and it parses");
+        t.True(hs.HasHandScale, "the hand scale is delivered");
+        t.Equal((byte)62, hs.HandScaleCode, "with the right code");
+        t.Equal(0.62f, NetProtocol.DecodeHandScale(hs.HandScaleCode), "decoding to 0.62x");
+
+        // AN UNKNOWN RECORD MUST BE SKIPPED BY ITS OWN LENGTH — the whole point of TLV. This is
+        // a hand-built packet from a hypothetical NEWER sender: an unknown id 99 with a 4-byte
+        // payload, followed by the hand scale this build does know.
+        byte[] future = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80               // byte A: extension tail
+            00               // byte B
+            02               // 2 records
+            63 04 DE AD BE EF// id 99, len 4, payload this build has never heard of
+            01 01 3E         // id 1, len 1, hand scale 0.62x
+            ");
+        t.True(PresenceSerializer.TryRead(future, future.Length, out PresenceState fwd),
+               "a packet from a newer sender still parses");
+        t.True(fwd.HasHandScale, "and the record we DO know is read past the one we do not");
+        t.Equal((byte)62, fwd.HandScaleCode, "with its value intact");
+
+        // A TRUNCATED tail must not destroy what was parsed before it.
+        byte[] cut = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 01");
+        t.True(PresenceSerializer.TryRead(cut, cut.Length, out PresenceState trunc),
+               "a truncated tail still parses the packet");
+        t.True(trunc.HasMaskSize, "the mask size ahead of the tail survives");
+        t.Equal((byte)200, trunc.MaskSizeCode, "with its value");
+        t.True(!trunc.HasHandScale, "and the incomplete record is simply not delivered");
 
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet

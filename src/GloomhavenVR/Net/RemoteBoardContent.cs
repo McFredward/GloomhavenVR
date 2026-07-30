@@ -46,9 +46,10 @@ namespace GloomhavenVR.Net;
 ///     and card IDENTITY, which never crosses the wire in any form.
 ///
 /// WHY THE HEADER NAMES ALL FOUR AND NOT JUST THIS FILE'S TWO: the decision rule for new remote
-/// content is "GLOBAL or PER-ACTOR MODEL by default; VR-ONLY must be justified", and there is
-/// exactly ONE free bit left in the whole protocol
-/// (<see cref="NetProtocol.PileBrowseReservedBit"/>). A reader who learns only that remote content
+/// content is "GLOBAL or PER-ACTOR MODEL by default; VR-ONLY must be justified", and wire room is
+/// no longer the scarce thing it was — the extension tail
+/// (<see cref="NetProtocol.PileBrowseExtensionBit"/>) takes new fields without a bit each. A
+/// reader who learns only that remote content
 /// is "zero-wire" has no framework for the one question they must answer first. See
 /// <c>.planning/refactor/INVARIANTS-Net-Rig.md</c> "Net — content classification".
 ///
