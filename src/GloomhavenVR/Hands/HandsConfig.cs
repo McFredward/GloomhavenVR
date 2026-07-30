@@ -179,6 +179,25 @@ internal static class HandsConfig
     /// </summary>
     public static ConfigEntry<float>[]? StyleSeatRoll;
 
+    /// <summary>
+    /// Per-style YAW (degrees) around the hand's up axis — which way the fingers point.
+    /// MIRRORED like <see cref="StyleSeatRoll"/>: the left hand gets the negated value, so a
+    /// positive number turns both hands the same way relative to their own side of the body.
+    /// </summary>
+    public static ConfigEntry<float>[]? StyleSeatYaw;
+
+    /// <summary>
+    /// Per-style SPREAD (meters): how far apart the two hands sit. MIRRORED — positive moves the
+    /// left hand left and the right hand right.
+    ///
+    /// <para>Separate from <see cref="StyleSeatLateral"/> and not a replacement for it: lateral is
+    /// UNMIRRORED and shifts both hands the same way in device space (they move together, which is
+    /// what you want when the whole pair sits off-centre on the controllers), while spread moves
+    /// them apart or together. One cannot express the other — with lateral alone there is no way
+    /// to widen the pair, which is exactly what was missing.</para>
+    /// </summary>
+    public static ConfigEntry<float>[]? StyleSeatSpread;
+
     // ---- shipped per-style seat, indexed by (int)HandStyle: Glove, Plate, Arcane ------------
     // THESE ARE MEASURED, NOT DERIVED. They used to be seeded at runtime from the old shared
     // [Hands] GripPitchOffsetDegrees / HandLateralOffset / HandVerticalOffset / HandForwardOffset
@@ -195,6 +214,8 @@ internal static class HandsConfig
     // Roll ships at 0 for every style: the seat was dialled in without it, so anything else
     // would silently re-tune hands that are already right.
     private static readonly float[] DefaultSeatRoll = { 0f, 0f, 0f };
+    private static readonly float[] DefaultSeatYaw = { 0f, 0f, 0f };
+    private static readonly float[] DefaultSeatSpread = { 0f, 0f, 0f };
 
     private static float Seat(float[] table, int style) => table[(int)HandStyles.Clamp(style)];
 
@@ -217,6 +238,14 @@ internal static class HandsConfig
     /// <summary>Active-style seat ROLL (degrees, unmirrored; VRHand negates it for the left hand).</summary>
     public static float SeatRollSafe(int style) =>
         StyleValue(StyleSeatRoll, style, Seat(DefaultSeatRoll, style));
+
+    /// <summary>Active-style seat YAW (degrees, unmirrored; VRHand negates it for the left hand).</summary>
+    public static float SeatYawSafe(int style) =>
+        StyleValue(StyleSeatYaw, style, Seat(DefaultSeatYaw, style));
+
+    /// <summary>Active-style hand SPREAD (meters, unmirrored; VRHand negates it for the left hand).</summary>
+    public static float SeatSpreadSafe(int style) =>
+        StyleValue(StyleSeatSpread, style, Seat(DefaultSeatSpread, style));
 
     // ---- per-STYLE wrist-HUD pose (2026-07 request B) --------------------------------------
     // The watch-face wrist HUD (WorldUI.WristHud) rests on the back of the hand MESH, whose
@@ -396,6 +425,8 @@ internal static class HandsConfig
         StyleSeatVertical = new ConfigEntry<float>[HandStyles.Count];
         StyleSeatForward = new ConfigEntry<float>[HandStyles.Count];
         StyleSeatRoll = new ConfigEntry<float>[HandStyles.Count];
+        StyleSeatYaw = new ConfigEntry<float>[HandStyles.Count];
+        StyleSeatSpread = new ConfigEntry<float>[HandStyles.Count];
         for (int i = 0; i < HandStyles.Count; i++)
         {
             string s = styleNames[i];
@@ -408,10 +439,11 @@ internal static class HandsConfig
             StyleSeatLateral[i] = config.Bind(
                 "Hands", $"{s}LateralOffset",
                 Seat(DefaultSeatLateral, i),
-                $"Lateral offset (meters, device-space X; POSITIVE = toward the thumb side) of the " +
-                $"visual hand from the grip pose while the {s} style is worn. PER-STYLE absolute " +
-                "value (supersedes the old shared HandLateralOffset + trim; seeded on first run). " +
-                "Live-tunable.");
+                $"Lateral offset (meters, device-space X) of the visual hand from the grip pose " +
+                $"while the {s} style is worn. NOT MIRRORED: both hands move the same way, which " +
+                "is what you want when the pair sits off-centre on the controllers — to move them " +
+                $"APART use {s}SpreadOffset. PER-STYLE absolute value. Other players see it, and " +
+                "so do figures and cards held in the hand. Live-tunable.");
             StyleSeatVertical[i] = config.Bind(
                 "Hands", $"{s}VerticalOffset",
                 Seat(DefaultSeatVertical, i),
@@ -434,9 +466,27 @@ internal static class HandsConfig
                 "the same handedness of local axes, so one value applied to both would twist them " +
                 "the same way in world terms and the pair would stop being symmetric. The left " +
                 "hand therefore gets the negated value, and a positive number turns both palms the " +
-                "same way relative to their own side of your body. Purely local and visual — " +
-                "nothing is sent to other players, whose hands are drawn from their own poses. " +
+                "same way relative to their own side of your body. OTHER PLAYERS SEE IT: the pose " +
+                "on the wire is the VISIBLE hand (the sampler reads the seated hand root), and " +
+                "figures and cards held in the hand hang off that same root, so they follow too. " +
                 "Live-tunable — the hands re-seat next frame.");
+            StyleSeatYaw[i] = config.Bind(
+                "Hands", $"{s}GripYawDegrees",
+                Seat(DefaultSeatYaw, i),
+                $"Yaw (degrees) of the visual hand around its up axis while the {s} style is worn — " +
+                "which way the fingers point. MIRRORED BETWEEN THE HANDS exactly like " +
+                $"{s}GripRollDegrees: the left hand gets the negated value, so a positive number " +
+                "turns both hands the same way relative to their own side of your body. Other " +
+                "players see it, and so do figures and cards held in the hand. Live-tunable.");
+            StyleSeatSpread[i] = config.Bind(
+                "Hands", $"{s}SpreadOffset",
+                Seat(DefaultSeatSpread, i),
+                $"How far APART the two hands sit (meters) while the {s} style is worn: POSITIVE " +
+                "moves the left hand left and the right hand right, negative brings them together. " +
+                $"MIRRORED, which is what distinguishes it from {s}LateralOffset — that one shifts " +
+                "both hands the same way in device space (the pair moves together), and no value " +
+                "of it can widen the pair. Other players see it, and so do figures and cards held " +
+                "in the hand. Live-tunable.");
         }
         // PER-STYLE wrist-HUD pose (request B): seed each style from the legacy GLOBAL
         // [WorldUI] WristHud* entries. WorldUIConfig.Bind is idempotent and is called here

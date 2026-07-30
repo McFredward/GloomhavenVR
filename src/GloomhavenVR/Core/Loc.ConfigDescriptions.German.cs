@@ -1598,6 +1598,45 @@ internal static partial class Loc
             // ---- [Hands] ----
             // The per-style ROLL, one entry per style — Loc.ConfigDescription matches section+key
             // exactly, and these keys are built by interpolation, so there is no single row to write.
+            ["Hands/GloveGripYawDegrees"] =
+                "Gierwinkel (Grad) der sichtbaren Hand um ihre Hochachse, während der Handstil Glove "
+                + "(Lederhandschuh) getragen wird — wohin die Finger zeigen. WIRD GESPIEGELT wie der "
+                + "Rollwinkel: die linke Hand erhält den negierten Wert, eine positive Zahl dreht "
+                + "also beide Hände gleich herum bezogen auf die jeweilige Körperseite. Mitspieler "
+                + "sehen es, und gehaltene Figuren und Karten folgen mit. Live änderbar.",
+            ["Hands/GloveSpreadOffset"] =
+                "Wie weit die beiden Hände AUSEINANDER sitzen (Meter), während der Handstil Glove "
+                + "(Lederhandschuh) getragen wird: POSITIV schiebt die linke Hand nach links und die rechte "
+                + "nach rechts, negativ führt sie zusammen. GESPIEGELT — genau das unterscheidet es "
+                + "von LateralOffset, das beide Hände gleichsinnig verschiebt (das Paar wandert "
+                + "gemeinsam) und mit keinem Wert den Abstand ändern kann. Mitspieler sehen es, und "
+                + "gehaltene Figuren und Karten folgen mit. Live änderbar.",
+            ["Hands/PlateGripYawDegrees"] =
+                "Gierwinkel (Grad) der sichtbaren Hand um ihre Hochachse, während der Handstil Plate "
+                + "(Panzerhandschuh) getragen wird — wohin die Finger zeigen. WIRD GESPIEGELT wie der "
+                + "Rollwinkel: die linke Hand erhält den negierten Wert, eine positive Zahl dreht "
+                + "also beide Hände gleich herum bezogen auf die jeweilige Körperseite. Mitspieler "
+                + "sehen es, und gehaltene Figuren und Karten folgen mit. Live änderbar.",
+            ["Hands/PlateSpreadOffset"] =
+                "Wie weit die beiden Hände AUSEINANDER sitzen (Meter), während der Handstil Plate "
+                + "(Panzerhandschuh) getragen wird: POSITIV schiebt die linke Hand nach links und die rechte "
+                + "nach rechts, negativ führt sie zusammen. GESPIEGELT — genau das unterscheidet es "
+                + "von LateralOffset, das beide Hände gleichsinnig verschiebt (das Paar wandert "
+                + "gemeinsam) und mit keinem Wert den Abstand ändern kann. Mitspieler sehen es, und "
+                + "gehaltene Figuren und Karten folgen mit. Live änderbar.",
+            ["Hands/ArcaneGripYawDegrees"] =
+                "Gierwinkel (Grad) der sichtbaren Hand um ihre Hochachse, während der Handstil Arcane "
+                + "(Magierhandschuh) getragen wird — wohin die Finger zeigen. WIRD GESPIEGELT wie der "
+                + "Rollwinkel: die linke Hand erhält den negierten Wert, eine positive Zahl dreht "
+                + "also beide Hände gleich herum bezogen auf die jeweilige Körperseite. Mitspieler "
+                + "sehen es, und gehaltene Figuren und Karten folgen mit. Live änderbar.",
+            ["Hands/ArcaneSpreadOffset"] =
+                "Wie weit die beiden Hände AUSEINANDER sitzen (Meter), während der Handstil Arcane "
+                + "(Magierhandschuh) getragen wird: POSITIV schiebt die linke Hand nach links und die rechte "
+                + "nach rechts, negativ führt sie zusammen. GESPIEGELT — genau das unterscheidet es "
+                + "von LateralOffset, das beide Hände gleichsinnig verschiebt (das Paar wandert "
+                + "gemeinsam) und mit keinem Wert den Abstand ändern kann. Mitspieler sehen es, und "
+                + "gehaltene Figuren und Karten folgen mit. Live änderbar.",
             ["Hands/GloveGripRollDegrees"] =
                 "Rollwinkel (Grad) der sichtbaren Hand um die Vorwärtsachse des Controllers, während der "
                 + "Handstil Glove (Lederhandschuh) getragen wird — die Verdrehung, die eine Hand auf dem Controller "
@@ -1605,8 +1644,9 @@ internal static partial class Loc
                 + "Achsen gleicher Händigkeit, ein unverändert auf beide angewandter Wert würde sie also in "
                 + "Weltkoordinaten gleichsinnig verdrehen und das Paar unsymmetrisch machen. Die linke Hand "
                 + "erhält daher den negierten Wert, und eine positive Zahl dreht beide Handflächen gleich "
-                + "herum bezogen auf die jeweilige Körperseite. Rein lokal und optisch — an Mitspieler wird "
-                + "nichts gesendet, deren Hände werden aus ihren eigenen Posen gezeichnet. Live änderbar.",
+                + "herum bezogen auf die jeweilige Körperseite. MITSPIELER SEHEN ES: auf der Leitung liegt die "
+                + "SICHTBARE Hand, und in der Hand gehaltene Figuren und Karten hängen an derselben "
+                + "Wurzel und folgen mit. Live änderbar.",
             ["Hands/PlateGripRollDegrees"] =
                 "Rollwinkel (Grad) der sichtbaren Hand um die Vorwärtsachse des Controllers, während der "
                 + "Handstil Plate (Panzerhandschuh) getragen wird — die Verdrehung, die eine Hand auf dem Controller "
@@ -1614,8 +1654,9 @@ internal static partial class Loc
                 + "Achsen gleicher Händigkeit, ein unverändert auf beide angewandter Wert würde sie also in "
                 + "Weltkoordinaten gleichsinnig verdrehen und das Paar unsymmetrisch machen. Die linke Hand "
                 + "erhält daher den negierten Wert, und eine positive Zahl dreht beide Handflächen gleich "
-                + "herum bezogen auf die jeweilige Körperseite. Rein lokal und optisch — an Mitspieler wird "
-                + "nichts gesendet, deren Hände werden aus ihren eigenen Posen gezeichnet. Live änderbar.",
+                + "herum bezogen auf die jeweilige Körperseite. MITSPIELER SEHEN ES: auf der Leitung liegt die "
+                + "SICHTBARE Hand, und in der Hand gehaltene Figuren und Karten hängen an derselben "
+                + "Wurzel und folgen mit. Live änderbar.",
             ["Hands/ArcaneGripRollDegrees"] =
                 "Rollwinkel (Grad) der sichtbaren Hand um die Vorwärtsachse des Controllers, während der "
                 + "Handstil Arcane (Magierhandschuh) getragen wird — die Verdrehung, die eine Hand auf dem Controller "
@@ -1623,8 +1664,9 @@ internal static partial class Loc
                 + "Achsen gleicher Händigkeit, ein unverändert auf beide angewandter Wert würde sie also in "
                 + "Weltkoordinaten gleichsinnig verdrehen und das Paar unsymmetrisch machen. Die linke Hand "
                 + "erhält daher den negierten Wert, und eine positive Zahl dreht beide Handflächen gleich "
-                + "herum bezogen auf die jeweilige Körperseite. Rein lokal und optisch — an Mitspieler wird "
-                + "nichts gesendet, deren Hände werden aus ihren eigenen Posen gezeichnet. Live änderbar.",
+                + "herum bezogen auf die jeweilige Körperseite. MITSPIELER SEHEN ES: auf der Leitung liegt die "
+                + "SICHTBARE Hand, und in der Hand gehaltene Figuren und Karten hängen an derselben "
+                + "Wurzel und folgen mit. Live änderbar.",
             ["Hands/GlovePinkyCounterAbduction"] =
                 "Nur Handstil GLOVE: Grad Gegen-Abspreizung (Drehung um das lokale Z der Kleinfinger-Wurzel = "
                 + "Handflächen-Normale), angewandt bei voller Krümmung und mit dem Krümmungswert skaliert. Der "

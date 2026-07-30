@@ -118,6 +118,12 @@ internal sealed class VRHand : MonoBehaviour
 
     /// <summary>Roll already on the hand root, ALREADY MIRRORED for this side (NaN = never applied).</summary>
     private float _appliedGripRoll = float.NaN;
+
+    /// <summary>Yaw already on the hand root, ALREADY MIRRORED for this side (NaN = never applied).</summary>
+    private float _appliedGripYaw = float.NaN;
+
+    /// <summary>Spread already folded into the hand root's X, ALREADY MIRRORED (NaN = never applied).</summary>
+    private float _appliedSpread = float.NaN;
     private float _appliedLateralOffset = float.NaN;
     private float _appliedVerticalOffset = float.NaN;
     private float _appliedForwardOffset = float.NaN;
@@ -414,7 +420,16 @@ internal sealed class VRHand : MonoBehaviour
         // both palms the same way relative to their own side of the body, which is what "roll the
         // hands" means to the person wearing them. Pitch needs no such flip: fingers-down is
         // fingers-down on both sides.
-        float roll = HandsConfig.SeatRollSafe(style) * (Side == HandSide.Left ? -1f : 1f);
+        float mirror = Side == HandSide.Left ? -1f : 1f;
+        float roll = HandsConfig.SeatRollSafe(style) * mirror;
+        float yaw = HandsConfig.SeatYawSafe(style) * mirror;
+
+        // SPREAD is a MIRRORED lateral offset and therefore a second control, not a replacement:
+        // `lateral` shifts both hands the same way in device space (the pair moves together, right
+        // when the whole pair sits off-centre on the controllers), and no value of it can move the
+        // hands APART. Spread adds the mirrored term, so positive takes the left hand left and the
+        // right hand right.
+        float spread = HandsConfig.SeatSpreadSafe(style) * mirror;
 
         float scale = HandVisuals.StyleScale((HandStyle)style);
         if (pitch == _appliedGripPitch
@@ -422,6 +437,8 @@ internal sealed class VRHand : MonoBehaviour
             && vertical == _appliedVerticalOffset
             && forward == _appliedForwardOffset
             && roll == _appliedGripRoll
+            && yaw == _appliedGripYaw
+            && spread == _appliedSpread
             && scale == _appliedStyleScale)
             return;
         _appliedGripPitch = pitch;
@@ -429,8 +446,18 @@ internal sealed class VRHand : MonoBehaviour
         _appliedVerticalOffset = vertical;
         _appliedForwardOffset = forward;
         _appliedGripRoll = roll;
-        _handRoot.localPosition = new Vector3(lateral, vertical, forward);
-        _handRoot.localRotation = Quaternion.Euler(-pitch, 0f, roll);
+        _appliedGripYaw = yaw;
+        _appliedSpread = spread;
+
+        // EVERYTHING IN THE HAND COMES ALONG, and it does so by construction rather than by anyone
+        // remembering to update it. The rig's anchors and sockets (PalmCenter, GrabAnchor, the
+        // finger tips) are descendants of _handRoot, and a grabbed figure or a held card is
+        // PARENTED to one of those sockets — so every value written here moves the contents of the
+        // hand with the hand, and the held-object offsets stay what they say they are: relative to
+        // the hand. The same parenting is why other players see all of it: the pose on the wire is
+        // sampled from Rig.Root, which IS this transform.
+        _handRoot.localPosition = new Vector3(lateral + spread, vertical, forward);
+        _handRoot.localRotation = Quaternion.Euler(-pitch, yaw, roll);
         if (Rig != null)
         {
             // Live scale re-apply (stepper/config edit): scales the hand subtree and
