@@ -182,13 +182,42 @@ internal sealed class WorldTooltips
         public Quaternion OriginalLocalRotation;
     }
 
+    /// <summary>
+    /// Is the game's own pause menu (and with it the options window, and the mod's VR Options tab
+    /// inside it) currently open?
+    ///
+    /// <para>THERE IS ONLY ONE TOOLTIP IN THE GAME. <c>CanvasManager.tooltipCanvas</c> is a single
+    /// shared canvas, so the world-space presentation below — flipped to WorldSpace and parked above
+    /// the control board, which is right for hovering a figure or a card — was also what the VR
+    /// Options rows got when they were hovered during a scenario: the hint left the menu and hung in
+    /// the room in front of the board, turned to face the player rather than lying on the page. In
+    /// the main menu the same rows behave, because Menu2D never converts at all.</para>
+    ///
+    /// <para>So the menu gets the menu's answer: while it is up, the canvas stays screen-space and
+    /// reaches the player through the flat screen exactly as it does in the main menu. This is a
+    /// gate, not a special case — <see cref="Restore"/> already undoes the conversion completely and
+    /// is called on every frame the presentation is not wanted, so opening and closing the menu
+    /// mid-scenario simply hands the tooltip back and forth.</para>
+    ///
+    /// <para>The parent stays open behind a sub-menu (the same fact <c>OptionsToggle</c> relies on
+    /// for its own state), so testing the ESC menu covers Options and every window under it.</para>
+    /// </summary>
+    private static bool MenuIsUp()
+    {
+        if (!Singleton<ESCMenu>.IsInitialized)
+            return false;
+        ESCMenu? menu = Singleton<ESCMenu>.Instance;
+        return menu != null && menu.IsOpen;
+    }
+
     public void LateTick()
     {
         // Menu2D keeps the vanilla 2D tooltip path (UICamera → FlatScreen RT); every
         // scenario mode (incl. ModalUI/BoardTargeting — Recompute() only leaves
         // Menu2D while a scenario runs) gets the world-space presentation.
         bool modeWantsTooltip = WorldUIConfig.Tooltips.Value && WorldUIConfig.ConversionActive
-                                && VRModeStateMachine.CurrentMode != VRMode.Menu2D;
+                                && VRModeStateMachine.CurrentMode != VRMode.Menu2D
+                                && !MenuIsUp();
         // User #7c: the in-VR settings toggle gates the whole world-space presentation.
         // Read live so a flip takes effect without a restart; the 2D menu tooltip (Menu2D
         // path above) is never touched by this gate.

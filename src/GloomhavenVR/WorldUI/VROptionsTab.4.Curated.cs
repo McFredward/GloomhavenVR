@@ -6,8 +6,8 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// The curated everyday view: six categories of settings a player actually reaches for, chosen by
-/// hand, plus "Erweitert" which still reaches every one of the mod's ~440 entries.
+/// The curated everyday view: the categories of settings a player actually reaches for, chosen by
+/// hand, plus "Debug" which still reaches every one of the mod's remaining entries.
 ///
 /// <para>WHY CURATION IS AN EXPLICIT LIST AND NOT A RULE. Every mechanical shortcut tried on this
 /// data fails on real entries. Sorting by topic leaves migration flags like
@@ -71,14 +71,18 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// THE SAME FIVE TABS THE MOD'S OWN PANEL USED — Komfort, Grafik, Tafeln, Avatar, Debug — and
-    /// the same reasoning behind them: each names what the player is trying to DO (sit comfortably,
-    /// make the picture right, deal with the mod's panels, decide how they look, tune). That
-    /// arrangement was arrived at once already; re-deriving it differently here would only make the
-    /// two menus disagree during the changeover.
+    /// THE TABS THE MOD'S OWN PANEL USED — Komfort, Grafik, Tafeln, Avatar, Debug — and the same
+    /// reasoning behind them: each names what the player is trying to DO (sit comfortably, make the
+    /// picture right, deal with the mod's panels, decide how they look, tune). That arrangement was
+    /// arrived at once already; re-deriving it differently would only make the menu disagree with
+    /// itself.
+    ///
+    /// <para>MULTIPLAYER JOINED THEM because it failed that test: it was a section inside Avatar, so
+    /// "how much of other players' boards you see" was filed under how your own hands look. It names
+    /// something a player is trying to do, so it is a tab.</para>
     ///
     /// <para>Section headers inside a tab are one navigation level cheaper than another tab, which
-    /// is why grouping happens there and the tab count stays at five.</para>
+    /// is why grouping happens there and a new tab has to earn itself.</para>
     ///
     /// <para>DEBUG IS THE ODD ONE and gets no hand-picked list at all. Hand-curating several
     /// hundred tuning constants would be guesswork with no user to serve, and any list would rot
@@ -149,7 +153,6 @@ internal static partial class VROptionsTab
                         new("Compat", "WallFade", "wall_see_through"),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
                         new("Rig", "MenuRig", "vr_o_menurig"),
-                        new("Rig", "SpawnInCircle", "vr_o_circle"),
                     },
                 },
                 new()
@@ -222,6 +225,15 @@ internal static partial class VROptionsTab
         },
         new()
         {
+            // AVATAR WAS ALMOST ENTIRELY DEAD. Of its six appearance rows only HandStyle did
+            // anything: four were the shared hand-seat keys, superseded by absolute per-style keys
+            // and marked "LEGACY — no effect" in their own descriptions, and the fifth was
+            // HandColor — an RRGGBB string, so the left/right stepper had nothing to step and the
+            // player pressed a control that could not move. It also only ever tinted the
+            // PROCEDURAL fallback hand, which nobody wearing one of the three hand models sees.
+            // The live successors ({Style}Scale, {Style}GripPitchDegrees, …) are per-style and
+            // per-controller calibration; the ones a player actually chooses are here, the rest
+            // stay under Erweitert.
             LocKey = "avatar",
             Sections = new CuratedSection[]
             {
@@ -231,23 +243,49 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Hands", "HandStyle", "hands"),
-                        new("Hands", "HandColor", "vr_o_handcolor"),
-                        new("Hands", "HandForwardOffset", "vr_o_handfwd"),
-                        new("Hands", "HandVerticalOffset", "hand_y"),
-                        new("Hands", "HandLateralOffset", "hand_x"),
-                        new("Hands", "GripPitchOffsetDegrees", "vr_o_grippitch"),
+                        new("Hands", "GloveScale", "vr_o_glovescale"),
+                        new("Hands", "PlateScale", "vr_o_platescale"),
+                        new("Hands", "ArcaneScale", "vr_o_arcanescale"),
                     },
                 },
                 new()
                 {
-                    LocKey = "sec_multiplayer",
+                    LocKey = "vr_sec_mirror",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Net", "MirrorEnabled", "mirror"),
+                    },
+                },
+            },
+        },
+        new()
+        {
+            // MULTIPLAYER IS ITS OWN AREA NOW. These rows had been a section inside Avatar, which
+            // put "how much of other players' boards you see" under the heading for how your own
+            // hands look. What stays in Avatar is what you choose about YOURSELF and can check on
+            // your own; what moved here is everything that only means anything once someone else
+            // is in the game. Rig/SpawnInCircle comes along from the Graphics tab for the same
+            // reason: its own description opens with "Multiplayer:".
+            LocKey = "cat_multiplayer",
+            Sections = new CuratedSection[]
+            {
+                new()
+                {
+                    LocKey = "vr_sec_mp_presence",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Net", "Enabled", "vr_o_netenabled"),
+                        new("Rig", "SpawnInCircle", "vr_o_circle"),
+                        new("Net", "RemoteBoards", "remote_boards"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "vr_sec_mp_avatar",
                     Entries = new CuratedEntry[]
                     {
                         new("Net", "MaskId", "head_mask"),
                         new("Net", "MaskSize", "mask_size"),
-                        new("Net", "MirrorEnabled", "mirror"),
-                        new("Net", "Enabled", "vr_o_netenabled"),
-                        new("Net", "RemoteBoards", "remote_boards"),
                     },
                 },
             },

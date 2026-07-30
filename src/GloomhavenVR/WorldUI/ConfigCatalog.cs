@@ -269,6 +269,7 @@ internal static class ConfigCatalog
             Topics[i].Clear();
         TotalEntries = 0;
         ReadOnlyEntries = 0;
+        RetiredEntries = 0;
 
         var items = new List<ConfigItem>(512);
         KeyValuePair<string, ConfigFile>[] files = ModuleConfig.Snapshot();
@@ -315,17 +316,63 @@ internal static class ConfigCatalog
 
         VRLog.Info("Config", $"In-VR config browser catalogued {TotalEntries} entries from "
                              + $"{files.Length} config files ({ReadOnlyEntries} free-text/unsupported, "
-                             + "shown read-only).");
+                             + $"shown read-only; {RetiredEntries} left out as retired — their own "
+                             + "description says they no longer do anything).");
     }
 
     // ==========================================================================================
     //  Per-entry description
     // ==========================================================================================
 
+    /// <summary>
+    /// Prefixes the project already uses to mark an entry as RETIRED — it is still bound so old
+    /// config files keep loading, but changing it does nothing.
+    ///
+    /// <para>Matched as a PREFIX, never as a substring: "does nothing" occurs in perfectly live
+    /// descriptions ("[General] Enabled … the mod does nothing", "[Optimize] RemoteContentInterval
+    /// … does nothing at all in single player"), and a substring test would have hidden three
+    /// working settings. The prefix is the deliberate marker; the phrase is ordinary prose.</para>
+    /// </summary>
+    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —" };
+
+    /// <summary>Entries left out of the catalog because they are marked retired.</summary>
+    internal static int RetiredEntries { get; private set; }
+
+    /// <summary>
+    /// True when this entry's own description says it no longer does anything. Read from the
+    /// ENGLISH bound description (the one the mod authored), not from the translated text, so a
+    /// translation can never accidentally hide or reveal a setting.
+    /// </summary>
+    private static bool IsRetired(ConfigEntryBase entry)
+    {
+        string? text = entry.Description?.Description;
+        if (string.IsNullOrEmpty(text))
+            return false;
+        for (int i = 0; i < RetiredMarkers.Length; i++)
+        {
+            if (text!.StartsWith(RetiredMarkers[i], StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
     private static ConfigItem? Describe(string module, ConfigDefinition def, ConfigEntryBase entry)
     {
         if (entry == null)
             return null;
+
+        // A SETTING THAT DOES NOTHING IS WORSE THAN A MISSING ONE: the player turns the dial,
+        // nothing happens, and they are left doubting the mod rather than the row. Thirty entries
+        // are in this state — the four shared hand-seat keys and their twelve per-style trims
+        // (superseded by absolute per-style keys), six FigureGrab and seven Cards constants, and
+        // one reserved placeholder — and five of them were sitting in the everyday Avatar tab.
+        // They stay BOUND so existing config files keep loading; they simply stop being offered.
+        if (IsRetired(entry))
+        {
+            RetiredEntries++;
+            return null;
+        }
+
         try
         {
             var item = new ConfigItem
@@ -411,16 +458,7 @@ internal static class ConfigCatalog
         {
             item.Kind = ConfigKind.Number;
             item.Integral = IsIntegral(t);
-            // STEP SIZE IS DERIVED, never guessed at a fixed 0.01 — this pane spans values from a
-            // 0.001 m offset to a 400 mm canvas, and one step size cannot serve both. With a range
-            // the step is a fiftieth of it; without one it is a hundredth of the DEFAULT's
-            // magnitude (the default, not the current value, so the step never drifts as you
-            // tune). Both are snapped to a 1/2/5 grid so the readout lands on round numbers, and
-            // the pane's Fein/Grob dial then covers a further factor of a hundred.
-            double raw = item.HasRange
-                ? (item.Max - item.Min) / 50d
-                : Magnitude(item.Entry.DefaultValue) / 100d;
-            item.BaseStep = NiceStep(raw > 0d ? raw : (item.Integral ? 1d : 0.01d), item.Integral);
+            item.BaseStep = ResolveStep(item);
             return;
         }
 
@@ -501,6 +539,73 @@ internal static class ConfigCatalog
         }
     }
 
+    /// <summary>
+    /// How far one ◀ / ▶ press moves this entry, in four falling steps.
+    ///
+    /// <list type="number">
+    /// <item><description>A step WRITTEN DOWN for this entry (<see cref="ConfigSteps"/>) — every
+    /// curated everyday row, where the right step is a judgement about the setting.</description></item>
+    /// <item><description>The unit named in the key — degrees step in degrees, metres in
+    /// centimetres — but never finer than the value's own scale. This is what replaced "a hundredth
+    /// of the default's magnitude", which had no answer at all for the twenty-eight entries whose
+    /// default is 0 and gave the WORLD TILT a step of 0.01°.</description></item>
+    /// <item><description>A fiftieth of the declared range, or of the DEFAULT's magnitude when
+    /// there is no range (the default, not the current value, so the step never drifts as you
+    /// tune) — the last resort, and the only one that can serve a depth-buffer epsilon of
+    /// 0.0002.</description></item>
+    /// </list>
+    ///
+    /// <para>Then two guards. A step is snapped to a 1/2/5 grid so the readout lands on round
+    /// numbers, and it is capped at a quarter of the declared range — a step that crosses its own
+    /// range in three presses is a choice list wearing a stepper's clothes.</para>
+    /// </summary>
+    private static double ResolveStep(ConfigItem item)
+    {
+        // A WRITTEN-DOWN STEP IS RETURNED AS WRITTEN. It is neither snapped nor capped: snap-turn's
+        // 15° is deliberately off the 1/2/5 grid, and NiceStep rounded it to 20° — turning the one
+        // value in the table chosen for what players actually want into one nobody asked for.
+        if (ConfigSteps.TryExplicit(item.Section, item.Key, out double step))
+            return step;
+
+        // A fiftieth of the value's own scale: whatever the entry is, about fifty presses should
+        // cross the span it is plausibly tuned over.
+        double own = item.HasRange
+            ? (item.Max - item.Min) / 50d
+            : Magnitude(item.Entry.DefaultValue) / 50d;
+
+        if (ConfigSteps.TryUnit(item.Key, out step))
+        {
+                // THE UNIT GIVES THE RESOLUTION AND NOTHING ELSE, so the value's own magnitude
+                // bounds it from both sides — the rule failed in both directions when it did not.
+                // Too fine: [Perf] SummaryIntervalSeconds sits at 30 s and stepped in twentieths of
+                // a second, six hundred presses to double it. Too coarse: [Cards] FanFollowDeadzone
+                // is 0.004 and "Deadzone" would have stepped it by 0.05, twelve times the whole
+                // value, so one press could only overshoot.
+                //
+                // The bounds apply only when there IS a magnitude. A default of 0 is precisely the
+                // case the unit rule exists for — it is what the world tilt has — and zero must not
+                // bound anything.
+            double magnitude = Magnitude(item.Entry.DefaultValue);
+            if (magnitude > 0d)
+                step = Math.Min(Math.Max(step, own), magnitude / 4d);
+        }
+        else
+        {
+            step = own > 0d ? own : (item.Integral ? 1d : 0.01d);
+        }
+
+        step = NiceStep(step, item.Integral);
+
+        if (item.HasRange)
+        {
+            double quarter = (item.Max - item.Min) / 4d;
+            if (quarter > 0d && step > quarter)
+                step = NiceStep(quarter, item.Integral);
+        }
+
+        return step;
+    }
+
     /// <summary>Round a raw step to 1/2/5 x 10^k so the readout lands on round numbers.</summary>
     private static double NiceStep(double raw, bool integral)
     {
@@ -512,7 +617,10 @@ internal static class ConfigCatalog
         double pow = Math.Pow(10d, exp);
         double m = raw / pow;
         double snapped = m < 1.5d ? 1d : m < 3.5d ? 2d : m < 7.5d ? 5d : 10d;
-        return Math.Max(0.001d, snapped * pow);
+        // Floor at a millionth, not a thousandth: the old floor was five times LARGER than
+        // [HexHighlight] StableDepthBias's whole value (0.0002), so its stepper could only ever
+        // overshoot. Nothing a player meets is anywhere near this small.
+        return Math.Max(0.000001d, snapped * pow);
     }
 
     // ==========================================================================================
@@ -925,9 +1033,10 @@ internal static class ConfigCatalog
                 case ConfigKind.Choice:
                     return v?.ToString() ?? "-";
                 case ConfigKind.Number:
-                    return Num(Convert.ToDouble(v, CultureInfo.InvariantCulture), item.Integral);
+                    return Num(Convert.ToDouble(v, CultureInfo.InvariantCulture), item.Integral,
+                               item.BaseStep);
                 case ConfigKind.Components:
-                    return Num(Component(v, component), false);
+                    return Num(Component(v, component), false, item.BaseStep);
                 default:
                     string s = v?.ToString() ?? string.Empty;
                     return string.IsNullOrEmpty(s) ? Loc.Mod("cfg_empty") : Clip(s, 22);
@@ -939,13 +1048,35 @@ internal static class ConfigCatalog
         }
     }
 
-    private static string Num(double v, bool integral)
+    /// <summary>
+    /// The readout for one number.
+    ///
+    /// <para>THE PRECISION FOLLOWS THE STEP, not the magnitude. Formatting by magnitude alone means
+    /// a value can be shown to fewer decimals than one press changes it by — and then the player
+    /// presses ◀ / ▶, the value moves, and the row does not: the control reads as broken while
+    /// working perfectly. Showing at least enough decimals to see one step makes every press
+    /// visible, which is the only way a stepper can be trusted.</para>
+    ///
+    /// <para><paramref name="step"/> is 0 where there is no stepper (the range readout below), and
+    /// the magnitude rule then applies on its own as before.</para>
+    /// </summary>
+    private static string Num(double v, bool integral, double step = 0d)
     {
         if (integral)
             return v.ToString("0", CultureInfo.InvariantCulture);
+
         double abs = Math.Abs(v);
-        string fmt = abs >= 100d ? "0.#" : abs >= 1d ? "0.##" : "0.####";
-        return v.ToString(fmt, CultureInfo.InvariantCulture);
+        int decimals = abs >= 100d ? 1 : abs >= 1d ? 2 : 4;
+
+        if (step > 0d && step < 1d)
+        {
+            // Decimals needed to show one step: 0.05 → 2, 0.002 → 3. Capped at six, which is the
+            // floor NiceStep can produce.
+            int needed = (int)Math.Ceiling(-Math.Log10(step) - 1e-9);
+            decimals = Math.Max(decimals, Math.Min(6, needed));
+        }
+
+        return v.ToString("0." + new string('#', decimals), CultureInfo.InvariantCulture);
     }
 
     private static double Component(object? boxed, int c) => boxed switch

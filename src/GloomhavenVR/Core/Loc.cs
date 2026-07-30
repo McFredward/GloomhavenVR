@@ -192,7 +192,7 @@ internal static partial class Loc
         // Debug pane pointer: the board SELECTION is a user feature and lives in Avatar; the Debug
         // pane only says which board its tuning rows are editing and jumps you to the picker, so
         // there are never two controls writing the same setting from two places.
-        // ---- 2026-07 menu restructure: the five sidebar tabs + the section headers ----------
+        // ---- 2026-07 menu restructure: the sidebar tabs + the section headers ---------------
         // NAMES ARE ONE WORD ON PURPOSE. The sidebar column is a PINNED 132 px (SettingsPanel
         // .BuildColumn) and its buttons render at fontSize 15 in a 30 px row, so a two-word tab
         // name wraps and clips. Every tab therefore gets a single noun that says what the player
@@ -243,9 +243,9 @@ internal static partial class Loc
         ["vr_o_inspectscale"] = Pair("Close-up size", "Nahansicht"),
         ["vr_o_revealmode"] = Pair("Fan opens by", "Fächer öffnen"),
         ["vr_o_grabbutton"] = Pair("Grab button", "Greif-Taste"),
-        ["vr_o_handcolor"] = Pair("Hand colour", "Handfarbe"),
-        ["vr_o_handfwd"] = Pair("Hands forward / back", "Hände vor / zurück"),
-        ["vr_o_grippitch"] = Pair("Grip angle", "Griffwinkel"),
+        ["vr_o_glovescale"] = Pair("Glove size", "Handschuh-Größe"),
+        ["vr_o_platescale"] = Pair("Gauntlet size", "Panzerhandschuh-Größe"),
+        ["vr_o_arcanescale"] = Pair("Mage glove size", "Magierhandschuh-Größe"),
         ["vr_o_netenabled"] = Pair("Multiplayer sync", "Mehrspieler-Abgleich"),
         // Boolean rows say what they ARE, the way the game's own settings do.
         ["vr_on"] = Pair("On", "Ein"),
@@ -295,11 +295,9 @@ internal static partial class Loc
         ["h_vr_o_revealmode"] = Pair("Whether turning your wrist opens the card fan, or it is always out.", "Ob ein Drehen des Handgelenks den Fächer öffnet oder er immer offen ist."),
         ["h_vr_o_grabbutton"] = Pair("Which button picks a card up.", "Mit welcher Taste du eine Karte aufnimmst."),
         ["h_hands"] = Pair("How your hands look — gloves, bare, or a simple shape.", "Wie deine Hände aussehen — Handschuhe, bloß oder einfache Form."),
-        ["h_vr_o_handcolor"] = Pair("The colour of your hands.", "Die Farbe deiner Hände."),
-        ["h_vr_o_handfwd"] = Pair("Moves your hands forward or back if they sit wrong.", "Verschiebt die Hände vor oder zurück, wenn sie falsch sitzen."),
-        ["h_hand_y"] = Pair("Moves your hands up or down if they sit wrong.", "Verschiebt die Hände hoch oder runter, wenn sie falsch sitzen."),
-        ["h_hand_x"] = Pair("Moves your hands left or right if they sit wrong.", "Verschiebt die Hände nach links oder rechts, wenn sie falsch sitzen."),
-        ["h_vr_o_grippitch"] = Pair("Tilts your hands to match how you hold the controller.", "Neigt die Hände passend dazu, wie du den Controller hältst."),
+        ["h_vr_o_glovescale"] = Pair("How large the leather glove is on your hand.", "Wie groß der Lederhandschuh an deiner Hand ist."),
+        ["h_vr_o_platescale"] = Pair("How large the armoured gauntlet is on your hand.", "Wie groß der Panzerhandschuh an deiner Hand ist."),
+        ["h_vr_o_arcanescale"] = Pair("How large the mage glove is on your hand.", "Wie groß der Magierhandschuh an deiner Hand ist."),
         ["h_head_mask"] = Pair("The mask other players see on your face.", "Die Maske, die andere Spieler in deinem Gesicht sehen."),
         ["h_mask_size"] = Pair("How large your mask is.", "Wie groß deine Maske ist."),
         ["h_mirror"] = Pair("A mirror in front of you so you can see your own mask and hands.", "Ein Spiegel vor dir, damit du Maske und Hände selbst siehst."),
@@ -325,7 +323,12 @@ internal static partial class Loc
         ["sec_hands_aim"] = Pair("Hands & aiming", "Hände & Zielen"),
         ["sec_presentation"] = Pair("Presentation", "Darstellung"),
         ["sec_appearance"] = Pair("Appearance", "Aussehen"),
-        ["sec_multiplayer"] = Pair("Multiplayer", "Mehrspieler"),
+        // The Multiplayer TAB and its sections. Multiplayer used to be a section inside Avatar,
+        // which filed "how much of other players' boards you see" under how your own hands look.
+        ["cat_multiplayer"] = Pair("Multiplayer", "Mehrspieler"),
+        ["vr_sec_mp_presence"] = Pair("Playing together", "Zusammen spielen"),
+        ["vr_sec_mp_avatar"] = Pair("What others see of you", "Was andere von dir sehen"),
+        ["vr_sec_mirror"] = Pair("Check yourself", "Dich selbst sehen"),
         // Rows whose captions used to be German literals in SettingsPanel.3.Content.cs. They move
         // between tabs in this restructure, so they are localized on the way (the whole mod is
         // localized — a moved row must not arrive as a hardcoded string).
@@ -353,8 +356,6 @@ internal static partial class Loc
         // qualifiers is what keeps the two rows from reading as duplicates of each other. German
         // "Fixiert" is the word engraved on the plate itself (Loc "pinned"), not a new term.
         ["hands"] = Pair("Hands", "Hände"),
-        ["hand_x"] = Pair("Hand X (lateral)", "Hand X (seitlich)"),
-        ["hand_y"] = Pair("Hand Y (up)", "Hand Y (hoch)"),
         ["cat_buttons"] = Pair("Buttons", "Tasten"),
         ["cat_panels"] = Pair("Panels", "Tafeln"),
         // Ghost hand: the fan-carrying hand fades while the fan is open ([Hands] GhostHandOnFan).

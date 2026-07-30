@@ -244,8 +244,8 @@ internal static partial class VROptionsTab
         for (int i = 0; i < Curated.Length; i++)
             BuildCategoryButton(bar, i, Curated[i].Label);
 
-        // Debug last, and set apart by being last: the four everyday tabs read as the menu, and
-        // the tuning constants are one deliberate step further in.
+        // Debug last, and set apart by being last: the everyday tabs read as the menu, and the
+        // tuning constants are one deliberate step further in.
         BuildCategoryButton(bar, AdvancedTabIndex, Loc.Mod("cat_debug"));
     }
 
