@@ -114,6 +114,8 @@ case "${1:-check}" in
             || { echo "error: frame ordering drifted (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-mirrors.sh" \
             || { echo "error: mirrored constants drifted (see above)" >&2; exit 1; }
+        python3 "$ROOT/scripts/check-remote-defaults.py" \
+            || { echo "error: remote rendering drifted from the local defaults (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         snapshot "$CURR"

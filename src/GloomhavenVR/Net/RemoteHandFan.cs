@@ -106,8 +106,8 @@ internal sealed class RemoteHandFan
         Transform anchor = owner.PalmAnchorFor(holder) ?? holder;
         return anchor.position + anchor.up * (PalmOffset * owner.AppliedScale);
     }
-    private const float Radius = 0.1792f;                          // CardsConfig.FanEffectiveRadius
-    private const float ArcSweepDegrees = 91f;                     // CardsConfig.FanArcSweepDegrees
+    private const float Radius = 0.2192f;                          // CardsConfig.FanEffectiveRadius
+    private const float ArcSweepDegrees = 103f;                     // CardsConfig.FanArcSweepDegrees
     private const float PerCardStepDegrees = 14f;                  // CardsConfig.FanPerCardStepDegrees
     private const float ArchFactor = 0.55f;                        // CardsConfig.FanFlatCurvatureFactor
     private const float TiltFactor = 0.85f;                        // CardsConfig.FanTiltFactor
@@ -172,7 +172,7 @@ internal sealed class RemoteHandFan
     // to its own slot), but the remote ghost simply appeared fully spread the instant the count
     // arrived — a pop, not a raise. Seconds since this fan became visible; -1 = settled.
     private float _openElapsed = -1f;
-    private const float OpenSeconds = 0.18f;    // CardsConfig.FanOpenDuration
+    private const float OpenSeconds = 0.14f;    // CardsConfig.FanOpenDuration
     private const float OpenStagger = 0.02f;    // CardsConfig.FanOpenStagger (ripples outward)
 
     /// <summary>Ease-out cubic progress (0..1) of card <paramref name="i"/> in the fan-out reveal —
