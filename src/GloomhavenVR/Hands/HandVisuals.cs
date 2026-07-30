@@ -265,7 +265,8 @@ internal static class HandVisuals
 
         _bundle = AssetBundle.LoadFromFile(bundlePath);
         if (_bundle == null)
-            VRLog.Warn("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active.");
+            VRLog.Warn("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active. " +
+                                $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
         return _bundle;
     }
 
