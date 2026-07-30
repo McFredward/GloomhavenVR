@@ -243,9 +243,12 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Hands", "HandStyle", "hands"),
-                        new("Hands", "GloveScale", "vr_o_glovescale"),
-                        new("Hands", "PlateScale", "vr_o_platescale"),
-                        new("Hands", "ArcaneScale", "vr_o_arcanescale"),
+                        // All three are listed and exactly ONE survives: the per-variant filter
+                        // keeps the style being worn, and the section heading names it. Listing
+                        // them is what makes the row appear at all for every style.
+                        new("Hands", "GloveScale", "vr_o_handscale"),
+                        new("Hands", "PlateScale", "vr_o_handscale"),
+                        new("Hands", "ArcaneScale", "vr_o_handscale"),
                     },
                 },
                 new()

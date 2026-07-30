@@ -111,6 +111,10 @@ internal static partial class VROptionsTab
                               + $"{CategoryToggles.Count} sub-tab(s) in the column.");
     }
 
+    /// <summary>Reused per-section resolve buffers (no per-rebuild allocation).</summary>
+    private static readonly List<ConfigCatalog.ConfigItem> _sectionItems = new(16);
+    private static readonly List<CuratedEntry> _sectionEntries = new(16);
+
     /// <summary>One everyday category: its hand-picked entries, in the order the list declares.</summary>
     private static int BuildCurated()
     {
@@ -123,18 +127,33 @@ internal static partial class VROptionsTab
         for (int s = 0; s < category.Sections.Length; s++)
         {
             CuratedSection section = category.Sections[s];
-            BuildHeader(ContentRoot, section.Label);
 
+            // Resolve first, so the heading can name the variant these rows belong to and an
+            // all-filtered section does not leave a heading over nothing.
+            _sectionItems.Clear();
+            _sectionEntries.Clear();
             for (int i = 0; i < section.Entries.Length; i++)
             {
                 CuratedEntry entry = section.Entries[i];
                 ConfigCatalog.ConfigItem? item = Lookup(entry.Section, entry.Key);
-                if (item == null)
+                if (item == null || !IsShownForCurrentVariant(item))
                     continue;
-
-                rows += BuildItem(item, entry.Caption, entry.HintKey);
+                _sectionItems.Add(item);
+                _sectionEntries.Add(entry);
             }
+            if (_sectionItems.Count == 0)
+                continue;
+
+            BuildHeader(ContentRoot, section.Label);
+            string? note = VariantNote(_sectionItems);
+            if (note != null)
+                BuildNote(ContentRoot, note);
+
+            for (int i = 0; i < _sectionItems.Count; i++)
+                rows += BuildItem(_sectionItems[i], _sectionEntries[i].Caption, _sectionEntries[i].HintKey);
         }
+        _sectionItems.Clear();
+        _sectionEntries.Clear();
         return rows;
     }
 
@@ -194,24 +213,31 @@ internal static partial class VROptionsTab
             if (group.Items.Count == 0)
                 continue;
 
-            // COUNT BEFORE HEADING. Filtering per-board entries down to the selected board can empty
-            // a group completely, and a heading over nothing reads as a setting that failed to load.
+            // COUNT BEFORE HEADING. Filtering per-variant entries down to the selected board or hand
+            // style can empty a group completely, and a heading over nothing reads as a setting that
+            // failed to load.
             int visible = 0;
             for (int i = 0; i < group.Items.Count; i++)
             {
-                if (IsShownForCurrentBoard(group.Items[i]))
+                if (IsShownForCurrentVariant(group.Items[i]))
                     visible++;
             }
             if (visible == 0)
                 continue;
 
+            // A line under the heading says WHICH variant these rows are, because the rows
+            // themselves no longer say so.
             BuildHeader(ContentRoot, group.Label);
+            string? note = VariantNote(group.Items);
+            if (note != null)
+                BuildNote(ContentRoot, note);
+
             for (int i = 0; i < group.Items.Count; i++)
             {
                 ConfigCatalog.ConfigItem entry = group.Items[i];
-                if (!IsShownForCurrentBoard(entry))
+                if (!IsShownForCurrentVariant(entry))
                     continue;
-                rows += BuildItem(entry, BoardFreeCaption(entry));
+                rows += BuildItem(entry, VariantFreeCaption(entry));
             }
         }
         return rows;

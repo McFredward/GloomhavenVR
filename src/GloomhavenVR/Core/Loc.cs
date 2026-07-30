@@ -243,9 +243,21 @@ internal static partial class Loc
         ["vr_o_inspectscale"] = Pair("Close-up size", "Nahansicht"),
         ["vr_o_revealmode"] = Pair("Fan opens by", "Fächer öffnen"),
         ["vr_o_grabbutton"] = Pair("Grab button", "Greif-Taste"),
-        ["vr_o_glovescale"] = Pair("Glove size", "Handschuh-Größe"),
-        ["vr_o_platescale"] = Pair("Gauntlet size", "Panzerhandschuh-Größe"),
-        ["vr_o_arcanescale"] = Pair("Mage glove size", "Magierhandschuh-Größe"),
+        // ONE caption for all three per-style size rows: the pane shows only the style you are
+        // wearing, and its heading already says which that is, so the row itself has no reason to
+        // repeat it.
+        ["vr_o_handscale"] = Pair("Hand size", "Handgröße"),
+        // The per-variant families and their members. Shown in a heading over the rows that belong
+        // to them ("Appearance — Hand style: Gauntlet"), which is the only place left that says
+        // which board or hand the rows below are editing.
+        ["vr_var_board"] = Pair("Control board", "Kontrolltafel"),
+        ["vr_var_hand"] = Pair("Hand style", "Handstil"),
+        ["vr_board_oak"] = Pair("Oak", "Eiche"),
+        ["vr_board_steel"] = Pair("Steel", "Stahl"),
+        ["vr_board_bronze"] = Pair("Bronze", "Bronze"),
+        ["vr_style_glove"] = Pair("Leather glove", "Lederhandschuh"),
+        ["vr_style_plate"] = Pair("Gauntlet", "Panzerhandschuh"),
+        ["vr_style_arcane"] = Pair("Mage glove", "Magierhandschuh"),
         ["vr_o_netenabled"] = Pair("Multiplayer sync", "Mehrspieler-Abgleich"),
         // Boolean rows say what they ARE, the way the game's own settings do.
         ["vr_on"] = Pair("On", "Ein"),
@@ -295,9 +307,7 @@ internal static partial class Loc
         ["h_vr_o_revealmode"] = Pair("Whether turning your wrist opens the card fan, or it is always out.", "Ob ein Drehen des Handgelenks den Fächer öffnet oder er immer offen ist."),
         ["h_vr_o_grabbutton"] = Pair("Which button picks a card up.", "Mit welcher Taste du eine Karte aufnimmst."),
         ["h_hands"] = Pair("How your hands look — gloves, bare, or a simple shape.", "Wie deine Hände aussehen — Handschuhe, bloß oder einfache Form."),
-        ["h_vr_o_glovescale"] = Pair("How large the leather glove is on your hand.", "Wie groß der Lederhandschuh an deiner Hand ist."),
-        ["h_vr_o_platescale"] = Pair("How large the armoured gauntlet is on your hand.", "Wie groß der Panzerhandschuh an deiner Hand ist."),
-        ["h_vr_o_arcanescale"] = Pair("How large the mage glove is on your hand.", "Wie groß der Magierhandschuh an deiner Hand ist."),
+        ["h_vr_o_handscale"] = Pair("How large the hand model you are wearing is.", "Wie groß das Handmodell ist, das du trägst."),
         ["h_head_mask"] = Pair("The mask other players see on your face.", "Die Maske, die andere Spieler in deinem Gesicht sehen."),
         ["h_mask_size"] = Pair("How large your mask is.", "Wie groß deine Maske ist."),
         ["h_mirror"] = Pair("A mirror in front of you so you can see your own mask and hands.", "Ein Spiegel vor dir, damit du Maske und Hände selbst siehst."),

@@ -406,6 +406,36 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
+    /// A quieter line under a header, saying which variant the rows below belong to
+    /// ("Control board: Bronze").
+    ///
+    /// <para>ITS OWN LINE, not appended to the header. Merging the two would make headings like
+    /// "Board &amp; Layout — Control board: Bronze", and captions in this pane clip with an ellipsis
+    /// rather than wrap — the last round of this menu was spent shortening text that had run past
+    /// its row. A short line of its own cannot run out of room, and reads as what it is: a statement
+    /// about the block, not the name of it.</para>
+    ///
+    /// <para>Plain caption style, so it sits visibly below the header rather than competing with
+    /// it.</para>
+    /// </summary>
+    private static void BuildNote(Transform parent, string text)
+    {
+        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        if (title != null)
+        {
+            title.text = text;
+            ApplyOptionCaption(title);
+        }
+
+        if (option != null)
+            option.gameObject.SetActive(false);
+
+        Transform? frame = row.transform.Find("MenuElementFrame");
+        if (frame != null)
+            frame.gameObject.SetActive(false);
+    }
+
+    /// <summary>
     /// A row that navigates instead of editing — the Debug topic list, and the way back out of it.
     ///
     /// <para>BUILT FROM THE TAB TEMPLATE, not the settings row. These behave like tabs, so they are
@@ -788,17 +818,14 @@ internal static partial class VROptionsTab
             }
         }
 
-        // CHANGING THE BOARD CHANGES WHICH ROWS EXIST. The per-board entries are filtered down to
-        // the selected board, so switching it has to rebuild the list — repainting the labels of
-        // rows that belong to the board you just left would leave you editing the wrong one.
-        if (ChangesVisibleRows(item))
+        // CHOOSING A BOARD OR A HAND STYLE CHANGES WHICH ROWS EXIST. Per-variant entries are
+        // filtered down to the selected one, so the switch has to rebuild the list — repainting the
+        // labels of rows belonging to the variant you just left would leave you editing the wrong one.
+        if (SelectsAVariant(item))
             TickGuard.Run("VROptionsTab.RebuildAfterEdit", Rebuild, "WorldUI");
     }
 
-    /// <summary>Entries whose value decides which OTHER rows the pane lists.</summary>
-    private static bool ChangesVisibleRows(ConfigCatalog.ConfigItem item) =>
-        string.Equals(item.Section, "Cards", StringComparison.Ordinal)
-        && string.Equals(item.Key, "Board", StringComparison.Ordinal);
+
 
     private static float ReadNumber(ConfigCatalog.ConfigItem item)
     {
