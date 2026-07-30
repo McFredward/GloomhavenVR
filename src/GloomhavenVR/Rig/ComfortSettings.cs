@@ -249,18 +249,18 @@ internal static class ComfortSettings
             "restore the old comfort clamps (horizontal drag unless VerticalDrag, head kept " +
             "above the table, configured ScaleMin/ScaleMax). Recenter (B+Y hold) always " +
             "returns to the table edge from anywhere.");
-        VerticalDrag = Bind("VerticalDrag", true,
+        VerticalDrag = Bind("VerticalDrag", false,
             "Allow the one-grip drag to also move the table vertically. Off = horizontal plane " +
             "only. Ignored (always on) while FreeMovement is enabled.");
         RotateEnabled = Bind("RotateEnabled", true,
             "Two-grip gesture rotates the table around the point between your hands (yaw only).");
         ScaleEnabled = Bind("ScaleEnabled", true,
             "Two-grip pinch scales the table (spread hands = board grows).");
-        ScaleMin = Bind("ScaleMin", 0.1f,
+        ScaleMin = Bind("ScaleMin", 0.5f,
             "Lower pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
             "is on, the effective floor is at most 0.1x regardless of this value.",
             new AcceptableValueRange<float>(0.02f, 1f));
-        ScaleMax = Bind("ScaleMax", 12f,
+        ScaleMax = Bind("ScaleMax", 4f,
             "Upper pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
             "is on, the effective ceiling is at least 12x regardless of this value.",
             new AcceptableValueRange<float>(1f, 20f));
@@ -273,9 +273,9 @@ internal static class ComfortSettings
         SmoothTurnSpeed = Bind("SmoothTurnSpeed", 90f,
             "Smooth-turn speed in degrees per second.",
             new AcceptableValueRange<float>(30f, 270f));
-        TurnHand = Bind("TurnHand", TurnHandChoice.Dominant,
+        TurnHand = Bind("TurnHand", TurnHandChoice.Right,
             "Which thumbstick turns. Dominant follows [Hands] PrimaryHand.");
-        TableHeightOffset = Bind("TableHeightOffset", 0f,
+        TableHeightOffset = Bind("TableHeightOffset", -0.4f,
             "Extra eye height above the table on recenter, in real meters (positive = table " +
             "sits lower). Changing this re-runs recenter immediately.",
             new AcceptableValueRange<float>(-0.4f, 0.6f));
@@ -283,7 +283,7 @@ internal static class ComfortSettings
             "Hold the upper face button (B + Y) on BOTH controllers this many seconds to " +
             "recenter at the table. 0 disables the chord.",
             new AcceptableValueRange<float>(0f, 5f));
-        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 2.5f,
+        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 2.33017f,
             "Last pinch-scale multiplier relative to the base WorldScale (the 'table scale' " +
             "shown in the in-VR settings panel). Written automatically after each two-grip " +
             "scale gesture and re-applied when the rig is rebuilt. Default 2.5 — the auto base " +

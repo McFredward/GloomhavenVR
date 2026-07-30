@@ -181,32 +181,32 @@ internal static class ButtonTuning
             return;
         ConfigFile config = _file = ModuleConfig.Create("buttons");
 
-        RoundOffsetX = config.Bind("RoundButtons", "OffsetX", 0f,
+        RoundOffsetX = config.Bind("RoundButtons", "OffsetX", -0.045f,
             "Sideways offset (tray-ROOT-local meters, +X = toward the board's right edge / the " +
             "Undo-gear pads) of the transient round-phase button group (skip-step etc.) from its " +
             "default anchor. Live; clamped -0.30..0.30.");
-        RoundOffsetY = config.Bind("RoundButtons", "OffsetY", 0f,
+        RoundOffsetY = config.Bind("RoundButtons", "OffsetY", 0.26f,
             "Up-board offset (tray-ROOT-local meters, +Y = toward the card slots / far edge, " +
             "-Y = toward the bottom edge and handle) of the transient button group from its " +
             "default anchor. Live; clamped -0.30..0.30.");
-        RoundOffsetZ = config.Bind("RoundButtons", "OffsetZ", 0f,
+        RoundOffsetZ = config.Bind("RoundButtons", "OffsetZ", 0.025f,
             "Out-of-plane offset (tray-ROOT-local meters, +Z = OUT of the board toward the " +
             "player, -Z = sunk toward/behind the board face) of the transient button group " +
             "from its default proud seat. Live; clamped -0.30..0.30.");
-        RoundShape = config.Bind("RoundButtons", "Shape", Cards.ButtonShape.Round,
+        RoundShape = config.Bind("RoundButtons", "Shape", Cards.ButtonShape.Square,
             "Cap shape of the transient round-phase buttons: Round = flattened puck (default), " +
             "Square = boxy keycap (then this section's Width/Height/Depth apply). Live.");
         RoundCapSize = config.Bind("RoundButtons", "CapSize", DefaultRoundCapSize,
             "Cap radius (cluster-local meters) of the transient buttons. The column auto-fit only " +
             "SHRINKS below this when several buttons must share the column; a single button uses " +
             "exactly this size. Live; clamped 0.015..0.09.");
-        RoundWidth = config.Bind("RoundButtons", "Width", DefaultRoundWidth,
+        RoundWidth = config.Bind("RoundButtons", "Width", 0.089f,
             "Cap width (meters) of the transient buttons while Shape=Square. Applies ONLY to " +
             "this group. Live; clamped 0.02..0.20.");
-        RoundHeight = config.Bind("RoundButtons", "Height", DefaultRoundHeight,
+        RoundHeight = config.Bind("RoundButtons", "Height", 0.035f,
             "Cap height (meters) of the transient buttons while Shape=Square. Applies ONLY to " +
             "this group. Live; clamped 0.015..0.20.");
-        RoundDepth = config.Bind("RoundButtons", "Depth", DefaultRoundDepth,
+        RoundDepth = config.Bind("RoundButtons", "Depth", 0.014f,
             "Cap depth/extrusion (meters toward the player) of the transient buttons while " +
             "Shape=Square. Applies ONLY to this group. Live; clamped 0.006..0.08.");
         RoundTravel = config.Bind("RoundButtons", "Travel", DefaultRoundTravel,
@@ -214,13 +214,13 @@ internal static class ButtonTuning
             "fingertip before the depth-fire press commits (fires at 90% of travel). Applies " +
             "ONLY to this group. Live; clamped 0.002..0.02.");
 
-        BoardWidth = config.Bind("BoardButtons", "Width", DefaultBoardWidth,
+        BoardWidth = config.Bind("BoardButtons", "Width", 0.063f,
             "Cap width (meters, along the board's X) of the Confirm/Undo keycaps on the control " +
             "board. Applies ONLY to Confirm/Undo (square shape). Live; clamped 0.02..0.20.");
-        BoardHeight = config.Bind("BoardButtons", "Height", DefaultBoardHeight,
+        BoardHeight = config.Bind("BoardButtons", "Height", 0.065f,
             "Cap height (meters, along the board's Y) of the Confirm/Undo keycaps. Applies ONLY " +
             "to Confirm/Undo (square shape). Live; clamped 0.015..0.20.");
-        BoardDepth = config.Bind("BoardButtons", "Depth", DefaultBoardDepth,
+        BoardDepth = config.Bind("BoardButtons", "Depth", 0.014f,
             "Cap depth/extrusion (meters toward the player) of the Confirm/Undo keycaps. " +
             "Applies ONLY to Confirm/Undo. Live; clamped 0.006..0.08.");
         BoardTravel = config.Bind("BoardButtons", "Travel", DefaultBoardTravel,
@@ -230,10 +230,10 @@ internal static class ButtonTuning
         DashPinWidth = config.Bind("BoardDashboard", "PinWidth", DefaultPinWidth,
             "Cap width (meters) of the follow/pin toggle ('Fixiert') plate on the control " +
             "board. Applies ONLY to that toggle. Live; clamped 0.02..0.20.");
-        DashHeight = config.Bind("BoardDashboard", "Height", DefaultDashHeight,
+        DashHeight = config.Bind("BoardDashboard", "Height", 0.035f,
             "Cap height (meters) of the follow/pin plate. Applies ONLY to that toggle. " +
             "Live; clamped 0.015..0.20.");
-        DashDepth = config.Bind("BoardDashboard", "Depth", DefaultDashDepth,
+        DashDepth = config.Bind("BoardDashboard", "Depth", 0.014f,
             "Cap depth/extrusion (meters toward the player) of the gear + follow/pin plates. " +
             "Applies ONLY to those two. Live; clamped 0.006..0.08.");
         DashTravel = config.Bind("BoardDashboard", "Travel", DefaultDashTravel,
@@ -266,11 +266,11 @@ internal static class ButtonTuning
         LabelOutline = config.Bind("ButtonColors", "LabelOutline", true,
             "Draw the dark keyline OUTLINE around the keycap label (the carved-engraving rim that " +
             "separates bright glyphs from a light brass cap). Turn OFF for a flat label. Default true. Live.");
-        LabelOutlineR = config.Bind("ButtonColors", "LabelOutlineR", DefaultLabelOutlineR,
+        LabelOutlineR = config.Bind("ButtonColors", "LabelOutlineR", 0.5f,
             "Keycap label OUTLINE colour — RED channel (0..1). Default 0.09 = dark umber. Live.");
-        LabelOutlineG = config.Bind("ButtonColors", "LabelOutlineG", DefaultLabelOutlineG,
+        LabelOutlineG = config.Bind("ButtonColors", "LabelOutlineG", 0.5f,
             "Keycap label OUTLINE colour — GREEN channel (0..1). Default 0.06 = dark umber. Live.");
-        LabelOutlineB = config.Bind("ButtonColors", "LabelOutlineB", DefaultLabelOutlineB,
+        LabelOutlineB = config.Bind("ButtonColors", "LabelOutlineB", 0.5f,
             "Keycap label OUTLINE colour — BLUE channel (0..1). Default 0.03 = dark umber. Live.");
         LabelOutlineW = config.Bind("ButtonColors", "LabelOutlineWidth", DefaultLabelOutlineWidth,
             "Keycap label OUTLINE width, fraction of the SDF spread (thicker = a heavier dark rim). " +
@@ -279,30 +279,30 @@ internal static class ButtonTuning
             "Draw the soft dark drop-shadow UNDERLAY beneath the keycap label (a second contrast cue " +
             "on light caps). Turn OFF to drop the shadow. Default true. Live.");
 
-        BoardCapTintR = config.Bind("ButtonColors", "BoardCapTintR", 1f,
+        BoardCapTintR = config.Bind("ButtonColors", "BoardCapTintR", 0.5f,
             "Confirm/Undo keycap FACE colour TINT — RED channel (0..1), MULTIPLIED into the cap face " +
             "(native sprite AND procedural). 1 = unchanged; lower = darker/less red, so white text reads. Live.");
-        BoardCapTintG = config.Bind("ButtonColors", "BoardCapTintG", 1f,
+        BoardCapTintG = config.Bind("ButtonColors", "BoardCapTintG", 0.5f,
             "Confirm/Undo keycap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
-        BoardCapTintB = config.Bind("ButtonColors", "BoardCapTintB", 1f,
+        BoardCapTintB = config.Bind("ButtonColors", "BoardCapTintB", 0.5f,
             "Confirm/Undo keycap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
-        DashCapTintR = config.Bind("ButtonColors", "DashCapTintR", 1f,
+        DashCapTintR = config.Bind("ButtonColors", "DashCapTintR", 0.5f,
             "Dashboard gear + Fixiert (follow/pin) plate FACE tint — RED channel (0..1). 1 = unchanged. Live.");
-        DashCapTintG = config.Bind("ButtonColors", "DashCapTintG", 1f,
+        DashCapTintG = config.Bind("ButtonColors", "DashCapTintG", 0.5f,
             "Dashboard gear + Fixiert plate FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
-        DashCapTintB = config.Bind("ButtonColors", "DashCapTintB", 1f,
+        DashCapTintB = config.Bind("ButtonColors", "DashCapTintB", 0.5f,
             "Dashboard gear + Fixiert plate FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
-        ClusterCapTintR = config.Bind("ButtonColors", "ClusterCapTintR", 1f,
+        ClusterCapTintR = config.Bind("ButtonColors", "ClusterCapTintR", 0.5f,
             "Round-phase cluster (Ready/Undo/Skip) cap FACE tint — RED channel (0..1). 1 = unchanged. Live.");
-        ClusterCapTintG = config.Bind("ButtonColors", "ClusterCapTintG", 1f,
+        ClusterCapTintG = config.Bind("ButtonColors", "ClusterCapTintG", 0.5f,
             "Round-phase cluster cap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
-        ClusterCapTintB = config.Bind("ButtonColors", "ClusterCapTintB", 1f,
+        ClusterCapTintB = config.Bind("ButtonColors", "ClusterCapTintB", 0.5f,
             "Round-phase cluster cap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
-        RestCapTintR = config.Bind("ButtonColors", "RestCapTintR", 1f,
+        RestCapTintR = config.Bind("ButtonColors", "RestCapTintR", 0.5f,
             "Short/long REST keycap FACE tint — RED channel (0..1). 1 = unchanged. Live.");
-        RestCapTintG = config.Bind("ButtonColors", "RestCapTintG", 1f,
+        RestCapTintG = config.Bind("ButtonColors", "RestCapTintG", 0.5f,
             "Short/long REST keycap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
-        RestCapTintB = config.Bind("ButtonColors", "RestCapTintB", 1f,
+        RestCapTintB = config.Bind("ButtonColors", "RestCapTintB", 0.5f,
             "Short/long REST keycap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
 
         // ---- [ButtonAnim] — keycap appear/disappear animation (user: general dissolve + APPEAR) ----

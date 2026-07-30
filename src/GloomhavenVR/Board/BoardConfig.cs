@@ -38,7 +38,7 @@ internal static class BoardConfig
         ConfigFile config = _file = ModuleConfig.Create("board");
 
         ForceFarMode = config.Bind(
-            "Board", "ForceFarMode", false,
+            "Board", "ForceFarMode", true,
             "Disable fingertip near-touch picking and always use the far ray. " +
             "Useful for desktop/dev testing ([Dev] SimulateHands) where the fake hands " +
             "never reach the board.");

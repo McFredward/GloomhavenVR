@@ -338,6 +338,42 @@ internal static class CardsConfig
     /// card. Low = lazy/heavy, high = snappy (and more head-jitter sensitive).</summary>
     internal static ConfigEntry<float> FanGazeSmoothing = null!;
 
+    /// <summary>
+    /// The shipped per-board element layout, indexed by <c>(int)ControlBoard</c>: Oak, Steel, Bronze.
+    ///
+    /// <para>These are MEASURED, not derived. Every board used to share one default seeded from Oak,
+    /// which meant Steel and Bronze arrived with Oak's element placement on a board of a different
+    /// size and shape — rest discs off their notches, the initiative track floating at the wrong
+    /// height — until someone dialled each one in from the debug menu. The values here are those
+    /// dial-ins, so a fresh install gets a board that is already seated.</para>
+    ///
+    /// <para>Only the properties that genuinely differ per board are tabled; the rest keep a single
+    /// literal at their bind, because a table whose three entries are equal only invites them to
+    /// drift apart.</para>
+    /// </summary>
+    private static class BoardDefaults
+    {
+        internal static readonly Vector3[] RestButtonOffset = { new(0.008f, 0f, -0.007f), new(-0.44f, 0f, -0.047f), new(0.024f, 0f, -0.005f) };
+        internal static readonly float[] RestButtonDiameter = { 0.091f, 0.071f, 0.105f };
+        internal static readonly Vector3[] ConfirmUndoOffset = { new(-0.008f, 0f, 0.009f), new(0.462f, 0.006f, -0.047f), new(-0.014f, 0f, -0.005f) };
+        internal static readonly float[] ConfirmUndoSize = { 0.071f, 0.059f, 0.073f };
+        internal static readonly Vector3[] SlotOverlayOffset = { new(0.002f, -0.002f, 0.004f), new(0.018f, -0.002f, 0.004f), new(0f, 0f, 0f) };
+        internal static readonly float[] SlotOverlaySpacing = { -0.008f, 0.002f, 0f };
+        internal static readonly Vector3[] InitiativeOffset = { new(0f, 0.17f, -0.048f), new(0f, 0.2f, -0.07f), new(0f, 0.1f, -0.004f) };
+        internal static readonly float[] RestButtonSpacing = { 0f, -0.044f, 0f };
+        internal static readonly float[] GenericButtonSpacing = { -0.008f, 0.01f, 0f };
+        internal static readonly Vector3[] ActiveOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, 0f) };
+        internal static readonly float[] ActiveCardScale = { 1f, 0.82f, 0.82f };
+        internal static readonly Vector3[] PileOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] ObjectivesOffset = { new(0f, 0.026f, 0f), new(0f, 0.032f, -0.042f), new(0f, 0f, 0f) };
+        internal static readonly float[] ObjectivesScale = { 0.95f, 0.95f, 1f };
+        internal static readonly float[] ObjectivesWidth = { 0.8f, 0.8f, 1.6f };
+        internal static readonly Vector3[] ElementsOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] PinOffset = { new(0f, 0f, 0f), new(-0.02f, -0.022f, 0f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] DecisionOffset = { new(0f, 0f, 0f), new(0f, -0.012f, 0f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] ReadoutOffset = { new(0.008f, -0.004f, -0.024f), new(-0.04f, 0.022f, -0.044f), new(0f, 0f, 0f) };
+    }
+
     internal static void Bind()
     {
         if (_file != null)
@@ -360,7 +396,7 @@ internal static class CardsConfig
             "pitch — even fingers straight up, a wrist twist reveals (roll gate v4, hardware " +
             "test #10 + round 4). 'always' = the fan is out whenever a card phase has cards, " +
             "no gesture at all.");
-        RevealEnterDegrees = _file.Bind("Cards", "RevealEnterDegrees", 60f,
+        RevealEnterDegrees = _file.Bind("Cards", "RevealEnterDegrees", 70f,
             new ConfigDescription(
                 "RevealMode=tilt: hand ROLL in DEGREES above which the fan OPENS. Roll gate " +
                 "v4 measures TRUE wrist roll via a parallel-transported reference: the " +
@@ -375,7 +411,7 @@ internal static class CardsConfig
                 "measure (whose default was 95 on a 0-180 scale) — old out-of-range values " +
                 "are auto-reset once. Live-tunable from the in-VR debug menu (Fan category).",
                 new AcceptableValueRange<float>(15f, 85f)));
-        RevealExitDegrees = _file.Bind("Cards", "RevealExitDegrees", 45f,
+        RevealExitDegrees = _file.Bind("Cards", "RevealExitDegrees", 5f,
             new ConfigDescription(
                 "RevealMode=tilt: hand roll in DEGREES below which the fan CLOSES (same " +
                 "roll scale as RevealEnterDegrees: 0 = flat, 90 = palm fully toward " +
@@ -436,11 +472,11 @@ internal static class CardsConfig
             "sideways (anatomically mirrored between hands). Example {x:0, y:0.01, " +
             "z:0.02} lifts the card 1 cm off the palm and shifts it 2 cm toward the " +
             "fingertips.");
-        TrayForward = _file.Bind("Cards", "TrayForward", 0.45f,
+        TrayForward = _file.Bind("Cards", "TrayForward", 0.573853f,
             "Control board placement: forward distance from the head at placement time, meters.");
-        TrayDown = _file.Bind("Cards", "TrayDown", 0.35f,
+        TrayDown = _file.Bind("Cards", "TrayDown", 0.274678f,
             "Control board placement: drop below eye height, meters (0.35 ~ chest height).");
-        TrayRight = _file.Bind("Cards", "TrayRight", 0.0f,
+        TrayRight = _file.Bind("Cards", "TrayRight", 0.554519f,
             "Control board placement: sideways offset (+right), meters.");
         TrayTilt = _file.Bind("Cards", "TrayTilt", 30f,
             "LEGACY — no effect, superseded by the per-board BoardTilt_<board>. Nothing reads this " +
@@ -448,13 +484,13 @@ internal static class CardsConfig
             "flat like a desk, 90 = upright panel); BoardTilt_<board> replaced it in the pose math " +
             "and was seeded to 30 so Oak is unchanged. Tune BoardTilt_<board> instead. Kept bound so " +
             "existing cfg files load unchanged.");
-        TrayYaw = _file.Bind("Cards", "TrayYaw", 0f,
+        TrayYaw = _file.Bind("Cards", "TrayYaw", 38.737f,
             "Control board yaw relative to the head's flat forward at placement time, degrees. " +
             "Written automatically when you grip-move the tray by its handle bar; edit only to reset.");
-        TrayScale = _file.Bind("Cards", "TrayScale", 1f,
+        TrayScale = _file.Bind("Cards", "TrayScale", 2f,
             "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
             "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.");
-        TrayFollow = _file.Bind("Cards", "TrayFollow", true,
+        TrayFollow = _file.Bind("Cards", "TrayFollow", false,
             "Tray anchor mode (test #15, toggled by the pin button on the tray frame). " +
             "true = the tray is rig-anchored: it moves with you (world grab, snap turn, " +
             "recenter) and re-places itself at the TrayForward/Down/Right offsets on mode " +
@@ -463,7 +499,7 @@ internal static class CardsConfig
             "to follow re-anchors it at the configured offsets.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", 14f,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
-        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.024f,
+        SlotCardInset = _file.Bind("Cards", "SlotCardInset", 0.004f,
             "How far a card is lifted OUT of a physical slot recess toward the viewer, real meters " +
             "(the board's -Z face). BuildBoard now projects the slot anchors onto the recess FLOOR, so " +
             "a card at 0 sits deep inside the recess and reads as 'poking through' — barely visible from " +
@@ -539,7 +575,7 @@ internal static class CardsConfig
             "-> mip chain) and the face Images' sprites are swapped to equivalent sprites on the " +
             "baked copy (rect/pivot/border/PPU preserved; originals restored when a face is " +
             "returned to the game). false = leave the game's mipless atlases untouched.");
-        Board = _file.Bind("Cards", "Board", ControlBoard.Oak,
+        Board = _file.Bind("Cards", "Board", ControlBoard.Bronze,
             "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
             "live from the VR settings panel. Oak = the original bundled board (default); Steel " +
             "and Bronze are the two new boards. The enum→bundle-path map lives in " +
@@ -549,28 +585,31 @@ internal static class CardsConfig
             "(CardsDriver), re-seating the cards on the newly loaded board.");
 
         // ---- Per-board element tuning (Part A) ----
-        // Bound with one entry per board (loop over the ControlBoard enum). All boards seed
-        // from the CURRENT global Oak values so Oak is unchanged; Steel/Bronze start identical
-        // and are dialed in from the debug menu. Offsets: X/Y in the board plane, Z = proud
-        // depth toward the player (NEGATIVE = prouder / closer to you).
+        // Bound with one entry per board (loop over the ControlBoard enum). Offsets: X/Y in the
+        // board plane, Z = proud depth toward the player (NEGATIVE = prouder / closer to you).
+        //
+        // EVERY BOARD SHIPS ITS OWN LAYOUT NOW (see BoardDefaults). They used to share one default
+        // seeded from Oak, so Steel and Bronze started with Oak's element placement on a board of a
+        // different size and shape — every element sat wrong until someone dialled it in by hand
+        // from the debug menu. The tables below are those dial-ins.
         foreach (ControlBoard board in System.Enum.GetValues(typeof(ControlBoard)))
         {
             int i = (int)board;
             _restButtonOffset[i] = _file.Bind("Cards", $"RestButtonOffset_{board}",
-                new Vector3(0.024f, 0f, -0.005f),
+                BoardDefaults.RestButtonOffset[i],
                 $"[{board}] ROUND rest-disc offset from the rest anchor, board-local meters. " +
                 "X/Y lie in the board plane (+X toward board center), Z = proud depth toward the " +
                 "player (NEGATIVE = prouder). Replaces the raycast seat — dial Z until the discs " +
-                "rest cleanly in the notches. Seeded from Oak (RestButtonInsetX 0.024, proud −5 mm).");
-            _restButtonDiameter[i] = _file.Bind("Cards", $"RestButtonDiameter_{board}", 0.105f,
-                $"[{board}] diameter (meters) of the round short/long-rest discs. Seeded from Oak (0.105).");
+                "rest cleanly in the notches. Ships this board's own measured seat.");
+            _restButtonDiameter[i] = _file.Bind("Cards", $"RestButtonDiameter_{board}", BoardDefaults.RestButtonDiameter[i],
+                $"[{board}] diameter (meters) of the round short/long-rest discs. Per-board measured.");
             _confirmUndoOffset[i] = _file.Bind("Cards", $"ConfirmUndoOffset_{board}",
-                new Vector3(-0.014f, 0f, -0.005f),
+                BoardDefaults.ConfirmUndoOffset[i],
                 $"[{board}] SQUARE Confirm/Undo offset from their button anchors, board-local meters. " +
                 "X/Y in plane (−X toward board center from the right column), Z = proud depth toward " +
-                "the player (NEGATIVE = prouder). Seeded from Oak (ConfirmUndoInsetX −0.014, proud −5 mm).");
-            _confirmUndoSize[i] = _file.Bind("Cards", $"ConfirmUndoSize_{board}", 0.073f,
-                $"[{board}] side length (meters) of the square Confirm/Undo buttons. Seeded from Oak (0.073).");
+                "the player (NEGATIVE = prouder). Ships this board's own measured seat.");
+            _confirmUndoSize[i] = _file.Bind("Cards", $"ConfirmUndoSize_{board}", BoardDefaults.ConfirmUndoSize[i],
+                $"[{board}] side length (meters) of the square Confirm/Undo buttons. Per-board measured.");
             _itemUseSlotOffset[i] = _file.Bind("Cards", $"ItemUseSlotOffset_{board}", Vector3.zero,
                 $"[{board}] offset ADDED to the ITEM-USE clip-in slot local position (on top of its fixed " +
                 "base UNDER the board next to the Confirm/Undo buttons), board-local meters. X/Y in plane, " +
@@ -581,23 +620,23 @@ internal static class CardsConfig
                 "meters — moves the item cards INDEPENDENTLY of the ability-card fan (they are a " +
                 "different, near-square shape). X/Y in plane, Z = proud depth toward the player " +
                 "(NEGATIVE = prouder). Seeded 0 (Oak).");
-            _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", Vector3.zero,
+            _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", BoardDefaults.SlotOverlayOffset[i],
                 $"[{board}] offset ADDED to the slot snap-glow / wanted-glow local position, board-local " +
                 "meters. X/Y in plane, Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 (Oak).");
-            _slotOverlaySpacing[i] = _file.Bind("Cards", $"SlotOverlaySpacing_{board}", 0f,
+            _slotOverlaySpacing[i] = _file.Bind("Cards", $"SlotOverlaySpacing_{board}", BoardDefaults.SlotOverlaySpacing[i],
                 $"[{board}] EXTRA gap (board-local meters) ADDED between the TWO slot overlays along the " +
                 "board's long (inter-slot) axis — slot 0 (left) moves −½, slot 1 (right) +½. Seeded 0 " +
                 "(the slots already space the overlays; positive spreads them apart). Item 1.");
             _initiativeOffset[i] = _file.Bind("Cards", $"InitiativeOffset_{board}",
-                new Vector3(0f, 0.10f, -0.004f),
+                BoardDefaults.InitiativeOffset[i],
                 $"[{board}] initiative-track mount local position (replaces the fixed mount pos), " +
-                "board-local meters. Seeded from Oak (0, 0.10, −0.004).");
+                "board-local meters. Ships this board's own measured offset.");
             _boardTilt[i] = _file.Bind("Cards", $"BoardTilt_{board}", 30f,
                 $"[{board}] board tilt from horizontal toward the player, degrees (0 = flat desk, " +
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
             _boardYaw[i] = _file.Bind("Cards", $"BoardYaw_{board}", 0f,
                 $"[{board}] extra board yaw ADDED on top of the grab-written TrayYaw, degrees. Seeded 0 (Oak).");
-            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 0.5f,
+            _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", 0.4f,
                 $"[{board}] board size MULTIPLIER applied on top of the grab-written TrayScale. " +
                 "Default 0.5: the board is rig-anchored, so its apparent size does not shrink with " +
                 "the table — the ~0.4 table-ratio default felt a touch small on first spawn, so the " +
@@ -608,11 +647,11 @@ internal static class CardsConfig
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
 
             // Round-2 group spacing + shape + Active/Piles (all seeded so today's look is unchanged).
-            _restButtonSpacing[i] = _file.Bind("Cards", $"RestButtonSpacing_{board}", 0f,
+            _restButtonSpacing[i] = _file.Bind("Cards", $"RestButtonSpacing_{board}", BoardDefaults.RestButtonSpacing[i],
                 $"[{board}] EXTRA gap (board-local meters) ADDED between the short/long REST buttons " +
                 "along the board's short axis — the short (upper) disc moves +½, the long (lower) −½. " +
                 "Seeded 0 (the bundle anchors already space them; positive spreads them apart).");
-            _genericButtonSpacing[i] = _file.Bind("Cards", $"GenericButtonSpacing_{board}", 0f,
+            _genericButtonSpacing[i] = _file.Bind("Cards", $"GenericButtonSpacing_{board}", BoardDefaults.GenericButtonSpacing[i],
                 $"[{board}] EXTRA gap (board-local meters) ADDED between the GENERIC Confirm/Undo buttons " +
                 "along the board's short axis — Confirm (upper) +½, Undo (lower) −½. Seeded 0.");
             _restButtonShape[i] = _file.Bind("Cards", $"RestButtonShape_{board}", ButtonShape.Round,
@@ -621,16 +660,16 @@ internal static class CardsConfig
             _genericButtonShape[i] = _file.Bind("Cards", $"GenericButtonShape_{board}", ButtonShape.Square,
                 $"[{board}] cap SHAPE of the GENERIC button group (Confirm/Undo/etc). Square = boxy keycaps " +
                 "(today's look); Round = notch discs. Seeded Square.");
-            _activeOffset[i] = _file.Bind("Cards", $"ActiveOffset_{board}", Vector3.zero,
+            _activeOffset[i] = _file.Bind("Cards", $"ActiveOffset_{board}", BoardDefaults.ActiveOffset[i],
                 $"[{board}] offset ADDED to the ACTIVE-cards mount local position (on top of the fixed base " +
                 "just past the pile stacks), board-local meters. Seeded 0 (Oak).");
-            _activeCardScale[i] = _file.Bind("Cards", $"ActiveCardScale_{board}", 0.82f,
+            _activeCardScale[i] = _file.Bind("Cards", $"ActiveCardScale_{board}", BoardDefaults.ActiveCardScale[i],
                 $"[{board}] scale of the ACTIVE-cards column (× card size). Seeded 0.82 — slightly smaller " +
                 "than the hand/browse fan.");
             _activeGridSpacing[i] = _file.Bind("Cards", $"ActiveGridSpacing_{board}", new Vector2(1.06f, 0.7f),
                 $"[{board}] ACTIVE-cards grid step FACTORS: X = column step (× scaled card width), Y = row " +
                 "step (× scaled card height). Seeded (1.06, 0.70).");
-            _pileOffset[i] = _file.Bind("Cards", $"PileOffset_{board}", Vector3.zero,
+            _pileOffset[i] = _file.Bind("Cards", $"PileOffset_{board}", BoardDefaults.PileOffset[i],
                 $"[{board}] offset ADDED to the discard/burn PILE mount local position (on top of the fixed " +
                 "right-edge base), board-local meters. Seeded 0 (Oak).");
             _pileScale[i] = _file.Bind("Cards", $"PileScale_{board}", 1f,
@@ -642,16 +681,16 @@ internal static class CardsConfig
             // Items 4/6: the remaining board-attached elements (offsets ADDED on top of the fixed
             // base; the docked panels + cluster also carry a size multiplier). All seeded so today's
             // look is unchanged.
-            _objectivesOffset[i] = _file.Bind("Cards", $"ObjectivesOffset_{board}", Vector3.zero,
+            _objectivesOffset[i] = _file.Bind("Cards", $"ObjectivesOffset_{board}", BoardDefaults.ObjectivesOffset[i],
                 $"[{board}] offset ADDED to the OBJECTIVES ('Aufgaben') dock mount local position (on top of " +
                 "the fixed left-column base), board-local meters. Seeded 0 (Oak).");
-            _objectivesScale[i] = _file.Bind("Cards", $"ObjectivesScale_{board}", 1f,
+            _objectivesScale[i] = _file.Bind("Cards", $"ObjectivesScale_{board}", BoardDefaults.ObjectivesScale[i],
                 $"[{board}] SIZE multiplier of the OBJECTIVES ('Aufgaben') dock — a true ZOOM: text, " +
                 "progress bars, icons and the panel itself all scale together, because this is the " +
                 "objectives MOUNT's localScale and the docked panel rides mount.lossyScale. This is the " +
                 "ONLY dial that changes how big the task text renders; ObjectivesWidth changes the shape " +
                 "of the block, never its type size. Seeded 1 (Oak).");
-            _objectivesWidth[i] = _file.Bind("Cards", $"ObjectivesWidth_{board}", 1.6f,
+            _objectivesWidth[i] = _file.Bind("Cards", $"ObjectivesWidth_{board}", BoardDefaults.ObjectivesWidth[i],
                 new ConfigDescription(
                     $"[{board}] WIDTH multiplier of the OBJECTIVES ('Aufgaben') dock — SHAPE ONLY, NOT " +
                     "size. The wrap column is PlayTray.ObjectivesMountWidth (0.26 m) x this factor, e.g. " +
@@ -667,15 +706,15 @@ internal static class CardsConfig
                     "Live-applied: ObjectivesSurface re-forces the column each tick; every rect change is " +
                     "reverted when the panel is released.",
                     new AcceptableValueRange<float>(0.5f, 3f)));
-            _elementsOffset[i] = _file.Bind("Cards", $"ElementsOffset_{board}", Vector3.zero,
+            _elementsOffset[i] = _file.Bind("Cards", $"ElementsOffset_{board}", BoardDefaults.ElementsOffset[i],
                 $"[{board}] offset ADDED to the ELEMENT infusion ('Elemente') dock mount local position (on top " +
                 "of the fixed left-column base below the objectives), board-local meters. Seeded 0 (Oak).");
             _elementsScale[i] = _file.Bind("Cards", $"ElementsScale_{board}", 1f,
                 $"[{board}] size MULTIPLIER of the ELEMENT infusion ('Elemente') dock. Seeded 1 (Oak).");
-            _pinOffset[i] = _file.Bind("Cards", $"PinOffset_{board}", Vector3.zero,
+            _pinOffset[i] = _file.Bind("Cards", $"PinOffset_{board}", BoardDefaults.PinOffset[i],
                 $"[{board}] offset ADDED to the FOLLOW/PIN toggle button local position (on top of its fixed " +
                 "bottom-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
-            _readoutOffset[i] = _file.Bind("Cards", $"ReadoutOffset_{board}", Vector3.zero,
+            _readoutOffset[i] = _file.Bind("Cards", $"ReadoutOffset_{board}", BoardDefaults.ReadoutOffset[i],
                 $"[{board}] offset ADDED to the ROUND readout ('Runde N') local position (on top of its fixed " +
                 "top-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
             _clusterOffset[i] = _file.Bind("Cards", $"ClusterOffset_{board}", Vector3.zero,
@@ -687,7 +726,7 @@ internal static class CardsConfig
 
             // Item C: the shared DECISION DOCK (text + buttons UNDER the board — the decision/confirm
             // prompt row) offset + size, per board.
-            _decisionOffset[i] = _file.Bind("Cards", $"DecisionOffset_{board}", Vector3.zero,
+            _decisionOffset[i] = _file.Bind("Cards", $"DecisionOffset_{board}", BoardDefaults.DecisionOffset[i],
                 $"[{board}] offset ADDED to the shared DECISION DOCK mount local position (the decision/confirm " +
                 "prompt row that hangs below the board), board-local meters. Seeded 0 (Oak).");
             _decisionScale[i] = _file.Bind("Cards", $"DecisionScale_{board}", 1f,
@@ -754,7 +793,7 @@ internal static class CardsConfig
         FanSelectedPopForward = _file.Bind("Cards", "FanSelectedPopForward", 0.035f,
             "Demeo parity (G2): how far (real meters) the hovered/selected card pops toward the " +
             "viewer (along -face normal). Demeo uses ~0.25 scene units; 0.035 m matches our scale.");
-        GrabButton = _file.Bind("Cards", "GrabButton", CardGrabButton.Grip,
+        GrabButton = _file.Bind("Cards", "GrabButton", CardGrabButton.Trigger,
             "Demeo parity (G3): which controller button grabs a card by proximity. Trigger = " +
             "Demeo (index-finger pinch, matches our laser pluck so a card grabbed either way " +
             "releases on trigger-up). Grip = the pre-Demeo behavior.");
@@ -777,7 +816,7 @@ internal static class CardsConfig
         // serialized prefab value (not in code); Demeo's flip-transition wait of
         // 1/cardMoveSpeed + 0.1 s (:540) implies the fan-in completes in ~1/cardMoveSpeed s.
         // 0.18 s ease-out + a tiny stagger reproduces the short/snappy feel.
-        FanOpenDuration = _file.Bind("Cards", "FanOpenDuration", 0.18f,
+        FanOpenDuration = _file.Bind("Cards", "FanOpenDuration", 0.14f,
             new ConfigDescription(
                 "Fan-out reveal animation (Demeo CardHandView fan-in): seconds each card takes " +
                 "to fly from the collapsed center stack to its fan slot (ease-out, UNSCALED " +
@@ -844,27 +883,27 @@ internal static class CardsConfig
                 "until the total sweep hits FanArcSweepDegrees. Larger = adjacent cards sit farther " +
                 "apart (easier to aim at one). Seeded 14° (the old item-8 local const).",
                 new AcceptableValueRange<float>(2f, 40f)));
-        FanArcSweepDegrees = _file.Bind("Cards", "FanArcSweepDegrees", 91f,
+        FanArcSweepDegrees = _file.Bind("Cards", "FanArcSweepDegrees", 103f,
             new ConfigDescription(
                 "Hand fan (global): total fan arc sweep in degrees — governs BIG hands (once there " +
                 "are enough cards to reach the step cap, this sets how far the full hand wraps: " +
                 "higher = a rounder, more circular fan). Seeded 91° (the old FanArcDegrees 70 × the " +
                 "1.3 arc scale).",
                 new AcceptableValueRange<float>(20f, 180f)));
-        FanEffectiveRadius = _file.Bind("Cards", "FanEffectiveRadius", 0.1792f,
+        FanEffectiveRadius = _file.Bind("Cards", "FanEffectiveRadius", 0.2192f,
             new ConfigDescription(
                 "Hand fan (global): effective arc radius in real meters. Opens real space between " +
                 "card centers (chord ∝ radius·sin(step/2)) and enlarges the exposed grab strip in " +
                 "step. Seeded 0.1792 m (the old FanRadius 0.16 × the 1.12 radius scale). Supersedes " +
                 "FanRadius for the hand fan only (the pile browse-fan keeps its own).",
                 new AcceptableValueRange<float>(0.05f, 0.4f)));
-        FanHoverSplitScale = _file.Bind("Cards", "FanHoverSplitScale", 1.45f,
+        FanHoverSplitScale = _file.Bind("Cards", "FanHoverSplitScale", 1.4f,
             new ConfigDescription(
                 "Hand fan (global): hover-split scale — multiplies FanSplitMultiplier so the gap the " +
                 "fan opens around a hovered card stays proportional to the (wider) card spacing. " +
                 "Seeded 1.45 (the old item-8 local const).",
                 new AcceptableValueRange<float>(0.5f, 3f)));
-        BrowseFanOffset = _file.Bind("Cards", "BrowseFanOffset", Vector3.zero,
+        BrowseFanOffset = _file.Bind("Cards", "BrowseFanOffset", new Vector3(0f, -0.37f, -0.15f),
             "Pile BROWSE fan anchor offset, board-local meters ADDED to the fixed above-board base " +
             "pose (x 0, y board-top + 0.26, z -0.05). X = along the board's long axis (+right), " +
             "Y = up above the board face, Z = out of the board face (NEGATIVE = toward the player). " +
@@ -874,7 +913,7 @@ internal static class CardsConfig
             "fan immediately. Seeded 0 (today's placement).");
 
         // ---- Fan DEPTH curvature + gaze-bias toggle (in-VR debug 'Fan' category) ----
-        FanSideDepthCurve = _file.Bind("Cards", "FanSideDepthCurve", 0.035f,
+        FanSideDepthCurve = _file.Bind("Cards", "FanSideDepthCurve", 0f,
             new ConfigDescription(
                 "Hand fan (global): DEPTH CURVATURE — signed bow (real meters) of the OUTERMOST card " +
                 "along the fan's forward axis, so a full hand bows into depth like a real held fan. " +
@@ -937,7 +976,7 @@ internal static class CardsConfig
                 "Silhouette-safe: the bow runs along the VIEW axis, so relieving it changes what is " +
                 "nearest without visibly moving the fan.",
                 new AcceptableValueRange<float>(0f, 1f)));
-        FanGazeSmoothing = _file.Bind("Cards", "FanGazeSmoothing", 8f,
+        FanGazeSmoothing = _file.Bind("Cards", "FanGazeSmoothing", 6f,
             new ConfigDescription(
                 "Hand fan (global): exponential ease rate (1/s, unscaled time) of the gaze apex toward " +
                 "the card you are looking at. Lower = heavier/lazier and completely immune to head " +

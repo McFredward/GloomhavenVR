@@ -338,7 +338,7 @@ public class Plugin : BaseUnityPlugin
             "Extra comma-separated component type full names (optionally 'FullName, Assembly') " +
             "to disable while VR is active, e.g. 'BeautifyEffect.Beautify'.");
         WallFade = Config.Bind(
-            "Compat", "WallFade", false,
+            "Compat", "WallFade", true,
             "See-through walls in VR. When ON, a wall that stands between your head and the " +
             "part of the play area you are looking at fades out AS A WHOLE (soft dissolve, " +
             "~0.35s) down to its foundation course, and fades back in once it no longer " +
@@ -352,7 +352,7 @@ public class Plugin : BaseUnityPlugin
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
             "for board targeting.");
         HandStyle = Config.Bind(
-            "Hands", "HandStyle", Hands.HandStyle.Glove,
+            "Hands", "HandStyle", Hands.HandStyle.Plate,
             "Which hand model to wear: Glove (leather glove, default), Plate (plate-armor " +
             "gauntlet) or Arcane (arcane-runes mage glove). Applies live (the hands rebuild " +
             "on change) and is synchronized in multiplayer so other VR players see your " +
@@ -516,7 +516,7 @@ public class Plugin : BaseUnityPlugin
     /// Arcane). NOTE the split: <c>{Style}Scale</c> is LIVE (HandVisuals and the settings
     /// panel read it every frame), while the four <c>{Style}*Trim</c> entries are LEGACY —
     /// superseded by the ABSOLUTE per-style seat keys in <c>dev.gloomhavenvr.hands.cfg</c> and
-    /// read only as their first-run seed (<c>HandsConfig.LegacySeat</c>). They stay bound
+    /// read by nothing at all — the per-style seat now ships its own measured defaults. They stay bound
     /// because unbinding drops the keys from every existing .cfg (CHARTER §5); their
     /// descriptions say so, so a knob that does nothing at least admits it.
     /// Scale defaults are EVIDENCE-BASED: all three meshes are normalized to the

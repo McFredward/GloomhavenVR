@@ -53,7 +53,7 @@ internal sealed partial class FlatScreenStereo
             "VideoDepth meters BEHIND the glass UI — background recedes, menu floats in " +
             "front, no artificial geometry. Off = stereo is fully suspended (mono) while " +
             "any camera-plane video plays.");
-        s_videoDepth = file.Bind("WorldUI", "VideoDepth", 2.2f,
+        s_videoDepth = file.Bind("WorldUI", "VideoDepth", 0.8f,
             "How far BEHIND the screen plane the background reads while a fullscreen 2D " +
             "video plays, in real meters (VideoDepthLayer). Disparity p = IPD*V/(D+V) with " +
             "D = ScreenDistance: at the 1.6 m default screen and 2.2 m depth the video reads " +

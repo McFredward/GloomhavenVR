@@ -205,7 +205,7 @@ internal static class RenderQuality
         if (_file != null)
             return;
         _file = ModuleConfig.Create("rig");
-        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", 4, new ConfigDescription(
+        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", 8, new ConfigDescription(
             "Hardware MSAA sample count for the VR eye render (0 = off, 2/4/8). The game's own "
             + "AA lives in the PostProcessLayer the mod disables and its boot quality level sets "
             + "antiAliasing 0, so without this the HMD has NO anti-aliasing (shimmering card line "

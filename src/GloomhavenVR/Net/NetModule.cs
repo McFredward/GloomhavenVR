@@ -104,12 +104,12 @@ internal sealed class NetModule : IVRModule
             "netcode so other VR players see you (Demeo style), and render remote VR players. " +
             "Cosmetic only, never affects game state; a no-op in single-player and safe with " +
             "flat/non-modded players. Turn OFF to fully remove the networking hook.");
-        MaskId = _config.Bind("Net", "MaskId", 0,
+        MaskId = _config.Bind("Net", "MaskId", 2,
             new ConfigDescription(
                 "Which head mask the local player wears (0..2). Picked in the in-VR settings panel; " +
                 "synchronized so other VR players see the right mask on you.",
                 new AcceptableValueRange<int>(0, HeadMaskLibrary.MaskCount - 1)));
-        MaskSize = _config.Bind("Net", "MaskSize", 1.0f,
+        MaskSize = _config.Bind("Net", "MaskSize", 1f,
             new ConfigDescription(
                 "Uniform size of your head mask (1 = authored size). Tuned live in the in-VR " +
                 "settings panel (Avatar > Maskengroesse); synchronized, so other VR players see " +
@@ -119,7 +119,7 @@ internal sealed class NetModule : IVRModule
             "Show yourself in a mirror floating in front of your head so you can see your chosen " +
             "mask + hands. Local cosmetic preview only — independent of networking, works in " +
             "single-player. Toggle in the in-VR settings panel.");
-        RemoteBoards = _config.Bind("Net", "RemoteBoards", RemoteBoardVisibility.ActionPhaseOnly,
+        RemoteBoards = _config.Bind("Net", "RemoteBoards", RemoteBoardVisibility.Always,
             "Wie viel von den Kontrolltafeln der Mitspieler du siehst: Off (nie), ActionPhaseOnly " +
             "(nur in der Aktionsphase — waehrend der geheimen Kartenauswahl ausgeblendet), Always " +
             "(immer). Rein lokale Darstellung; aendert nie den Spielzustand. Der Anti-Cheat-Schutz " +

@@ -428,7 +428,7 @@ internal static class PerfConfig
             + "delays how fast a peer's board contents catch up, and it does nothing at all in single "
             + "player.",
             new AcceptableValueRange<float>(0f, 2f)));
-        HeadDepthPrepass = _file.Bind("Optimize", "HeadDepthPrepass", true,
+        HeadDepthPrepass = _file.Bind("Optimize", "HeadDepthPrepass", false,
             "Keep the head camera's DepthTextureMode.Depth. ON is today's behaviour and it is NOT "
             + "free: on the built-in FORWARD path (which the mod's head camera uses) Unity builds "
             + "_CameraDepthTexture by rendering the whole opaque scene a SECOND time through each "

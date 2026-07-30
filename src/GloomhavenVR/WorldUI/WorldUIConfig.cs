@@ -285,7 +285,7 @@ internal static class WorldUIConfig
             "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
             "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
             "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
-        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", false,
+        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", true,
             "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
             "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +
             "sprite, localized label and enable/disable states, reusing the DecisionDock docking " +
@@ -324,13 +324,13 @@ internal static class WorldUIConfig
             "scene variants load and buttons commit without gamepad long-press flows.");
         CanvasScaleMm = _file.Bind("WorldUI", "CanvasScaleMm", 1.0f,
             "World-canvas scale: millimeters per uGUI pixel at diorama scale 1 (default 1 px = 1 mm).");
-        InitiativeDepthMaxSpreadPx = _file.Bind("WorldUI", "InitiativeDepthMaxSpreadPx", 10f,
+        InitiativeDepthMaxSpreadPx = _file.Bind("WorldUI", "InitiativeDepthMaxSpreadPx", 15f,
             "Initiative track 3D depth effect: the MAXIMUM total front-to-back z spread (uGUI " +
             "pixels) between the shallowest and deepest initiative portrait. The authored row " +
             "depth is compressed proportionally to land at this cap (never amplified). Higher = " +
             "stronger recession; 0 = flat. Live-tunable in the debug menu (Panels -> Initiative). " +
             "Range 0..40.");
-        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", 40f, new ConfigDescription(
+        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", 24f, new ConfigDescription(
             "Vertical gap (uGUI pixels, in the docked row's own scale) between the control " +
             "board's lower edge — where the game draws the decision prompt line, e.g. " +
             "'Schadensphase: Erleide entweder Schaden …' — and the TOP of the docked " +
@@ -379,15 +379,15 @@ internal static class WorldUIConfig
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
             "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
             "uncontrolled default XR mirror otherwise).");
-        WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", 0f,
+        WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", -102f,
             "Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base.");
-        WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", 0f, "Wrist overview HUD yaw (degrees).");
+        WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", -180f, "Wrist overview HUD yaw (degrees).");
         WristHudRoll = _file.Bind("WorldUI", "WristHudRoll", 0f, "Wrist overview HUD roll (degrees).");
-        WristHudOffsetX = _file.Bind("WorldUI", "WristHudOffsetX", 0f,
+        WristHudOffsetX = _file.Bind("WorldUI", "WristHudOffsetX", 0.02f,
             "Wrist overview HUD offset along wrist X, real meters.");
-        WristHudOffsetY = _file.Bind("WorldUI", "WristHudOffsetY", 0.015f,
+        WristHudOffsetY = _file.Bind("WorldUI", "WristHudOffsetY", -0.143f,
             "Wrist overview HUD offset out the back of the hand (wrist +Y), real meters.");
-        WristHudOffsetZ = _file.Bind("WorldUI", "WristHudOffsetZ", 0.01f,
+        WristHudOffsetZ = _file.Bind("WorldUI", "WristHudOffsetZ", 0.05f,
             "Wrist overview HUD offset toward the fingers (wrist +Z), real meters.");
         // NB: the WristHud CLASS is shadowed here by the WristHud config field (bool toggle),
         // so qualify the type to reach its static pose-config refs (item 10 wiring).
@@ -470,15 +470,15 @@ internal static class WorldUIConfig
             "orientation still only re-derives on recenter, never per frame). Replaces " +
             "the test-#19 'CombatLogFollow' key: its follow default plus the per-tick " +
             "yaw billboard read as the panel tracking the head (test #20).");
-        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", 0.62f,
+        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", -0.565869f,
             "Combat log panel offset from the table anchor along the seat forward, real " +
             "meters (default = the old arc slot: azimuth 56° at 1.10 m). Persisted " +
             "automatically when the panel's grab bar is released.");
-        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", 0.91f,
+        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", 1.00533f,
             "Combat log panel offset to the seat right, real meters (grab-persisted).");
-        CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", 0.45f,
+        CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", 0.458258f,
             "Combat log panel height above the table plane, real meters (grab-persisted).");
-        CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", 1.0f,
+        CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", 0.67339f,
             "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).");
         CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", false,
             "The user hid the combat log via its top-right X button (or the in-VR settings " +

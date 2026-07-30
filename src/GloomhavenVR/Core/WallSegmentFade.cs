@@ -34,17 +34,17 @@ internal static class WallFadeTuning
         if (_file != null)
             return;
         ConfigFile config = _file = ModuleConfig.Create("wallfade");
-        OnFraction = config.Bind("WallFade", "OnFraction", 0.25f,
+        OnFraction = config.Bind("WallFade", "OnFraction", 0.3f,
             "Fade a wall when it hides at least this (EMA-smoothed) fraction of the frustum-visible " +
             "FLOOR (hex-tile plane) samples of some room — 0.25 = wall hides 25% of the floor you " +
             "are looking at (Schmitt trigger high bar). Live; clamped 0.05-0.95.");
-        OffFraction = config.Bind("WallFade", "OffFraction", 0.10f,
+        OffFraction = config.Bind("WallFade", "OffFraction", 0.3f,
             "Once faded, keep the wall faded while the smoothed floor-coverage fraction stays at or " +
             "above this (Schmitt trigger low bar). Live; clamped 0.01-0.95 and never above OnFraction.");
         ExitDwellMoved = config.Bind("WallFade", "ExitDwellMovedSeconds", 2.5f,
             "Seconds the fraction must stay below OffFraction before the wall un-fades when the " +
             "PERSPECTIVE recently changed (real head translation / world-grab / recenter). Live.");
-        ExitDwellStationary = config.Bind("WallFade", "ExitDwellStationarySeconds", 7f,
+        ExitDwellStationary = config.Bind("WallFade", "ExitDwellStationarySeconds", 3.6f,
             "Un-fade dwell while the head has only ROTATED recently — rotation alone should almost " +
             "never bring a wall back. Live; never below ExitDwellMovedSeconds.");
     }

@@ -146,7 +146,7 @@ internal static class StaticBatchConfig
             return;
         _file = ModuleConfig.Create("batching");
 
-        Mode = _file.Bind("Batching", "Mode", BatchMode.Off,
+        Mode = _file.Bind("Batching", "Mode", BatchMode.On,
             "EXPERIMENTAL, AND PROBABLY UNNECESSARY NOW — read the last paragraph before switching "
             + "it on. What the runtime static-batching pass may do. OFF (the shipped default) does "
             + "nothing at all and hands back anything already combined. PROBE measures the scene and "
@@ -280,7 +280,7 @@ internal static class StaticBatchConfig
             + "prints every layer by name with its renderer count. Unknown names are reported and "
             + "ignored, never silently applied.");
 
-        ExcludeNames = _file.Bind("Batching", "ExcludeNames", "",
+        ExcludeNames = _file.Bind("Batching", "ExcludeNames", "Glow",
             "Object-name fragments never combined, comma-separated, case-insensitive (e.g. "
             + "'Door, Chest'). Empty = exclude nothing by name. This is the escape hatch for the "
             + "case the watchdog is there to catch: if the log names an object that moved, put a "
