@@ -14,6 +14,32 @@ internal static partial class ModalFallback
 {
     private static readonly List<WindowPanel> Converted = new(4);
 
+    /// <summary>
+    /// The world-space host of the floated FULL-SCREEN MENU (pause / options family), or null when
+    /// no such menu is floating.
+    ///
+    /// <para>Asked by <see cref="WorldTooltips"/>, which has to know not whether a menu is open but
+    /// WHERE it currently lives: in a scenario the pause menu is not on the flat screen, it is one
+    /// of these floated panels on the mod's own layer — so a tooltip left in screen space renders
+    /// into a screen nobody is being shown.</para>
+    ///
+    /// <para>The host carries the window's full screen rect converted to world space, so aligning
+    /// another screen-space canvas to this transform makes the two coincide.</para>
+    /// </summary>
+    internal static RectTransform? MenuPanelHost
+    {
+        get
+        {
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                WindowPanel w = Converted[i];
+                if (w.FullScreenMenu && w.Panel != null && w.Panel.IsAlive && w.Panel.HostRect != null)
+                    return w.Panel.HostRect;
+            }
+            return null;
+        }
+    }
+
     /// <summary>Open windows whose conversion failed → the screen covers them (retry on re-open).</summary>
     private static readonly List<UIWindow> Failed = new(2);
 

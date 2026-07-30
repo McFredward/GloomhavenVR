@@ -183,32 +183,69 @@ internal sealed class WorldTooltips
     }
 
     /// <summary>
-    /// Is the game's own pause menu (and with it the options window, and the mod's VR Options tab
-    /// inside it) currently open?
+    /// THERE IS ONLY ONE TOOLTIP IN THE GAME. <c>CanvasManager.tooltipCanvas</c> is a single shared
+    /// canvas, so wherever the player hovers — a figure, a card, a row of the mod's VR Options tab —
+    /// the same canvas has to answer, and the right answer depends on WHERE the thing being hovered
+    /// currently lives. Three cases, and the previous two attempts each got one of them right:
     ///
-    /// <para>THERE IS ONLY ONE TOOLTIP IN THE GAME. <c>CanvasManager.tooltipCanvas</c> is a single
-    /// shared canvas, so the world-space presentation below — flipped to WorldSpace and parked above
-    /// the control board, which is right for hovering a figure or a card — was also what the VR
-    /// Options rows got when they were hovered during a scenario: the hint left the menu and hung in
-    /// the room in front of the board, turned to face the player rather than lying on the page. In
-    /// the main menu the same rows behave, because Menu2D never converts at all.</para>
-    ///
-    /// <para>So the menu gets the menu's answer: while it is up, the canvas stays screen-space and
-    /// reaches the player through the flat screen exactly as it does in the main menu. This is a
-    /// gate, not a special case — <see cref="Restore"/> already undoes the conversion completely and
-    /// is called on every frame the presentation is not wanted, so opening and closing the menu
-    /// mid-scenario simply hands the tooltip back and forth.</para>
-    ///
-    /// <para>The parent stays open behind a sub-menu (the same fact <c>OptionsToggle</c> relies on
-    /// for its own state), so testing the ESC menu covers Options and every window under it.</para>
+    /// <list type="bullet">
+    /// <item><description>No menu: the hover came from the board, so the canvas is world-space and
+    /// parked above the control board. Unchanged.</description></item>
+    /// <item><description>Menu floated as a WORLD PANEL — what a scenario does: the canvas is
+    /// world-space and laid ONTO that panel (<see cref="TryResolveMenuPose"/>). The first attempt
+    /// parked it above the board instead, so the hint left the menu and hung in the room facing the
+    /// player; the second sent it to screen space, and in a scenario the screen is not being shown
+    /// at all, so it vanished outright.</description></item>
+    /// <item><description>Menu on the FLAT SCREEN (ModalStyle=screen, or a conversion that failed):
+    /// screen space is correct — that screen is what the player is looking at, exactly as in the
+    /// main menu. Menu2D never converts in the first place, so the main menu was always this
+    /// case.</description></item>
+    /// </list>
     /// </summary>
-    private static bool MenuIsUp()
+    private static bool MenuOnFlatScreen()
     {
+        if (ModalFallback.MenuPanelHost != null)
+            return false; // floated as a world panel — the panel case, not the screen case
         if (!Singleton<ESCMenu>.IsInitialized)
             return false;
         ESCMenu? menu = Singleton<ESCMenu>.Instance;
         return menu != null && menu.IsOpen;
     }
+
+    /// <summary>
+    /// The pose and scale that lay the tooltip flat ON the floated menu panel.
+    ///
+    /// <para>Both canvases hold the SAME screen rect: the tooltip canvas is the game's
+    /// Screen-Space-Camera canvas (screen-sized), and the floated menu is that window's full screen
+    /// rect converted to world space. Giving the tooltip canvas the panel's exact transform makes
+    /// the two coincide, so the game's own placement — which positions the box beside the hovered
+    /// row in screen coordinates — lands it beside that row on the panel, lying flat on it. Nothing
+    /// here re-implements the game's arrangement; it just puts the two canvases in the same plane so
+    /// the arrangement still means what it meant.</para>
+    ///
+    /// <para>A hair toward the viewer so the box renders in front of the menu rather than z-fighting
+    /// with it.</para>
+    /// </summary>
+    private static bool TryResolveMenuPose(out Vector3 position, out Quaternion rotation,
+                                           out Vector3 scale)
+    {
+        RectTransform? host = ModalFallback.MenuPanelHost;
+        if (host == null)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            scale = Vector3.one;
+            return false;
+        }
+
+        rotation = host.rotation;
+        scale = host.lossyScale;
+        position = host.position - host.forward * MenuPanelProudZ;
+        return true;
+    }
+
+    /// <summary>Metres in front of the floated menu panel the tooltip is laid, so it never z-fights.</summary>
+    private const float MenuPanelProudZ = 0.004f;
 
     public void LateTick()
     {
@@ -217,7 +254,7 @@ internal sealed class WorldTooltips
         // Menu2D while a scenario runs) gets the world-space presentation.
         bool modeWantsTooltip = WorldUIConfig.Tooltips.Value && WorldUIConfig.ConversionActive
                                 && VRModeStateMachine.CurrentMode != VRMode.Menu2D
-                                && !MenuIsUp();
+                                && !MenuOnFlatScreen();
         // User #7c: the in-VR settings toggle gates the whole world-space presentation.
         // Read live so a flip takes effect without a restart; the 2D menu tooltip (Menu2D
         // path above) is never touched by this gate.
@@ -294,6 +331,14 @@ internal sealed class WorldTooltips
         if (_canvas.worldCamera != head)
             _canvas.worldCamera = head;
 
+        // ON THE MENU PANEL the scale is the PANEL's, not the board's: the two canvases only
+        // coincide — and the game's own placement only lands where it means to — if they share a
+        // pixels-to-metres factor. Off the menu, the board-derived scale above stands.
+        bool onMenuPanel = TryResolveMenuPose(out Vector3 menuPos, out Quaternion menuRot,
+                                              out Vector3 menuScale);
+        if (onMenuPanel)
+            worldScale = menuScale;
+
         // Re-assert the scale every frame (config/diorama scale are live; the game
         // may rewrite the transform) — independent of placement.
         if (_canvas.transform.localScale != worldScale)
@@ -332,7 +377,15 @@ internal sealed class WorldTooltips
         // tiny target is bridged by its native tween. Undone on Restore().
         EnsureFadeGrace();
 
-        if (!(contentShown || withinGrace) || !TryResolveTooltipPose(out Vector3 pos, out Quaternion rot))
+        // The menu panel wins the placement while it is floating: it is modal, so a hover can only
+        // have come from it, and its own plane is where the hint belongs.
+        bool placed = onMenuPanel;
+        Vector3 pos = menuPos;
+        Quaternion rot = menuRot;
+        if (!placed)
+            placed = TryResolveTooltipPose(out pos, out rot);
+
+        if (!(contentShown || withinGrace) || !placed)
         {
             if (_canvas.transform.position != ParkPosition)
             {
@@ -350,6 +403,15 @@ internal sealed class WorldTooltips
         {
             _parkedLogged = true;
             _parkedLogPos = pos;
+            if (onMenuPanel)
+            {
+                VRLog.Info("WorldUI",
+                    $"Tooltip laid FLAT ON the floated menu panel at {pos:F3} (panel scale "
+                    + $"{menuScale.x:F5} m/px). The two canvases share the window's screen rect, so "
+                    + "the game's own placement puts the box beside the hovered row, on the panel.");
+                return;
+            }
+
             bool onBoard = PlayTray.Current != null && PlayTray.Current.IsVisible;
             // Prove the panel sits ABOVE the board: the pivot is placed above the REAL board
             // top edge by (tooltip half-height + margin), so anchor.y − topEdge.y ≥ tooltip

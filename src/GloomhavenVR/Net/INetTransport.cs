@@ -47,7 +47,17 @@ internal sealed class NullNetTransport : INetTransport
     public bool IsOnline => false;
     public int LocalPlayerId => 0;
     public void Send(byte[] payload, int length) { }
-    public event Action<int, byte[], int>? PacketReceived { add { } remove { } }
+
+    /// <summary>
+    /// A REAL event, not <c>{ add { } remove { } }</c>. Empty accessors accept a handler and throw
+    /// it away, which is how a subscription made one line too early stayed invisible through an
+    /// entire multiplayer session: the driver held a subscription that had never been stored
+    /// anywhere, and nothing could observe the difference. Keeping the handler costs nothing —
+    /// this transport never raises the event — and leaves the mistake detectable.
+    /// </summary>
+#pragma warning disable CS0067 // never raised: that IS this transport's job, and the handler is still kept
+    public event Action<int, byte[], int>? PacketReceived;
+#pragma warning restore CS0067
     public void Install() { }
     public void Uninstall() { }
 }

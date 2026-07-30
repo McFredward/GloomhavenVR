@@ -787,7 +787,18 @@ internal static partial class VROptionsTab
                 // One unreadable entry must not stop the rest of the list repainting.
             }
         }
+
+        // CHANGING THE BOARD CHANGES WHICH ROWS EXIST. The per-board entries are filtered down to
+        // the selected board, so switching it has to rebuild the list — repainting the labels of
+        // rows that belong to the board you just left would leave you editing the wrong one.
+        if (ChangesVisibleRows(item))
+            TickGuard.Run("VROptionsTab.RebuildAfterEdit", Rebuild, "WorldUI");
     }
+
+    /// <summary>Entries whose value decides which OTHER rows the pane lists.</summary>
+    private static bool ChangesVisibleRows(ConfigCatalog.ConfigItem item) =>
+        string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+        && string.Equals(item.Key, "Board", StringComparison.Ordinal);
 
     private static float ReadNumber(ConfigCatalog.ConfigItem item)
     {

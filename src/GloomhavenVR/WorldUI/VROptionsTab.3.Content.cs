@@ -194,9 +194,25 @@ internal static partial class VROptionsTab
             if (group.Items.Count == 0)
                 continue;
 
+            // COUNT BEFORE HEADING. Filtering per-board entries down to the selected board can empty
+            // a group completely, and a heading over nothing reads as a setting that failed to load.
+            int visible = 0;
+            for (int i = 0; i < group.Items.Count; i++)
+            {
+                if (IsShownForCurrentBoard(group.Items[i]))
+                    visible++;
+            }
+            if (visible == 0)
+                continue;
+
             BuildHeader(ContentRoot, group.Label);
             for (int i = 0; i < group.Items.Count; i++)
-                rows += BuildItem(group.Items[i]);
+            {
+                ConfigCatalog.ConfigItem entry = group.Items[i];
+                if (!IsShownForCurrentBoard(entry))
+                    continue;
+                rows += BuildItem(entry, BoardFreeCaption(entry));
+            }
         }
         return rows;
     }

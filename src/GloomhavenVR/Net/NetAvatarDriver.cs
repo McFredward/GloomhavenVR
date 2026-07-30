@@ -91,21 +91,63 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly Dictionary<int, PresenceState> _pendingExtras = new();
     private readonly List<int> _scratchIds = new();
 
-    /// <summary>Wire the driver to its transport + anchor. Call once before enabling.</summary>
+    /// <summary>True while <see cref="OnPacketReceived"/> is subscribed to <see cref="_transport"/>.</summary>
+    private bool _subscribed;
+
+    /// <summary>
+    /// Wire the driver to its transport + anchor.
+    ///
+    /// <para>CONFIGURE OWNS THE SUBSCRIPTION, and that is the whole fix for the first multiplayer
+    /// test, in which neither player saw anything of the other. <c>AddComponent</c> runs
+    /// <c>OnEnable</c> SYNCHRONOUSLY, one line before <see cref="NetModule"/> got here — so the
+    /// driver subscribed to the field-initialised <see cref="NullNetTransport"/>, whose event had
+    /// empty accessors and dropped the handler on the floor, and the real transport arriving a line
+    /// later was never subscribed to at all. Sending worked perfectly the whole time; nothing was
+    /// ever listening. Moving the subscription here makes it independent of call order and
+    /// idempotent under re-configure.</para>
+    /// </summary>
     public void Configure(INetTransport transport, IBoardAnchor anchor)
     {
-        _transport = transport ?? new NullNetTransport();
+        SetTransport(transport ?? new NullNetTransport());
         _anchor = anchor ?? WorldAnchor.Instance;
+    }
+
+    /// <summary>Swap transports, carrying the subscription across exactly once.</summary>
+    private void SetTransport(INetTransport transport)
+    {
+        if (ReferenceEquals(transport, _transport))
+            return;
+
+        Unsubscribe();
+        _transport = transport;
+        if (isActiveAndEnabled)
+            Subscribe();
+    }
+
+    private void Subscribe()
+    {
+        if (_subscribed)
+            return;
+        _transport.PacketReceived += OnPacketReceived;
+        _subscribed = true;
+    }
+
+    private void Unsubscribe()
+    {
+        if (!_subscribed)
+            return;
+        _transport.PacketReceived -= OnPacketReceived;
+        _subscribed = false;
     }
 
     private void OnEnable()
     {
-        _transport.PacketReceived += OnPacketReceived;
+        Subscribe();
     }
 
     private void OnDisable()
     {
-        _transport.PacketReceived -= OnPacketReceived;
+        Unsubscribe();
         _pending.Clear();
         _pendingExtras.Clear();
         NetCardFx.Reset(); // never carry a queued card animation into the next session
@@ -365,8 +407,36 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     // ---- receive ------------------------------------------------------------------------
 
+    /// <summary>Packets accepted since the last receive summary (diagnostic only).</summary>
+    private int _rxCount;
+    private float _rxNextReport;
+    private bool _rxFirstLogged;
+
+    /// <summary>Seconds between receive summaries — rare enough to be free, often enough to watch.</summary>
+    private const float RxReportInterval = 10f;
+
     private void OnPacketReceived(int senderId, byte[] buffer, int length)
     {
+        // THE RECEIVE SIDE SAYS SOMETHING NOW. The mod logged every send and nothing at all on
+        // receive, so a driver that was subscribed to a discarded event looked exactly like a
+        // healthy one for a whole session: sends counted up, nobody appeared, no line to read.
+        // One line on the first packet ever, then a summary every ten seconds.
+        _rxCount++;
+        if (!_rxFirstLogged)
+        {
+            _rxFirstLogged = true;
+            VRLog.Info("Net", $"FIRST PACKET RECEIVED — from player {senderId}, {length} B, "
+                              + $"type {NetPacket.PeekType(buffer, length)} (local id "
+                              + $"{_transport.LocalPlayerId}). Receive is wired.");
+        }
+        else if (Time.unscaledTime >= _rxNextReport)
+        {
+            _rxNextReport = Time.unscaledTime + RxReportInterval;
+            VRLog.Info("Net", $"RX {_rxCount} packet(s) in the last {RxReportInterval:0}s; "
+                              + $"{_pending.Count} rig + {_pendingExtras.Count} extras pending.");
+            _rxCount = 0;
+        }
+
         // Ignore our own echo and unparseable/foreign packets.
         if (senderId != 0 && senderId == _transport.LocalPlayerId)
             return;
