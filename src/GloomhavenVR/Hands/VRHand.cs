@@ -115,6 +115,9 @@ internal sealed class VRHand : MonoBehaviour
     private FingerCurler _curler = null!;
     private Transform _handRoot = null!;
     private float _appliedGripPitch = float.NaN;
+
+    /// <summary>Roll already on the hand root, ALREADY MIRRORED for this side (NaN = never applied).</summary>
+    private float _appliedGripRoll = float.NaN;
     private float _appliedLateralOffset = float.NaN;
     private float _appliedVerticalOffset = float.NaN;
     private float _appliedForwardOffset = float.NaN;
@@ -403,19 +406,31 @@ internal sealed class VRHand : MonoBehaviour
         float lateral = HandsConfig.SeatLateralSafe(style);
         float vertical = HandsConfig.SeatVerticalSafe(style);
         float forward = HandsConfig.SeatForwardSafe(style);
+
+        // ROLL IS MIRRORED, PITCH IS NOT — and that asymmetry is the reason it is its own control.
+        // Both controllers report local axes of the same handedness, so a single value applied
+        // unchanged would twist the two hands the SAME way in world terms: one palm rolling inward
+        // while the other rolls outward. Negating it for the left hand makes a positive number turn
+        // both palms the same way relative to their own side of the body, which is what "roll the
+        // hands" means to the person wearing them. Pitch needs no such flip: fingers-down is
+        // fingers-down on both sides.
+        float roll = HandsConfig.SeatRollSafe(style) * (Side == HandSide.Left ? -1f : 1f);
+
         float scale = HandVisuals.StyleScale((HandStyle)style);
         if (pitch == _appliedGripPitch
             && lateral == _appliedLateralOffset
             && vertical == _appliedVerticalOffset
             && forward == _appliedForwardOffset
+            && roll == _appliedGripRoll
             && scale == _appliedStyleScale)
             return;
         _appliedGripPitch = pitch;
         _appliedLateralOffset = lateral;
         _appliedVerticalOffset = vertical;
         _appliedForwardOffset = forward;
+        _appliedGripRoll = roll;
         _handRoot.localPosition = new Vector3(lateral, vertical, forward);
-        _handRoot.localRotation = Quaternion.Euler(-pitch, 0f, 0f);
+        _handRoot.localRotation = Quaternion.Euler(-pitch, 0f, roll);
         if (Rig != null)
         {
             // Live scale re-apply (stepper/config edit): scales the hand subtree and

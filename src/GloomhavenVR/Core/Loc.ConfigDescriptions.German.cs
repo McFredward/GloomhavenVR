@@ -1596,6 +1596,35 @@ internal static partial class Loc
                 "DEV: wendet die echten Canvas-Umwandlungen im Dev-Modus ohne HMD an (das verschiebt die "
                 + "2D-Tafeln des Spiels in den 3D-Raum — die Desktop-Ansicht ändert sich entsprechend).",
             // ---- [Hands] ----
+            // The per-style ROLL, one entry per style — Loc.ConfigDescription matches section+key
+            // exactly, and these keys are built by interpolation, so there is no single row to write.
+            ["Hands/GloveGripRollDegrees"] =
+                "Rollwinkel (Grad) der sichtbaren Hand um die Vorwärtsachse des Controllers, während der "
+                + "Handstil Glove (Lederhandschuh) getragen wird — die Verdrehung, die eine Hand auf dem Controller "
+                + "schief wirken lässt. WIRD ZWISCHEN DEN HÄNDEN GESPIEGELT: beide Controller melden lokale "
+                + "Achsen gleicher Händigkeit, ein unverändert auf beide angewandter Wert würde sie also in "
+                + "Weltkoordinaten gleichsinnig verdrehen und das Paar unsymmetrisch machen. Die linke Hand "
+                + "erhält daher den negierten Wert, und eine positive Zahl dreht beide Handflächen gleich "
+                + "herum bezogen auf die jeweilige Körperseite. Rein lokal und optisch — an Mitspieler wird "
+                + "nichts gesendet, deren Hände werden aus ihren eigenen Posen gezeichnet. Live änderbar.",
+            ["Hands/PlateGripRollDegrees"] =
+                "Rollwinkel (Grad) der sichtbaren Hand um die Vorwärtsachse des Controllers, während der "
+                + "Handstil Plate (Panzerhandschuh) getragen wird — die Verdrehung, die eine Hand auf dem Controller "
+                + "schief wirken lässt. WIRD ZWISCHEN DEN HÄNDEN GESPIEGELT: beide Controller melden lokale "
+                + "Achsen gleicher Händigkeit, ein unverändert auf beide angewandter Wert würde sie also in "
+                + "Weltkoordinaten gleichsinnig verdrehen und das Paar unsymmetrisch machen. Die linke Hand "
+                + "erhält daher den negierten Wert, und eine positive Zahl dreht beide Handflächen gleich "
+                + "herum bezogen auf die jeweilige Körperseite. Rein lokal und optisch — an Mitspieler wird "
+                + "nichts gesendet, deren Hände werden aus ihren eigenen Posen gezeichnet. Live änderbar.",
+            ["Hands/ArcaneGripRollDegrees"] =
+                "Rollwinkel (Grad) der sichtbaren Hand um die Vorwärtsachse des Controllers, während der "
+                + "Handstil Arcane (Magierhandschuh) getragen wird — die Verdrehung, die eine Hand auf dem Controller "
+                + "schief wirken lässt. WIRD ZWISCHEN DEN HÄNDEN GESPIEGELT: beide Controller melden lokale "
+                + "Achsen gleicher Händigkeit, ein unverändert auf beide angewandter Wert würde sie also in "
+                + "Weltkoordinaten gleichsinnig verdrehen und das Paar unsymmetrisch machen. Die linke Hand "
+                + "erhält daher den negierten Wert, und eine positive Zahl dreht beide Handflächen gleich "
+                + "herum bezogen auf die jeweilige Körperseite. Rein lokal und optisch — an Mitspieler wird "
+                + "nichts gesendet, deren Hände werden aus ihren eigenen Posen gezeichnet. Live änderbar.",
             ["Hands/GlovePinkyCounterAbduction"] =
                 "Nur Handstil GLOVE: Grad Gegen-Abspreizung (Drehung um das lokale Z der Kleinfinger-Wurzel = "
                 + "Handflächen-Normale), angewandt bei voller Krümmung und mit dem Krümmungswert skaliert. Der "

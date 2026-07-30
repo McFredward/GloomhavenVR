@@ -166,6 +166,19 @@ internal static class HandsConfig
     /// <summary>Per-style forward offset (meters, device-space Z; positive = toward the fingertips).</summary>
     public static ConfigEntry<float>[]? StyleSeatForward;
 
+    /// <summary>
+    /// Per-style ROLL (degrees) around the controller's forward axis — the twist that makes a hand
+    /// look rotated on the controller rather than sitting on it.
+    ///
+    /// <para>MIRRORED BETWEEN THE HANDS, which is the whole point of it being separate from pitch.
+    /// The two controllers report the same handedness of local axes, so one value applied to both
+    /// would twist them the same way in world terms — one hand rolling inward while the other rolls
+    /// outward. <see cref="VRHand.SyncVisualOffset"/> negates it for the left hand, so a positive
+    /// value turns BOTH palms the same way relative to their own body side and the pair stays
+    /// symmetric.</para>
+    /// </summary>
+    public static ConfigEntry<float>[]? StyleSeatRoll;
+
     // ---- shipped per-style seat, indexed by (int)HandStyle: Glove, Plate, Arcane ------------
     // THESE ARE MEASURED, NOT DERIVED. They used to be seeded at runtime from the old shared
     // [Hands] GripPitchOffsetDegrees / HandLateralOffset / HandVerticalOffset / HandForwardOffset
@@ -178,6 +191,10 @@ internal static class HandsConfig
     private static readonly float[] DefaultSeatLateral = { 0f, 0f, 0.006f };
     private static readonly float[] DefaultSeatVertical = { 0.063f, 0.021f, 0.021f };
     private static readonly float[] DefaultSeatForward = { -0.018f, 0.026f, 0.026f };
+
+    // Roll ships at 0 for every style: the seat was dialled in without it, so anything else
+    // would silently re-tune hands that are already right.
+    private static readonly float[] DefaultSeatRoll = { 0f, 0f, 0f };
 
     private static float Seat(float[] table, int style) => table[(int)HandStyles.Clamp(style)];
 
@@ -196,6 +213,10 @@ internal static class HandsConfig
     /// <summary>Active-style forward (Z) seat offset (meters; shipped per-style value before Bind).</summary>
     public static float SeatForwardSafe(int style) =>
         StyleValue(StyleSeatForward, style, Seat(DefaultSeatForward, style));
+
+    /// <summary>Active-style seat ROLL (degrees, unmirrored; VRHand negates it for the left hand).</summary>
+    public static float SeatRollSafe(int style) =>
+        StyleValue(StyleSeatRoll, style, Seat(DefaultSeatRoll, style));
 
     // ---- per-STYLE wrist-HUD pose (2026-07 request B) --------------------------------------
     // The watch-face wrist HUD (WorldUI.WristHud) rests on the back of the hand MESH, whose
@@ -374,6 +395,7 @@ internal static class HandsConfig
         StyleSeatLateral = new ConfigEntry<float>[HandStyles.Count];
         StyleSeatVertical = new ConfigEntry<float>[HandStyles.Count];
         StyleSeatForward = new ConfigEntry<float>[HandStyles.Count];
+        StyleSeatRoll = new ConfigEntry<float>[HandStyles.Count];
         for (int i = 0; i < HandStyles.Count; i++)
         {
             string s = styleNames[i];
@@ -403,6 +425,18 @@ internal static class HandsConfig
                 $"of the visual hand from the grip pose while the {s} style is worn. PER-STYLE " +
                 "absolute value (supersedes the old shared HandForwardOffset + trim; seeded on " +
                 "first run). Live-tunable.");
+            StyleSeatRoll[i] = config.Bind(
+                "Hands", $"{s}GripRollDegrees",
+                Seat(DefaultSeatRoll, i),
+                $"Roll (degrees) of the visual hand around the controller's forward axis while the " +
+                $"{s} style is worn — the twist that makes a hand look rotated ON the controller " +
+                "rather than seated on it. MIRRORED BETWEEN THE HANDS: the two controllers report " +
+                "the same handedness of local axes, so one value applied to both would twist them " +
+                "the same way in world terms and the pair would stop being symmetric. The left " +
+                "hand therefore gets the negated value, and a positive number turns both palms the " +
+                "same way relative to their own side of your body. Purely local and visual — " +
+                "nothing is sent to other players, whose hands are drawn from their own poses. " +
+                "Live-tunable — the hands re-seat next frame.");
         }
         // PER-STYLE wrist-HUD pose (request B): seed each style from the legacy GLOBAL
         // [WorldUI] WristHud* entries. WorldUIConfig.Bind is idempotent and is called here
