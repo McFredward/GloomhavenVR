@@ -2,9 +2,13 @@
 
 `gloomhavenvr.bundle` — the mod's AssetBundle, committed so a clone can ship the
 real 3D visuals without a Unity install. Built for **StandaloneWindows64**,
-Unity **2021.3.45f1**, TypeTrees ON.
+Unity **2021.3.5f1**, TypeTrees ON.
 
-**Now built NATIVELY with Unity 2021.3.5f1** (the game's exact version) → UnityFS archive
+> **Build it with `/home/claw/unity-2021.3.5`, NOT `/home/claw/unity-2021.3`.**
+> The second one is 2021.3.45f1 and its bundles do not load in the game at all.
+> `scripts/check-bundle-format.sh` (run by `refactor-guard.sh check`) enforces this.
+
+**Built NATIVELY with Unity 2021.3.5f1** (the game's exact version) → UnityFS archive
 **format 7** and shaders compiled for the game runtime. This is the primary path since the
 headless license for 2021.3.5 was solved (mint a Personal ULF from Hub's token — see
 `.planning/debug/mint-ulf.sh` and `unity-license-headless.md`).
@@ -37,8 +41,12 @@ present; this committed copy is the fallback).
 - `VRTestCube.prefab` — pre-existing smoke-test asset.
 
 ## Rebuilding
-Source lives in `unity/GloomhavenVR.Assets/Assets/Bundle/`. On a licensed Unity
-2021.3.45f1 editor: `GloomhavenVR → Build AssetBundles` (or
-`scripts/build-bundles.sh`), then copy `Build/Bundles/gloomhavenvr.bundle` here.
+Source lives in `unity/GloomhavenVR.Assets/Assets/Bundle/`. On the licensed Unity
+2021.3.5f1 editor: `GloomhavenVR → Build AssetBundles` (or
+`UNITY_PATH=/home/claw/unity-2021.3.5/Editor/Unity scripts/build-bundles.sh`), then copy
+`Build/Bundles/gloomhavenvr.bundle` here and run `scripts/check-bundle-format.sh`.
+When a hand FBX changed, use `-executeMethod GloomhavenVR.HandsBuilder.Build` instead —
+it regenerates the hand prefabs (whose baked `m_AABB` is otherwise stale) and then builds
+the bundle itself.
 The board prefab/material are assembled from the FBX by
 `Assets/Editor/BuildBoard.cs` (`-executeMethod GloomhavenVR.BoardBuilder.Build`).

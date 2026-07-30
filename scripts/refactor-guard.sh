@@ -32,6 +32,8 @@
 #   scripts/check-mirrors.sh           two constants deliberately not merged must not drift
 #   scripts/wire-tests.sh              byte-exact packets: a Write+TryRead change made in
 #                                      lockstep is invisible to a round trip and to the guard
+#   scripts/check-bundle-format.sh     a bundle built by the WRONG editor loads nowhere and
+#                                      fails silently into the procedural fallback
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -118,6 +120,8 @@ case "${1:-check}" in
             || { echo "error: remote rendering drifted from the local defaults (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
+        "$ROOT/scripts/check-bundle-format.sh" \
+            || { echo "error: the committed bundle cannot be read by the game (see above)" >&2; exit 1; }
         snapshot "$CURR"
         if [[ "${2:-}" == "--summary" ]]; then
             echo "=== compiled form vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="
