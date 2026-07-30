@@ -69,6 +69,21 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
    Tip bone actually owns the distal phalanx (it used to start AT the fingertip —
    the runtime's 65° tip rotation moved ~2 mm of mesh). Verified via
    RIG_HAND_DIAG=1 weight stats + rigid-follow test + the rendered pose matrix.
+2b. `refine_shell.py` (2026-07, PLATE applied) — post-process on the exported
+   `*_rig.fbx`, rerunnable: `blender -b -P unity/hand-prep/refine_shell.py -- <fbx>`.
+   The collapse decimator in step 1 is curvature-driven and strips the flattest regions
+   hardest, so the armoured gauntlet shipped its PALM PLATE and CUFF BAND as a handful of
+   giant smooth-shaded triangles (measured on `VRHandPlate_R_rig.fbx`: single facets with
+   70.6 / 63.6 / 54.0 mm edges on a 190 mm hand, mean edge 5.8 mm) — visible triangle
+   creases in-headset, plus a texture that reads as stretched because the affine UV map
+   spreads those facets' texels 4-15x thinner than the neighbouring shell
+   (uvArea/faceArea 0.16-0.66 vs a region median of 2.41). The script adaptively
+   subdivides only the coarse patches (linear split of every non-boundary edge over 8 mm)
+   and rounds them with a coarseness-weighted Taubin low-pass, leaving fine detail,
+   the open wrist rim, the silhouette and the 19-bone contract untouched.
+   Plate: 9 660 -> 26 659 tris, longest edge 89.7 -> 24.1 mm, all vertices keep a
+   normalised weight set. **Run `scripts/build-bundles.sh` afterwards** — the mod loads
+   the hands from `gloomhavenvr.bundle`, so an edited FBX alone changes nothing.
 3. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
    `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
 
