@@ -104,10 +104,11 @@ if [[ ! -f "$TEMPLATE" ]]; then
 fi
 sed "s/@VERSION@/$VERSION/g" "$TEMPLATE" > "$STAGE/INSTALL.txt"
 
-# The one-click graphics-jobs enabler, at the zip ROOT so it lands next to GH.exe
-# when the archive is extracted into the game folder. It is what removes the
-# "start the game twice" step for a drag-and-drop install (INSTALL.txt step 4).
-cp "$ROOT/packaging/EnableGraphicsJobs.bat" "$ROOT/packaging/EnableGraphicsJobs.ps1" "$STAGE/"
+# NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
+# and restarts the game once on the boot that needs it, so a script whose whole job
+# was to write the same two keys beforehand only offered the user a way to do by
+# hand what already happens. Undo is [Core] EnableGraphicsJobs = false, or the
+# backup the preloader leaves beside boot.config (both in INSTALL.txt).
 
 # ---- zip + verify ----------------------------------------------------------------------------
 mkdir -p "$DIST"
@@ -119,15 +120,13 @@ echo "Packaged: $ZIP"
 echo "Contents:"
 unzip -l "$ZIP"
 
-# Sanity: the four load-bearing paths must exist in the archive.
+# Sanity: the load-bearing paths must exist in the archive.
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
     "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
-    "INSTALL.txt" \
-    "EnableGraphicsJobs.bat" \
-    "EnableGraphicsJobs.ps1"; do
+    "INSTALL.txt"; do
     if ! unzip -l "$ZIP" | grep -q "$path"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1

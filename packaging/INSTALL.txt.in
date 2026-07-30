@@ -27,11 +27,6 @@ runtime (Quest Link / Virtual Desktop / Steam Link / SteamVR), BepInEx 5.4.23.5.
 4. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
    Set [General] Enabled = false in dev.gloomhavenvr.cfg to run vanilla.
 
-5. OPTIONAL: double-click EnableGraphicsJobs.bat (it sits next to GH.exe after
-   step 2) BEFORE you first start the game. Then step 3's automatic restart does
-   not happen at all, because the setting is already in place. Skipping this
-   costs you nothing but those few seconds.
-
 
 Why the game restarts itself once
 ---------------------------------
@@ -62,6 +57,13 @@ This is the ONLY game file the mod writes: two key=value lines, every other line
 preserved, and the original copied once to boot.config.gloomhavenvr-backup.
 If the game ever fails to start, copy that backup over boot.config — the mod
 cannot help you there, because it never runs.
+
+Undoing it, in the order you would want them:
+  * Set [Core] EnableGraphicsJobs = false. The mod writes the two keys back to 0
+    on the next start. Nothing else in the file is touched.
+  * Or copy boot.config.gloomhavenvr-backup over boot.config yourself. That is
+    the file exactly as it was before the mod ever ran, and it works whether or
+    not the mod is still installed.
 
 
 Trouble
