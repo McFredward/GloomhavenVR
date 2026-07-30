@@ -205,8 +205,12 @@ internal static class MixedReality
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
             "green / magenta / blue; any RGBA is accepted here.");
-        HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", false,
-            "Also disable the sky/background GEOMETRY while MR is on. The scenario backdrop is " +
+        HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", true,
+            "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
+            + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
+            + "offered in the VR menu, because half of MR is not a thing to switch off: keying the "
+            + "camera clear without it leaves the backdrop drawn over the key colour, so MR simply "
+            + "would not work. Disables the sky/background GEOMETRY while MR is on. The scenario backdrop is " +
             "an opaque mesh (not the skybox), so keying the camera clear alone leaves it drawn " +
             "over the key color; MR sweeps the renderers and disables the ones that draw the " +
             "surrounding sky (sky-ish name/material, or bounds enclosing the head on all axes — " +

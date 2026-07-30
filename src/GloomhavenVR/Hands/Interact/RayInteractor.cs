@@ -428,20 +428,29 @@ internal sealed class RayInteractor : IPickProvider
                 : maxDistance * 0.25f;
         Vector3 end = origin + direction * length;
 
-        // Visual origin (test #7 + #14): the beam still reads as leaving the pointing
-        // finger, but the knuckle anchor is PROJECTED ONTO THE AIM LINE — the start
-        // point sits at the knuckle's along-ray distance plus the configured offset,
-        // never off-axis, so the beam direction is exactly the aim direction at all
-        // times (the tip curls with the trigger pull; the knuckle is curl-independent).
+        // Visual origin (test #7 + #14): the beam reads as leaving the pointing finger. It now
+        // starts AT the knuckle rather than at the knuckle PROJECTED ONTO THE AIM LINE.
+        //
+        // The projection existed so the drawn beam's direction was exactly the aim direction. That
+        // held only while the visual hand sat ON the aim line — and it stopped holding the moment
+        // the hands became freely seatable (roll, yaw, spread): the finger moves off the aim line,
+        // the projected start stays on it, and the beam visibly leaves a point in mid-air beside
+        // the finger. Starting at the real knuckle costs a small angular difference close to the
+        // hand and keeps what actually matters: the END point is unchanged, so the beam still
+        // points at exactly what a click will hit, and it comes out of the finger at any hand
+        // tuning. (The knuckle, not the tip: the tip curls with the trigger pull.)
         Vector3 start = origin + direction * (0.03f * scale);
         if (Plugin.LaserFingerOrigin.Value)
         {
             Transform anchor = _hand.Rig.IndexKnuckle ?? _hand.Rig.IndexTip;
             if (anchor != null)
             {
-                float along = Mathf.Max(0f, Vector3.Dot(anchor.position - origin, direction))
-                              + Plugin.LaserFingerOffsetMeters.Value * scale;
-                start = origin + direction * Mathf.Min(along, length * 0.9f);
+                Vector3 toEnd = end - anchor.position;
+                float span = toEnd.magnitude;
+                start = span > 1e-4f
+                    ? anchor.position + toEnd * Mathf.Clamp01(
+                        Plugin.LaserFingerOffsetMeters.Value * scale / span)
+                    : anchor.position;
             }
         }
 

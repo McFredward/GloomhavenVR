@@ -162,12 +162,18 @@ internal sealed class PalmGate
             Core.VRLog.Debug("Interact", "PalmGate reveal restored — gate hand free.");
         }
 
-        // VISUAL hand frame (v4, class doc): HandRig.Root carries +Z along the fingers and
-        // +Y out of the back of the hand (both hands), and — hanging below the offset
-        // HandRoot — includes the debug-menu seat offsets/trims the user tuned, so the
-        // gate reads the hand they SEE. Device-transform fallback only if the rig is gone.
-        Transform? root = _hand.Rig?.Root;
-        Quaternion frame = root != null ? root.rotation : _hand.transform.rotation;
+        // THE GESTURE IS A PROPERTY OF THE CONTROLLER, NOT OF HOW THE HANDS ARE SEATED. The frame
+        // still has +Z along the fingers and +Y out of the back of the hand (v4, class doc), but it
+        // is built from the DEVICE rotation plus the SHIPPED seat — never the tuned one.
+        //
+        // It used to read HandRig.Root, which carries whatever the player dialled in. That made
+        // re-seating the hands silently re-tune the gesture: turning them to sit right on the
+        // controller moved the wrist angle at which the fan opens, which is not something a
+        // cosmetic setting may do. Anchoring on the shipped seat keeps "how far do I turn my
+        // wrist" the same for everyone and at every hand tuning, while leaving the frame exactly
+        // what v4 chose for the default seat.
+        int style = (int)(_hand.Rig != null ? _hand.Rig.VisualStyle : HandVisuals.LocalStyle());
+        Quaternion frame = _hand.transform.rotation * HandsConfig.ShippedSeatRotation(style);
         Vector3 f = frame * Vector3.forward; // finger axis
         Vector3 u = frame * Vector3.up;      // back-of-hand up
 

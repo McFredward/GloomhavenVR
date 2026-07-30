@@ -166,7 +166,6 @@ internal static partial class VROptionsTab
                     {
                         new("MixedReality", "Enabled", "mixed_reality"),
                         new("MixedReality", "KeyColor", "key_color"),
-                        new("MixedReality", "HideSkyMeshes", "vr_o_hidesky"),
                     },
                 },
                 new()

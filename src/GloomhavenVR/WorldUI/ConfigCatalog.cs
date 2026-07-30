@@ -354,6 +354,10 @@ internal static class ConfigCatalog
         // the three hand models and never sees it. It is also an RRGGBB string, so the row offered
         // a left/right stepper with nothing to step.
         ["Hands/HandColor"] = "only tints the procedural fallback hand, which a normal install never shows",
+        // Half of what Mixed Reality IS. Keying the camera clear without also removing the opaque
+        // backdrop leaves the backdrop drawn over the key colour, so offering it as a separate
+        // switch offers a way to make MR not work. Bound as an escape hatch, not as a choice.
+        ["MixedReality/HideSkyMeshes"] = "part of Mixed Reality itself — MR turns it on",
     };
 
     /// <summary>

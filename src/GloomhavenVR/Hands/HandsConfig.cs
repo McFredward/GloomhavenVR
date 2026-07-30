@@ -219,6 +219,20 @@ internal static class HandsConfig
 
     private static float Seat(float[] table, int style) => table[(int)HandStyles.Clamp(style)];
 
+    /// <summary>
+    /// The seat rotation AS SHIPPED for a style — the tuned values deliberately ignored.
+    ///
+    /// <para>Gesture measures use this instead of the live hand frame. The card fan's reveal gate
+    /// reads a hand frame to decide "is the palm turned up", and while that frame carried the
+    /// user's own pitch/roll/yaw, cosmetically re-seating the hands silently re-tuned the GESTURE:
+    /// turn the hands 20 degrees to make them sit right on the controller and the fan starts
+    /// opening at a different wrist angle. Anchoring on the shipped seat keeps "how far do I turn
+    /// my wrist" a property of the CONTROLLER, which is what the player actually learns, and makes
+    /// hand tuning purely cosmetic again.</para>
+    /// </summary>
+    public static Quaternion ShippedSeatRotation(int style) =>
+        Quaternion.Euler(-Seat(DefaultSeatPitch, style), 0f, 0f);
+
     /// <summary>Active-style seat pitch (degrees; the shipped per-style value before Bind).</summary>
     public static float SeatPitchSafe(int style) =>
         StyleValue(StyleSeatPitch, style, Seat(DefaultSeatPitch, style));
