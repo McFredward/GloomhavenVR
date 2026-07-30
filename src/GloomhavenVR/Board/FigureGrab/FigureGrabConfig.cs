@@ -48,7 +48,7 @@ internal static class FigureGrabConfig
     /// <summary>
     /// Hold the mini UPRIGHT (feet→head along world up), pinched between thumb and index and
     /// facing the player — like inspecting a chess piece. When false, the legacy palm pose is
-    /// used (<see cref="HeldEuler"/> tilt relative to the hand, lays it flat).
+    /// used (<see cref="HeldEulerFor"/> relative to the hand, lays it flat).
     /// </summary>
     public static ConfigEntry<bool> HeldUpright = null!;
 
@@ -82,6 +82,9 @@ internal static class FigureGrabConfig
     /// <summary>Per-style inspection zoom on top of the board world-scale.</summary>
     public static ConfigEntry<float>[]? StyleHeldScale;
 
+    /// <summary>Per-style held ROLL (degrees) — the third rotation axis, mirrored per hand.</summary>
+    public static ConfigEntry<float>[]? StyleHeldRollDegrees;
+
     /// <summary>The ACTIVE style's per-style value, else the legacy global, else the shipped default.</summary>
     private static float StyleOr(ConfigEntry<float>[]? entries, ConfigEntry<float>? legacy, float shipped)
     {
@@ -102,6 +105,7 @@ internal static class FigureGrabConfig
     internal static float ActiveHeldForward => StyleOr(StyleHeldOffsetForward, HeldOffsetForward, 0.03f);
     internal static float ActiveHeldTilt => StyleOr(StyleHeldTiltDegrees, HeldTiltDegrees, 0f);
     internal static float ActiveHeldFaceYaw => StyleOr(StyleHeldFaceYawDegrees, HeldFaceYawDegrees, 0f);
+    internal static float ActiveHeldRoll => StyleOr(StyleHeldRollDegrees, null, 0f);
 
     /// <summary>Active-style inspection zoom (what <see cref="FigureGrabbable"/> applies).</summary>
     internal static float ActiveHeldScale => StyleOr(StyleHeldScale, HeldScale, 1.5f);
@@ -138,6 +142,18 @@ internal static class FigureGrabConfig
         => side == HandSide.Left ? -ActiveHeldFaceYaw : ActiveHeldFaceYaw;
 
     /// <summary>
+    /// Held ROLL for one hand — the third rotation axis, so a mini has the same freedom in the
+    /// hand as the hand itself: three offsets and three angles.
+    ///
+    /// <para>Mirrored exactly like the yaw, and for the same reason: roll is a rotation about the
+    /// forward axis, so the mirror image of a right-hand roll is the opposite roll. Tune once on
+    /// the right hand and the left is correct. (Tilt stays mirror-invariant — it is a rotation
+    /// about the mirror axis itself.)</para>
+    /// </summary>
+    internal static float HeldRollFor(HandSide side)
+        => side == HandSide.Left ? -ActiveHeldRoll : ActiveHeldRoll;
+
+    /// <summary>
     /// Issue A — the upright held orientation as a FIXED CONSTANT rotation RELATIVE TO THE
     /// GRABANCHOR (NOT derived from world up, the player's head, the figure's board rotation,
     /// or the grab-moment anchor orientation), so the mini sits the SAME way in the palm no
@@ -154,10 +170,16 @@ internal static class FigureGrabConfig
     /// toward the player (negated for the left hand, tilt mirror-invariant), both live-tunable.
     /// </summary>
     internal static Quaternion HeldUprightRotation(HandSide side)
-        => Quaternion.Euler(ActiveHeldTilt, HeldFaceYawFor(side), 0f);
+        => Quaternion.Euler(ActiveHeldTilt, HeldFaceYawFor(side), HeldRollFor(side));
 
-    /// <summary>Legacy palm-pose rotation (tilt only), relative to the GrabAnchor.</summary>
-    internal static Vector3 HeldEuler => new(ActiveHeldTilt, 0f, 0f);
+    /// <summary>
+    /// Palm-pose rotation relative to the GrabAnchor. It used to be tilt ONLY, which meant the
+    /// yaw and roll steppers silently did nothing unless upright mode happened to be on — the
+    /// mini had three position axes but one rotation axis. Both modes now use all three, so
+    /// every stepper does what it says wherever you are.
+    /// </summary>
+    internal static Vector3 HeldEulerFor(HandSide side)
+        => new(ActiveHeldTilt, HeldFaceYawFor(side), HeldRollFor(side));
 
     private static ConfigFile? _file;
 
@@ -236,6 +258,7 @@ internal static class FigureGrabConfig
         StyleHeldTiltDegrees = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldFaceYawDegrees = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldScale = new ConfigEntry<float>[HandStyles.Count];
+        StyleHeldRollDegrees = new ConfigEntry<float>[HandStyles.Count];
         for (int i = 0; i < HandStyles.Count; i++)
         {
             string s = styleNames[i];
@@ -260,6 +283,10 @@ internal static class FigureGrabConfig
             StyleHeldScale[i] = config.Bind(
                 "FigureGrab", $"{s}HeldScale", HeldScale.Value,
                 $"Inspection zoom applied on top of the figure's board world-scale while held. {per}");
+            StyleHeldRollDegrees[i] = config.Bind(
+                "FigureGrab", $"{s}HeldRollDegrees", 0f,
+                "Held ROLL (degrees) around the axis pointing out of your fingertips — the third " +
+                $"rotation axis, MIRRORED between the hands like the yaw. {per}");
         }
 
         // Live-tune hook: any held-pose tunable change re-poses the currently-held mini in-hand
@@ -282,6 +309,7 @@ internal static class FigureGrabConfig
             StyleHeldTiltDegrees[i].SettingChanged += Reapply;
             StyleHeldFaceYawDegrees[i].SettingChanged += Reapply;
             StyleHeldScale[i].SettingChanged += Reapply;
+            StyleHeldRollDegrees[i].SettingChanged += Reapply;
         }
         // A hand-style SWITCH changes which per-style set is active — re-pose a held mini
         // right away (the Active* accessors read the new style on the next call).

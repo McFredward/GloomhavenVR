@@ -327,7 +327,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // (mirror-correct); legacy mode lays it flat (tilt only, mirror-invariant).
         t.localRotation = FigureGrabConfig.HeldUpright.Value
             ? FigureGrabConfig.HeldUprightRotation(side)
-            : Quaternion.Euler(FigureGrabConfig.HeldEuler);
+            : Quaternion.Euler(FigureGrabConfig.HeldEulerFor(side));
 
         t.localScale = _heldBaseScale * FigureGrabConfig.ActiveHeldScale;
     }

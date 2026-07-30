@@ -434,6 +434,23 @@ internal sealed class UguiPointer
         _dragging = false;
         _lastDragPos = screenPos;
         _dragTarget = ExecuteEvents.GetEventHandler<IDragHandler>(_hovered);
+
+        // A laser is not a finger on glass: it never holds perfectly still, and with
+        // useDragThreshold = false EVERY press moves a pixel or two. On a list that means each
+        // attempt to click an option also pans the list under the cursor, which is what makes
+        // the options menu hard to hit. So a press whose only drag handler is the SCROLL VIEW
+        // itself does not take the drag — the list then scrolls with the stick, which is
+        // precise, and the press stays a clean click.
+        //
+        // GetEventHandler returns the NEAREST ancestor that handles IDragHandler, so a slider,
+        // scrollbar or dropdown inside a scroll view still resolves to itself and keeps
+        // dragging normally. Only the scroll view loses it.
+        if (Plugin.ScrollWithStickOnly.Value && _dragTarget != null &&
+            _dragTarget.GetComponent<ScrollRect>() != null)
+        {
+            _dragTarget = null;
+        }
+
         data.pointerDrag = _dragTarget;
         data.useDragThreshold = false; // VR laser: begin dragging on the first move, no pixel threshold
         if (_dragTarget != null)

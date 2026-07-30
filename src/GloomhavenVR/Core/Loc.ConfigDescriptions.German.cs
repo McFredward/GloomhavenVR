@@ -706,6 +706,20 @@ internal static partial class Loc
                 + "GENAU auf die getrackte Grip-Pose. Standard -0.06 setzt das Handgelenk knapp hinter den "
                 + "Grip-Ursprung, sodass die Handfläche den Controller-Griff umschließt. Hot-Reload-fähig: im "
                 + "laufenden Spiel bearbeiten, die Hände setzen sich im nächsten Frame neu.",
+            ["Hands/ScrollWithStickOnly"] =
+                "Listen werden NUR mit dem Stick gescrollt. Ein Laser steht nie ganz still, und da die "
+                + "Zieh-Schwelle abgeschaltet ist, verschiebt jeder Druck auch die Liste darunter — genau "
+                + "das macht das Treffen von Optionen schwer. Mit dieser Option bleibt ein Druck, dessen "
+                + "einziges Ziehziel die Liste selbst ist, ein sauberer Klick. Schieberegler, Scrollbalken "
+                + "und Aufklappmenüs sind nicht betroffen: sie lösen auf sich selbst auf, nicht auf die Liste.",
+            ["Hands/LaserFingerAxis"] =
+                "Richtet den Laser ENTLANG DES ZEIGEFINGERS der Hand aus, die du tatsächlich siehst — er "
+                + "folgt damit jeder Handeinstellung (Neigung, Gierung, Rollen, Sitz). Am Rig gemessen liegt "
+                + "die Fingerachse 7,8 Grad neben der Vorwärtsachse der Hand, „entlang der Hand“ ist hier "
+                + "also wirklich „entlang des Fingers“. Aus = die OpenXR-Aim-Pose des Controllers, die den "
+                + "Sitz der Hand ignoriert und den Strahl deshalb schräg aus dem Finger austreten lässt. "
+                + "Auswahlstrahl und gezeichneter Strahl nutzen beide dieselbe Linie: worauf du zeigst, "
+                + "triffst du auch.",
             ["Hands/LaserFingerOrigin"] =
                 "Lässt den SICHTBAREN Laserstrahl an der Zeigefingerspitze des Hand-Rigs beginnen "
                 + "(zusammenlaufend auf den Endpunkt des Strahls der Aim-Pose), sodass er wirkt, als ginge er "
@@ -2015,6 +2029,11 @@ internal static partial class Loc
                 + "ersten Anlegen, danach nie wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien "
                 + "weiterhin laden. Historische Bedeutung: nur im aufrechten Modus: zusätzliche Drehung (Grad), "
                 + "die die Vorderseite der Figur zu dir dreht. Setze 180, wenn sie dir den Rücken zuwendet.",
+            ["FigureGrab/*HeldRollDegrees"] =
+                "Gehaltene ROLLUNG (Grad) um die Achse, die aus deinen Fingerspitzen zeigt — die dritte "
+                + "Drehachse, damit eine Figur in der Hand dieselbe Freiheit hat wie die Hand selbst: drei "
+                + "Verschiebungen und drei Winkel. Zwischen den Händen GESPIEGELT wie die Gierung, du "
+                + "stellst also nur die rechte Hand ein. PRO HANDSTIL.",
             ["FigureGrab/*HeldOffsetSide"] =
                 "Seitlicher Versatz der Halteposition (lokales X des Greif-Ankers) hin zum Pinch-Griff "
                 + "zwischen Daumen und Zeigefinger. PRO STIL geltender absoluter Wert, solange dieser Handstil "
