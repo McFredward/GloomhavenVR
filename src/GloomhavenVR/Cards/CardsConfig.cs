@@ -358,25 +358,27 @@ internal static class CardsConfig
     /// </summary>
     private static class BoardDefaults
     {
-        internal static readonly Vector3[] RestButtonOffset = { new(0.008f, 0f, -0.007f), new(-0.44f, 0f, -0.047f), new(0.024f, 0f, -0.005f) };
-        internal static readonly float[] RestButtonDiameter = { 0.091f, 0.071f, 0.105f };
+        internal static readonly Vector3[] RestButtonOffset = { new(0.008f, 0f, -0.007f), new(-0.44f, 0f, -0.047f), new(-0.45f, 0.015f, -0.012f) };
+        internal static readonly float[] RestButtonDiameter = { 0.091f, 0.071f, 0.071f };
         internal static readonly Vector3[] ConfirmUndoOffset = { new(-0.008f, 0f, 0.009f), new(0.462f, 0.006f, -0.047f), new(-0.014f, 0f, -0.005f) };
         internal static readonly float[] ConfirmUndoSize = { 0.071f, 0.059f, 0.073f };
         internal static readonly Vector3[] SlotOverlayOffset = { new(0.002f, -0.002f, 0.004f), new(0.018f, -0.002f, 0.004f), new(0f, 0f, 0f) };
-        internal static readonly float[] SlotOverlaySpacing = { -0.008f, 0.002f, 0f };
+        internal static readonly float[] SlotOverlaySpacing = { -0.008f, 0.002f, -0.01f };
         internal static readonly Vector3[] InitiativeOffset = { new(0f, 0.17f, -0.048f), new(0f, 0.2f, -0.07f), new(0f, 0.1f, -0.004f) };
-        internal static readonly float[] RestButtonSpacing = { 0f, -0.044f, 0f };
+        internal static readonly float[] RestButtonSpacing = { 0f, -0.044f, 0.016f };
         internal static readonly float[] GenericButtonSpacing = { -0.008f, 0.01f, 0f };
-        internal static readonly Vector3[] ActiveOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] ActiveOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, -0.02f) };
         internal static readonly float[] ActiveCardScale = { 1f, 0.82f, 0.82f };
-        internal static readonly Vector3[] PileOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, 0f) };
-        internal static readonly Vector3[] ObjectivesOffset = { new(0f, 0.026f, 0f), new(0f, 0.032f, -0.042f), new(0f, 0f, 0f) };
-        internal static readonly float[] ObjectivesScale = { 0.95f, 0.95f, 1f };
-        internal static readonly float[] ObjectivesWidth = { 0.8f, 0.8f, 1.6f };
-        internal static readonly Vector3[] ElementsOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] PileOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, -0.005f) };
+        internal static readonly Vector3[] ObjectivesOffset = { new(0f, 0.026f, 0f), new(0f, 0.032f, -0.042f), new(0f, 0.032f, -0.002f) };
+        internal static readonly float[] ObjectivesScale = { 0.95f, 0.95f, 0.95f };
+        internal static readonly float[] ObjectivesWidth = { 0.8f, 0.8f, 0.8f };
+        internal static readonly Vector3[] ElementsOffset = { new(0f, 0f, 0f), new(0f, 0f, -0.04f), new(0f, 0f, -0.04f) };
         internal static readonly Vector3[] PinOffset = { new(0f, 0f, 0f), new(-0.02f, -0.022f, 0f), new(0f, 0f, 0f) };
-        internal static readonly Vector3[] DecisionOffset = { new(0f, 0f, 0f), new(0f, -0.012f, 0f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] DecisionOffset = { new(0f, 0f, 0f), new(0f, -0.012f, 0f), new(0f, -0.012f, 0f) };
         internal static readonly Vector3[] ReadoutOffset = { new(0.008f, -0.004f, -0.024f), new(-0.04f, 0.022f, -0.044f), new(0f, 0f, 0f) };
+        internal static readonly Vector3[] AssetOffset = { new(0f, 0f, 0f), new(0f, 0f, 0f), new(0f, -0.11f, 0.08f) };
+        internal static readonly float[] AssetPitchDegrees = { 0f, 0f, 57f };
     }
 
     internal static void Bind()
@@ -464,24 +466,24 @@ internal static class CardsConfig
             "holding a playing card. The card top points to the thumb side (which is world-up " +
             "in a relaxed grip; mirrored automatically for the left hand). The card still " +
             "follows the wrist 1:1 — this is a fixed bias, NOT per-frame auto-facing.");
-        HeldForward = _file.Bind("Cards", "HeldForward", 0.02f,
+        HeldForward = _file.Bind("Cards", "HeldForward", 0.005f,
             "Held card FALLBACK (only used when the hand rig has no finger joints): " +
             "pinch-point offset from the grab anchor along the fingers, meters.");
-        HeldOffPalm = _file.Bind("Cards", "HeldOffPalm", 0.015f,
+        HeldOffPalm = _file.Bind("Cards", "HeldOffPalm", 0.0148f,
             "Held card FALLBACK (only used when the hand rig has no finger joints): " +
             "pinch-point offset off the palm surface, meters.");
-        HeldPinchOffset = _file.Bind("Cards", "HeldPinchOffset", Vector3.zero,
+        HeldPinchOffset = _file.Bind("Cards", "HeldPinchOffset", new Vector3(-0.055f, 0.035f, 0f),
             "Held card fine-tune: offset (meters) ADDED to the computed pinch point — " +
             "the midpoint between the thumb tip and index tip at grab time — in " +
             "GrabAnchor-local axes: +Y out of the palm, +Z along the fingers, +X " +
             "sideways (anatomically mirrored between hands). Example {x:0, y:0.01, " +
             "z:0.02} lifts the card 1 cm off the palm and shifts it 2 cm toward the " +
             "fingertips.");
-        TrayForward = _file.Bind("Cards", "TrayForward", 0.573853f,
+        TrayForward = _file.Bind("Cards", "TrayForward", 0.77584f,
             "Control board placement: forward distance from the head at placement time, meters.");
-        TrayDown = _file.Bind("Cards", "TrayDown", 0.274678f,
+        TrayDown = _file.Bind("Cards", "TrayDown", 0.168089f,
             "Control board placement: drop below eye height, meters (0.35 ~ chest height).");
-        TrayRight = _file.Bind("Cards", "TrayRight", 0.554519f,
+        TrayRight = _file.Bind("Cards", "TrayRight", 0.311589f,
             "Control board placement: sideways offset (+right), meters.");
         TrayTilt = _file.Bind("Cards", "TrayTilt", 30f,
             "LEGACY — no effect, superseded by the per-board BoardTilt_<board>. Nothing reads this " +
@@ -489,7 +491,7 @@ internal static class CardsConfig
             "flat like a desk, 90 = upright panel); BoardTilt_<board> replaced it in the pose math " +
             "and was seeded to 30 so Oak is unchanged. Tune BoardTilt_<board> instead. Kept bound so " +
             "existing cfg files load unchanged.");
-        TrayYaw = _file.Bind("Cards", "TrayYaw", 38.737f,
+        TrayYaw = _file.Bind("Cards", "TrayYaw", 24.12019f,
             "Control board yaw relative to the head's flat forward at placement time, degrees. " +
             "Written automatically when you grip-move the tray by its handle bar; edit only to reset.");
         TrayScale = _file.Bind("Cards", "TrayScale", 2f,
@@ -580,7 +582,7 @@ internal static class CardsConfig
             "-> mip chain) and the face Images' sprites are swapped to equivalent sprites on the " +
             "baked copy (rect/pivot/border/PPU preserved; originals restored when a face is " +
             "returned to the game). false = leave the game's mipless atlases untouched.");
-        Board = _file.Bind("Cards", "Board", ControlBoard.Bronze,
+        Board = _file.Bind("Cards", "Board", ControlBoard.Steel,
             "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
             "live from the VR settings panel. Oak = the original bundled board (default); Steel " +
             "and Bronze are the two new boards. The enum→bundle-path map lives in " +
@@ -647,7 +649,7 @@ internal static class CardsConfig
                 "the table — the ~0.4 table-ratio default felt a touch small on first spawn, so the " +
                 "board opens slightly larger (0.5). Resize any time with the two-handed grab gesture " +
                 "(writes TrayScale); this is the per-board seed on top of that.");
-            _assetOffset[i] = _file.Bind("Cards", $"AssetOffset_{board}", Vector3.zero,
+            _assetOffset[i] = _file.Bind("Cards", $"AssetOffset_{board}", BoardDefaults.AssetOffset[i],
                 $"[{board}] position offset of the BOARD MESH ALONE, board-local meters. The six " +
                 "anchors (card slots, rest tokens, Confirm/Undo) and everything docked to them " +
                 "STAY PUT — BoardPosOffset moves the whole board WITH its elements, this slides " +
@@ -658,7 +660,7 @@ internal static class CardsConfig
                 $"LEGACY — no effect, superseded by [{board}] AssetPitch/Yaw/RollDegrees_{board}. " +
                 "A Vector3 whose key carried no unit word, so the menu stepped it in hundredths " +
                 "of a degree.");
-            _assetPitch[i] = _file.Bind("Cards", $"AssetPitchDegrees_{board}", 0f,
+            _assetPitch[i] = _file.Bind("Cards", $"AssetPitchDegrees_{board}", BoardDefaults.AssetPitchDegrees[i],
                 $"[{board}] PITCH of the BOARD MESH ALONE, degrees — tips the asset toward/away " +
                 "from the player about the board root. Anchors and docked elements stay put " +
                 "(BoardTilt tilts the WHOLE board; this tilts only the asset). Seeded 0.");

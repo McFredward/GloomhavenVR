@@ -209,16 +209,16 @@ internal static class HandsConfig
     // see or edit. The values below are the ones actually dialled in on hardware, one hand style
     // at a time, and they are now the shipped defaults outright. Existing configs are untouched:
     // BepInEx returns a saved value over a changed default.
-    private static readonly float[] DefaultSeatPitch = { -53f, -60f, -60f };
-    private static readonly float[] DefaultSeatLateral = { 0f, 0f, 0.006f };
-    private static readonly float[] DefaultSeatVertical = { 0.063f, 0.021f, 0.021f };
-    private static readonly float[] DefaultSeatForward = { -0.018f, 0.026f, 0.026f };
+    private static readonly float[] DefaultSeatPitch = { -39f, -26f, -26f };
+    private static readonly float[] DefaultSeatLateral = { -0.01f, 0f, 0f };
+    private static readonly float[] DefaultSeatVertical = { 0.061f, -0.009f, -0.009f };
+    private static readonly float[] DefaultSeatForward = { -0.054f, -0.009f, -0.009f };
 
-    // Roll ships at 0 for every style: the seat was dialled in without it, so anything else
-    // would silently re-tune hands that are already right.
-    private static readonly float[] DefaultSeatRoll = { 0f, 0f, 0f };
-    private static readonly float[] DefaultSeatYaw = { 0f, 0f, 0f };
-    private static readonly float[] DefaultSeatSpread = { 0f, 0f, 0f };
+    // Roll/yaw/spread are part of the same dialled-in seat: they were 0 across the board while
+    // the three axes did not exist yet, and carry the measured hardware pass now that they do.
+    private static readonly float[] DefaultSeatRoll = { -109f, -109f, -109f };
+    private static readonly float[] DefaultSeatYaw = { -35f, -35f, -35f };
+    private static readonly float[] DefaultSeatSpread = { 0.07f, 0.05f, 0.05f };
 
     private static float Seat(float[] table, int style) => table[(int)HandStyles.Clamp(style)];
 
@@ -293,9 +293,20 @@ internal static class HandsConfig
     /// <summary>Per-style wrist-HUD offset toward the fingers (wrist +Z, meters).</summary>
     public static ConfigEntry<float>[]? StyleWristOffsetZ;
 
-    // Shipped defaults of the legacy global [WorldUI] WristHud* pose (WristHud.cs statics).
-    private const float DefaultWristOffsetY = 0.015f;
-    private const float DefaultWristOffsetZ = 0.01f;
+    // ---- shipped per-style wrist-HUD pose, indexed by (int)HandStyle: Glove, Plate, Arcane ----
+    // MEASURED, NOT DERIVED — the same story as DefaultSeat* above. These used to be seeded at
+    // runtime from the legacy global [WorldUI] WristHud* entries, one value for all three styles,
+    // which cannot express what the hardware pass actually found: the glove's thin back of hand
+    // wants a different HUD pose than the two armored styles' bulk. The values below are those
+    // dial-ins and are now the shipped defaults outright. Existing configs are untouched
+    // (BepInEx returns a saved value over a changed default), and the legacy [WorldUI] WristHud*
+    // entries stay bound where they are.
+    private static readonly float[] DefaultWristPitch = { -88f, -102f, -102f };
+    private static readonly float[] DefaultWristYaw = { -180f, -180f, -180f };
+    private static readonly float[] DefaultWristRoll = { -3f, 0f, 0f };
+    private static readonly float[] DefaultWristOffsetX = { -0.003f, 0.0185f, 0.0185f };
+    private static readonly float[] DefaultWristOffsetY = { -0.053f, -0.147f, -0.147f };
+    private static readonly float[] DefaultWristOffsetZ = { -0.005f, 0.052f, 0.052f };
 
     /// <summary>
     /// Index of the ACTIVE hand style ([Hands] HandStyle, clamped; Glove before Plugin
@@ -332,23 +343,6 @@ internal static class HandsConfig
     }
 
 
-    /// <summary>
-    /// The legacy GLOBAL wrist-HUD pose value ([WorldUI] WristHud*) used as the one-time
-    /// per-style SEED (and only ever consulted while the per-style key is absent from this
-    /// cfg), so behavior is identical before and after the per-style rework.
-    /// </summary>
-    private static float LegacyWrist(ConfigEntry<float>? global, float shippedDefault)
-    {
-        try
-        {
-            return global != null ? global.Value : shippedDefault;
-        }
-        catch
-        {
-            return shippedDefault;
-        }
-    }
-
     public static void Bind()
     {
         if (_file != null)
@@ -375,7 +369,7 @@ internal static class HandsConfig
             "fade runs on private per-renderer material copies, never on the shared hand " +
             "materials), and carried to the avatar mirror and to other players' view of you.");
         GhostHandOnHeldCard = config.Bind(
-            "Hands", "GhostHandOnHeldCard", false,
+            "Hands", "GhostHandOnHeldCard", true,
             "ALSO make a hand semi-transparent while it HOLDS a card — the fingers wrap exactly " +
             "the art you lifted the card to read. Independent of GhostHandOnFan: either can be " +
             "on without the other, and both hands can ghost at once (a card in each). Shares " +
@@ -512,10 +506,12 @@ internal static class HandsConfig
                 "of it can widen the pair. Other players see it, and so do figures and cards held " +
                 "in the hand. Live-tunable.");
         }
-        // PER-STYLE wrist-HUD pose (request B): seed each style from the legacy GLOBAL
-        // [WorldUI] WristHud* entries. WorldUIConfig.Bind is idempotent and is called here
-        // FIRST because HandsModule inits before WorldUIModule — without it the seed would
-        // read unbound entries and silently reset a tuned wrist pose to the shipped defaults.
+        // PER-STYLE wrist-HUD pose (request B): each style ships the pose measured for it
+        // (DefaultWrist* above) rather than a seed read from the legacy global [WorldUI]
+        // WristHud* entries, for the same reason the seat controls stopped being seeded.
+        // WorldUIConfig.Bind stays called here — it is idempotent, and HandsModule inits
+        // before WorldUIModule, so this keeps the [WorldUI] entries bound from the same point
+        // in the sequence they always were.
         WorldUI.WorldUIConfig.Bind();
         StyleWristPitch = new ConfigEntry<float>[HandStyles.Count];
         StyleWristYaw = new ConfigEntry<float>[HandStyles.Count];
@@ -530,24 +526,22 @@ internal static class HandsConfig
                 "(supersedes the shared [WorldUI] WristHud* entry it was seeded from on first " +
                 "run). Live-tunable — WristHud re-applies every tick.";
             StyleWristPitch[i] = config.Bind(
-                "WristHud", $"{s}Pitch", LegacyWrist(WorldUI.WorldUIConfig.WristHudPitch, 0f),
+                "WristHud", $"{s}Pitch", Seat(DefaultWristPitch, i),
                 $"Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base. {per}");
             StyleWristYaw[i] = config.Bind(
-                "WristHud", $"{s}Yaw", LegacyWrist(WorldUI.WorldUIConfig.WristHudYaw, 0f),
+                "WristHud", $"{s}Yaw", Seat(DefaultWristYaw, i),
                 $"Wrist overview HUD yaw (degrees). {per}");
             StyleWristRoll[i] = config.Bind(
-                "WristHud", $"{s}Roll", LegacyWrist(WorldUI.WorldUIConfig.WristHudRoll, 0f),
+                "WristHud", $"{s}Roll", Seat(DefaultWristRoll, i),
                 $"Wrist overview HUD roll (degrees). {per}");
             StyleWristOffsetX[i] = config.Bind(
-                "WristHud", $"{s}OffsetX", LegacyWrist(WorldUI.WorldUIConfig.WristHudOffsetX, 0f),
+                "WristHud", $"{s}OffsetX", Seat(DefaultWristOffsetX, i),
                 $"Wrist overview HUD offset along wrist X, real meters. {per}");
             StyleWristOffsetY[i] = config.Bind(
-                "WristHud", $"{s}OffsetY",
-                LegacyWrist(WorldUI.WorldUIConfig.WristHudOffsetY, DefaultWristOffsetY),
+                "WristHud", $"{s}OffsetY", Seat(DefaultWristOffsetY, i),
                 $"Wrist overview HUD offset out the back of the hand (wrist +Y), real meters. {per}");
             StyleWristOffsetZ[i] = config.Bind(
-                "WristHud", $"{s}OffsetZ",
-                LegacyWrist(WorldUI.WorldUIConfig.WristHudOffsetZ, DefaultWristOffsetZ),
+                "WristHud", $"{s}OffsetZ", Seat(DefaultWristOffsetZ, i),
                 $"Wrist overview HUD offset toward the fingers (wrist +Z), real meters. {per}");
         }
 
