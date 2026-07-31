@@ -20,15 +20,96 @@ internal interface IPanelGrabOwner
     bool GrabVisible { get; }
 
     /// <summary>
-    /// True (tray, combat log): the carry also yaws the root with the hand/pair
-    /// heading. False (owner-rotated panels, e.g. a billboard): the grab drives
-    /// position + scale ONLY — the owner keeps authoring the rotation (two
-    /// writers on the same rotation would jitter).
+    /// How the carry may ROTATE the root (item 12 — the tray's movement schemes; every other
+    /// owner keeps its historic behavior: <see cref="PanelCarryMode.Level"/> replaces the old
+    /// <c>GrabCarriesYaw == true</c>, <see cref="PanelCarryMode.Slide"/> the old <c>false</c>).
+    /// Read per-frame, so a settings change applies to the very next carry frame.
     /// </summary>
-    bool GrabCarriesYaw { get; }
+    PanelCarryMode CarryMode { get; }
+
+    /// <summary>
+    /// The owner's PERCEIVED-LEVEL frame (item 11): the world rotation whose up axis the Level /
+    /// LevelPitch carries keep the root level against. Identity = plain world level (every panel);
+    /// the tray returns the rig's <c>WorldTiltRotation</c> so "level" means level FOR THE PLAYER
+    /// even while the world is tilted — the axis twist that let a grab flip the board upside down
+    /// under tilt came exactly from yawing about WORLD up inside a tilted perceived frame.
+    /// </summary>
+    Quaternion GrabLevelFrame { get; }
+
+    /// <summary>
+    /// ABSOLUTE pitch window for <see cref="PanelCarryMode.LevelPitch"/>, degrees of level-frame
+    /// pitch (x/min, y/max as extracted by <see cref="LevelPose.Decompose"/>). Ignored by every
+    /// other mode — return something permissive like (-180, 180).
+    /// </summary>
+    Vector2 GrabPitchLimits { get; }
 
     /// <summary>The LAST gripping hand let go — persist the layout.</summary>
     void OnGrabFinished();
+}
+
+/// <summary>
+/// What a <see cref="PanelGrabHandle"/> carry may do to the owner root's ROTATION (item 12).
+/// Position + two-hand resize behave identically in every mode.
+/// </summary>
+internal enum PanelCarryMode
+{
+    /// <summary>Position + scale only — the owner keeps authoring the rotation (old <c>GrabCarriesYaw=false</c>).</summary>
+    Slide,
+
+    /// <summary>Yaw about the owner's level-frame up only; the root stays level (old <c>GrabCarriesYaw=true</c>,
+    /// the tray's "Begrenzt"). The rotation is REBUILT from heading+pitch each frame, so no
+    /// combination of grabs can ever roll or flip the root.</summary>
+    Level,
+
+    /// <summary>Like <see cref="Level"/>, plus wrist pitch tilts the root inside the owner's
+    /// <see cref="IPanelGrabOwner.GrabPitchLimits"/> window (the tray's "Begrenzt mit Neigung").</summary>
+    LevelPitch,
+
+    /// <summary>Full 1:1 hand rotation, no leveling, no clamps (the tray's "Frei").</summary>
+    Free,
+}
+
+/// <summary>
+/// Heading/pitch decomposition in a LEVEL frame — the shared math of the Level/LevelPitch
+/// carries (PanelGrabHandle) and the tray's pose persistence (PlayTray.PersistPoseToConfig).
+/// A "level rotation" here is a world rotation already expressed IN the owner's level frame
+/// (<c>inverse(GrabLevelFrame) * worldRotation</c>): heading is its twist about +Y, pitch the
+/// remaining rotation about the heading-local +X. Compose(Decompose(r)) drops any ROLL — that
+/// loss is the point: it is the sanitizer that makes an upside-down Level-mode pose unreachable.
+/// </summary>
+internal static class LevelPose
+{
+    /// <summary>Signed twist of <paramref name="rotation"/> about an arbitrary unit
+    /// <paramref name="axis"/>, degrees in (-180, 180] — the swing-twist projection
+    /// (PanelGrabHandle's old world-up-only TwistYawDegrees, generalized).</summary>
+    internal static float TwistDegrees(Quaternion rotation, Vector3 axis)
+    {
+        float d = rotation.x * axis.x + rotation.y * axis.y + rotation.z * axis.z;
+        float w = rotation.w;
+        float mag = Mathf.Sqrt(d * d + w * w);
+        if (mag < 1e-6f)
+            return 0f; // pure 180° swing about an orthogonal axis — no usable twist
+        float twist = 2f * Mathf.Atan2(d / mag, w / mag) * Mathf.Rad2Deg;
+        if (twist > 180f) twist -= 360f;
+        else if (twist < -180f) twist += 360f;
+        return twist;
+    }
+
+    /// <summary>Extract heading (twist about +Y) and pitch (about the heading-local +X) from a
+    /// level-frame rotation. Any roll the rotation carries is discarded.</summary>
+    internal static void Decompose(Quaternion levelRotation, out float headingDeg, out float pitchDeg)
+    {
+        headingDeg = TwistDegrees(levelRotation, Vector3.up);
+        // Undo the heading, then read the pitch off the residual's forward: for a canonical
+        // yaw∘pitch pose the residual is a pure X rotation and forward = (0, -sin p, cos p).
+        Quaternion residual = Quaternion.AngleAxis(-headingDeg, Vector3.up) * levelRotation;
+        Vector3 f = residual * Vector3.forward;
+        pitchDeg = Mathf.Atan2(-f.y, f.z) * Mathf.Rad2Deg;
+    }
+
+    /// <summary>The canonical level-frame rotation for a heading + pitch (roll-free by construction).</summary>
+    internal static Quaternion Compose(float headingDeg, float pitchDeg) =>
+        Quaternion.AngleAxis(headingDeg, Vector3.up) * Quaternion.Euler(pitchDeg, 0f, 0f);
 }
 
 /// <summary>
@@ -36,9 +117,10 @@ internal interface IPanelGrabOwner
 /// panel can be moved/scaled/persisted exactly like the control board):
 ///
 /// - ONE hand gripping the handle bar carries the owner root: position follows the
-///   palm; with <see cref="IPanelGrabOwner.GrabCarriesYaw"/> the rotation follows
-///   the hand's yaw (yaw-only — the configured tilt is preserved, the root can
-///   never end up rolled/upside down).
+///   palm; the rotation follows the owner's <see cref="IPanelGrabOwner.CarryMode"/> —
+///   Level rebuilds heading+pitch in the owner's level frame each frame (the root can
+///   never end up rolled/upside down), LevelPitch adds a clamped wrist pitch, Free
+///   rides the wrist 1:1, Slide leaves the rotation to the owner.
 /// - TWO hands gripping resize it (spread = grow, pinch = shrink; clamped to
 ///   [<see cref="PanelGrabHandle.MinScale"/> = 0.15×, <see cref="PanelGrabHandle.MaxScale"/> = 2×)
 ///   while also moving (and, with yaw carry, heading-yawing) with the pair midpoint.
@@ -101,12 +183,17 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     // Gesture anchors (captured on every hand-count change).
     private Vector3 _anchorPos;        // palm (one-hand) or midpoint (two-hand) at engage
-    private float _anchorHeading;      // pair heading at engage (two-hand), deg
+    private float _anchorHeading;      // pair heading at engage (two-hand), LEVEL-frame deg
     private Quaternion _anchorHandRot = Quaternion.identity; // hand rotation at engage (one-hand)
     private float _anchorDistance;     // palm distance at engage (two-hand)
     private Vector3 _rootPos0;
     private Quaternion _rootRot0 = Quaternion.identity;
     private float _rootScale0 = 1f;
+    // Level/LevelPitch anchors (item 12): the root's heading+pitch in the owner's level frame at
+    // engage. The carry REBUILDS the rotation from these instead of composing deltas onto the raw
+    // captured rotation, so accumulated roll can never survive a Level-mode grab.
+    private float _anchorRootHeading;
+    private float _anchorRootPitch;
 
     /// <summary><paramref name="logName"/>/<paramref name="logChannel"/> keep the owner's log identity ("Tray grab: …" etc.).</summary>
     internal void Init(IPanelGrabOwner owner, MeshRenderer bar, string logChannel, string logName)
@@ -268,7 +355,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         // Feature #8: LASER-CARRY (one hand, grabbed via the ray). The window slides ALONG
         // the live aim ray at its captured distance instead of snapping to the palm; the
         // captured offset preserves where the beam struck the bar. Translate only — the
-        // owner keeps authoring the window's rotation (GrabbableModal.GrabCarriesYaw would
+        // owner keeps authoring the window's rotation (GrabbableModal's Level carry mode would
         // otherwise fight a second rotation writer).
         if (_laserCarry && _handB == null)
         {
@@ -278,11 +365,16 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             return;
         }
 
-        bool carryYaw = _owner!.GrabCarriesYaw;
+        PanelCarryMode mode = _owner!.CarryMode;
+        // The owner's perceived-level frame, read LIVE (the tray's follows the world tilt): the
+        // Level/LevelPitch carries yaw about ITS up axis, never bare world up — yawing about world
+        // up inside a tilted frame is the axis twist that could flip the board (item 11).
+        Quaternion frame = _owner.GrabLevelFrame;
+        Vector3 up = frame * Vector3.up;
 
         if (_handB == null)
         {
-            // One hand: rigid carry (yaw-only spin when the owner lets us rotate).
+            // One hand: rigid carry.
             //
             // Cards task #4 fix (vertical move rotated the board): the yaw used to be
             // derived from the HORIZONTAL PROJECTION of the hand's forward
@@ -290,35 +382,59 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             // as forward approaches vertical its horizontal projection shrinks — tiny
             // wrist noise then swings the projected heading by tens of degrees, so a
             // purely vertical carry spun the board although the wrist never yawed.
-            // The yaw is now the TWIST of the actual wrist rotation delta about world
-            // up (swing-twist decomposition): pure pitch/roll contributes exactly
-            // zero, a deliberate wrist yaw still turns the board 1:1.
+            // The yaw is now the TWIST of the actual wrist rotation delta about the
+            // level-frame up (swing-twist decomposition): pure pitch/roll contributes
+            // exactly zero, a deliberate wrist yaw still turns the board 1:1.
             Vector3 palm = _handA.Rig.PalmCenter.position;
-            Quaternion spin = Quaternion.identity;
-            if (carryYaw)
+            Quaternion handDelta = _handA.transform.rotation * Quaternion.Inverse(_anchorHandRot);
+
+            if (mode == PanelCarryMode.Free)
             {
-                float dYaw = TwistYawDegrees(_handA.transform.rotation * Quaternion.Inverse(_anchorHandRot));
-                spin = Quaternion.Euler(0f, dYaw, 0f);
+                // Item 12 "Frei": the root rides the wrist 1:1 in ALL axes — position orbits the
+                // palm with the full rotation delta, exactly as if bolted to the hand.
+                Vector3 freePos = palm + handDelta * (_rootPos0 - _anchorPos);
+                root.position = Vector3.Lerp(root.position, freePos, k);
+                root.rotation = Quaternion.Slerp(root.rotation, handDelta * _rootRot0, k);
+                return;
             }
+
+            float dYaw = mode == PanelCarryMode.Slide ? 0f : LevelPose.TwistDegrees(handDelta, up);
+            Quaternion spin = Quaternion.AngleAxis(dYaw, up);
             Vector3 targetPos = palm + spin * (_rootPos0 - _anchorPos);
             root.position = Vector3.Lerp(root.position, targetPos, k);
-            if (carryYaw)
-                root.rotation = Quaternion.Slerp(root.rotation, spin * _rootRot0, k);
+            if (mode != PanelCarryMode.Slide)
+            {
+                float pitch = _anchorRootPitch;
+                if (mode == PanelCarryMode.LevelPitch)
+                {
+                    // Item 12 "Begrenzt mit Neigung": wrist pitch (twist about the root's own
+                    // level-frame right axis, post-yaw) tilts the root — clamped ABSOLUTELY to
+                    // the owner's window, so repeated grabs can never walk past it.
+                    Vector3 pitchAxis = frame * (Quaternion.AngleAxis(_anchorRootHeading + dYaw, Vector3.up) * Vector3.right);
+                    float dPitch = LevelPose.TwistDegrees(handDelta, pitchAxis);
+                    Vector2 limits = _owner.GrabPitchLimits;
+                    pitch = Mathf.Clamp(_anchorRootPitch + dPitch, limits.x, limits.y);
+                }
+                // REBUILD the rotation from heading+pitch (roll-free by construction) instead of
+                // composing the delta onto the captured rotation — the structural guarantee that
+                // Level-mode grabbing can never end upside down, tilt or no tilt.
+                Quaternion target = frame * LevelPose.Compose(_anchorRootHeading + dYaw, pitch);
+                root.rotation = Quaternion.Slerp(root.rotation, target, k);
+            }
         }
         else
         {
             // Two hands: midpoint carry + pinch scale ([MinScale, MaxScale] = 0.15×–2×) +
-            // optional pair-heading yaw.
+            // pair-heading yaw (all modes but Slide; Free keeps its full orientation and only
+            // yaws with the pair — the resize gesture stays predictable).
             Vector3 pA = _handA.Rig.PalmCenter.position;
             Vector3 pB = _handB.Rig.PalmCenter.position;
             Vector3 mid = (pA + pB) * 0.5f;
             float d = Mathf.Max(Vector3.Distance(pA, pB), MinHandDistance);
-            Quaternion spin = Quaternion.identity;
-            if (carryYaw)
-            {
-                float dYaw = Mathf.DeltaAngle(_anchorHeading, HeadingDegrees(pB - pA));
-                spin = Quaternion.Euler(0f, dYaw, 0f);
-            }
+            float dYaw = 0f;
+            if (mode != PanelCarryMode.Slide)
+                dYaw = Mathf.DeltaAngle(_anchorHeading, HeadingDegrees(Quaternion.Inverse(frame) * (pB - pA)));
+            Quaternion spin = Quaternion.AngleAxis(dYaw, up);
 
             float targetScale = Mathf.Clamp(_rootScale0 * (d / _anchorDistance), MinScale, MaxScale);
             float newScale = Mathf.Lerp(root.localScale.x, targetScale, k);
@@ -328,8 +444,11 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
             root.localScale = Vector3.one * newScale;
             root.position = Vector3.Lerp(root.position, targetPos, k);
-            if (carryYaw)
+            if (mode == PanelCarryMode.Free)
                 root.rotation = Quaternion.Slerp(root.rotation, spin * _rootRot0, k);
+            else if (mode != PanelCarryMode.Slide)
+                root.rotation = Quaternion.Slerp(root.rotation,
+                    frame * LevelPose.Compose(_anchorRootHeading + dYaw, _anchorRootPitch), k);
         }
     }
 
@@ -343,6 +462,18 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         _rootPos0 = root.position;
         _rootRot0 = root.rotation;
         _rootScale0 = root.localScale.x;
+        // Level/LevelPitch anchors: the root's heading+pitch in the owner's CURRENT level frame.
+        // Decompose∘Compose drops any roll the pose may carry (a Free-mode leftover, or damage
+        // from before the item-11 axis fix), so the first Level-mode grab self-heals it. The
+        // pitch is additionally pulled into the window for the clamped mode — an out-of-window
+        // pose can then never be "kept" by grabbing it.
+        Quaternion frame = _owner!.GrabLevelFrame;
+        LevelPose.Decompose(Quaternion.Inverse(frame) * _rootRot0, out _anchorRootHeading, out _anchorRootPitch);
+        if (_owner.CarryMode == PanelCarryMode.LevelPitch)
+        {
+            Vector2 limits = _owner.GrabPitchLimits;
+            _anchorRootPitch = Mathf.Clamp(_anchorRootPitch, limits.x, limits.y);
+        }
         if (_handB == null)
         {
             _anchorPos = _handA.Rig.PalmCenter.position;
@@ -354,27 +485,8 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             Vector3 pB = _handB.Rig.PalmCenter.position;
             _anchorPos = (pA + pB) * 0.5f;
             _anchorDistance = Mathf.Max(Vector3.Distance(pA, pB), MinHandDistance);
-            _anchorHeading = HeadingDegrees(pB - pA);
+            _anchorHeading = HeadingDegrees(Quaternion.Inverse(frame) * (pB - pA)); // level-frame pair heading
         }
-    }
-
-    /// <summary>
-    /// The TWIST (yaw) component of a rotation delta about world up, in degrees
-    /// (-180..180) — swing-twist decomposition: project the quaternion's vector part
-    /// onto the up axis and renormalize. Pure pitch/roll deltas return 0, so a
-    /// vertically carried board no longer picks up phantom yaw (cards task #4).
-    /// </summary>
-    private static float TwistYawDegrees(Quaternion delta)
-    {
-        float y = delta.y; // dot(vector part, world up)
-        float w = delta.w;
-        float mag = Mathf.Sqrt(y * y + w * w);
-        if (mag < 1e-6f)
-            return 0f; // pure 180° swing about a horizontal axis — no usable twist
-        float yaw = 2f * Mathf.Atan2(y / mag, w / mag) * Mathf.Rad2Deg;
-        if (yaw > 180f) yaw -= 360f;
-        else if (yaw < -180f) yaw += 360f;
-        return yaw;
     }
 
     private static float HeadingDegrees(Vector3 dir) =>

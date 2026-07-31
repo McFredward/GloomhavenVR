@@ -77,6 +77,20 @@ internal static class CardsConfig
     /// <summary>Tray placement offset, real meters: sideways (+right).</summary>
     internal static ConfigEntry<float> TrayRight = null!;
 
+    /// <summary>Item 12: how the handle-bar grab may move the board (Frei / Begrenzt / Begrenzt mit Neigung).</summary>
+    internal static ConfigEntry<BoardMoveMode> BoardMoveMode = null!;
+
+    /// <summary>Item 12: grab-pitch persisted across grabs/sessions, degrees ADDED to the per-board BoardTilt
+    /// (positive = more upright). Written by the grab release like TrayYaw; applied only in the
+    /// LimitedPitch (clamped) and Free modes.</summary>
+    internal static ConfigEntry<float> TrayPitch = null!;
+
+    /// <summary>Item 12: lower edge of the grab-pitch window, degrees relative to the configured BoardTilt.</summary>
+    internal static ConfigEntry<float> BoardPitchMinDegrees = null!;
+
+    /// <summary>Item 12: upper edge of the grab-pitch window, degrees relative to the configured BoardTilt.</summary>
+    internal static ConfigEntry<float> BoardPitchMaxDegrees = null!;
+
     /// <summary>LEGACY — no effect, superseded by the per-board <c>BoardTilt_{board}</c> (seeded to 30,
     /// this entry's default). Bound for cfg back-compat only; nothing reads it.</summary>
     internal static ConfigEntry<float> TrayTilt = null!;
@@ -504,6 +518,37 @@ internal static class CardsConfig
             "entry. false = the tray is PINNED where you left it, world-anchored — it " +
             "stays put while you move around and never re-places itself. Switching back " +
             "to follow re-anchors it at the configured offsets.");
+        BoardMoveMode = _file.Bind("Cards", "BoardMoveMode", Defaults.BoardMoveMode,
+            "Item 12: how the handle-bar grab may MOVE the control board. Limited (default) = " +
+            "today's behavior: position + yaw only, the board is kept level for you (under the " +
+            "world tilt 'level' means level in YOUR view, not the world's). LimitedPitch = like " +
+            "Limited, plus the grab may PITCH the board toward/away from you, clamped to the " +
+            "BoardPitchMinDegrees..BoardPitchMaxDegrees window. Free = the board follows the " +
+            "grabbing hand in ALL axes 1:1 — no leveling, no clamps (it CAN end up upside down; " +
+            "switching back to a Limited mode re-levels it). Selectable in the VR settings " +
+            "(Tafeln → Karten & Brett) with localized labels; local cosmetics only — peers just " +
+            "see the resulting board pose, exactly as before.");
+        TrayPitch = _file.Bind("Cards", "TrayPitch", Defaults.TrayPitch,
+            "Item 12: the grab-authored board pitch, degrees ADDED to the per-board BoardTilt_<board> " +
+            "(positive = more upright toward you). Written automatically when you release the handle " +
+            "bar in the LimitedPitch or Free movement mode, so the pitch survives re-placements and " +
+            "sessions; ignored in the Limited mode (which always uses BoardTilt alone). Edit only to " +
+            "reset. Clamped to the BoardPitchMinDegrees..BoardPitchMaxDegrees window when applied in " +
+            "LimitedPitch.");
+        BoardPitchMinDegrees = _file.Bind("Cards", "BoardPitchMinDegrees", Defaults.BoardPitchMinDegrees,
+            new ConfigDescription(
+                "Item 12, BoardMoveMode=LimitedPitch only: how far the grab may pitch the board " +
+                "DOWN/away from its configured BoardTilt_<board>, degrees (the lower edge of the " +
+                "pitch window; 0 = no downward pitch at all). Live-tunable from the debug menu; " +
+                "always kept ≤ BoardPitchMaxDegrees at read time.",
+                new AcceptableValueRange<float>(-85f, 85f)));
+        BoardPitchMaxDegrees = _file.Bind("Cards", "BoardPitchMaxDegrees", Defaults.BoardPitchMaxDegrees,
+            new ConfigDescription(
+                "Item 12, BoardMoveMode=LimitedPitch only: how far the grab may pitch the board " +
+                "UP/toward you from its configured BoardTilt_<board>, degrees (the upper edge of " +
+                "the pitch window; 0 = no upward pitch at all). Live-tunable from the debug menu; " +
+                "always kept ≥ BoardPitchMinDegrees at read time.",
+                new AcceptableValueRange<float>(-85f, 85f)));
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", Defaults.CardLerpSpeed,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
         SlotCardInset = _file.Bind("Cards", "SlotCardInset", Defaults.SlotCardInset,
@@ -1016,6 +1061,45 @@ internal static class CardsConfig
 
     /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
     internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
+
+    /// <summary>
+    /// Item 12: the normalized grab-pitch window (min ≤ max guaranteed, whatever the two debug
+    /// entries say — a crossed pair collapses onto its midpoint rather than throwing or flipping).
+    /// Degrees relative to the per-board BoardTilt; positive = more upright toward the player.
+    /// </summary>
+    internal static (float Min, float Max) BoardPitchWindow
+    {
+        get
+        {
+            float min = BoardPitchMinDegrees.Value;
+            float max = BoardPitchMaxDegrees.Value;
+            if (min > max)
+                min = max = (min + max) * 0.5f;
+            return (min, max);
+        }
+    }
+
+    /// <summary>
+    /// Item 12: the pitch (degrees added to BoardTilt) the CURRENT movement mode actually applies:
+    /// 0 in Limited (today's pose, bit-identical), the window-clamped TrayPitch in LimitedPitch,
+    /// the raw TrayPitch in Free (best-effort re-placement pose — Free never clamps).
+    /// </summary>
+    internal static float EffectiveTrayPitch
+    {
+        get
+        {
+            switch (BoardMoveMode.Value)
+            {
+                case Cards.BoardMoveMode.LimitedPitch:
+                    (float min, float max) = BoardPitchWindow;
+                    return Mathf.Clamp(TrayPitch.Value, min, max);
+                case Cards.BoardMoveMode.Free:
+                    return TrayPitch.Value;
+                default:
+                    return 0f;
+            }
+        }
+    }
 
     /// <summary>Card height derived from width (63.5 x 88 mm poker aspect).</summary>
     internal static float CardHeight => CardWidth.Value * (88f / 63.5f);

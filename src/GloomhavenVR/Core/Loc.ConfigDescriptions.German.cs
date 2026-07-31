@@ -911,6 +911,34 @@ internal static partial class Loc
                 + "TrayForward/Down/Right. false = das Brett ist FIXIERT, wo du es gelassen hast, in der Welt "
                 + "verankert — es bleibt liegen, während du dich bewegst, und platziert sich nie neu. Zurück "
                 + "auf FOLGEN verankert es wieder an den eingestellten Versätzen.",
+            ["Cards/BoardMoveMode"] =
+                "Punkt 12: was der Griff an der Haltestange mit dem Kontrollbrett tun darf. Limited "
+                + "(Standard, \"Begrenzt\") = das bisherige Verhalten: nur Position + Drehung, das Brett "
+                + "bleibt für DICH waagerecht (unter der Weltneigung heißt waagerecht: waagerecht in deiner "
+                + "Sicht, nicht in der Welt). LimitedPitch (\"Begrenzt mit Neigung\") = wie Begrenzt, "
+                + "zusätzlich darf der Griff das Brett zu dir hin/von dir weg NEIGEN, begrenzt auf das "
+                + "Fenster BoardPitchMinDegrees..BoardPitchMaxDegrees. Free (\"Frei\") = das Brett folgt der "
+                + "greifenden Hand 1:1 in ALLEN Achsen — keine Waagerecht-Haltung, keine Begrenzung (es KANN "
+                + "kopfüber enden; zurück auf einen Begrenzt-Modus richtet es wieder aus). Wählbar in den "
+                + "VR-Einstellungen (Tafeln → Karten & Brett); rein lokal — Mitspieler sehen wie bisher nur "
+                + "die resultierende Brettpose.",
+            ["Cards/TrayPitch"] =
+                "Punkt 12: die vom Griff eingestellte Brettneigung, in Grad ADDIERT auf das brettweise "
+                + "BoardTilt_<board> (positiv = aufrechter zu dir hin). Wird beim Loslassen der Haltestange "
+                + "im Modus LimitedPitch oder Free automatisch geschrieben, damit die Neigung "
+                + "Neuplatzierungen und Sitzungen übersteht; im Modus Limited ohne Wirkung (der nutzt immer "
+                + "BoardTilt allein). Von Hand nur zum Zurücksetzen ändern. Beim Anwenden in LimitedPitch auf "
+                + "das Fenster BoardPitchMinDegrees..BoardPitchMaxDegrees begrenzt.",
+            ["Cards/BoardPitchMinDegrees"] =
+                "Punkt 12, nur BoardMoveMode=LimitedPitch: wie weit der Griff das Brett gegenüber seinem "
+                + "eingestellten BoardTilt_<board> nach UNTEN/von dir weg neigen darf, in Grad (untere Kante "
+                + "des Neigungsfensters; 0 = gar nicht nach unten). Live im Debug-Menü einstellbar; beim "
+                + "Lesen immer ≤ BoardPitchMaxDegrees gehalten.",
+            ["Cards/BoardPitchMaxDegrees"] =
+                "Punkt 12, nur BoardMoveMode=LimitedPitch: wie weit der Griff das Brett gegenüber seinem "
+                + "eingestellten BoardTilt_<board> nach OBEN/zu dir hin neigen darf, in Grad (obere Kante "
+                + "des Neigungsfensters; 0 = gar nicht nach oben). Live im Debug-Menü einstellbar; beim "
+                + "Lesen immer ≥ BoardPitchMinDegrees gehalten.",
             ["Cards/CardLerpSpeed"] =
                 "Geschwindigkeit der Kartenflug-Animation (Konstante der exponentiellen Glättung, 1/s).",
             ["Cards/SlotCardInset"] =

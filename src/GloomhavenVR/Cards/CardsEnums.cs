@@ -79,6 +79,29 @@ internal static class ControlBoards
 }
 
 /// <summary>
+/// How the handle-bar grab may MOVE the control board (item 12, [Cards] BoardMoveMode) —
+/// selectable in the normal settings (localized labels "Frei"/"Begrenzt"/"Begrenzt mit Neigung",
+/// see <c>VROptionsTab.TryBuildSpecialRow</c>). Purely LOCAL cosmetics like the rest of the
+/// board pose: peers receive whatever world pose results via the extras stream, unchanged.
+///
+/// The member ORDER is the settings-dropdown index map (Free=0/Limited=1/LimitedPitch=2) — the
+/// preset row casts the dropdown index straight to this enum. Values are config-file identity
+/// only; nothing goes over the wire.
+/// </summary>
+internal enum BoardMoveMode
+{
+    /// <summary>Fully free: the board follows the grabbing hand in ALL axes, 1:1.</summary>
+    Free = 0,
+
+    /// <summary>Today's behavior (default): position + yaw only, kept level for the player.</summary>
+    Limited = 1,
+
+    /// <summary>Like <see cref="Limited"/>, plus the grab may PITCH the board inside the
+    /// [Cards] BoardPitchMinDegrees..BoardPitchMaxDegrees window (debug-menu tunable).</summary>
+    LimitedPitch = 2,
+}
+
+/// <summary>
 /// Cap shape of a control-board button group (in-VR debug menu, per board). Round = the
 /// flattened-cylinder puck that drops into a round notch (today's Rest look); Square = the
 /// boxy 3D keycap (today's Confirm/Undo look). Selectable per group so a board with square

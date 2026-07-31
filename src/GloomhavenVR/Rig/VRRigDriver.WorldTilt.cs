@@ -82,6 +82,7 @@ internal sealed partial class VRRigDriver
             _tiltApplied = 0f;
             _tiltTweenFrom = 0f;
             _prevHeadYawValid = false; // no head-rate tracking while off → no stale spike on enable
+            WorldTiltRotation = Quaternion.identity; // perceived-level frame = world level while off
             return;
         }
 
@@ -197,6 +198,12 @@ internal sealed partial class VRRigDriver
         Quaternion desired = _tiltApplied > 0f
             ? Quaternion.AngleAxis(_tiltApplied, axis) * yawOnly
             : yawOnly;
+
+        // Publish the perceived-level frame (control-board item 11): the tilt factor of the pose
+        // this frame asserts. Consumers compose "level for the player" as WorldTiltRotation * pose.
+        WorldTiltRotation = _tiltApplied > 0f
+            ? Quaternion.AngleAxis(_tiltApplied, axis)
+            : Quaternion.identity;
 
         // Periodic diagnostic while active (hardware-log contract): rigYaw/aim/axis must
         // read IDENTICAL across consecutive lines unless a 'WorldTilt change [trigger]'

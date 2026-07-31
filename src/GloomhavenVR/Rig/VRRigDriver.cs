@@ -268,6 +268,19 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     private float _tiltTweenFrom;      // tween start value (deg)
     private float _tiltTweenStartTime; // Time.unscaledTime at tween start
 
+    /// <summary>
+    /// The world-space rotation the tilt currently applies to the rig — the <c>AngleAxis(tilt,
+    /// axis)</c> factor of the rig pose, identity while the tilt is off or no scenario rig
+    /// exists. This IS the player's perceived-level frame: physical-up maps to
+    /// <c>this * Vector3.up</c>, so anything that must READ AS LEVEL to the local player
+    /// (control-board item 11 — PlayTray pose authoring, PanelGrabHandle's level carry)
+    /// composes its world pose as <c>WorldTiltRotation * levelPose</c>. Written once per
+    /// <see cref="TickWorldTilt"/>; declared HERE with the rest of the tilt state so
+    /// <c>TearDownRig</c> stays the single reset point (it must never outlive the rig it
+    /// described). LOCAL-ONLY, like the tilt itself — never sent over the wire.
+    /// </summary>
+    internal static Quaternion WorldTiltRotation { get; private set; } = Quaternion.identity;
+
     // View-aimed tilt state (round 6, provenance above): the HEAD-LOCAL yaw (degrees,
     // rig/tracking space — pure device pose, unaffected by any rig write) the tilt tips
     // toward. 0 = rig forward (the round-5 behavior). Written ONLY under a masked event
@@ -669,6 +682,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // partial split makes easy (INVARIANTS-Net-Rig.md "TearDownRig resets the whole tilt
         // state machine"): a fresh rig would inherit the dead rig's aim/tween/burst state.
         _tiltActive = false; // the tilted transform dies with the rig; a new rig re-tilts fresh
+        WorldTiltRotation = Quaternion.identity; // perceived-level frame dies with the rig too
         _axisSnapReason = null;
         _lastChangeTrigger = "none";
         _lastTiltTarget = -1f; // fresh-rig sentinel: next rig adopts the configured tilt instantly

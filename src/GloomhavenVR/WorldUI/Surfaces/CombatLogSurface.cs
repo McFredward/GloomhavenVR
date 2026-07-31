@@ -165,7 +165,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     Transform? IPanelGrabOwner.GrabRoot => _frame;
     bool IPanelGrabOwner.GrabVisible =>
         Panel != null && _holder != null && _holder.gameObject.activeInHierarchy;
-    bool IPanelGrabOwner.GrabCarriesYaw => true; // no billboard anymore (test #20) — carry yaws like the tray
+    // No billboard anymore (test #20) — the carry yaws like the tray. Level in the plain WORLD
+    // frame (identity): panels are outside the item-11 board-leveling contract.
+    PanelCarryMode IPanelGrabOwner.CarryMode => PanelCarryMode.Level;
+    Quaternion IPanelGrabOwner.GrabLevelFrame => Quaternion.identity;
+    Vector2 IPanelGrabOwner.GrabPitchLimits => new(-180f, 180f);
 
     void IPanelGrabOwner.OnGrabFinished()
     {
