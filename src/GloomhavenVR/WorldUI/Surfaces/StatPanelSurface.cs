@@ -158,6 +158,7 @@ internal sealed class StatPanelSurface
     private static ConvertedPanel? _copyPanel;
     private static ScenarioRuleLibrary.CActor? _copyActor;    // the actor the current copy portrays
     private static ScenarioRuleLibrary.CActor? _pendingCopyActor; // snapshot requested for this actor
+    private static bool _borrowForCopy;                           // fallback: real panel lent to it
     private static float _pendingCopyAt;
     private static float _pendingCopyDeadline;
 
@@ -236,10 +237,24 @@ internal sealed class StatPanelSurface
 
     /// <summary>
     /// Derive PRIMARY (real panel) and SECONDARY (snapshot copy) from the per-hand registrations and
-    /// bind each panel to its figure. PRIMARY = the earliest-grabbed hand (so one hold is unchanged).
-    /// While a snapshot is PENDING the real panel briefly shows the SECONDARY figure (so the copy
-    /// captures its stats); <see cref="TickCopy"/> takes the snapshot and calls back here to re-bind
-    /// the real panel to the primary.
+    /// bind each panel to its figure.
+    ///
+    /// <para>PRIMARY IS THE LATEST-GRABBED HAND, and that ordering is the whole trick. It used to be
+    /// the earliest, which meant that picking up a second figure had to BORROW the real panel — show
+    /// the new actor on it for a third of a second so the snapshot could capture populated stats,
+    /// then hand it back. ForceShowOn does that with HideForActor() + Show(), so the FIRST figure's
+    /// panel visibly blanked and came back every time the other hand grabbed something. That is the
+    /// flicker.</para>
+    ///
+    /// <para>Turned around, there is nothing to borrow: at the instant the second figure is grabbed
+    /// the panel is ALREADY showing the first one, fully populated, so the snapshot can be taken
+    /// immediately, from what is on screen, and the live panel simply moves on to the newer figure
+    /// and stays there. One panel is frozen either way; freezing the older one is also the better
+    /// half of the trade, since the figure you just picked up is the one you are looking at.</para>
+    ///
+    /// <para>The borrow-and-delay path is kept as a FALLBACK for the case where the panel is not
+    /// already showing the figure to be frozen — both hands grabbing within one frame, or the panel
+    /// having been closed — because a snapshot of the wrong actor would be worse than a flicker.</para>
     /// </summary>
     private static void Reconcile(ScenarioRuleLibrary.CActor? releasing = null)
     {
@@ -249,7 +264,7 @@ internal sealed class StatPanelSurface
             HeldReg? r = _reg[i];
             if (!r.HasValue)
                 continue;
-            if (!primary.HasValue || r.Value.Seq < primary.Value.Seq)
+            if (!primary.HasValue || r.Value.Seq > primary.Value.Seq)
             {
                 secondary = primary;
                 primary = r;
@@ -274,16 +289,23 @@ internal sealed class StatPanelSurface
         if (!canShow || _held2Actor == null)
         {
             _pendingCopyActor = null; // copy teardown (if one exists) happens in TickCopy
+            _borrowForCopy = false;
         }
         else if (!ReferenceEquals(_copyActor, _held2Actor) && !ReferenceEquals(_pendingCopyActor, _held2Actor))
         {
             _pendingCopyActor = _held2Actor;
-            _pendingCopyAt = Time.unscaledTime + CopySnapshotDelaySeconds;
+            // Already on screen? Then snapshot it as it stands — no borrow, no delay, no flicker.
+            bool alreadyShown = Singleton<ActorStatPanel>.IsInitialized
+                                && ReferenceEquals(ActorStatPanel.Instance.m_ActorShown, _held2Actor);
+            _borrowForCopy = !alreadyShown;
+            _pendingCopyAt = alreadyShown
+                ? Time.unscaledTime
+                : Time.unscaledTime + CopySnapshotDelaySeconds;
             _pendingCopyDeadline = _pendingCopyAt + CopySnapshotTimeoutSeconds;
         }
 
-        // --- real panel: the pending-snapshot figure while the copy brews, else the primary ---
-        ScenarioRuleLibrary.CActor? realTarget = _pendingCopyActor ?? _heldActor;
+        // --- real panel: the primary (newest) figure, unless a fallback borrow is in progress ---
+        ScenarioRuleLibrary.CActor? realTarget = (_borrowForCopy ? _pendingCopyActor : null) ?? _heldActor;
         if (canShow && realTarget != null)
             ForceShowOn(ActorStatPanel.Instance, realTarget);
         else if (_heldActor == null && Singleton<ActorStatPanel>.IsInitialized)
@@ -456,6 +478,7 @@ internal sealed class StatPanelSurface
         if (!active)
         {
             _pendingCopyActor = null;
+            _borrowForCopy = false;
             return;
         }
 
@@ -465,6 +488,7 @@ internal sealed class StatPanelSurface
             if (!ReferenceEquals(_pendingCopyActor, _held2Actor))
             {
                 _pendingCopyActor = null; // stale request (hand released / figure swapped)
+                _borrowForCopy = false;
                 Reconcile();
             }
             else if (Singleton<ActorStatPanel>.IsInitialized
@@ -474,6 +498,7 @@ internal sealed class StatPanelSurface
             {
                 BuildStaticCopy(ActorStatPanel.Instance, _pendingCopyActor);
                 _pendingCopyActor = null;
+                _borrowForCopy = false;
                 Reconcile(); // re-bind the real panel to the FIRST hand's figure immediately
             }
             else if (Time.unscaledTime >= _pendingCopyDeadline)
@@ -481,6 +506,7 @@ internal sealed class StatPanelSurface
                 // The game's CanShow() gate refused the Show (transition/results screen…) —
                 // fall back to the single real panel on the primary figure rather than waiting.
                 _pendingCopyActor = null;
+                _borrowForCopy = false;
                 Reconcile();
                 VRLog.Info("WorldUI", "second held-figure snapshot timed out (game refused Show) — " +
                                       "keeping the single real panel.");
@@ -943,6 +969,7 @@ internal sealed class StatPanelSurface
         DetachWatch(_enemyTurnPanel);
         DestroyCopy();
         _pendingCopyActor = null;
+        _borrowForCopy = false;
         for (int i = 0; i < _reg.Length; i++)
             _reg[i] = null;
         _heldActor = null; _heldAnchor = null; _held2Actor = null; _held2Anchor = null;
