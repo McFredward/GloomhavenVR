@@ -208,6 +208,9 @@ internal sealed class RemoteControlBoard
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;
+    /// <summary>False until the synced pose was applied once — the first apply SNAPS (a fresh
+    /// board must not ease in from the origin); later applies ease (see Tick).</summary>
+    private bool _poseInit;
     private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[2];
     private OwnerTag? _tag;
 
@@ -326,8 +329,28 @@ internal sealed class RemoteControlBoard
         EnsureBuilt();
         SetActive(true);
 
-        // Place at the REAL synced world transform.
-        _root!.transform.SetPositionAndRotation(_owner.BoardPosition, _owner.BoardRotation);
+        // Place at the REAL synced world transform. The wire already carries the OWNER's exact
+        // pose (full quantized quaternion — the Frei movement scheme adds no axis the pose
+        // doesn't cover), but it arrives at the 5 Hz extras cadence: while the owner actively
+        // DRAGS the board, a verbatim apply teleports it in 5 Hz steps. Ease toward the target
+        // with the same sharpness the avatars use — an ACTIVE drag reads smooth, and once the
+        // owner releases, the eased pose converges on the exact transmitted one (snap on first
+        // build so a fresh board never lerps in from the origin).
+        Vector3 wantPos = _owner.BoardPosition;
+        Quaternion wantRot = _owner.BoardRotation;
+        Transform rt = _root!.transform;
+        if (!_poseInit)
+        {
+            _poseInit = true;
+            rt.SetPositionAndRotation(wantPos, wantRot);
+        }
+        else
+        {
+            float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * Mathf.Max(dt, 0f));
+            rt.SetPositionAndRotation(
+                Vector3.Lerp(rt.position, wantPos, k),
+                Quaternion.Slerp(rt.rotation, wantRot, k));
+        }
         _root.transform.localScale = Vector3.one * (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
 
         // Fallback board only: re-tint the flat frame when this peer switches their control board
@@ -670,6 +693,7 @@ internal sealed class RemoteControlBoard
         for (int i = 0; i < _cards.Length; i++)
             _cards[i]?.Destroy();
         _active?.Destroy();
+        _poseInit = false; // a rebuilt board (style switch / bundle upgrade) snaps again
         if (_root != null)
         {
             Object.Destroy(_root);
