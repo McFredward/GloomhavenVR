@@ -126,9 +126,12 @@ internal static partial class ModalFallback
             // story window root is a full-screen 1920x1080 stretch rect, the visible
             // dialog is the UICharacterStoryBox subtree.
             RectTransform? contentRoot = null;
+            bool isStoryBox = false; // the click-through story/subtitle window (X exclusion below)
             if (Singleton<StoryController>.IsInitialized)
             {
                 StoryController sc = Singleton<StoryController>.Instance;
+                if (sc != null && ReferenceEquals(sc.window, window))
+                    isStoryBox = true;
                 if (sc != null && ReferenceEquals(sc.window, window) && sc.dialogBox != null)
                 {
                     if (!sc.dialogBox.transform.IsChildOf(window.transform))
@@ -286,19 +289,27 @@ internal static partial class ModalFallback
             // (Compendium, friend list) get no mask.
             bool wantDepthMask = fullScreenMenu || isConfirmDialog || isResultsPanel;
             grab.Build(panel, extraScale, name, depthMask: wantDepthMask);
-            // Item 3c: a small mod-drawn X (top-right of the host, mod layer 27, poke+laser
-            // clickable) closes THIS window through the game's own Escape/Hide path. The
-            // player-reachable MENUS get it (pause/ESC, Options, Multiplayer, Compendium), and
-            // issue #1 adds the pause/options CONFIRMATION dialogs — a confirmation is a genuine
-            // Yes/No decision, so its X routes through UIWindow.Escape (== cancel/No), exactly
-            // like the submenus close. Still EXCLUDED: click-through windows like the Story/
-            // dialog (user: "the dialog must be clicked through, it may not have an X" — that is
-            // the story/subtitle box, not a confirmation) and — HARD exclusion, user request A —
-            // the Sieg/Niederlage results windows: the ONLY way out of the end-of-scenario
-            // window must remain its native continue/retry/exit buttons (an X would Hide() the
-            // window and strand the scenario-end flow with no way to re-open it).
-            if ((NonBlockingMenus.Contains(window.ID) || isConfirmDialog) && !isResultsPanel)
+            // Item 3c + MP test ("Kontrolle übergeben" had no X): a small mod-drawn X (top-right
+            // of the host, mod layer 27, poke+laser clickable) closes THIS window through the
+            // game's own Escape/Hide path. RULE (user): EVERY floated window must be closable
+            // via X. The old gate was a WHITELIST (reachable menus + confirmation dialogs), so
+            // any window outside it — the reported one: the multiplayer transfer-control player
+            // picker, 'UI Multiplayer Select Player Submenu' (ID MutiplayerPlayerPicker) —
+            // floated with no X and was closable only through the escape chord. Flipped to a
+            // BLACKLIST: every converted window gets the X except the two windows with an
+            // explicit user ruling. This is safe for unknown windows because the X runs the SAME
+            // CloseFloatedWindow (UIWindow.Escape() with a forced Hide() fallback) the modal
+            // escape chord already applies to EVERY floated window without a whitelist.
+            // EXCLUDED: the click-through Story/dialog box (user: "the dialog must be clicked
+            // through, it may not have an X") and — HARD exclusion, user request A — the
+            // Sieg/Niederlage results windows: the ONLY way out of the end-of-scenario window
+            // must remain its native continue/retry/exit buttons (an X would Hide() the window
+            // and strand the scenario-end flow with no way to re-open it).
+            if (!isResultsPanel && !isStoryBox)
                 ModalCloseButton.Attach(panel, window);
+            else
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
+                                      $"({(isResultsPanel ? "results window — native buttons are the only exit" : "click-through story box")}).");
 
             Converted.Add(new WindowPanel
             {
