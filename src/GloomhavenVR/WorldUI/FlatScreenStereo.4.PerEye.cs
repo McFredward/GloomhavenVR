@@ -24,10 +24,11 @@ internal sealed partial class FlatScreenStereo
         // evidence (a black base RT) belongs to the scene we just left, and the worldMap
         // renderer/overrides reference textures from it. A late probe callback is
         // invalidated by the generation bump.
-        if (_mapBaseCapture || _blackConsecutive != 0)
+        if (_mapBaseCapture || _blackConsecutive != 0 || _nonBlackMapConsecutive != 0)
         {
             _mapBaseCapture = false;
             _blackConsecutive = 0;
+            _nonBlackMapConsecutive = 0;
             _probeGen++;
             _probePending = false;
             _albedoProbePending = false;
