@@ -6,7 +6,18 @@
 #             can see through shows up as magenta. Culling follows the game (the hand material
 #             sets _Cull = 0, so both sides draw); --cull renders single-sided instead, which
 #             is the stricter test of the shell.
-#   lit       albedo + lights          -> what the player sees.
+#   lit       albedo + lights          -> a generic studio look. NOTE: this uses a Principled
+#             BSDF with a specular lobe, and the game's shader has none, so a broad glossy
+#             sheen in this mode is the RENDERER's, not the player's.
+#   game      BoardLit, reproduced exactly -> what the player really sees. The shipped hand
+#             material is GloomhavenVR/BoardLit with _Ambient 0.5 and _LightBoost 0.85, and it
+#             is pure Lambert against two baked world-space directions with an ambient floor:
+#                 shade = 0.5 + saturate(N.key) * 0.85 + saturate(N.fill) * 0.35
+#                 key = normalize(0.35, 0.85, -0.45)   fill = normalize(-0.55, 0.35, 0.30)
+#             (Unity's frame is Y-up, left-handed; Blender's is Z-up, right-handed, so the
+#             directions are mapped (x, y, z)_unity -> (x, z, y)_blender.) No specular at all,
+#             which means painted albedo detail carries far more of the read in game than the
+#             'lit' preview suggests — judge the paint here.
 #
 # Views: palm, back, thumb three-quarter, cuff three-quarter.
 #
@@ -34,6 +45,11 @@ MODES = opt("--modes", "clay,emis,lit").split(",")
 VIEWS = opt("--views", "palm,back,thumb,cuff").split(",")
 RES = int(opt("--res", "900"))
 MAGENTA = (1.0, 0.0, 1.0, 1.0)
+# BoardLit's two baked directions, Unity (x, y, z) -> Blender (x, z, y)
+GAME_KEY = (0.35, -0.45, 0.85)
+GAME_FILL = (-0.55, 0.30, 0.35)
+GAME_KEY = tuple(c / math.sqrt(sum(v * v for v in GAME_KEY)) for c in GAME_KEY)
+GAME_FILL = tuple(c / math.sqrt(sum(v * v for v in GAME_FILL)) for c in GAME_FILL)
 # The shipped hand material sets _Cull = 0, so the game draws BOTH sides. Default to that;
 # --cull renders single-sided, which is the stricter test of the shell itself.
 CULL = "--cull" in argv
@@ -117,6 +133,48 @@ def make_mat(mode):
         nt.links.new(tex.outputs["Color"], em.inputs["Color"])
         nt.links.new(em.outputs[0], out.inputs[0])
         m.use_backface_culling = CULL
+    elif mode == 'game':
+        # BoardLit, node for node. Emission of albedo * shade, so no renderer lighting model
+        # gets a say — this is the game's arithmetic and nothing else.
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        shade = None
+        for vec, gain in ((GAME_KEY, 0.85), (GAME_FILL, 0.35)):
+            dot = nt.nodes.new("ShaderNodeVectorMath")
+            dot.operation = 'DOT_PRODUCT'
+            dot.inputs[1].default_value = vec
+            nt.links.new(geo.outputs["Normal"], dot.inputs[0])
+            cl = nt.nodes.new("ShaderNodeMath")
+            cl.operation = 'MAXIMUM'
+            cl.inputs[1].default_value = 0.0
+            nt.links.new(dot.outputs["Value"], cl.inputs[0])
+            sc = nt.nodes.new("ShaderNodeMath")
+            sc.operation = 'MULTIPLY'
+            sc.inputs[1].default_value = gain
+            nt.links.new(cl.outputs[0], sc.inputs[0])
+            if shade is None:
+                shade = sc
+            else:
+                ad = nt.nodes.new("ShaderNodeMath")
+                ad.operation = 'ADD'
+                nt.links.new(shade.outputs[0], ad.inputs[0])
+                nt.links.new(sc.outputs[0], ad.inputs[1])
+                shade = ad
+        amb = nt.nodes.new("ShaderNodeMath")
+        amb.operation = 'ADD'
+        amb.inputs[1].default_value = 0.5          # _Ambient
+        nt.links.new(shade.outputs[0], amb.inputs[0])
+        mul = nt.nodes.new("ShaderNodeMixRGB")
+        mul.blend_type = 'MULTIPLY'
+        mul.inputs["Fac"].default_value = 1.0
+        nt.links.new(tex.outputs["Color"], mul.inputs["Color1"])
+        nt.links.new(amb.outputs[0], mul.inputs["Color2"])
+        em = nt.nodes.new("ShaderNodeEmission")
+        em.inputs["Strength"].default_value = 1.0
+        nt.links.new(mul.outputs["Color"], em.inputs["Color"])
+        nt.links.new(em.outputs[0], out.inputs[0])
+        m.use_backface_culling = CULL
     else:
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = img
@@ -149,6 +207,9 @@ def set_lights(on):
             lo_ = bpy.data.objects.new(name, ld)
             scene.collection.objects.link(lo_)
             lo_.rotation_euler = d.normalized().to_track_quat('-Z', 'Y').to_euler()
+    elif on is None:
+        bg.inputs[0].default_value = (0.16, 0.17, 0.20, 1)   # 'game': a neutral table, not magenta
+        bg.inputs[1].default_value = 1.0
     else:
         bg.inputs[0].default_value = MAGENTA
         bg.inputs[1].default_value = 1.0
@@ -157,7 +218,7 @@ def set_lights(on):
 for mode in MODES:
     ob.data.materials.clear()
     ob.data.materials.append(make_mat(mode))
-    set_lights(mode != 'emis')
+    set_lights(None if mode == 'game' else mode != 'emis')
     for vn in VIEWS:
         d, tgt, sc = VIEWDEF[vn]
         d = d.normalized()

@@ -82,9 +82,36 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
      have no seam) and fills the atlas's black inter-island gutters, which is what
      used to bleed into every seam as a dark hairline at mip 1 and beyond. It asserts
      that no texel any other part of the hand samples changed.
-   - `palm_region.py` is the shared definition of "this is the palm" both use.
+   - `palm_leather.py <L_rig.fbx> <R_rig.fbx> <albedo.png> <out.png>` — 2026-07, the
+     pass that gives the palm a DESIGN. palm_repaint left it clean and featureless;
+     this authors it as a gauntlet's leather palm: a hide panel let into the steel,
+     with a rolled steel lip and contact shadow (painted depth — BoardLit is albedo
+     only), a stitched seam, ten gold rivets echoing the studs on the back, two flex
+     creases and burnished wear on the pads the rig's own landmarks locate. It also
+     cleans the MCP transition, which palm_repaint's weight-proportional blend left
+     showing 30-100 % of the original dark stipple.
+   - `palm_region.py` is the shared definition of "this is the palm" all three use;
+     `palm_atlas.py` is the shared machinery (UV rasteriser, gutter fill, the
+     proof that nothing outside the palm changed, the rig's landmarks).
+   Run in that order, from the pre-repaint atlas:
+     `palm_smooth` (once, on each FBX) -> `palm_repaint` -> `palm_leather`.
+   TWO THINGS THE 2026-07 PASS FOUND AND FIXED IN THE MACHINERY, both of which had
+   silently degraded every earlier attempt:
+   - the rasteriser wrote a 3-D position only where a triangle IMPROVED the palm
+     weight, and the weight accumulator is shared between L and R — so 63 % of the
+     palm (the whole full-weight middle) carried no position at all and every
+     surface-space pass found it in one grid cell at the origin. That is *why* the
+     repainted palm came out a single flat grey with no tonal variation anywhere.
+   - the palm is not uniformly 3 texels/mm. The decimator's big middle triangles have
+     badly stretched islands where one texel step spans up to 40 mm of hand, and any
+     detail finer than that combs. Every painted feature is now faded out where the
+     atlas cannot resolve it, against a per-triangle footprint measured as the top
+     singular value of the texel->surface Jacobian (the area ratio hides anisotropy
+     and reported 1.7 mm where the truth was 10).
    Verification helpers, all read-only: `hand_audit.py` (mesh/UV/topology stats),
-   `render_hand.py` (clay / emission-on-magenta / lit renders), `count_holes.py`
+   `render_hand.py` (clay / emission-on-magenta / lit / **game** renders — `game`
+   reproduces BoardLit's arithmetic exactly, pure Lambert with no specular, and is
+   the only mode that shows what the player actually sees), `count_holes.py`
    (see-through pixels inside the silhouette), `leak_scan.py` (the same over a sphere
    of 42 directions), `palm_crease_metric.py` (gradient energy across the palm plate),
    `compare_fbx.py` (re-import two FBXs and diff them — never trust a script's log).
