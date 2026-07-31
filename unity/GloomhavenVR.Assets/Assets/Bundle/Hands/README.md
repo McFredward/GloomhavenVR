@@ -88,7 +88,30 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
    (see-through pixels inside the silhouette), `leak_scan.py` (the same over a sphere
    of 42 directions), `palm_crease_metric.py` (gradient energy across the palm plate),
    `compare_fbx.py` (re-import two FBXs and diff them — never trust a script's log).
-4. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
+4. GLOVE ONLY, 2026-07 fist-splay fix — the glove's fist read "weirdly spread", the
+   pinky curling off to the side. Cause, measured on the shipped FBX
+   (`splay_check.py`): the runtime rotates each joint about its LOCAL +X, and a hinge
+   only bends a segment IN A PLANE when its axis is perpendicular to that segment. The
+   glove's four finger chains run dead straight along world +Y while its mesh digits
+   lean out of that line, so local +X sat **+15.2° (pinky), −10.5° (index), −9.0°
+   (thumb)** away from perpendicular to the digit it drives (middle/ring < 1°): those
+   fingers swept a CONE, keeping their sideways offset all the way into the fist. The
+   Plate rig, which never drew this complaint, is within ±6° because its chains were
+   refit to its mesh. The fix is `aim_curl_axes.py` — it re-frames the finger bone
+   nodes (local +X := the digit's measured hinge axis, local Y := the digit direction)
+   and re-derives the cluster + bind-pose matrices, while **every joint head keeps its
+   world position and the mesh/normals/UVs/weights are copied through byte-for-byte**,
+   so the accepted open hand renders pixel-identically and only the curl axis moved.
+   It is NOT a bone-roll change (roll can only spin the axis within the plane
+   perpendicular to the bone, which is why the earlier round called this
+   geometrically impossible and compensated one finger at runtime instead — see
+   `FingerCurler.DefaultGlovePinkyCounterAbductionDeg`). `verify_aim.py <before> <after>`
+   asserts the whole list; `fist_metrics.py` reports the fist the rig actually makes.
+   NOTE: `rig_hand.py` can no longer rebuild the glove — its source
+   `ressources/hands/Hand_prepped.glb` is gone — so the committed FBX pair IS the
+   master for this style. Edit it with the surgical tools, never by a Blender
+   scene round trip.
+5. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
    `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
 
 Missing styled prefabs (old bundle) degrade to the Glove pair at runtime; no bundle
