@@ -203,6 +203,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
         // Item 12 (global, not per-board): the movement scheme and the pitch window re-apply the
         // board orientation live — switching Frei → Begrenzt re-levels a freely rotated board,
         // and a debug-menu clamp edit immediately re-clamps an applied TrayPitch.
+        _lastMoveMode = CardsConfig.BoardMoveMode.Value;
+        CardsConfig.BoardMoveMode.SettingChanged += OnMoveModeChanged;
         CardsConfig.BoardMoveMode.SettingChanged += OnOrientationChanged;
         CardsConfig.BoardPitchMinDegrees.SettingChanged += OnOrientationChanged;
         CardsConfig.BoardPitchMaxDegrees.SettingChanged += OnOrientationChanged;
@@ -241,6 +243,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
         CardsConfig.FanHoverSplitScale.SettingChanged -= OnFanTuningChanged;
         CardsConfig.FanFaceViewer.SettingChanged -= OnFanTuningChanged;
         CardsConfig.FanGazeApexFollow.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.BoardMoveMode.SettingChanged -= OnMoveModeChanged;
         CardsConfig.BoardMoveMode.SettingChanged -= OnOrientationChanged;
         CardsConfig.BoardPitchMinDegrees.SettingChanged -= OnOrientationChanged;
         CardsConfig.BoardPitchMaxDegrees.SettingChanged -= OnOrientationChanged;
@@ -361,6 +364,44 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private void OnInitiativeOffsetChanged(object sender, System.EventArgs e) => _applyInitiativeOffset = true;
     private void OnAssetPoseChanged(object sender, System.EventArgs e) => _applyAssetPose = true;
     private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
+
+    /// <summary>Movement scheme active before the latest [Cards] BoardMoveMode edit.</summary>
+    private BoardMoveMode _lastMoveMode = BoardMoveMode.Limited;
+
+    /// <summary>
+    /// User addendum to item 12: switching INTO a more restrictive movement scheme RESETS the
+    /// axes that scheme locks, instead of freezing (or clamping) them where they happen to be —
+    /// an upside-down or steeply pitched Frei pose must not survive into Begrenzt, and a
+    /// Frei pitch beyond the window must not enter "Begrenzt mit Neigung" pinned at the clamp.
+    /// Restrictiveness order: Frei (nothing locked) &lt; Begrenzt mit Neigung (roll locked)
+    /// &lt; Begrenzt (roll + pitch locked). Roll is already dropped structurally by the level
+    /// carry; the one axis with persisted state is the pitch, so the reset clears TrayPitch.
+    /// Loosening the mode (Begrenzt → Frei) resets nothing. Subscribed BEFORE
+    /// <see cref="OnOrientationChanged"/>, so the re-apply that follows sees the cleared pitch.
+    /// </summary>
+    private void OnMoveModeChanged(object sender, System.EventArgs e)
+    {
+        BoardMoveMode previous = _lastMoveMode;
+        BoardMoveMode now = CardsConfig.BoardMoveMode.Value;
+        _lastMoveMode = now;
+        if (now == previous)
+            return;
+        static int Restrictiveness(BoardMoveMode m) => m switch
+        {
+            BoardMoveMode.Free => 0,
+            BoardMoveMode.LimitedPitch => 1,
+            _ => 2, // Limited
+        };
+        if (Restrictiveness(now) <= Restrictiveness(previous))
+            return;
+        if (Mathf.Abs(CardsConfig.TrayPitch.Value) > 0.01f)
+        {
+            VRLog.Info("Cards", $"Board move mode {previous} → {now}: locked-axis RESET — " +
+                                $"TrayPitch {CardsConfig.TrayPitch.Value:F0}° → 0° (a restrictive " +
+                                "mode starts level, it never freezes or clamps the old pose).");
+            CardsConfig.TrayPitch.Value = 0f;
+        }
+    }
     private void OnActiveTuningChanged(object sender, System.EventArgs e) => _applyActive = true;
     private void OnPilesTuningChanged(object sender, System.EventArgs e) => _applyPiles = true;
     private void OnObjectivesTuningChanged(object sender, System.EventArgs e) => _applyObjectives = true;
