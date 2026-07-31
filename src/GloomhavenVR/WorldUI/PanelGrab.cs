@@ -400,21 +400,36 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
             float dYaw = mode == PanelCarryMode.Slide ? 0f : LevelPose.TwistDegrees(handDelta, up);
             Quaternion spin = Quaternion.AngleAxis(dYaw, up);
+            float pitch = _anchorRootPitch;
+            if (mode == PanelCarryMode.LevelPitch)
+            {
+                // Item 12 "Begrenzt mit Neigung": wrist pitch (twist about the root's own
+                // level-frame right axis, post-yaw) tilts the root — clamped ABSOLUTELY to
+                // the owner's window, so repeated grabs can never walk past it.
+                Vector3 pitchAxis = frame * (Quaternion.AngleAxis(_anchorRootHeading + dYaw, Vector3.up) * Vector3.right);
+                float dPitch = LevelPose.TwistDegrees(handDelta, pitchAxis);
+                Vector2 limits = _owner.GrabPitchLimits;
+                pitch = Mathf.Clamp(_anchorRootPitch + dPitch, limits.x, limits.y);
+                // Hand-anchored pitch (user bug: the bar climbed above/below the gripping hand):
+                // the palm-relative offset must orbit the palm by the FULL level-frame rotation
+                // delta — yaw AND the pitch actually written below — not the yaw alone, or the
+                // pitch part rotates the root in place about its own pivot and the edge-mounted
+                // bar arcs away from the palm. delta = [frame∘Compose(h0+dYaw,p)] ∘
+                // [frame∘Compose(h0,p0)]⁻¹, i.e. anchor level pose → target level pose, matching
+                // the rotation target exactly. Using the CLAMPED pitch keeps hand and bar
+                // consistent at the limits too: when the clamp freezes the board, the bar
+                // freezes with it. With p == p0 the pitch terms cancel — Compose(h0+dYaw,p) =
+                // Yaw(dYaw)∘Compose(h0,p) — leaving frame∘Yaw(dYaw)∘frame⁻¹ =
+                // AngleAxis(dYaw, frame·up): exactly the Level/Slide spin above, which is why
+                // those modes keep the untouched plain-yaw path (identical behavior; Free
+                // already orbits the palm with the full handDelta — this matches it per-axis).
+                spin = frame * LevelPose.Compose(_anchorRootHeading + dYaw, pitch)
+                     * Quaternion.Inverse(frame * LevelPose.Compose(_anchorRootHeading, _anchorRootPitch));
+            }
             Vector3 targetPos = palm + spin * (_rootPos0 - _anchorPos);
             root.position = Vector3.Lerp(root.position, targetPos, k);
             if (mode != PanelCarryMode.Slide)
             {
-                float pitch = _anchorRootPitch;
-                if (mode == PanelCarryMode.LevelPitch)
-                {
-                    // Item 12 "Begrenzt mit Neigung": wrist pitch (twist about the root's own
-                    // level-frame right axis, post-yaw) tilts the root — clamped ABSOLUTELY to
-                    // the owner's window, so repeated grabs can never walk past it.
-                    Vector3 pitchAxis = frame * (Quaternion.AngleAxis(_anchorRootHeading + dYaw, Vector3.up) * Vector3.right);
-                    float dPitch = LevelPose.TwistDegrees(handDelta, pitchAxis);
-                    Vector2 limits = _owner.GrabPitchLimits;
-                    pitch = Mathf.Clamp(_anchorRootPitch + dPitch, limits.x, limits.y);
-                }
                 // REBUILD the rotation from heading+pitch (roll-free by construction) instead of
                 // composing the delta onto the captured rotation — the structural guarantee that
                 // Level-mode grabbing can never end upside down, tilt or no tilt.
