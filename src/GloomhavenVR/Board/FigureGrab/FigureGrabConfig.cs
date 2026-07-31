@@ -52,6 +52,10 @@ internal static class FigureGrabConfig
     /// </summary>
     public static ConfigEntry<bool> HeldUpright = null!;
 
+    /// <summary>Stand the mini head-up IN THE WORLD at the moment of the grab, whatever angle you
+    /// reached from. One-shot: it still turns freely with the hand afterwards.</summary>
+    public static ConfigEntry<bool> HeldUprightAtGrab = null!;
+
     /// <summary>Held tilt (degrees) — tip the mini toward the face for inspection (both modes).</summary>
     public static ConfigEntry<float> HeldTiltDegrees = null!;
 
@@ -254,6 +258,15 @@ internal static class FigureGrabConfig
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldOffsetSide. " +
             legacyTail +
             "held lateral position offset (grab-anchor local X) toward the thumb–index pinch.");
+        HeldUprightAtGrab = config.Bind(
+            "FigureGrab", "HeldUprightAtGrab", false,
+            "Stand the mini HEAD UP IN THE WORLD at the moment you grab it, no matter which angle " +
+            "you reached from — palm down, from the side, upside down. It is captured ONCE, at the " +
+            "grab: afterwards the mini rides the hand as it always did, so turning your wrist still " +
+            "turns it through every angle. It is not a constraint that keeps re-righting the mini " +
+            "while you are trying to look at its base. The tuned angles below stay offsets — with " +
+            "this on they are offsets from 'standing up' rather than from the hand, so expect to " +
+            "re-tune them once.");
         HeldUpright = config.Bind(
             "FigureGrab", "HeldUpright", true,
             "Hold the mini UPRIGHT (standing, pointing up) pinched between thumb and index and " +
@@ -348,6 +361,7 @@ internal static class FigureGrabConfig
         HeldOffsetUp.SettingChanged += Reapply;
         HeldOffsetSide.SettingChanged += Reapply;
         HeldUpright.SettingChanged += Reapply;
+        HeldUprightAtGrab.SettingChanged += Reapply;
         HeldTiltDegrees.SettingChanged += Reapply;
         HeldFaceYawDegrees.SettingChanged += Reapply;
         for (int i = 0; i < HandStyles.Count; i++)

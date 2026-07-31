@@ -2031,6 +2031,15 @@ internal static partial class Loc
                 + "ersten Anlegen, danach nie wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien "
                 + "weiterhin laden. Historische Bedeutung: nur im aufrechten Modus: zusätzliche Drehung (Grad), "
                 + "die die Vorderseite der Figur zu dir dreht. Setze 180, wenn sie dir den Rücken zuwendet.",
+            ["FigureGrab/HeldUprightAtGrab"] =
+                "Stellt die Figur im Moment des Greifens KOPFOBEN IN DER WELT auf, egal aus welchem "
+                + "Winkel du zugegriffen hast — Handfläche nach unten, von der Seite, kopfüber. Das "
+                + "wird EINMALIG beim Greifen festgelegt: danach hängt die Figur wie gewohnt an der "
+                + "Hand, du kannst sie also mit dem Handgelenk weiterhin in jede Lage drehen. Es ist "
+                + "keine Zwangsführung, die die Figur ständig wieder aufrichtet, während du ihre "
+                + "Unterseite ansehen willst. Die Winkel unten bleiben Offsets — mit dieser Option "
+                + "sind sie Offsets gegenüber „aufrecht“ statt gegenüber der Hand, du wirst sie also "
+                + "einmal neu einstellen wollen.",
             ["FigureGrab/*HeldRotPitch"] =
                 "NEIGUNG (Grad): kippt die Figur vor und zurück, um die Achse quer durch deine Handfläche. "
                 + "Das ist das alte HeldTiltDegrees unter einem Namen, der die Achse benennt. PRO HANDSTIL.",

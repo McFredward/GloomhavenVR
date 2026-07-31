@@ -8,11 +8,12 @@
 #   regions hardest and leaves a fold where two collapsed fans meet.
 #
 # WHAT IT DOES
-#   Taubin lambda/mu low-pass over the palm patch, at full strength in its interior and ramped
-#   to zero over RAMP rings as it approaches the pinned rim, so the treated area blends into the
-#   untouched surroundings with no step. Taubin rather than plain Laplacian because the
-#   alternating shrink/expand pair keeps the volume: a Laplacian strong enough to remove this
-#   fold would visibly deflate the palm.
+#   The palm patch is REBUILT, not filtered: a degree-4 polynomial height field is fitted to it by
+#   least squares in its own tangent frame, and the vertices are moved onto that surface, weighted
+#   by a ramp that reaches zero at the pinned rim. A polynomial of that order cannot represent a
+#   crease, so the fold cannot survive — smoothness comes from the basis rather than from an
+#   iteration count somebody has to tune. See the comment at the fit for the two filters that were
+#   tried first and why each one measurably failed.
 #
 #   The patch is the SAME region palm_reunwrap.py re-unwrapped, selected by the same rule, so
 #   the two agree by construction: faces that (a) face the palm, (b) sit above the cuff rim,
@@ -28,7 +29,7 @@
 #
 # RUN (headless):
 #   /home/claw/blender-4.2/blender --background --python unity/hand-prep/relax_palm.py -- \
-#       <in.fbx> [out.fbx] [--iters 40] [--lambda 0.6] [--mu -0.63] [--ramp 4]
+#       <in.fbx> [out.fbx] [--ramp 3]
 #   Omitting <out.fbx> rewrites <in.fbx> in place.
 #
 # AFTER RUNNING: rebuild the AssetBundle with the 2021.3.5f1 editor (see prebuilt/README.md).
@@ -46,11 +47,8 @@ def getopt(name, default):
     return float(argv[argv.index(name) + 1]) if name in argv else default
 
 
-ITERS = int(getopt("--iters", 40))
-LAM = getopt("--lambda", 0.60)
-MU = getopt("--mu", -0.63)          # |mu| > lambda -> pass-band keeps the volume
-RAMP = getopt("--ramp", 4.0)        # rings of blend-in from the pinned rim
 NY_MIN = getopt("--ny", 0.15)       # face must face the palm at least this much
+RAMP = getopt("--ramp", 3.0)        # rings over which the weight ramps in from the rim
 ZLOW = getopt("--zlow", -78.0)      # mm, world: the cuff rim
 ANCHOR_TOL = 0.001                  # mm
 EXTENT_TOL = 0.05                   # mm
@@ -144,48 +142,73 @@ w = np.zeros(len(bm.verts))
 for i in np.nonzero(movable_mask)[0]:
     r = rings[i]
     w[i] = smoothstep(r / RAMP) if r >= 0 else 1.0
-hot = int((w > 0.05).sum())
-log(f"weight: {hot} vertices above 0.05, full strength from ring {int(RAMP)} inward "
-    f"(deepest ring {int(rings.max())})")
+log(f"rings from the pinned rim: deepest {int(rings.max())}, weight ramped over {RAMP:.0f}")
 
-# The number this script exists to reduce, measured before and after over the same edge set.
-def worst_dihedral():
-    worst = 0.0
-    for e in bm.edges:
-        if len(e.link_faces) != 2:
-            continue
-        if not (movable_mask[e.verts[0].index] or movable_mask[e.verts[1].index]):
-            continue
-        a, b = e.link_faces
-        if a.normal.length > 0 and b.normal.length > 0:
-            worst = max(worst, math.degrees(a.normal.angle(b.normal)))
-    return worst
+# ------------------------------------------------------------------ fit, do not filter
+# THIRD APPROACH, and the first that works. Both filters failed, measured:
+#   Taubin (volume-preserving)  — moved the palm 0.18 mm median and left the fold untouched.
+#                                 Of course: Taubin is DESIGNED to preserve large-scale shape,
+#                                 and a fold spanning centimetres is large-scale.
+#   Laplacian, clamped or soft  — moved the palm 1.8 mm median and made the plane-fit residual
+#                                 WORSE (2.08 -> 2.48 mm at p99). A heat map explains it: the
+#                                 fold runs out to the patch rim, so a boundary that holds still
+#                                 holds the fold, and a boundary that lets go just trades the
+#                                 fold for a step at the ramp.
+# So the surface is REBUILT instead of filtered. A degree-4 polynomial height field is fitted by
+# least squares over the patch in its own tangent frame and the vertices are moved onto it. A
+# polynomial of that order cannot represent a crease — smoothness is a property of the basis, not
+# something an iteration count has to be tuned into — so the fold cannot survive the fit, and no
+# amount of iterating can overshoot into a step. The ramp still applies, so the rim keeps its
+# exact position and the patch blends in.
+# Only the PLATE — the part of the patch that actually faces the palm. The patch also wraps
+# around the sides of the hand, where a single tangent-plane height field is not a valid
+# parametrisation at all: fitting the whole patch gave a 55 mm residual, which would have thrown
+# vertices across the hand. Alignment with the patch's own mean normal is the test, and it is the
+# same surface the fold lives on.
+mean_n = Vector((0, 0, 0))
+for f in bm.faces:
+    if sel[f.index]:
+        mean_n += f.normal * f.calc_area()
+mean_n.normalize()
+align = np.array([max(0.0, v.normal.dot(mean_n)) for v in bm.verts])
+plate = movable_mask & (align > 0.6)
+idx = np.nonzero(plate)[0]
+if len(idx) < 50:
+    raise SystemExit(f"relax_palm: only {len(idx)} plate vertices — check the patch selection")
+log(f"plate: {len(idx)} of {int(movable_mask.sum())} movable vertices face the palm within 53°")
 
+P = np.array([list(bm.verts[i].co) for i in idx])
+mean = P.mean(0)
+U, S, Vt = np.linalg.svd(P - mean, full_matrices=False)
+u_ax, v_ax, n_ax = Vt[0], Vt[1], Vt[2]          # n = thinnest direction = the palm's normal
+uu = (P - mean) @ u_ax
+vv = (P - mean) @ v_ax
+nn = (P - mean) @ n_ax
 
-before_worst = worst_dihedral()
+DEG = 4
+terms = [(i, j) for i in range(DEG + 1) for j in range(DEG + 1 - i)]
+A = np.column_stack([uu ** i * vv ** j for (i, j) in terms])
+coef, *_ = np.linalg.lstsq(A, nn, rcond=None)
+fit = A @ coef
+resid = nn - fit
+log(f"fit: degree {DEG} ({len(terms)} terms) over {len(idx)} vertices; "
+    f"residual rms {resid.std()*1000:.2f} mm, max {np.abs(resid).max()*1000:.2f} mm "
+    f"(that maximum IS the fold — it is what the polynomial refuses to represent)")
 
-# ------------------------------------------------------------------ Taubin low-pass
-movable = [bm.verts[i] for i in np.nonzero(w > 0.01)[0]]
-start = {v: v.co.copy() for v in movable}
-for _ in range(ITERS):
-    for k in (LAM, MU):
-        moves = []
-        for v in movable:
-            nb = [e.other_vert(v) for e in v.link_edges]
-            if len(nb) < 3:
-                continue
-            c = sum((n.co for n in nb), Vector()) / len(nb)
-            moves.append((v, v.co + (c - v.co) * (k * w[v.index])))
-        for v, co in moves:
-            v.co = co
-if movable:
-    disp = sorted((v.co - start[v]).length for v in movable)
-    log(f"Taubin {ITERS}x(l={LAM}, m={MU}) over {len(movable)} verts: "
-        f"median move {disp[len(disp)//2]*1000:.2f} mm, p95 {disp[int(0.95*len(disp))]*1000:.2f} mm, "
-        f"max {disp[-1]*1000:.2f} mm")
-
-after = worst_dihedral()
-log(f"worst dihedral inside the patch: {before_worst:.1f}° -> {after:.1f}°")
+moved = 0
+for k, i in enumerate(idx):
+    # Fade with alignment as well, so the fit lets go before the surface curves away from the
+    # frame it was fitted in.
+    wk = w[i] * smoothstep((align[i] - 0.6) / 0.25)
+    if wk <= 0.01:
+        continue
+    target = mean + u_ax * uu[k] + v_ax * vv[k] + n_ax * fit[k]
+    v = bm.verts[i]
+    v.co = v.co.lerp(Vector(target), wk)
+    moved += 1
+disp = np.abs(resid) * w[idx]
+log(f"moved {moved} vertices onto the fitted surface: median {np.median(disp)*1000:.2f} mm, "
+    f"p95 {np.percentile(disp, 95)*1000:.2f} mm, max {disp.max()*1000:.2f} mm")
 
 bm.to_mesh(me)
 bm.free()

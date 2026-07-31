@@ -282,6 +282,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         Transform anchor = hand.Rig.GrabAnchor;
         t.SetParent(anchor, worldPositionStays: true);
         _anchor = anchor;
+        _uprightBase = CaptureUprightBase(anchor);
         _heldBaseScale = t.localScale;
         _attached = true;
 
@@ -315,6 +316,42 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     }
 
     /// <summary>
+    /// The anchor-local rotation that stands the mini HEAD UP IN THE WORLD at this instant, or
+    /// identity when the option is off.
+    ///
+    /// <para>Captured ONCE, at the moment of the grab, and then left alone. That is the whole
+    /// point: the mini starts upright however you reached for it — palm down, from the side,
+    /// upside down — and from then on it is an ordinary fixed rotation relative to the hand, so
+    /// turning your wrist still turns it through every angle. It is not a constraint that keeps
+    /// re-righting the mini, which would fight you the moment you tried to look at its base.</para>
+    ///
+    /// <para>The facing comes from the hand's own forward flattened onto the horizontal, not from
+    /// the head: it keeps the mini's front pointing the way you were reaching, and it does not make
+    /// the result depend on where anyone is standing. Grabbing with the hand pointing near-vertical
+    /// leaves that forward undefined, so the hand's UP is used instead — some horizontal direction
+    /// is always available and any of them is better than a NaN.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing extra is needed. The held figure's WORLD rotation is what goes on
+    /// the wire (Net.NetFigures), so a peer sees whatever this produces, exactly.</para>
+    /// </summary>
+    private static Quaternion CaptureUprightBase(Transform anchor)
+    {
+        if (!FigureGrabConfig.HeldUprightAtGrab.Value)
+            return Quaternion.identity;
+
+        Vector3 flat = Vector3.ProjectOnPlane(anchor.forward, Vector3.up);
+        if (flat.sqrMagnitude < 1e-6f)
+            flat = Vector3.ProjectOnPlane(anchor.up, Vector3.up);
+        if (flat.sqrMagnitude < 1e-6f)
+            flat = Vector3.forward;
+
+        Quaternion world = Quaternion.LookRotation(flat.normalized, Vector3.up);
+        return Quaternion.Inverse(anchor.rotation) * world;
+    }
+
+    private Quaternion _uprightBase = Quaternion.identity;
+
+    /// <summary>
     /// (Re-)apply the held pose from <see cref="FigureGrabConfig"/> — offset, rotation and
     /// scale — off the bases captured at grab. Idempotent, so it doubles as the live-tune
     /// path: a debug-menu stepper writes a config entry and this re-poses the mini in-hand.
@@ -338,9 +375,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // Issue A: a FIXED CONSTANT anchor-LOCAL rotation (grab-angle-independent) that rides the
         // hand — never a world rotation. Upright mode stands the mini out of the palm and faces it
         // (mirror-correct); legacy mode lays it flat (tilt only, mirror-invariant).
-        t.localRotation = FigureGrabConfig.HeldUpright.Value
+        // _uprightBase is identity unless the grab captured a world-upright start, so the tuned
+        // angles keep meaning exactly what they meant: offsets, applied on top of whatever the
+        // base is. With the option on they are offsets from "standing up"; with it off they are
+        // offsets from the hand, as before.
+        t.localRotation = _uprightBase * (FigureGrabConfig.HeldUpright.Value
             ? FigureGrabConfig.HeldUprightRotation(side)
-            : FigureGrabConfig.HeldPalmRotation();
+            : FigureGrabConfig.HeldPalmRotation());
 
         t.localScale = _heldBaseScale * FigureGrabConfig.ActiveHeldScale;
     }
