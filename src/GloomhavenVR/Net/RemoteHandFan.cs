@@ -218,8 +218,9 @@ internal sealed class RemoteHandFan
     {
         // Which hand does the fan hang off? owner.NonDominantHandHolder already resolves to the
         // LEFT holder when DominantRight is true (the sensible default), else RIGHT; fall back to
-        // the avatar root when the holder is missing.
-        // TODO(handedness): if fan is on wrong hand, foundation DominantRight predicate is inverted.
+        // the avatar root when the holder is missing. (Handedness audit: this receiver mapping is
+        // correct; the fan-on-the-wrong-hand report was the SENDER predicate,
+        // LocalRigSampler.LocalDominantRight — fixed there.)
         Transform? holder = _owner.NonDominantHandHolder != null ? _owner.NonDominantHandHolder : _owner.Root;
         if (holder == null)
         {

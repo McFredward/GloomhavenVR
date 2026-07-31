@@ -106,8 +106,18 @@ internal static class LocalRigSampler
     /// non-dominant hand is the Right hand. Defaults true (right-dominant) when the non-dominant
     /// hand is unknown (controller absent / hot reload). Exposed so the driver can stamp the same
     /// value onto the extras packet.
+    ///
+    /// HANDEDNESS FIX (MP test: "peer fan renders in the wrong hand"). <see cref="NonDominantHold.Hand"/>
+    /// IS the non-dominant hand (the opposite of <c>VRHands.Primary</c>, which is where the local
+    /// <see cref="Cards.CardFan"/> opens — CardsDriver's gate hand). So "dominant is Right" is
+    /// "the non-dominant hand is NOT the Right one". The old predicate compared against
+    /// <c>HandSide.Left</c> — inverted for every tracked player (a right-dominant default player
+    /// transmitted DominantRight=false), which put the remote hand fan, the ghost-hand fallback and
+    /// the card-flight anchor on the DOMINANT hand of every peer's proxy. The receiver mapping
+    /// (<see cref="RemoteAvatar.NonDominantHandHolder"/> = DominantRight ? Left : Right) was always
+    /// correct — the sender was the inverted side.
     /// </summary>
-    public static bool LocalDominantRight() => NonDominantHold.Hand?.Side != HandSide.Left;
+    public static bool LocalDominantRight() => NonDominantHold.Hand?.Side != HandSide.Right;
 
     /// <summary>The locally-chosen mask id, clamped to [0, MaskCount-1]. Guarded so an unbound
     /// config (net module never inited) falls back to mask 0 rather than throwing.</summary>

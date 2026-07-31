@@ -52,6 +52,29 @@ internal sealed class AvatarMirror
     /// <summary>Distance (real metres, at scale 1) from the head to the mirror plane.</summary>
     private const float MirrorDistance = 0.7f;
 
+    /// <summary>
+    /// MIRROR-HAND SIZE vs DISTANCE (MP test report: "the mirror renders the hands at the wrong
+    /// size when you move them away from the body / toward the glass"). AUDIT RESULT first: the
+    /// hand VISUAL scale here is provably distance-independent and matches the real rig — the
+    /// holder carries the rig/diorama scale, the "HandVisual" child carries the per-style scale,
+    /// exactly the <see cref="RemoteAvatar"/> holder-vs-child contract (INVARIANTS-Net-Rig
+    /// "Sender scale goes on the holder; style scale ... on the CHILD"). What DID change with
+    /// distance is the reflection geometry: the plane sits only <see cref="MirrorDistance"/>
+    /// (0.7 real m) ahead of the head — INSIDE arm's reach — and <see cref="Reflect"/> had no
+    /// near-plane handling. An extended hand crossed the plane, so its reflection landed on the
+    /// VIEWER's side of the glass, closer to the eye than the real hand: the mirrored hand loomed
+    /// at the face, past life-size next to the player's own hand — the reported "wrong size at
+    /// distance". A real mirror cannot do this (the glass stops the hand).
+    ///
+    /// FIX: clamp the hand pose to at least this many real metres IN FRONT of the plane before
+    /// reflecting — pushing through the glass pins the mirrored hand just behind the glass
+    /// (pressed against it, like a real mirror) instead of letting it fly at the player. The
+    /// clamp moves only the component along the plane normal; hand-attached content (fan, held
+    /// figure/cards) rides the clamped holder frame through <see cref="TryMirrorThroughHand"/>
+    /// automatically.
+    /// </summary>
+    private const float HandGlassGap = 0.10f;
+
     private GameObject? _root;
     private Transform? _headHolder;
     private Transform? _leftHolder;
@@ -80,6 +103,7 @@ internal sealed class AvatarMirror
     private float _appliedScale = -1f;
     private float _appliedStyleScale = -1f; // per-style visual scale currently on the hand visual roots
     private Vector3 _lastNormal = Vector3.forward; // reused when head-forward is near-vertical
+    private bool _glassClampLogged;         // near-glass hand clamp diagnostic, once per mirror session
 
     // ---- held-interactable mirroring (visual-only, local) --------------------------------
     // Held FIGURE: a script/collider-stripped visual clone of the figure riding the hand
@@ -246,7 +270,29 @@ internal sealed class AvatarMirror
         }
 
         Transform t = hand.Rig.Root;
-        Reflect(t.position, t.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
+
+        // Near-glass clamp (see HandGlassGap): a hand pushed to/through the mirror plane is
+        // treated as stopping HandGlassGap short of the glass, so its reflection can never cross
+        // onto the viewer's side and balloon at the player's face. Only the along-normal
+        // component moves; lateral hand motion at the glass stays 1:1.
+        Vector3 pos = t.position;
+        float scale = _appliedScale > 0f ? _appliedScale : 1f;
+        float d = Vector3.Dot(pos - planePoint, normal);   // <0 = viewer side of the glass
+        float dMax = -HandGlassGap * scale;                // stay at least the gap in front of it
+        if (d > dMax)
+        {
+            pos -= (d - dMax) * normal;
+            if (!_glassClampLogged)
+            {
+                _glassClampLogged = true;
+                VRLog.Info("WorldUI", $"Mirror hand near-glass clamp engaged ({hand.Side}): hand "
+                    + $"{(d >= 0f ? "crossed" : "reached")} the mirror plane (planeDist={d / scale:F3} real m) — "
+                    + $"reflection pinned {HandGlassGap:F2} m behind the glass instead of popping out at the "
+                    + "player (hand size now reads consistently at any hand distance).");
+            }
+        }
+
+        Reflect(pos, t.rotation, planePoint, normal, out Vector3 p, out Quaternion r);
         if (!holder.gameObject.activeSelf)
             holder.gameObject.SetActive(true);
         holder.SetPositionAndRotation(p, r);
@@ -1075,6 +1121,7 @@ internal sealed class AvatarMirror
         _appliedHandStyle = -1;
         _appliedScale = -1f;
         _appliedStyleScale = -1f;
+        _glassClampLogged = false;
         VRLog.Info("WorldUI", "Avatar mirror disabled.");
     }
 
