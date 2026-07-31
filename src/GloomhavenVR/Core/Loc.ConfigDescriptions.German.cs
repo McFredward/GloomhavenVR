@@ -2021,6 +2021,18 @@ internal static partial class Loc
                 + "ersten Anlegen, danach nie wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien "
                 + "weiterhin laden. Historische Bedeutung: nur im aufrechten Modus: zusätzliche Drehung (Grad), "
                 + "die die Vorderseite der Figur zu dir dreht. Setze 180, wenn sie dir den Rücken zuwendet.",
+            ["FigureGrab/*HeldRotPitch"] =
+                "NEIGUNG (Grad): kippt die Figur vor und zurück, um die Achse quer durch deine Handfläche. "
+                + "Das ist das alte HeldTiltDegrees unter einem Namen, der die Achse benennt. PRO HANDSTIL.",
+            ["FigureGrab/*HeldRotYaw"] =
+                "GIERUNG (Grad): dreht die Figur um IHRE EIGENE Hochachse — eine Drehung, nie ein Kippen, "
+                + "bringt also die lesbare Vorderseite zu dir. Wird vor Neigung und Rollung auf die Figur "
+                + "angewandt; genau das hält sie zu einer reinen Drehung, egal wie die anderen beiden "
+                + "stehen. Zwischen den Händen GESPIEGELT — du stellst die rechte ein, die linke folgt. "
+                + "PRO HANDSTIL.",
+            ["FigureGrab/*HeldRotRoll"] =
+                "ROLLUNG (Grad): dreht die Figur um IHRE EIGENE Vorwärtsachse. Zwischen den Händen "
+                + "GESPIEGELT wie die Gierung. PRO HANDSTIL.",
             ["FigureGrab/*HeldRollDegrees"] =
                 "Gehaltene ROLLUNG (Grad) um die Achse, die aus deinen Fingerspitzen zeigt — die dritte "
                 + "Drehachse, damit eine Figur in der Hand dieselbe Freiheit hat wie die Hand selbst: drei "

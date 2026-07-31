@@ -295,9 +295,22 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         // Issue A — one-shot grab diagnostic: the FIXED anchor-LOCAL rotation chosen for the hold
         // (grab-angle-independent; rides the hand). World rotation shown for reference only.
+        // The three angles and WHERE THEY PUT THE MINI'S OWN AXES, in the anchor's frame. Without
+        // this we were both describing sensations: "yaw feels like tilt" cannot be checked against
+        // a quaternion. up.y near +/-1 means the mini stands along the palm normal, so yaw is a
+        // clean spin about the vertical you see; the further up.y is from that, the more every one
+        // of the three angles reads as a tumble, which is exactly when two of them feel alike.
+        Quaternion lr = t.localRotation;
+        Vector3 up = lr * Vector3.up, fwd = lr * Vector3.forward;
         VRLog.Info("FigureGrab",
-            $"{hand.Side} grabbed figure ({Describe()}); localRot={Fmt(t.localRotation)} " +
+            $"{hand.Side} grabbed figure ({Describe()}); localRot={Fmt(lr)} " +
             $"(fixed constant relative to the hand anchor; grab-angle-independent, rides the hand) " +
+            $"from pitch={FigureGrabConfig.ActiveHeldTilt:0.#}° " +
+            $"yaw={FigureGrabConfig.HeldFaceYawFor(hand.Side):0.#}° " +
+            $"roll={FigureGrabConfig.HeldRollFor(hand.Side):0.#}° " +
+            $"upright={FigureGrabConfig.HeldUpright.Value}; mini axes in anchor space: " +
+            $"up=({up.x:0.00},{up.y:0.00},{up.z:0.00}) fwd=({fwd.x:0.00},{fwd.y:0.00},{fwd.z:0.00}) " +
+            $"— anchor +Y is the palm normal, so up.y=+1 is 'standing straight out of the palm'. " +
             $"hand={Fmt(anchor.rotation)} worldHeld={Fmt(t.rotation)}.");
     }
 
