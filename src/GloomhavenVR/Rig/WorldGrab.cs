@@ -235,7 +235,11 @@ internal sealed class WorldGrab : MonoBehaviour
             Vector3 tR = TrackingPos(right);
             _d0 = Mathf.Max(Vector3.Distance(tL, tR), MinHandDistanceMeters);
             _theta0 = HeadingDegrees(tR - tL);
-            _yaw0 = rig.eulerAngles.y;
+            // Yaw TWIST about world up, not eulerAngles.y: under an active world tilt the rig
+            // rotation is tilt ∘ yaw, whose euler y is NOT the yaw twist (garbage targets fed
+            // into LerpAngle were half of Bug A). Same extraction the tilt heal uses, so both
+            // sides agree on what "the rig's yaw" means.
+            _yaw0 = VRRigDriver.YawOnly(rig.rotation).eulerAngles.y;
             _s0 = rig.localScale.x;
             _midAnchorWorld = rig.TransformPoint((tL + tR) * 0.5f);
             _lastDetent = Mathf.FloorToInt(_s0 / RigTarget.BaseScale / ScaleDetentStep);
@@ -270,6 +274,10 @@ internal sealed class WorldGrab : MonoBehaviour
         }
 
         float k = 1f - Mathf.Exp(-PositionSmoothing * Time.deltaTime);
+        // Position-only write — tilt-safe by construction: the tilt heal (TickWorldTilt) keys
+        // solely on ROTATION error (desired vs current rotation) and neither we nor RigClamp
+        // (vertical lift only) touch the rotation here, so no heal write fires and the drag
+        // can never enter the Bug-A flatten/re-tilt loop.
         rig.position += delta * k;
         RigClamp.Apply(rig);
     }
@@ -312,8 +320,10 @@ internal sealed class WorldGrab : MonoBehaviour
         }
 
         // Yaw: keep the world direction between the hands constant → rig yaw counters the
-        // tracking-space heading change (yaw-only by design; the P1 rig has no pitch/roll).
-        float yaw = rig.eulerAngles.y;
+        // tracking-space heading change (the grab only ever AUTHORS yaw; any pitch on the rig
+        // is the world tilt's, preserved below). Yaw twist via YawOnly, not eulerAngles.y —
+        // see the Anchor() comment.
+        float yaw = VRRigDriver.YawOnly(rig.rotation).eulerAngles.y;
         if (ComfortSettings.RotateEnabled.Value)
         {
             float theta = HeadingDegrees(tR - tL);
@@ -325,7 +335,22 @@ internal sealed class WorldGrab : MonoBehaviour
         }
 
         rig.localScale = Vector3.one * s;
-        Quaternion rot = Quaternion.Euler(0f, yaw, 0f);
+        // TILT-CONSISTENT write (Bug A). The old bare yawRot write FLATTENED an actively
+        // tilted rig every frame; TickWorldTilt (LateUpdate) then re-tilted it about a
+        // DIFFERENT pivot (FocusPoint, not the hand midpoint), so each frame's flatten+re-tilt
+        // displaced the midpoint, the next frame's solve chased it through the exponential
+        // smoothing, and the closed loop flung the player. Composing the CURRENT desired tilt
+        // swing T onto the new yaw Y and solving the position with the FULL rotation breaks
+        // the loop algebraically: we write rot = T ∘ Y with T = AngleAxis(_tiltApplied,
+        // (Y ∘ R_up(headAim)) · right) — exactly the pose TickWorldTilt reconstructs, because
+        // its yaw extraction YawOnly(T ∘ Y) = Y is exact (T's axis is horizontal) and its
+        // grab-active branch re-seeds the aim to the same live head yaw. Desired == current
+        // → the heal writes NOTHING → 'rig-pose-heal' is unreachable from a grab, and the
+        // midpoint stays genuinely glued between the hands (position solved with rot, so
+        // rigPos + rot·(s·mid) = _midAnchorWorld holds in the pose that survives the frame).
+        // At tilt 0 the swing is identity → bit-identical to the old yaw-only behavior.
+        Quaternion yawRot = Quaternion.Euler(0f, yaw, 0f);
+        Quaternion rot = VRRigDriver.CurrentTiltSwing(yawRot) * yawRot;
         rig.rotation = rot;
         // Solve position so the world midpoint stays glued between the hands.
         rig.position = _midAnchorWorld - rot * (mid * s);

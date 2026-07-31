@@ -110,9 +110,11 @@ internal sealed partial class PlayTray
         // changes). Both are pose-preserving in the user's frame of reference, so they run
         // before the lost test and can stop the board from ever reading lost.
         SyncPinHolder();
-        // Item 11: keep a PINNED board level FOR ITS OWNER while the world tilt changes
-        // (pose-preserving in the user's frame, exactly like the pin housekeeping above).
-        SyncWorldTiltComp();
+        // NO world-tilt compensation (user decision 2026-08, supersedes item 11): a PINNED
+        // board is deliberately WORLD-static — a tilt change leaves it untouched (it then
+        // looks tilted like the rest of the world; the user re-adjusts it in Free mode).
+        // The old SyncWorldTiltComp counter-rotation visibly dragged the board through the
+        // tilt tween ("nachziehen") and was removed outright.
 
         // A gripped board is being deliberately placed — never recall mid-carry (the
         // ModalFallback recall rule; yanking a panel out of the user's hand is worse than
@@ -294,38 +296,6 @@ internal sealed partial class PlayTray
     private Vector3 _rigLocalPinPos;
     private Quaternion _rigLocalPinRot = Quaternion.identity;
     private bool _rigLocalPinValid;
-
-    /// <summary>
-    /// Item 11 — the second half of "the board never inherits the world tilt". The authoring
-    /// paths (PlaceAtHead / ReapplyOrientation / the grab) build the pose IN the perceived-level
-    /// frame; this keeps it there when the frame itself moves afterwards:
-    /// - FOLLOW: the board is a rig child, so a tilt change co-rotates it structurally — its
-    ///   perceived orientation is invariant and only the baseline is tracked here.
-    /// - PINNED: the board is world-static, so a tilt change would visibly tilt it in the
-    ///   player's view. Rotate it IN PLACE (about its own centre — position untouched, which is
-    ///   what "pinned" means) by the frame delta so its perceived orientation stays constant.
-    /// Skipped while gripped (the carry authors the pose, and re-baselines on release via
-    /// PersistPoseToConfig). Sanctioned through the same pin-housekeeping conduit as the
-    /// tracking-origin carry, so the issue-C pose watch reports it instead of Warning.
-    /// </summary>
-    private void SyncWorldTiltComp()
-    {
-        Quaternion frame = VRRigDriver.WorldTiltRotation;
-        if (_root == null || !_placed
-            || CardsConfig.TrayFollow.Value
-            || (_handle != null && _handle.IsGrabbed))
-        {
-            _tiltCompApplied = frame; // structurally level (FOLLOW) / re-authored elsewhere (grab)
-            return;
-        }
-        float deltaDeg = Quaternion.Angle(frame, _tiltCompApplied);
-        if (deltaDeg < 0.05f)
-            return; // tween settled — zero writes in steady state
-        Quaternion delta = frame * Quaternion.Inverse(_tiltCompApplied);
-        _root.rotation = delta * _root.rotation;
-        _tiltCompApplied = frame;
-        _pinHousekeepingMove = "world-tilt compensation (pinned board stays level for its owner)";
-    }
 
     /// <summary>Board centre inside the head frustum with <see cref="WatchViewMargin"/> slack.</summary>
     private static bool IsInHeadView(Camera head, Vector3 worldPos)

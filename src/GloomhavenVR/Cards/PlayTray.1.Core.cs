@@ -175,17 +175,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     private bool _wantVisible;
     private bool _placementDeferLogged;
 
-    /// <summary>
-    /// Item 11: the <see cref="VRRigDriver.WorldTiltRotation"/> the board's CURRENT pose was
-    /// authored under. A PINNED board is world-static, so a LATER tilt change would visibly
-    /// tilt it in the player's view — <see cref="SyncWorldTiltComp"/> (watchdog tick) rotates
-    /// it in place by the frame delta so it stays level for its owner. A FOLLOW board is a rig
-    /// child and co-rotates with the tilt structurally, so there the field only tracks the
-    /// live frame. Re-baselined by every pose-authoring path (PlaceAtHead, RestorePose,
-    /// ReapplyOrientation) and by grab release.
-    /// </summary>
-    private Quaternion _tiltCompApplied = Quaternion.identity;
-
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
 
     internal Transform? ShortRestAnchor => _shortRestAnchor;
@@ -781,10 +770,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _ => WorldUI.PanelCarryMode.Level, // Begrenzt (default) = today's yaw-only carry
     };
 
-    /// <summary>Item 11: "level" for the board means level FOR ITS OWNER — the rig's world-tilt
-    /// rotation IS that perceived-level frame (identity while the tilt is off, so this is
-    /// bit-identical to the old world-up carry at 0°).</summary>
-    Quaternion WorldUI.IPanelGrabOwner.GrabLevelFrame => VRRigDriver.WorldTiltRotation;
+    /// <summary>"Level" for the board means PLAIN WORLD level (user decision 2026-08,
+    /// supersedes item 11): the board is deliberately world-frame and fully decoupled from the
+    /// world tilt — under an active tilt it simply looks tilted like the rest of the world and
+    /// the user lays it out to taste in Free mode. Identity like every other owner (the
+    /// interface + LevelPose machinery stay — item 12's movement modes build on them).</summary>
+    Quaternion WorldUI.IPanelGrabOwner.GrabLevelFrame => Quaternion.identity;
 
     /// <summary>Item 12: the ABSOLUTE level-frame pitch window for the LimitedPitch carry.
     /// The config window is degrees around the per-board BoardTilt (TrayPitch semantics:
@@ -1018,7 +1009,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _placementDeferLogged = false;
         _lastSlotActivity = float.NegativeInfinity;
         _boardColliderRegistered = false;
-        _tiltCompApplied = Quaternion.identity; // item 11: a fresh root re-baselines at placement
         // Lost-board watchdog state: the PlayTray INSTANCE outlives its root (board switch /
         // rebuild), so a stale dwell timer or pin bookkeeping would otherwise be applied to the
         // next root and could recover a board that was never lost.
@@ -1091,15 +1081,13 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _placementDeferLogged = false;
 
         Transform headT = head.transform;
-        // ITEM 11 (the tilt leak): all of this math used to run against WORLD up/forward, which
-        // authored a WORLD-level board — and a world-level board is exactly as tilted as the rest
-        // of the world in the player's view once [Rig] WorldTiltDegrees is active. It now runs in
-        // the player's PERCEIVED-LEVEL frame (the rig's tilt rotation): flatten the gaze and lay
-        // out the offsets there, then rotate the result back into world by the frame. At tilt 0
-        // the frame is identity and every line below is bit-identical to the old code.
-        Quaternion frame = VRRigDriver.WorldTiltRotation;
-        Quaternion invFrame = Quaternion.Inverse(frame);
-        Vector3 flatForward = invFrame * headT.forward; // level-frame gaze
+        // PLAIN WORLD-FRAME math (user decision 2026-08, supersedes item 11): this briefly ran
+        // in the rig's perceived-level tilt frame so the board would author "level for the
+        // player" under [Rig] WorldTiltDegrees; the user rejected that coupling — the board is
+        // deliberately world-frame (under a tilt it looks tilted like the rest of the world and
+        // is laid out manually in Free mode). At tilt 0 both versions were bit-identical, so
+        // this is exactly the pre-item-11 behavior.
+        Vector3 flatForward = headT.forward;
         flatForward.y = 0f;
         if (flatForward.sqrMagnitude < 1e-4f)
             flatForward = Vector3.forward;
@@ -1120,21 +1108,18 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         // cases; this is the belt-and-braces guard for every OTHER cause (a wildly mis-tuned
         // BoardPosOffset, an odd rig scale, a frozen-then-restored head pose after an HMD doff/don)
         // — the board can never sit more than ~1.2 m from the head, at a plausible height, no
-        // matter what the placement math produced. Clamped in the LEVEL frame: under a 60° tilt
-        // the perceived "chest height in front of you" has a large WORLD-vertical component, and
-        // a world-frame height clamp would wrongly squash exactly that.
+        // matter what the placement math produced.
         float outBefore = levelDelta.magnitude;
         levelDelta = ClampNearHead(levelDelta, scale, out bool wasClamped);
-        Vector3 pos = headT.position + frame * levelDelta;
+        Vector3 pos = headT.position + levelDelta;
         if (wasClamped)
             VRLog.Info("Cards", $"Control board placement clamped to a sane reach from the head " +
                                 $"(was {outBefore / Mathf.Max(scale, 1e-4f):F2} m out at scale 1, " +
                                 $"now {levelDelta.magnitude / Mathf.Max(scale, 1e-4f):F2} m).");
 
         _root.position = pos;
-        _root.rotation = frame * ComputeBoardRotation(flatForward, board);
+        _root.rotation = ComputeBoardRotation(flatForward, board);
         _root.localScale = Vector3.one * ComputeBoardScale(board);
-        _tiltCompApplied = frame; // item 11: this pose already carries the current tilt frame
         _placed = true;
         VRLog.Info("Cards", $"Control board placed ({board}: tilt {CardsConfig.BoardTilt(board).Value}°, " +
                             $"yaw {CardsConfig.TrayYaw.Value + CardsConfig.BoardYaw(board).Value:F0}°, " +
@@ -1149,12 +1134,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     }
 
     /// <summary>
-    /// PART B: the board's LEVEL-FRAME rotation from the (level-frame) flat forward + the
+    /// PART B: the board's WORLD rotation from the (world-frame) flat forward + the
     /// per-board tilt/yaw. BoardTilt REPLACES the old global TrayTilt (seeded 30 so Oak is
     /// unchanged); BoardYaw is ADDED on top of the grab-written TrayYaw (seeded 0). Shared by
-    /// <see cref="PlaceAtHead"/> and <see cref="ReapplyOrientation"/> — BOTH premultiply the
-    /// perceived-level frame (<see cref="VRRigDriver.WorldTiltRotation"/>, item 11) onto this,
-    /// so the callers pass a level-frame forward and get a level-frame rotation back. Item 12:
+    /// <see cref="PlaceAtHead"/> and <see cref="ReapplyOrientation"/> — both run in the plain
+    /// world frame (user decision 2026-08: the board is deliberately decoupled from the world
+    /// tilt; the perceived-level compositions of item 11 are gone). Item 12:
     /// the grab-authored TrayPitch adds on top of BoardTilt per the movement mode
     /// (<see cref="CardsConfig.EffectiveTrayPitch"/> — 0 in Begrenzt, so the default pose is
     /// bit-identical to before).
@@ -1173,8 +1158,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     /// more than ~1.2 m horizontally and a plausible height band. Applied on EVERY head-relative
     /// placement path (<see cref="PlaceAtHead"/> and the presence-regain re-assert) so a bogus or
     /// frozen-then-restored head pose can never fling the board outside the play space.
-    /// Item 11: operates on the LEVEL-FRAME delta (head → board, already de-tilted by the
-    /// caller), so "horizontal" and "height" mean what the PLAYER perceives under a world tilt.
+    /// Operates on the plain WORLD-frame delta (head → board) since the board's decoupling
+    /// from the world tilt (user decision 2026-08 — "horizontal"/"height" are world axes).
     /// </summary>
     private static Vector3 ClampNearHead(Vector3 levelDelta, float scale, out bool clamped)
     {

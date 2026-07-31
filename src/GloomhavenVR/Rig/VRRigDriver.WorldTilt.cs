@@ -26,8 +26,11 @@ internal sealed partial class VRRigDriver
     /// forward-projection version was only exact while the tilt axis was the yaw's own right
     /// axis; the player-relative tilt axis (TickWorldTilt) broke that assumption — projection
     /// would have bled a per-frame yaw drift into the healing loop.
+    /// INTERNAL (not private): <see cref="WorldGrab"/> shares this exact extraction so its
+    /// yaw anchor/target math reads the same twist the healing loop reconstructs — two
+    /// different yaw definitions on the same rig were the Bug-A feedback loop.
     /// </summary>
-    private static Quaternion YawOnly(Quaternion rotation)
+    internal static Quaternion YawOnly(Quaternion rotation)
     {
         float y = rotation.y;
         float w = rotation.w;
@@ -35,6 +38,42 @@ internal sealed partial class VRRigDriver
         if (mag < 1e-6f)
             return Quaternion.identity; // pure 180° flip about a horizontal axis; unreachable
         return new Quaternion(0f, y / mag, 0f, w / mag);
+    }
+
+    /// <summary>
+    /// The tilt SWING factor TickWorldTilt would compose onto the given yaw-only rotation
+    /// THIS frame — <c>AngleAxis(_tiltApplied, (yawOnly ∘ R_up(aim)) · right)</c>, identity
+    /// while the tilt is off/no scenario rig. For <see cref="WorldGrab"/>'s two-hand write:
+    /// composing its new yaw as <c>CurrentTiltSwing(yawRot) * yawRot</c> makes the write
+    /// TILT-CONSISTENT — the healing loop reconstructs desired = AngleAxis(tilt, axis(Y)) ∘ Y
+    /// from Y = YawOnly(current), and YawOnly(T ∘ Y) = Y exactly (T's axis is horizontal, see
+    /// <see cref="YawOnly"/>), so desired == what the grab wrote and the heal performs ZERO
+    /// writes: no per-frame flatten/re-tilt fight, no feedback through the grab's exponential
+    /// smoothing (the old fling).
+    ///
+    /// AIM is read LIVE from the head, not from <c>_tiltAimYawDeg</c>: the grab-active branch
+    /// of TickWorldTilt (a masked event) re-seeds <c>_tiltAimYawDeg = headYaw</c> every frame,
+    /// so the stored field is one frame stale during a grab; the head pose itself is stable
+    /// between Update (grab) and LateUpdate (tick) within a frame, so sampling it here yields
+    /// the exact axis the tick will use. Only callable mid-grab by design — outside a grab the
+    /// live-head aim would NOT match the (frozen) stored aim. The single residual error source
+    /// is <c>_tiltApplied</c> during the 0.2 s config tween (the tick advances it in LateUpdate,
+    /// after us): a one-frame lag of at most tweenSlope·dt (≈0.35° at 72 Hz for a 5° step),
+    /// healed the same frame ATTRIBUTED "world-grab" (grabActive) — never "rig-pose-heal" —
+    /// and non-accumulating because the heal reconstructs from the exact twist, not a delta.
+    /// At tilt 0 this returns identity → the grab write reduces bit-identically to the
+    /// pre-tilt yaw-only behavior.
+    /// </summary>
+    internal static Quaternion CurrentTiltSwing(Quaternion yawOnly)
+    {
+        VRRigDriver? drv = Instance;
+        if (drv == null || drv._kind != RigKind.Scenario || drv._tiltApplied <= 0f)
+            return Quaternion.identity;
+        float aim = drv._camera != null
+            ? YawOnly(drv._camera.transform.localRotation).eulerAngles.y
+            : drv._tiltAimYawDeg;
+        Vector3 axis = yawOnly * Quaternion.AngleAxis(aim, Vector3.up) * Vector3.right;
+        return Quaternion.AngleAxis(drv._tiltApplied, axis);
     }
 
     /// <summary>
@@ -62,7 +101,9 @@ internal sealed partial class VRRigDriver
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
     /// free: recenter and rig rebuilds re-run their yaw-only math and the tilt re-applies
     /// the same frame; snap turn (RotateAround world-up) preserves the pitch and lands
-    /// within epsilon; WorldGrab's two-hand yaw-flatten is healed before render. YawOnly's
+    /// within epsilon; WorldGrab's two-hand write is TILT-CONSISTENT since Bug A (it composes
+    /// <see cref="CurrentTiltSwing"/> onto its yaw, so there is no flatten to heal — only the
+    /// one-frame tween lag documented there). YawOnly's
     /// swing–twist decomposition keeps the yaw extraction exact under the head-relative
     /// (non-yaw-aligned) tilt axis. At the default 0° with no tilt ever applied the method
     /// returns before touching the transform — bit-identical to the pre-feature rig.
@@ -199,8 +240,10 @@ internal sealed partial class VRRigDriver
             ? Quaternion.AngleAxis(_tiltApplied, axis) * yawOnly
             : yawOnly;
 
-        // Publish the perceived-level frame (control-board item 11): the tilt factor of the pose
-        // this frame asserts. Consumers compose "level for the player" as WorldTiltRotation * pose.
+        // Publish the perceived-level frame: the tilt factor of the pose this frame asserts.
+        // Consumers compose "level for the player" as WorldTiltRotation * pose. (No consumer
+        // right now — the control board was decoupled from the tilt, user decision 2026-08;
+        // see the property doc for why it stays published.)
         WorldTiltRotation = _tiltApplied > 0f
             ? Quaternion.AngleAxis(_tiltApplied, axis)
             : Quaternion.identity;
@@ -225,8 +268,9 @@ internal sealed partial class VRRigDriver
             // CHANGE-ATTRIBUTED write (hardware-log contract): every world motion the
             // tilt system causes is logged with its trigger — a locomotion event
             // (NotifyTiltAxisSnap reason, e.g. recenter's yaw-flatten + instant re-aim
-            // healed here), an active world grab (its per-frame two-hand yaw-flatten +
-            // continuous re-aim healed here), a masked-rotation step, or the user's
+            // healed here), an active world grab (tilt-consistent since Bug A — only its
+            // continuous re-aim and the one-frame tween lag land here), a masked-rotation
+            // step, or the user's
             // tilt config click. 'rig-pose-heal' would mean an unattributed external
             // writer flattened the rig — investigate if it ever appears. 'masked-reaim'
             // frames stay QUIET here — their one-line-per-burst summary above is the

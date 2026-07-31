@@ -28,11 +28,12 @@ internal interface IPanelGrabOwner
     PanelCarryMode CarryMode { get; }
 
     /// <summary>
-    /// The owner's PERCEIVED-LEVEL frame (item 11): the world rotation whose up axis the Level /
-    /// LevelPitch carries keep the root level against. Identity = plain world level (every panel);
-    /// the tray returns the rig's <c>WorldTiltRotation</c> so "level" means level FOR THE PLAYER
-    /// even while the world is tilted — the axis twist that let a grab flip the board upside down
-    /// under tilt came exactly from yawing about WORLD up inside a tilted perceived frame.
+    /// The owner's LEVEL frame: the world rotation whose up axis the Level / LevelPitch carries
+    /// keep the root level against. Identity = plain world level — what EVERY current owner
+    /// returns, including the tray since the user decoupled the board from the world tilt
+    /// (decision 2026-08, supersedes item 11; the tray briefly returned the rig's
+    /// <c>WorldTiltRotation</c> here). The seam stays: a future owner that must read as level
+    /// in some other frame plugs it in here and the whole carry/persist pipeline follows.
     /// </summary>
     Quaternion GrabLevelFrame { get; }
 
@@ -366,9 +367,10 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         }
 
         PanelCarryMode mode = _owner!.CarryMode;
-        // The owner's perceived-level frame, read LIVE (the tray's follows the world tilt): the
-        // Level/LevelPitch carries yaw about ITS up axis, never bare world up — yawing about world
-        // up inside a tilted frame is the axis twist that could flip the board (item 11).
+        // The owner's level frame, read LIVE each frame: the Level/LevelPitch carries yaw about
+        // ITS up axis, never bare world up. Every current owner returns identity (the tray was
+        // decoupled from the world tilt, user decision 2026-08), but the seam stays — see
+        // IPanelGrabOwner.GrabLevelFrame.
         Quaternion frame = _owner.GrabLevelFrame;
         Vector3 up = frame * Vector3.up;
 
