@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.Surfaces;
 using HarmonyLib;
+using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.WorldUI.Patches;
 
@@ -87,7 +89,126 @@ internal static class TakeDamagePanelSafety
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(TakeDamagePanel), nameof(TakeDamagePanel.TakeDamage))]
-    private static bool GuardTakeDamage(TakeDamagePanel __instance) => Allow(__instance, "TakeDamage");
+    private static bool GuardTakeDamage(TakeDamagePanel __instance)
+    {
+        if (!Allow(__instance, "TakeDamage"))
+            return false;
+        if (GuardsActive)
+            AutoUseMandatoryActiveBonuses(__instance);
+        return true;
+    }
+
+    // ---- mandatory active-bonus auto-use (MP test bug #10a — the "Receive Damage does
+    //      nothing" deadlock) ------------------------------------------------------------------
+
+    /// <summary>
+    /// DEADLOCK (large MP test, LogOutput.log:12166+): every docked "Receive Damage" click
+    /// reached the game (15+ delivered uGUI clicks) but <c>TakeDamagePanel.TakeDamage()</c>
+    /// refused each one at <c>CanTakeDamage()</c> (TakeDamagePanel.cs:764/847): the actor had
+    /// a MANDATORY active bonus showing (<c>ToggleIsOptional == false</c> — the dock
+    /// diagnostic recorded <c>Mandatory Highlight [active=True]</c> on the widget), and the
+    /// game refuses the confirm until every mandatory bonus is toggled in the 2D
+    /// <c>UIActiveBonusBar</c>. That bar is part of the flat HUD the VR conversion hides —
+    /// nothing converts it — so the player had NO way to toggle the bonus: a hard deadlock
+    /// (the session log shows the panel still open at mod shutdown). NOT an authority
+    /// problem: the panel opened via <c>Show()</c> (not <c>ShowOtherPlayer</c>), which the
+    /// game only does for the controlling client, and <c>takeDamageButton.interactable</c>
+    /// tracks <c>ThisPlayerHasTakeDamageControl</c>.
+    ///
+    /// FIX: when the player confirms, toggle the still-pending mandatory bonuses FOR them
+    /// through the game's own click path — <c>UIUseSlot.Toggle()</c> on the bar slot, exactly
+    /// what a flat-screen click on the bar does: it runs
+    /// <c>ActiveBonus.ToggleActiveBonus(…, fromClick: true)</c> (the MP-synced
+    /// <c>ScenarioRuleClient.ToggleActiveBonus</c> call) and the panel's own
+    /// <c>ToggleActiveBonus</c> callback (updates <c>toggledActiveBonuses</c>/shield/damage
+    /// preview). "Mandatory" means the flat game FORCES these clicks before accepting the
+    /// confirm, so no player choice is removed. MP-safe by construction: it only runs on the
+    /// client with take-damage control (proxy clients replay the toggles from the
+    /// <c>ActiveBonusesToken</c> the original then sends), and the pending set mirrors
+    /// <c>CanTakeDamage()</c> exactly (non-optional bonuses, minus prevent-only-if-lethal
+    /// ones while the hit is non-lethal), recomputed after every toggle because a toggled
+    /// shield can flip the lethality pruning and a prevent-damage bonus short-circuits via
+    /// <c>preventAllDamage</c>. A bonus whose slot needs a manual option/element pick (its
+    /// <c>Select()</c> won't complete programmatically) is logged and left alone — the
+    /// original then refuses exactly like vanilla flat would, with the warning tooltip
+    /// surfaced by <see cref="DamageTooltipSurface"/>.
+    /// </summary>
+    private static void AutoUseMandatoryActiveBonuses(TakeDamagePanel p)
+    {
+        try
+        {
+            if (p == null || p.actorBeingAttacked == null || !p.ThisPlayerHasTakeDamageControl)
+                return; // proxies (ProxyTakeDamage) replay token toggles themselves
+            UIActiveBonusBar? bar =
+                Singleton<UIActiveBonusBar>.IsInitialized ? Singleton<UIActiveBonusBar>.Instance : null;
+            if (bar == null)
+                return;
+
+            // Bounded: each pass toggles at most one bonus, then recomputes the pending set
+            // from live panel state (addedShield / preventAllDamage move under our feet).
+            for (int pass = 0; pass < 8; pass++)
+            {
+                if (p.preventAllDamage || p.CalculateCurrentDamage() == 0)
+                    return; // CanTakeDamage() already passes — nothing to force
+                bool nonLethal = p.actorBeingAttacked.Health + p.addedShield > 0;
+                bool toggledOne = false;
+                List<CActiveBonus> showing = bar.ShowingActiveBonuses;
+                for (int i = 0; i < showing.Count; i++)
+                {
+                    CActiveBonus b = showing[i];
+                    if (b == null || b.Ability == null || b.Ability.ActiveBonusData == null
+                        || b.Ability.ActiveBonusData.ToggleIsOptional)
+                        continue; // optional — the player may skip it, CanTakeDamage ignores it
+                    if (nonLethal && b is CPreventDamageActiveBonus pd && pd.PreventOnlyIfLethal)
+                        continue; // pruned by CanTakeDamage for non-lethal hits
+                    UIUseActiveBonus? slot = bar.GetSlotForActiveBonus(b);
+                    if (slot == null || slot.IsSelected())
+                        continue; // already toggled (counts toward CanTakeDamage) or gone
+                    string name = BonusName(b);
+                    slot.Toggle(); // the game's own click path (MP-synced, updates the panel)
+                    if (!slot.IsSelected())
+                    {
+                        VRLog.Warn("WorldUI",
+                            $"TAKE-DAMAGE SAFETY: mandatory active bonus '{name}' needs a manual " +
+                            "option/element pick its slot cannot make programmatically — leaving it; " +
+                            "the game will refuse the confirm and show its mandatory-use warning.");
+                        return;
+                    }
+                    VRLog.Info("WorldUI",
+                        $"TAKE-DAMAGE SAFETY: auto-used MANDATORY active bonus '{name}' on the " +
+                        "'Receive Damage' confirm (the 2D UIActiveBonusBar is unreachable in VR; " +
+                        "the flat game forces this exact click before CanTakeDamage() accepts).");
+                    toggledOne = true;
+                    break; // recompute lethality/prevent state before the next pick
+                }
+                if (!toggledOne)
+                    return; // no mandatory bonus pending — the confirm goes through
+            }
+        }
+        catch (Exception e)
+        {
+            // Never let the helper break the confirm itself — worst case the original
+            // refuses exactly as it did before this fix.
+            VRLog.Error($"[WorldUI] TAKE-DAMAGE SAFETY: mandatory-bonus auto-use threw: {e}");
+        }
+    }
+
+    /// <summary>Readable bonus name for the log (card name, then ability name, then type).</summary>
+    private static string BonusName(CActiveBonus b)
+    {
+        try
+        {
+            if (b.BaseCard != null && !string.IsNullOrEmpty(b.BaseCard.Name))
+                return b.BaseCard.Name;
+            if (b.Ability != null && !string.IsNullOrEmpty(b.Ability.Name))
+                return b.Ability.Name;
+        }
+        catch (Exception)
+        {
+            // fall through to the type name
+        }
+        return b.GetType().Name;
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(TakeDamagePanel), nameof(TakeDamagePanel.BurnAvailableCard), new[] { typeof(bool) })]
