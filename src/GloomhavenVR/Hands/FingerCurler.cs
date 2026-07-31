@@ -50,6 +50,21 @@ internal sealed class FingerCurler
     /// toward the ring finger (local +X→+Y under +Z; the bone tilts toward world -X);
     /// the RIGHT hand mirrors, so the sign flips per side. Glove style only — the
     /// styled hands' refit chains follow their mesh tubes and need no compensation.
+    ///
+    /// <para>2026-07, SUPERSEDED BY THE ASSET (value kept, default not yet changed):
+    /// the premise above — "a Blender bone-ROLL fix cannot correct this" — is true but
+    /// too narrow. Roll is constrained to the plane perpendicular to the bone; the
+    /// rig contract only requires that local +X be the flexion axis, and re-framing the
+    /// bone node (local +X := the digit's hinge axis, local Y := the digit direction,
+    /// heads and mesh untouched) is unconstrained. unity/hand-prep/aim_curl_axes.py did
+    /// exactly that to VRHand_{L,R}_rig.fbx: the glove's hinge-vs-digit error is now
+    /// 0.00° on all five digits (was pinky +15.2°, index −10.5°, thumb −9.0°), so the
+    /// splay this term compensates no longer exists. Render-measured on the fixed rig, a
+    /// full fist at 0° already tucks the pinky beside the ring finger (tip spacing
+    /// 11.9 mm, ring↔middle 22.4 mm); the historical 14° pulls it a further 3.4 mm and
+    /// over-adducts. RECOMMENDED VALUE FOR THE FIXED RIG: 0. The default is left at 14
+    /// here because it is a persisted user setting — change it deliberately, not as a
+    /// side effect.</para>
     /// </summary>
     internal const float DefaultGlovePinkyCounterAbductionDeg = 14f;
 
