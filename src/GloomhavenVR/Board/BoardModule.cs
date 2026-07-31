@@ -104,6 +104,15 @@ internal sealed class BoardModule : IVRModule
         // avatar re-docked the wrong actor's cards and deadlocked the action board. Reject that
         // human click with the game's own invalid-click SFX, keeping the current actor selected.
         VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeTrackPlayerAvatar_OnClick_Guard));
+        // MP test item #8a: online with >1 participant, refuse selecting a character that is
+        // assigned to ANOTHER player (portrait seam is inside the OnClick guard above; this
+        // closes the board-miniature seam in Choreographer.TileHandler) with the game's own
+        // denied SFX. Offline/solo: both guards bail before touching anything.
+        VRSession.Harmony?.PatchAll(typeof(Patches.Choreographer_TileHandler_OwnershipGuard));
+        // MP test item #8b: when the host reassigns the locally SELECTED character to another
+        // player, fall back to a still-owned character (or the game's own no-selection state).
+        // The patch only arms SelectionOwnershipFallback; BoardDriver ticks it.
+        VRSession.Harmony?.PatchAll(typeof(Patches.CharacterManager_OnControlReleased_Fallback));
         // TEMPORARY test-#14 item-5 evidence (hero placement) — remove once confirmed.
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Hover_Diagnostics));
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_UpdateGate_Diagnostics));
@@ -141,6 +150,7 @@ internal sealed class BoardModule : IVRModule
             AoeControl.Reset();
             TargetingUx.Reset();
             HexHighlightFix.Reset();
+            SelectionOwnershipFallback.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }

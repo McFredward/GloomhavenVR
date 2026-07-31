@@ -1,6 +1,9 @@
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using HarmonyLib;
 using ScenarioRuleLibrary;
+using Script.GUI.SMNavigation;
+using Script.GUI.SMNavigation.States.PopupStates;
 
 namespace GloomhavenVR.Board.Patches;
 
@@ -54,10 +57,127 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
     private static bool Prefix(InitiativeTrackActorBehaviour actorUI)
     {
         CActor? clicked = actorUI != null ? actorUI.Actor : null;
-        if (clicked == null || !CardsGameApi.IsActionPhaseNonCurrentPlayerSelect(clicked))
+        if (clicked == null)
+            return true; // vanilla
+
+        // MP test item #8a: a portrait of a character ASSIGNED TO ANOTHER PLAYER —
+        // refuse the whole click (select AND ToggleViewAllCards) with the game's own
+        // denied SFX. Only active online with >1 participant (OwnershipGuardActive).
+        if (CardsGameApi.IsForeignControlledSelect(clicked))
+        {
+            CardsGameApi.RejectForeignSelect(clicked);
+            return false;
+        }
+
+        if (!CardsGameApi.IsActionPhaseNonCurrentPlayerSelect(clicked))
             return true; // vanilla — run the original select
 
         CardsGameApi.RejectActionPhaseSelect(clicked);
         return false; // reject like an enemy click — keep the current actor selected
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MP ownership select guard (MP test item #8a) — board-miniature seam.
+//
+// In VR a laser/poke click on a character's MINIATURE (or its hex) is dispatched
+// through the game's own click path (Controller.LateUpdate → TileBehaviour.s_Callback
+// → Choreographer.TileHandler, see BoardClickDriver), and during the card-selection
+// wait state TileHandler's select branch has NO ownership check: it selects ANY
+// player found on the clicked tile and switches the hand to it. Online, that lets
+// a VR player select a character assigned to another player. The initiative-track
+// PORTRAIT seam is guarded above; this guard closes the miniature seam.
+//
+// WHY NOT InitiativeTrack.Select(CPlayerActor): that overload is also the game's
+// PROGRAMMATIC select for remote actors (CheckForInitiativeAdjustments,
+// Choreographer.cs:11681, selects the initiative-adjusting actor on every client)
+// — a wholesale ownership prefix there would break remote-turn display. TileHandler
+// is exclusively the tile CLICK dispatch, so the guard sits on the human seam only.
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Verified against the REAL GH.Runtime.dll (v1.1.8307.0), ilspycmd 8.2:
+/// <c>public void TileHandler(CClientTile clientTile, List&lt;CTile&gt; optionalTileList = null,
+/// bool networkActionIfOnline = false, bool isUserClick = false,
+/// bool actingPlayerHasSecondClickConfirmationEnabled = false)</c> (Choreographer.cs:1811).
+/// Its select branch (Choreographer.cs:1826-1840): wait state <c>WaitingForCardSelection</c>
+/// &amp;&amp; <c>CardsHandManager.IsActive()</c> &amp;&amp; <c>FindPlayerAt(tile)</c> != null
+/// &amp;&amp; not in <c>ConfirmationBoxState</c> → <c>InitiativeTrack.Select(player)</c> +
+/// <c>SwitchHand</c> + tile-click SFX, then RETURN — unconditionally, so when this prefix
+/// replicates exactly those entry conditions and the found player is foreign-controlled,
+/// skipping the whole original (return false) removes ONLY the select; every other
+/// TileHandler branch is unreachable in that condition set anyway.
+/// </summary>
+[HarmonyPatch(typeof(Choreographer), nameof(Choreographer.TileHandler))]
+internal static class Choreographer_TileHandler_OwnershipGuard
+{
+    private static bool Prefix(Choreographer __instance, CClientTile clientTile)
+    {
+        try
+        {
+            if (__instance == null || clientTile == null || clientTile.m_Tile == null)
+                return true;
+            if (__instance.m_WaitState == null
+                || __instance.m_WaitState.m_State != Choreographer.ChoreographerStateType.WaitingForCardSelection)
+                return true;
+            CardsHandManager hands = CardsHandManager.Instance;
+            if (hands == null || !hands.IsActive())
+                return true;
+            if (ScenarioManager.Scenario == null)
+                return true;
+            CPlayerActor? clicked = ScenarioManager.Scenario.FindPlayerAt(clientTile.m_Tile.m_ArrayIndex);
+            if (clicked == null)
+                return true;
+            UINavigation nav = Singleton<UINavigation>.Instance;
+            if (nav != null && nav.StateMachine.IsCurrentState<ConfirmationBoxState>())
+                return true; // vanilla would not select either — keep byte-identical fallthrough
+            if (!CardsGameApi.IsForeignControlledSelect(clicked))
+                return true; // own character / offline / solo session — vanilla
+
+            CardsGameApi.RejectForeignSelect(clicked);
+            return false; // skip the select entirely — local selection untouched
+        }
+        catch (System.Exception e)
+        {
+            // A throwing guard must never eat the game's click dispatch.
+            VRLog.Warn("Board", $"TileHandler ownership guard threw — passing click through: {e.Message}");
+            return true;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MP reassignment fallback trigger (MP test item #8b) — see
+// Board/SelectionOwnershipFallback.cs for the full design. This patch only ARMS
+// the fallback; the reaction runs from BoardDriver.Update on a later frame.
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Verified against the REAL GH.Runtime.dll (v1.1.8307.0), ilspycmd 8.2:
+/// <c>public void OnControlReleased()</c> (CharacterManager.cs:488) — the in-scenario
+/// seam FFSNet invokes when this client loses control of a character (host reassign /
+/// drop); its body flips <c>CharacterActor.IsUnderMyControl</c> to false only when it
+/// was true. Parameterless, so no Bolt type is referenced (the paired
+/// <c>OnControlAssigned(NetworkPlayer)</c> is deliberately NOT patched — its parameter
+/// is a Bolt-derived type and requirement #8b only needs the release edge).
+/// Prefix records whether the character was locally controlled; postfix arms the
+/// fallback only for a real mine→foreign transition.
+/// </summary>
+[HarmonyPatch(typeof(CharacterManager), nameof(CharacterManager.OnControlReleased))]
+internal static class CharacterManager_OnControlReleased_Fallback
+{
+    private static void Prefix(CharacterManager __instance, out bool __state)
+    {
+        __state = __instance != null
+                  && __instance.CharacterActor is CPlayerActor player
+                  && player.IsUnderMyControl;
+    }
+
+    private static void Postfix(CharacterManager __instance, bool __state)
+    {
+        if (!__state || __instance == null)
+            return;
+        if (__instance.CharacterActor is CPlayerActor player && !player.IsUnderMyControl)
+            SelectionOwnershipFallback.Arm(player);
     }
 }

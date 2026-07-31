@@ -29,10 +29,13 @@ internal sealed class BoardDriver : MonoBehaviour
         // throwing step can never abort the rest of the frame's ticks AND the next run's
         // log NAMES the thrower ("[Board] Tick 'Board.<step>' threw <exc + stack>") instead
         // of the anonymous per-frame NullReferenceException flood. Static method groups →
-        // the delegates are cached by the compiler, so no per-frame allocation. Call order
-        // is unchanged (SyncRayMask → CameraArrival → Click → Aoe → Targeting).
-        // FRAME-ORDER BoardDriver.Update [Board.SyncRayMask, Board.CameraArrival, Board.Click, Board.Aoe, Board.Targeting]
-        //   All five run in Update, i.e. BEFORE the game's Controller.LateUpdate consumes the
+        // the delegates are cached by the compiler, so no per-frame allocation. Call order:
+        // (SyncRayMask → CameraArrival → Click → Aoe → Targeting).
+        // OwnershipFallback is a deliberate trailing append (MP test item #8b) — a one-shot
+        // armed by a network event, indifferent to its position but placed after Click so a
+        // click and the fallback reaction can never race within one frame.
+        // FRAME-ORDER BoardDriver.Update [Board.SyncRayMask, Board.CameraArrival, Board.Click, Board.Aoe, Board.Targeting, Board.OwnershipFallback]
+        //   All six run in Update, i.e. BEFORE the game's Controller.LateUpdate consumes the
         //   cursor and click state they write. The order above is the one the sentence directly
         //   above states in prose; the marker is the machine-checked copy of it (the prose has
         //   drifted elsewhere in this repo — see VRRigDriver._tailSteps).
@@ -41,6 +44,7 @@ internal sealed class BoardDriver : MonoBehaviour
         TickGuard.Run("Board.Click", BoardClickDriver.Tick);
         TickGuard.Run("Board.Aoe", AoeControl.Tick);
         TickGuard.Run("Board.Targeting", TargetingUx.Tick);
+        TickGuard.Run("Board.OwnershipFallback", SelectionOwnershipFallback.Tick);
     }
 
     // Test #14 item 2: the former SyncReticleSnap (visible reticle snapped to the
