@@ -101,6 +101,11 @@ internal sealed partial class FlatScreenStereo
         _capMapValid = false;
         _albedoMaterialsLogged = false;
         _albedoWarned = false;
+        // Fresh diagnostic budget per map ENTRY: the savegame session that shipped no icons at
+        // all had spent all five MAP ICONS lines within seconds of the FIRST map load — every
+        // later minute on the map was diagnostically blind.
+        _mapIconsLogCount = 0;
+        _iconFallbackLogged = false;
         VRLog.Info("WorldUI", $"MAP RENDER detection: the screen's base RenderTexture reads BLACK " +
                               $"(max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a 3D " +
                               "background camera renders — the campaign map's deferred parchment shader will not " +
@@ -631,6 +636,8 @@ internal sealed partial class FlatScreenStereo
     private static System.Reflection.PropertyInfo? _decalCurMatProp;
     private bool _decalTypeMissing;
     private int _mapIconsLogCount;
+    /// <summary>One warn line per map entry when the scene-wide decal fallback engaged.</summary>
+    private bool _iconFallbackLogged;
     /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
     private int _ndcLogCount;
     private int _ndcLastLogFrame = int.MinValue;
@@ -1222,6 +1229,41 @@ internal sealed partial class FlatScreenStereo
             CollectIconDecals(choreo.m_ScenariosParent);
             CollectIconDecals(choreo.m_VillagesParent);
 
+            // FALLBACK (savegame report "Icons waren wieder nicht sichtbar"): a session existed
+            // in which the two choreographer parents held ZERO active decals for the whole map
+            // visit (decals=0 in every MAP ICONS line) while the map itself rendered fine. The
+            // parents are where MapChoreographer instantiates MapLocations, but a save/state
+            // combination that parents them elsewhere (or a game update moving them) must not
+            // blank every icon again — so when the parent scan comes up EMPTY, sweep the whole
+            // scene for live Decal components instead and say where they actually live. Runs
+            // only while the parent scan finds nothing, at rescan cadence.
+            if (_iconDecals.Count == 0 && _decalType != null)
+            {
+                UnityEngine.Object[] all = Object.FindObjectsOfType(_decalType);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i] is not Component c || !c.gameObject.activeInHierarchy)
+                        continue;
+                    _iconDecals.Add(c);
+                    _iconDecalRenderers.Add(c.GetComponent<Renderer>());
+                }
+                if (!_iconFallbackLogged && _iconDecals.Count > 0)
+                {
+                    _iconFallbackLogged = true;
+                    Component first = _iconDecals[0];
+                    var path = new System.Text.StringBuilder(first.name);
+                    Transform? p = first.transform.parent;
+                    for (int depth = 0; p != null && depth < 5; depth++, p = p.parent)
+                        path.Insert(0, p.name + "/");
+                    VRLog.Warn("WorldUI", $"MAP ICONS FALLBACK: the choreographer parents "
+                        + $"(scenarios='{(choreo.m_ScenariosParent != null ? choreo.m_ScenariosParent.name : "null")}', "
+                        + $"villages='{(choreo.m_VillagesParent != null ? choreo.m_VillagesParent.name : "null")}') "
+                        + $"held 0 active decals, but a scene-wide sweep found {_iconDecals.Count} — "
+                        + $"drawing those instead. First lives at '{path}'. This path names where "
+                        + "this save/game version really parents its map icons.");
+                }
+            }
+
             _iconTokenRenderers.Clear();
             PartyToken? token = choreo.m_PartyToken; // publicized serialized field
             if (token != null)
@@ -1313,7 +1355,21 @@ internal sealed partial class FlatScreenStereo
         if (wantDiag)
         {
             _mapIconsLogCount++;
-            VRLog.Info("WorldUI", $"MAP ICONS [{_mapIconsLogCount}]: decals={nDecals} noMat={nNoMat} noTex={nNoTex} drawn={nDrawn} partyTokenRenderers={nToken} iconMat='{(_iconMat != null ? _iconMat.shader.name : "null")}' planeY={planeY:F2} — first: {firstDetail}");
+            // decals=0 is the whole story of the "icons gone with this savegame" report, so THE
+            // ZERO CASE must name its own cause: the parents' live state plus a scene-wide count.
+            string zeroState = "";
+            if (nDecals == 0 && _decalType != null)
+            {
+                GameObject? sp = choreo.m_ScenariosParent;
+                GameObject? vp = choreo.m_VillagesParent;
+                int sceneWide = Object.FindObjectsOfType(_decalType).Length;
+                zeroState = " | ZERO-DECAL STATE: scenariosParent="
+                    + (sp != null ? $"'{sp.name}' active={sp.activeInHierarchy} children={sp.transform.childCount}" : "null")
+                    + ", villagesParent="
+                    + (vp != null ? $"'{vp.name}' active={vp.activeInHierarchy} children={vp.transform.childCount}" : "null")
+                    + $", scene-wide ACTIVE Decal components={sceneWide}";
+            }
+            VRLog.Info("WorldUI", $"MAP ICONS [{_mapIconsLogCount}]: decals={nDecals} noMat={nNoMat} noTex={nNoTex} drawn={nDrawn} partyTokenRenderers={nToken} iconMat='{(_iconMat != null ? _iconMat.shader.name : "null")}' planeY={planeY:F2} — first: {firstDetail}{zeroState}");
         }
     }
 

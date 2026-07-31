@@ -297,6 +297,10 @@ internal static class WallSegmentFade
         public float HeldCutoff = 0.5f;
         /// <summary>Whether <see cref="HeldCutoff"/> came from the material (diag).</summary>
         public bool CutoffAuthored;
+        /// <summary>True when this segment's AABB engulfs its own room's floor samples AND it
+        /// cannot be split further (single renderer): the coverage metric is meaningless for it,
+        /// so it is held permanently SOLID (vanilla look). Re-derived every rescan.</summary>
+        public bool Engulfing;
         /// <summary>EMA-smoothed view-coverage fraction the Schmitt trigger reads.</summary>
         public float Smooth;
         public bool SmoothInit;
@@ -544,11 +548,18 @@ internal static class WallSegmentFade
                 if (!seg.HasBounds)
                     continue;
 
+                // Undecidable-as-one-unit segments (see NeutralizeEngulfingSegments) are held
+                // solid: state forced off, the fade below decays any residual block away.
+                if (seg.Engulfing)
+                {
+                    seg.State = false;
+                    seg.PendingRaw = false;
+                }
                 // Room-coverage metric (EMA-smoothed) with the stepper-driven Schmitt
                 // trigger + dwell hysteresis. The un-fade dwell is long, and much longer
                 // still unless the perspective (head position / world grip) recently
                 // changed — rotation-only head motion keeps the current state sticky.
-                if (evaluate)
+                else if (evaluate)
                 {
                     float fraction = BlockedFraction(seg, headPos);
                     seg.LastRaw = fraction;
@@ -611,12 +622,13 @@ internal static class WallSegmentFade
             {
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _segments.Count;
-                int highSegs = 0, lowSegs = 0, adoptedSegs = 0;
+                int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
                     if (s.VariantLow) lowSegs++;
                     if (!s.FromWallCache) adoptedSegs++;
+                    if (s.Engulfing) engulfSegs++;
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -627,7 +639,8 @@ internal static class WallSegmentFade
                     + $"{_segments.Count} wall segments ({_segments.Count - adoptedSegs} from the "
                     + $"wall cache + {adoptedSegs} ADOPTED by shader, grouped by tile/parent; "
                     + $"fade-capable renderers {_censusFadeRenderers} = {_censusClaimed} claimed "
-                    + $"+ {_censusAdopted} adopted{unfadeable}) "
+                    + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
+                    + $"split per renderer, {engulfSegs} unsplittable held solid{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
                     + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
                     + $"bounds / {_allSamples.Count} floor samples ({_roomsAnchored}/"
@@ -916,9 +929,12 @@ internal static class WallSegmentFade
                 _diagSb.Append(" !UNANCHORED");
             // A single mesh whose AABB is fat in BOTH horizontal axes (ring/corner piece) cannot
             // be split further — its coverage numbers may read permanently high. Flagged so the
-            // hardware log distinguishes "genuinely occluding" from "AABB artifact".
+            // hardware log distinguishes "genuinely occluding" from "AABB artifact"; !ENGULF
+            // additionally marks the ones the containment test therefore holds solid.
             if (Mathf.Min(b.size.x, b.size.z) > GroupSlabMaxHorizontal)
                 _diagSb.Append(" !FAT");
+            if (seg.Engulfing)
+                _diagSb.Append(" !ENGULF");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -1091,6 +1107,11 @@ internal static class WallSegmentFade
                 ProceduralWall wall = cache[i];
                 if (wall == null)
                     continue;
+                if (_splitAnchors.Contains(wall))
+                {
+                    RefreshSplitWall(wall);
+                    continue;
+                }
                 if (!_segments.TryGetValue(wall, out Segment? seg))
                 {
                     seg = new Segment { Anchor = wall, FromWallCache = true };
@@ -1112,6 +1133,112 @@ internal static class WallSegmentFade
 
             RebuildSamples();
             AssociateRooms();
+            NeutralizeEngulfingSegments();
+        }
+
+        /// <summary>
+        /// THE JUNGLE-TILESET GROUND BUG (post-association pass, both discovery sources): a wall
+        /// whose geometry RINGS its room has an AABB that CONTAINS the room's own floor samples,
+        /// so BlockedFraction reads ~100% from every head position — permanent fade — and because
+        /// those meshes reach down the diorama skirt, the shader's foundation band sits below the
+        /// map and the held-state discard eats the GROUND at the wall's foot. Near-camera-only
+        /// (the HIGH variant's 0.02·dist term), which is why the flat mirror still showed a floor
+        /// while VR showed holes.
+        ///
+        /// The trigger is CONTAINMENT, deliberately not AABB fatness: an L-shaped stone corner
+        /// run also has a fat AABB but contains only its corner quadrant (≈25% of the grid) —
+        /// those keep today's whole-wall behaviour. A segment whose AABB XZ-contains ≥
+        /// <see cref="EngulfSampleFraction"/> of its own room's samples cannot make a meaningful
+        /// occlusion decision as ONE unit: multi-renderer segments are SPLIT per renderer (each
+        /// piece is a proper slab deciding for itself; membership persists via _splitAnchors),
+        /// and an unsplittable single-renderer segment is held SOLID (vanilla look — strictly
+        /// better than permanently missing ground) and flagged !ENGULF in the diag.
+        /// </summary>
+        private const float EngulfSampleFraction = 0.4f;
+
+        private void NeutralizeEngulfingSegments()
+        {
+            _fatScratch.Clear();
+            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            {
+                Segment seg = kv.Value;
+                if (!seg.HasBounds || seg.RoomIndex < 0)
+                    continue;
+                if (Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z) <= GroupSlabMaxHorizontal)
+                    continue; // thin slab — cannot contain a room
+                if (InsideOwnRoomFraction(seg) < EngulfSampleFraction)
+                    continue; // fat but bordering (L-corner) — legitimate whole-wall behaviour
+                if (seg.Renderers.Count <= 1)
+                {
+                    // Unsplittable (single mesh — including an already-split piece that is
+                    // itself room-sized): undecidable as one unit — hold solid.
+                    seg.Engulfing = true;
+                    continue;
+                }
+                _fatScratch.Add(kv);
+            }
+
+            foreach (KeyValuePair<Component, Segment> engulfing in _fatScratch)
+            {
+                Segment group = engulfing.Value;
+                _splitAnchors.Add(engulfing.Key);
+                _segments.Remove(engulfing.Key);
+                if (group.HasBlock)
+                {
+                    foreach (MeshRenderer r in group.Renderers)
+                    {
+                        if (r != null)
+                            r.SetPropertyBlock(null);
+                    }
+                }
+                foreach (MeshRenderer r in group.Renderers)
+                {
+                    if (r == null)
+                        continue;
+                    if (!_segments.TryGetValue(r, out Segment? sub))
+                    {
+                        sub = new Segment { Anchor = r, FromWallCache = group.FromWallCache };
+                        _segments.Add(r, sub);
+                    }
+                    BeginRefresh(sub);
+                    if (CollectWallFadeInfo(r, sub))
+                    {
+                        sub.Renderers.Add(r);
+                        sub.Bounds = r.bounds;
+                        sub.HasBounds = true;
+                    }
+                    FinishRefresh(sub);
+                    if (group.FromWallCache)
+                        _claimedRenderers.Add(r);
+                }
+            }
+
+            // The freshly split pieces need a room before the next decision tick.
+            if (_fatScratch.Count > 0)
+                AssociateRooms();
+        }
+
+        /// <summary>Fraction of the segment's OWN room's floor samples that lie inside the
+        /// segment AABB's XZ footprint (Y ignored — wall AABBs span the whole column).</summary>
+        private float InsideOwnRoomFraction(Segment seg)
+        {
+            int room = seg.RoomIndex;
+            if (room < 0 || room >= _roomSampleCount.Count)
+                return 0f;
+            int total = _roomSampleCount[room];
+            if (total <= 0)
+                return 0f;
+            int start = _roomSampleStart[room];
+            int end = Mathf.Min(start + total, _allSamples.Count);
+            Bounds b = seg.Bounds;
+            int inside = 0;
+            for (int i = start; i < end; i++)
+            {
+                Vector3 s = _allSamples[i];
+                if (s.x >= b.min.x && s.x <= b.max.x && s.z >= b.min.z && s.z <= b.max.z)
+                    inside++;
+            }
+            return inside / (float)total;
         }
 
         /// <summary>
@@ -1179,10 +1306,11 @@ internal static class WallSegmentFade
             _censusClaimed = _censusFadeRenderers - _censusAdopted;
 
             // Finalize adopted segments: stale-block cleanup + thickness epsilon; drop the empty
-            // ones (their renderers died or stopped matching); collect groups too FAT to act as
-            // a wall slab for the per-renderer split below.
+            // ones (their renderers died or stopped matching). Groups whose AABB engulfs their
+            // own room are handled by NeutralizeEngulfingSegments AFTER room association — the
+            // containment test needs the room's samples, and plain AABB fatness is not enough
+            // (an L-shaped corner run is fat too and must keep whole-wall behaviour).
             _deadKeys.Clear();
-            _fatScratch.Clear();
             foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
                 Segment seg = kv.Value;
@@ -1190,54 +1318,39 @@ internal static class WallSegmentFade
                     continue;
                 FinishRefresh(seg);
                 if (seg.Renderers.Count == 0)
-                {
                     _deadKeys.Add(kv.Key);
-                    continue;
-                }
-                if (seg.Renderers.Count > 1 && seg.HasBounds
-                    && Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z) > GroupSlabMaxHorizontal)
-                    _fatScratch.Add(kv);
             }
             foreach (Component dead in _deadKeys)
                 _segments.Remove(dead);
+        }
 
-            // Split fat groups per renderer: a ring of wall pieces around a room has a combined
-            // AABB that CONTAINS the room's floor samples — BlockedFraction would read permanent
-            // 100% coverage and fade the whole ring forever. The individual pieces are proper
-            // slabs and make their own occlusion decisions. The anchor is remembered in
-            // _splitAnchors so the next rescan routes renderers straight to their per-renderer
-            // segments (state preserved); this pass only migrates them once.
-            foreach (KeyValuePair<Component, Segment> fat in _fatScratch)
+        /// <summary>
+        /// Per-renderer tracking for a cache wall whose combined AABB proved too fat (see the
+        /// split in Rescan): every fade-capable renderer under the wall gets its own segment,
+        /// keyed by the renderer, and is claimed so the adoption sweep leaves it alone. Dead
+        /// renderers fall out via the dead-key sweep (their key is the renderer itself).
+        /// </summary>
+        private void RefreshSplitWall(ProceduralWall wall)
+        {
+            MeshRenderer[] all = wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+            foreach (MeshRenderer r in all)
             {
-                Segment group = fat.Value;
-                _splitAnchors.Add(fat.Key);
-                _segments.Remove(fat.Key);
-                if (group.HasBlock)
+                if (r == null || !RendererUsesWallFade(r))
+                    continue;
+                if (!_segments.TryGetValue(r, out Segment? sub))
                 {
-                    foreach (MeshRenderer r in group.Renderers)
-                    {
-                        if (r != null)
-                            r.SetPropertyBlock(null);
-                    }
+                    sub = new Segment { Anchor = r, FromWallCache = true };
+                    _segments.Add(r, sub);
                 }
-                foreach (MeshRenderer r in group.Renderers)
+                BeginRefresh(sub);
+                if (CollectWallFadeInfo(r, sub))
                 {
-                    if (r == null)
-                        continue;
-                    if (!_segments.TryGetValue(r, out Segment? sub))
-                    {
-                        sub = new Segment { Anchor = r, FromWallCache = false };
-                        _segments.Add(r, sub);
-                    }
-                    BeginRefresh(sub);
-                    if (CollectWallFadeInfo(r, sub))
-                    {
-                        sub.Renderers.Add(r);
-                        sub.Bounds = r.bounds;
-                        sub.HasBounds = true;
-                    }
-                    FinishRefresh(sub);
+                    sub.Renderers.Add(r);
+                    sub.Bounds = r.bounds;
+                    sub.HasBounds = true;
                 }
+                FinishRefresh(sub);
+                _claimedRenderers.Add(r);
             }
         }
 
@@ -1421,6 +1534,7 @@ internal static class WallSegmentFade
             seg.ShaderNames = "?";
             seg.HeldCutoff = 0.5f;
             seg.CutoffAuthored = false;
+            seg.Engulfing = false; // re-derived by NeutralizeEngulfingSegments after association
         }
 
         /// <summary>Post-refresh bookkeeping: clear our property block from renderers that LEFT a

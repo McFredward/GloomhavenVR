@@ -346,7 +346,16 @@ internal static class ActorBars
         float minY = float.MaxValue;
         for (int i = 0; i < RendererScratch.Count; i++)
         {
-            Bounds b = RendererScratch[i].bounds;
+            Renderer r = RendererScratch[i];
+            // A statically batched renderer reports the bounds of its ENTIRE combined batch
+            // (documented Unity behaviour), not its own mesh. A destructible obstacle whose
+            // mesh the StaticBatcher folded into a 'Maps' batch therefore read as tall as the
+            // whole map chunk — and its health bar floated in the sky ("ground_and_healthbar"
+            // screenshot). Skip those; if nothing usable remains, the vanilla fixed offset
+            // below is the fallback, exactly the height the flat game uses.
+            if (r.isPartOfStaticBatch)
+                continue;
+            Bounds b = r.bounds;
             if (b.max.y > maxY) maxY = b.max.y;
             if (b.min.y < minY) minY = b.min.y;
         }
