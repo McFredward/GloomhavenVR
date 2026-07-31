@@ -495,27 +495,69 @@ internal static partial class VROptionsTab
         // the cost of the native hover and sound.
         row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
+        {
             title.text = caption;
+            // A button's caption sits in its middle; a setting's caption sits at the left edge.
+            title.alignment = TextAlignmentOptions.Center;
+        }
         if (option != null)
             option.gameObject.SetActive(false);
 
         Toggle? toggle = row.GetComponentInChildren<Toggle>(true);
         if (toggle != null)
+        {
+            // Destroying the component removes the BEHAVIOUR and leaves the LOOK: the box and the
+            // checkmark are plain Images on their own objects, and that surviving box is exactly
+            // the "checkbox" these action rows kept showing. The toggle owns its visuals, so
+            // deactivating its object takes box and checkmark with it; if the Toggle ever sits on
+            // the row root, its two known graphics are hidden individually instead.
+            if (toggle.gameObject != row)
+            {
+                toggle.gameObject.SetActive(false);
+            }
+            else
+            {
+                if (toggle.targetGraphic != null)
+                    toggle.targetGraphic.gameObject.SetActive(false);
+                if (toggle.graphic != null)
+                    toggle.graphic.gameObject.SetActive(false);
+            }
             SafeDestroy(toggle);
+        }
+        // Belt and braces for stray toggle imagery living OUTSIDE the toggle's own subtree.
+        Image[] leftovers = row.GetComponentsInChildren<Image>(true);
+        for (int i = 0; i < leftovers.Length; i++)
+        {
+            string n = leftovers[i].gameObject.name;
+            if (n.IndexOf("check", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("toggle", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("tick", StringComparison.OrdinalIgnoreCase) >= 0)
+                leftovers[i].gameObject.SetActive(false);
+        }
 
+        // The plate IS the button look: the image itself stays white and the Button's ColorBlock
+        // below paints it, so resting/hover/press are visibly different states — which is what
+        // separates "a button" from "a row of text".
         var hit = new GameObject("ClickArea", typeof(RectTransform)).AddComponent<Image>();
         var hitRect = (RectTransform)hit.transform;
         hitRect.SetParent(row.transform, worldPositionStays: false);
         hitRect.SetAsFirstSibling();
         hitRect.anchorMin = Vector2.zero;
         hitRect.anchorMax = Vector2.one;
-        hitRect.offsetMin = Vector2.zero;
-        hitRect.offsetMax = Vector2.zero;
-        hit.color = new Color(1f, 1f, 1f, 0f);
+        hitRect.offsetMin = new Vector2(4f, 4f);
+        hitRect.offsetMax = new Vector2(-4f, -4f);
+        hit.color = Color.white;
         hit.raycastTarget = true;
 
         var button = row.AddComponent<Button>();
         button.targetGraphic = hit;
+        ColorBlock colors = button.colors;
+        colors.normalColor = new Color(0f, 0f, 0f, 0.30f);              // quiet dark plate
+        colors.highlightedColor = new Color(0.45f, 0.36f, 0.16f, 0.55f); // hover warms toward the game's gold
+        colors.pressedColor = new Color(0.65f, 0.52f, 0.22f, 0.75f);
+        colors.selectedColor = colors.normalColor;
+        colors.fadeDuration = 0.08f;
+        button.colors = colors;
         button.onClick.AddListener(() => onClick());
     }
 

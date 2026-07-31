@@ -186,7 +186,10 @@ internal static partial class ModalFallback
     /// raycast) and the content fit are unaffected. 1000 clears the game's own canvas orders
     /// (seen: −1, 0, 1, 40).
     /// </summary>
-    private const int ModalHostSortingOrder = 1000;
+    // Internal, not private: StatPanelSurface pins the at-hand info panels to this SAME tier, so
+    // the order tie falls through to camera distance and a panel held nearer than the menu
+    // occludes it (and vice versa). Referencing the constant keeps the tie from silently un-tying.
+    internal const int ModalHostSortingOrder = 1000;
 
     /// <summary>
     /// Window IDs that demand user interaction when opened during a scenario and have

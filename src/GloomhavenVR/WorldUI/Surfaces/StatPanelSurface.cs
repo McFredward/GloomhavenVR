@@ -66,19 +66,24 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 internal sealed class StatPanelSurface
 {
     /// <summary>
-    /// Host-canvas sortingOrder for the converted stat panels (button-text-through-panel fix).
-    /// The mod's 3D board-button labels/keycap faces are small transparent renderers with tiny
-    /// sortingOrders (face 1 / label 3 — needed so a button's text beats its own sprite face),
-    /// and Unity sorts transparents sortingLayer → SORTINGORDER first (only then renderQueue /
-    /// distance — see GrabbableModal). A default order-0 host therefore LOST the draw order to
-    /// every button label, and since neither side writes depth the Undo/Ready/Skip and keycap
-    /// text drew straight through the enemy-info panel docked at the holding hand. Order 10
-    /// lifts the panel above all board-widget labels (≤3) while staying far below the floated
-    /// modal tier (ModalFallback, 1000) and the ray visuals; the panel's UI graphics still
-    /// ZTest LEqual, so real (depth-writing) geometry keeps occluding it — perspective holds
-    /// (the at-hand panel is effectively the nearest transparent widget whenever they overlap).
+    /// Host-canvas sortingOrder for the converted stat panels — deliberately THE SAME tier as
+    /// the floated modal.
+    ///
+    /// <para>Unity sorts transparent UI sortingLayer → SORTINGORDER first and only then by
+    /// distance, and neither side writes depth. At the old order 10 the options menu (1000)
+    /// therefore drew straight THROUGH an info panel held between it and the player: order said
+    /// "menu last" and depth never got a vote. At an EQUAL order the tie falls through to camera
+    /// distance, so whichever surface is nearer wins and perspective holds in both directions —
+    /// panel in front of the menu occludes the menu, menu in front of the panel occludes the
+    /// panel.</para>
+    ///
+    /// <para>The original reason this was non-zero still stands and still works: the mod's 3D
+    /// board-button labels/keycap faces sit at tiny orders (≤3, needed so a button's text beats
+    /// its own sprite face), so anything above that keeps the panel from being pierced by keycap
+    /// text. Real depth-writing geometry keeps occluding the panel regardless — this constant
+    /// only orders transparent UI among itself.</para>
     /// </summary>
-    private const int StatPanelSortingOrder = 10;
+    private const int StatPanelSortingOrder = ModalFallback.ModalHostSortingOrder;
 
     /// <summary>Hide→release hysteresis (unscaled seconds) — absorbs show/hide flicker.</summary>
     private const float ReleaseDelaySeconds = 0.3f;
