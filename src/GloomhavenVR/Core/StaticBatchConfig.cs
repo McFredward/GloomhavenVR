@@ -146,7 +146,7 @@ internal static class StaticBatchConfig
             return;
         _file = ModuleConfig.Create("batching");
 
-        Mode = _file.Bind("Batching", "Mode", BatchMode.On,
+        Mode = _file.Bind("Batching", "Mode", Defaults.Batching_Mode,
             "EXPERIMENTAL, AND PROBABLY UNNECESSARY NOW — read the last paragraph before switching "
             + "it on. What the runtime static-batching pass may do. OFF (the shipped default) does "
             + "nothing at all and hands back anything already combined. PROBE measures the scene and "
@@ -170,7 +170,7 @@ internal static class StaticBatchConfig
             + "pause per scenario load, so leave it off unless you are testing weak hardware. See "
             + ".planning/perf/FINDINGS.md.");
 
-        Roots = _file.Bind("Batching", "Roots", "Maps",
+        Roots = _file.Bind("Batching", "Roots", Defaults.Roots,
             "Comma-separated names of SCENE-ROOT objects the pass may walk. Nothing outside these "
             + "roots is ever touched. The default is the single root the game's own batching hotkey "
             + "uses and the one the [Perf] SCENE line shows carrying essentially the whole dungeon "
@@ -179,7 +179,7 @@ internal static class StaticBatchConfig
             + "'by scene-root/child group' list for the names in YOUR scenario; a name that matches "
             + "nothing is reported and ignored, never guessed at.");
 
-        AutoDetectRoots = _file.Bind("Batching", "AutoDetectRoots", true,
+        AutoDetectRoots = _file.Bind("Batching", "AutoDetectRoots", Defaults.AutoDetectRoots,
             "When NONE of the names in Roots exists in the loaded scene(s), fall back to finding the "
             + "scene roots that hold the most mesh objects and using those instead. WHY THIS IS ON BY "
             + "DEFAULT: Roots is free text, and free text is the one thing the in-VR config browser "
@@ -192,13 +192,13 @@ internal static class StaticBatchConfig
             + "right name for Roots can be read straight off the log. Off = only ever use the "
             + "configured names, and report that none of them exists.");
 
-        MinRenderers = _file.Bind("Batching", "MinRenderers", 8, new ConfigDescription(
+        MinRenderers = _file.Bind("Batching", "MinRenderers", Defaults.MinRenderers, new ConfigDescription(
             "A root offering fewer eligible renderers than this is skipped. Combining a handful of "
             + "objects costs memory and buys nothing measurable, and every object combined is one "
             + "more entry in the ledger that has to be handed back on revert.",
             new AcceptableValueRange<int>(2, 2000)));
 
-        MaxVertices = _file.Bind("Batching", "MaxVertices", 4_000_000, new ConfigDescription(
+        MaxVertices = _file.Bind("Batching", "MaxVertices", Defaults.MaxVertices, new ConfigDescription(
             "Hard ceiling on the vertices copied into combined meshes in one pass. THIS IS THE "
             + "MEMORY GUARD, and it is the real cost of static batching: the combined mesh is a "
             + "COPY of every vertex it holds, in both system and video memory, on top of the "
@@ -209,14 +209,14 @@ internal static class StaticBatchConfig
             + "complete one.",
             new AcceptableValueRange<int>(10_000, 20_000_000)));
 
-        SettleSeconds = _file.Bind("Batching", "SettleSeconds", 4f, new ConfigDescription(
+        SettleSeconds = _file.Bind("Batching", "SettleSeconds", Defaults.SettleSeconds, new ConfigDescription(
             "Seconds to wait after a scene load before batching. This dungeon's geometry is "
             + "generated procedurally over several frames, and an object combined before it exists "
             + "is simply not combined — so the pass waits rather than racing the generator. Also "
             + "applied after a manual 'apply now'.",
             new AcceptableValueRange<float>(0f, 60f)));
 
-        RescanSeconds = _file.Bind("Batching", "RescanSeconds", 30f, new ConfigDescription(
+        RescanSeconds = _file.Bind("Batching", "RescanSeconds", Defaults.RescanSeconds, new ConfigDescription(
             "Seconds between 'did new geometry appear' re-checks (0 = never re-check). Rooms are "
             + "revealed as you explore, so a single pass at scenario start cannot cover a scenario "
             + "that grows. The re-check is cheap — it walks the configured ROOTS only (a handful of "
@@ -225,13 +225,13 @@ internal static class StaticBatchConfig
             + "re-checks simply renders unbatched, which is correct, just not merged.",
             new AcceptableValueRange<float>(0f, 300f)));
 
-        RescanGrowth = _file.Bind("Batching", "RescanGrowth", 8, new ConfigDescription(
+        RescanGrowth = _file.Bind("Batching", "RescanGrowth", Defaults.RescanGrowth, new ConfigDescription(
             "How many NEW eligible renderers a re-check has to find before it combines again. Low "
             + "values chase every single spawned prop and pay a combine for it; high values leave "
             + "a newly opened room unbatched until the next big change.",
             new AcceptableValueRange<int>(1, 1000)));
 
-        IncludeInactive = _file.Bind("Batching", "IncludeInactive", true,
+        IncludeInactive = _file.Bind("Batching", "IncludeInactive", Defaults.IncludeInactive,
             "Also combine renderers whose GameObject is currently INACTIVE — the rooms you have not "
             + "opened yet. ON means one pass at scenario start covers the whole map, and revealing a "
             + "room does not drop it out of the batch. This is a genuine capability rather than a "
@@ -242,7 +242,7 @@ internal static class StaticBatchConfig
             + "reading if a scenario ever turns out to REBUILD rooms on reveal rather than reveal "
             + "them.");
 
-        Watchdog = _file.Bind("Batching", "Watchdog", true,
+        Watchdog = _file.Bind("Batching", "Watchdog", Defaults.Watchdog,
             "Watch a rotating sample of combined objects for MOVEMENT. This is the one way static "
             + "batching can go visibly wrong: a combined object's vertices are baked into the "
             + "batch root's space, so its own transform stops driving where it is drawn — if the "
@@ -252,13 +252,13 @@ internal static class StaticBatchConfig
             + "movement), names the offender in the log, and — with WatchdogAutoRevert on — hands "
             + "the whole pass back on the spot. Costs a few dozen matrix compares per second.");
 
-        WatchdogAutoRevert = _file.Bind("Batching", "WatchdogAutoRevert", true,
+        WatchdogAutoRevert = _file.Bind("Batching", "WatchdogAutoRevert", Defaults.WatchdogAutoRevert,
             "When the watchdog sees a combined object move, undo the whole pass immediately instead "
             + "of only logging it. ON is the safe default: the alternative is a correct log line "
             + "next to a wrong picture. OFF keeps the batch so the misplaced object can be "
             + "photographed and identified — a diagnostic setting, not a preference.");
 
-        WatchdogAutoExclude = _file.Bind("Batching", "WatchdogAutoExclude", true,
+        WatchdogAutoExclude = _file.Bind("Batching", "WatchdogAutoExclude", Defaults.WatchdogAutoExclude,
             "When the watchdog catches a combined object moving, add ITS NAME to ExcludeNames and "
             + "try the pass again, instead of only undoing it. THIS IS WHAT MAKES THE FEATURE "
             + "SELF-CORRECTING, and the 2026-07 hardware round is why it exists: the first pass "
@@ -272,7 +272,7 @@ internal static class StaticBatchConfig
             + "give-up counter as before, so a scene full of movers ends in one clear verdict rather "
             + "than an endless combine/undo cycle. OFF = undo and stop, as before.");
 
-        ExcludeLayers = _file.Bind("Batching", "ExcludeLayers", "",
+        ExcludeLayers = _file.Bind("Batching", "ExcludeLayers", Defaults.ExcludeLayers,
             "Layer names or indices never combined, comma-separated (e.g. 'Hero, Monster'). Empty = "
             + "exclude nothing extra. The mod's OWN layer is always excluded and cannot be re-added "
             + "here — combining the hands, cards or control board would freeze them in place, and "
@@ -280,20 +280,20 @@ internal static class StaticBatchConfig
             + "prints every layer by name with its renderer count. Unknown names are reported and "
             + "ignored, never silently applied.");
 
-        ExcludeNames = _file.Bind("Batching", "ExcludeNames", "Glow",
+        ExcludeNames = _file.Bind("Batching", "ExcludeNames", Defaults.ExcludeNames,
             "Object-name fragments never combined, comma-separated, case-insensitive (e.g. "
             + "'Door, Chest'). Empty = exclude nothing by name. This is the escape hatch for the "
             + "case the watchdog is there to catch: if the log names an object that moved, put a "
             + "piece of its name here and the rest of the map still batches.");
 
-        ExcludeComponents = _file.Bind("Batching", "ExcludeComponents", "",
+        ExcludeComponents = _file.Bind("Batching", "ExcludeComponents", Defaults.ExcludeComponents,
             "EXTRA component type names that disqualify an object AND everything under it, "
             + "comma-separated. Animator, Animation and Rigidbody are excluded unconditionally and "
             + "do not need listing — they are the three components that mean 'this transform is "
             + "driven', which is exactly what static batching cannot survive. This entry is for "
             + "game-specific movers found later; matching is on the type's short name.");
 
-        FreeCombinedCpuCopy = _file.Bind("Batching", "FreeCombinedCpuCopy", true,
+        FreeCombinedCpuCopy = _file.Bind("Batching", "FreeCombinedCpuCopy", Defaults.FreeCombinedCpuCopy,
             "After a combined mesh is uploaded to the GPU, release its system-memory copy "
             + "(Mesh.UploadMeshData(true)). This halves the memory the pass costs and cannot affect "
             + "what is drawn — the GPU buffer is what renders, and Unity's own build-time static "
@@ -302,7 +302,7 @@ internal static class StaticBatchConfig
             + "destroys the combined one; nothing ever reads the combined mesh back. OFF keeps the "
             + "CPU copy, which is only useful for inspecting it.");
 
-        VerboseLog = _file.Bind("Batching", "VerboseLog", false,
+        VerboseLog = _file.Bind("Batching", "VerboseLog", Defaults.VerboseLog,
             "Name every REJECTED renderer and the reason it was rejected — one log line per object, "
             + "so a scenario with 1700 renderers writes 1700 lines. Off, the [Batch] PROBE line "
             + "still reports every rejection reason as a COUNT, which is what a decision needs; "

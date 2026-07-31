@@ -66,7 +66,7 @@ internal sealed class FingerCurler
     /// here because it is a persisted user setting — change it deliberately, not as a
     /// side effect.</para>
     /// </summary>
-    internal const float DefaultGlovePinkyCounterAbductionDeg = 14f;
+    internal const float DefaultGlovePinkyCounterAbductionDeg = Defaults.GlovePinkyCounterAbduction;
 
     /// <summary>
     /// Per-STYLE curl-range clamp, indexed by (int)<see cref="HandStyle"/> (Glove/

@@ -134,7 +134,7 @@ internal static class ActorBars
         if (s_barsOccluded != null)
             return;
         s_barsConfigFile = ModuleConfig.Create("bars");
-        s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", true,
+        s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", Defaults.BarsOccluded,
             "Actor HP/effect bars depth-test against the world: walls occlude them like "
             + "any world object instead of the bar shining through. Look-preserving — "
             + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "

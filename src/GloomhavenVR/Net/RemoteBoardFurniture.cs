@@ -112,11 +112,11 @@ internal sealed class RemoteBoardFurniture
     // ---- authored widget sizes (WorldUI.ButtonTuning defaults / PlayTray literals) -------------
     // The live ButtonTuning entries are the LOCAL player's own config; a peer's caps are drawn at
     // the AUTHORED defaults so every remote board looks the same regardless of local tuning.
-    private const float BoardCapW = 0.063f;   // ButtonTuning.DefaultBoardWidth
-    private const float BoardCapH = 0.065f;   // ButtonTuning.DefaultBoardHeight
-    private const float PinCapW = 0.068f;     // ButtonTuning.DefaultPinWidth
-    private const float DashCapH = 0.035f;    // ButtonTuning.DefaultDashHeight
-    private const float TransientCapR = 0.042f; // ButtonTuning.DefaultRoundCapSize (cap RADIUS)
+    private const float BoardCapW = Defaults.BoardButtons_Width;   // ButtonTuning.DefaultBoardWidth
+    private const float BoardCapH = Defaults.BoardButtons_Height;   // ButtonTuning.DefaultBoardHeight
+    private const float PinCapW = Defaults.PinWidth;     // ButtonTuning.DefaultPinWidth
+    private const float DashCapH = Defaults.BoardDashboard_Height;    // ButtonTuning.DefaultDashHeight
+    private const float TransientCapR = Defaults.RoundButtons_CapSize; // ButtonTuning.DefaultRoundCapSize (cap RADIUS)
 
     /// <summary>Authored card size (CardsConfig CardWidth default 0.0635 and its fixed 88/63.5
     /// aspect) — the item-use recess is a card-sized recess.</summary>

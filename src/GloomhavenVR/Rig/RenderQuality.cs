@@ -205,7 +205,7 @@ internal static class RenderQuality
         if (_file != null)
             return;
         _file = ModuleConfig.Create("rig");
-        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", 8, new ConfigDescription(
+        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", Defaults.MsaaLevel, new ConfigDescription(
             "Hardware MSAA sample count for the VR eye render (0 = off, 2/4/8). The game's own "
             + "AA lives in the PostProcessLayer the mod disables and its boot quality level sets "
             + "antiAliasing 0, so without this the HMD has NO anti-aliasing (shimmering card line "
@@ -217,11 +217,11 @@ internal static class RenderQuality
             + "geometry aliasing and their sample counts multiply, so 8x on a heavily supersampled "
             + "target is the expensive half of a job already mostly done.",
             new AcceptableValueList<int>(0, 2, 4, 8)));
-        ForceAnisotropic = _file.Bind("RenderQuality", "ForceAnisotropic", true,
+        ForceAnisotropic = _file.Bind("RenderQuality", "ForceAnisotropic", Defaults.ForceAnisotropic,
             "Force anisotropic texture filtering for ALL textures (plus a global min-aniso floor). "
             + "Cuts distant shimmer on flat-on-view textures — card faces, initiative portraits, "
             + "board art. Purely a sampling-quality raise; disable to restore the game's setting.");
-        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", 1.0f, new ConfigDescription(
+        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", Defaults.EyeResolutionScale, new ConfigDescription(
             "Render resolution per eye, relative to what the OpenXR runtime asks for (1 = as asked). "
             + "THE primary GPU lever: essentially all per-pixel work — shading, rasterization, the "
             + "MSAA surfaces and their resolve — scales with the SQUARE of this value. 0.7 = about "
@@ -232,7 +232,7 @@ internal static class RenderQuality
             + "(specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot touch; below 1 "
             + "softens texture detail before it softens edges. Applies live.",
             new AcceptableValueRange<float>(MinEyeScale, MaxEyeScale)));
-        ViewportScaleFallback = _file.Bind("RenderQuality", "ViewportScaleFallback", true,
+        ViewportScaleFallback = _file.Bind("RenderQuality", "ViewportScaleFallback", Defaults.ViewportScaleFallback,
             "If EyeResolutionScale does not move the eye-texture allocation (some OpenXR providers "
             + "negotiate the swapchain once at session start and ignore it afterwards), fall back to "
             + "XRSettings.renderViewportScale, which renders into a sub-rect of the existing swapchain "
@@ -240,14 +240,14 @@ internal static class RenderQuality
             + "guessing, and the [Rig] EYE-TARGET DIAG line names which lever bound. Off = only ever "
             + "use eyeTextureResolutionScale (the resolution row then silently does nothing on such a "
             + "provider — for A/B only).");
-        RebuildRigOnMsaaChange = _file.Bind("RenderQuality", "RebuildRigOnMsaaChange", false,
+        RebuildRigOnMsaaChange = _file.Bind("RenderQuality", "RebuildRigOnMsaaChange", Defaults.RebuildRigOnMsaaChange,
             "Tear down and rebuild the VR rig whenever the MSAA level changes. Escape hatch for "
             + "OpenXR providers that only re-negotiate sample counts at session start. The question "
             + "this was originally written to settle — whether MSAA binds at all — is answered (it "
             + "does; it is visibly effective in the headset), so this is no longer a diagnostic. "
             + "Causes a brief view reset per MSAA change; leave off in normal play.");
 
-        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", -1, new ConfigDescription(
+        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", Defaults.PixelLightCount, new ConfigDescription(
             "Maximum number of PER-PIXEL lights (-1 = leave the game's own value alone, which is "
             + "what ships). In the built-in forward renderer every per-pixel light beyond the first "
             + "costs an ADDITIONAL FULL DRAW CALL for every renderer it touches — a scenario "

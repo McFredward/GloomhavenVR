@@ -221,7 +221,7 @@ internal static class FigureGrabConfig
         ConfigFile config = _file = ModuleConfig.Create("figuregrab");
 
         GrabFigures = config.Bind(
-            "FigureGrab", "GrabFigures", true,
+            "FigureGrab", "GrabFigures", Defaults.GrabFigures,
             "Grab a board figure (hero OR monster) into your hand with the TRIGGER to " +
             "inspect it up close — pure immersion, no gameplay effect. Release to snap it " +
             "back to its board cell.");
@@ -237,29 +237,29 @@ internal static class FigureGrabConfig
             "are created, and never again. Kept bound so existing config files keep loading. " +
             "Historical meaning: ";
         HeldScale = config.Bind(
-            "FigureGrab", "HeldScale", 1.5f,
+            "FigureGrab", "HeldScale", Defaults.HeldScale,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldScale. " +
             legacyTail +
             "inspection zoom applied on top of the figure's board world-scale while held " +
             "(1 = board size in your hand; higher enlarges it).");
         HeldOffsetForward = config.Bind(
-            "FigureGrab", "HeldOffsetForward", 0.05f,
+            "FigureGrab", "HeldOffsetForward", Defaults.HeldOffsetForward,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldOffsetForward. " +
             legacyTail +
             "held position offset toward the fingertips (grab-anchor local Z) — moves the mini " +
             "out to the thumb–index pinch point.");
         HeldOffsetUp = config.Bind(
-            "FigureGrab", "HeldOffsetUp", 0.01f,
+            "FigureGrab", "HeldOffsetUp", Defaults.HeldOffsetUp,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldOffsetUp. " +
             legacyTail +
             "held position offset out of the palm (grab-anchor local Y).");
         HeldOffsetSide = config.Bind(
-            "FigureGrab", "HeldOffsetSide", 0.03f,
+            "FigureGrab", "HeldOffsetSide", Defaults.HeldOffsetSide,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldOffsetSide. " +
             legacyTail +
             "held lateral position offset (grab-anchor local X) toward the thumb–index pinch.");
         HeldUprightAtGrab = config.Bind(
-            "FigureGrab", "HeldUprightAtGrab", true,
+            "FigureGrab", "HeldUprightAtGrab", Defaults.HeldUprightAtGrab,
             "Stand the mini HEAD UP IN THE WORLD at the moment you grab it, no matter which angle " +
             "you reached from — palm down, from the side, upside down. It is captured ONCE, at the " +
             "grab: afterwards the mini rides the hand as it always did, so turning your wrist still " +
@@ -268,18 +268,18 @@ internal static class FigureGrabConfig
             "this on they are offsets from 'standing up' rather than from the hand, so expect to " +
             "re-tune them once.");
         HeldUpright = config.Bind(
-            "FigureGrab", "HeldUpright", true,
+            "FigureGrab", "HeldUpright", Defaults.HeldUpright,
             "Hold the mini UPRIGHT (standing, pointing up) pinched between thumb and index and " +
             "facing you, like inspecting a chess piece. False = legacy flat-on-palm pose. " +
             "LIVE (unlike the other Held* entries in this section): this is a mode, not " +
             "geometry, so it stayed global instead of going per hand style.");
         HeldTiltDegrees = config.Bind(
-            "FigureGrab", "HeldTiltDegrees", 17f,
+            "FigureGrab", "HeldTiltDegrees", Defaults.FigureGrab_HeldTiltDegrees,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldTiltDegrees. " +
             legacyTail +
             "held tilt (degrees) — tip the mini toward your face for inspection.");
         HeldFaceYawDegrees = config.Bind(
-            "FigureGrab", "HeldFaceYawDegrees", -133f,
+            "FigureGrab", "HeldFaceYawDegrees", Defaults.HeldFaceYawDegrees,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldFaceYawDegrees. " +
             legacyTail +
             "upright mode only: extra yaw (degrees) to spin the mini's front toward you. Set 180 " +
@@ -329,7 +329,7 @@ internal static class FigureGrabConfig
                 "FigureGrab", $"{s}HeldScale", HeldScale.Value,
                 $"Inspection zoom applied on top of the figure's board world-scale while held. {per}");
             StyleHeldRollDegrees[i] = config.Bind(
-                "FigureGrab", $"{s}HeldRollDegrees", 0f,
+                "FigureGrab", $"{s}HeldRollDegrees", Defaults.HeldRollDegrees_ByStyle[i],
                 "LEGACY — no effect, superseded by [FigureGrab] " + s + "HeldRotRoll. Read once, as " +
                 "the seed for its successor.");
 

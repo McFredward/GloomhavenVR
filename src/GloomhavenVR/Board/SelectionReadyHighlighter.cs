@@ -70,7 +70,7 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
             return;
         ConfigFile config = ModuleConfig.Create("selectionready");
         _enabled = config.Bind(
-            "SelectionReady", "Enabled", true,
+            "SelectionReady", "Enabled", Defaults.SelectionReady_Enabled,
             "During the card-selection phase, pulse a soft highlight on the INITIATIVE ORDER BAR " +
             "entry of every character YOU control that has not yet chosen two cards or a long rest, " +
             "so it is clear on the initiative bar which characters still need selecting. Clears the " +

@@ -542,7 +542,7 @@ internal static class HandGhosts
         }
     }
 
-    internal const float DefaultStrength = 0.55f;
+    internal const float DefaultStrength = Defaults.GhostHandStrength;
     internal const float MinStrength = 0.05f;
     internal const float MaxStrength = 0.95f;
 

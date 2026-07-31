@@ -33,19 +33,19 @@ internal sealed partial class FlatScreenStereo
         if (s_stereoScreen != null)
             return;
         ConfigFile file = WorldUIConfig.Master.ConfigFile;
-        s_stereoScreen = file.Bind("WorldUI", "StereoScreen", true,
+        s_stereoScreen = file.Bind("WorldUI", "StereoScreen", Defaults.StereoScreen,
             "Render the floating 2D screen WITH stereo depth (3D-movie/window effect): the " +
             "captured 3D menu content (campaign map, town, slideshow scene) is rendered once " +
             "per eye via mod-owned mirror cameras while flat UI stays exactly on the screen " +
             "plane. Interaction (laser, poke, virtual mouse) and the desktop mirror are " +
             "unaffected. Costs one extra render of the menu scene per frame while the screen " +
             "is visible. Off = single mono RenderTexture, exactly the pre-stereo behavior.");
-        s_depthStrength = file.Bind("WorldUI", "ScreenDepthStrength", 1.0f,
+        s_depthStrength = file.Bind("WorldUI", "ScreenDepthStrength", Defaults.ScreenDepthStrength,
             "Strength of the flat screen's stereo depth (scales the per-eye separation " +
             "linearly). 1 = geometrically derived from your HMD IPD (window-accurate, " +
             "slightly understated by design); smaller = flatter/more comfortable; " +
             "0 = mono (same as StereoScreen=false).");
-        s_videoDepthLayer = file.Bind("WorldUI", "VideoDepthLayer", true,
+        s_videoDepthLayer = file.Bind("WorldUI", "VideoDepthLayer", Defaults.VideoDepthLayer,
             "Keep stereo depth while a fullscreen 2D video plays on the screen (main-menu " +
             "ambient movie, story videos): the VideoPlayer stays untouched in its vanilla " +
             "camera-plane mode and BOTH eyes show slightly shifted copies of the captured " +
@@ -53,14 +53,14 @@ internal sealed partial class FlatScreenStereo
             "VideoDepth meters BEHIND the glass UI — background recedes, menu floats in " +
             "front, no artificial geometry. Off = stereo is fully suspended (mono) while " +
             "any camera-plane video plays.");
-        s_videoDepth = file.Bind("WorldUI", "VideoDepth", 0.8f,
+        s_videoDepth = file.Bind("WorldUI", "VideoDepth", Defaults.VideoDepth,
             "How far BEHIND the screen plane the background reads while a fullscreen 2D " +
             "video plays, in real meters (VideoDepthLayer). Disparity p = IPD*V/(D+V) with " +
             "D = ScreenDistance: at the 1.6 m default screen and 2.2 m depth the video reads " +
             "at 3.8 m (~2.4x the screen distance, ~36 mm disparity — below the ~63 mm " +
             "divergence limit; clamped to 55 mm regardless). Raised from 0.8 after test #19 " +
             "(the recession read too subtle). 0 = video on the screen plane (no video depth).");
-        s_parallaxScale = file.Bind("WorldUI", "ScreenParallaxScale", 6.0f,
+        s_parallaxScale = file.Bind("WorldUI", "ScreenParallaxScale", Defaults.ScreenParallaxScale,
             "Amplifies the stereo screen's scene-INTERNAL depth (test #16: far menu scenery " +
             "read flat at geometric settings). Separation AND convergence are multiplied by " +
             "the same factor, so the at-infinity disparity (their ratio) stays constant and " +
@@ -77,11 +77,11 @@ internal sealed partial class FlatScreenStereo
         // it does nothing and what superseded it, so a knob that lies becomes a knob that admits it.
         // (Precedent for the wording: [Cards] HeldTiltDegrees, "LEGACY — no longer used ... kept
         // only so existing config files load cleanly".)
-        s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", true,
+        s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", Defaults.ScreenLeftMirrorFallback,
             "DEPRECATED — no effect, and it never had one: this key has no reader anywhere in the " +
             "mod. It presented itself as the master switch for the black-map rescue; the actual " +
             "switch is MapAlbedoRender. Kept bound so existing .cfg files load unchanged.");
-        s_mapAlbedoRender = file.Bind("WorldUI", "MapAlbedoRender", true,
+        s_mapAlbedoRender = file.Bind("WorldUI", "MapAlbedoRender", Defaults.MapAlbedoRender,
             "THE MAP FIX (default ON): render the campaign map's parchment UNLIT via a mod-owned " +
             "FORWARD camera into a PRIVATE RenderTexture, which the screen quad then shows. The map " +
             "is ordinary mesh geometry (MapChoreographer.worldMap / cityMap, GH_WorldMap materials " +
@@ -92,52 +92,52 @@ internal sealed partial class FlatScreenStereo
             "TexCoord0), swapped on only for our render and restored the same frame (rendering-only, " +
             "multiplayer-safe). A top-down painted map reads correct unlit. Off = detect the black " +
             "map but leave the base RT as-is (black).");
-        s_mapAlbedoOriginalMat = file.Bind("WorldUI", "MapAlbedoOriginalMaterial", true,
+        s_mapAlbedoOriginalMat = file.Bind("WorldUI", "MapAlbedoOriginalMaterial", Defaults.MapAlbedoOriginalMaterial,
             "DEPRECATED — no effect. It chose between rendering the map with the game's own Amplify " +
             "material and an override material; the map is now always drawn with GloomhavenVR/" +
             "MapUnlit, and both alternatives it named are gone. Kept bound so existing .cfg files " +
             "load unchanged.");
-        s_mapAlbedoAmbient = file.Bind("WorldUI", "MapAlbedoAmbient", 4.0f,
+        s_mapAlbedoAmbient = file.Bind("WorldUI", "MapAlbedoAmbient", Defaults.MapAlbedoAmbient,
             "DEPRECATED — no effect. It forced a bright ambient during the map's forward render, " +
             "back when that render was LIT. MapUnlit is unlit, so no ambient value can change the " +
             "map; the code that read this key was removed. (When it did run it was measured: an " +
             "ambient of 4 only turned a flat dark parchment into a flat brighter one.) Kept bound so " +
             "existing .cfg files load unchanged.");
-        s_mapAlbedoLight = file.Bind("WorldUI", "MapAlbedoLight", true,
+        s_mapAlbedoLight = file.Bind("WorldUI", "MapAlbedoLight", Defaults.MapAlbedoLight,
             "DEPRECATED — no effect. It added a mod directional light during the map's forward " +
             "render, in case the map detail was normal-mapped relief. MapUnlit is unlit, so a light " +
             "cannot affect it; the code that read this key was removed. Kept bound so existing .cfg " +
             "files load unchanged.");
 
-        s_mapCaptureMode = file.Bind("WorldUI", "MapCaptureMode", 1,
+        s_mapCaptureMode = file.Bind("WorldUI", "MapCaptureMode", Defaults.MapCaptureMode,
             "DEPRECATED — no effect. The campaign map is always rendered by the mod's forward albedo " +
             "camera into a private RenderTexture. The 'passive-deferred' strategy (1) this selected " +
             "was disproven — the game's deferred map camera renders black into any RenderTexture we " +
             "own, which no image-effect stripping can change — and the 'texture blit' strategy (2) " +
             "was never implemented at all. Both code paths were removed. Kept bound so existing .cfg " +
             "files load unchanged.");
-        s_mapStripBeautify = file.Bind("WorldUI", "MapStripBeautify", true,
+        s_mapStripBeautify = file.Bind("WorldUI", "MapStripBeautify", Defaults.MapStripBeautify,
             "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
             ".cfg files load unchanged.");
-        s_mapStripVolumetricFog = file.Bind("WorldUI", "MapStripVolumetricFog", true,
+        s_mapStripVolumetricFog = file.Bind("WorldUI", "MapStripVolumetricFog", Defaults.MapStripVolumetricFog,
             "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
             ".cfg files load unchanged.");
-        s_mapStripSSAO = file.Bind("WorldUI", "MapStripSSAO", true,
+        s_mapStripSSAO = file.Bind("WorldUI", "MapStripSSAO", Defaults.MapStripSSAO,
             "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
             ".cfg files load unchanged.");
-        s_mapStripPostProcess = file.Bind("WorldUI", "MapStripPostProcess", true,
+        s_mapStripPostProcess = file.Bind("WorldUI", "MapStripPostProcess", Defaults.MapStripPostProcess,
             "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
             ".cfg files load unchanged.");
-        s_mapTexFlipX = file.Bind("WorldUI", "MapTexFlipX", false,
+        s_mapTexFlipX = file.Bind("WorldUI", "MapTexFlipX", Defaults.MapTexFlipX,
             "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
             "Kept bound so existing .cfg files load unchanged.");
-        s_mapTexFlipY = file.Bind("WorldUI", "MapTexFlipY", true,
+        s_mapTexFlipY = file.Bind("WorldUI", "MapTexFlipY", Defaults.MapTexFlipY,
             "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
             "Kept bound so existing .cfg files load unchanged.");
-        s_mapTexSwapDiag = file.Bind("WorldUI", "MapTexSwapDiag", false,
+        s_mapTexSwapDiag = file.Bind("WorldUI", "MapTexSwapDiag", Defaults.MapTexSwapDiag,
             "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
             "Kept bound so existing .cfg files load unchanged.");
-        s_mapStripAllImageEffects = file.Bind("WorldUI", "MapStripAllImageEffects", false,
+        s_mapStripAllImageEffects = file.Bind("WorldUI", "MapStripAllImageEffects", Defaults.MapStripAllImageEffects,
             "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
             ".cfg files load unchanged.");
 
@@ -145,26 +145,26 @@ internal sealed partial class FlatScreenStereo
         // (a mod-owned corrected mesh copy + Sprites/Default), which was removed once the mesh was
         // proven to carry a correct TexCoord0 that GloomhavenVR/MapUnlit samples on the GPU
         // (53af144). Kept BOUND so existing .cfg files keep loading unchanged; see charter §5.
-        s_mapUvSource = file.Bind("WorldUI", "MapUvSource", 0,
+        s_mapUvSource = file.Bind("WorldUI", "MapUvSource", Defaults.MapUvSource,
             "DEPRECATED — no effect. The map's UV is sampled on the GPU from the mesh's own " +
             "TexCoord0 by GloomhavenVR/MapUnlit; the CPU uv0-rebuild path this configured was " +
             "removed. (The mesh was extracted offline and rasterized with its own UV0: it produces " +
             "the complete correct map, so there is nothing to correct.) Kept bound so existing .cfg " +
             "files load unchanged.");
-        s_mapUvSwapUV = file.Bind("WorldUI", "MapUvSwapUV", false,
+        s_mapUvSwapUV = file.Bind("WorldUI", "MapUvSwapUV", Defaults.MapUvSwapUV,
             "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
             "existing .cfg files load unchanged.");
-        s_mapUvFlipU = file.Bind("WorldUI", "MapUvFlipU", false,
+        s_mapUvFlipU = file.Bind("WorldUI", "MapUvFlipU", Defaults.MapUvFlipU,
             "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
             "existing .cfg files load unchanged.");
-        s_mapUvFlipV = file.Bind("WorldUI", "MapUvFlipV", false,
+        s_mapUvFlipV = file.Bind("WorldUI", "MapUvFlipV", Defaults.MapUvFlipV,
             "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
             "existing .cfg files load unchanged.");
-        s_mapUvChannel = file.Bind("WorldUI", "MapUvChannel", 0,
+        s_mapUvChannel = file.Bind("WorldUI", "MapUvChannel", Defaults.MapUvChannel,
             "DEPRECATED — no effect, and deliberately not read: the shader's UV channel is " +
             "hard-coded to 0 so a stale persisted value cannot break the map. Kept bound so existing " +
             ".cfg files load unchanged.");
-        s_mapUvComponent = file.Bind("WorldUI", "MapUvComponent", 0,
+        s_mapUvComponent = file.Bind("WorldUI", "MapUvComponent", Defaults.MapUvComponent,
             "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
             "existing .cfg files load unchanged.");
 

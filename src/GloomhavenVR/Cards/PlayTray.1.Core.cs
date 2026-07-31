@@ -257,7 +257,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     internal const float PileStackOffsetX = 0.05f;
 
     /// <summary>Vertical distance between the two stack centers, PileMount-local meters.</summary>
-    internal const float PileStackSpacing = 0.116f;
+    internal const float PileStackSpacing = Defaults.PileSpacing_Oak;
 
     /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
     internal const float InitiativeMountWidth = BoardW;

@@ -86,7 +86,7 @@ internal sealed class RemoteHandFan
 
     private const float CardWidth = DefaultCardWidth;
     private const float CardHeight = DefaultCardHeight;
-    private const float PalmOffset = 0.09f;                        // CardsConfig.FanPalmOffset
+    private const float PalmOffset = Defaults.FanPalmOffset;                        // CardsConfig.FanPalmOffset
 
     /// <summary>
     /// Where a peer's hand fan actually floats: one palm standoff up the PALM normal of
@@ -106,11 +106,11 @@ internal sealed class RemoteHandFan
         Transform anchor = owner.PalmAnchorFor(holder) ?? holder;
         return anchor.position + anchor.up * (PalmOffset * owner.AppliedScale);
     }
-    private const float Radius = 0.2192f;                          // CardsConfig.FanEffectiveRadius
-    private const float ArcSweepDegrees = 103f;                     // CardsConfig.FanArcSweepDegrees
-    private const float PerCardStepDegrees = 14f;                  // CardsConfig.FanPerCardStepDegrees
-    private const float ArchFactor = 0.55f;                        // CardsConfig.FanFlatCurvatureFactor
-    private const float TiltFactor = 0.85f;                        // CardsConfig.FanTiltFactor
+    private const float Radius = Defaults.FanEffectiveRadius;                          // CardsConfig.FanEffectiveRadius
+    private const float ArcSweepDegrees = Defaults.FanArcSweepDegrees;                     // CardsConfig.FanArcSweepDegrees
+    private const float PerCardStepDegrees = Defaults.FanPerCardStepDegrees;                  // CardsConfig.FanPerCardStepDegrees
+    private const float ArchFactor = Defaults.FanFlatCurvatureFactor;                        // CardsConfig.FanFlatCurvatureFactor
+    private const float TiltFactor = Defaults.FanTiltFactor;                        // CardsConfig.FanTiltFactor
     private const int MaxHandForCurve = 10;                        // CardsConfig.FanMaxHandForCurve
     private const float ZStagger = 0.004f;                         // CardFan.ZStagger (draw order)
     private const int MaxCards = 12;                               // hard clamp on the broadcast count
@@ -172,8 +172,8 @@ internal sealed class RemoteHandFan
     // to its own slot), but the remote ghost simply appeared fully spread the instant the count
     // arrived — a pop, not a raise. Seconds since this fan became visible; -1 = settled.
     private float _openElapsed = -1f;
-    private const float OpenSeconds = 0.14f;    // CardsConfig.FanOpenDuration
-    private const float OpenStagger = 0.02f;    // CardsConfig.FanOpenStagger (ripples outward)
+    private const float OpenSeconds = Defaults.FanOpenDuration;    // CardsConfig.FanOpenDuration
+    private const float OpenStagger = Defaults.FanOpenStagger;    // CardsConfig.FanOpenStagger (ripples outward)
 
     /// <summary>Ease-out cubic progress (0..1) of card <paramref name="i"/> in the fan-out reveal —
     /// CardFan.OpenProgress verbatim, so a peer's fan opens on the owner's timing curve.</summary>
