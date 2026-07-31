@@ -438,7 +438,7 @@ internal static class OpenXRBootstrap
             SubsystemManager.GetInstances(displays);
             if (displays.Any(d => d.running))
             {
-                VRLog.Info("Core", $"XR display subsystem is RUNNING (HMD rendering) after {frame} frame(s).");
+                VRLog.Note("Core", $"XR display subsystem is RUNNING (HMD rendering) after {frame} frame(s).");
                 yield break;
             }
             yield return null;

@@ -706,6 +706,16 @@ internal static partial class Loc
                 + "GENAU auf die getrackte Grip-Pose. Standard -0.06 setzt das Handgelenk knapp hinter den "
                 + "Grip-Ursprung, sodass die Handfläche den Controller-Griff umschließt. Hot-Reload-fähig: im "
                 + "laufenden Spiel bearbeiten, die Hände setzen sich im nächsten Frame neu.",
+            ["General/LogLevel"] =
+                "Wie viel der Mod in die LogOutput.log schreibt. Aus = still. Errors = nur was "
+                + "fehlgeschlagen ist. Warnings = zusätzlich, was still degradiert ist (ein fehlendes "
+                + "Asset, ein greifender Notbehelf) — die Untergrenze, ab der ein Fehlerbericht noch "
+                + "brauchbar ist. Normal = zusätzlich die wenigen Zeilen, die sagen, welcher Build "
+                + "läuft und ob VR hochgekommen ist. Verbose = zusätzlich der laufende Kommentar "
+                + "jedes Subsystems, mehrere hundert Zeilen pro Sitzung. Trace = alles, samt "
+                + "Debug-Geplauder. Trace ist VORERST die Voreinstellung, das Log ist damit exakt "
+                + "das gewohnte; stell auf Warnings oder Normal, sobald die aktuelle Fehlersuche "
+                + "durch ist. Wirkt ab der nächsten Zeile — kein Neustart nötig.",
             ["Hands/ScrollWithStickOnly"] =
                 "Listen werden NUR mit dem Stick gescrollt. Ein Laser steht nie ganz still, und da die "
                 + "Zieh-Schwelle abgeschaltet ist, verschiebt jeder Druck auch die Liste darunter — genau "

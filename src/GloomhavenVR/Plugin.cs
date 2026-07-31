@@ -19,6 +19,10 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Master switch. When false the plugin does nothing at all.</summary>
     internal static ConfigEntry<bool> Enabled = null!;
 
+    /// <summary>How much the mod writes to the log. Live — changing it takes effect on the next
+    /// line, no restart.</summary>
+    internal static ConfigEntry<VRLogLevel> LogLevel = null!;
+
     /// <summary>
     /// Optional path to an OpenXR runtime JSON (sets <c>XR_RUNTIME_JSON</c>).
     /// Empty = enumerate installed runtimes (registry + well-known paths) with failover.
@@ -220,6 +224,25 @@ public class Plugin : BaseUnityPlugin
         Enabled = Config.Bind(
             "General", "Enabled", true,
             "Master switch. Set to false to run the game completely vanilla (the mod does nothing).");
+        LogLevel = Config.Bind(
+            "General", "LogLevel", VRLogLevel.Trace,
+            "How much the mod writes to LogOutput.log. Off = silent. Errors = only what failed. " +
+            "Warnings = also what degraded silently (a missing asset, a fallback engaging) — the " +
+            "floor at which a bug report is still worth reading. Normal = also the few lines that " +
+            "say which build is running and whether VR came up. Verbose = also every subsystem's " +
+            "running commentary, several hundred lines a session. Trace = everything, including " +
+            "debug chatter. Trace is the DEFAULT for now, so the log is exactly what it has always " +
+            "been; drop to Warnings or Normal once the current round of debugging is done. Takes " +
+            "effect on the next line — no restart.");
+        VRLog.Level = LogLevel.Value;
+        LogLevel.SettingChanged += (_, _) =>
+        {
+            VRLog.Level = LogLevel.Value;
+            // Deliberately a Note: it survives every level that can still print anything, so the
+            // log always records the moment its own verbosity changed. Without that, a log that
+            // suddenly goes quiet looks like a hang.
+            VRLog.Note("Core", $"log level is now {LogLevel.Value}.");
+        };
         RuntimeOverride = Config.Bind(
             "General", "RuntimeOverride", "",
             "Optional path to an OpenXR runtime JSON file (e.g. SteamVR's steamxr_win64.json). " +
@@ -489,7 +512,7 @@ public class Plugin : BaseUnityPlugin
 
         if (!Enabled.Value)
         {
-            VRLog.Info("Disabled via config ([General] Enabled = false) — game runs vanilla.");
+            VRLog.Note("Disabled via config ([General] Enabled = false) — game runs vanilla.");
             return;
         }
 
@@ -601,8 +624,11 @@ public class Plugin : BaseUnityPlugin
         LogStartupSummary();
     }
 
+    // Note, not Info: at "Normal" this is the line that answers "which build is running and did
+    // VR come up at all" — the first thing anyone asks of a log, and useless if it is filtered out
+    // together with the running commentary.
     private void LogStartupSummary() =>
-        VRLog.Info($"v{MyPluginInfo.PLUGIN_VERSION} build {BuildInfo.GitHash} [{BuildInfo.GitBranch}] " +
+        VRLog.Note($"v{MyPluginInfo.PLUGIN_VERSION} build {BuildInfo.GitHash} [{BuildInfo.GitBranch}] " +
                    $"(built {BuildInfo.BuildTimeUtc}) loaded — " +
                    $"{_modules.Count} modules initialized, " +
                    $"VR {(VRSession.IsRunning ? $"RUNNING on '{VRSession.RuntimeName}'" : "not running")}. " +
