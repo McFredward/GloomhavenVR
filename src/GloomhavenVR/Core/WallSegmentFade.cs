@@ -243,11 +243,31 @@ internal static class WallSegmentFade
 
     private static bool Enabled => Plugin.WallFade != null && Plugin.WallFade.Value;
 
+    /// <summary>
+    /// THE game's own marker for "this mesh fades when it hides the play area": its material
+    /// runs one of the WallFade shader family (Amp_Basic_WallFade, Amp_Low/Amp_Basic_WallFade_Low,
+    /// and any themed sibling — the flat game's fade is purely shader-driven, it keeps no object
+    /// list). Single source of truth, shared with <see cref="StaticBatcher"/> so a fade-capable
+    /// renderer is never folded into a combined mesh the fade's property blocks cannot reach.
+    /// </summary>
+    internal static bool IsWallFadeShaderName(string shaderName) => shaderName.Contains("WallFade");
+
     /// <summary>Per-wall-segment fade state.</summary>
     private sealed class Segment
     {
-        public ProceduralWall? Wall;
+        /// <summary>Tracking anchor and dictionary key: the <see cref="ProceduralWall"/> for
+        /// cache-listed walls; for shader-ADOPTED groups (advanced tilesets put fade-capable wall
+        /// meshes on map tiles instead of ProceduralWall entities) the nearest
+        /// <see cref="ProceduralTileObserver"/> ancestor, else the renderer's parent transform.</summary>
+        public Component? Anchor;
+        /// <summary>True = from ProceduralWall.m_WallCache (renderers re-collected from the wall's
+        /// own subtree); false = adopted by shader match (renderers re-collected by the rescan sweep).</summary>
+        public bool FromWallCache;
         public readonly List<MeshRenderer> Renderers = new();
+        /// <summary>Refresh scratch: the renderer list BEFORE the current refresh, so a renderer
+        /// that left a still-faded segment gets its property block cleared instead of keeping a
+        /// stale fade forever.</summary>
+        public readonly List<MeshRenderer> PrevRenderers = new();
         public Bounds Bounds;
         public bool HasBounds;
 
@@ -319,8 +339,35 @@ internal static class WallSegmentFade
         private static readonly int ToggleWallfadeMatId = Shader.PropertyToID("_ToggleWallfade");
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
 
-        private readonly Dictionary<ProceduralWall, Segment> _segments = new();
-        private readonly List<ProceduralWall> _deadWalls = new();
+        private readonly Dictionary<Component, Segment> _segments = new();
+        private readonly List<Component> _deadKeys = new();
+        /// <summary>Renderers owned by wall-cache segments this rescan — the adoption sweep must
+        /// never create a second segment for them.</summary>
+        private readonly HashSet<MeshRenderer> _claimedRenderers = new();
+        /// <summary>Per-shader "is wall-fade-capable" verdict cache (the rescan sweep tests every
+        /// scene renderer; a scene has ~26 distinct materials over a handful of shaders).</summary>
+        private readonly Dictionary<Shader, bool> _shaderVerdict = new();
+        // Rescan census (heartbeat diagnostics): how many fade-capable renderers exist, how many
+        // the wall cache claimed, how many the shader sweep adopted — and the shader names seen on
+        // cache walls that carry NO fade-capable renderer at all (the tripwire for a tileset whose
+        // wall shaders are named outside the WallFade family).
+        private int _censusFadeRenderers;
+        private int _censusClaimed;
+        private int _censusAdopted;
+        private int _censusWallsWithoutFade;
+        private readonly HashSet<string> _unfadeableWallShaders = new();
+        private int _heartbeatSegCount = -1;
+
+        /// <summary>Adopted-group anchors whose combined AABB was too FAT to act as a wall slab
+        /// (both horizontal extents large — e.g. a tile whose wall pieces ring the room; the AABB
+        /// would contain the room's own floor samples and read as 100% coverage forever). Their
+        /// renderers are tracked as per-renderer segments instead; membership persists across
+        /// rescans so those segments keep their smoothing state. Cleared on scene load.</summary>
+        private readonly HashSet<Component> _splitAnchors = new();
+        private readonly List<KeyValuePair<Component, Segment>> _fatScratch = new();
+        /// <summary>An adopted GROUP whose horizontal AABB is thicker than this (wu; a wall run's
+        /// thin extent is ≤ ~2 wu, a hex tile ≈ 1.72 wu, a room ≥ ~8 wu) is split per renderer.</summary>
+        private const float GroupSlabMaxHorizontal = 3.5f;
         private readonly List<Bounds> _roomBounds = new();
         private readonly List<float> _roomFloorY = new();       // tile-anchored floor plane per room
         private readonly List<bool> _roomFloorAnchored = new(); // true = from a CentralTile anchor
@@ -379,6 +426,8 @@ internal static class WallSegmentFade
             _builtRoomCount = -1;
             _heartbeatLogged = false;
             _nextDiagTime = 0f;
+            _shaderVerdict.Clear(); // scene shaders died with their bundles — no dead keys
+            _splitAnchors.Clear();
         }
 
         /// <summary>
@@ -551,18 +600,35 @@ internal static class WallSegmentFade
                 LogDiagnostic(headPos, visibleCount);
             }
 
+            // Re-log the heartbeat when the tracked set changes materially (walls stream in over
+            // several rescans as Apparance generates, and adopted tilesets appear late) — the
+            // first heartbeat of a scenario otherwise reports a half-built table forever.
+            if (_heartbeatLogged && _heartbeatSegCount >= 0
+                && Mathf.Abs(_segments.Count - _heartbeatSegCount) >= 5)
+                _heartbeatLogged = false;
+
             if (!_heartbeatLogged)
             {
                 _heartbeatLogged = true;
-                int highSegs = 0, lowSegs = 0;
+                _heartbeatSegCount = _segments.Count;
+                int highSegs = 0, lowSegs = 0, adoptedSegs = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
                     if (s.VariantLow) lowSegs++;
+                    if (!s.FromWallCache) adoptedSegs++;
                 }
+                string unfadeable = _censusWallsWithoutFade > 0
+                    ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
+                      + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)}"
+                    : string.Empty;
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
-                    + $"{_segments.Count} wall segments (shader variants: {lowSegs} LOW / "
+                    + $"{_segments.Count} wall segments ({_segments.Count - adoptedSegs} from the "
+                    + $"wall cache + {adoptedSegs} ADOPTED by shader, grouped by tile/parent; "
+                    + $"fade-capable renderers {_censusFadeRenderers} = {_censusClaimed} claimed "
+                    + $"+ {_censusAdopted} adopted{unfadeable}) "
+                    + $"(shader variants: {lowSegs} LOW / "
                     + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
                     + $"bounds / {_allSamples.Count} floor samples ({_roomsAnchored}/"
                     + $"{_roomBounds.Count} rooms tile-anchored, plane +"
@@ -765,7 +831,9 @@ internal static class WallSegmentFade
         /// </summary>
         private static void LogStateFlip(Segment seg)
         {
-            string wall = seg.Wall != null ? seg.Wall.name : "<dead>";
+            string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+            if (!seg.FromWallCache)
+                wall += "~"; // shader-adopted group (tile/parent-anchored), not a cache wall
             string variant = seg.VariantHigh ? (seg.VariantLow ? "HIGH+LOW" : "HIGH") : "LOW";
             if (seg.State)
             {
@@ -818,9 +886,11 @@ internal static class WallSegmentFade
         {
             if (seg == null)
                 return;
-            string name = seg.Wall != null ? seg.Wall.name : "<dead>";
+            string name = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             if (name.Length > 24)
                 name = name.Substring(0, 24);
+            if (!seg.FromWallCache)
+                name += "~"; // shader-adopted group
             Bounds b = seg.Bounds;
             _diagSb.Append(" | '").Append(name)
                    .Append("' r").Append(seg.RoomIndex)
@@ -844,6 +914,11 @@ internal static class WallSegmentFade
                 _diagSb.Append(" !ABOVE-WALL");
             if (room >= 0 && room < _roomFloorAnchored.Count && !_roomFloorAnchored[room])
                 _diagSb.Append(" !UNANCHORED");
+            // A single mesh whose AABB is fat in BOTH horizontal axes (ring/corner piece) cannot
+            // be split further — its coverage numbers may read permanently high. Flagged so the
+            // hardware log distinguishes "genuinely occluding" from "AABB artifact".
+            if (Mathf.Min(b.size.x, b.size.z) > GroupSlabMaxHorizontal)
+                _diagSb.Append(" !FAT");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -996,17 +1071,20 @@ internal static class WallSegmentFade
                 _roomCenterInit = true;
             }
 
-            // Drop segments whose wall died (their renderers died with them).
-            _deadWalls.Clear();
-            foreach (KeyValuePair<ProceduralWall, Segment> kv in _segments)
+            // Drop segments whose anchor died (their renderers died with them).
+            _deadKeys.Clear();
+            foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
                 if (kv.Key == null)
-                    _deadWalls.Add(kv.Key!); // destroyed Unity object — reference still hashes
+                    _deadKeys.Add(kv.Key!); // destroyed Unity object — reference still hashes
             }
-            foreach (ProceduralWall dead in _deadWalls)
+            foreach (Component dead in _deadKeys)
                 _segments.Remove(dead);
 
             // Adopt new walls / refresh renderer lists, shader-variant info and bounds.
+            _claimedRenderers.Clear();
+            _censusWallsWithoutFade = 0;
+            _unfadeableWallShaders.Clear();
             List<ProceduralWall> cache = ProceduralWall.m_WallCache;
             for (int i = 0; i < cache.Count; i++)
             {
@@ -1015,14 +1093,175 @@ internal static class WallSegmentFade
                     continue;
                 if (!_segments.TryGetValue(wall, out Segment? seg))
                 {
-                    seg = new Segment { Wall = wall };
+                    seg = new Segment { Anchor = wall, FromWallCache = true };
                     _segments.Add(wall, seg);
                 }
                 RefreshSegment(seg);
+                foreach (MeshRenderer r in seg.Renderers)
+                    _claimedRenderers.Add(r);
             }
+
+            // Second discovery source: ADOPT every other fade-capable renderer in the scene.
+            // The user report behind this ("fortgeschritteneres Szenario mit ganz anderen
+            // Mauern — dort werden sie nicht mehr ausgeblendet"): advanced tilesets ship wall
+            // meshes as map-tile geometry, not as ProceduralWall entities, so the wall cache
+            // never listed them — yet their materials run the same WallFade shader family,
+            // because that is how the FLAT game fades them. The shader is the game's own
+            // definition of "this is a fadeable wall", so it is our discovery key too.
+            AdoptShaderMatchedWalls();
 
             RebuildSamples();
             AssociateRooms();
+        }
+
+        /// <summary>
+        /// Sweep all live MeshRenderers for wall-fade-capable materials that no wall-cache
+        /// segment claimed, and group them into segments: by the nearest
+        /// <see cref="ProceduralTileObserver"/> ancestor (the generation unit of tile-borne wall
+        /// geometry — room-chunk granularity, same scale as a ProceduralWall run), else by the
+        /// renderer's parent. Runs inside the 2s rescan; the shader verdict is cached per Shader
+        /// so the steady-state cost is one dictionary probe per renderer.
+        /// </summary>
+        private void AdoptShaderMatchedWalls()
+        {
+            // Reset adopted segments for re-fill; keep their smoothing/fade state (keyed by
+            // anchor, so a stable group keeps its EMA and dwell across rescans).
+            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            {
+                if (!kv.Value.FromWallCache)
+                    BeginRefresh(kv.Value);
+            }
+
+            _censusFadeRenderers = 0;
+            _censusAdopted = 0;
+            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
+            foreach (MeshRenderer r in all)
+            {
+                if (r == null || !RendererUsesWallFade(r))
+                    continue;
+                _censusFadeRenderers++;
+                if (_claimedRenderers.Contains(r))
+                    continue;
+                // A fade renderer under a ProceduralWall belongs to that wall's segment; it can
+                // only get here mid-stream (Apparance still generating) — the next rescan's
+                // RefreshSegment picks it up, and adopting it now would double-track it.
+                if (r.GetComponentInParent<ProceduralWall>() != null)
+                    continue;
+                Component? anchor = r.GetComponentInParent<ProceduralTileObserver>();
+                if (anchor == null)
+                    anchor = r.transform.parent != null ? r.transform.parent : r.transform;
+                // A group that proved too fat to be a slab is tracked per renderer instead
+                // (see _splitAnchors) — route straight to the per-renderer segment so its
+                // smoothing state survives every rescan.
+                if (_splitAnchors.Contains(anchor))
+                    anchor = r;
+                if (!_segments.TryGetValue(anchor, out Segment? seg))
+                {
+                    seg = new Segment { Anchor = anchor, FromWallCache = false };
+                    _segments.Add(anchor, seg);
+                    BeginRefresh(seg);
+                }
+                if (CollectWallFadeInfo(r, seg))
+                {
+                    seg.Renderers.Add(r);
+                    if (!seg.HasBounds)
+                    {
+                        seg.Bounds = r.bounds;
+                        seg.HasBounds = true;
+                    }
+                    else
+                    {
+                        seg.Bounds.Encapsulate(r.bounds);
+                    }
+                    _censusAdopted++;
+                }
+            }
+            _censusClaimed = _censusFadeRenderers - _censusAdopted;
+
+            // Finalize adopted segments: stale-block cleanup + thickness epsilon; drop the empty
+            // ones (their renderers died or stopped matching); collect groups too FAT to act as
+            // a wall slab for the per-renderer split below.
+            _deadKeys.Clear();
+            _fatScratch.Clear();
+            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            {
+                Segment seg = kv.Value;
+                if (seg.FromWallCache)
+                    continue;
+                FinishRefresh(seg);
+                if (seg.Renderers.Count == 0)
+                {
+                    _deadKeys.Add(kv.Key);
+                    continue;
+                }
+                if (seg.Renderers.Count > 1 && seg.HasBounds
+                    && Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z) > GroupSlabMaxHorizontal)
+                    _fatScratch.Add(kv);
+            }
+            foreach (Component dead in _deadKeys)
+                _segments.Remove(dead);
+
+            // Split fat groups per renderer: a ring of wall pieces around a room has a combined
+            // AABB that CONTAINS the room's floor samples — BlockedFraction would read permanent
+            // 100% coverage and fade the whole ring forever. The individual pieces are proper
+            // slabs and make their own occlusion decisions. The anchor is remembered in
+            // _splitAnchors so the next rescan routes renderers straight to their per-renderer
+            // segments (state preserved); this pass only migrates them once.
+            foreach (KeyValuePair<Component, Segment> fat in _fatScratch)
+            {
+                Segment group = fat.Value;
+                _splitAnchors.Add(fat.Key);
+                _segments.Remove(fat.Key);
+                if (group.HasBlock)
+                {
+                    foreach (MeshRenderer r in group.Renderers)
+                    {
+                        if (r != null)
+                            r.SetPropertyBlock(null);
+                    }
+                }
+                foreach (MeshRenderer r in group.Renderers)
+                {
+                    if (r == null)
+                        continue;
+                    if (!_segments.TryGetValue(r, out Segment? sub))
+                    {
+                        sub = new Segment { Anchor = r, FromWallCache = false };
+                        _segments.Add(r, sub);
+                    }
+                    BeginRefresh(sub);
+                    if (CollectWallFadeInfo(r, sub))
+                    {
+                        sub.Renderers.Add(r);
+                        sub.Bounds = r.bounds;
+                        sub.HasBounds = true;
+                    }
+                    FinishRefresh(sub);
+                }
+            }
+        }
+
+        /// <summary>Any shared material on a wall-fade-capable shader? (Cached per Shader.)</summary>
+        private bool RendererUsesWallFade(MeshRenderer r)
+        {
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            foreach (Material m in _matScratch)
+            {
+                if (m == null)
+                    continue;
+                Shader sh = m.shader;
+                if (sh == null)
+                    continue;
+                if (!_shaderVerdict.TryGetValue(sh, out bool capable))
+                {
+                    capable = IsWallFadeShaderName(sh.name);
+                    _shaderVerdict[sh] = capable;
+                }
+                if (capable)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -1121,16 +1360,10 @@ internal static class WallSegmentFade
         /// </summary>
         private void RefreshSegment(Segment seg)
         {
-            seg.Renderers.Clear();
-            seg.HasBounds = false;
-            seg.VariantHigh = false;
-            seg.VariantLow = false;
-            seg.ShaderNames = "?";
-            seg.HeldCutoff = 0.5f;
-            seg.CutoffAuthored = false;
-            if (seg.Wall == null)
+            BeginRefresh(seg);
+            if (seg.Anchor == null)
                 return;
-            MeshRenderer[] all = seg.Wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+            MeshRenderer[] all = seg.Anchor.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
             foreach (MeshRenderer r in all)
             {
                 if (r == null || !CollectWallFadeInfo(r, seg))
@@ -1148,6 +1381,62 @@ internal static class WallSegmentFade
                 // Renderer may be brand new (Apparance rebuild) while the segment is mid-fade —
                 // Apply() runs every frame for faded segments and will cover it.
             }
+            FinishRefresh(seg);
+
+            // Census tripwire: a cache wall WITH renderers but ZERO fade-capable ones means a
+            // tileset whose wall shaders live outside the WallFade family — the one case neither
+            // discovery source can fade. The heartbeat prints the shader names so the next
+            // hardware log identifies the family to add.
+            if (seg.Renderers.Count == 0 && all.Length > 0)
+            {
+                _censusWallsWithoutFade++;
+                if (_unfadeableWallShaders.Count < 8)
+                {
+                    foreach (MeshRenderer r in all)
+                    {
+                        if (r == null)
+                            continue;
+                        _matScratch.Clear();
+                        r.GetSharedMaterials(_matScratch);
+                        foreach (Material m in _matScratch)
+                        {
+                            if (m != null && m.shader != null && _unfadeableWallShaders.Count < 8)
+                                _unfadeableWallShaders.Add(m.shader.name);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>Reset a segment's collected state for re-fill, parking the previous renderer
+        /// list so <see cref="FinishRefresh"/> can clear property blocks off leavers.</summary>
+        private static void BeginRefresh(Segment seg)
+        {
+            seg.PrevRenderers.Clear();
+            seg.PrevRenderers.AddRange(seg.Renderers);
+            seg.Renderers.Clear();
+            seg.HasBounds = false;
+            seg.VariantHigh = false;
+            seg.VariantLow = false;
+            seg.ShaderNames = "?";
+            seg.HeldCutoff = 0.5f;
+            seg.CutoffAuthored = false;
+        }
+
+        /// <summary>Post-refresh bookkeeping: clear our property block from renderers that LEFT a
+        /// currently-faded segment (they would otherwise keep the fade forever — nothing else
+        /// ever touches them again), then derive the blocked-test epsilon from the new bounds.</summary>
+        private static void FinishRefresh(Segment seg)
+        {
+            if (seg.HasBlock)
+            {
+                foreach (MeshRenderer prev in seg.PrevRenderers)
+                {
+                    if (prev != null && !seg.Renderers.Contains(prev))
+                        prev.SetPropertyBlock(null);
+                }
+            }
+            seg.PrevRenderers.Clear();
             if (seg.HasBounds)
             {
                 // Blocked-test epsilon ≈ half the wall run's thickness (the smaller

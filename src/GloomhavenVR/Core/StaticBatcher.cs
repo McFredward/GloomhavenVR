@@ -767,13 +767,13 @@ internal static class StaticBatcher
 
     private static int _rejNoMesh, _rejUnreadable, _rejNotBatchable, _rejEmptyMesh;
     private static int _rejNoRenderer, _rejDisabled, _rejAlreadyBatched, _rejShader;
-    private static int _rejMover, _rejLayer, _rejName, _rejBudget, _rejStreams;
+    private static int _rejMover, _rejLayer, _rejName, _rejBudget, _rejStreams, _rejWallFade;
 
     private static void ResetRejections()
     {
         _rejNoMesh = _rejUnreadable = _rejNotBatchable = _rejEmptyMesh = 0;
         _rejNoRenderer = _rejDisabled = _rejAlreadyBatched = _rejShader = 0;
-        _rejMover = _rejLayer = _rejName = _rejBudget = _rejStreams = 0;
+        _rejMover = _rejLayer = _rejName = _rejBudget = _rejStreams = _rejWallFade = 0;
     }
 
     /// <summary>
@@ -880,6 +880,18 @@ internal static class StaticBatcher
             {
                 _rejShader++;
                 Reject(go, $"shader '{mat.shader.name}' sets DisableBatching");
+                return false;
+            }
+            // WALL-FADE RENDERERS ARE NEVER COMBINED. These are exactly the renderers the
+            // see-through walls (WallSegmentFade) drive with per-renderer property blocks;
+            // folding one into a combined mesh leaves a second, solid copy of the wall in the
+            // batch that no property block reaches — the wall "fades" in the log and stays
+            // opaque on screen. A scenario has a few dozen of them; excluding them costs the
+            // batch a rounding error and keeps the two features orthogonal.
+            if (WallSegmentFade.IsWallFadeShaderName(mat.shader.name))
+            {
+                _rejWallFade++;
+                Reject(go, $"shader '{mat.shader.name}' is wall-fade-capable — reserved for the see-through walls");
                 return false;
             }
         }
@@ -1610,6 +1622,7 @@ internal static class StaticBatcher
         AppendReason("empty mesh", _rejEmptyMesh);
         AppendReason("already batched", _rejAlreadyBatched);
         AppendReason("shader forbids batching", _rejShader);
+        AppendReason("wall-fade shader (reserved for see-through walls)", _rejWallFade);
         AppendReason("Unity says not batchable", _rejNotBatchable);
         AppendReason("vertex-stream mismatch", _rejStreams);
         AppendReason("layer excluded", _rejLayer);
