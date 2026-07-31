@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -1417,6 +1418,63 @@ internal static class CardsGameApi
         VRLog.Info("Cards", $"Action-phase select REJECTED: '{ActorLabel(clicked)}' is not the acting actor " +
             $"'{(CurrentTurnActor() is CActor cur ? ActorLabel(cur) : "?")}' — kept current selected, " +
             "played the game's invalid-click SFX (docked-card owner-lock deadlock guard).");
+        return true;
+    }
+
+    // ------------------------------------------------- MP ownership select guard --
+
+    /// <summary>
+    /// MP test item #8a: the ownership guard is armed ONLY in a real multiplayer session —
+    /// FFSNet online (<c>FFSNetwork.IsOnline</c>, the same flag every other MP branch in this
+    /// codebase keys on) with MORE THAN ONE participant. Participant count is read through
+    /// <see cref="NetPlayerActors.LocalStableIndex"/> (reflection-safe: returns total 1 when
+    /// offline / netcode absent / reflection incomplete), so single-player, offline scenarios
+    /// and a solo-hosted lobby behave byte-identically to an unmodded select — every guarded
+    /// seam below bails out here before touching anything.
+    /// </summary>
+    internal static bool OwnershipGuardActive()
+    {
+        if (!FFSNetwork.IsOnline)
+            return false;
+        NetPlayerActors.LocalStableIndex(out int total);
+        return total > 1;
+    }
+
+    /// <summary>
+    /// MP test item #8a: true when a HUMAN select of <paramref name="clicked"/> must be refused
+    /// because the character is assigned to ANOTHER player. Predicate: the guard is active
+    /// (<see cref="OwnershipGuardActive"/>) and the clicked actor is a <see cref="CPlayerActor"/>
+    /// that is NOT under local control — <c>CActor.IsUnderMyControl</c> (CActor.cs:751), the
+    /// exact ownership flag <c>CharacterManager.OnControlAssigned/OnControlReleased</c>
+    /// (CharacterManager.cs:483/492) maintains from FFSNet control assignment, and the flag the
+    /// game itself consults for MP turn control (e.g. Choreographer.cs:1849). Enemies and
+    /// non-player actors fall through — the game handles those itself. Read-only: never mutates
+    /// ownership or any game state.
+    /// </summary>
+    internal static bool IsForeignControlledSelect(CActor? clicked)
+    {
+        return clicked is CPlayerActor player
+               && !player.IsUnderMyControl
+               && OwnershipGuardActive();
+    }
+
+    /// <summary>
+    /// Refuse a select of another player's character (see
+    /// <see cref="IsForeignControlledSelect"/>): play the game's OWN denied cue —
+    /// <c>UIInfoTools.InvalidOptionAudioItem</c> via
+    /// <c>AudioControllerUtils.PlaySound(id, optional: true)</c>, the identical hook
+    /// <see cref="RejectActionPhaseSelect"/> already uses (the sound
+    /// <c>FullAbilityCard.OnAbilityClick</c> plays on an illegal card click,
+    /// FullAbilityCard.cs:625). The caller's Harmony prefix then SKIPS the original select, so
+    /// the local selection is untouched. Returns true (rejected) for call-site readability.
+    /// </summary>
+    internal static bool RejectForeignSelect(CActor clicked)
+    {
+        UIInfoTools tools = UIInfoTools.Instance;
+        if (tools != null)
+            AudioControllerUtils.PlaySound(tools.InvalidOptionAudioItem, optional: true);
+        VRLog.Info("Cards", $"Select REJECTED: '{ActorLabel(clicked)}' is controlled by ANOTHER player " +
+            "— kept local selection, played the game's invalid-click SFX (MP ownership guard).");
         return true;
     }
 
