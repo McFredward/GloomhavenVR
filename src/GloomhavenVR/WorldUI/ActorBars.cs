@@ -348,12 +348,16 @@ internal static class ActorBars
         {
             Renderer r = RendererScratch[i];
             // A statically batched renderer reports the bounds of its ENTIRE combined batch
-            // (documented Unity behaviour), not its own mesh. A destructible obstacle whose
-            // mesh the StaticBatcher folded into a 'Maps' batch therefore read as tall as the
-            // whole map chunk — and its health bar floated in the sky ("ground_and_healthbar"
-            // screenshot). Skip those; if nothing usable remains, the vanilla fixed offset
+            // (documented Unity behaviour), not its own mesh — a mini folded into a 'Maps'
+            // batch would read as tall as the whole map chunk. Skip; the vanilla fixed offset
             // below is the fallback, exactly the height the flat game uses.
             if (r.isPartOfStaticBatch)
+                continue;
+            // Only the miniature's SURFACE geometry may define "the top of the figure".
+            // Particle, trail and line renderers report their effect VOLUME: the Elementalist's
+            // infusion VFX measured sky-high and parked the health bar far above the figure
+            // (ground_and_healthbar.jpg). VFX say nothing about where the mini's head is.
+            if (r is not MeshRenderer && r is not SkinnedMeshRenderer)
                 continue;
             Bounds b = r.bounds;
             if (b.max.y > maxY) maxY = b.max.y;
@@ -366,8 +370,11 @@ internal static class ActorBars
             return fallback; // degenerate bounds (still spawning) — vanilla height
 
         // Clear the top of the mini by ~12% of its own height, everything in board units.
+        // Hard ceiling 6 wu on top of everything else: the tallest boss mini is ~5 wu, so any
+        // larger figure "height" is a mismeasured bound, not a figure — better a bar slightly
+        // low on a giant than one floating in the sky.
         float offset = (maxY - track.y) + 0.12f * height;
-        return Mathf.Clamp(offset, 0.05f, fallback + height);
+        return Mathf.Clamp(offset, 0.05f, Mathf.Min(fallback + height, 6f));
     }
 
     private static void Adopt(WorldspacePanelUIController controller)

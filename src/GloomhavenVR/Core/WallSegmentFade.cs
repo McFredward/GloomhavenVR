@@ -850,10 +850,24 @@ internal static class WallSegmentFade
             string variant = seg.VariantHigh ? (seg.VariantLow ? "HIGH+LOW" : "HIGH") : "LOW";
             if (seg.State)
             {
+                // Which renderers this fade actually touches (name@AABB-top, first six): the
+                // decisive line when a "hole" appears — if a floor piece is listed here, it is
+                // either a ground renderer the strip missed or ground fused into a wall MESH.
+                var rl = new System.Text.StringBuilder();
+                int listed = 0;
+                foreach (MeshRenderer r in seg.Renderers)
+                {
+                    if (r == null)
+                        continue;
+                    if (listed++ >= 6) { rl.Append(", …"); break; }
+                    if (rl.Length > 0) rl.Append(", ");
+                    rl.Append(r.name).Append('@').Append(r.bounds.max.y.ToString("F1"));
+                }
                 string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
-                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] — held state: " +
+                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
+                    $"({seg.Renderers.Count} renderer(s): {rl}) — held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
                         ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
@@ -1133,7 +1147,79 @@ internal static class WallSegmentFade
 
             RebuildSamples();
             AssociateRooms();
+            StripGroundRenderers();
             NeutralizeEngulfingSegments();
+        }
+
+        /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
+        /// plane is GROUND (or base course), never a wall — see <see cref="StripGroundRenderers"/>.
+        /// 1 wu ≈ half a hex; the flat game's own foundation band keeps roughly this zone solid.</summary>
+        private const float GroundExclusionHeightWU = 1.0f;
+
+        /// <summary>
+        /// THE JUNGLE GROUND FIX (second round — the split alone did not do it): this tileset's
+        /// ProceduralWall entities carry ~24 fade-capable renderers EACH (734 under 31 walls in
+        /// the hardware log), and among them are the room-edge GROUND hexes the wall grows from.
+        /// Fading the wall MPB'd those too, and because the jungle meshes reach down the diorama
+        /// skirt, the shader's foundation band sits below the map and the held-state discard ate
+        /// the floor — near-camera-only (0.02·dist term), hence "hole in VR, floor on the flat
+        /// screen". A renderer LYING AT the floor plane cannot possibly hide that floor from a
+        /// head above, so it has no business being part of a fade: strip every renderer whose
+        /// AABB top is within <see cref="GroundExclusionHeightWU"/> of its room's floor plane
+        /// from the segment (clearing our block off it if one is applied), recompute the
+        /// segment's AABB from what remains, and drop segments with nothing left.
+        /// </summary>
+        private void StripGroundRenderers()
+        {
+            _deadKeys.Clear();
+            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            {
+                Segment seg = kv.Value;
+                if (!seg.HasBounds || seg.RoomIndex < 0 || seg.RoomIndex >= _roomFloorY.Count)
+                    continue;
+                float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
+                bool changed = false;
+                for (int i = seg.Renderers.Count - 1; i >= 0; i--)
+                {
+                    MeshRenderer r = seg.Renderers[i];
+                    if (r == null || r.bounds.max.y > ceiling)
+                        continue;
+                    if (seg.HasBlock)
+                        r.SetPropertyBlock(null); // it was mid-fade — return it to solid NOW
+                    seg.Renderers.RemoveAt(i);
+                    changed = true;
+                }
+                if (!changed)
+                    continue;
+                if (seg.Renderers.Count == 0)
+                {
+                    _deadKeys.Add(kv.Key);
+                    continue;
+                }
+                // Recompute the AABB from the surviving (actual wall) renderers.
+                seg.HasBounds = false;
+                foreach (MeshRenderer r in seg.Renderers)
+                {
+                    if (r == null)
+                        continue;
+                    if (!seg.HasBounds)
+                    {
+                        seg.Bounds = r.bounds;
+                        seg.HasBounds = true;
+                    }
+                    else
+                    {
+                        seg.Bounds.Encapsulate(r.bounds);
+                    }
+                }
+                if (seg.HasBounds)
+                {
+                    float thickness = Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z);
+                    seg.BlockEps = Mathf.Clamp(0.5f * thickness, BlockEpsMinWorld, BlockEpsMaxWorld);
+                }
+            }
+            foreach (Component dead in _deadKeys)
+                _segments.Remove(dead);
         }
 
         /// <summary>
