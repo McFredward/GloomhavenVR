@@ -167,6 +167,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     // the item (ItemsPile supplies the callback); the CANCEL is grabbing the card back out, so there is
     // no cancel button. Hidden by default; child of the slot so it inherits the slot's pose/visibility.
     private BoardButton? _itemUseConfirm;
+    // Item-surrender pick: demand-specific label override for the item-use confirm button
+    // ("ITEM ABGEBEN" instead of "USE"); null = the default GUI_USE label.
+    private string? _itemUseConfirmLabel;
     private System.Action? _itemUseConfirmAction;
     private bool _placed;
     private bool _wantVisible;

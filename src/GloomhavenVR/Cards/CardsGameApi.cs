@@ -299,6 +299,142 @@ internal static class CardsGameApi
         return null;
     }
 
+    // ------------------------------------------------- item-surrender pick (event mali) --
+
+    /// <summary>
+    /// EVENT ITEM-CONSUME/REFRESH pick (pre-scenario "Begegnungen" mali:
+    /// <c>ScenarioAbility_ConsumeSmallItem_Self</c> → <c>CAbilityConsumeItemCards</c> →
+    /// <c>CSelectRefreshOrConsumeItems_MessageData</c>, Choreographer.cs:5853-5905; also every
+    /// mid-scenario refresh/consume item pick): the game's flat UI is
+    /// <c>ItemCardRefreshPicker.Show</c> → <c>ItemCardPicker</c>, a UIWindow whose ID is
+    /// scene-serialized and NOT in the mod's ModalFallback list — in VR it sat invisible on the
+    /// hidden 2D stack while the Choreographer waited in <c>WaitingForItemRefresh</c>: a silent
+    /// deadlock, the item twin of the card-discard one. Returns the OPEN picker (null when
+    /// closed), plus the affected actor (<c>ItemCardRefreshPicker.actor</c>, publicized) and
+    /// whether it is a REFRESH (positive) or CONSUME (malus) pick
+    /// (<c>refreshingItems</c>, publicized). The flat game only ever Shows the picker on the
+    /// CONTROLLING client (Choreographer.cs:5880 gate), so an open picker is already local;
+    /// callers still belt-and-braces on IsUnderMyControl.
+    /// Verified: <c>private ItemCardPicker picker</c> (ItemCardRefreshPicker.cs:14),
+    /// <c>private UIWindow window</c> (ItemCardPicker.cs:27, set in Awake) — publicized.
+    /// </summary>
+    internal static ItemCardPicker? OpenItemPicker(out CPlayerActor? actor, out bool refreshing)
+    {
+        actor = null;
+        refreshing = false;
+        ItemCardRefreshPicker rp = Singleton<ItemCardRefreshPicker>.Instance;
+        ItemCardPicker? picker = rp != null ? rp.picker : null;
+        UnityEngine.UI.UIWindow? win = picker != null ? picker.window : null;
+        if (picker == null || win == null || !win.IsOpen)
+            return null;
+        actor = rp!.actor as CPlayerActor;
+        refreshing = rp.refreshingItems;
+        return picker;
+    }
+
+    /// <summary>
+    /// The hand of the actor an OPEN item consume/refresh pick demands from — non-null only
+    /// while the picker is up for a locally-controlled player. Mirrors
+    /// <see cref="ActionSelectionHand"/>: at scenario start no <c>CardsHandManager.Show</c>
+    /// has run yet, so <c>CurrentHand</c> may be null/stale — the mod must present THIS
+    /// actor's hand (tray, piles, item fan) for the surrender flow to have a surface at all.
+    /// </summary>
+    internal static CardsHandUI? ItemPickHand()
+    {
+        ItemCardPicker? picker = OpenItemPicker(out CPlayerActor? actor, out _);
+        if (picker == null || actor == null)
+            return null;
+        if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI hand = manager != null ? manager.GetHand(actor) : null!;
+        return hand != null ? hand : null;
+    }
+
+    /// <summary>Is this inventory item among the picker's filtered candidates? (<c>cardSlots</c>
+    /// holds exactly the items <c>ItemCardRefreshPicker.Show</c> filtered in — publicized,
+    /// ItemCardPicker.cs:31.)</summary>
+    internal static bool IsItemPickCandidate(ItemCardPicker picker, CItem item) =>
+        picker != null && item != null && picker.cardSlots.ContainsKey(item);
+
+    /// <summary>How many items the pick demands (<c>itemsToSelect</c>, capped to the candidate
+    /// count by Show — publicized, ItemCardPicker.cs:35).</summary>
+    internal static int ItemPickWanted(ItemCardPicker picker) => picker.itemsToSelect;
+
+    /// <summary>How many are currently selected (<c>itemsSelected</c>, publicized).</summary>
+    internal static int ItemPickSelectedCount(ItemCardPicker picker) => picker.itemsSelected.Count;
+
+    /// <summary>The picker reports the full selection (<c>AreAllItemsSelected</c>, public).</summary>
+    internal static bool ItemPickReady(ItemCardPicker picker) => picker.AreAllItemsSelected;
+
+    /// <summary>
+    /// SELECT an item through the picker's OWN slot seam — exactly the 2D click:
+    /// <c>ItemCardPickerSlot.ToggleSelectSlot</c> (public, ItemCardPickerSlot.cs:81; guards
+    /// selectability and blocks toggles once full). When the selection is already FULL, the
+    /// oldest selected item is first deselected via the slot's public <c>Deselect</c>
+    /// (ItemCardPickerSlot.cs:113 — the same call the picker's own overflow rule makes,
+    /// ItemCardPicker.cs:186) so a drop always swaps like the flat overflow would. Pure UI-side
+    /// selection state; nothing is committed or networked until <see cref="ConfirmItemPick"/>.
+    /// </summary>
+    internal static bool ItemPickSelect(ItemCardPicker picker, CItem item)
+    {
+        if (picker == null || item == null
+            || !picker.cardSlots.TryGetValue(item, out ItemCardPickerSlot slot) || slot == null)
+            return false;
+        if (slot.Selected)
+            return true; // already selected — idempotent
+        if (picker.AreAllItemsSelected)
+        {
+            List<CItem> selected = picker.GetCurrentSelectedItems();
+            if (selected.Count > 0
+                && picker.cardSlots.TryGetValue(selected[0], out ItemCardPickerSlot oldest)
+                && oldest != null)
+                oldest.Deselect();
+        }
+        slot.ToggleSelectSlot();
+        return slot.Selected;
+    }
+
+    /// <summary>DESELECT an item via the slot's public <c>Deselect</c> (grab-back-out seam).</summary>
+    internal static bool ItemPickDeselect(ItemCardPicker picker, CItem item)
+    {
+        if (picker == null || item == null
+            || !picker.cardSlots.TryGetValue(item, out ItemCardPickerSlot slot) || slot == null
+            || !slot.Selected)
+            return false;
+        slot.Deselect();
+        return true;
+    }
+
+    /// <summary>
+    /// COMMIT the item pick — the exact tail of the flat confirm button:
+    /// <c>ItemCardRefreshPicker.ConfirmSelectedCards</c> (private, publicized;
+    /// ItemCardRefreshPicker.cs:47-77) runs <c>Inventory.UseItem</c> (consume) /
+    /// <c>ReactivateItem</c> (refresh) per selected item, sends the game's own
+    /// <c>Synchronizer.SendGameAction(GameActionType.ConsumeItem/RefreshItem, …,
+    /// ItemsToken(networkIDs))</c> online (peers replay via ProxyConsumeItems/
+    /// ProxyRefreshItems), hides the picker and releases the Choreographer
+    /// (<c>SetChoreographerState(Play)</c> + <c>ScenarioRuleClient.StepComplete</c>).
+    /// Guarded on the picker being open with the FULL selection — the same availability
+    /// the 2D confirm option enforces (<c>UpdateConfirmAvailable</c>, ItemCardPicker.cs:132).
+    /// </summary>
+    internal static bool ConfirmItemPick()
+    {
+        ItemCardRefreshPicker rp = Singleton<ItemCardRefreshPicker>.Instance;
+        ItemCardPicker? picker = rp != null ? rp.picker : null;
+        UnityEngine.UI.UIWindow? win = picker != null ? picker.window : null;
+        if (picker == null || win == null || !win.IsOpen || !picker.AreAllItemsSelected)
+            return false;
+        rp!.ConfirmSelectedCards();
+        return true;
+    }
+
+    /// <summary>The picker's own game-localized hint title (e.g. the GUI_CONSUME_ITEMS_TITLE
+    /// format with the demanded slot type, ItemCardRefreshPicker.cs:41-44); null/empty when
+    /// absent — callers fall back to a Loc.Mod string. Publicized <c>hintTitle</c>.</summary>
+    internal static string? ItemPickHintTitle(ItemCardPicker picker) =>
+        !string.IsNullOrEmpty(picker.hintTitle) ? picker.hintTitle : null;
+
     /// <summary>
     /// The pile(s) the current modal pick draws its candidates from — the game's own
     /// <c>selectableCardTypes</c> (private, publicized; stored by

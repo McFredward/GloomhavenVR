@@ -229,6 +229,8 @@ internal sealed class ItemsPile
         _boardAnchored = false;
         ClearHandSweep();
         _pendingUseChip = null; // #6: drop any pending decision on close
+        _demandChip = null;     // surrender pick: the chip dies with the fan; the game selection
+                                // survives in the picker and the pump re-opens the fan next tick
         if (_useGhost != null) // #8: never leave a drop-preview floating once the fan is gone
             _useGhost.SetActive(false);
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
@@ -246,6 +248,8 @@ internal sealed class ItemsPile
         ClearHandSweep();
         ClearChips();
         _pendingUseChip = null; // #6
+        _demandChip = null;     // surrender pick
+        _demandActive = false;
         if (ReferenceEquals(Current, this))
             Current = null;
         IsOpen = false;
@@ -319,7 +323,15 @@ internal sealed class ItemsPile
         // in PileViewer.TickStatus instead, because it must also report while this fan is CLOSED (the
         // items STACK carries the same highlight then, and there are no chips to count).
 
-        if (_pendingUseChip != null)
+        if (_demandActive)
+        {
+            // ITEM SURRENDER pick: TickDemandPick owns the slot visibility, the clipped chip
+            // and the confirm — the action-turn use gate below must not fight it (it would
+            // hide the slot every tick: IsActionTurn is false while the Choreographer waits
+            // in WaitingForItemRefresh).
+            TickUseGhost(false, null);
+        }
+        else if (_pendingUseChip != null)
         {
             // Requirement 6: a chip is CLIPPED into the use slot awaiting a decision — keep the slot +
             // Confirm button up and glue the chip to the slot pose, or resolve the cancel/invalidation.
@@ -773,7 +785,21 @@ internal sealed class ItemsPile
     internal void OnChipReleased(ItemChip chip, Vector3 dropWorldPos, VRHand vrHand)
     {
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
-        if (chip == null || !chip.IsActivatable || slot == null || !slot.gameObject.activeSelf)
+        if (chip == null || slot == null || !slot.gameObject.activeSelf)
+            return;
+
+        // ITEM SURRENDER pick (event consume/refresh mali): while the game's ItemCardPicker is
+        // open, a drop into the slot SELECTS the item through the picker's own slot seam —
+        // never UseItemService (nothing is consumed until the demand confirm commits). The
+        // IsActivatable gate below is the ACTION-TURN use gate and deliberately does not apply:
+        // the picker's own candidate filter (cardSlots) is the authority here.
+        if (_demandActive)
+        {
+            HandleDemandDrop(chip, dropWorldPos, slot, vrHand);
+            return;
+        }
+
+        if (!chip.IsActivatable)
             return;
 
         // Proximity test in world space (parenting-independent): the capture radius scales with
@@ -929,6 +955,219 @@ internal sealed class ItemsPile
         _useSlotShownLogged = false;
         VRLog.Info("Cards", $"ITEM USED {itemName} (CONFIRM; state now {item.SlotState}) — playing " +
                             $"{(consumed ? "burn" : spent ? "tap" : "use")} FX, then it returns to the deck.");
+    }
+
+    // ------------------------------------------------- item-surrender pick (event mali) --
+
+    // The game's open ItemCardPicker being served (event consume/refresh demand). The chip
+    // clipped into the use slot mirrors the picker's selection; the slot's confirm button
+    // ("ITEM ABGEBEN"/"ITEM AUFFRISCHEN", never "USE") commits through the picker's own
+    // confirm seam. All game selection state lives in the PICKER — the mod only mirrors it.
+    private bool _demandActive;
+    private bool _demandRefreshing;
+    private ItemChip? _demandChip;   // chip clipped into the slot for the current selection
+    private float _demandNextOpenAt; // fan auto-(re)open throttle
+
+    /// <summary>True while an item consume/refresh demand is being served (gates the normal
+    /// action-turn use-slot logic in <see cref="Tick"/>).</summary>
+    internal bool DemandActive => _demandActive;
+
+    /// <summary>
+    /// EVENT ITEM-SURRENDER pump, one call per frame from the driver (independent of the
+    /// action-turn item flow): while the game's <c>ItemCardRefreshPicker</c> demands items
+    /// from a locally-controlled actor (see <see cref="CardsGameApi.OpenItemPicker"/> — the
+    /// flat picker window is invisible on VR's hidden 2D stack, the item twin of the
+    /// card-discard deadlock), raise the ITEM FAN board-anchored, keep the board's item-use
+    /// slot visible as the drop target, glue the selected chip to the slot, and surface the
+    /// demand confirm. Cleans up the moment the picker closes (confirmed / game moved on).
+    /// </summary>
+    internal void TickDemandPick(CardsHandUI? hand)
+    {
+        ItemCardPicker? picker = CardsGameApi.OpenItemPicker(out CPlayerActor? actor, out bool refreshing);
+        bool active = picker != null && actor != null && hand != null
+                      && ReferenceEquals(hand.PlayerActor, actor)
+                      && (!FFSNetwork.IsOnline || actor.IsUnderMyControl);
+        if (!active)
+        {
+            if (_demandActive)
+                EndDemand("picker closed — selection committed or the game moved on");
+            return;
+        }
+
+        if (!_demandActive)
+        {
+            _demandActive = true;
+            _demandRefreshing = refreshing;
+            _demandNextOpenAt = 0f;
+            VRLog.Info("Cards", $"ITEM SURRENDER pick OPEN ({(refreshing ? "refresh" : "consume")}): the game demands " +
+                                $"{CardsGameApi.ItemPickWanted(picker!)} item(s) from " +
+                                $"'{CardsGameApi.ActorLabel(actor!)}' (ItemCardRefreshPicker; flat window is dead in " +
+                                "VR) — item fan raised, drop the demanded item into the board's item slot; the slot " +
+                                "button commits through the game's own picker confirm.");
+        }
+
+        // Fan auto-(re)open, board-anchored — a foreign interaction may have closed it; the
+        // demand needs the candidates in reach the whole time. Throttled so a genuinely
+        // failing Open cannot spam.
+        if (!IsOpen && Time.unscaledTime >= _demandNextOpenAt)
+        {
+            _demandNextOpenAt = Time.unscaledTime + 0.5f;
+            Open(hand!, followHand: null);
+        }
+
+        // The use slot IS the ask — visible for the whole demand (Tick's action-turn gate is
+        // bypassed while _demandActive, see there).
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+
+        // Clipped-chip service: a grab-back DESELECTS through the picker's own slot seam; the
+        // chip's own release then glides it home (or re-clips on a re-drop).
+        ItemChip? chip = _demandChip;
+        if (chip != null && chip.Item != null && chip.Holder != null)
+        {
+            CardsGameApi.ItemPickDeselect(picker!, chip.Item);
+            UnclipChip(chip);
+            chip.PendingUse = false;
+            _demandChip = null;
+            VRLog.Info("Cards", "ITEM SURRENDER: card grabbed back out of the slot — deselected through the " +
+                                "game's ItemCardPickerSlot seam; drop an item again to choose.");
+            chip = null;
+        }
+        if (chip != null && _root != null)
+        {
+            Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
+            if (slot != null && chip.transform.parent != slot)
+                chip.ClipIntoSlot(slot, _root, ChipScale); // re-assert after a board rebuild
+        }
+
+        // Demand confirm: shown exactly while the PICKER reports the full selection (survives a
+        // lost chip — e.g. the fan was closed and rebuilt — because the game selection is the
+        // authority). Label says SURRENDER, never "USE".
+        bool ready = CardsGameApi.ItemPickReady(picker!);
+        PlayTray.Current?.SetItemUseConfirmVisible(ready, ready ? ConfirmDemandPick : null,
+            _demandRefreshing ? Core.Loc.Mod("item_refresh_confirm") : Core.Loc.Mod("item_surrender"));
+    }
+
+    /// <summary>Drop routing while a demand is active (see <see cref="OnChipReleased"/>).</summary>
+    private void HandleDemandDrop(ItemChip chip, Vector3 dropWorldPos, Transform slot, VRHand vrHand)
+    {
+        float scale = slot.lossyScale.x;
+        float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
+        if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
+            return; // dropped away from the slot — the base glide-home returns it to the fan
+
+        ItemCardPicker? picker = CardsGameApi.OpenItemPicker(out _, out _);
+        if (picker == null || chip.Item == null)
+            return;
+        if (!CardsGameApi.IsItemPickCandidate(picker, chip.Item))
+        {
+            VRLog.Info("Cards", $"ITEM SURRENDER: '{chip.name}' is NOT among the demanded candidates " +
+                                "(the picker's own filter) — it returns to the fan.");
+            return; // base glide-home
+        }
+
+        // A previous clipped selection returns to the fan; the select seam below swaps the
+        // game selection (ItemPickSelect deselects the oldest when full — the picker's own
+        // overflow rule).
+        if (_demandChip != null && !ReferenceEquals(_demandChip, chip))
+        {
+            ItemChip old = _demandChip;
+            _demandChip = null;
+            if (old.Item != null)
+                CardsGameApi.ItemPickDeselect(picker, old.Item);
+            UnclipChip(old);
+            old.PendingUse = false;
+            old.ReturnToFan();
+        }
+
+        if (!CardsGameApi.ItemPickSelect(picker, chip.Item))
+        {
+            VRLog.Warn("Cards", $"ITEM SURRENDER: game picker REJECTED selecting '{chip.name}' " +
+                                "(slot not selectable) — card returns to the fan.");
+            return; // base glide-home
+        }
+
+        _demandChip = chip;
+        chip.PendingUse = true;
+        chip.CancelReleaseGlide();
+        if (_root != null)
+            chip.ClipIntoSlot(slot, _root, ChipScale);
+        vrHand.SendHaptic(HapticPreset.HoverTick);
+        CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
+        VRLog.Info("Cards", $"ITEM SURRENDER clip-in: '{chip.name}' SELECTED through the game's " +
+                            "ItemCardPickerSlot seam — press the slot button " +
+                            $"('{(_demandRefreshing ? Core.Loc.Mod("item_refresh_confirm") : Core.Loc.Mod("item_surrender"))}') " +
+                            "to commit, or grab it back to swap.");
+    }
+
+    /// <summary>
+    /// Demand CONFIRM — commit through the game's own picker confirm
+    /// (<see cref="CardsGameApi.ConfirmItemPick"/>: Inventory.UseItem/ReactivateItem +
+    /// GameActionType.ConsumeItem/RefreshItem with the game's ItemsToken, picker hidden,
+    /// Choreographer released). On success the clipped chip plays the same result FX as a
+    /// normal use (burn plume for a consumed item, tap for spent/refreshed) and collapses
+    /// back into the deck — the surrender is VISIBLE, not a silent vanish.
+    /// </summary>
+    private void ConfirmDemandPick()
+    {
+        ItemChip? chip = _demandChip;
+        _demandChip = null;
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        bool fired = CardsGameApi.ConfirmItemPick();
+        VRLog.Info("Cards", "ITEM SURRENDER CONFIRM → game picker confirm " +
+                            (fired ? "accepted (Inventory.UseItem/ReactivateItem + GameActionType.ConsumeItem/" +
+                                     "RefreshItem via the game's ItemsToken — outcome networked by the game)."
+                                   : "rejected (selection incomplete or picker already closed)."));
+        if (chip == null)
+            return;
+        if (!fired || chip.Item == null)
+        {
+            UnclipChip(chip);
+            chip.PendingUse = false;
+            chip.ReturnToFan();
+            return;
+        }
+
+        // Result FX, mirrored from ConfirmPendingUse: consumed → burn out of the slot;
+        // spent/refreshed → tap. Usage type is authored config (stable pre/post the
+        // networked state change — the same 9b lesson as the use flow).
+        CItem item = chip.Item;
+        CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
+        bool consumed = !_demandRefreshing
+                        && (usage == CItem.EUsageType.Consumed
+                            || item.SlotState == CItem.EItemSlotState.Consumed);
+        bool spent = !consumed;
+        Vector3 converge = PileConvergeWorld();
+        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
+        if (keep != null)
+            chip.transform.SetParent(keep, worldPositionStays: true);
+        _chips.Remove(chip);
+        if (ReferenceEquals(_handWinner, chip))
+            _handWinner = null;
+        chip.PendingUse = false;
+        chip.PlayUseThenCollapse(consumed, spent, converge);
+        PlayTray.Current?.SetItemUseSlotVisible(false);
+        _useSlotShownLogged = false;
+    }
+
+    /// <summary>Demand teardown (picker closed): unclip/return any leftover chip, drop the
+    /// confirm + slot, restore the normal action-turn gates. The fan stays as-is — the live
+    /// rebuild shows the item's new state; the player closes it like any browse.</summary>
+    private void EndDemand(string why)
+    {
+        _demandActive = false;
+        ItemChip? chip = _demandChip;
+        _demandChip = null;
+        if (chip != null)
+        {
+            UnclipChip(chip);
+            chip.PendingUse = false;
+            if (chip.Holder == null && chip.gameObject != null && chip.gameObject.activeInHierarchy)
+                chip.ReturnToFan();
+        }
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        PlayTray.Current?.SetItemUseSlotVisible(false);
+        _useSlotShownLogged = false;
+        VRLog.Info("Cards", $"ITEM SURRENDER pick END ({why}).");
     }
 
     // ================================================================== item chip ==

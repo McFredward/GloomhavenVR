@@ -73,6 +73,11 @@ internal sealed class PileViewer
     /// this is the general click-away close for the item fan itself.</summary>
     internal void CloseItemsBrowse() => _itemsBrowse.Close();
 
+    /// <summary>Item-surrender pick (event consume/refresh mali): per-frame pump, driven by the
+    /// CardsDriver INDEPENDENTLY of the stack visibility gate in <see cref="TickStatus"/> —
+    /// the demand can arrive at scenario start before any pile UI has ever shown.</summary>
+    internal void TickItemDemand(CardsHandUI? hand) => _itemsBrowse.TickDemandPick(hand);
+
     /// <summary>
     /// Issue 5 (fly-to-pile): world placement of one pile stack, for animating a just-cleared
     /// played card INTO its destination stack. <paramref name="worldPos"/> is the stack centre;

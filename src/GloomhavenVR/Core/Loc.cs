@@ -187,6 +187,15 @@ internal static partial class Loc
                                      "Alle Karten liegen — mit der Board-Taste abschließen (oder eine Karte zum Tauschen zurücknehmen)"),
         // The intermediate batch confirm for >2-card requirements (batches of two).
         ["pick_batch_next"] = Pair("NEXT", "WEITER"),
+        // Item-surrender pick (event ConsumeSmallItem mali / refresh picks): the item-slot
+        // confirm must NEVER read like the normal "USE" — the player is GIVING an item UP
+        // (consumed as a malus), so the keycap says "abgeben" (surrender); the refresh
+        // variant is a positive pick and says so. Banner fallbacks used only when the
+        // game's own picker hint title is empty.
+        ["item_surrender"] = Pair("SURRENDER ITEM", "ITEM ABGEBEN"),
+        ["item_refresh_confirm"] = Pair("REFRESH ITEM", "ITEM AUFFRISCHEN"),
+        ["item_surrender_demand"] = Pair("Surrender an item", "Gib einen Gegenstand ab"),
+        ["item_refresh_demand"] = Pair("Choose an item to refresh", "Wähle einen Gegenstand zum Auffrischen"),
 
         // ---- SettingsPanel: sections / labels / buttons ----
         ["comfort"] = Pair("Comfort", "Komfort"),
