@@ -45,7 +45,8 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InputManager_SetGamepadInputDevice_Patch));
         VRSession.Harmony?.PatchAll(typeof(InputManager_AssignGamepadBindings_Patch));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
-        VRSession.Harmony?.PatchAll(typeof(Patches.TakeDamagePanelSafety)); // test #23 item 6: burn-two NRE/deadlock guard
+        VRSession.Harmony?.PatchAll(typeof(Patches.TakeDamagePanelSafety)); // test #23 item 6: burn-two NRE/deadlock guard + MP #10a mandatory-bonus auto-use
+        VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeHoverCardBlock)); // MP #10b: no room-sized card on player-entry hover
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
