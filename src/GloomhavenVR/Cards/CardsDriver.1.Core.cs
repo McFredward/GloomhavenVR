@@ -200,6 +200,12 @@ internal sealed partial class CardsDriver : MonoBehaviour
         // established live-apply path so a hand-edited cfg / menu step also logs the change.
         CardsConfig.FanFaceViewer.SettingChanged += OnFanTuningChanged;
         CardsConfig.FanGazeApexFollow.SettingChanged += OnFanTuningChanged;
+        // Item 12 (global, not per-board): the movement scheme and the pitch window re-apply the
+        // board orientation live — switching Frei → Begrenzt re-levels a freely rotated board,
+        // and a debug-menu clamp edit immediately re-clamps an applied TrayPitch.
+        CardsConfig.BoardMoveMode.SettingChanged += OnOrientationChanged;
+        CardsConfig.BoardPitchMinDegrees.SettingChanged += OnOrientationChanged;
+        CardsConfig.BoardPitchMaxDegrees.SettingChanged += OnOrientationChanged;
 
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
@@ -235,6 +241,9 @@ internal sealed partial class CardsDriver : MonoBehaviour
         CardsConfig.FanHoverSplitScale.SettingChanged -= OnFanTuningChanged;
         CardsConfig.FanFaceViewer.SettingChanged -= OnFanTuningChanged;
         CardsConfig.FanGazeApexFollow.SettingChanged -= OnFanTuningChanged;
+        CardsConfig.BoardMoveMode.SettingChanged -= OnOrientationChanged;
+        CardsConfig.BoardPitchMinDegrees.SettingChanged -= OnOrientationChanged;
+        CardsConfig.BoardPitchMaxDegrees.SettingChanged -= OnOrientationChanged;
     }
 
     // ------------------------------------------------------------------ board tuning (Part F) --

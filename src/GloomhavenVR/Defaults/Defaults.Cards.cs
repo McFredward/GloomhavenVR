@@ -54,6 +54,10 @@ internal static partial class Defaults
     internal const float TrayYaw = 24.12019f;                                                         // => [Cards] TrayYaw
     internal const float TrayScale = 2f;                                                              // => [Cards] TrayScale
     internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
+    internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Limited;                         // => [Cards] BoardMoveMode
+    internal const float TrayPitch = 0f;                                                              // => [Cards] TrayPitch
+    internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees
+    internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
     internal const float SlotCardInset = 0.004f;                                                      // => [Cards] SlotCardInset
     internal const float SlotCardFill = 1.45f;                                                        // => [Cards] SlotCardFill

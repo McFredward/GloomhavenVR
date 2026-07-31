@@ -260,6 +260,14 @@ internal static partial class Loc
         ["vr_o_enemyreveal"] = Pair("Enemy cards", "Gegnerkarten"),
         ["vr_o_trayscale"] = Pair("Board size", "Brettgröße"),
         ["vr_o_trayfollow"] = Pair("Board follows you", "Brett folgt dir"),
+        // Item 12: the control-board movement scheme row + its three dropdown choices. The
+        // choice labels are what the preset row shows INSTEAD of the raw enum members
+        // (Free/Limited/LimitedPitch stay the config/log identity, exactly like the board
+        // materials above).
+        ["vr_o_boardmove"] = Pair("Board movement", "Brett-Bewegung"),
+        ["boardmove_free"] = Pair("Free", "Frei"),
+        ["boardmove_limited"] = Pair("Limited", "Begrenzt"),
+        ["boardmove_pitch"] = Pair("Limited + tilt", "Begrenzt mit Neigung"),
         ["vr_o_inspectscale"] = Pair("Close-up size", "Nahansicht"),
         ["vr_o_revealmode"] = Pair("Fan opens by", "Fächer öffnen"),
         ["vr_o_grabbutton"] = Pair("Grab button", "Greif-Taste"),
@@ -323,6 +331,7 @@ internal static partial class Loc
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),
         ["h_vr_o_trayscale"] = Pair("How large the control board is.", "Wie groß das Kontrollbrett ist."),
         ["h_vr_o_trayfollow"] = Pair("The board stays in front of you instead of fixed in the room.", "Das Brett bleibt vor dir statt fest im Raum."),
+        ["h_vr_o_boardmove"] = Pair("What grabbing the handle bar may do: keep the board level, let it tilt within limits, or move it freely in all axes.", "Was der Griff an der Leiste darf: Brett waagerecht halten, begrenzt neigen oder frei in alle Richtungen bewegen."),
         ["h_vr_o_inspectscale"] = Pair("How large a card gets when you hold it up to look at it.", "Wie groß eine Karte wird, wenn du sie zum Ansehen hochhältst."),
         ["h_vr_o_revealmode"] = Pair("Whether turning your wrist opens the card fan, or it is always out.", "Ob ein Drehen des Handgelenks den Fächer öffnet oder er immer offen ist."),
         ["h_vr_o_grabbutton"] = Pair("Which button picks a card up.", "Mit welcher Taste du eine Karte aufnimmst."),

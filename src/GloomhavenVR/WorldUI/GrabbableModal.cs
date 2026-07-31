@@ -222,15 +222,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     bool IPanelGrabOwner.GrabVisible =>
         _panel != null && _panel.IsAlive && _holder != null && _holder.gameObject.activeInHierarchy;
 
-    // Carry the yaw with the hand like the tray/combat log — nothing else authors the
-    // modal's rotation, so there is no two-writer jitter.
-    bool IPanelGrabOwner.GrabCarriesYaw => true;
+    // Carry the yaw with the hand like the combat log — nothing else authors the
+    // modal's rotation, so there is no two-writer jitter. Level in the plain WORLD
+    // frame: floated windows are not part of the item-11 "board stays level for its
+    // owner" contract, so they keep their historic behavior under a world tilt.
+    PanelCarryMode IPanelGrabOwner.CarryMode => PanelCarryMode.Level;
+    Quaternion IPanelGrabOwner.GrabLevelFrame => Quaternion.identity;
+    Vector2 IPanelGrabOwner.GrabPitchLimits => new(-180f, 180f);
 
     // Free placement: the menu stays wherever the user left it while open; a re-open
     // re-floats it at the HMD (ModalFallback), so there is nothing to persist here.
     //
     // RE-FACE ON RELEASE (user request): the one-hand carry yaws the panel with the HAND
-    // (GrabCarriesYaw), so dragging a window to the side leaves it turned to wherever the wrist
+    // (CarryMode Level), so dragging a window to the side leaves it turned to wherever the wrist
     // happened to point — readable only edge-on. The moment the LAST hand lets go (this is the
     // release edge: PanelGrabHandle.OnRelease calls it once _handA and _handB are both gone),
     // snap the rotation back to facing the player. POSITION IS UNTOUCHED — the window stays

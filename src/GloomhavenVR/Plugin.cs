@@ -322,16 +322,21 @@ public class Plugin : BaseUnityPlugin
             "saved here so it survives into a later phase.");
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
-            "Demeo-style world tilt in degrees (0-60, 0 = off/default). The ENTIRE play area " +
-            "(board, figures, everything) appears tilted toward you — great when playing " +
-            "reclined or lying down. Implemented rig-side: the VR tracking space is " +
-            "counter-rotated around the board center, so your viewpoint orbits up and over " +
-            "the board while world coordinates stay untouched (multiplayer-safe: boards and " +
-            "figures never move for anyone; other players merely see your avatar orbit, " +
-            "which is the physically honest picture). COMFORT WARNING: tilting reorients " +
-            "gravity relative to your head — the horizon no longer matches your inner ear. " +
-            "Increase in small steps (the settings panel steps 5 degrees) and prefer " +
-            "moderate angles. Live: changes apply immediately and persist.");
+            new ConfigDescription(
+                "Demeo-style world tilt in degrees (0-60, 0 = off/default). The ENTIRE play area " +
+                "(board, figures, everything) appears tilted toward you — great when playing " +
+                "reclined or lying down. Implemented rig-side: the VR tracking space is " +
+                "counter-rotated around the board center, so your viewpoint orbits up and over " +
+                "the board while world coordinates stay untouched (multiplayer-safe: boards and " +
+                "figures never move for anyone; other players merely see your avatar orbit, " +
+                "which is the physically honest picture). COMFORT WARNING: tilting reorients " +
+                "gravity relative to your head — the horizon no longer matches your inner ear. " +
+                "Increase in small steps (the settings panel steps 5 degrees) and prefer " +
+                "moderate angles. Live: changes apply immediately and persist. The declared " +
+                "0-60 range is what turns the curated settings row into a SLIDER (item 13); " +
+                "the runtime clamped to the same range before the range was declared, so no " +
+                "stored value changes meaning.",
+                new AcceptableValueRange<float>(0f, 60f)));
         MaskedReaimHeadRate = Config.Bind(
             "Rig", "MaskedReaimHeadRate", Defaults.MaskedReaimHeadRate,
             "World tilt only. When you physically turn your body/head, the direction the " +

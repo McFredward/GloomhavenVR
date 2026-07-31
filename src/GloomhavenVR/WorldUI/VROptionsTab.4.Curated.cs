@@ -227,6 +227,10 @@ internal static partial class VROptionsTab
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
+                        // Item 12: the board movement scheme (Frei / Begrenzt / Begrenzt mit
+                        // Neigung) — a special row (TryBuildSpecialRow) so the dropdown shows
+                        // localized labels instead of the raw enum member names.
+                        new("Cards", "BoardMoveMode", "vr_o_boardmove"),
                         new("Cards", "InspectScale", "vr_o_inspectscale"),
                         new("Cards", "RevealMode", "vr_o_revealmode"),
                         new("Cards", "GrabButton", "vr_o_grabbutton"),
@@ -360,14 +364,35 @@ internal static partial class VROptionsTab
     /// one table row rather than another branch.</para>
     /// </summary>
     private static bool HasSpecialRow(ConfigCatalog.ConfigItem item) =>
-        string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
-        && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal);
+        (string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
+         && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+            && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal));
 
     private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
                                            string? hintKey)
     {
         if (!HasSpecialRow(item))
             return false;
+
+        // Item 12: the board movement scheme is a user-facing CHOICE (like the board material or
+        // the hand style), so the dropdown must read in the player's language — the generic
+        // choice row would show the raw enum members "Free/Limited/LimitedPitch". The dropdown
+        // index maps 1:1 onto the enum values (Free=0/Limited=1/LimitedPitch=2, documented at
+        // the enum as the index map).
+        if (string.Equals(item.Section, "Cards", StringComparison.Ordinal))
+        {
+            string[] modeNames =
+            {
+                Loc.Mod("boardmove_free"),
+                Loc.Mod("boardmove_limited"),
+                Loc.Mod("boardmove_pitch"),
+            };
+            BuildPresetRow(parent, item, caption, hintKey, modeNames,
+                           (int)Cards.CardsConfig.BoardMoveMode.Value,
+                           index => Cards.CardsConfig.BoardMoveMode.Value = (Cards.BoardMoveMode)index);
+            return true;
+        }
 
         BuildPresetRow(parent, item, caption, hintKey, MixedReality.KeyColorNames, MixedReality.KeyColorIndex,
                        MixedReality.SetKeyColor);
