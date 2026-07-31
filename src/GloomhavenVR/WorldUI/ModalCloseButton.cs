@@ -40,6 +40,10 @@ internal static class ModalCloseButton
 {
     // Small + tasteful (was 46 px). Sits inset from the host's top-right corner.
     private const float ButtonSizePx = 34f;
+
+    /// <summary>How far (host px ≈ mm) the X floats toward the viewer, so its equal-tier canvas
+    /// deterministically draws over the window's coplanar content. Imperceptible in the headset.</summary>
+    private const float ViewerNudgePx = 4f;
     private const float InsetPx = 7f;
     // The "X" occupies the middle ~44 % of the plate — a compact glyph with clear margins.
     private const float BarLengthFraction = 0.44f;
@@ -54,11 +58,16 @@ internal static class ModalCloseButton
     /// incumbent.sortingOrder</c>), so wherever any game raycast target sat behind the X — a
     /// full-window frame image covers the whole menu — the game graphic won the hit and the X's
     /// own <see cref="Button"/> never fired (the log shows game widgets clicking fine but NOT a
-    /// single "MODAL CLOSE (X button)" line all session). Fix: give the X its OWN nested canvas
-    /// ABOVE the content at this order (the grab bar's "above the menu" order, <see
-    /// cref="GrabbableModal"/> BarSortingOrder) and register it as a nested surface of the host,
-    /// so the poke/laser (<see cref="UguiPointer.TryRaycast"/> merges <see
-    /// cref="UguiPokeSurfaces.NestedOf"/>) hit the X and it WINS the tie (1100 &gt; 1000).
+    /// single "MODAL CLOSE (X button)" line all session). Fix: an elevated nested canvas at this
+    /// order, registered as a nested surface of the host, so the poke/laser (<see
+    /// cref="UguiPointer.TryRaycast"/> merges <see cref="UguiPokeSurfaces.NestedOf"/>) hit it and
+    /// it WINS the tie (1100 &gt; 1000).
+    ///
+    /// <para>Since the perspective fix this order carries ONLY the invisible HitPlane. The
+    /// VISIBLE X sits on the modal tier (<see cref="ModalFallback"/>.ModalHostSortingOrder) like
+    /// the window and the at-hand info panels, where equal order lets camera distance decide —
+    /// the X at 1100 was the last element still drawing THROUGH a nearer info panel. Raycast
+    /// priority and draw priority genuinely need different orders here, hence two canvases.</para>
     /// </summary>
     private const int CloseButtonSortingOrder = 1100;
 
@@ -108,8 +117,8 @@ internal static class ModalCloseButton
         rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
 
         var img = go.AddComponent<Image>();
-        img.color = PlateColor; // muted dark board-styled plate; the raycast target
-        img.raycastTarget = true;
+        img.color = PlateColor; // muted dark board-styled plate
+        img.raycastTarget = false; // clicks land on the invisible HitPlane below, not the visuals
 
         var button = go.AddComponent<Button>();
         button.targetGraphic = img;
@@ -127,21 +136,56 @@ internal static class ModalCloseButton
             catch (Exception ex) { VRLog.Error("WorldUI", $"Modal X button action threw: {ex}"); }
         });
 
-        // Issue #8 fix (see CloseButtonSortingOrder): lift the X onto its OWN nested canvas ABOVE
-        // the adopted game content so it WINS the coplanar raycast tie the shared order-1000 lost.
-        // The plate's Image now registers with THIS canvas (not the host), so it must be merged
-        // into the host's hit-testing via UguiPokeSurfaces.RegisterNested — exactly how adopted
-        // game canvases are queried by UguiPointer.TryRaycast. Cleaned up automatically: on
-        // CanvasConversion.Release the host is UguiPokeSurfaces.Unregister'd (drops nested lists)
-        // and this GameObject is destroyed with the host.
+        // DRAW and RAYCAST split onto two canvases, because they need DIFFERENT orders.
+        //
+        // The VISUALS sit on the modal tier (ModalHostSortingOrder), like the window and the
+        // at-hand info panels: at an equal order Unity breaks the transparent-UI tie by camera
+        // distance, so an info panel held between the player and the menu now occludes the X
+        // exactly as it occludes the window. The old single canvas at 1100 was the last thing
+        // still piercing the panels — order beat distance, and depth never got a vote.
+        //
+        // Equal order against the window's own coplanar content would leave the X-vs-window draw
+        // undefined, so the whole button is NUDGED a few px toward the viewer. The side the
+        // viewer is on is MEASURED from the head camera, not assumed from the canvas axes.
         var xCanvas = go.AddComponent<Canvas>();
         xCanvas.overrideSorting = true;
-        xCanvas.sortingOrder = CloseButtonSortingOrder;
+        xCanvas.sortingOrder = ModalFallback.ModalHostSortingOrder;
         if (hostCanvas != null)
             xCanvas.worldCamera = hostCanvas.worldCamera; // match the host's event camera (adoption pattern)
-        go.AddComponent<GraphicRaycaster>();
+
+        Camera? cam = hostCanvas != null ? hostCanvas.worldCamera : null;
+        float toViewer = cam != null
+            ? Mathf.Sign(Vector3.Dot(host.forward, cam.transform.position - host.position))
+            : -1f; // fallback: converted panels face the player from their -Z side
+        rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y,
+                                         toViewer * ViewerNudgePx);
+
+        // The RAYCAST keeps the elevated order (issue #8), on an INVISIBLE plate: Beats()
+        // compares sortingLayer then sortingOrder and never distance, so this is what lets the X
+        // win the cross-raycaster tie against the adopted game content behind it — WITHOUT also
+        // winning the draw against a nearer info panel. Registered as a nested surface exactly
+        // like before; released with the host, so no teardown of its own.
+        var hitGo = new GameObject("HitPlane") { layer = layer };
+        var hitRect = hitGo.AddComponent<RectTransform>();
+        hitRect.SetParent(rect, worldPositionStays: false);
+        hitRect.anchorMin = Vector2.zero;
+        hitRect.anchorMax = Vector2.one;
+        hitRect.offsetMin = Vector2.zero;
+        hitRect.offsetMax = Vector2.zero;
+        hitRect.localScale = Vector3.one;
+        hitRect.localRotation = Quaternion.identity;
+        hitRect.localPosition = new Vector3(hitRect.localPosition.x, hitRect.localPosition.y, 0f);
+        var hitImg = hitGo.AddComponent<Image>();
+        hitImg.color = new Color(0f, 0f, 0f, 0f); // invisible; Graphic raycasting ignores alpha
+        hitImg.raycastTarget = true;
+        var hitCanvas = hitGo.AddComponent<Canvas>();
+        hitCanvas.overrideSorting = true;
+        hitCanvas.sortingOrder = CloseButtonSortingOrder;
         if (hostCanvas != null)
-            UguiPokeSurfaces.RegisterNested(hostCanvas, xCanvas);
+            hitCanvas.worldCamera = hostCanvas.worldCamera;
+        hitGo.AddComponent<GraphicRaycaster>();
+        if (hostCanvas != null)
+            UguiPokeSurfaces.RegisterNested(hostCanvas, hitCanvas);
 
         // Two crossed bars form the "X" (font-free → always visible). Children of the plate → they
         // draw on the X's own canvas, on top of the menu, with the plate.

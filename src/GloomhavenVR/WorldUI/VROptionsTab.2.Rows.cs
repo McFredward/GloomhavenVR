@@ -499,6 +499,19 @@ internal static partial class VROptionsTab
             title.text = caption;
             // A button's caption sits in its middle; a setting's caption sits at the left edge.
             title.alignment = TextAlignmentOptions.Center;
+            // The template's Title rect only spans the LABEL COLUMN and ellipsizes what does not
+            // fit — "Alle Einstellungen von Led…" says nothing. The option column is hidden on an
+            // action row, so the caption may have the whole row: stretch the rect and autosize
+            // down rather than truncate. A button whose label is cut off does not say what it does.
+            var titleRect = (RectTransform)title.transform;
+            titleRect.anchorMin = Vector2.zero;
+            titleRect.anchorMax = Vector2.one;
+            titleRect.offsetMin = new Vector2(14f, 2f);
+            titleRect.offsetMax = new Vector2(-14f, -2f);
+            title.enableWordWrapping = false;
+            title.enableAutoSizing = true;
+            title.fontSizeMin = 9f;
+            title.overflowMode = TextOverflowModes.Overflow;
         }
         if (option != null)
             option.gameObject.SetActive(false);
@@ -552,9 +565,11 @@ internal static partial class VROptionsTab
         var button = row.AddComponent<Button>();
         button.targetGraphic = hit;
         ColorBlock colors = button.colors;
-        colors.normalColor = new Color(0f, 0f, 0f, 0.30f);              // quiet dark plate
-        colors.highlightedColor = new Color(0.45f, 0.36f, 0.16f, 0.55f); // hover warms toward the game's gold
-        colors.pressedColor = new Color(0.65f, 0.52f, 0.22f, 0.75f);
+        // The first plate (black at 30 %) vanished on the window's own dark ground — the rows
+        // read as bare text again. A warm bronze plate is visible at rest on that background.
+        colors.normalColor = new Color(0.30f, 0.25f, 0.15f, 0.50f);
+        colors.highlightedColor = new Color(0.50f, 0.40f, 0.18f, 0.70f); // hover: the game's gold
+        colors.pressedColor = new Color(0.68f, 0.55f, 0.24f, 0.85f);
         colors.selectedColor = colors.normalColor;
         colors.fadeDuration = 0.08f;
         button.colors = colors;
