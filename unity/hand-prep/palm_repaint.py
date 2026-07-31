@@ -50,11 +50,17 @@
 # RUN (headless):
 #   /home/claw/blender-4.2/blender --background --python unity/hand-prep/palm_repaint.py -- \
 #       <L.fbx> <R.fbx> <albedo.png> <out.png> [--blur 14] [--grain 0.55] [--pad 6]
-import bpy, bmesh, sys, os, math
+#
+# The atlas machinery — the rasteriser of step 1 and the gutter fill of step 5 — now lives in
+# palm_atlas.py, because palm_leather.py (which paints the gauntlet's leather palm on top of
+# this base) needs exactly the same two things and a second copy would drift. Re-running this
+# script from the pre-repaint atlas reproduces the committed PNG texel for texel.
+import bpy, sys, os, math
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from palm_region import palm_weight   # noqa: E402
+from palm_atlas import (load_atlas, save_atlas, rasterise, gutter_fill,   # noqa: E402
+                        assert_outside_untouched)
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 OPTS = ("--blur", "--grain", "--pad", "--seed")
@@ -88,95 +94,10 @@ def log(*a):
 
 
 # ------------------------------------------------------------------ read the atlas exactly
-img = bpy.data.images.load(os.path.abspath(SRC_PNG))
-img.colorspace_settings.name = 'Non-Color'   # raw 8-bit values, no transfer function applied
-W, H = img.size
-buf = np.empty(W * H * 4, np.float32)
-img.pixels.foreach_get(buf)
-A0 = buf.reshape(H, W, 4).copy()             # row 0 is the BOTTOM row, as UV v=0 is
-log(f"atlas {SRC_PNG}: {W}x{H}, {A0.shape[2]} channels")
+A0, W, H = load_atlas(SRC_PNG, log=log)
 
 # ------------------------------------------------------------------ rasterise both hands
-tw = np.zeros((H, W), np.float32)            # palm weight per texel
-tp = np.zeros((H, W, 3), np.float32)         # 3-D point per texel, mm
-used = np.zeros((H, W), bool)                # any face at all samples this texel
-blocked = np.zeros((H, W), bool)             # a NON-palm face samples this texel
-got = np.zeros((H, W), bool)                 # the reference hand gave this texel a 3-D point
-
-# The last FBX is the GEOMETRY REFERENCE: its world positions define the surface the blur and
-# the grain live on. L and R share this atlas and this UV layout but are mirror images, so
-# letting both write positions would make one texel mean two different points in space and drag
-# the plate frame across both hands. Both still contribute coverage and palm weight, so a texel
-# either hand uses outside the palm is still protected.
-for path in FBXS:
-    is_ref = path == FBXS[-1]
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.fbx(filepath=path)
-    ob = [o for o in bpy.data.objects if o.type == 'MESH'][0]
-    me = ob.data
-    bm = bmesh.new()
-    bm.from_mesh(me)
-    w, P, _, _ = palm_weight(ob, bm, bpy.context.evaluated_depsgraph_get(), log=log)
-    bm.free()
-    me.calc_loop_triangles()
-    uvd = me.uv_layers.active.data
-    npal = 0
-    for t in me.loop_triangles:
-        li = t.loops
-        vi = t.vertices
-        uv = np.array([[uvd[l].uv[0], uvd[l].uv[1]] for l in li])
-        wv = np.array([w[v] for v in vi])
-        pv = np.array([P[v] for v in vi])
-        px = uv * np.array([W, H])
-        x0 = max(int(math.floor(px[:, 0].min())) - 1, 0)
-        x1 = min(int(math.ceil(px[:, 0].max())) + 1, W)
-        y0 = max(int(math.floor(px[:, 1].min())) - 1, 0)
-        y1 = min(int(math.ceil(px[:, 1].max())) + 1, H)
-        if x1 <= x0 or y1 <= y0:
-            continue
-        xs = np.arange(x0, x1) + 0.5
-        ys = np.arange(y0, y1) + 0.5
-        gx, gy = np.meshgrid(xs, ys)
-        a, b, c = px[0], px[1], px[2]
-        d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
-        if abs(d) < 1e-12:
-            continue
-        l0 = ((b[1] - c[1]) * (gx - c[0]) + (c[0] - b[0]) * (gy - c[1])) / d
-        l1 = ((c[1] - a[1]) * (gx - c[0]) + (a[0] - c[0]) * (gy - c[1])) / d
-        l2 = 1.0 - l0 - l1
-        # a texel counts as covered when its centre is in the triangle, plus a small skirt so
-        # neighbouring triangles of one island never leave an unpainted line of old pigment
-        inside = (l0 > -0.02) & (l1 > -0.02) & (l2 > -0.02)
-        if not inside.any():
-            continue
-        sub = np.s_[y0:y1, x0:x1]
-        used[sub] |= inside
-        fw3 = l0 * wv[0] + l1 * wv[1] + l2 * wv[2]
-        fw3 = np.clip(fw3, 0.0, 1.0)
-        if wv.max() <= 0.0:
-            blocked[sub] |= inside
-            continue
-        npal += 1
-        better = inside & (fw3 > tw[sub])
-        cur = tw[sub]
-        cur[better] = fw3[better]
-        tw[sub] = cur
-        if is_ref:
-            got[sub] |= inside
-            for k in range(3):
-                comp = l0 * pv[0][k] + l1 * pv[1][k] + l2 * pv[2][k]
-                layer = tp[sub][..., k]
-                layer[better] = comp[better]
-                tp[sub][..., k] = layer
-    log(f"{os.path.basename(path)}: {npal} palm triangles rasterised")
-
-tw[blocked] = 0.0
-tw[~got] = 0.0
-palm = tw > 0.0
-log(f"texels: {int(used.sum())} used by the mesh, {int(palm.sum())} in the palm "
-    f"({int((tw > 0.99).sum())} at full weight), {int((~used).sum())} gutter")
-if palm.sum() < 10000:
-    raise SystemExit("palm_repaint: the palm barely covers the atlas — the rasteriser is wrong")
+tw, tp, _, _, used, palm = rasterise(FBXS, W, H, log=log)
 
 # ------------------------------------------------------------------ smooth in SURFACE space
 # A 3-D grid, not a 2-D projection into the plate's tangent frame. The projection was tried
@@ -273,48 +194,8 @@ blend = tw[idx][:, None]
 A1[idx[0], idx[1], :3] = np.clip(A0[idx][:, :3] * (1 - blend) + new * blend, 0.0, 1.0)
 
 # ------------------------------------------------------------------ gutter fill
-gut = ~used
-if PAD > 0 and gut.any():
-    src = np.zeros((H, W, 2), np.int32)
-    yy, xx = np.mgrid[0:H, 0:W]
-    src[..., 0] = yy
-    src[..., 1] = xx
-    known = used.copy()
-    for _ in range(PAD):
-        nxt = known.copy()
-        cand = (~known)
-        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
-            nb = np.roll(known, (dy, dx), (0, 1))
-            take = cand & nb
-            if not take.any():
-                continue
-            rs = np.roll(src, (dy, dx, 0), (0, 1, 2))
-            src[take] = rs[take]
-            nxt |= take
-            cand &= ~take
-        if not (nxt ^ known).any():
-            break
-        known = nxt
-    grown = known & gut
-    A1[grown] = A1[src[grown][:, 0], src[grown][:, 1]]
-    log(f"gutter fill: {int(grown.sum())} unused texels filled from their nearest island "
-        f"({PAD} texel skirt)")
+gutter_fill(A1, used, PAD, log=log)
 
 # ------------------------------------------------------------------ proof
-q0 = np.round(A0 * 255).astype(np.int16)
-q1 = np.round(A1 * 255).astype(np.int16)
-diff = (np.abs(q0 - q1).max(2) > 0)
-outside_changed = int((diff & used & (tw <= 0.0)).sum())
-log(f"texels changed: {int(diff.sum())} total, {int((diff & palm).sum())} in the palm, "
-    f"{int((diff & gut).sum())} in the gutter, {outside_changed} used-by-something-else")
-if outside_changed:
-    raise SystemExit(f"palm_repaint: {outside_changed} texels OUTSIDE the palm changed — aborting")
-
-out = bpy.data.images.new("out", W, H, alpha=(A0.shape[2] == 4))
-out.colorspace_settings.name = 'Non-Color'
-out.pixels.foreach_set(A1.reshape(-1).astype(np.float32))
-out.file_format = 'PNG'
-out.filepath_raw = os.path.abspath(DST_PNG)
-out.save()
-log(f"wrote {DST_PNG} ({os.path.getsize(DST_PNG)} bytes, source was "
-    f"{os.path.getsize(SRC_PNG)})")
+assert_outside_untouched(A0, A1, used, palm, log=log, tag="palm_repaint")
+save_atlas(A1, W, H, DST_PNG, alpha=(A0.shape[2] == 4), log=log)
