@@ -347,7 +347,8 @@ internal sealed partial class PlayTray
         {
             _itemUseConfirm = BoardButton.Create(confirmParent, rectSize,
                 new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
-                Core.Loc.Game("GUI_USE", "USE"),
+                _itemUseConfirmLabel ?? Core.Loc.Game("GUI_USE", "USE"), // surrender picks override the label
+
                 () => _itemUseConfirmAction?.Invoke(),
                 round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
                 capCategory: WorldUI.ButtonTuning.CapCategory.Board);

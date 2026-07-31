@@ -170,8 +170,69 @@ internal sealed partial class CardsDriver
     /// Cheap: a handful of int reads; every string is rebuilt only when its inputs
     /// changed (SetPickStatus change-gates on the banner text).
     /// </summary>
+    // Change-gate for the item-surrender banner (see UpdateItemDemandStatus).
+    private (CPlayerActor? actor, int wanted, int selected, bool refreshing, string lang, int trayId)? _itemStatusKey;
+
+    /// <summary>
+    /// Item-surrender pick (event consume/refresh mali): while the game's ItemCardPicker
+    /// demands items from the presented hand's actor, the pick banner shows WHO owes WHAT —
+    /// the picker's own game-localized hint title when it has one (the GUI_CONSUME_ITEMS_TITLE
+    /// format incl. the slot type), a Loc.Mod fallback otherwise, plus the selection progress.
+    /// Returns true while it owns the banner (the card-pick branch then stands down). The
+    /// COMMIT affordance is the item-use slot's own button ("ITEM ABGEBEN"), not the tray
+    /// CONFIRM — so no keycap overrides are pushed here.
+    /// </summary>
+    private bool UpdateItemDemandStatus(CardsHandUI? hand)
+    {
+        ItemCardPicker? picker = null;
+        CPlayerActor? actor = null;
+        bool refreshing = false;
+        if (hand != null && _tray.IsVisible)
+        {
+            picker = CardsGameApi.OpenItemPicker(out actor, out refreshing);
+            if (picker != null && (actor == null || !ReferenceEquals(hand.PlayerActor, actor)))
+                picker = null; // demand for a different (remote) actor — not ours to banner
+        }
+        if (picker == null)
+        {
+            if (_itemStatusKey.HasValue)
+            {
+                _itemStatusKey = null;
+                _pickStatusKey = null; // let the card branch (or the clear path) repopulate
+                _tray.SetPickStatus(null, null, null);
+            }
+            return false;
+        }
+
+        int wanted = CardsGameApi.ItemPickWanted(picker);
+        int selected = CardsGameApi.ItemPickSelectedCount(picker);
+        var key = (actor, wanted, selected, refreshing, Core.Loc.CurrentLanguage,
+                   _tray.Root != null ? _tray.Root.GetInstanceID() : 0);
+        if (_itemStatusKey.HasValue && _itemStatusKey.Value.Equals(key))
+            return true;
+        _itemStatusKey = key;
+        _pickStatusKey = null; // the banner is ours now; a later card pick re-pushes its own
+
+        string who = actor != null ? CardsGameApi.ActorLabel(actor) : string.Empty;
+        string what = CardsGameApi.ItemPickHintTitle(picker)
+                      ?? Core.Loc.Mod(refreshing ? "item_refresh_demand" : "item_surrender_demand");
+        string line;
+        try
+        {
+            line = what + " — " + string.Format(Core.Loc.Mod("pick_progress"), selected, wanted);
+        }
+        catch (System.FormatException)
+        {
+            line = $"{what} — {selected}/{wanted}";
+        }
+        _tray.SetPickStatus(who.Length > 0 ? who + ": " + line : line, null, null);
+        return true;
+    }
+
     private void UpdatePickStatus(CardsHandUI? hand)
     {
+        if (UpdateItemDemandStatus(hand))
+            return; // the item-surrender demand owns the banner while its picker is open
         if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand)))
         {
             if (_pickStatusKey.HasValue)

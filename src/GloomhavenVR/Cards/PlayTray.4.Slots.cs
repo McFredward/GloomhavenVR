@@ -337,13 +337,20 @@ internal sealed partial class PlayTray
     /// <see cref="ItemsPile"/> when a card clips into the slot (visible, with the use callback) and
     /// when the decision resolves (hidden, null). The CANCEL is grabbing the card out, so no button.
     /// </summary>
-    internal void SetItemUseConfirmVisible(bool visible, System.Action? onConfirm)
+    internal void SetItemUseConfirmVisible(bool visible, System.Action? onConfirm, string? label = null)
     {
         _itemUseConfirmAction = visible ? onConfirm : null;
+        // Item-surrender pick (event mali): the button may carry a demand-specific label
+        // ("ITEM ABGEBEN") instead of the default "USE" — the user must never read a
+        // surrender as an ordinary use. Null = default. A label change while visible
+        // rebuilds the cluster so the cap re-fits the new text.
+        string? wantLabel = visible ? label : null;
+        bool labelChanged = visible && _itemUseActive && wantLabel != _itemUseConfirmLabel;
+        _itemUseConfirmLabel = wantLabel;
         // Requirement 9a: the "Use" confirm is a dynamic member of the generic cluster. Toggling it
         // changes the member COUNT (2 ↔ 3), so the whole Confirm/Undo/Use stack must re-lay-out (and the
         // caps re-size to fit) — rebuild the cluster on an actual change, then show/hide the fresh button.
-        if (visible != _itemUseActive)
+        if (visible != _itemUseActive || labelChanged)
         {
             _itemUseActive = visible;
             RebuildAttachedControls(); // rebuilds Confirm/Undo (+ Use when active) at the new count

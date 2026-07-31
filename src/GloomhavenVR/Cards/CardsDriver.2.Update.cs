@@ -675,6 +675,11 @@ internal sealed partial class CardsDriver
         }
         UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
         UpdatePickStatus(_fakeActive ? null : hand);  // event-discard: pick banner + CONFIRM/UNDO keycap overrides
+        // Item-surrender pick (event consume/refresh mali): pump runs whenever the tray exists,
+        // independent of the pile-stack visibility gate inside _piles.TickStatus — the demand
+        // can arrive at scenario start before any pile UI has shown.
+        if (_tray.IsVisible)
+            _piles.TickItemDemand(_fakeActive ? null : hand);
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
 
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
@@ -830,7 +835,13 @@ internal sealed partial class CardsDriver
         // same-mode turn hand-off and leave us docking the previous character's cards (every
         // click then silently rejected). Outside ActionSelection, fall back to the presented
         // hand as before.
-        CardsHandUI? hand = CardsGameApi.ActionSelectionHand() ?? CardsGameApi.ActiveHand();
+        // Item-surrender pick (event consume/refresh mali): while the game's ItemCardPicker is
+        // open for a locally-controlled actor, present THAT actor's hand — at scenario start no
+        // CardsHandManager.Show has run, so ActiveHand may be null and no surface (tray/piles/
+        // item fan) would exist for the demanded selection (the item twin of the discard fix).
+        CardsHandUI? hand = CardsGameApi.ActionSelectionHand()
+                            ?? CardsGameApi.ItemPickHand()
+                            ?? CardsGameApi.ActiveHand();
         return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
     }
 
