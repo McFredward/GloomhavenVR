@@ -674,6 +674,7 @@ internal sealed partial class CardsDriver
             _burnWatchHand = null; // tray hidden — re-baseline the burnt set when it returns
         }
         UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
+        UpdatePickStatus(_fakeActive ? null : hand);  // event-discard: pick banner + CONFIRM/UNDO keycap overrides
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
 
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change

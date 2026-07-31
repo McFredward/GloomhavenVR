@@ -138,11 +138,113 @@ internal sealed partial class CardsDriver
             // pulses BOTH slot overlays until both cards are laid, then none; a one-card
             // burn pulses the left slot only. Previously only the single "next" slot
             // glowed, which read as "the other slot is not a target".
-            int want = CardsGameApi.PickCardsWanted();
-            for (int i = _fieldCards.Count; i < want && i < 2; i++)
-                mask |= 1 << i;
+            // EVENT-DISCARD BATCHING: the wanted count is the LIVE BATCH — min(2, total
+            // still owed after the locked batches) — and only cards of the live batch
+            // (beyond the locked prefix) count as placed, so a "discard 3" pulses both
+            // slots, then (after WEITER) the left slot for the final card.
+            int locked = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
+            int want = Mathf.Min(2, CardsGameApi.PickCardsWanted() - locked);
+            for (int i = _fieldCards.Count - locked; i < want && i < 2; i++)
+                mask |= 1 << i; // i ≥ 0: locked is clamped to the field count above
         }
         _tray.SetWantedSlots(mask);
+    }
+
+    // ------------------------------------------------------ pick progress + confirm routing --
+
+    // Change-gate for UpdatePickStatus: the full input tuple of the strings it builds
+    // (plus the tray root's identity, so a board switch/teardown re-pushes the banner
+    // to the freshly built tray). The strings (Format/concat) are only rebuilt when
+    // any input changed — never per frame.
+    private (CardHandMode mode, int total, int locked, int placed, bool dialog, bool reopen,
+             CPlayerActor? actor, string lang, int trayId)? _pickStatusKey;
+
+    /// <summary>
+    /// EVENT-DISCARD VR FLOW (pre-scenario "Begegnungen" mali, and every other modal card
+    /// pick): drive the board's pick banner + the CONFIRM/UNDO keycap overrides each tick.
+    /// The banner names the AFFECTED CHARACTER and the requirement in the player's language
+    /// (Loc.Mod — e.g. "Seuchen Harald: Wähle 2 von 3 Karten zum Abwerfen — Schritt 1/2"),
+    /// the keycap labels mirror the game's own dialog options while its confirm popup is
+    /// open ("Karten abwerfen" / "Wähle eine andere Karte") and offer "WEITER" while a
+    /// &gt;2-card requirement still owes a batch. Cleared whenever no pick flow is live.
+    /// Cheap: a handful of int reads; every string is rebuilt only when its inputs
+    /// changed (SetPickStatus change-gates on the banner text).
+    /// </summary>
+    private void UpdatePickStatus(CardsHandUI? hand)
+    {
+        if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand)))
+        {
+            if (_pickStatusKey.HasValue)
+            {
+                _pickStatusKey = null;
+                _tray.SetPickStatus(null, null, null);
+            }
+            return;
+        }
+
+        CardHandMode mode = CardsGameApi.Mode(hand);
+        int total = CardsGameApi.PickCardsWanted();
+        int locked = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
+        int batchWant = Mathf.Clamp(total - locked, 0, 2);
+        int placed = Mathf.Max(0, _fieldCards.Count - locked);
+        bool dialogOpen = CardsGameApi.IsPickConfirmDialogOpen(hand);
+        var key = (mode, total, locked, placed, dialogOpen, _pickReopenBusy,
+                   hand.PlayerActor, Core.Loc.CurrentLanguage,
+                   _tray.Root != null ? _tray.Root.GetInstanceID() : 0);
+        if (_pickStatusKey.HasValue && _pickStatusKey.Value.Equals(key))
+            return; // nothing changed — keep the tray's cached strings
+        _pickStatusKey = key;
+        string who = hand.PlayerActor != null ? CardsGameApi.ActorLabel(hand.PlayerActor) : string.Empty;
+
+        string verb = mode switch
+        {
+            CardHandMode.DiscardCard => Core.Loc.Mod("pick_verb_discard"),
+            CardHandMode.LoseCard => Core.Loc.Mod("pick_verb_lose"),
+            CardHandMode.RecoverDiscardedCard or CardHandMode.RecoverLostCard => Core.Loc.Mod("pick_verb_recover"),
+            _ => Core.Loc.Mod("pick_verb_select"),
+        };
+        int totalSteps = total > 2 ? (total + 1) / 2 : 1;
+        int step = Mathf.Clamp(locked / 2 + 1, 1, totalSteps);
+
+        string banner;
+        string? confirmLabel = null;
+        string? undoLabel = null;
+        if (dialogOpen)
+        {
+            // All required cards are selected — the game's confirm popup is up. The tray
+            // CONFIRM presses its commit option, UNDO its "choose another card"; both
+            // keycaps carry the popup's OWN (game-localized) option labels.
+            banner = Compose(who, Core.Loc.Mod("pick_confirm_hint"));
+            confirmLabel = CardsGameApi.PickDialogOptionLabel(cancel: false)
+                           ?? Core.Loc.Game("GUI_CONFIRM", "Confirm");
+            undoLabel = CardsGameApi.PickDialogOptionLabel(cancel: true)
+                        ?? Core.Loc.Game("GUI_CHOOSE_OTHER_CARD", "Choose another card");
+        }
+        else
+        {
+            string line;
+            try
+            {
+                line = totalSteps > 1
+                    ? string.Format(Core.Loc.Mod("pick_status_step"), batchWant, total, verb, step, totalSteps)
+                    : string.Format(Core.Loc.Mod("pick_status"), total, verb);
+                if (placed > 0 && batchWant > 0)
+                    line += " — " + string.Format(Core.Loc.Mod("pick_progress"), placed, batchWant);
+            }
+            catch (System.FormatException)
+            {
+                line = $"{placed}/{total}"; // a malformed Loc entry must never kill the tick
+            }
+            banner = Compose(who, line);
+            // Batch lock available (>1 full batch still outstanding + the live batch is
+            // full): the CONFIRM keycap becomes "WEITER" and routes to TryLockPickBatch.
+            if (total - locked > 2 && placed >= 2 && !_pickReopenBusy)
+                confirmLabel = Core.Loc.Mod("pick_batch_next");
+        }
+        _tray.SetPickStatus(banner, confirmLabel, undoLabel);
+
+        static string Compose(string who, string line) =>
+            who.Length > 0 ? who + ": " + line : line;
     }
 
     // ------------------------------------------------------- initiative to-do (item 6) --
@@ -555,6 +657,38 @@ internal sealed partial class CardsDriver
         //   spin-wait, ScenarioRuleClient.Pass only messages the SRL).
         // Every outcome logs the RESOLVED game state.
         ForeignInteraction("tray CONFIRM");
+
+        // EVENT-DISCARD DEADLOCK FIX (pre-scenario "Begegnungen" mali; MP hardware log,
+        // remote Player.log:11706ff): the game's burn/discard confirm DialogPopup used to
+        // be the ONLY commit affordance, and reaching for it kept trigger-grabbing the
+        // placed pick card instead (lift-priority fallback) — which auto-cancelled the
+        // popup through the reopen seam, forever. The tray CONFIRM is now the pick
+        // flow's confirm: while the popup is open it presses the popup's OWN commit
+        // option (game callback → OnLoseCardClick → the game's networked per-card
+        // GameActions); while a >2-card requirement still owes cards it locks the
+        // current batch of two instead (pure VR bookkeeping, see TryLockPickBatch).
+        CardsHandUI? pickHand = CurrentHand();
+        if (pickHand != null && IsPickMode(CardsGameApi.Mode(pickHand)))
+        {
+            if (CardsGameApi.IsPickConfirmDialogOpen(pickHand))
+            {
+                CardActionQueue.Enqueue(
+                    () =>
+                    {
+                        bool fired = CardsGameApi.ConfirmPickDialog();
+                        VRLog.Info("Cards", "Board: CONFIRM → pick confirm dialog commit option " +
+                                            (fired ? "pressed (game's own OnLoseCardClick path — outcome networked by the game)."
+                                                   : "not pressable (dialog closed before the queued press)."));
+                    },
+                    () => _dirty = true);
+                return;
+            }
+            if (TryLockPickBatch(pickHand))
+                return;
+            // Not a dialog/batch state (e.g. the recover flows arm the ReadyButton) —
+            // fall through to the normal dispatch below.
+        }
+
         CardActionQueue.Enqueue(
             () =>
             {
@@ -584,6 +718,23 @@ internal sealed partial class CardsDriver
     private void OnUndoRequested()
     {
         ForeignInteraction("tray UNDO");
+        // EVENT-DISCARD DEADLOCK FIX: while the pick confirm dialog is open, UNDO is the
+        // dialog's own CANCEL ("Wähle eine andere Karte") — the game deselects every
+        // pick and the candidates return to the fan for a fresh choice. Queued: the
+        // cancel callback runs DeselectAllCards (the spin-wait path).
+        CardsHandUI? pickHand = CurrentHand();
+        if (pickHand != null && CardsGameApi.IsPickConfirmDialogOpen(pickHand))
+        {
+            CardActionQueue.Enqueue(
+                () => CardsGameApi.CancelPickConfirmDialog(),
+                () =>
+                {
+                    VRLog.Info("Cards", "Board: UNDO → pick confirm dialog CANCEL (the game's own " +
+                                        "\"choose another card\") — all picks reopened, candidates back in the fan.");
+                    _dirty = true;
+                });
+            return;
+        }
         CardActionQueue.Enqueue(
             () =>
             {
@@ -958,7 +1109,10 @@ internal sealed partial class CardsDriver
         CloseBrowser(CardsGameApi.InScenario ? "no active hand" : "scenario ended");
         _tray.SetPickActive(false);
         _tray.SetWantedSlots(0);
+        _tray.SetPickStatus(null, null, null); // event-discard banner/keycap overrides never outlive the hand
+        _pickStatusKey = null;
         _fieldCards.Clear();
+        _pickLockedCount = 0;
         RemoveShortRestCard(); // sacrifice display never survives losing the active hand (item 1d)
 
         bool wantFake = Plugin.DevMode.Value && CardsConfig.DevFakeHand.Value > 0 && !CardsGameApi.InScenario;

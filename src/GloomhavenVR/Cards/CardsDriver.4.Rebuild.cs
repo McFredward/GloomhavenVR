@@ -369,7 +369,13 @@ internal sealed partial class CardsDriver
                     VRCard occupant = _fieldCards[i];
                     if (occupant == null || occupant.GameCard == null
                         || (!_pickReopenBusy && !occupant.GameCard.IsSelected))
+                    {
+                        // Event-discard batching: a pruned LOCKED card shrinks the
+                        // locked prefix (the step display recomputes from it).
+                        if (i < _pickLockedCount)
+                            _pickLockedCount--;
                         _fieldCards.RemoveAt(i);
+                    }
                 }
                 // Item 9: the SELECTABLE widgets become the fan. In CardsSelection the
                 // fan is the real hand; in the burn-two-discarded flow the game marks
@@ -468,6 +474,7 @@ internal sealed partial class CardsDriver
         if (!pick)
         {
             _fieldCards.Clear();
+            _pickLockedCount = 0;     // event-discard batching never survives the mode
             _loggedPickSource = null; // re-entering a pick mode logs its source afresh (item 9)
         }
 

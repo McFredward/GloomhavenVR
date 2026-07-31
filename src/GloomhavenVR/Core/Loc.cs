@@ -169,6 +169,25 @@ internal static partial class Loc
         ["short_rest"] = Pair("Short rest", "Kurze Rast"),
         ["active"] = Pair("Active", "Aktiv"),
 
+        // ---- event-outcome card picks ("Begegnungen" pre-scenario mali + every modal pick) ----
+        // The pick banner is composed as "<Charakter>: <pick_status[_step]>[ — <pick_progress>]".
+        // The verb slot ({1}/{2}) is a nominal phrase so it composes grammatically in both
+        // languages ("Wähle 2 Karten zum Abwerfen" / "Choose 2 cards to discard").
+        ["pick_verb_discard"] = Pair("to discard", "zum Abwerfen"),
+        ["pick_verb_lose"] = Pair("to lose", "zum Verlieren"),
+        ["pick_verb_recover"] = Pair("to recover", "zum Zurückholen"),
+        ["pick_verb_select"] = Pair("to select", "zur Auswahl"),
+        ["pick_status"] = Pair("Choose {0} card(s) {1}", "Wähle {0} Karte(n) {1}"),
+        ["pick_status_step"] = Pair("Choose {0} of {1} cards {2} — step {3}/{4}",
+                                    "Wähle {0} von {1} Karten {2} — Schritt {3}/{4}"),
+        ["pick_progress"] = Pair("{0}/{1} placed", "{0}/{1} gewählt"),
+        // Shown while the game's own confirm popup is open — the tray CONFIRM/UNDO keycaps
+        // carry the popup's own option labels, the banner explains where to press.
+        ["pick_confirm_hint"] = Pair("All cards placed — commit with the board button (or take a card back to swap)",
+                                     "Alle Karten liegen — mit der Board-Taste abschließen (oder eine Karte zum Tauschen zurücknehmen)"),
+        // The intermediate batch confirm for >2-card requirements (batches of two).
+        ["pick_batch_next"] = Pair("NEXT", "WEITER"),
+
         // ---- SettingsPanel: sections / labels / buttons ----
         ["comfort"] = Pair("Comfort", "Komfort"),
         ["table_scale"] = Pair("Table scale", "Tischgröße"),
