@@ -224,6 +224,7 @@ internal static partial class Loc
         ["vr_o_worldtilt"] = Pair("World tilt", "Weltneigung"),
         ["vr_o_primaryhand"] = Pair("Dominant hand", "Dominante Hand"),
         ["vr_o_rayalways"] = Pair("Laser always on", "Laser immer an"),
+        ["vr_var_copy"] = Pair("↴ Take all settings from {0}", "↴ Alle Einstellungen von {0} übernehmen"),
         ["vr_o_stickscroll"] = Pair("Scroll with the stick only", "Nur mit dem Stick scrollen"),
         ["vr_o_laserorigin"] = Pair("Laser origin", "Laser-Ursprung"),
         ["vr_o_raycone"] = Pair("Laser cone", "Laser-Kegel"),

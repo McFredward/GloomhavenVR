@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using UnityEngine;
@@ -539,14 +540,112 @@ internal sealed class StatPanelSurface
             group.blocksRaycasts = false;
         }
 
+        int detached = DetachSharedImagery(copy);
+
         _copyHolder = holder;
         _copyRect = copy.transform as RectTransform;
         _copyActor = actor;
 
         VRLog.Info("WorldUI", $"second held-figure info panel snapshot created ({stripped} logic " +
-                              "component(s) stripped; game singleton untouched) — both hands' " +
-                              "figures now show a panel each.");
+                              $"component(s) stripped, {detached} texture(s) detached; game " +
+                              "singleton untouched) — both hands' figures now show a panel each.");
     }
+
+    /// <summary>
+    /// Give the snapshot its OWN copy of every texture it displays.
+    ///
+    /// <para>WHY: the portrait is not a plain sprite on a prefab. ActorStatPanel loads it through an
+    /// addressable sprite loader — <c>_imageSpriteLoader.LoadAsync(this, enemyPortrait, ...)</c> —
+    /// and later calls <c>_imageSpriteLoader.Unload(enemyPortrait)</c> (both verified in the real
+    /// GH.Runtime.dll). That Unload releases the handle and Unity destroys the underlying texture.
+    /// Our snapshot is a plain Instantiate, so its Image still points at that texture and goes
+    /// BLANK the moment the real panel moves on to the other actor or closes — which is exactly the
+    /// reported symptom, and why it hit the SECOND figure's panel and hit it often rather than
+    /// always: it depends on whether the game unloaded that particular portrait yet.</para>
+    ///
+    /// <para>So every distinct texture is copied ONCE (GPU-side <see cref="Graphics.CopyTexture"/>,
+    /// no readback and no requirement that the source be CPU-readable) and the sprites are rebuilt
+    /// on the copies with the same rect, pivot, border and pixels-per-unit — an atlased sprite keeps
+    /// working because the rect is relative to a texture of identical size. The copies are ours and
+    /// die with the snapshot in <see cref="DestroyCopy"/>.</para>
+    ///
+    /// <para>Failures are per-image and swallowed: a texture Unity refuses to copy leaves that one
+    /// Image on the shared original, which is no worse than before this existed.</para>
+    /// </summary>
+    private static int DetachSharedImagery(GameObject copy)
+    {
+        var clones = new Dictionary<Texture, Texture2D>();
+
+        Texture2D? CloneOf(Texture? src)
+        {
+            if (src is not Texture2D tex)
+                return null;
+            if (clones.TryGetValue(tex, out Texture2D existing))
+                return existing;
+            try
+            {
+                var dst = new Texture2D(tex.width, tex.height, tex.format, tex.mipmapCount > 1)
+                {
+                    name = tex.name + " (VR copy)",
+                    filterMode = tex.filterMode,
+                    wrapMode = tex.wrapMode,
+                    anisoLevel = tex.anisoLevel,
+                };
+                Graphics.CopyTexture(tex, dst);
+                clones[tex] = dst;
+                _copyOwnedTextures.Add(dst);
+                return dst;
+            }
+            catch (System.Exception e)
+            {
+                VRLog.Warn("WorldUI", $"stat-panel snapshot: could not copy texture '{tex.name}' " +
+                                      $"({e.GetType().Name}) — that image keeps the shared one and " +
+                                      "may blank when the game unloads it.");
+                clones[tex] = null!;
+                return null;
+            }
+        }
+
+        Image[] images = copy.GetComponentsInChildren<UnityEngine.UI.Image>(true);
+        for (int i = 0; i < images.Length; i++)
+        {
+            Sprite? sprite = images[i] != null ? images[i].sprite : null;
+            if (sprite == null)
+                continue;
+            Texture2D? tex = CloneOf(sprite.texture);
+            if (tex == null)
+                continue;
+            var rebuilt = Sprite.Create(tex, sprite.rect, NormalizedPivot(sprite),
+                                        sprite.pixelsPerUnit, 0, SpriteMeshType.FullRect, sprite.border);
+            rebuilt.name = sprite.name + " (VR copy)";
+            _copyOwnedSprites.Add(rebuilt);
+            images[i].sprite = rebuilt;
+        }
+
+        RawImage[] raws = copy.GetComponentsInChildren<UnityEngine.UI.RawImage>(true);
+        for (int i = 0; i < raws.Length; i++)
+        {
+            if (raws[i] == null)
+                continue;
+            Texture2D? tex = CloneOf(raws[i].texture);
+            if (tex != null)
+                raws[i].texture = tex;
+        }
+
+        return _copyOwnedTextures.Count;
+    }
+
+    /// <summary>Sprite.Create wants the pivot as a 0..1 fraction of the RECT, not in pixels.</summary>
+    private static Vector2 NormalizedPivot(Sprite sprite)
+    {
+        Rect r = sprite.rect;
+        return r.width <= 0f || r.height <= 0f
+            ? new Vector2(0.5f, 0.5f)
+            : new Vector2(sprite.pivot.x / r.width, sprite.pivot.y / r.height);
+    }
+
+    private static readonly List<Texture2D> _copyOwnedTextures = new();
+    private static readonly List<Sprite> _copyOwnedSprites = new();
 
     /// <summary>
     /// DestroyImmediate every Singleton-derived component (by base-type name <c>Singleton`1</c>, so
@@ -604,6 +703,14 @@ internal sealed class StatPanelSurface
         }
         _copyRect = null;
         _copyActor = null;
+
+        // Ours, so we free them. Sprites first: a Sprite holding a destroyed texture logs errors.
+        for (int i = 0; i < _copyOwnedSprites.Count; i++)
+            if (_copyOwnedSprites[i] != null) Object.Destroy(_copyOwnedSprites[i]);
+        _copyOwnedSprites.Clear();
+        for (int i = 0; i < _copyOwnedTextures.Count; i++)
+            if (_copyOwnedTextures[i] != null) Object.Destroy(_copyOwnedTextures[i]);
+        _copyOwnedTextures.Clear();
     }
 
     // -------------------------------------------------------------------------------------

@@ -148,6 +148,7 @@ internal static partial class VROptionsTab
             string? note = VariantNote(_sectionItems);
             if (note != null)
                 BuildNote(ContentRoot, note);
+            BuildVariantCopyRows(_sectionItems);
 
             for (int i = 0; i < _sectionItems.Count; i++)
                 rows += BuildItem(_sectionItems[i], _sectionEntries[i].Caption, _sectionEntries[i].HintKey);
@@ -185,6 +186,42 @@ internal static partial class VROptionsTab
             rows++;
         }
         return rows;
+    }
+
+    /// <summary>
+    /// Under a per-variant block: one row per OTHER variant, "take these settings from X".
+    ///
+    /// <para>Tuning a second hand style or a second board otherwise starts from the shipped
+    /// defaults every time, even though what you want is almost always "the same as the one I
+    /// already got right, then nudged". One row per source rather than a picker plus an apply
+    /// button: with three hand styles that is two rows, it needs no extra state, and the row says
+    /// exactly what pressing it does.</para>
+    ///
+    /// <para>Placed directly under the "which variant am I editing" note, so the two lines read
+    /// together: this is the block you are editing, and here is where its values can come from.</para>
+    /// </summary>
+    private static void BuildVariantCopyRows(
+        System.Collections.Generic.IReadOnlyList<ConfigCatalog.ConfigItem> items)
+    {
+        if (ContentRoot == null)
+            return;
+        var sources = VariantSources(items);
+        if (sources == null)
+            return;
+
+        VariantFamily family = sources.Value.Family;
+        string[] others = sources.Value.Others;
+        // Snapshot: the callback runs after this build pass, and the pane's own lists get reused.
+        var snapshot = new System.Collections.Generic.List<ConfigCatalog.ConfigItem>(items);
+        for (int i = 0; i < others.Length; i++)
+        {
+            string from = others[i];
+            BuildLinkRow(ContentRoot, Loc.Mod("vr_var_copy").Replace("{0}", family.Display(from)), () =>
+            {
+                CopyVariant(family, from, snapshot);
+                TickGuard.Run("VROptionsTab.VariantCopy", Rebuild, "WorldUI");
+            });
+        }
     }
 
     /// <summary>One catalog topic in full, with the way back out at the top.</summary>
@@ -231,6 +268,7 @@ internal static partial class VROptionsTab
             string? note = VariantNote(group.Items);
             if (note != null)
                 BuildNote(ContentRoot, note);
+            BuildVariantCopyRows(group.Items);
 
             for (int i = 0; i < group.Items.Count; i++)
             {

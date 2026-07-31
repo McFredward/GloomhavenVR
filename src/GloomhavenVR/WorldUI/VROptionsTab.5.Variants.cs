@@ -175,6 +175,86 @@ internal static partial class VROptionsTab
         return null;
     }
 
+    /// <summary>
+    /// The family these rows belong to and the OTHER variants of it — the ones worth copying from.
+    /// Null when the block is not per-variant, so nothing is offered where nothing applies.
+    /// </summary>
+    private static (VariantFamily Family, string[] Others)? VariantSources(
+        System.Collections.Generic.IReadOnlyList<ConfigCatalog.ConfigItem> items)
+    {
+        EnsureLookup();
+        for (int i = 0; i < items.Count; i++)
+        {
+            var v = VariantOf(items[i]);
+            if (v == null)
+                continue;
+            VariantFamily family = v.Value.Family;
+            string current = family.Current();
+            var others = new System.Collections.Generic.List<string>(family.Names.Length);
+            for (int n = 0; n < family.Names.Length; n++)
+                if (!string.Equals(family.Names[n], current, StringComparison.Ordinal))
+                    others.Add(family.Names[n]);
+            return others.Count == 0 ? null : (family, others.ToArray());
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Copy every setting in this block from another variant onto the selected one — "I tuned the
+    /// gauntlets, now start the mage glove from those instead of from scratch".
+    ///
+    /// <para>It walks the rows the block actually SHOWS, so what you see is exactly what gets
+    /// overwritten; a property with no counterpart on the source variant is skipped rather than
+    /// guessed at. Values move as BoxedValue between two entries of the same property, so the type
+    /// is the same object on both sides and no parsing or conversion happens.</para>
+    ///
+    /// <para>Deliberately NOT undoable and not confirmed: every value it touches is a live setting
+    /// the same pane can still edit, BepInEx has already persisted the old ones to the .cfg, and a
+    /// confirmation step on a tuning menu costs more than it saves. The log line names the count so
+    /// a surprise is at least traceable.</para>
+    /// </summary>
+    private static void CopyVariant(VariantFamily family, string from,
+        System.Collections.Generic.IReadOnlyList<ConfigCatalog.ConfigItem> items)
+    {
+        EnsureLookup();
+        string to = family.Current();
+        if (string.Equals(from, to, StringComparison.Ordinal))
+            return;
+
+        int copied = 0, missing = 0;
+        for (int i = 0; i < items.Count; i++)
+        {
+            ConfigCatalog.ConfigItem item = items[i];
+            var v = VariantOf(item);
+            if (v == null || v.Value.Family != family
+                || !string.Equals(v.Value.Variant, to, StringComparison.Ordinal))
+                continue;
+
+            string property = family.Strip(item.Key, to);
+            if (!ByKey.TryGetValue(Id(item.Section, family.SiblingKey(property, from)),
+                                   out ConfigCatalog.ConfigItem? source) || source == null)
+            {
+                missing++;
+                continue;
+            }
+            try
+            {
+                item.Entry.BoxedValue = source.Entry.BoxedValue;
+                copied++;
+            }
+            catch (Exception e)
+            {
+                missing++;
+                VRLog.Warn("WorldUI", $"variant copy: {item.Section}/{item.Key} kept its value " +
+                                      $"({e.GetType().Name}).");
+            }
+        }
+
+        VRLog.Info("WorldUI", $"copied {copied} setting(s) from {family.Label()} " +
+                              $"'{family.Display(from)}' onto '{family.Display(to)}'" +
+                              (missing > 0 ? $"; {missing} had no counterpart and were left alone." : "."));
+    }
+
     /// <summary>Entries whose value decides which OTHER rows the pane lists.</summary>
     private static bool SelectsAVariant(ConfigCatalog.ConfigItem item) =>
         (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
