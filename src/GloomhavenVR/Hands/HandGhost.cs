@@ -56,6 +56,25 @@ internal sealed class HandGhost
     private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
     private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
 
+    /// <summary>
+    /// Render queue of every ghost material — deliberately ABOVE the transparent default (3000),
+    /// where the card face canvases live.
+    ///
+    /// <para>At 3000 the ghost hand and a held card's face art shared a queue AND a sorting order
+    /// (both 0), so Unity fell back to per-renderer CENTER DISTANCE — and for two interpenetrating
+    /// objects that order flips with the wrist angle. Card center nearer: the card draws last and
+    /// blanks EVERY ghost pixel, fingers in front included. Hand center nearer: everything pops
+    /// back. That is precisely the reported "verschwindet bei einem gewissen Winkel und ploppt
+    /// wieder auf" — a binary sort flip, not a fade.</para>
+    ///
+    /// <para>Above the card's queue the order is deterministic: the ghost always draws AFTER the
+    /// card, and correctness comes from DEPTH instead of luck — the card's opaque backing slab
+    /// (Standard shader, ZWrite on) is already in the depth buffer, so ghost pixels BEHIND the
+    /// card fail the ZTest and stay hidden while pixels IN FRONT pass and stay visible. Per-pixel,
+    /// at every angle. 3100 keeps the ghost well under the board-widget tiers (4003+).</para>
+    /// </summary>
+    private const int GhostRenderQueue = 3100;
+
     /// <summary>Colour properties probed in order — first one the shader has carries the alpha.</summary>
     private static readonly int[] ColorIds =
     {
@@ -352,11 +371,11 @@ internal sealed class HandGhost
         m.EnableKeyword("_ALPHABLEND_ON");
         m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); // URP counterpart of _ALPHABLEND_ON
 
-        // Draw after the opaque queue so whatever is behind the hand (the cards!) is already in
-        // the frame buffer to blend against. Only ever raised — a material that already lives in
-        // the transparent range (the unlit fallback) keeps its own queue.
-        if (m.renderQueue < (int)UnityEngine.Rendering.RenderQueue.Transparent)
-            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        // Draw after the opaque queue AND after the card face canvases (see GhostRenderQueue —
+        // sharing their queue made visibility flip with the wrist angle). Only ever raised — a
+        // material already at or above the ghost tier keeps its own queue.
+        if (m.renderQueue < GhostRenderQueue)
+            m.renderQueue = GhostRenderQueue;
     }
 
     /// <summary>
