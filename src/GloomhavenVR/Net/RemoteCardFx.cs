@@ -183,7 +183,7 @@ internal sealed class RemoteCardFx
         if (!_owner.HasBoard)
             return false;
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
-        world = _owner.BoardPosition + _owner.BoardRotation * (RemoteControlBoard.AnchorLocal(anchor) * scale);
+        world = _owner.BoardPosition + _owner.BoardRotation * (_owner.BoardAnchorLocal(anchor) * scale);
         return true;
     }
 

@@ -9,9 +9,22 @@ namespace GloomhavenVR.Net;
 /// <summary>
 /// A READ-ONLY cosmetic mirror of a remote player's control board, rendered at their REAL synced
 /// world transform (<c>owner.BoardPosition/BoardRotation/BoardScale</c>, valid only while
-/// <c>owner.HasBoard</c>). It shows that player's TWO round cards so everyone can "see who placed
-/// what", in initiative order (<c>InitiativeAbilityCard</c> first — mirrors the local board's
+/// <c>owner.HasBoard</c>). Since the 3D-parity pass the board SURFACE is the REAL bundled
+/// control-board asset — <see cref="RemoteTrayVisual"/> clones the same Oak/Steel/Bronze prefab
+/// the owner's own <c>PlayTray</c> instantiates, chosen by their synced style — and the old flat
+/// "Frame" quad (the user-rejected "komisch 2D" board) survives only as the procedural fallback
+/// for when the asset bundle is not resident. It shows that player's TWO round cards, seated in
+/// the prefab's REAL slot recesses, so everyone can "see who placed what", in initiative order
+/// (<c>InitiativeAbilityCard</c> first — mirrors the local board's
 /// <c>PlayTray.SyncFromGameState</c> ordering).
+///
+/// JOIN-TIME (user requirement: a peer's board must appear the moment they join, not only after
+/// the host assigns characters): the board FRAME + pose + style render from the first extras
+/// packet that carries <c>HasBoard</c>, with NO <c>NetPlayerActors.ActorFor</c> gate — an
+/// actorless peer simply shows an empty board. Only the CONTENT that genuinely needs the
+/// host-replicated actor (round cards, initiative, rest state, pile counts, active cards) stays
+/// actor-gated; the global panels (objectives, elements, round, initiative track) refresh either
+/// way.
 ///
 /// ANTI-CHEAT (the linchpin): the card FRONTS are shown ONLY when
 /// <see cref="RevealGate.ShowRoundCardFronts"/> is true — i.e. never during the game's own secret
@@ -97,11 +110,19 @@ internal sealed class RemoteControlBoard
     /// left, piles/active cards right) offset from, mirroring <c>PlayTray.BoardHalfWidthLocal</c>.</summary>
     internal const float BoardHalfW = BoardW * 0.5f;
 
-    // Two round-card slots, side by side and enlarged for at-a-distance legibility.
-    private const float CardW = 0.15f;
+    // Two round-card slots at the REAL board layout: the authored card width × the local board's
+    // 1.3 SlotScale — the exact size a card parked in the owner's recess renders at. (They were
+    // 0.15 m "enlarged for at-a-distance legibility" on the flat board; on the real asset the
+    // recesses dictate the size, and a wrong-sized card floating over a recess reads broken.)
+    private const float CardW = 0.0635f * 1.3f;   // Defaults.CardWidth × PlayTray.SlotScale
     private const float CardH = CardW * (88f / 63.5f);
-    private const float SlotX = 0.11f;      // ± slot centre X (board-local)
+    private const float SlotSpacing = 0.155f;     // PlayTray.SlotSpacing (fallback layout)
+    private const float SlotY = 0.015f;           // PlayTray procedural slot height (fallback)
     private const float ProudZ = -0.004f;   // toward the viewer (−Z), proud of the frame face
+
+    /// <summary>Extra proud lift a card seated ON a real slot anchor gets (the anchor sits at the
+    /// recess floor; a coplanar quad would z-fight the recess mesh).</summary>
+    private const float CardOnAnchorProudZ = -0.003f;
 
     /// <summary>The shared proud depth every board-local surface sits at (−Z = toward the viewer).
     /// Exposed so the mod-drawn parity panels in <see cref="RemoteBoardContent"/> seat on the same
@@ -121,15 +142,19 @@ internal sealed class RemoteControlBoard
     private const float PileW = 0.075f;
     private const float PileH = PileW * (88f / 63.5f);
 
-    /// <summary>Board-local position of a play SLOT (0 = left, 1 = right) — the anchor a docking
-    /// card flies into. Shared with <see cref="RemoteCardFx"/> so the flight and the rendered slot
-    /// agree even when the board frame itself is hidden by the visibility setting.</summary>
-    internal static Vector3 SlotLocal(int slot) => new(slot == 0 ? -SlotX : SlotX, 0f, ProudZ);
+    /// <summary>DEFAULT board-local position of a play SLOT (0 = left, 1 = right) — the authored
+    /// layout (<c>PlayTray.SlotSpacing</c>), used while no real tray visual is built (procedural
+    /// fallback / board hidden). The LIVE layout — the real prefab's measured recess anchors —
+    /// is served by the instance <see cref="AnchorLocalLive"/> and reaches the FX/fan consumers
+    /// through <c>RemoteAvatar.BoardAnchorLocal</c>.</summary>
+    internal static Vector3 SlotLocal(int slot) =>
+        new((slot == 0 ? -0.5f : 0.5f) * SlotSpacing, SlotY, ProudZ);
 
-    /// <summary>Board-local position of a pile stack / the board centre for a card-FX anchor.
-    /// Mirrors the LOCAL board's stack layout (<c>PlayTray.PileMountBase</c> +
+    /// <summary>DEFAULT board-local position of a pile stack / the board centre for a card-FX
+    /// anchor. Mirrors the LOCAL board's stack layout (<c>PlayTray.PileMountBase</c> +
     /// <c>PileViewer</c>'s ±spacing/2 and −1.5·spacing rows) so a peer's piles sit where that
-    /// player's own piles sit.</summary>
+    /// player's own piles sit. Prefer <see cref="AnchorLocalLive"/> when an instance is at hand —
+    /// it substitutes the REAL prefab recess positions for the two slots.</summary>
     internal static Vector3 AnchorLocal(CardFxAnchor anchor) => anchor switch
     {
         CardFxAnchor.Slot0 => SlotLocal(0),
@@ -140,6 +165,46 @@ internal sealed class RemoteControlBoard
         _ => new Vector3(0f, 0f, ProudZ), // Board (and any unknown future id)
     };
 
+    /// <summary>
+    /// LIVE board-local anchor layout: like <see cref="AnchorLocal"/>, but the two round-card
+    /// slots come from the REAL tray prefab's measured recess anchors once the 3D visual is
+    /// built — so a card flight (<see cref="RemoteCardFx"/>) and a pile-browse arc land exactly
+    /// in/on the rendered recess of whatever board style the peer runs, instead of on the old
+    /// hardcoded flat-board offsets — and every other board anchor rides the same per-style
+    /// content lift the rendered panels/piles sit at (<see cref="ContentProudLift"/>), so flight
+    /// destination and rendered destination stay one point. Falls back to the defaults while the
+    /// board has not built.
+    /// </summary>
+    internal Vector3 AnchorLocalLive(CardFxAnchor anchor)
+    {
+        if (_tray != null)
+        {
+            if (anchor == CardFxAnchor.Slot0)
+                return _tray.SlotLocal(0) + new Vector3(0f, 0f, CardOnAnchorProudZ);
+            if (anchor == CardFxAnchor.Slot1)
+                return _tray.SlotLocal(1) + new Vector3(0f, 0f, CardOnAnchorProudZ);
+            return AnchorLocal(anchor) + new Vector3(0f, 0f, ContentProudLift(_tray.Style));
+        }
+        return AnchorLocal(anchor);
+    }
+
+    /// <summary>
+    /// Per-style proud LIFT (board-local −Z, toward the viewer) for the flat mod-drawn content —
+    /// panels, readouts, pile counters — when it sits over the REAL board mesh. The Oak plate is
+    /// (near) the authored z=0 plane the flat layout was tuned on; the Steel and Bronze meshes
+    /// are visibly PROUDER of that plane — every authored per-style offset in Defaults says so
+    /// (Steel: rest z −0.047, confirm z −0.047, initiative z −0.07, readout z −0.044; Bronze:
+    /// −0.005..−0.02) — so unlifted content would be buried inside those boards. Values are the
+    /// median of the shipped per-style z offsets; the next MP test must eyeball them per board
+    /// (this is an approximation of the meshes, not a measurement).
+    /// </summary>
+    private static float ContentProudLift(Cards.ControlBoard style) => style switch
+    {
+        Cards.ControlBoard.Steel => -0.05f,
+        Cards.ControlBoard.Bronze => -0.015f,
+        _ => 0f,
+    };
+
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;
@@ -147,11 +212,19 @@ internal sealed class RemoteControlBoard
     private OwnerTag? _tag;
 
     // ---- board STYLE (extras block byte A bits 5..6) --------------------------------------------
-    // The frame material of THIS peer's board (one Material instance per remote board — nothing is
-    // shared, so tinting one peer's board can never touch another's) plus the change latch, so the
-    // per-frame check costs an int compare until the peer actually switches board.
+    // The REAL 3D board asset for the style THIS peer chose (null → flat-quad fallback while the
+    // bundle is absent). A style switch rebuilds the whole board from the new prefab (rare, cheap);
+    // the fallback quad instead re-TINTS via _frameMat + _appliedStyle, exactly the pre-3D
+    // behaviour, so a bundle-less client keeps working unchanged.
+    private RemoteTrayVisual? _tray;
     private Material? _frameMat;
     private int _appliedStyle = -1;
+
+    /// <summary>Next unscaled time to re-probe for the bundle when the board came up on the flat
+    /// fallback — so a board built before the asset bundle finished loading upgrades itself to
+    /// the real 3D asset instead of staying flat for the session.</summary>
+    private float _nextTrayProbeAt;
+    private const float TrayProbeSeconds = 5f;
 
     // ---- full-parity content (all mod-drawn, all zero-wire — see the class note) ----------------
     // Data class per widget — the same closed set as the CLASSIFICATION tags on the types
@@ -196,15 +269,24 @@ internal sealed class RemoteControlBoard
         RemoteBoardVisibility vis = RemoteBoardGate.Mode;
         RemoteBoardGate.LogModeIfChanged(vis); // evidence the panel's cycle button reaches the render path
 
-        // Read the owner's actor fresh each frame (null offline / single-player / netcode absent /
-        // benched) — a strict no-op in every one of those cases.
-        CPlayerActor? actor = _owner.HasBoard && vis != RemoteBoardVisibility.Off
-            ? NetPlayerActors.ActorFor(_owner.PlayerId)
-            : null;
+        if (!_owner.HasBoard || vis == RemoteBoardVisibility.Off)
+        {
+            BlankCardFaces();
+            SetActive(false);
+            return;
+        }
+
+        // Read the owner's actor fresh each frame (null offline / before the host assigns
+        // characters / benched). JOIN-TIME REQUIREMENT: the actor is NOT a gate for the board
+        // SURFACE any more — a peer's board must appear the moment their first extras packet
+        // lands, character assignment or not. An actorless peer has no cards, so there is
+        // nothing the reveal gate could need to hide: "no actor" counts as "not in the secret
+        // phase" for the visibility rule below.
+        CPlayerActor? actor = NetPlayerActors.ActorFor(_owner.PlayerId);
 
         bool showFronts = actor != null && RevealGate.ShowRoundCardFronts(actor);
 
-        bool showBoard = actor != null && RemoteBoardGate.SurfaceVisible(vis, showFronts);
+        bool showBoard = RemoteBoardGate.SurfaceVisible(vis, actor == null || showFronts);
 
         if (!showBoard)
         {
@@ -219,6 +301,28 @@ internal sealed class RemoteControlBoard
             return;
         }
 
+        // The peer switched their control board: tear the whole visual down and rebuild from the
+        // new prefab — the real asset cannot be re-tinted into another board the way the fallback
+        // quad could. Rare (a settings click on their side), and the rebuild is one frame.
+        if (_root != null && _tray != null && _tray.Style != _owner.BoardStyle)
+        {
+            VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] style switch " +
+                              $"{_tray.Style} → {_owner.BoardStyle} — rebuilding from the new prefab.");
+            Destroy();
+        }
+        // A board that came up FLAT because the bundle was not resident yet upgrades itself to the
+        // real asset once it is (slow probe — a few bundle-list walks per minute, only while flat).
+        else if (_root != null && _tray == null && Time.unscaledTime >= _nextTrayProbeAt)
+        {
+            _nextTrayProbeAt = Time.unscaledTime + TrayProbeSeconds;
+            if (RemoteTrayVisual.PrefabAvailable(_owner.BoardStyle))
+            {
+                VRLog.Info("Net", $"Remote board [{_owner.PlayerId}]: asset bundle now resident — " +
+                                  "upgrading the flat fallback board to the real 3D asset.");
+                Destroy();
+            }
+        }
+
         EnsureBuilt();
         SetActive(true);
 
@@ -226,11 +330,14 @@ internal sealed class RemoteControlBoard
         _root!.transform.SetPositionAndRotation(_owner.BoardPosition, _owner.BoardRotation);
         _root.transform.localScale = Vector3.one * (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
 
-        // Re-tint the frame when this peer switches their control board (change-latched, so it is a
-        // single int compare on every other frame).
+        // Fallback board only: re-tint the flat frame when this peer switches their control board
+        // (the real asset was rebuilt above instead; change-latched int compare either way).
         ApplyBoardStyle();
 
-        OrderRoundCards(actor!);
+        if (actor != null)
+            OrderRoundCards(actor);
+        else
+            _ordered[0] = _ordered[1] = null; // actorless peer: an EMPTY board, never stale cards
         // THE reveal decision for this peer's played cards, taken ONCE per frame here and passed
         // down: showFronts is RevealGate.ShowRoundCardFronts(actor) verbatim — false for a remote
         // actor while the game is in its own secret SelectAbilityCardsOrLongRest phase, true once
@@ -244,11 +351,33 @@ internal sealed class RemoteControlBoard
         _tag!.Tick();
 
         // Content (objectives / elements / round / initiative / rest / pile counts / active cards)
-        // on the shared cadence — everything below is a MODEL read, not a wire read.
+        // on the shared cadence — everything below is a MODEL read, not a wire read. Before the
+        // actor exists only the GLOBAL panels refresh (they are bit-identical on every client);
+        // the per-actor surfaces stay blank until the host assigns the character.
         if (Time.unscaledTime >= _nextRefreshAt)
         {
             _nextRefreshAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
-            RefreshContent(actor!, showFronts);
+            if (actor != null)
+                RefreshContent(actor, showFronts);
+            else
+                RefreshGlobalContent();
+        }
+    }
+
+    /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host
+    /// assigns this peer a character): objectives, element infusions and the initiative track are
+    /// GLOBAL scenario state and render fine without an actor; everything per-actor stays blank.</summary>
+    private void RefreshGlobalContent()
+    {
+        try
+        {
+            _objectives?.Refresh();
+            _elements?.Refresh();
+            _track?.Refresh();
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Remote board [{_owner.PlayerId}] global content refresh failed: {e.Message}");
         }
     }
 
@@ -378,16 +507,50 @@ internal sealed class RemoteControlBoard
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
 
-        // Board frame: a dark rounded slab. Unlit so it reads regardless of scene lighting. Its
-        // material is kept so the frame can be re-tinted to the peer's CHOSEN board style without
-        // rebuilding anything (see ApplyBoardStyle); it starts at the Oak/default colour, which is
-        // bit-for-bit what this board looked like before the style ever rode the wire.
-        _frameMat = BoardVisual.Unlit(FrameColor(Cards.ControlBoard.Oak));
-        BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH), _frameMat);
-        _appliedStyle = -1; // force the first Tick to state what it applied
+        // THE BOARD SURFACE — the REAL bundled 3D asset for the style this peer synced
+        // (RemoteTrayVisual: same prefab, same materials, same recesses as their own board),
+        // replacing the old flat frame quad. The quad survives ONLY as the fallback for when the
+        // bundle is not resident (then the probe in Tick upgrades it as soon as it is).
+        _tray = RemoteTrayVisual.Build(_root.transform, _owner.BoardStyle);
+        if (_tray == null)
+        {
+            // Fallback frame: a dark unlit slab, re-tintable to the peer's style (ApplyBoardStyle)
+            // — bit-for-bit the pre-3D board, so a bundle-less client loses nothing it had.
+            _frameMat = BoardVisual.Unlit(FrameColor(Cards.ControlBoard.Oak));
+            BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH), _frameMat);
+            _nextTrayProbeAt = Time.unscaledTime + TrayProbeSeconds;
+        }
+        _appliedStyle = -1; // force the first Tick to state what it applied (fallback tint path)
 
-        _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), CardW, CardH);
-        _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), CardW, CardH);
+        // Round-card slots: ON the real recess anchors when the asset is up (a card then sits IN
+        // the recess of whatever board the peer runs, at the same size their own card parks at),
+        // else at the authored fallback layout on the flat frame.
+        if (_tray != null)
+        {
+            _cards[0] = new RemoteBoardCard(_tray.SlotAnchor(0),
+                new Vector3(0f, 0f, CardOnAnchorProudZ), CardW, CardH);
+            _cards[1] = new RemoteBoardCard(_tray.SlotAnchor(1),
+                new Vector3(0f, 0f, CardOnAnchorProudZ), CardW, CardH);
+        }
+        else
+        {
+            _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), CardW, CardH);
+            _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), CardW, CardH);
+        }
+
+        // The flat mod-drawn CONTENT (panels, readouts, pile counters) hangs under one shared
+        // parent that carries the per-style proud lift (ContentProudLift): the Steel/Bronze
+        // meshes stand proud of the authored z=0 plane the flat layout was tuned on, and content
+        // left at −0.004 would be buried inside them. Oak lift is 0 → parent is the root itself
+        // and nothing moves. The card-FX anchors ride the same lift (AnchorLocalLive).
+        Transform contentParent = _root.transform;
+        float lift = _tray != null ? ContentProudLift(_tray.Style) : 0f;
+        if (lift != 0f)
+        {
+            contentParent = new GameObject("ContentProud").transform;
+            contentParent.SetParent(_root.transform, worldPositionStays: false);
+            contentParent.localPosition = new Vector3(0f, 0f, lift);
+        }
 
         // The three stacks (report 6): the destinations a remote card flight lands on. Card-back
         // texture, drawn unlit. Since the parity pass they also carry the peer's live pile COUNT +
@@ -396,20 +559,21 @@ internal sealed class RemoteControlBoard
         // knowable only from that player's own seat.
         Texture? stackTex = CardMesh.CreateBackMaterial().mainTexture;
         Material stackMat = BoardVisual.Unlit(new Color(0.82f, 0.82f, 0.82f, 1f), stackTex);
-        _piles[0] = new PileCounter(_root.transform, "DiscardStack", AnchorLocal(CardFxAnchor.Discard),
+        _piles[0] = new PileCounter(contentParent, "DiscardStack", AnchorLocal(CardFxAnchor.Discard),
             stackMat, PileViewer.Caption(PileKind.Discard));
-        _piles[1] = new PileCounter(_root.transform, "BurntStack", AnchorLocal(CardFxAnchor.Burnt),
+        _piles[1] = new PileCounter(contentParent, "BurntStack", AnchorLocal(CardFxAnchor.Burnt),
             stackMat, PileViewer.Caption(PileKind.Burnt));
-        _piles[2] = new PileCounter(_root.transform, "ItemStack", AnchorLocal(CardFxAnchor.Items),
+        _piles[2] = new PileCounter(contentParent, "ItemStack", AnchorLocal(CardFxAnchor.Items),
             stackMat, PileViewer.Caption(PileKind.Items));
 
         // Full-parity panels (all mod-drawn, all fed from the LOCAL model — see the class note).
-        _objectives = new RemoteObjectivesPanel(_root.transform);
-        _elements = new RemoteElementStrip(_root.transform);
-        _status = new RemoteStatusReadouts(_root.transform);
-        _active = new RemoteActiveCards(_root.transform);
-        _track = new RemoteInitiativeTrack(_root.transform);
-        _furniture = new RemoteBoardFurniture(_root.transform);
+        _objectives = new RemoteObjectivesPanel(contentParent);
+        _elements = new RemoteElementStrip(contentParent);
+        _status = new RemoteStatusReadouts(contentParent);
+        _active = new RemoteActiveCards(contentParent);
+        _track = new RemoteInitiativeTrack(contentParent);
+        _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardStyle, _tray,
+            AnchorLocalLive(CardFxAnchor.Slot0), AnchorLocalLive(CardFxAnchor.Slot1));
         _nextRefreshAt = 0f; // repaint on the very next tick
 
         // Ownership tag pinned just above the board's top-left corner, always facing the head.
@@ -427,7 +591,11 @@ internal sealed class RemoteControlBoard
         // turns that from a code-review claim into a runtime fact.
         RemoteBoardFurniture.StripColliders(_root, $"RemoteControlBoard[{_owner.PlayerId}]");
 
-        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] built with FULL parity surfaces: " +
+        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] built " +
+                          (_tray != null
+                              ? $"on the REAL 3D '{_tray.Style}' board asset (the prefab that peer's own PlayTray renders) "
+                              : "on the FLAT fallback frame (asset bundle not resident — will upgrade when it loads) ") +
+                          "with FULL parity surfaces: " +
                           "2 round-card slots, 3 pile stacks with counts, objectives, elements, " +
                           "round + initiative + rest readouts, active-card column, initiative TRACK, " +
                           "and the complete interactive furniture (Confirm/Undo keycaps on their " +
@@ -441,11 +609,12 @@ internal sealed class RemoteControlBoard
     // ------------------------------------------------------------------ board style --
 
     /// <summary>
-    /// Frame colour standing in for a control-board MATERIAL. Oak keeps EXACTLY the colour this
-    /// board has always had, so nothing changes for a peer on the default board (or on an older
-    /// build, whose zeroed style bits also read as Oak); Steel is a cool gunmetal grey and Bronze a
-    /// warm dark copper, i.e. the same three materials the real boards read as, at a glance and
-    /// from across the table.
+    /// FALLBACK frame colour standing in for a control-board MATERIAL (flat-quad board only — the
+    /// real 3D asset carries its own bundled materials). Oak keeps EXACTLY the colour this board
+    /// has always had, so nothing changes for a peer on the default board (or on an older build,
+    /// whose zeroed style bits also read as Oak); Steel is a cool gunmetal grey and Bronze a warm
+    /// dark copper, i.e. the same three materials the real boards read as, at a glance and from
+    /// across the table.
     /// </summary>
     private static Color FrameColor(Cards.ControlBoard style) => style switch
     {
@@ -455,28 +624,22 @@ internal sealed class RemoteControlBoard
     };
 
     /// <summary>
-    /// Tint this peer's board frame to the board THEY chose (received in the extras block's byte A
-    /// bits 5..6). Change-latched: a no-op int compare until they actually switch.
-    ///
-    /// WHY A TINT AND NOT THEIR PREFAB: a remote board is deliberately a MOD-DRAWN, INERT display
-    /// (see the class note) — quads and text, no colliders, no interaction registry — not an
-    /// instance of the real PlayTray prefab, which carries the whole interactive furniture and
-    /// would have to be loaded, stripped and re-parented per peer per switch. The wire cost of the
-    /// choice is two bits and the visual cost is one material colour, which is exactly the
-    /// "peers see the board you actually use" the standing MP rule asks for, at the fidelity this
-    /// display was built at.
+    /// FALLBACK-BOARD path only: tint the flat frame quad to the board style the peer chose
+    /// (received in the extras block's byte A bits 5..6). Change-latched: a no-op int compare
+    /// until they actually switch. When the REAL 3D asset is up this is a strict no-op — a style
+    /// switch there rebuilds the whole board from the new prefab instead (see Tick), because the
+    /// real Oak/Steel/Bronze boards are different meshes, not different tints.
     /// </summary>
     private void ApplyBoardStyle()
     {
         Cards.ControlBoard style = _owner.BoardStyle;
-        if ((int)style == _appliedStyle || _frameMat == null)
+        if (_tray != null || (int)style == _appliedStyle || _frameMat == null)
             return;
         _appliedStyle = (int)style;
         _frameMat.color = FrameColor(style);
-        VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] re-tinted to the '{style}' control " +
-                          "board — the board style that peer picked in THEIR settings, received in " +
-                          "the extras block (byte A bits 5..6, zero extra bytes). Cosmetic only: " +
-                          "the remote board stays the same inert mod-drawn display.");
+        VRLog.Info("Net", $"Remote FALLBACK board [{_owner.PlayerId}] re-tinted to the '{style}' " +
+                          "control board (byte A bits 5..6, zero extra bytes) — the real prefab is " +
+                          "not available on this client yet.");
     }
 
     /// <summary>Drop every hosted card face on this board (round slots + active column) and reset the
@@ -526,8 +689,12 @@ internal sealed class RemoteControlBoard
         _nextRefreshAt = 0f;
         // The frame material belongs to the destroyed quad; drop the handle and the style latch so a
         // rebuilt board re-applies the peer's style from scratch instead of trusting a stale int.
+        // The tray visual is a child of _root and died with it — dropping the handle here is what
+        // makes the next EnsureBuilt re-instantiate the (possibly different-style) prefab.
+        _tray = null;
         _frameMat = null;
         _appliedStyle = -1;
+        _nextTrayProbeAt = 0f;
     }
 
     // ------------------------------------------------------------------ pile stack --

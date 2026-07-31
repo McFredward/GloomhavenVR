@@ -452,7 +452,7 @@ internal sealed class RemoteBrowserFan
         if (!_owner.HasBoard)
             return false;
         float bs = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
-        world = _owner.BoardPosition + _owner.BoardRotation * (RemoteControlBoard.AnchorLocal(AnchorFor(kind)) * bs);
+        world = _owner.BoardPosition + _owner.BoardRotation * (_owner.BoardAnchorLocal(AnchorFor(kind)) * bs);
         return true;
     }
 
