@@ -712,14 +712,6 @@ internal static partial class Loc
                 + "das macht das Treffen von Optionen schwer. Mit dieser Option bleibt ein Druck, dessen "
                 + "einziges Ziehziel die Liste selbst ist, ein sauberer Klick. Schieberegler, Scrollbalken "
                 + "und Aufklappmenüs sind nicht betroffen: sie lösen auf sich selbst auf, nicht auf die Liste.",
-            ["Hands/LaserFingerAxis"] =
-                "Richtet den Laser ENTLANG DES ZEIGEFINGERS der Hand aus, die du tatsächlich siehst — er "
-                + "folgt damit jeder Handeinstellung (Neigung, Gierung, Rollen, Sitz). Am Rig gemessen liegt "
-                + "die Fingerachse 7,8 Grad neben der Vorwärtsachse der Hand, „entlang der Hand“ ist hier "
-                + "also wirklich „entlang des Fingers“. Aus = die OpenXR-Aim-Pose des Controllers, die den "
-                + "Sitz der Hand ignoriert und den Strahl deshalb schräg aus dem Finger austreten lässt. "
-                + "Auswahlstrahl und gezeichneter Strahl nutzen beide dieselbe Linie: worauf du zeigst, "
-                + "triffst du auch.",
             ["Hands/LaserFingerOrigin"] =
                 "Lässt den SICHTBAREN Laserstrahl an der Zeigefingerspitze des Hand-Rigs beginnen "
                 + "(zusammenlaufend auf den Endpunkt des Strahls der Aim-Pose), sodass er wirkt, als ginge er "

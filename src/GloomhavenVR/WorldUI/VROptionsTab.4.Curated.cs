@@ -132,7 +132,6 @@ internal static partial class VROptionsTab
                     {
                         new("Hands", "PrimaryHand", "vr_o_primaryhand"),
                         new("Hands", "RayAlwaysOn", "vr_o_rayalways"),
-                        new("Hands", "LaserFingerAxis", "vr_o_laseraxis"),
                         new("Hands", "ScrollWithStickOnly", "vr_o_stickscroll"),
                         new("Hands", "LaserFingerOrigin", "vr_o_laserorigin"),
                         new("Hands", "ModalRayConeDegrees", "vr_o_raycone"),

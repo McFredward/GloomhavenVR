@@ -156,7 +156,6 @@ public class Plugin : BaseUnityPlugin
 
     /// <summary>Visible laser starts at the index fingertip instead of the aim pose (test #6).</summary>
     internal static ConfigEntry<bool> LaserFingerOrigin = null!;
-    internal static ConfigEntry<bool> LaserFingerAxis = null!;
     internal static ConfigEntry<bool> ScrollWithStickOnly = null!;
 
     /// <summary>Fine-tune: beam start offset (meters, along the beam) from the index fingertip.</summary>
@@ -430,14 +429,6 @@ public class Plugin : BaseUnityPlugin
             "the aim-pose ray's end point) so it reads as leaving the pointing finger. The " +
             "pick ray itself always uses the OpenXR aim pose. Off = beam starts at the aim " +
             "pose origin (controller).");
-        LaserFingerAxis = Config.Bind(
-            "Hands", "LaserFingerAxis", true,
-            "Aim the laser ALONG THE INDEX FINGER of the hand you actually see, so it follows " +
-            "every hand setting (pitch, yaw, roll, seat). Measured on the rig, the finger axis " +
-            "sits 7.8 degrees off the hand's forward axis, so 'along the hand' really is 'along " +
-            "the finger'. Off = the OpenXR aim pose of the controller, which ignores how the " +
-            "hand is seated and therefore leaves the finger at an angle. Both the pick ray and " +
-            "the drawn beam use this, so what you point at is what you hit.");
         ScrollWithStickOnly = Config.Bind(
             "Hands", "ScrollWithStickOnly", true,
             "Scroll lists with the STICK only. A laser never holds perfectly still, so with " +

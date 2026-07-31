@@ -48,7 +48,7 @@ internal static class FigureGrabConfig
     /// <summary>
     /// Hold the mini UPRIGHT (feet→head along world up), pinched between thumb and index and
     /// facing the player — like inspecting a chess piece. When false, the legacy palm pose is
-    /// used (<see cref="HeldEulerFor"/> relative to the hand, lays it flat).
+    /// used (<see cref="HeldPalmRotation"/> relative to the hand, lays it flat).
     /// </summary>
     public static ConfigEntry<bool> HeldUpright = null!;
 
@@ -169,17 +169,30 @@ internal static class FigureGrabConfig
     /// the face and the MIRROR-CORRECT <see cref="HeldFaceYawFor"/> spins the readable front
     /// toward the player (negated for the left hand, tilt mirror-invariant), both live-tunable.
     /// </summary>
+    /// <remarks>
+    /// ORDER MATTERS, and a single Quaternion.Euler(tilt, yaw, roll) gets it wrong. Unity composes
+    /// that as Ry * Rx * Rz, so the YAW is applied LAST and therefore about the HAND's up axis.
+    /// Once the mini is tilted, spinning about the hand's up axis no longer spins the mini — it
+    /// TIPS it, which is exactly the complaint: yaw on a figure you have just stood upright should
+    /// turn it and nothing else. So the yaw goes FIRST, in the mini's own frame, and tilt/roll are
+    /// applied on top: R = tiltRoll * yaw. Upright (tilt 0) that is an ordinary spin about the
+    /// mini's axis; tilted, it is still a pure spin, just seen tipped.
+    /// </remarks>
     internal static Quaternion HeldUprightRotation(HandSide side)
-        => Quaternion.Euler(ActiveHeldTilt, HeldFaceYawFor(side), HeldRollFor(side));
+        => Quaternion.Euler(ActiveHeldTilt, 0f, HeldRollFor(side))
+           * Quaternion.Euler(0f, HeldFaceYawFor(side), 0f);
 
     /// <summary>
-    /// Palm-pose rotation relative to the GrabAnchor. It used to be tilt ONLY, which meant the
-    /// yaw and roll steppers silently did nothing unless upright mode happened to be on — the
-    /// mini had three position axes but one rotation axis. Both modes now use all three, so
-    /// every stepper does what it says wherever you are.
+    /// The palm pose: tilt only, as it always was.
+    ///
+    /// <para>It deliberately does NOT take the yaw and the roll. Giving it all three (which I did
+    /// once) made the two poses byte-for-byte identical and quietly turned the "hold upright"
+    /// switch into a setting that does nothing — the yaw was the only thing it ever selected.
+    /// The switch keeps its meaning; the extra axes live in the upright pose, which is the one
+    /// you inspect a mini in.</para>
+    ///
     /// </summary>
-    internal static Vector3 HeldEulerFor(HandSide side)
-        => new(ActiveHeldTilt, HeldFaceYawFor(side), HeldRollFor(side));
+    internal static Quaternion HeldPalmRotation() => Quaternion.Euler(ActiveHeldTilt, 0f, 0f);
 
     private static ConfigFile? _file;
 

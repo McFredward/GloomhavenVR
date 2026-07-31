@@ -14,14 +14,14 @@ Entitlement-based licensing initiated
 [Licensing::Module] Error: Access token is unavailable
 [LicensingClient] Licenses updated successfully
 
-LICENSE SYSTEM [2026731 0:35:28] Next license update check is after 2026-07-31T22:35:28
+LICENSE SYSTEM [2026731 8:35:23] Next license update check is after 2026-08-01T06:35:23
 
 
-LICENSE SYSTEM [2026731 0:35:28] Current license is already valid and activated. Skipping license activation process (Provided username/password will be ignored).
+LICENSE SYSTEM [2026731 8:35:23] Current license is already valid and activated. Skipping license activation process (Provided username/password will be ignored).
 [Licensing::Module] Serial number assigned to: "F4-CYFX-Q64F-37F5-YX8Z-XXXX"
 Pro License: NO
 Initialize udev device monitor.
-[Package Manager] Server::Start -- Port 43735 was selected
+[Package Manager] Server::Start -- Port 55949 was selected
 
 COMMAND LINE ARGUMENTS:
 /home/claw/unity-2021.3.5/Editor/Unity
@@ -123,9 +123,9 @@ Registered 41 packages:
 [Subsystems] 1 'displays' descriptors matched in Library/PackageCache/com.unity.xr.openxr@1.13.0/Runtime/UnitySubsystemsManifest.json
 [Subsystems] No descriptors matched for  meshings in Library/PackageCache/com.unity.xr.openxr@1.13.0/Runtime/UnitySubsystemsManifest.json.
 Package Manager log level set to [2]
-[Package Manager] Done registering packages in 0.04s seconds
+[Package Manager] Done registering packages in 0.05s seconds
 Targeting platform: Win64
-Refreshing native plugins compatible for Editor in 6.56 ms, found 0 plugins.
+Refreshing native plugins compatible for Editor in 12.99 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
 Initialize engine version: 2021.3.5f1 (40eb3a945986)
 [Subsystems] Discovering subsystems at path /home/claw/unity-2021.3.5/Editor/Data/Resources/UnitySubsystems
@@ -145,7 +145,7 @@ Initialize mono
 Mono path[0] = '/home/claw/unity-2021.3.5/Editor/Data/Managed'
 Mono path[1] = '/home/claw/unity-2021.3.5/Editor/Data/MonoBleedingEdge/lib/mono/unityjit-linux'
 Mono config path = '/home/claw/unity-2021.3.5/Editor/Data/MonoBleedingEdge/etc'
-Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56836
+Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56096
 Using cacheserver namespaces - metadata:defaultmetadata, artifacts:defaultartifacts
 Using cacheserver namespaces - metadata:defaultmetadata, artifacts:defaultartifacts
 ImportWorker Server TCP listen port: 0
@@ -154,27 +154,27 @@ Begin MonoManager ReloadAssembly
 Registering precompiled unity dll's ...
 Register platform support module: /home/claw/unity-2021.3.5/Editor/Data/PlaybackEngines/WindowsStandaloneSupport/UnityEditor.WindowsStandalone.Extensions.dll
 Register platform support module: /home/claw/unity-2021.3.5/Editor/Data/PlaybackEngines/LinuxStandaloneSupport/UnityEditor.LinuxStandalone.Extensions.dll
-Registered in 0.002999 seconds.
+Registered in 0.002996 seconds.
 Native extension for LinuxStandalone target not found
 Native extension for WindowsStandalone target not found
 Refreshing native plugins compatible for Editor in 1.12 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
 Mono: successfully reloaded assembly
-- Completed reload, in  0.380 seconds
+- Completed reload, in  0.374 seconds
 Domain Reload Profiling:
-	ReloadAssembly (381ms)
-		BeginReloadAssembly (36ms)
+	ReloadAssembly (374ms)
+		BeginReloadAssembly (37ms)
 			ExecutionOrderSort (0ms)
 			DisableScriptedObjects (0ms)
 			BackupInstance (0ms)
 			ReleaseScriptingObjects (0ms)
 			CreateAndSetChildDomain (0ms)
-		EndReloadAssembly (268ms)
-			LoadAssemblies (35ms)
+		EndReloadAssembly (262ms)
+			LoadAssemblies (36ms)
 			RebuildTransferFunctionScriptingTraits (0ms)
-			SetupTypeCache (70ms)
+			SetupTypeCache (71ms)
 			ReleaseScriptCaches (0ms)
-			RebuildScriptCaches (22ms)
+			RebuildScriptCaches (21ms)
 			SetupLoadedEditorAssemblies (133ms)
 				LogAssemblyErrors (0ms)
 				InitializePlatformSupportModulesInManaged (7ms)
@@ -190,16 +190,16 @@ Domain Reload Profiling:
 Platform modules already initialized, skipping
 Application.AssetDatabase Initial Refresh Start
 Registering precompiled user dll's ...
-Registered in 0.001570 seconds.
+Registered in 0.001911 seconds.
 Starting: /home/claw/unity-2021.3.5/Editor/Data/bee_backend --profile="Library/Bee/backend_profiler0.traceevents" --stdin-canary --dagfile="Library/Bee/1900b0aE.dag" --continue-on-failure ScriptAssemblies
 WorkingDir: /home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets
-ExitCode: 0 Duration: 0s27ms
+ExitCode: 0 Duration: 0s24ms
 *** Tundra build success (0.01 seconds), 0 items updated, 300 evaluated
-AssetDatabase: script compilation time: 0.196931s
+AssetDatabase: script compilation time: 0.191026s
 Begin MonoManager ReloadAssembly
 Native extension for LinuxStandalone target not found
 Native extension for WindowsStandalone target not found
-Refreshing native plugins compatible for Editor in 10.97 ms, found 0 plugins.
+Refreshing native plugins compatible for Editor in 10.99 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
 System.ArgumentException: Invalid value of 'activeInputHandler' setting: -1
   at UnityEngine.InputSystem.Editor.EditorPlayerSettingHelpers.ActiveInputHandlerToTuple (System.Int32 value) [0x0002e] in /home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Library/PackageCache/com.unity.inputsystem@1.7.0/InputSystem/Editor/Settings/EditorPlayerSettingHelpers.cs:124 
@@ -306,38 +306,38 @@ UnityEditor.EditorAssemblies:ProcessInitializeOnLoadAttributes (System.Type[]) (
 (Filename: /home/bokken/buildslave/unity/build/Editor/Mono/EditorAssemblies.cs Line: 130)
 
 Mono: successfully reloaded assembly
-- Completed reload, in  0.534 seconds
+- Completed reload, in  0.536 seconds
 Domain Reload Profiling:
-	ReloadAssembly (535ms)
-		BeginReloadAssembly (74ms)
+	ReloadAssembly (537ms)
+		BeginReloadAssembly (73ms)
 			ExecutionOrderSort (0ms)
 			DisableScriptedObjects (4ms)
 			BackupInstance (0ms)
 			ReleaseScriptingObjects (0ms)
-			CreateAndSetChildDomain (19ms)
-		EndReloadAssembly (412ms)
+			CreateAndSetChildDomain (18ms)
+		EndReloadAssembly (414ms)
 			LoadAssemblies (32ms)
 			RebuildTransferFunctionScriptingTraits (0ms)
-			SetupTypeCache (90ms)
+			SetupTypeCache (91ms)
 			ReleaseScriptCaches (1ms)
-			RebuildScriptCaches (32ms)
+			RebuildScriptCaches (33ms)
 			SetupLoadedEditorAssemblies (214ms)
 				LogAssemblyErrors (0ms)
 				InitializePlatformSupportModulesInManaged (8ms)
 				SetLoadedEditorAssemblies (0ms)
 				RefreshPlugins (11ms)
-				BeforeProcessingInitializeOnLoad (32ms)
-				ProcessInitializeOnLoadAttributes (143ms)
-				ProcessInitializeOnLoadMethodAttributes (17ms)
+				BeforeProcessingInitializeOnLoad (33ms)
+				ProcessInitializeOnLoadAttributes (144ms)
+				ProcessInitializeOnLoadMethodAttributes (16ms)
 				AfterProcessingInitializeOnLoad (3ms)
 				EditorAssembliesLoaded (0ms)
 			ExecutionOrderSort2 (0ms)
 			AwakeInstancesAfterBackupRestoration (3ms)
 Platform modules already initialized, skipping
 Registering precompiled user dll's ...
-Registered in 0.001549 seconds.
-Start importing Assets/Bundle/Hands/VRHandPlate_albedo.png using Guid(6496846b2a528c81a8bfbd2239011079) Importer(-1,00000000000000000000000000000000)  -> (artifact id: '227059d35f28f8ae6dd0f1b50965e218') in 0.139877 seconds 
-Refreshing native plugins compatible for Editor in 0.30 ms, found 0 plugins.
+Registered in 0.001528 seconds.
+Start importing Assets/Bundle/Hands/VRHandPlate_albedo.png using Guid(6496846b2a528c81a8bfbd2239011079) Importer(-1,00000000000000000000000000000000)  -> (artifact id: '269e8772c7f05c8ef9ede74a2e74106f') in 0.144869 seconds 
+Refreshing native plugins compatible for Editor in 0.32 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
 ArgumentException: Invalid value of 'activeInputHandler' setting: -1
   at UnityEngine.InputSystem.Editor.EditorPlayerSettingHelpers.ActiveInputHandlerToTuple (System.Int32 value) [0x0002e] in /home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets/Library/PackageCache/com.unity.inputsystem@1.7.0/InputSystem/Editor/Settings/EditorPlayerSettingHelpers.cs:124 
@@ -350,47 +350,47 @@ Rethrow as TypeInitializationException: The type initializer for 'UnityEngine.In
 
 (Filename: /home/bokken/buildslave/unity/build/Editor/Mono/EditorApplication.cs Line: 403)
 
-Asset Pipeline Refresh: Total: 1.296 seconds - Initiated by InitialRefreshV2(ForceSynchronousImport)
+Asset Pipeline Refresh: Total: 1.297 seconds - Initiated by InitialRefreshV2(ForceSynchronousImport)
 	Summary:
 		Imports: total=1 (actual=1, local cache=0, cache server=0)
-		Asset DB Process Time: managed=2 ms, native=236 ms
-		Asset DB Callback time: managed=71 ms, native=3 ms
-		Scripting: domain reloads=1, domain reload time=566 ms, compile time=198 ms, other=218 ms
+		Asset DB Process Time: managed=2 ms, native=242 ms
+		Asset DB Callback time: managed=68 ms, native=3 ms
+		Scripting: domain reloads=1, domain reload time=566 ms, compile time=192 ms, other=220 ms
 		Project Asset Count: scripts=2052, non-scripts=305
 		Asset File Changes: new=0, changed=1, moved=0, deleted=0
 		Scan Filter Count: 1
-	InvokeBeforeRefreshCallbacks: 0.126ms
-	ApplyChangesToAssetFolders: 0.038ms
-	Scan: 50.261ms
-	OnSourceAssetsModified: 0.700ms
-	InitializeImportedAssetsSnapshot: 10.494ms
-	GetAllGuidsForCategorization: 0.151ms
-	CategorizeAssets: 19.734ms
-	ImportOutOfDateAssets: 1141.831ms (794.414ms without children)
-		ImportManagerImport: 148.726ms (8.681ms without children)
-			ImportInProcess: 140.028ms
-			UpdateCategorizedAssets: 0.017ms
-		CompileScripts: 198.091ms
-		ReloadImportedAssets: 0.001ms
-		EnsureUptoDateAssetsAreRegisteredWithGuidPM: 0.291ms
-		InitializingProgressBar: 0.005ms
-		PostProcessAllAssetNotificationsAddChangedAssets: 0.154ms
-		OnDemandSchedulerStart: 0.151ms
-	ReloadSourceAssets: 0.208ms
-	UnloadImportedAssets: 6.572ms
-	PostProcessAllAssets: 71.969ms
-	Hotreload: 2.309ms
+	InvokeBeforeRefreshCallbacks: 0.117ms
+	ApplyChangesToAssetFolders: 0.033ms
+	Scan: 52.691ms
+	OnSourceAssetsModified: 0.706ms
+	InitializeImportedAssetsSnapshot: 10.092ms
+	GetAllGuidsForCategorization: 0.166ms
+	CategorizeAssets: 19.325ms
+	ImportOutOfDateAssets: 1142.900ms (796.857ms without children)
+		ImportManagerImport: 153.215ms (8.190ms without children)
+			ImportInProcess: 145.002ms
+			UpdateCategorizedAssets: 0.023ms
+		CompileScripts: 192.156ms
+		ReloadImportedAssets: 0.000ms
+		EnsureUptoDateAssetsAreRegisteredWithGuidPM: 0.316ms
+		InitializingProgressBar: 0.006ms
+		PostProcessAllAssetNotificationsAddChangedAssets: 0.172ms
+		OnDemandSchedulerStart: 0.178ms
+	ReloadSourceAssets: 0.209ms
+	UnloadImportedAssets: 6.344ms
+	PostProcessAllAssets: 69.022ms
+	Hotreload: 2.347ms
 	GatherAllCurrentPrimaryArtifactRevisions: 0.000ms
-	UnloadStreamsBegin: 0.190ms
-	LoadedImportedAssetsSnapshotReleaseGCHandles: 0.361ms
-	GetLoadedSourceAssetsIDs: 0.364ms
-	GetLoadedSourceAssetsSnapshot: 0.263ms
-	PersistCurrentRevisions: 0.100ms
-	UnloadStreamsEnd: 0.007ms
-	GenerateScriptTypeHashes: 0.728ms
-	Untracked: 62.568ms
+	UnloadStreamsBegin: 0.153ms
+	LoadedImportedAssetsSnapshotReleaseGCHandles: 0.406ms
+	GetLoadedSourceAssetsIDs: 0.367ms
+	GetLoadedSourceAssetsSnapshot: 0.252ms
+	PersistCurrentRevisions: 0.110ms
+	UnloadStreamsEnd: 0.008ms
+	GenerateScriptTypeHashes: 0.725ms
+	Untracked: 60.558ms
 Application.AssetDatabase Initial Refresh End
-Scanning for USB devices : 1.031ms
+Scanning for USB devices : 1.052ms
 Initializing Unity extensions:
 UpdateMenuTitleForLanguage: 10
 [MODES] ModeService[none].Initialize
@@ -398,12 +398,12 @@ UpdateMenuTitleForLanguage: 10
 [MODES] Loading mode Default (0) for mode-current-id-GloomhavenVR.Assets
 ProgressiveSceneManager::Cancel()
 Unloading 139 Unused Serialized files (Serialized files now loaded: 0)
-Unloading 188 unused Assets / (441.9 KB). Loaded Objects now: 2055.
+Unloading 188 unused Assets / (442.0 KB). Loaded Objects now: 2055.
 Memory consumption went from 78.8 MB to 78.4 MB.
-Total: 2.876190 ms (FindLiveObjects: 0.075864 ms CreateObjectMapping: 0.021450 ms MarkObjects: 2.586263 ms  DeleteObjects: 0.190313 ms)
+Total: 4.421298 ms (FindLiveObjects: 0.077518 ms CreateObjectMapping: 0.021612 ms MarkObjects: 3.990386 ms  DeleteObjects: 0.330956 ms)
 
 Registering precompiled user dll's ...
-Registered in 0.001516 seconds.
+Registered in 0.001515 seconds.
 Asset Pipeline Refresh: Total: 0.031 seconds - Initiated by RefreshV2(NoUpdateAssetOptions)
 [GloomhavenVR] === building VRHand_L from Assets/Bundle/Hands/VRHand_L_rig.fbx ===
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -416,7 +416,7 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:71)
 (Filename: Assets/Editor/BuildHands.cs Line: 87)
 
 Registering precompiled user dll's ...
-Registered in 0.001519 seconds.
+Registered in 0.001499 seconds.
 Start importing Assets/Bundle/Hands/VRHand_L_rig.fbx using Guid(d78e3a171d6bdd8a5b88802cee2f7126) Importer(-1,00000000000000000000000000000000) A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is self-intersecting and has been discarded.
@@ -482,12 +482,12 @@ A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is sel
 A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_L_mesh' in Assets/Bundle/Hands/VRHand_L_rig.fbx is self-intersecting and has been discarded.
- -> (artifact id: 'ad9fc00da37e5e1087edf9831c39bab8') in 0.056943 seconds 
-Refreshing native plugins compatible for Editor in 0.27 ms, found 0 plugins.
+ -> (artifact id: 'ad9fc00da37e5e1087edf9831c39bab8') in 0.058054 seconds 
+Refreshing native plugins compatible for Editor in 0.32 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
-Asset Pipeline Refresh: Total: 0.075 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Asset Pipeline Refresh: Total: 0.077 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 Registering precompiled user dll's ...
-Registered in 0.001522 seconds.
+Registered in 0.001546 seconds.
 Asset Pipeline Refresh: Total: 0.006 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 [GloomhavenVR] material written: Assets/Bundle/Hands/VRHand_L.mat (albedo=yes)
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -754,7 +754,7 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:72)
 (Filename: Assets/Editor/BuildHands.cs Line: 87)
 
 Registering precompiled user dll's ...
-Registered in 0.001512 seconds.
+Registered in 0.001553 seconds.
 Start importing Assets/Bundle/Hands/VRHand_R_rig.fbx using Guid(1de199c0daa47b94e882a7fcd4337221) Importer(-1,00000000000000000000000000000000) A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is self-intersecting and has been discarded.
@@ -822,12 +822,12 @@ A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is sel
 A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHand_R_mesh' in Assets/Bundle/Hands/VRHand_R_rig.fbx is self-intersecting and has been discarded.
- -> (artifact id: '21d82485d86213355256b900f70eeea2') in 0.051905 seconds 
-Refreshing native plugins compatible for Editor in 0.25 ms, found 0 plugins.
+ -> (artifact id: '21d82485d86213355256b900f70eeea2') in 0.058645 seconds 
+Refreshing native plugins compatible for Editor in 0.30 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
-Asset Pipeline Refresh: Total: 0.065 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Asset Pipeline Refresh: Total: 0.073 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 Registering precompiled user dll's ...
-Registered in 0.001533 seconds.
+Registered in 0.001694 seconds.
 Asset Pipeline Refresh: Total: 0.006 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 [GloomhavenVR] material written: Assets/Bundle/Hands/VRHand_R.mat (albedo=yes)
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -1094,7 +1094,7 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:71)
 (Filename: Assets/Editor/BuildHands.cs Line: 87)
 
 Registering precompiled user dll's ...
-Registered in 0.001510 seconds.
+Registered in 0.001556 seconds.
 Start importing Assets/Bundle/Hands/VRHandPlate_L_rig.fbx using Guid(c6956f265a58a4b3dac22b6c06938a95) Importer(-1,00000000000000000000000000000000) A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.fbx is self-intersecting and has been discarded.
@@ -1118,12 +1118,12 @@ A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.
 A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_L_mesh' in Assets/Bundle/Hands/VRHandPlate_L_rig.fbx is self-intersecting and has been discarded.
- -> (artifact id: '56eb0ac2f3851fc52ce9a292531bea29') in 0.075039 seconds 
-Refreshing native plugins compatible for Editor in 0.27 ms, found 0 plugins.
+ -> (artifact id: '56eb0ac2f3851fc52ce9a292531bea29') in 0.076344 seconds 
+Refreshing native plugins compatible for Editor in 0.29 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
-Asset Pipeline Refresh: Total: 0.088 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Asset Pipeline Refresh: Total: 0.091 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 Registering precompiled user dll's ...
-Registered in 0.001523 seconds.
+Registered in 0.001613 seconds.
 Asset Pipeline Refresh: Total: 0.006 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 [GloomhavenVR] material written: Assets/Bundle/Hands/VRHandPlate_L.mat (albedo=yes)
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -1390,7 +1390,7 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:72)
 (Filename: Assets/Editor/BuildHands.cs Line: 87)
 
 Registering precompiled user dll's ...
-Registered in 0.001510 seconds.
+Registered in 0.001558 seconds.
 Start importing Assets/Bundle/Hands/VRHandPlate_R_rig.fbx using Guid(0063549802ded46e0826dc1b06e26b9a) Importer(-1,00000000000000000000000000000000) A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.fbx is self-intersecting and has been discarded.
@@ -1415,12 +1415,12 @@ A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.
 A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.fbx is self-intersecting and has been discarded.
 A polygon of Mesh 'VRHandPlate_R_mesh' in Assets/Bundle/Hands/VRHandPlate_R_rig.fbx is self-intersecting and has been discarded.
- -> (artifact id: '34811614b8c28e35c264b361f516cdb4') in 0.074016 seconds 
+ -> (artifact id: '34811614b8c28e35c264b361f516cdb4') in 0.081090 seconds 
 Refreshing native plugins compatible for Editor in 0.26 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
-Asset Pipeline Refresh: Total: 0.087 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Asset Pipeline Refresh: Total: 0.096 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 Registering precompiled user dll's ...
-Registered in 0.001525 seconds.
+Registered in 0.001527 seconds.
 Asset Pipeline Refresh: Total: 0.006 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 [GloomhavenVR] material written: Assets/Bundle/Hands/VRHandPlate_R.mat (albedo=yes)
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -1688,12 +1688,12 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:71)
 
 Registering precompiled user dll's ...
 Registered in 0.001508 seconds.
-Start importing Assets/Bundle/Hands/VRHandArcane_L_rig.fbx using Guid(975655f1017c3c25287f428b345c1b33) Importer(-1,00000000000000000000000000000000)  -> (artifact id: '76dd5f4adee51026820c3735ab962f72') in 0.035131 seconds 
-Refreshing native plugins compatible for Editor in 0.27 ms, found 0 plugins.
+Start importing Assets/Bundle/Hands/VRHandArcane_L_rig.fbx using Guid(975655f1017c3c25287f428b345c1b33) Importer(-1,00000000000000000000000000000000)  -> (artifact id: '76dd5f4adee51026820c3735ab962f72') in 0.033797 seconds 
+Refreshing native plugins compatible for Editor in 0.26 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
-Asset Pipeline Refresh: Total: 0.048 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Asset Pipeline Refresh: Total: 0.046 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 Registering precompiled user dll's ...
-Registered in 0.001524 seconds.
+Registered in 0.001529 seconds.
 Asset Pipeline Refresh: Total: 0.006 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 [GloomhavenVR] material written: Assets/Bundle/Hands/VRHandArcane_L.mat (albedo=yes)
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -1960,13 +1960,13 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:72)
 (Filename: Assets/Editor/BuildHands.cs Line: 87)
 
 Registering precompiled user dll's ...
-Registered in 0.001529 seconds.
-Start importing Assets/Bundle/Hands/VRHandArcane_R_rig.fbx using Guid(1e01b77895cbccbc58cddc452809be9e) Importer(-1,00000000000000000000000000000000)  -> (artifact id: '683985fae6c9db01ad1b953cf1a28dcb') in 0.034807 seconds 
-Refreshing native plugins compatible for Editor in 0.26 ms, found 0 plugins.
+Registered in 0.001635 seconds.
+Start importing Assets/Bundle/Hands/VRHandArcane_R_rig.fbx using Guid(1e01b77895cbccbc58cddc452809be9e) Importer(-1,00000000000000000000000000000000)  -> (artifact id: '683985fae6c9db01ad1b953cf1a28dcb') in 0.037962 seconds 
+Refreshing native plugins compatible for Editor in 0.29 ms, found 0 plugins.
 Preloading 0 native plugins for Editor in 0.00 ms.
-Asset Pipeline Refresh: Total: 0.048 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Asset Pipeline Refresh: Total: 0.052 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 Registering precompiled user dll's ...
-Registered in 0.001538 seconds.
+Registered in 0.001539 seconds.
 Asset Pipeline Refresh: Total: 0.006 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
 [GloomhavenVR] material written: Assets/Bundle/Hands/VRHandArcane_R.mat (albedo=yes)
 UnityEngine.StackTraceUtility:ExtractStackTrace () (at /home/bokken/buildslave/unity/build/Runtime/Export/Scripting/StackTrace.cs:37)
@@ -2291,7 +2291,7 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:74)
 (Filename: Assets/Editor/BuildBundles.cs Line: 74)
 
 Registering precompiled user dll's ...
-Registered in 0.001519 seconds.
+Registered in 0.001520 seconds.
 Asset Pipeline Refresh: Total: 0.023 seconds - Initiated by RefreshV2()
 Launched and connected shader compiler UnityShaderCompiler after 0.01 seconds
 BuildPlayerGenerator: Succeeded
@@ -2300,35 +2300,35 @@ Asset Pipeline Refresh: Total: 0.010 seconds - Initiated by RefreshV2(NoUpdateAs
 BuildPlayer: start building target 19
 Starting: /home/claw/unity-2021.3.5/Editor/Data/bee_backend --profile="Library/Bee/backend_profiler0.traceevents" --stdin-canary --dagfile="Library/Bee/1900b0aP.dag" --continue-on-failure ScriptAssemblies
 WorkingDir: /home/claw/gloomhaven_vr/unity/GloomhavenVR.Assets
-ExitCode: 0 Duration: 0s42ms
-[124/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.UI.dll
+ExitCode: 0 Duration: 0s39ms
+[122/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.UI.dll
+[123/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.Management.pdb
 [125/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.SpatialTracking.dll
-[127/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.UI.pdb
-[130/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.SpatialTracking.pdb
-[131/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.Management.dll
-[134/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.XR.LegacyInputHelpers.pdb
-[135/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.XR.LegacyInputHelpers.dll
-[138/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.Management.pdb
-[140/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.Mathematics.pdb
-[147/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.ForUI.dll
-[149/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.pdb
-[150/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.ForUI.pdb
-[151/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.pdb
-[152/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.dll
-[155/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.CoreUtils.pdb
-[155/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.CoreUtils.dll
-[163/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.ConformanceAutomation.dll
-[164/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MockRuntime.dll
-[164/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MetaQuestSupport.dll
-[166/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.RuntimeDebugger.dll
-[164/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.Mathematics.dll
-[167/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.dll
-[169/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.RuntimeDebugger.pdb
-[169/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.ConformanceAutomation.pdb
-[172/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MetaQuestSupport.pdb
-[168/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MockRuntime.pdb
-[176/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.OculusQuestSupport.dll
-[177/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.OculusQuestSupport.pdb
+[128/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.Management.dll
+[129/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.SpatialTracking.pdb
+[137/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.XR.LegacyInputHelpers.dll
+[138/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.XR.LegacyInputHelpers.pdb
+[145/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.CoreUtils.pdb
+[147/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.CoreUtils.dll
+[148/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.ForUI.dll
+[149/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.ForUI.pdb
+[150/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.Mathematics.pdb
+[155/181    0s] CopyFiles Library/PlayerScriptAssemblies/UnityEngine.UI.pdb
+[156/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.pdb
+[158/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.Mathematics.dll
+[160/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.pdb
+[163/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MetaQuestSupport.dll
+[163/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.InputSystem.dll
+[165/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MetaQuestSupport.pdb
+[166/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.ConformanceAutomation.dll
+[167/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.dll
+[170/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.RuntimeDebugger.pdb
+[171/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.ConformanceAutomation.pdb
+[173/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.RuntimeDebugger.dll
+[174/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MockRuntime.pdb
+[174/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.OculusQuestSupport.dll
+[174/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.OculusQuestSupport.pdb
+[177/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.OpenXR.Features.MockRuntime.dll
 [178/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.Interaction.Toolkit.pdb
 [179/181    0s] CopyFiles Library/PlayerScriptAssemblies/Unity.XR.Interaction.Toolkit.dll
 *** Tundra build success (0.01 seconds), 30 items updated, 181 evaluated
@@ -2453,11 +2453,11 @@ Serialized binary data for shader GloomhavenVR/HexDecalStable in 0.00s
     d3d11 (total internal programs: 4, unique: 4)
 
 ***Player size statistics***
-Total compressed size 29.0 MB. Total uncompressed size 57.7 MB.
+Total compressed size 28.9 MB. Total uncompressed size 57.7 MB.
 Unloading 59 Unused Serialized files (Serialized files now loaded: 0)
-Unloading 841 unused Assets / (0.6 MB). Loaded Objects now: 2070.
+Unloading 841 unused Assets / (0.7 MB). Loaded Objects now: 2070.
 Memory consumption went from 133.9 MB to 133.2 MB.
-Total: 3.599378 ms (FindLiveObjects: 0.108513 ms CreateObjectMapping: 0.045759 ms MarkObjects: 2.913216 ms  DeleteObjects: 0.531277 ms)
+Total: 3.833125 ms (FindLiveObjects: 0.141286 ms CreateObjectMapping: 0.038526 ms MarkObjects: 3.046215 ms  DeleteObjects: 0.606378 ms)
 
 
 ***Player size statistics***
@@ -2465,12 +2465,12 @@ Total compressed size 1.0 KB. Total uncompressed size 4.2 KB.
 Unloading 0 Unused Serialized files (Serialized files now loaded: 0)
 Unloading 0 unused Assets / (0 B). Loaded Objects now: 2072.
 Memory consumption went from 128.2 MB to 128.2 MB.
-Total: 2.727391 ms (FindLiveObjects: 0.092583 ms CreateObjectMapping: 0.022659 ms MarkObjects: 2.608695 ms  DeleteObjects: 0.002951 ms)
+Total: 2.730439 ms (FindLiveObjects: 0.078205 ms CreateObjectMapping: 0.019831 ms MarkObjects: 2.628476 ms  DeleteObjects: 0.003434 ms)
 
 
 -------------------------------------------------------------------------------
 Bundle Name: gloomhavenvr.bundle
-Compressed Size:29.0 mb
+Compressed Size:28.9 mb
 Uncompressed usage by category (Percentages based on user generated assets only):
 Textures               43.2 mb	 74.8% 
 Meshes                 14.2 mb	 24.6% 
@@ -2578,194 +2578,194 @@ GloomhavenVR.HandsBuilder:Build () (at Assets/Editor/BuildHands.cs:74)
 AcceleratorClientConnectionCallback - disconnected - :0
 Cleanup mono
 debugger-agent: Unable to listen on 48
-[Performance] Application.InitializeProject                                                                                                                :        1 samples, Peak.  2.37 s (1.0x), Avg.  2.37 s, Total. 2.375 s (15.6%)
-[Performance] Application.PackageManager.StartServer                                                                                                       :        1 samples, Peak.   792 us (1.0x), Avg.   792 us, Total. 792.1 us (0.0%)
-[Performance] Application.AcquireProjectLock                                                                                                               :        1 samples, Peak.  1.61 ms (1.0x), Avg.  1.61 ms, Total. 1.610 ms (0.0%)
-[Performance] Application.InitializeEngineNoGraphics                                                                                                       :        1 samples, Peak.  40.2 ms (1.0x), Avg.  40.2 ms, Total. 40.17 ms (0.3%)
-[Performance] Application.PackageManager.Initialize                                                                                                        :        1 samples, Peak.   415 ms (1.0x), Avg.   415 ms, Total. 415.4 ms (2.7%)
-[Performance] CurlRequestCheck                                                                                                                             :        9 samples, Peak.  77.3 us (3.3x), Avg.  23.4 us, Total. 210.6 us (0.0%)
-[Performance] Application.EngineGraphics.Initialize                                                                                                        :        1 samples, Peak.  17.5 ms (1.0x), Avg.  17.5 ms, Total. 17.45 ms (0.1%)
-[Performance] Application.GI.Initialize                                                                                                                    :        1 samples, Peak.  1.41 ms (1.0x), Avg.  1.41 ms, Total. 1.409 ms (0.0%)
-[Performance] Application.LoadAllDefaultResourcesFromEditor                                                                                                :        1 samples, Peak.  1.86 ms (1.0x), Avg.  1.86 ms, Total. 1.858 ms (0.0%)
-[Performance] Application.LoadMonoAssemblies                                                                                                               :        1 samples, Peak.   385 ms (1.0x), Avg.   385 ms, Total. 384.7 ms (2.5%)
-[Performance] RestoreManagedReferences                                                                                                                     :        2 samples, Peak.  28.1 ms (2.0x), Avg.  14.0 ms, Total. 28.09 ms (0.2%)
-[Performance] InitializeOnLoad LayerSettingsWindow                                                                                                         :        2 samples, Peak.   157 us (1.0x), Avg.   152 us, Total. 303.8 us (0.0%)
-[Performance] InitializeOnLoad ParameterControllerEditor                                                                                                   :        2 samples, Peak.  9.68 us (1.1x), Avg.  9.20 us, Total. 18.40 us (0.0%)
-[Performance] InitializeOnLoad ServicesRepository                                                                                                          :        2 samples, Peak.   564 us (1.1x), Avg.   516 us, Total. 1.031 ms (0.0%)
-[Performance] InitializeOnLoad CrashService                                                                                                                :        2 samples, Peak.  1.73 ms (1.8x), Avg.   966 us, Total. 1.932 ms (0.0%)
-[Performance] InitializeOnLoad UDPService                                                                                                                  :        2 samples, Peak.   143 us (1.2x), Avg.   123 us, Total. 245.1 us (0.0%)
-[Performance] InitializeOnLoad CloudBuildPoller                                                                                                            :        2 samples, Peak.  92.3 us (1.2x), Avg.  77.7 us, Total. 155.4 us (0.0%)
-[Performance] InitializeOnLoad BuildService                                                                                                                :        2 samples, Peak.   104 us (1.1x), Avg.  95.2 us, Total. 190.4 us (0.0%)
-[Performance] InitializeOnLoad PurchasingService                                                                                                           :        2 samples, Peak.  4.63 ms (1.0x), Avg.  4.47 ms, Total. 8.940 ms (0.1%)
-[Performance] InitializeOnLoad AdsService                                                                                                                  :        2 samples, Peak.   323 us (1.0x), Avg.   315 us, Total. 629.7 us (0.0%)
-[Performance] InitializeOnLoad AnalyticsService                                                                                                            :        2 samples, Peak.   103 us (1.0x), Avg.   101 us, Total. 201.0 us (0.0%)
-[Performance] InitializeOnLoad CollabService                                                                                                               :        2 samples, Peak.   102 us (1.0x), Avg.  99.3 us, Total. 198.6 us (0.0%)
-[Performance] InitializeOnLoad UIDocumentHierarchyWatcher                                                                                                  :        2 samples, Peak.   549 us (1.6x), Avg.   342 us, Total. 684.0 us (0.0%)
-[Performance] InitializeOnLoad RetainedMode                                                                                                                :        2 samples, Peak.  1.40 ms (1.0x), Avg.  1.38 ms, Total. 2.759 ms (0.0%)
-[Performance] InitializeOnLoad UXMLEditorFactories                                                                                                         :        2 samples, Peak.  36.6 ms (1.0x), Avg.  35.8 ms, Total. 71.66 ms (0.5%)
-[Performance] InitializeOnLoad EditorMonitor                                                                                                               :        2 samples, Peak.   142 us (1.0x), Avg.   139 us, Total. 278.0 us (0.0%)
-[Performance] InitializeOnLoad EditorShaderLoader                                                                                                          :        2 samples, Peak.   635 us (1.0x), Avg.   632 us, Total. 1.265 ms (0.0%)
-[Performance] InitializeOnLoad SearchMonitor                                                                                                               :        2 samples, Peak.  18.9 ms (1.4x), Avg.  13.4 ms, Total. 26.79 ms (0.2%)
-[Performance] InitializeOnLoad PlayModeDownload                                                                                                            :        2 samples, Peak.  1.50 ms (1.8x), Avg.   826 us, Total. 1.652 ms (0.0%)
-[Performance] InitializeOnLoad SearchWindow                                                                                                                :        2 samples, Peak.  88.5 us (1.0x), Avg.  87.2 us, Total. 174.4 us (0.0%)
-[Performance] InitializeOnLoad EditMode                                                                                                                    :        2 samples, Peak.   310 us (1.1x), Avg.   277 us, Total. 553.9 us (0.0%)
-[Performance] InitializeOnLoad AssetStoreContext                                                                                                           :        2 samples, Peak.  3.28 ms (1.5x), Avg.  2.24 ms, Total. 4.477 ms (0.0%)
-[Performance] InitializeOnLoad DrivenRectTransformUndo                                                                                                     :        2 samples, Peak.   175 us (1.0x), Avg.   171 us, Total. 341.8 us (0.0%)
-[Performance] InitializeOnLoad SettingsService                                                                                                             :        2 samples, Peak.  4.78 us (1.0x), Avg.  4.65 us, Total. 9.298 us (0.0%)
-[Performance] InitializeOnLoad PrefabInstanceChangedListener                                                                                               :        2 samples, Peak.  99.6 us (1.5x), Avg.  64.9 us, Total. 129.8 us (0.0%)
-[Performance] InitializeOnLoad CacheServerWindow                                                                                                           :        2 samples, Peak.  6.93 us (1.0x), Avg.  6.80 us, Total. 13.59 us (0.0%)
-[Performance] InitializeOnLoad WindowLayout                                                                                                                :        2 samples, Peak.  11.1 ms (1.1x), Avg.  9.97 ms, Total. 19.94 ms (0.1%)
-[Performance] InitializeOnLoad ManagedDebuggerWindow                                                                                                       :        2 samples, Peak.   466 us (1.0x), Avg.   450 us, Total. 900.6 us (0.0%)
-[Performance] InitializeOnLoad NativeFormatImporterUtility                                                                                                 :        2 samples, Peak.  1.89 ms (1.1x), Avg.  1.70 ms, Total. 3.398 ms (0.0%)
-[Performance] InitializeOnLoad UISystemProfilerRenderService                                                                                               :        2 samples, Peak.  7.01 us (1.1x), Avg.  6.54 us, Total. 13.07 us (0.0%)
-[Performance] InitializeOnLoad ShortcutIntegration                                                                                                         :        2 samples, Peak.  61.8 us (1.1x), Avg.  54.6 us, Total. 109.2 us (0.0%)
-[Performance] InitializeOnLoad AddComponentWindow                                                                                                          :        2 samples, Peak.  81.1 us (1.0x), Avg.  79.0 us, Total. 157.9 us (0.0%)
-[Performance] InitializeOnLoad MenuItems                                                                                                                   :        2 samples, Peak.   300 us (1.7x), Avg.   175 us, Total. 350.1 us (0.0%)
-[Performance] InitializeOnLoad MixerEffectDefinitionReloader                                                                                               :        2 samples, Peak.  2.18 ms (1.3x), Avg.  1.69 ms, Total. 3.388 ms (0.0%)
-[Performance] InitializeOnLoad CloudBuild                                                                                                                  :        2 samples, Peak.  4.14 us (1.1x), Avg.  3.76 us, Total. 7.510 us (0.0%)
-[Performance] InitializeOnLoad UnityConnect                                                                                                                :        2 samples, Peak.  43.5 us (1.0x), Avg.  42.4 us, Total. 84.87 us (0.0%)
-[Performance] InitializeOnLoad ProjectSearch                                                                                                               :        2 samples, Peak.  34.5 us (1.1x), Avg.  32.0 us, Total. 64.05 us (0.0%)
-[Performance] InitializeOnLoad SearchService                                                                                                               :        2 samples, Peak.   152 us (1.0x), Avg.   149 us, Total. 297.5 us (0.0%)
-[Performance] InitializeOnLoad SceneSearch                                                                                                                 :        2 samples, Peak.  25.0 us (1.0x), Avg.  24.7 us, Total. 49.32 us (0.0%)
-[Performance] InitializeOnLoad ObjectSelectorSearch                                                                                                        :        2 samples, Peak.  18.1 us (1.0x), Avg.  18.1 us, Total. 36.17 us (0.0%)
-[Performance] InitializeOnLoad Collab                                                                                                                      :        2 samples, Peak.  4.65 ms (1.2x), Avg.  3.75 ms, Total. 7.492 ms (0.0%)
-[Performance] InitializeOnLoad ManagedDebugger                                                                                                             :        2 samples, Peak.   695 ns (1.1x), Avg.   653 ns, Total. 1.305 us (0.0%)
-[Performance] InitializeOnLoad EditorDragAndDrop.RegisterEditorClient                                                                                      :        2 samples, Peak.   698 us (1.6x), Avg.   430 us, Total. 859.9 us (0.0%)
-[Performance] InitializeOnLoad LiveReloadTrackerCreator.Initialize                                                                                         :        2 samples, Peak.   137 us (1.0x), Avg.   134 us, Total. 268.2 us (0.0%)
-[Performance] InitializeOnLoad EditorDelegateRegistration.Initialize                                                                                       :        2 samples, Peak.   275 us (1.0x), Avg.   272 us, Total. 544.6 us (0.0%)
-[Performance] InitializeOnLoad PackageManagerHookGUIDConverter.RegisterPackagesEventHandler                                                                :        2 samples, Peak.  92.6 us (1.5x), Avg.  60.5 us, Total. 121.0 us (0.0%)
-[Performance] InitializeOnLoad RuntimeEditorDelegateRegistration.Initialize                                                                                :        2 samples, Peak.   126 us (1.0x), Avg.   125 us, Total. 250.9 us (0.0%)
-[Performance] InitializeOnLoad EditorEventCallbacks.InitializeFontAssetResourceChangeCallBacks                                                             :        2 samples, Peak.  1.60 ms (1.3x), Avg.  1.19 ms, Total. 2.378 ms (0.0%)
-[Performance] InitializeOnLoad SceneTemplateService.Init                                                                                                   :        2 samples, Peak.   400 us (1.4x), Avg.   296 us, Total. 591.0 us (0.0%)
-[Performance] InitializeOnLoad ScopedRegistryAddedPopup.SubscribeToRegistriesAdded                                                                         :        2 samples, Peak.  17.7 ms (1.5x), Avg.  11.4 ms, Total. 22.89 ms (0.1%)
-[Performance] InitializeOnLoad EntitlementsErrorChecker.OpenFirstEntitlementError                                                                          :        2 samples, Peak.   300 us (1.6x), Avg.   190 us, Total. 380.3 us (0.0%)
-[Performance] InitializeOnLoad DiagnosticSwitchesConsoleMessage.Init                                                                                       :        2 samples, Peak.  2.20 ms (1.8x), Avg.  1.24 ms, Total. 2.489 ms (0.0%)
-[Performance] InitializeOnLoad SysrootManager.Initialize                                                                                                   :        2 samples, Peak.  8.30 us (1.1x), Avg.  7.29 us, Total. 14.59 us (0.0%)
-[Performance] InitializeOnLoad EditorWindow.Initialize                                                                                                     :        2 samples, Peak.   138 us (1.0x), Avg.   137 us, Total. 274.5 us (0.0%)
-[Performance] InitializeOnLoad AssetPostprocessingInternal.RefreshCustomDependencies                                                                       :        2 samples, Peak.   781 us (1.0x), Avg.   763 us, Total. 1.525 ms (0.0%)
-[Performance] InitializeOnLoad SceneVisibilityManager.Initialize                                                                                           :        2 samples, Peak.  3.85 ms (1.7x), Avg.  2.28 ms, Total. 4.553 ms (0.0%)
-[Performance] InitializeOnLoad MemoryProfilerCompilationGuard.InjectCompileGuard                                                                           :        2 samples, Peak.   114 us (1.0x), Avg.   110 us, Total. 219.9 us (0.0%)
-[Performance] ProcessService.EditorAfterLoadAllAssemblies                                                                                                  :        2 samples, Peak.   224 us (1.1x), Avg.   202 us, Total. 404.0 us (0.0%)
-[Performance] Application.ReadLicenseInfo                                                                                                                  :        1 samples, Peak.  11.0 ms (1.0x), Avg.  11.0 ms, Total. 11.03 ms (0.1%)
-[Performance] Application.InitialRefresh                                                                                                                   :        1 samples, Peak.  1.30 s (1.0x), Avg.  1.30 s, Total. 1.297 s (8.5%)
-[Performance] ShaderImporter.SourceAssetModified                                                                                                           :        2 samples, Peak.   560 ns (1.3x), Avg.   431 ns, Total. 861.0 ns (0.0%)
-[Performance] ShaderIncludeImporter.SourceAssetModified                                                                                                    :        2 samples, Peak.   895 ns (1.0x), Avg.   882 ns, Total. 1.763 us (0.0%)
-[Performance] Compiling Scripts                                                                                                                            :        1 samples, Peak.   197 ms (1.0x), Avg.   197 ms, Total. 196.9 ms (1.3%)
-[Performance] InitializeOnLoad InteractionLayerUpdater                                                                                                     :        1 samples, Peak.  3.93 us (1.0x), Avg.  3.93 us, Total. 3.926 us (0.0%)
-[Performance] InitializeOnLoad BuildHelperUtils                                                                                                            :        1 samples, Peak.  6.06 us (1.0x), Avg.  6.06 us, Total. 6.057 us (0.0%)
-[Performance] InitializeOnLoad BuildValidator                                                                                                              :        1 samples, Peak.   550 us (1.0x), Avg.   550 us, Total. 550.5 us (0.0%)
-[Performance] InitializeOnLoad ScriptableSettingsInitializer                                                                                               :        1 samples, Peak.   498 us (1.0x), Avg.   498 us, Total. 497.6 us (0.0%)
-[Performance] InitializeOnLoad InputSystem                                                                                                                 :        1 samples, Peak.  63.2 ms (1.0x), Avg.  63.2 ms, Total. 63.23 ms (0.4%)
-[Performance] InitializeOnLoad TouchSimulation                                                                                                             :        1 samples, Peak.   275 us (1.0x), Avg.   275 us, Total. 274.6 us (0.0%)
-[Performance] InitializeOnLoad PrefabLayoutRebuilder                                                                                                       :        1 samples, Peak.   187 us (1.0x), Avg.   187 us, Total. 187.5 us (0.0%)
-[Performance] InitializeOnLoad SimulatedInputLayoutLoader                                                                                                  :        1 samples, Peak.   512 us (1.0x), Avg.   512 us, Total. 511.6 us (0.0%)
-[Performance] InitializeOnLoad SectorInteraction                                                                                                           :        1 samples, Peak.   229 us (1.0x), Avg.   229 us, Total. 229.0 us (0.0%)
-[Performance] InitializeOnLoad Vector3FallbackComposite                                                                                                    :        1 samples, Peak.   203 us (1.0x), Avg.   203 us, Total. 202.6 us (0.0%)
-[Performance] InitializeOnLoad QuaternionFallbackComposite                                                                                                 :        1 samples, Peak.   162 us (1.0x), Avg.   162 us, Total. 162.0 us (0.0%)
-[Performance] InitializeOnLoad IntegerFallbackComposite                                                                                                    :        1 samples, Peak.   162 us (1.0x), Avg.   162 us, Total. 161.6 us (0.0%)
-[Performance] InitializeOnLoad ButtonFallbackComposite                                                                                                     :        1 samples, Peak.   185 us (1.0x), Avg.   185 us, Total. 184.7 us (0.0%)
-[Performance] InitializeOnLoad XRGeneralSettingsPerBuildTarget                                                                                             :        1 samples, Peak.   387 us (1.0x), Avg.   387 us, Total. 387.4 us (0.0%)
-[Performance] InitializeOnLoad XRPackageInitializationBootstrap                                                                                            :        1 samples, Peak.  49.2 us (1.0x), Avg.  49.2 us, Total. 49.21 us (0.0%)
-[Performance] InitializeOnLoad XRPackageMetadataStore                                                                                                      :        1 samples, Peak.   367 us (1.0x), Avg.   367 us, Total. 367.4 us (0.0%)
-[Performance] InitializeOnLoad XRLegacyUninstaller                                                                                                         :        1 samples, Peak.  5.72 ms (1.0x), Avg.  5.72 ms, Total. 5.722 ms (0.0%)
-[Performance] InitializeOnLoad OpenXRProjectValidationRulesSetup.OpenXRProjectValidationCheck                                                              :        1 samples, Peak.  4.27 ms (1.0x), Avg.  4.27 ms, Total. 4.273 ms (0.0%)
-[Performance] InitializeOnLoad OpenXRChooseRuntimeLibraries.InitializeOnLoad                                                                               :        1 samples, Peak.   756 us (1.0x), Avg.   756 us, Total. 756.2 us (0.0%)
-[Performance] InitializeOnLoad OpenXRFeatureSetManager.InitializeOnLoad                                                                                    :        1 samples, Peak.   216 us (1.0x), Avg.   216 us, Total. 216.4 us (0.0%)
-[Performance] InitializeOnLoad CoreUtilsAnalytics.RegisterEvents                                                                                           :        1 samples, Peak.   342 us (1.0x), Avg.   342 us, Total. 342.3 us (0.0%)
-[Performance] DidReloadScriptsPackageVersionUtility.OnReloadScripts                                                                                        :        1 samples, Peak.  61.0 us (1.0x), Avg.  61.0 us, Total. 60.96 us (0.0%)
-[Performance] DidReloadScriptsAdvancedDropdownWindow.OnScriptReload                                                                                        :        2 samples, Peak.   197 us (1.2x), Avg.   163 us, Total. 325.6 us (0.0%)
-[Performance] AssemblyReloadEvents.afterAssemblyReload: UnityEditor.XR.Management.Metadata.XRPackageMetadataStore.AssemblyReloadEvents_afterAssemblyReload :        1 samples, Peak.  2.06 ms (1.0x), Avg.  2.06 ms, Total. 2.056 ms (0.0%)
-[Performance] PresetManagerPostProcessor.OnPreprocessAsset                                                                                                 :        7 samples, Peak.   206 us (5.4x), Avg.  37.8 us, Total. 264.4 us (0.0%)
-[Performance] CancelSplashScreenOnAssetChange.OnPreprocessAsset                                                                                            :        7 samples, Peak.   101 us (6.3x), Avg.  16.1 us, Total. 112.7 us (0.0%)
-[Performance] TextureImporter.Import                                                                                                                       :        1 samples, Peak.   133 ms (1.0x), Avg.   133 ms, Total. 133.4 ms (0.9%)
-[Performance] AssetDatabase.ImportAssets                                                                                                                   :        7 samples, Peak.   627 ns (1.3x), Avg.   497 ns, Total. 3.477 us (0.0%)
-[Performance] VersionControl.Task.Wait                                                                                                                     :        1 samples, Peak.  4.11 us (1.0x), Avg.  4.11 us, Total. 4.114 us (0.0%)
-[Performance] BuilderAssetPostprocessor.OnPostprocessAllAssets                                                                                             :       14 samples, Peak.  2.35 ms (6.7x), Avg.   353 us, Total. 4.936 ms (0.0%)
-[Performance] ArtifactBrowserPostProcessor.OnPostprocessAllAssets                                                                                          :       14 samples, Peak.   281 us (6.5x), Avg.  43.3 us, Total. 606.0 us (0.0%)
-[Performance] AssetEvents.OnPostprocessAllAssets                                                                                                           :       28 samples, Peak.   191 us (9.6x), Avg.  19.9 us, Total. 557.8 us (0.0%)
-[Performance] AudioMixerPostprocessor.OnPostprocessAllAssets                                                                                               :       14 samples, Peak.   202 us (6.6x), Avg.  30.7 us, Total. 429.7 us (0.0%)
-[Performance] StyleCatalogPostProcessor.OnPostprocessAllAssets                                                                                             :       14 samples, Peak.  11.4 ms (7.0x), Avg.  1.64 ms, Total. 22.91 ms (0.2%)
-[Performance] BuildCatalog                                                                                                                                 :        1 samples, Peak.  10.6 ms (1.0x), Avg.  10.6 ms, Total. 10.64 ms (0.1%)
-[Performance] ModelImporterPostProcessor.OnPostprocessAllAssets                                                                                            :       14 samples, Peak.  1.96 ms (2.2x), Avg.   904 us, Total. 12.65 ms (0.1%)
-[Performance] RetainedModeAssetPostprocessor.OnPostprocessAllAssets                                                                                        :       14 samples, Peak.  1.99 ms (6.8x), Avg.   292 us, Total. 4.090 ms (0.0%)
-[Performance] AssetChangedListener.OnPostprocessAllAssets                                                                                                  :       14 samples, Peak.  6.90 ms (6.6x), Avg.  1.05 ms, Total. 14.70 ms (0.1%)
-[Performance] TextAssetPostProcessor.OnPostprocessAllAssets                                                                                                :       14 samples, Peak.   274 us (6.4x), Avg.  42.9 us, Total. 600.5 us (0.0%)
-[Performance] UIDocumentAssetPostProcessor.OnPostprocessAllAssets                                                                                          :       14 samples, Peak.   582 us (6.7x), Avg.  86.2 us, Total. 1.207 ms (0.0%)
-[Performance] AssetCallbacks.OnPostprocessAllAssets                                                                                                        :       14 samples, Peak.  24.0 ms (7.0x), Avg.  3.43 ms, Total. 48.06 ms (0.3%)
-[Performance] SyncVS.PostprocessSyncProject                                                                                                                :        7 samples, Peak.   665 us (7.0x), Avg.  95.4 us, Total. 668.0 us (0.0%)
-[Performance] EditorApplication.projectChanged: UnityEngine.InputSystem.LowLevel.NativeInputRuntime.OnProjectChanged                                       :        1 samples, Peak.   110 us (1.0x), Avg.   110 us, Total. 109.9 us (0.0%)
-[Performance] Application.ImportPackagesAndSetTemplateWhenCreatingProject                                                                                  :        1 samples, Peak.  9.46 ms (1.0x), Avg.  9.46 ms, Total. 9.459 ms (0.1%)
-[Performance] Application.SyncCurrentColorSpace                                                                                                            :        1 samples, Peak.  3.38 ms (1.0x), Avg.  3.38 ms, Total. 3.375 ms (0.0%)
-[Performance] Application.OnUsbDevicesChanged                                                                                                              :        1 samples, Peak.  1.04 ms (1.0x), Avg.  1.04 ms, Total. 1.040 ms (0.0%)
-[Performance] Application.AssetInstanceCacheUpdate                                                                                                         :        1 samples, Peak.   206 ns (1.0x), Avg.   206 ns, Total. 206.0 ns (0.0%)
-[Performance] Application.UnityExtensions.Initialize                                                                                                       :        1 samples, Peak.   424 us (1.0x), Avg.   424 us, Total. 424.0 us (0.0%)
-[Performance] Application.InitializeManagedCompilationPipeline                                                                                             :        1 samples, Peak.  30.4 ms (1.0x), Avg.  30.4 ms, Total. 30.40 ms (0.2%)
-[Performance] Application.ExecuteStartups                                                                                                                  :        1 samples, Peak.  29.1 ms (1.0x), Avg.  29.1 ms, Total. 29.12 ms (0.2%)
-[Performance] Menu.RegisterMenuInterface                                                                                                                   :       26 samples, Peak.  3.64 us (13.1x), Avg.   278 ns, Total. 7.220 us (0.0%)
-[Performance] Gizmo.RebuildRenderers                                                                                                                       :        2 samples, Peak.  28.7 ms (1.9x), Avg.  14.9 ms, Total. 29.90 ms (0.2%)
-[Performance] Gizmo.AddGizmoRenderers                                                                                                                      :       90 samples, Peak.  1.57 ms (55.8x), Avg.  28.1 us, Total. 2.530 ms (0.0%)
-[Performance] Application.editorInitializingProject                                                                                                        :        1 samples, Peak.  20.4 us (1.0x), Avg.  20.4 us, Total. 20.36 us (0.0%)
-[Performance] Application.InitializeMenu                                                                                                                   :        1 samples, Peak.  48.6 ms (1.0x), Avg.  48.6 ms, Total. 48.57 ms (0.3%)
-[Performance] Menu.RebuildAll                                                                                                                              :        1 samples, Peak.  48.6 ms (1.0x), Avg.  48.6 ms, Total. 48.56 ms (0.3%)
-[Performance] Menu.BuildRegisteredMenuInterfaces                                                                                                           :        1 samples, Peak.  48.1 ms (1.0x), Avg.  48.1 ms, Total. 48.15 ms (0.3%)
-[Performance] Menu.FilterMenuItem                                                                                                                          :     2495 samples, Peak.  10.7 ms (2346.1x), Avg.  4.57 us, Total. 11.40 ms (0.1%)
-[Performance] UpdateAllMenus                                                                                                                               :        1 samples, Peak.   372 us (1.0x), Avg.   372 us, Total. 372.3 us (0.0%)
-[Performance] EditorSceneManager.sceneClosing: UnityEditor.SceneVisibilityManager.EditorSceneManagerOnSceneClosing                                         :        1 samples, Peak.   211 us (1.0x), Avg.   211 us, Total. 210.9 us (0.0%)
-[Performance] EditorSceneManager.activeSceneChangedInEditMode: callback in UnityEditor.Search.SearchMonitor                                                :        1 samples, Peak.  47.5 us (1.0x), Avg.  47.5 us, Total. 47.52 us (0.0%)
-[Performance] GUIView.RepaintAll.PlayerLoopController                                                                                                      :        1 samples, Peak.   334 ns (1.0x), Avg.   334 ns, Total. 334.0 ns (0.0%)
-[Performance] EditorSceneManager.newSceneCreated: UnityEditor.SceneVisibilityManager.EditorSceneManagerOnNewSceneCreated                                   :        1 samples, Peak.   228 us (1.0x), Avg.   228 us, Total. 228.0 us (0.0%)
-[Performance] EditorSceneManager.newSceneCreated: UnityEditor.SceneManagement.StageNavigationManager.OnNewSceneCreated                                     :        1 samples, Peak.  45.0 us (1.0x), Avg.  45.0 us, Total. 45.01 us (0.0%)
-[Performance] Application.InvokeFinishedLoadingProject                                                                                                     :        1 samples, Peak.  1.90 ms (1.0x), Avg.  1.90 ms, Total. 1.897 ms (0.0%)
-[Performance] ProcessService.OnProjectLoaded                                                                                                               :        1 samples, Peak.  34.4 us (1.0x), Avg.  34.4 us, Total. 34.42 us (0.0%)
-[Performance] AssetDatabase.Refresh                                                                                                                        :        2 samples, Peak.  31.2 ms (1.5x), Avg.  20.7 ms, Total. 41.44 ms (0.3%)
-[Performance] AssetDatabase.ImportAsset                                                                                                                    :        6 samples, Peak.  88.0 ms (1.3x), Avg.  68.6 ms, Total. 411.4 ms (2.7%)
-[Performance] ModelImporter.Import                                                                                                                         :        6 samples, Peak.  72.3 ms (1.4x), Avg.  52.1 ms, Total. 312.8 ms (2.0%)
-[Performance] SceneDataContainer.TransformHierarchyChangedSetParentCallback                                                                                :      396 samples, Peak.  9.13 us (18.4x), Avg.   496 ns, Total. 196.4 us (0.0%)
-[Performance] SceneVisibilityState.IsFlagSetInParents                                                                                                      :     1044 samples, Peak.  2.00 us (10.9x), Avg.   184 ns, Total. 191.6 us (0.0%)
-[Performance] TreeAOImporter.OnPostprocessModel                                                                                                            :        6 samples, Peak.   573 us (5.4x), Avg.   106 us, Total. 638.2 us (0.0%)
-[Performance] BuilderAssetModificationProcessor.OnWillSaveAssets                                                                                           :       32 samples, Peak.   688 us (20.8x), Avg.  33.1 us, Total. 1.060 ms (0.0%)
-[Performance] TerrainModificationProcessor.OnWillSaveAssets                                                                                                :       32 samples, Peak.   448 us (29.1x), Avg.  15.4 us, Total. 493.1 us (0.0%)
-[Performance] BuilderAssetModificationProcessor.OnWillCreateAsset                                                                                          :       12 samples, Peak.   193 us (7.5x), Avg.  25.8 us, Total. 309.3 us (0.0%)
-[Performance] BuildAssetBundles                                                                                                                            :        1 samples, Peak.  10.7 s (1.0x), Avg.  10.7 s, Total. 10.75 s (70.4%)
-[Performance] GenerateAssemblyTypeInfos                                                                                                                    :        2 samples, Peak.   344 ms (1.1x), Avg.   314 ms, Total. 628.9 ms (4.1%)
-[Performance] Application.Shutdown.CollabTerminate                                                                                                         :        1 samples, Peak.  1.49 us (1.0x), Avg.  1.49 us, Total. 1.486 us (0.0%)
-[Performance] Application.Shutdown.CollabCleanup                                                                                                           :        1 samples, Peak.   815 us (1.0x), Avg.   815 us, Total. 815.0 us (0.0%)
-[Performance] Application.Shutdown.SaveDefaultWindowPreferences                                                                                            :        1 samples, Peak.   180 us (1.0x), Avg.   180 us, Total. 180.4 us (0.0%)
-[Performance] Application.Shutdown.SaveSceneManagerSetup                                                                                                   :        1 samples, Peak.   213 us (1.0x), Avg.   213 us, Total. 212.6 us (0.0%)
-[Performance] Application.Shutdown.CleanupAllContainerWindows                                                                                              :        1 samples, Peak.   678 ns (1.0x), Avg.   678 ns, Total. 678.0 ns (0.0%)
-[Performance] EditorApplication.quitting: UnityEditor.Search.SearchMonitor.OnQuitting                                                                      :        1 samples, Peak.  2.33 ms (1.0x), Avg.  2.33 ms, Total. 2.329 ms (0.0%)
-[Performance] EditorApplication.quitting: callback in UnityEditor.TextCore.Text.EditorEventCallbacks                                                       :        1 samples, Peak.  19.7 ms (1.0x), Avg.  19.7 ms, Total. 19.67 ms (0.1%)
-[Performance] Application.Shutdown.PauseProfilerSession                                                                                                    :        1 samples, Peak.  34.1 us (1.0x), Avg.  34.1 us, Total. 34.13 us (0.0%)
-[Performance] Application.Shutdown.PauseAssetImportWorkers                                                                                                 :        1 samples, Peak.   311 us (1.0x), Avg.   311 us, Total. 310.7 us (0.0%)
-[Performance] Application.Shutdown.SaveAssets                                                                                                              :        1 samples, Peak.   364 us (1.0x), Avg.   364 us, Total. 363.7 us (0.0%)
-[Performance] Application.Shutdown.CleanupRenderPipeline                                                                                                   :        1 samples, Peak.  2.28 us (1.0x), Avg.  2.28 us, Total. 2.280 us (0.0%)
-[Performance] Application.Shutdown.StopPreloadManager                                                                                                      :        1 samples, Peak.  10.2 ms (1.0x), Avg.  10.2 ms, Total. 10.21 ms (0.1%)
-[Performance] Application.Shutdown.DestroyWorld                                                                                                            :        1 samples, Peak.   304 us (1.0x), Avg.   304 us, Total. 303.8 us (0.0%)
-[Performance] Application.Shutdown.CleanupAfterLoad                                                                                                        :        1 samples, Peak.  2.73 ms (1.0x), Avg.  2.73 ms, Total. 2.734 ms (0.0%)
-[Performance] Application.Shutdown.Progress                                                                                                                :        1 samples, Peak.  7.03 us (1.0x), Avg.  7.03 us, Total. 7.032 us (0.0%)
-[Performance] Application.Shutdown.GICleanupManagers                                                                                                       :        1 samples, Peak.  1.22 ms (1.0x), Avg.  1.22 ms, Total. 1.222 ms (0.0%)
-[Performance] Application.Shutdown.MenuCleanupClass                                                                                                        :        1 samples, Peak.   124 us (1.0x), Avg.   124 us, Total. 123.9 us (0.0%)
-[Performance] Application.Shutdown.ADBSaveStateBeforeShutdown                                                                                              :        1 samples, Peak.  4.65 us (1.0x), Avg.  4.65 us, Total. 4.650 us (0.0%)
-[Performance] Application.Shutdown.RemoteShutdown                                                                                                          :        1 samples, Peak.   597 ns (1.0x), Avg.   597 ns, Total. 597.0 ns (0.0%)
-[Performance] Application.Shutdown.CleanupVCProvider                                                                                                       :        1 samples, Peak.  5.89 us (1.0x), Avg.  5.89 us, Total. 5.890 us (0.0%)
-[Performance] Application.Shutdown.InputShutdown                                                                                                           :        1 samples, Peak.  1.14 us (1.0x), Avg.  1.14 us, Total. 1.144 us (0.0%)
-[Performance] Application.Shutdown.GizmoManagerDestroy                                                                                                     :        1 samples, Peak.   625 us (1.0x), Avg.   625 us, Total. 625.3 us (0.0%)
-[Performance] Application.Shutdown.ProfilerSession                                                                                                         :        1 samples, Peak.   135 us (1.0x), Avg.   135 us, Total. 135.5 us (0.0%)
-[Performance] Application.Shutdown.ReleaseGfxWindowOnAllGUIViews                                                                                           :        1 samples, Peak.   326 ns (1.0x), Avg.   326 ns, Total. 326.0 ns (0.0%)
-[Performance] Application.Shutdown.CleanupEngine                                                                                                           :        1 samples, Peak.   101 ms (1.0x), Avg.   101 ms, Total. 100.6 ms (0.7%)
-[Performance] Application.Shutdown.CleanupAssetDatabase                                                                                                    :        1 samples, Peak.  5.79 ms (1.0x), Avg.  5.79 ms, Total. 5.790 ms (0.0%)
-[Performance] Application.Shutdown.ScriptCompilationCleanUp                                                                                                :        1 samples, Peak.  52.5 us (1.0x), Avg.  52.5 us, Total. 52.55 us (0.0%)
-[Performance] Application.Shutdown.DestroyJobSystem                                                                                                        :        1 samples, Peak.  29.6 us (1.0x), Avg.  29.6 us, Total. 29.56 us (0.0%)
-[Performance] Application.Shutdown.CleanupPersistentManager                                                                                                :        1 samples, Peak.  2.75 ms (1.0x), Avg.  2.75 ms, Total. 2.752 ms (0.0%)
-[Performance] Application.Shutdown.CleanupAsyncReadManager                                                                                                 :        1 samples, Peak.   587 us (1.0x), Avg.   587 us, Total. 587.1 us (0.0%)
-[Performance] Application.Shutdown.CleanupMono                                                                                                             :        1 samples, Peak.  51.5 ms (1.0x), Avg.  51.5 ms, Total. 51.48 ms (0.3%)
-[Performance] Application.Shutdown.CleanupStdConverters                                                                                                    :        1 samples, Peak.  10.1 us (1.0x), Avg.  10.1 us, Total. 10.15 us (0.0%)
-[Performance] Application.Shutdown.UnloadAllPlatformSupportModuleNativeDlls                                                                                :        1 samples, Peak.   347 ns (1.0x), Avg.   347 ns, Total. 347.0 ns (0.0%)
-[Performance] Application.Shutdown.UnloadAllPlatformSupportNativeLibraries                                                                                 :        1 samples, Peak.   205 ns (1.0x), Avg.   205 ns, Total. 205.0 ns (0.0%)
-[Performance] Application.Shutdown.CleanupAutoDocumentation                                                                                                :        1 samples, Peak.   154 us (1.0x), Avg.   154 us, Total. 154.4 us (0.0%)
-[Performance] Application.Shutdown.ShaderNameManagerDestroy                                                                                                :        1 samples, Peak.  39.4 us (1.0x), Avg.  39.4 us, Total. 39.36 us (0.0%)
-[Performance] Application.Shutdown.CleanupCacheServer                                                                                                      :        1 samples, Peak.   268 ns (1.0x), Avg.   268 ns, Total. 268.0 ns (0.0%)
-[Performance] Application.Shutdown.Virtualization_Shutdown                                                                                                 :        1 samples, Peak.   370 ns (1.0x), Avg.   370 ns, Total. 370.0 ns (0.0%)
+[Performance] Application.InitializeProject                                                                                                                :        1 samples, Peak.  2.39 s (1.0x), Avg.  2.39 s, Total. 2.388 s (15.6%)
+[Performance] Application.PackageManager.StartServer                                                                                                       :        1 samples, Peak.   841 us (1.0x), Avg.   841 us, Total. 841.3 us (0.0%)
+[Performance] Application.AcquireProjectLock                                                                                                               :        1 samples, Peak.  1.49 ms (1.0x), Avg.  1.49 ms, Total. 1.487 ms (0.0%)
+[Performance] Application.InitializeEngineNoGraphics                                                                                                       :        1 samples, Peak.  41.8 ms (1.0x), Avg.  41.8 ms, Total. 41.77 ms (0.3%)
+[Performance] Application.PackageManager.Initialize                                                                                                        :        1 samples, Peak.   417 ms (1.0x), Avg.   417 ms, Total. 416.8 ms (2.7%)
+[Performance] CurlRequestCheck                                                                                                                             :        9 samples, Peak.  85.0 us (3.8x), Avg.  22.4 us, Total. 201.6 us (0.0%)
+[Performance] Application.EngineGraphics.Initialize                                                                                                        :        1 samples, Peak.  20.6 ms (1.0x), Avg.  20.6 ms, Total. 20.63 ms (0.1%)
+[Performance] Application.GI.Initialize                                                                                                                    :        1 samples, Peak.  1.49 ms (1.0x), Avg.  1.49 ms, Total. 1.487 ms (0.0%)
+[Performance] Application.LoadAllDefaultResourcesFromEditor                                                                                                :        1 samples, Peak.  1.44 ms (1.0x), Avg.  1.44 ms, Total. 1.440 ms (0.0%)
+[Performance] Application.LoadMonoAssemblies                                                                                                               :        1 samples, Peak.   378 ms (1.0x), Avg.   378 ms, Total. 378.4 ms (2.5%)
+[Performance] RestoreManagedReferences                                                                                                                     :        2 samples, Peak.  28.4 ms (2.0x), Avg.  14.2 ms, Total. 28.43 ms (0.2%)
+[Performance] InitializeOnLoad LayerSettingsWindow                                                                                                         :        2 samples, Peak.   144 us (1.0x), Avg.   143 us, Total. 285.3 us (0.0%)
+[Performance] InitializeOnLoad ParameterControllerEditor                                                                                                   :        2 samples, Peak.  10.8 us (1.1x), Avg.  9.57 us, Total. 19.14 us (0.0%)
+[Performance] InitializeOnLoad ServicesRepository                                                                                                          :        2 samples, Peak.   544 us (1.1x), Avg.   518 us, Total. 1.036 ms (0.0%)
+[Performance] InitializeOnLoad CrashService                                                                                                                :        2 samples, Peak.  1.76 ms (1.8x), Avg.   990 us, Total. 1.979 ms (0.0%)
+[Performance] InitializeOnLoad UDPService                                                                                                                  :        2 samples, Peak.   129 us (1.1x), Avg.   117 us, Total. 233.0 us (0.0%)
+[Performance] InitializeOnLoad CloudBuildPoller                                                                                                            :        2 samples, Peak.  71.1 us (1.0x), Avg.  68.3 us, Total. 136.6 us (0.0%)
+[Performance] InitializeOnLoad BuildService                                                                                                                :        2 samples, Peak.  93.9 us (1.0x), Avg.  93.3 us, Total. 186.5 us (0.0%)
+[Performance] InitializeOnLoad PurchasingService                                                                                                           :        2 samples, Peak.  4.58 ms (1.0x), Avg.  4.45 ms, Total. 8.903 ms (0.1%)
+[Performance] InitializeOnLoad AdsService                                                                                                                  :        2 samples, Peak.   326 us (1.0x), Avg.   318 us, Total. 635.2 us (0.0%)
+[Performance] InitializeOnLoad AnalyticsService                                                                                                            :        2 samples, Peak.  98.9 us (1.0x), Avg.  97.3 us, Total. 194.7 us (0.0%)
+[Performance] InitializeOnLoad CollabService                                                                                                               :        2 samples, Peak.   101 us (1.0x), Avg.  96.7 us, Total. 193.4 us (0.0%)
+[Performance] InitializeOnLoad UIDocumentHierarchyWatcher                                                                                                  :        2 samples, Peak.   530 us (1.6x), Avg.   327 us, Total. 653.5 us (0.0%)
+[Performance] InitializeOnLoad RetainedMode                                                                                                                :        2 samples, Peak.  1.37 ms (1.0x), Avg.  1.33 ms, Total. 2.667 ms (0.0%)
+[Performance] InitializeOnLoad UXMLEditorFactories                                                                                                         :        2 samples, Peak.  36.6 ms (1.0x), Avg.  35.8 ms, Total. 71.70 ms (0.5%)
+[Performance] InitializeOnLoad EditorMonitor                                                                                                               :        2 samples, Peak.   155 us (1.0x), Avg.   151 us, Total. 302.8 us (0.0%)
+[Performance] InitializeOnLoad EditorShaderLoader                                                                                                          :        2 samples, Peak.   668 us (1.1x), Avg.   630 us, Total. 1.259 ms (0.0%)
+[Performance] InitializeOnLoad SearchMonitor                                                                                                               :        2 samples, Peak.  19.1 ms (1.4x), Avg.  13.4 ms, Total. 26.75 ms (0.2%)
+[Performance] InitializeOnLoad PlayModeDownload                                                                                                            :        2 samples, Peak.  1.58 ms (1.8x), Avg.   860 us, Total. 1.719 ms (0.0%)
+[Performance] InitializeOnLoad SearchWindow                                                                                                                :        2 samples, Peak.  90.2 us (1.1x), Avg.  84.7 us, Total. 169.4 us (0.0%)
+[Performance] InitializeOnLoad EditMode                                                                                                                    :        2 samples, Peak.   327 us (1.2x), Avg.   279 us, Total. 557.3 us (0.0%)
+[Performance] InitializeOnLoad AssetStoreContext                                                                                                           :        2 samples, Peak.  3.26 ms (1.5x), Avg.  2.21 ms, Total. 4.428 ms (0.0%)
+[Performance] InitializeOnLoad DrivenRectTransformUndo                                                                                                     :        2 samples, Peak.   174 us (1.0x), Avg.   169 us, Total. 338.3 us (0.0%)
+[Performance] InitializeOnLoad SettingsService                                                                                                             :        2 samples, Peak.  4.84 us (1.1x), Avg.  4.53 us, Total. 9.057 us (0.0%)
+[Performance] InitializeOnLoad PrefabInstanceChangedListener                                                                                               :        2 samples, Peak.  96.7 us (1.5x), Avg.  62.9 us, Total. 125.8 us (0.0%)
+[Performance] InitializeOnLoad CacheServerWindow                                                                                                           :        2 samples, Peak.  7.26 us (1.0x), Avg.  7.07 us, Total. 14.14 us (0.0%)
+[Performance] InitializeOnLoad WindowLayout                                                                                                                :        2 samples, Peak.  11.2 ms (1.1x), Avg.  9.98 ms, Total. 19.95 ms (0.1%)
+[Performance] InitializeOnLoad ManagedDebuggerWindow                                                                                                       :        2 samples, Peak.   475 us (1.0x), Avg.   458 us, Total. 916.6 us (0.0%)
+[Performance] InitializeOnLoad NativeFormatImporterUtility                                                                                                 :        2 samples, Peak.  1.91 ms (1.1x), Avg.  1.70 ms, Total. 3.396 ms (0.0%)
+[Performance] InitializeOnLoad UISystemProfilerRenderService                                                                                               :        2 samples, Peak.  6.60 us (1.0x), Avg.  6.51 us, Total. 13.02 us (0.0%)
+[Performance] InitializeOnLoad ShortcutIntegration                                                                                                         :        2 samples, Peak.  51.6 us (1.1x), Avg.  48.8 us, Total. 97.55 us (0.0%)
+[Performance] InitializeOnLoad AddComponentWindow                                                                                                          :        2 samples, Peak.  80.7 us (1.0x), Avg.  77.5 us, Total. 155.0 us (0.0%)
+[Performance] InitializeOnLoad MenuItems                                                                                                                   :        2 samples, Peak.   300 us (1.7x), Avg.   175 us, Total. 349.3 us (0.0%)
+[Performance] InitializeOnLoad MixerEffectDefinitionReloader                                                                                               :        2 samples, Peak.  1.93 ms (1.2x), Avg.  1.56 ms, Total. 3.127 ms (0.0%)
+[Performance] InitializeOnLoad CloudBuild                                                                                                                  :        2 samples, Peak.  4.12 us (1.1x), Avg.  3.83 us, Total. 7.666 us (0.0%)
+[Performance] InitializeOnLoad UnityConnect                                                                                                                :        2 samples, Peak.  43.2 us (1.0x), Avg.  43.2 us, Total. 86.37 us (0.0%)
+[Performance] InitializeOnLoad ProjectSearch                                                                                                               :        2 samples, Peak.  28.4 us (1.0x), Avg.  27.7 us, Total. 55.31 us (0.0%)
+[Performance] InitializeOnLoad SearchService                                                                                                               :        2 samples, Peak.   148 us (1.0x), Avg.   145 us, Total. 290.5 us (0.0%)
+[Performance] InitializeOnLoad SceneSearch                                                                                                                 :        2 samples, Peak.  31.2 us (1.1x), Avg.  27.4 us, Total. 54.88 us (0.0%)
+[Performance] InitializeOnLoad ObjectSelectorSearch                                                                                                        :        2 samples, Peak.  18.7 us (1.1x), Avg.  17.8 us, Total. 35.54 us (0.0%)
+[Performance] InitializeOnLoad Collab                                                                                                                      :        2 samples, Peak.  4.67 ms (1.2x), Avg.  3.79 ms, Total. 7.586 ms (0.0%)
+[Performance] InitializeOnLoad ManagedDebugger                                                                                                             :        2 samples, Peak.   822 ns (1.1x), Avg.   763 ns, Total. 1.525 us (0.0%)
+[Performance] InitializeOnLoad EditorDragAndDrop.RegisterEditorClient                                                                                      :        2 samples, Peak.   699 us (1.6x), Avg.   429 us, Total. 857.7 us (0.0%)
+[Performance] InitializeOnLoad LiveReloadTrackerCreator.Initialize                                                                                         :        2 samples, Peak.   713 us (1.7x), Avg.   421 us, Total. 841.5 us (0.0%)
+[Performance] InitializeOnLoad EditorDelegateRegistration.Initialize                                                                                       :        2 samples, Peak.   305 us (1.1x), Avg.   281 us, Total. 562.3 us (0.0%)
+[Performance] InitializeOnLoad PackageManagerHookGUIDConverter.RegisterPackagesEventHandler                                                                :        2 samples, Peak.   113 us (1.6x), Avg.  69.7 us, Total. 139.4 us (0.0%)
+[Performance] InitializeOnLoad RuntimeEditorDelegateRegistration.Initialize                                                                                :        2 samples, Peak.   138 us (1.1x), Avg.   131 us, Total. 261.5 us (0.0%)
+[Performance] InitializeOnLoad EditorEventCallbacks.InitializeFontAssetResourceChangeCallBacks                                                             :        2 samples, Peak.   849 us (1.0x), Avg.   812 us, Total. 1.625 ms (0.0%)
+[Performance] InitializeOnLoad SceneTemplateService.Init                                                                                                   :        2 samples, Peak.   401 us (1.4x), Avg.   293 us, Total. 586.6 us (0.0%)
+[Performance] InitializeOnLoad ScopedRegistryAddedPopup.SubscribeToRegistriesAdded                                                                         :        2 samples, Peak.  17.9 ms (1.6x), Avg.  11.5 ms, Total. 23.07 ms (0.2%)
+[Performance] InitializeOnLoad EntitlementsErrorChecker.OpenFirstEntitlementError                                                                          :        2 samples, Peak.   336 us (1.6x), Avg.   206 us, Total. 412.5 us (0.0%)
+[Performance] InitializeOnLoad DiagnosticSwitchesConsoleMessage.Init                                                                                       :        2 samples, Peak.  2.28 ms (1.8x), Avg.  1.29 ms, Total. 2.585 ms (0.0%)
+[Performance] InitializeOnLoad SysrootManager.Initialize                                                                                                   :        2 samples, Peak.  9.30 us (1.2x), Avg.  7.73 us, Total. 15.46 us (0.0%)
+[Performance] InitializeOnLoad EditorWindow.Initialize                                                                                                     :        2 samples, Peak.   154 us (1.0x), Avg.   147 us, Total. 294.2 us (0.0%)
+[Performance] InitializeOnLoad AssetPostprocessingInternal.RefreshCustomDependencies                                                                       :        2 samples, Peak.   769 us (1.0x), Avg.   762 us, Total. 1.524 ms (0.0%)
+[Performance] InitializeOnLoad SceneVisibilityManager.Initialize                                                                                           :        2 samples, Peak.  3.97 ms (1.7x), Avg.  2.31 ms, Total. 4.627 ms (0.0%)
+[Performance] InitializeOnLoad MemoryProfilerCompilationGuard.InjectCompileGuard                                                                           :        2 samples, Peak.   129 us (1.1x), Avg.   116 us, Total. 232.0 us (0.0%)
+[Performance] ProcessService.EditorAfterLoadAllAssemblies                                                                                                  :        2 samples, Peak.   226 us (1.1x), Avg.   207 us, Total. 413.7 us (0.0%)
+[Performance] Application.ReadLicenseInfo                                                                                                                  :        1 samples, Peak.  11.0 ms (1.0x), Avg.  11.0 ms, Total. 10.95 ms (0.1%)
+[Performance] Application.InitialRefresh                                                                                                                   :        1 samples, Peak.  1.30 s (1.0x), Avg.  1.30 s, Total. 1.298 s (8.5%)
+[Performance] ShaderImporter.SourceAssetModified                                                                                                           :        2 samples, Peak.   645 ns (1.3x), Avg.   495 ns, Total. 991.0 ns (0.0%)
+[Performance] ShaderIncludeImporter.SourceAssetModified                                                                                                    :        2 samples, Peak.  1.03 us (1.1x), Avg.   980 ns, Total. 1.961 us (0.0%)
+[Performance] Compiling Scripts                                                                                                                            :        1 samples, Peak.   191 ms (1.0x), Avg.   191 ms, Total. 191.0 ms (1.3%)
+[Performance] InitializeOnLoad InteractionLayerUpdater                                                                                                     :        1 samples, Peak.  3.96 us (1.0x), Avg.  3.96 us, Total. 3.956 us (0.0%)
+[Performance] InitializeOnLoad BuildHelperUtils                                                                                                            :        1 samples, Peak.  6.69 us (1.0x), Avg.  6.69 us, Total. 6.688 us (0.0%)
+[Performance] InitializeOnLoad BuildValidator                                                                                                              :        1 samples, Peak.   553 us (1.0x), Avg.   553 us, Total. 553.1 us (0.0%)
+[Performance] InitializeOnLoad ScriptableSettingsInitializer                                                                                               :        1 samples, Peak.   510 us (1.0x), Avg.   510 us, Total. 509.7 us (0.0%)
+[Performance] InitializeOnLoad InputSystem                                                                                                                 :        1 samples, Peak.  63.8 ms (1.0x), Avg.  63.8 ms, Total. 63.75 ms (0.4%)
+[Performance] InitializeOnLoad TouchSimulation                                                                                                             :        1 samples, Peak.   274 us (1.0x), Avg.   274 us, Total. 274.3 us (0.0%)
+[Performance] InitializeOnLoad PrefabLayoutRebuilder                                                                                                       :        1 samples, Peak.   193 us (1.0x), Avg.   193 us, Total. 193.4 us (0.0%)
+[Performance] InitializeOnLoad SimulatedInputLayoutLoader                                                                                                  :        1 samples, Peak.   501 us (1.0x), Avg.   501 us, Total. 500.7 us (0.0%)
+[Performance] InitializeOnLoad SectorInteraction                                                                                                           :        1 samples, Peak.   229 us (1.0x), Avg.   229 us, Total. 229.3 us (0.0%)
+[Performance] InitializeOnLoad Vector3FallbackComposite                                                                                                    :        1 samples, Peak.   221 us (1.0x), Avg.   221 us, Total. 220.5 us (0.0%)
+[Performance] InitializeOnLoad QuaternionFallbackComposite                                                                                                 :        1 samples, Peak.   177 us (1.0x), Avg.   177 us, Total. 176.9 us (0.0%)
+[Performance] InitializeOnLoad IntegerFallbackComposite                                                                                                    :        1 samples, Peak.   163 us (1.0x), Avg.   163 us, Total. 163.2 us (0.0%)
+[Performance] InitializeOnLoad ButtonFallbackComposite                                                                                                     :        1 samples, Peak.   152 us (1.0x), Avg.   152 us, Total. 151.7 us (0.0%)
+[Performance] InitializeOnLoad XRGeneralSettingsPerBuildTarget                                                                                             :        1 samples, Peak.   411 us (1.0x), Avg.   411 us, Total. 411.4 us (0.0%)
+[Performance] InitializeOnLoad XRPackageInitializationBootstrap                                                                                            :        1 samples, Peak.  51.5 us (1.0x), Avg.  51.5 us, Total. 51.52 us (0.0%)
+[Performance] InitializeOnLoad XRPackageMetadataStore                                                                                                      :        1 samples, Peak.   360 us (1.0x), Avg.   360 us, Total. 360.5 us (0.0%)
+[Performance] InitializeOnLoad XRLegacyUninstaller                                                                                                         :        1 samples, Peak.  5.94 ms (1.0x), Avg.  5.94 ms, Total. 5.944 ms (0.0%)
+[Performance] InitializeOnLoad OpenXRProjectValidationRulesSetup.OpenXRProjectValidationCheck                                                              :        1 samples, Peak.  4.17 ms (1.0x), Avg.  4.17 ms, Total. 4.169 ms (0.0%)
+[Performance] InitializeOnLoad OpenXRChooseRuntimeLibraries.InitializeOnLoad                                                                               :        1 samples, Peak.   737 us (1.0x), Avg.   737 us, Total. 737.0 us (0.0%)
+[Performance] InitializeOnLoad OpenXRFeatureSetManager.InitializeOnLoad                                                                                    :        1 samples, Peak.   213 us (1.0x), Avg.   213 us, Total. 213.4 us (0.0%)
+[Performance] InitializeOnLoad CoreUtilsAnalytics.RegisterEvents                                                                                           :        1 samples, Peak.   346 us (1.0x), Avg.   346 us, Total. 345.5 us (0.0%)
+[Performance] DidReloadScriptsPackageVersionUtility.OnReloadScripts                                                                                        :        1 samples, Peak.  62.1 us (1.0x), Avg.  62.1 us, Total. 62.11 us (0.0%)
+[Performance] DidReloadScriptsAdvancedDropdownWindow.OnScriptReload                                                                                        :        2 samples, Peak.   185 us (1.2x), Avg.   158 us, Total. 315.2 us (0.0%)
+[Performance] AssemblyReloadEvents.afterAssemblyReload: UnityEditor.XR.Management.Metadata.XRPackageMetadataStore.AssemblyReloadEvents_afterAssemblyReload :        1 samples, Peak.  2.01 ms (1.0x), Avg.  2.01 ms, Total. 2.010 ms (0.0%)
+[Performance] PresetManagerPostProcessor.OnPreprocessAsset                                                                                                 :        7 samples, Peak.   193 us (5.1x), Avg.  37.7 us, Total. 263.8 us (0.0%)
+[Performance] CancelSplashScreenOnAssetChange.OnPreprocessAsset                                                                                            :        7 samples, Peak.   102 us (6.2x), Avg.  16.4 us, Total. 114.7 us (0.0%)
+[Performance] TextureImporter.Import                                                                                                                       :        1 samples, Peak.   138 ms (1.0x), Avg.   138 ms, Total. 138.4 ms (0.9%)
+[Performance] AssetDatabase.ImportAssets                                                                                                                   :        7 samples, Peak.   753 ns (1.3x), Avg.   561 ns, Total. 3.928 us (0.0%)
+[Performance] VersionControl.Task.Wait                                                                                                                     :        1 samples, Peak.  4.63 us (1.0x), Avg.  4.63 us, Total. 4.630 us (0.0%)
+[Performance] BuilderAssetPostprocessor.OnPostprocessAllAssets                                                                                             :       14 samples, Peak.  2.40 ms (6.7x), Avg.   359 us, Total. 5.026 ms (0.0%)
+[Performance] ArtifactBrowserPostProcessor.OnPostprocessAllAssets                                                                                          :       14 samples, Peak.   274 us (6.4x), Avg.  42.5 us, Total. 594.6 us (0.0%)
+[Performance] AssetEvents.OnPostprocessAllAssets                                                                                                           :       28 samples, Peak.   173 us (9.3x), Avg.  18.5 us, Total. 518.4 us (0.0%)
+[Performance] AudioMixerPostprocessor.OnPostprocessAllAssets                                                                                               :       14 samples, Peak.   205 us (6.5x), Avg.  31.5 us, Total. 441.3 us (0.0%)
+[Performance] StyleCatalogPostProcessor.OnPostprocessAllAssets                                                                                             :       14 samples, Peak.  11.8 ms (7.0x), Avg.  1.69 ms, Total. 23.59 ms (0.2%)
+[Performance] BuildCatalog                                                                                                                                 :        1 samples, Peak.  11.0 ms (1.0x), Avg.  11.0 ms, Total. 10.98 ms (0.1%)
+[Performance] ModelImporterPostProcessor.OnPostprocessAllAssets                                                                                            :       14 samples, Peak.  2.19 ms (2.3x), Avg.   950 us, Total. 13.30 ms (0.1%)
+[Performance] RetainedModeAssetPostprocessor.OnPostprocessAllAssets                                                                                        :       14 samples, Peak.  1.65 ms (6.7x), Avg.   245 us, Total. 3.424 ms (0.0%)
+[Performance] AssetChangedListener.OnPostprocessAllAssets                                                                                                  :       14 samples, Peak.  6.73 ms (6.6x), Avg.  1.03 ms, Total. 14.37 ms (0.1%)
+[Performance] TextAssetPostProcessor.OnPostprocessAllAssets                                                                                                :       14 samples, Peak.   260 us (6.5x), Avg.  40.2 us, Total. 562.3 us (0.0%)
+[Performance] UIDocumentAssetPostProcessor.OnPostprocessAllAssets                                                                                          :       14 samples, Peak.   547 us (6.7x), Avg.  81.5 us, Total. 1.141 ms (0.0%)
+[Performance] AssetCallbacks.OnPostprocessAllAssets                                                                                                        :       14 samples, Peak.  21.4 ms (7.0x), Avg.  3.06 ms, Total. 42.84 ms (0.3%)
+[Performance] SyncVS.PostprocessSyncProject                                                                                                                :        7 samples, Peak.   670 us (6.9x), Avg.  96.4 us, Total. 675.1 us (0.0%)
+[Performance] EditorApplication.projectChanged: UnityEngine.InputSystem.LowLevel.NativeInputRuntime.OnProjectChanged                                       :        1 samples, Peak.   105 us (1.0x), Avg.   105 us, Total. 104.7 us (0.0%)
+[Performance] Application.ImportPackagesAndSetTemplateWhenCreatingProject                                                                                  :        1 samples, Peak.  9.42 ms (1.0x), Avg.  9.42 ms, Total. 9.423 ms (0.1%)
+[Performance] Application.SyncCurrentColorSpace                                                                                                            :        1 samples, Peak.  3.38 ms (1.0x), Avg.  3.38 ms, Total. 3.382 ms (0.0%)
+[Performance] Application.OnUsbDevicesChanged                                                                                                              :        1 samples, Peak.  1.06 ms (1.0x), Avg.  1.06 ms, Total. 1.063 ms (0.0%)
+[Performance] Application.AssetInstanceCacheUpdate                                                                                                         :        1 samples, Peak.   191 ns (1.0x), Avg.   191 ns, Total. 191.0 ns (0.0%)
+[Performance] Application.UnityExtensions.Initialize                                                                                                       :        1 samples, Peak.   497 us (1.0x), Avg.   497 us, Total. 496.9 us (0.0%)
+[Performance] Application.InitializeManagedCompilationPipeline                                                                                             :        1 samples, Peak.  29.6 ms (1.0x), Avg.  29.6 ms, Total. 29.61 ms (0.2%)
+[Performance] Application.ExecuteStartups                                                                                                                  :        1 samples, Peak.  29.1 ms (1.0x), Avg.  29.1 ms, Total. 29.14 ms (0.2%)
+[Performance] Menu.RegisterMenuInterface                                                                                                                   :       26 samples, Peak.  5.80 us (16.4x), Avg.   353 ns, Total. 9.189 us (0.0%)
+[Performance] Gizmo.RebuildRenderers                                                                                                                       :        2 samples, Peak.  28.7 ms (1.9x), Avg.  15.1 ms, Total. 30.21 ms (0.2%)
+[Performance] Gizmo.AddGizmoRenderers                                                                                                                      :       90 samples, Peak.  1.41 ms (51.0x), Avg.  27.6 us, Total. 2.485 ms (0.0%)
+[Performance] Application.editorInitializingProject                                                                                                        :        1 samples, Peak.  19.3 us (1.0x), Avg.  19.3 us, Total. 19.34 us (0.0%)
+[Performance] Application.InitializeMenu                                                                                                                   :        1 samples, Peak.  48.6 ms (1.0x), Avg.  48.6 ms, Total. 48.59 ms (0.3%)
+[Performance] Menu.RebuildAll                                                                                                                              :        1 samples, Peak.  48.6 ms (1.0x), Avg.  48.6 ms, Total. 48.58 ms (0.3%)
+[Performance] Menu.BuildRegisteredMenuInterfaces                                                                                                           :        1 samples, Peak.  48.2 ms (1.0x), Avg.  48.2 ms, Total. 48.16 ms (0.3%)
+[Performance] Menu.FilterMenuItem                                                                                                                          :     2495 samples, Peak.  10.8 ms (2346.7x), Avg.  4.61 us, Total. 11.49 ms (0.1%)
+[Performance] UpdateAllMenus                                                                                                                               :        1 samples, Peak.   377 us (1.0x), Avg.   377 us, Total. 377.4 us (0.0%)
+[Performance] EditorSceneManager.sceneClosing: UnityEditor.SceneVisibilityManager.EditorSceneManagerOnSceneClosing                                         :        1 samples, Peak.   206 us (1.0x), Avg.   206 us, Total. 205.9 us (0.0%)
+[Performance] EditorSceneManager.activeSceneChangedInEditMode: callback in UnityEditor.Search.SearchMonitor                                                :        1 samples, Peak.  44.6 us (1.0x), Avg.  44.6 us, Total. 44.62 us (0.0%)
+[Performance] GUIView.RepaintAll.PlayerLoopController                                                                                                      :        1 samples, Peak.   366 ns (1.0x), Avg.   366 ns, Total. 366.0 ns (0.0%)
+[Performance] EditorSceneManager.newSceneCreated: UnityEditor.SceneVisibilityManager.EditorSceneManagerOnNewSceneCreated                                   :        1 samples, Peak.   402 us (1.0x), Avg.   402 us, Total. 402.3 us (0.0%)
+[Performance] EditorSceneManager.newSceneCreated: UnityEditor.SceneManagement.StageNavigationManager.OnNewSceneCreated                                     :        1 samples, Peak.  79.5 us (1.0x), Avg.  79.5 us, Total. 79.50 us (0.0%)
+[Performance] Application.InvokeFinishedLoadingProject                                                                                                     :        1 samples, Peak.  1.91 ms (1.0x), Avg.  1.91 ms, Total. 1.910 ms (0.0%)
+[Performance] ProcessService.OnProjectLoaded                                                                                                               :        1 samples, Peak.  43.8 us (1.0x), Avg.  43.8 us, Total. 43.83 us (0.0%)
+[Performance] AssetDatabase.Refresh                                                                                                                        :        2 samples, Peak.  31.0 ms (1.5x), Avg.  20.5 ms, Total. 41.02 ms (0.3%)
+[Performance] AssetDatabase.ImportAsset                                                                                                                    :        6 samples, Peak.  95.6 ms (1.3x), Avg.  72.5 ms, Total. 434.8 ms (2.8%)
+[Performance] ModelImporter.Import                                                                                                                         :        6 samples, Peak.  78.3 ms (1.4x), Avg.  55.0 ms, Total. 330.2 ms (2.2%)
+[Performance] SceneDataContainer.TransformHierarchyChangedSetParentCallback                                                                                :      396 samples, Peak.  9.86 us (19.1x), Avg.   516 ns, Total. 204.4 us (0.0%)
+[Performance] SceneVisibilityState.IsFlagSetInParents                                                                                                      :     1044 samples, Peak.  1.83 us (9.7x), Avg.   189 ns, Total. 197.0 us (0.0%)
+[Performance] TreeAOImporter.OnPostprocessModel                                                                                                            :        6 samples, Peak.   586 us (5.4x), Avg.   108 us, Total. 646.7 us (0.0%)
+[Performance] BuilderAssetModificationProcessor.OnWillSaveAssets                                                                                           :       32 samples, Peak.   708 us (20.5x), Avg.  34.6 us, Total. 1.106 ms (0.0%)
+[Performance] TerrainModificationProcessor.OnWillSaveAssets                                                                                                :       32 samples, Peak.   449 us (28.7x), Avg.  15.7 us, Total. 501.1 us (0.0%)
+[Performance] BuilderAssetModificationProcessor.OnWillCreateAsset                                                                                          :       12 samples, Peak.   206 us (7.7x), Avg.  26.8 us, Total. 321.5 us (0.0%)
+[Performance] BuildAssetBundles                                                                                                                            :        1 samples, Peak.  10.7 s (1.0x), Avg.  10.7 s, Total. 10.68 s (69.9%)
+[Performance] GenerateAssemblyTypeInfos                                                                                                                    :        2 samples, Peak.   345 ms (1.1x), Avg.   321 ms, Total. 642.0 ms (4.2%)
+[Performance] Application.Shutdown.CollabTerminate                                                                                                         :        1 samples, Peak.  2.63 us (1.0x), Avg.  2.63 us, Total. 2.627 us (0.0%)
+[Performance] Application.Shutdown.CollabCleanup                                                                                                           :        1 samples, Peak.  1.09 ms (1.0x), Avg.  1.09 ms, Total. 1.088 ms (0.0%)
+[Performance] Application.Shutdown.SaveDefaultWindowPreferences                                                                                            :        1 samples, Peak.   231 us (1.0x), Avg.   231 us, Total. 231.5 us (0.0%)
+[Performance] Application.Shutdown.SaveSceneManagerSetup                                                                                                   :        1 samples, Peak.   266 us (1.0x), Avg.   266 us, Total. 265.6 us (0.0%)
+[Performance] Application.Shutdown.CleanupAllContainerWindows                                                                                              :        1 samples, Peak.   638 ns (1.0x), Avg.   638 ns, Total. 638.0 ns (0.0%)
+[Performance] EditorApplication.quitting: UnityEditor.Search.SearchMonitor.OnQuitting                                                                      :        1 samples, Peak.  2.74 ms (1.0x), Avg.  2.74 ms, Total. 2.735 ms (0.0%)
+[Performance] EditorApplication.quitting: callback in UnityEditor.TextCore.Text.EditorEventCallbacks                                                       :        1 samples, Peak.  20.5 ms (1.0x), Avg.  20.5 ms, Total. 20.52 ms (0.1%)
+[Performance] Application.Shutdown.PauseProfilerSession                                                                                                    :        1 samples, Peak.  31.8 us (1.0x), Avg.  31.8 us, Total. 31.81 us (0.0%)
+[Performance] Application.Shutdown.PauseAssetImportWorkers                                                                                                 :        1 samples, Peak.   205 us (1.0x), Avg.   205 us, Total. 205.3 us (0.0%)
+[Performance] Application.Shutdown.SaveAssets                                                                                                              :        1 samples, Peak.   296 us (1.0x), Avg.   296 us, Total. 295.9 us (0.0%)
+[Performance] Application.Shutdown.CleanupRenderPipeline                                                                                                   :        1 samples, Peak.  1.83 us (1.0x), Avg.  1.83 us, Total. 1.827 us (0.0%)
+[Performance] Application.Shutdown.StopPreloadManager                                                                                                      :        1 samples, Peak.  10.1 ms (1.0x), Avg.  10.1 ms, Total. 10.07 ms (0.1%)
+[Performance] Application.Shutdown.DestroyWorld                                                                                                            :        1 samples, Peak.   365 us (1.0x), Avg.   365 us, Total. 365.0 us (0.0%)
+[Performance] Application.Shutdown.CleanupAfterLoad                                                                                                        :        1 samples, Peak.  3.50 ms (1.0x), Avg.  3.50 ms, Total. 3.500 ms (0.0%)
+[Performance] Application.Shutdown.Progress                                                                                                                :        1 samples, Peak.  7.23 us (1.0x), Avg.  7.23 us, Total. 7.230 us (0.0%)
+[Performance] Application.Shutdown.GICleanupManagers                                                                                                       :        1 samples, Peak.  1.35 ms (1.0x), Avg.  1.35 ms, Total. 1.348 ms (0.0%)
+[Performance] Application.Shutdown.MenuCleanupClass                                                                                                        :        1 samples, Peak.   149 us (1.0x), Avg.   149 us, Total. 149.3 us (0.0%)
+[Performance] Application.Shutdown.ADBSaveStateBeforeShutdown                                                                                              :        1 samples, Peak.  4.11 us (1.0x), Avg.  4.11 us, Total. 4.112 us (0.0%)
+[Performance] Application.Shutdown.RemoteShutdown                                                                                                          :        1 samples, Peak.   680 ns (1.0x), Avg.   680 ns, Total. 680.0 ns (0.0%)
+[Performance] Application.Shutdown.CleanupVCProvider                                                                                                       :        1 samples, Peak.  6.52 us (1.0x), Avg.  6.52 us, Total. 6.521 us (0.0%)
+[Performance] Application.Shutdown.InputShutdown                                                                                                           :        1 samples, Peak.  1.36 us (1.0x), Avg.  1.36 us, Total. 1.364 us (0.0%)
+[Performance] Application.Shutdown.GizmoManagerDestroy                                                                                                     :        1 samples, Peak.   396 us (1.0x), Avg.   396 us, Total. 396.0 us (0.0%)
+[Performance] Application.Shutdown.ProfilerSession                                                                                                         :        1 samples, Peak.   164 us (1.0x), Avg.   164 us, Total. 163.7 us (0.0%)
+[Performance] Application.Shutdown.ReleaseGfxWindowOnAllGUIViews                                                                                           :        1 samples, Peak.   382 ns (1.0x), Avg.   382 ns, Total. 382.0 ns (0.0%)
+[Performance] Application.Shutdown.CleanupEngine                                                                                                           :        1 samples, Peak.  91.6 ms (1.0x), Avg.  91.6 ms, Total. 91.60 ms (0.6%)
+[Performance] Application.Shutdown.CleanupAssetDatabase                                                                                                    :        1 samples, Peak.  5.38 ms (1.0x), Avg.  5.38 ms, Total. 5.383 ms (0.0%)
+[Performance] Application.Shutdown.ScriptCompilationCleanUp                                                                                                :        1 samples, Peak.  33.3 us (1.0x), Avg.  33.3 us, Total. 33.31 us (0.0%)
+[Performance] Application.Shutdown.DestroyJobSystem                                                                                                        :        1 samples, Peak.  22.9 us (1.0x), Avg.  22.9 us, Total. 22.94 us (0.0%)
+[Performance] Application.Shutdown.CleanupPersistentManager                                                                                                :        1 samples, Peak.  2.63 ms (1.0x), Avg.  2.63 ms, Total. 2.630 ms (0.0%)
+[Performance] Application.Shutdown.CleanupAsyncReadManager                                                                                                 :        1 samples, Peak.   525 us (1.0x), Avg.   525 us, Total. 525.1 us (0.0%)
+[Performance] Application.Shutdown.CleanupMono                                                                                                             :        1 samples, Peak.  42.7 ms (1.0x), Avg.  42.7 ms, Total. 42.65 ms (0.3%)
+[Performance] Application.Shutdown.CleanupStdConverters                                                                                                    :        1 samples, Peak.  8.06 us (1.0x), Avg.  8.06 us, Total. 8.061 us (0.0%)
+[Performance] Application.Shutdown.UnloadAllPlatformSupportModuleNativeDlls                                                                                :        1 samples, Peak.   477 ns (1.0x), Avg.   477 ns, Total. 477.0 ns (0.0%)
+[Performance] Application.Shutdown.UnloadAllPlatformSupportNativeLibraries                                                                                 :        1 samples, Peak.   149 ns (1.0x), Avg.   149 ns, Total. 149.0 ns (0.0%)
+[Performance] Application.Shutdown.CleanupAutoDocumentation                                                                                                :        1 samples, Peak.   108 us (1.0x), Avg.   108 us, Total. 108.4 us (0.0%)
+[Performance] Application.Shutdown.ShaderNameManagerDestroy                                                                                                :        1 samples, Peak.  28.5 us (1.0x), Avg.  28.5 us, Total. 28.45 us (0.0%)
+[Performance] Application.Shutdown.CleanupCacheServer                                                                                                      :        1 samples, Peak.   245 ns (1.0x), Avg.   245 ns, Total. 245.0 ns (0.0%)
+[Performance] Application.Shutdown.Virtualization_Shutdown                                                                                                 :        1 samples, Peak.   286 ns (1.0x), Avg.   286 ns, Total. 286.0 ns (0.0%)
 [Package Manager] Server::Kill -- Server was shutdown
 Checking for leaked weakptr:
   Found no leaked weakptrs.
@@ -2790,9 +2790,9 @@ Memory Statistics:
       Overflow Count 0
     [ALLOC_TEMP_Job.Worker 4]
       Initial Block Size 256.0 KB
-      Current Block Size 1.6 MB
-      Peak Allocated Bytes 1.6 MB
-      Overflow Count 0
+      Current Block Size 256.0 KB
+      Peak Allocated Bytes 5.4 KB
+      Overflow Count 1
     [ALLOC_TEMP_] x 2
       Initial Block Size 64.0 KB
       Current Block Size 64.0 KB
@@ -2813,6 +2813,11 @@ Memory Statistics:
       Current Block Size 256.0 KB
       Peak Allocated Bytes 0 B
       Overflow Count 0
+    [ALLOC_TEMP_Background Job.Worker 11]
+      Initial Block Size 32.0 KB
+      Current Block Size 32.0 KB
+      Peak Allocated Bytes 0 B
+      Overflow Count 0
     [ALLOC_TEMP_Background Job.Worker 3]
       Initial Block Size 32.0 KB
       Current Block Size 32.0 KB
@@ -2823,26 +2828,21 @@ Memory Statistics:
       Current Block Size 64.0 KB
       Peak Allocated Bytes 0 B
       Overflow Count 0
-    [ALLOC_TEMP_Background Job.Worker 11]
-      Initial Block Size 32.0 KB
-      Current Block Size 32.0 KB
-      Peak Allocated Bytes 0 B
+    [ALLOC_TEMP_CoreBusinessMetricsCache]
+      Initial Block Size 64.0 KB
+      Current Block Size 64.0 KB
+      Peak Allocated Bytes 8.0 KB
       Overflow Count 0
     [ALLOC_TEMP_REST Message Handler]
       Initial Block Size 64.0 KB
       Current Block Size 64.0 KB
       Peak Allocated Bytes 0 B
       Overflow Count 0
-    [ALLOC_TEMP_CoreBusinessMetricsCache]
-      Initial Block Size 64.0 KB
-      Current Block Size 64.0 KB
-      Peak Allocated Bytes 8.0 KB
-      Overflow Count 0
     [ALLOC_TEMP_Job.Worker 13]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 8.2 KB
-      Overflow Count 1
+      Peak Allocated Bytes 252.6 KB
+      Overflow Count 0
     [ALLOC_TEMP_Background Job.Worker 2]
       Initial Block Size 32.0 KB
       Current Block Size 32.0 KB
@@ -2855,14 +2855,14 @@ Memory Statistics:
       Overflow Count 0
     [ALLOC_TEMP_Job.Worker 10]
       Initial Block Size 256.0 KB
-      Current Block Size 1.0 MB
-      Peak Allocated Bytes 1.0 MB
-      Overflow Count 1
+      Current Block Size 256.0 KB
+      Peak Allocated Bytes 252.6 KB
+      Overflow Count 0
     [ALLOC_TEMP_Job.Worker 12]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 4.4 KB
-      Overflow Count 1
+      Peak Allocated Bytes 252.6 KB
+      Overflow Count 0
     [ALLOC_TEMP_Loading.PreloadManager]
       Initial Block Size 32.0 MB
       Current Block Size 32.0 MB
@@ -2876,13 +2876,13 @@ Memory Statistics:
     [ALLOC_TEMP_Job.Worker 14]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 7.5 KB
-      Overflow Count 1
+      Peak Allocated Bytes 252.6 KB
+      Overflow Count 0
     [ALLOC_TEMP_Job.Worker 3]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 252.6 KB
-      Overflow Count 0
+      Peak Allocated Bytes 9.2 KB
+      Overflow Count 1
     [ALLOC_TEMP_BakingJobs.Worker 7]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
@@ -2906,8 +2906,8 @@ Memory Statistics:
     [ALLOC_TEMP_Job.Worker 2]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 6.4 KB
-      Overflow Count 0
+      Peak Allocated Bytes 7.2 KB
+      Overflow Count 1
     [ALLOC_TEMP_BakingJobs.Worker 6]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
@@ -2916,28 +2916,28 @@ Memory Statistics:
     [ALLOC_TEMP_Job.Worker 11]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 9.2 KB
-      Overflow Count 1
-    [ALLOC_TEMP_Job.Worker 0]
+      Peak Allocated Bytes 7.5 KB
+      Overflow Count 0
+    [ALLOC_TEMP_Job.Worker 6]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 252.6 KB
-      Overflow Count 0
+      Peak Allocated Bytes 6.1 KB
+      Overflow Count 1
     [ALLOC_TEMP_Job.Worker 5]
       Initial Block Size 256.0 KB
-      Current Block Size 256.0 KB
-      Peak Allocated Bytes 252.6 KB
-      Overflow Count 0
+      Current Block Size 1.0 MB
+      Peak Allocated Bytes 1.0 MB
+      Overflow Count 1
     [ALLOC_TEMP_Profiler.Dispatcher]
       Initial Block Size 64.0 KB
       Current Block Size 64.0 KB
       Peak Allocated Bytes 0 B
       Overflow Count 0
-    [ALLOC_TEMP_Job.Worker 6]
+    [ALLOC_TEMP_Job.Worker 0]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 252.6 KB
-      Overflow Count 0
+      Peak Allocated Bytes 6.4 KB
+      Overflow Count 1
     [ALLOC_TEMP_Background Job.Worker 9]
       Initial Block Size 32.0 KB
       Current Block Size 32.0 KB
@@ -3016,8 +3016,8 @@ Memory Statistics:
     [ALLOC_TEMP_Job.Worker 8]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 9.2 KB
-      Overflow Count 1
+      Peak Allocated Bytes 6.0 KB
+      Overflow Count 0
     [ALLOC_TEMP_BakingJobs.Worker 15]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
@@ -3091,7 +3091,7 @@ Memory Statistics:
     [ALLOC_TEMP_Job.Worker 7]
       Initial Block Size 256.0 KB
       Current Block Size 256.0 KB
-      Peak Allocated Bytes 7.2 KB
+      Peak Allocated Bytes 252.6 KB
       Overflow Count 0
 [ALLOC_MEMORYPROFILER]
   Peak usage frame count: [256.0 KB-0.5 MB]: 1 frames
@@ -3108,14 +3108,14 @@ Memory Statistics:
     [ALLOC_DEFAULT_MAIN]
       Peak usage frame count: [32.0 MB-64.0 MB]: 1 frames
       Requested Block Size 16.0 MB
-      Peak Block count 4
+      Peak Block count 5
       Peak Allocated memory 59.9 MB
       Peak Large allocation bytes 0 B
     [ALLOC_DEFAULT_THREAD]
       Peak usage frame count: [2.0 MB-4.0 MB]: 1 frames
       Requested Block Size 16.0 MB
       Peak Block count 1
-      Peak Allocated memory 2.4 MB
+      Peak Allocated memory 2.5 MB
       Peak Large allocation bytes 0 B
 [ALLOC_TEMP_JOB_1_FRAME]
   Initial Block Size 2.0 MB
@@ -3195,7 +3195,7 @@ Memory Statistics:
   Peak usage frame count: [64.0 KB-128.0 KB]: 1 frames
   Requested Block Size 16.0 MB
   Peak Block count 1
-  Peak Allocated memory 123.0 KB
+  Peak Allocated memory 100.4 KB
   Peak Large allocation bytes 0 B
     [ALLOC_PROFILER_BUCKET]
       Large Block size 32.0 MB
@@ -3211,4 +3211,4 @@ Memory Statistics:
       Large Block size 32.0 MB
       Used Block count 1
       Peak Allocated bytes 2.0 KB
-##utp:{"type":"MemoryLeaks","version":2,"phase":"Immediate","time":1785450942199,"processId":4001836,"allocatedMemory":3809298,"memoryLabels":[{"Default":8431},{"Permanent":16120},{"Thread":1083572},{"Manager":32769},{"VertexData":12},{"Geometry":280},{"Texture":160},{"Shader":68027},{"Material":24},{"GfxDevice":35528},{"Animation":312},{"Audio":3976},{"Physics":289},{"Serialization":672},{"Input":26792},{"JobScheduler":200},{"Mono":40},{"ScriptingNativeRuntime":43520},{"BaseObject":1621428},{"Resource":944},{"Renderer":1936},{"Transform":48},{"File":804},{"WebCam":24},{"Culling":40},{"Terrain":1025},{"Wind":24},{"String":160360},{"DynamicArray":65101},{"HashMap":42396},{"Utility":14394},{"Curl":3751},{"PoolAlloc":32192},{"AI":40},{"TypeTree":2064},{"ScriptManager":368},{"RuntimeInitializeOnLoadManager":72},{"SpriteAtlas":112},{"GI":3320},{"Unet":16},{"Director":7816},{"CloudService":672},{"WebRequest":720},{"VR":46025},{"SceneManager":640},{"Video":72},{"LazyScriptCache":32},{"NativeArray":12},{"Camera":25},{"Secure":1},{"SerializationCache":624},{"APIUpdating":5872},{"Subsystems":48},{"VirtualTexturing":57560},{"StaticSafetyDebugInfo":327752},{"EditorGui":40},{"EditorUtility":19559},{"VersionControl":4},{"Undo":450},{"AssetDatabase":10586},{"RestService":1518},{"EditorGi":368},{"License":1056},{"UnityConnect":29664},{"Collab":785},{"Upm":1504},{"DrivenProperties":80},{"HubClient":32},{"LocalIPC":99},{"ProfilerEditor":20133},{"CoreBusinessMetrics":2702},{"Licensing":1632},{"AssetReference":32}]}
+##utp:{"type":"MemoryLeaks","version":2,"phase":"Immediate","time":1785479737195,"processId":4118096,"allocatedMemory":3809353,"memoryLabels":[{"Default":8431},{"Permanent":16120},{"Thread":1083572},{"Manager":32769},{"VertexData":12},{"Geometry":280},{"Texture":160},{"Shader":68027},{"Material":24},{"GfxDevice":35528},{"Animation":312},{"Audio":3976},{"Physics":289},{"Serialization":672},{"Input":26792},{"JobScheduler":200},{"Mono":40},{"ScriptingNativeRuntime":43520},{"BaseObject":1621428},{"Resource":944},{"Renderer":1936},{"Transform":48},{"File":804},{"WebCam":24},{"Culling":40},{"Terrain":1025},{"Wind":24},{"String":160360},{"DynamicArray":65101},{"HashMap":42396},{"Utility":14394},{"Curl":3751},{"PoolAlloc":32192},{"AI":40},{"TypeTree":2064},{"ScriptManager":368},{"RuntimeInitializeOnLoadManager":72},{"SpriteAtlas":112},{"GI":3320},{"Unet":16},{"Director":7816},{"CloudService":672},{"WebRequest":720},{"VR":46025},{"SceneManager":640},{"Video":72},{"LazyScriptCache":32},{"NativeArray":12},{"Camera":25},{"Secure":1},{"SerializationCache":624},{"APIUpdating":5872},{"Subsystems":48},{"VirtualTexturing":57560},{"StaticSafetyDebugInfo":327752},{"EditorGui":40},{"EditorUtility":19614},{"VersionControl":4},{"Undo":450},{"AssetDatabase":10586},{"RestService":1518},{"EditorGi":368},{"License":1056},{"UnityConnect":29664},{"Collab":785},{"Upm":1504},{"DrivenProperties":80},{"HubClient":32},{"LocalIPC":99},{"ProfilerEditor":20133},{"CoreBusinessMetrics":2702},{"Licensing":1632},{"AssetReference":32}]}

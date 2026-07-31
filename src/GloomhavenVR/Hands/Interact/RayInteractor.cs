@@ -237,25 +237,13 @@ internal sealed class RayInteractor : IPickProvider
         float scale = _hand.WorldScale;
         Vector3 origin;
         Vector3 direction;
-        // The beam leaves the index finger of the hand you SEE, not the controller's aim pose.
-        // Those two are not the same line: the aim pose ignores how the hand is seated, so once
-        // the seat is tunable (pitch/yaw/roll/spread) the beam exits the finger at an angle —
-        // which is exactly the complaint. Taking the direction from the hand as well makes the
-        // beam collinear with the finger at ANY tuning, and the pick ray uses the same line so
-        // what you point at stays what you hit.
-        //
-        // "Along the hand" is "along the finger" here, not an approximation dressed up as one:
-        // measured on VRHandPlate_R_rig, the Anchor_Index_Root -> Anchor_Index_Tip axis is 7.8
-        // degrees off the rig's +Z. The KNUCKLE anchors the ray, not the tip, because the tip
-        // curls with the trigger and would swing the beam.
-        Transform? knuckle = _hand.Rig.IndexKnuckle;
-        bool useFinger = Plugin.LaserFingerAxis.Value && knuckle != null && _hand.Rig.Root != null;
-        if (useFinger)
-        {
-            origin = knuckle!.position;
-            direction = _hand.Rig.Root!.forward;
-        }
-        else if (_hand.HasPointerPose)
+        // Direction ALWAYS comes from the controller's OpenXR aim pose, never from the visual
+        // hand. Deriving it from the hand was tried (so the beam would be collinear with the
+        // finger at any seat) and it aimed worse: the aim pose is what the runtime tuned for
+        // pointing, and coupling the ray to a cosmetic setting made aiming move whenever the
+        // hand was tuned. The visible beam still STARTS at the knuckle (LaserFingerOrigin) —
+        // that part reads correctly and costs only a small angular difference near the hand.
+        if (_hand.HasPointerPose)
         {
             // OpenXR aim pose — see class doc.
             origin = _hand.PointerOrigin;
