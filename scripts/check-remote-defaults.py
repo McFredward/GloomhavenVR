@@ -46,9 +46,13 @@ SRC = ROOT / "src" / "GloomhavenVR"
 PAIRS = [
     ("Net/RemoteBoardFurniture.cs", "BoardCapW", "BoardButtons", "Width"),
     ("Net/RemoteBoardFurniture.cs", "BoardCapH", "BoardButtons", "Height"),
+    ("Net/RemoteBoardFurniture.cs", "BoardCapD", "BoardButtons", "Depth"),
     ("Net/RemoteBoardFurniture.cs", "PinCapW", "BoardDashboard", "PinWidth"),
     ("Net/RemoteBoardFurniture.cs", "DashCapH", "BoardDashboard", "Height"),
+    ("Net/RemoteBoardFurniture.cs", "DashCapD", "BoardDashboard", "Depth"),
+    ("Net/RemoteBoardFurniture.cs", "RestCapD", "RestButtons", "Depth"),
     ("Net/RemoteBoardFurniture.cs", "TransientCapR", "RoundButtons", "CapSize"),
+    ("Net/RemoteBoardFurniture.cs", "TransientCapD", "RoundButtons", "Depth"),
     ("Net/RemoteHandFan.cs", "PalmOffset", "Cards", "FanPalmOffset"),
     ("Net/RemoteHandFan.cs", "Radius", "Cards", "FanEffectiveRadius"),
     ("Net/RemoteHandFan.cs", "ArcSweepDegrees", "Cards", "FanArcSweepDegrees"),

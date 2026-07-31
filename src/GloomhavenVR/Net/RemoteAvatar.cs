@@ -202,10 +202,19 @@ internal sealed class RemoteAvatar
     /// The CONTROL BOARD this peer actually uses (their <c>Cards.ControlBoard</c> choice, received
     /// in the extras block's byte A bits 5..6). Oak for peers that predate the field or use the
     /// default board — both mean "the default look", which is why the wire spends no presence bit
-    /// on it. Consumed by <see cref="RemoteControlBoard"/> to tint our copy of their board so it
-    /// reads in the material they picked.
+    /// on it. Consumed by <see cref="RemoteControlBoard"/> to render our copy of their board from
+    /// the REAL prefab of the board they picked (<see cref="RemoteTrayVisual"/>).
     /// </summary>
     public Cards.ControlBoard BoardStyle { get; private set; } = Cards.ControlBoard.Oak;
+
+    /// <summary>
+    /// The LIVE board-local layout of this peer's board — the real prefab's measured recess
+    /// anchors once the 3D visual is built, the authored defaults before. The card-FX flights and
+    /// the board-anchored fans resolve their board targets through THIS (world = board pose ×
+    /// this × board scale) so they land on the rendered board, whatever style the peer runs.
+    /// </summary>
+    internal UnityEngine.Vector3 BoardAnchorLocal(CardFxAnchor anchor) =>
+        _controlBoard.AnchorLocalLive(anchor);
 
     /// <summary>True while the sender's fan-carrying hand is faded ("ghost hand"). False for peers
     /// that predate the field — their hands simply stay solid.</summary>

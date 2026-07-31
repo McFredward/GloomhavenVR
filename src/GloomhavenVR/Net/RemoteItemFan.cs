@@ -357,7 +357,7 @@ internal sealed class RemoteItemFan
             return false;
         float bs = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         world = _owner.BoardPosition
-                + _owner.BoardRotation * (RemoteControlBoard.AnchorLocal(CardFxAnchor.Items) * bs);
+                + _owner.BoardRotation * (_owner.BoardAnchorLocal(CardFxAnchor.Items) * bs);
         return true;
     }
 

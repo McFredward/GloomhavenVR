@@ -157,12 +157,7 @@ internal sealed class VRCardFactory
     internal GameObject? GetTrayPrefab()
     {
         ControlBoard board = CardsConfig.Board.Value;
-        string selectedPath = board switch
-        {
-            ControlBoard.Steel => SteelTrayPath,
-            ControlBoard.Bronze => BronzeTrayPath,
-            _ => OakTrayPath,
-        };
+        string selectedPath = TrayPrefabPath(board);
 
         GameObject? prefab = LoadPrefab(new[] { selectedPath });
         if (prefab != null)
@@ -185,6 +180,45 @@ internal sealed class VRCardFactory
         VRLog.Info("Cards", $"Control board '{board}' prefab unavailable in bundle — " +
                             "using the procedural fallback board.");
         return null;
+    }
+
+    /// <summary>Bundle path of the control-board prefab for <paramref name="board"/> — the ONE
+    /// enum → asset map, shared by the local board build and the remote board mirror so the two
+    /// can never load different assets for the same style id.</summary>
+    internal static string TrayPrefabPath(ControlBoard board) => board switch
+    {
+        ControlBoard.Steel => SteelTrayPath,
+        ControlBoard.Bronze => BronzeTrayPath,
+        _ => OakTrayPath,
+    };
+
+    /// <summary>
+    /// The control-board prefab for <paramref name="board"/> from an ALREADY-LOADED bundle — the
+    /// remote-board path (<c>Net.RemoteTrayVisual</c>): a peer's board mirror must never LOAD the
+    /// bundle itself (Unity forbids loading the same bundle twice, and the instance
+    /// <see cref="GetBundle"/> owns the load/unload lifecycle). By the time any remote board
+    /// builds, the Hands or Cards module has the bundle resident in every normal run; when it is
+    /// not (yet), this returns null and the caller keeps its procedural fallback and may probe
+    /// again later. Falls back to the Oak prefab when the selected style's asset is not in the
+    /// bundle — the same degradation <see cref="GetTrayPrefab"/> applies for the local board.
+    /// </summary>
+    internal static GameObject? PeekTrayPrefab(ControlBoard board)
+    {
+        AssetBundle? bundle = null;
+        foreach (AssetBundle loaded in AssetBundle.GetAllLoadedAssetBundles())
+        {
+            if (loaded != null && loaded.name.Contains("gloomhavenvr"))
+            {
+                bundle = loaded;
+                break;
+            }
+        }
+        if (bundle == null)
+            return null;
+        GameObject? prefab = bundle.LoadAsset<GameObject>(TrayPrefabPath(board));
+        if (prefab == null && TrayPrefabPath(board) != OakTrayPath)
+            prefab = bundle.LoadAsset<GameObject>(OakTrayPath);
+        return prefab;
     }
 
     private GameObject? LoadPrefab(string[] candidates)

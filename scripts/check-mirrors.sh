@@ -48,6 +48,20 @@ MIRRORS=(
   "thumbstick scroll deadzone : Hands/Interact/RayUguiDriver.cs:ScrollDeadzone WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollDeadzone WorldUI/FlatScreen.6.Pointer.cs:StickScrollDeadzone"
   "thumbstick scroll speed (wheel notches/s) : Hands/Interact/RayUguiDriver.cs:ScrollNotchesPerSecond WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollNotchesPerSecond WorldUI/FlatScreen.6.Pointer.cs:StickScrollNotchesPerSecond"
 
+  # The remote board's INERT keycaps (Net/RemoteBoardFurniture.InertCap) rebuild the local
+  # board's beveled-keycap look — same mesh (CardMesh.BuildBeveledKeycap), same materials
+  # (PlayTray.NewKeycapMaterial) — but the tint RECIPE and the cap seat live as private
+  # authored constants inside PlayTray.BoardButton, and promoting them was rejected there
+  # ("Promoting them would mean widening that surface"). The price is these mirrors: retune
+  # the local keycap look and the remote boards must follow, or the two boards drift apart.
+  # (The two Color statics of the recipe — WallWarm / BevelHighlight — cannot be linted by
+  # this float/string-only extractor; they are called out as mirrors in both doc comments.)
+  "keycap cap seat Z : Cards/PlayTray.7.Nested.cs:CapRestZ Net/RemoteBoardFurniture.cs:CapRestZ"
+  "keycap bevel width : Cards/PlayTray.6.Build.cs:SquareCapBevel Net/RemoteBoardFurniture.cs:CapBevel"
+  "keycap wall tint factor : Cards/PlayTray.7.Nested.cs:WallTintFactor Net/RemoteBoardFurniture.cs:WallTintFactor"
+  "keycap wall warm lerp : Cards/PlayTray.7.Nested.cs:WallWarmLerp Net/RemoteBoardFurniture.cs:WallWarmLerp"
+  "keycap bevel highlight lerp : Cards/PlayTray.7.Nested.cs:BevelLerp Net/RemoteBoardFurniture.cs:BevelLerp"
+
   # The graphics-jobs handshake: the PRELOADER publishes what the engine actually booted
   # with (read before it edits boot.config) and the PLUGIN reports it. They are separate
   # assemblies and the plugin deliberately does not link the patcher — it has to degrade to

@@ -81,8 +81,11 @@ internal static class RemoteBoardGate
     /// <summary>
     /// May ANYTHING anchored to <paramref name="owner"/>'s control board be drawn this frame?
     /// Resolves the owner's actor itself, so callers that do not otherwise need the game model
-    /// (the fans, the card FX) stay free of it. A peer with no synced board pose, no actor, or the
-    /// mode set to Off always answers false.
+    /// (the fans, the card FX) stay free of it. A peer with no synced board pose or the mode set
+    /// to Off always answers false. A peer WITHOUT an actor (join-time, before the host assigns
+    /// characters) answers like a peer outside the secret phase: they have no cards, so there is
+    /// nothing to hide, and the board must be visible from their first packets — the same rule
+    /// <see cref="RemoteControlBoard.Tick"/> applies to the board surface itself.
     /// </summary>
     internal static bool ShowBoardSurface(RemoteAvatar? owner)
     {
@@ -90,9 +93,7 @@ internal static class RemoteBoardGate
         if (owner == null || !owner.HasBoard || mode == RemoteBoardVisibility.Off)
             return false;
         CPlayerActor? actor = NetPlayerActors.ActorFor(owner.PlayerId);
-        if (actor == null)
-            return false;
-        return SurfaceVisible(mode, RevealGate.ShowRoundCardFronts(actor));
+        return SurfaceVisible(mode, actor == null || RevealGate.ShowRoundCardFronts(actor));
     }
 
     /// <summary>

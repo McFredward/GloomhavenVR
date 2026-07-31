@@ -15,62 +15,72 @@ namespace GloomhavenVR.Net;
 /// The user rejected that outright ("Das will ich NICHT, ALLES von den aufgeführten Elementen soll
 /// dargestellt werden. Aber wichtig: Nichts davon soll man interagieren können auf dem fremden
 /// Board, es ist eine reine Darstellung."). A peer's board must LOOK like a control board — the
-/// keycaps, the gear, the pin toggle, the handle bar, the turn-flow cap, the item-use recess and
-/// the decision drawer are what makes it read as one — while remaining completely untouchable.
+/// keycaps, the rest discs, the pin toggle, the handle bar, the turn-flow cap, the item-use recess
+/// and the decision drawer are what makes it read as one — while remaining completely untouchable.
+///
+/// SINCE THE 3D-PARITY PASS ("komisch 2D" rejection) the caps are REAL 3D GEOMETRY, built from the
+/// very meshes the local board's <c>PlayTray.BoardButton</c> uses — the beveled keycap
+/// (<c>CardMesh.BuildBeveledKeycap</c>: state-coloured plateau, bright chamfer ring, dark warm
+/// walls) and the smooth round disc (<c>CardMesh.GetRoundCap</c>) — skinned through the SAME
+/// <c>PlayTray.NewKeycapMaterial</c> (BoardLit + carved-grain texture) and labelled with the same
+/// engraved parchment type (<c>NativeButtonSkin.StyleEngravedLabel</c>). What is NOT reproduced is
+/// everything that made the local widgets buttons: no collider, no press travel, no
+/// <c>PokeableBehaviour</c>, no registration anywhere.
+///
+/// SEATING. When the REAL tray asset is up (<see cref="RemoteTrayVisual"/>), the caps sit on the
+/// prefab's own anchors (<c>ConfirmButton/UndoButton/ShortRestToken/LongRestToken</c>) plus the
+/// AUTHORED per-board offsets (<c>Defaults.ConfirmUndoOffset_*</c>, <c>RestButtonOffset_*</c>, …,
+/// keyed by the PEER's synced style) — the same anchor + authored-offset seat the owner's own
+/// board uses. The peer's private debug-menu RE-tuning of those offsets stays off the wire and is
+/// NOT applied (DELIBERATELY-NOT, as ever): every client renders a given board style at its
+/// shipped layout. On the flat fallback board (bundle absent) the caps keep the legacy Oak
+/// board-local constants.
 ///
 /// NON-INTERACTIVE IS A HARD REQUIREMENT, and it is enforced three ways, not one:
-///   1. CONSTRUCTION — every piece is built through <see cref="BoardVisual.Quad"/> (which destroys
-///      the primitive's collider on creation) or is a bare <c>GameObject</c> + <c>TextMeshPro</c>.
-///      Nothing here ever creates a <c>Collider</c>, a <c>Rigidbody</c> or a
-///      <c>GrabbableBehaviour</c>.
+///   1. CONSTRUCTION — nothing here ever creates a <c>Collider</c>, a <c>Rigidbody</c> or a
+///      <c>GrabbableBehaviour</c>; primitives have their colliders destroyed at creation.
 ///   2. REGISTRATION — this file never calls <c>PlayTray.RegisterLaserTarget</c>, never implements
 ///      <c>IPokeable</c>/<c>IGrabbable</c>, never touches <c>VRInteractables</c>,
-///      <c>UguiPokeSurfaces</c> or <c>LaserTargets</c>. It has no click callbacks at all: the caps
-///      are quads with a label, full stop. (Compare the LOCAL board, where every one of these
-///      widgets is a <c>BoardButton</c>/<c>PhysicalButton</c> that registers a collider.)
+///      <c>UguiPokeSurfaces</c> or <c>LaserTargets</c>. It has no click callbacks at all.
 ///   3. BELT AND BRACES — <see cref="StripColliders"/> walks the finished hierarchy and destroys
-///      anything that still carries a collider, logging a warning if it ever finds one. That
-///      converts "I reviewed the code" into a runtime guarantee that survives future edits.
+///      anything that still carries a collider, logging a warning if it ever finds one.
 ///
 /// STATE FIDELITY. The remote board reproduces a widget's state wherever that state is knowable
 /// from the SAME sources the rest of the remote board already uses — the host-replicated
 /// <c>CPlayerActor</c> model and the already-synced VR extras (<see cref="RemoteAvatar"/>). No new
-/// wire field was added and none was needed: the extras flag byte is exhausted (see the layout
-/// contract in <see cref="PresenceSerializer"/>), and nothing here is worth spending the pile-browse
-/// block's reserved bits on. Everything that is genuinely LOCAL-ONLY on the peer's client (their
-/// own uGUI button interactability, their own VR preferences, their own hand hovering) is drawn in
-/// a NEUTRAL / default look; each such case is called out on the member that draws it.
+/// wire field was added and none was needed. Everything that is genuinely LOCAL-ONLY on the peer's
+/// client (their own uGUI button interactability, their own VR preferences, their own hand
+/// hovering) is drawn in a NEUTRAL / default look; each such case is called out on the member that
+/// draws it. The modal PICK FIELD the flat board used to draw is GONE — the local board removed
+/// its pick field outright, so a copy of it had become a picture of a widget that no longer
+/// exists.
 ///
 /// ANTI-CHEAT is unchanged: nothing here reads a card identity, and the two pieces that DO depend
 /// on the peer's card state (the wanted-slot pulse and the half-card divider) derive strictly from
 /// information the remote board already draws — see their notes.
 ///
 /// COST. Built once, torn down with the board root, and refreshed on the shared
-/// <see cref="RemoteBoardContent.RefreshSeconds"/> (4 Hz) cadence with change-gated writes, so a
-/// four-peer table stays inside the existing budget. The only per-frame work is the single
-/// <see cref="RemoteGlowPulse"/> component, and only while a pulse is actually visible.
+/// <see cref="RemoteBoardContent.RefreshSeconds"/> (4 Hz) cadence with change-gated writes. The
+/// only per-frame work is the single <see cref="RemoteGlowPulse"/> component, and only while a
+/// pulse is actually visible.
 /// </summary>
 /// <remarks>CLASSIFICATION: MIXED (DELIBERATELY-NOT + PER-ACTOR MODEL + VR-ONLY-derived) — and it
 /// adds NO wire field of its own. The "NEUTRAL LOOKS" and "LOCAL-ONLY STATE" blocks called out on
-/// individual members ARE the DELIBERATELY-NOT class, not a fifth thing: the peer's own button
-/// interactability, their Confirm label, their follow/pin toggle, their drawer state and their
-/// personal tuning offsets are knowable-but-not-worth-a-field, so peers are drawn at the AUTHORED
-/// defaults. Slot occupancy and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse, snap
-/// glow and half divider are DERIVED from state the board already draws. The only wire input is the
-/// already-synced <see cref="RemoteAvatar"/> passed to <c>Refresh</c> — this is the one widget that
-/// takes it, and it takes NO new bytes for it. Note that <c>Refresh</c> also takes a
-/// <c>CPlayerActor</c> it discards (<c>_ = actor;</c>): reserved, per the note there.
-/// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// individual members ARE the DELIBERATELY-NOT class: the peer's own button interactability, their
+/// Confirm label, their follow/pin toggle, their drawer state and their personal tuning offsets
+/// are knowable-but-not-worth-a-field, so peers are drawn at the AUTHORED defaults. Slot occupancy
+/// and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse, snap glow and half divider are
+/// DERIVED from state the board already draws. The wire inputs are the already-synced
+/// <see cref="RemoteAvatar"/> passed to <c>Refresh</c> and the board STYLE the ctor keys the
+/// authored layout from — neither costs a new byte. See INVARIANTS-Net-Rig.md "Net — content
+/// classification".</remarks>
 internal sealed class RemoteBoardFurniture
 {
     // ---------------------------------------------------------------- layout (board-local) --
-    // Every constant below is the LOCAL board's own authored BASE offset, copied from PlayTray so
-    // a peer's furniture sits where that player's own furniture sits. The per-board debug-menu
-    // offsets (CardsConfig.ConfirmUndoOffset / VRSettingsOffset / PinOffset / ClusterOffset /
-    // ItemUseSlotOffset / DecisionOffset) are deliberately NOT applied: they are the LOCAL
-    // player's tuning of their OWN board and say nothing about the peer's. Same reasoning the
-    // existing remote surfaces already follow (RemoteObjectivesPanel / RemoteElementStrip hardcode
-    // their mount bases too).
+    // FALLBACK-board constants: the LOCAL Oak board's authored BASE offsets, copied from PlayTray
+    // so a peer's furniture sits where that player's own furniture sits when no real tray asset
+    // (and therefore no prefab anchor) is available. With the real asset up, the caps seat on the
+    // prefab anchors + the AUTHORED per-style offsets instead (see StyleOffsets below).
 
     private const float BoardW = 0.64f;
     private const float BoardH = 0.32f;
@@ -79,22 +89,24 @@ internal sealed class RemoteBoardFurniture
     private const float ButtonZoneX = 0.235f;
 
     /// <summary>PlayTray "ContinueMount" (0.235, 0.045, −0.006) — the CONFIRM keycap / native
-    /// Continue dock.</summary>
+    /// Continue dock (fallback board).</summary>
     private static readonly Vector3 ConfirmMount = new(ButtonZoneX, 0.045f, -0.006f);
 
-    /// <summary>PlayTray "UndoDockMount" (0.235, −0.06, −0.006) — the UNDO keycap / native Undo dock.</summary>
+    /// <summary>PlayTray "UndoDockMount" (0.235, −0.06, −0.006) — the UNDO keycap / native Undo
+    /// dock (fallback board).</summary>
     private static readonly Vector3 UndoMount = new(ButtonZoneX, -0.06f, -0.006f);
 
     // The VR-settings gear cap is gone from both boards: the mod's settings live in the game's own
-    // options window now, so there is no local button for a remote board to mirror. Leaving the
-    // inert copy would have shown other players a control the local board does not have.
+    // options window now, so there is no local button for a remote board to mirror.
 
-    /// <summary>PlayTray.PinBase (BoardW/2 − 0.045, −BoardH/2 − 0.030, −FixedProudZ) — FOLLOW/PIN.</summary>
+    /// <summary>PlayTray.PinBase (BoardW/2 − 0.045, −BoardH/2 − 0.030, −FixedProudZ) — FOLLOW/PIN.
+    /// The local board uses this same board-local base for EVERY board style (plus the per-style
+    /// PinOffset default, applied below).</summary>
     private static readonly Vector3 PinMount = new(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -0.005f);
 
-    /// <summary>PlayTray.BuildHandle's bar (0, −BoardH/2 − 0.030, +0.004) and its 0.55·BoardW × 24 mm
-    /// brass bar. NOTE the local handle also carries a 62 %-wide trigger BoxCollider — the remote
-    /// copy is the BAR ONLY, no zone, no <c>PanelGrabHandle</c>.</summary>
+    /// <summary>PlayTray.BuildHandle's bar (0, −BoardH/2 − 0.030, +0.004) — board-local on every
+    /// style, like the local board's own handle. NOTE the local handle also carries a 62 %-wide
+    /// trigger BoxCollider — the remote copy is the BAR ONLY, no zone, no <c>PanelGrabHandle</c>.</summary>
     private static readonly Vector3 HandleMount = new(0f, -BoardH * 0.5f - 0.030f, 0.004f);
 
     /// <summary>ButtonCluster's docked right-column anchor (ColumnCenterX/Y/RootZ).</summary>
@@ -106,22 +118,28 @@ internal sealed class RemoteBoardFurniture
     /// <summary>PlayTray.DecisionMountBase (0, −0.29, −0.020) — the shared decision drawer.</summary>
     private static readonly Vector3 DecisionMount = new(0f, -0.29f, -0.020f);
 
-    /// <summary>PlayTray.BuildPickField's anchor (0, 0.015) — the modal pick drop field.</summary>
-    private static readonly Vector3 PickFieldMount = new(0f, 0.015f, RemoteControlBoard.ProudZLocal - 0.001f);
-
-    // ---- authored widget sizes (WorldUI.ButtonTuning defaults / PlayTray literals) -------------
+    // ---- authored widget sizes (Defaults — the shipped [ButtonTuning] values) ------------------
     // The live ButtonTuning entries are the LOCAL player's own config; a peer's caps are drawn at
     // the AUTHORED defaults so every remote board looks the same regardless of local tuning.
-    private const float BoardCapW = Defaults.BoardButtons_Width;   // ButtonTuning.DefaultBoardWidth
-    private const float BoardCapH = Defaults.BoardButtons_Height;   // ButtonTuning.DefaultBoardHeight
-    private const float PinCapW = Defaults.PinWidth;     // ButtonTuning.DefaultPinWidth
-    private const float DashCapH = Defaults.BoardDashboard_Height;    // ButtonTuning.DefaultDashHeight
-    private const float TransientCapR = Defaults.RoundButtons_CapSize; // ButtonTuning.DefaultRoundCapSize (cap RADIUS)
+    private const float BoardCapW = Defaults.BoardButtons_Width;
+    private const float BoardCapH = Defaults.BoardButtons_Height;
+    private const float BoardCapD = Defaults.BoardButtons_Depth;
+    private const float PinCapW = Defaults.PinWidth;
+    private const float DashCapH = Defaults.BoardDashboard_Height;
+    private const float DashCapD = Defaults.BoardDashboard_Depth;
+    private const float RestCapD = Defaults.RestButtons_Depth;
+    private const float TransientCapR = Defaults.RoundButtons_CapSize; // cap RADIUS
+    private const float TransientCapD = Defaults.RoundButtons_Depth;
 
-    /// <summary>Authored card size (CardsConfig CardWidth default 0.0635 and its fixed 88/63.5
-    /// aspect) — the item-use recess is a card-sized recess.</summary>
-    private const float CardW = 0.0635f;
+    /// <summary>The card size the remote board's own round-card slots render at (authored card
+    /// width × the local board's 1.3 SlotScale) — the recess/overlay metrics follow it.</summary>
+    private const float CardW = 0.0635f * 1.3f;
     private const float CardH = CardW * (88f / 63.5f);
+
+    /// <summary>Authored card size for the item-use RECESS (the recess is card-sized at the
+    /// UNSCALED card metric on the local board).</summary>
+    private const float ItemCardW = 0.0635f;
+    private const float ItemCardH = ItemCardW * (88f / 63.5f);
 
     // ---- palette (verbatim from the local widgets so the boards match) -------------------------
     private static readonly Color ConfirmColor = new(0.35f, 0.46f, 0.28f); // muted sage "go"
@@ -129,6 +147,77 @@ internal sealed class RemoteBoardFurniture
     private static readonly Color PinColor = new(0.58f, 0.46f, 0.26f);     // aged brass
     private static readonly Color SkipColor = new(0.37f, 0.44f, 0.56f);    // slate
     private static readonly Color HandleColor = new(0.62f, 0.50f, 0.28f);  // brass bar
+    private static readonly Color ShortRestColor = new(0.62f, 0.52f, 0.30f); // parchment-gold
+    private static readonly Color LongRestColor = new(0.37f, 0.44f, 0.56f);  // antique slate-blue
+
+    // ---------------------------------------------------------------- authored per-style seats --
+    // The SHIPPED per-board layout (Defaults.*_Oak/Steel/Bronze) keyed by the PEER's synced style.
+    // These are the numeric defaults every client ships with — the per-board DESIGN, not anyone's
+    // tuning — so applying them by wire style renders a Steel peer's confirm column where a Steel
+    // board actually wears it (x +0.462 off the anchor!) instead of at the Oak spot.
+
+    private static Vector3 ConfirmUndoOffsetFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.ConfirmUndoOffset_Steel,
+        Cards.ControlBoard.Bronze => Defaults.ConfirmUndoOffset_Bronze,
+        _ => Defaults.ConfirmUndoOffset_Oak,
+    };
+
+    private static float GenericSpacingFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.GenericButtonSpacing_Steel,
+        Cards.ControlBoard.Bronze => Defaults.GenericButtonSpacing_Bronze,
+        _ => Defaults.GenericButtonSpacing_Oak,
+    };
+
+    private static Vector3 RestOffsetFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.RestButtonOffset_Steel,
+        Cards.ControlBoard.Bronze => Defaults.RestButtonOffset_Bronze,
+        _ => Defaults.RestButtonOffset_Oak,
+    };
+
+    private static float RestSpacingFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.RestButtonSpacing_Steel,
+        Cards.ControlBoard.Bronze => Defaults.RestButtonSpacing_Bronze,
+        _ => Defaults.RestButtonSpacing_Oak,
+    };
+
+    private static float RestDiameterFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.RestButtonDiameter_Steel,
+        Cards.ControlBoard.Bronze => Defaults.RestButtonDiameter_Bronze,
+        _ => Defaults.RestButtonDiameter_Oak,
+    };
+
+    private static Vector3 PinOffsetFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.PinOffset_Steel,
+        Cards.ControlBoard.Bronze => Defaults.PinOffset_Bronze,
+        _ => Defaults.PinOffset_Oak,
+    };
+
+    private static Vector3 ItemUseOffsetFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.ItemUseSlotOffset_Steel,
+        Cards.ControlBoard.Bronze => Defaults.ItemUseSlotOffset_Bronze,
+        _ => Defaults.ItemUseSlotOffset_Oak,
+    };
+
+    private static Vector3 ClusterOffsetFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.ClusterOffset_Steel,
+        Cards.ControlBoard.Bronze => Defaults.ClusterOffset_Bronze,
+        _ => Defaults.ClusterOffset_Oak,
+    };
+
+    private static Vector3 DecisionOffsetFor(Cards.ControlBoard s) => s switch
+    {
+        Cards.ControlBoard.Steel => Defaults.DecisionOffset_Steel,
+        Cards.ControlBoard.Bronze => Defaults.DecisionOffset_Bronze,
+        _ => Defaults.DecisionOffset_Oak,
+    };
 
     // ---------------------------------------------------------------- built pieces --
 
@@ -139,11 +228,12 @@ internal sealed class RemoteBoardFurniture
     private readonly InertCap _use;
     private readonly InertCap _pin;
     private readonly InertCap _skip;
+    private readonly InertCap? _shortRest; // real-tray board only (needs the prefab rest anchors)
+    private readonly InertCap? _longRest;
 
     private readonly Transform _itemUse;
     private readonly Material _itemUseGlowMat;
     private readonly Transform _decision;
-    private readonly Transform _pickField;
     private readonly GameObject?[] _wanted = new GameObject?[2];
     private readonly GameObject?[] _snap = new GameObject?[2];
     private readonly GameObject?[] _halves = new GameObject?[2];
@@ -157,7 +247,6 @@ internal sealed class RemoteBoardFurniture
     /// bool would miss the case where the dividers stay shown but the OCCUPANCY moves from one slot
     /// to the other.</summary>
     private int _shownHalfMask = -1;
-    private bool _shownPickField;
     private string _langShown = string.Empty;
 
     /// <summary>Per-slot unscaled time the snap glow was lit (a card just landed there). Negative
@@ -178,80 +267,110 @@ internal sealed class RemoteBoardFurniture
 
     // ---------------------------------------------------------------- construction --
 
-    public RemoteBoardFurniture(Transform boardRoot)
+    /// <summary>
+    /// Build the inert furniture for a board of <paramref name="style"/>. With a real
+    /// <paramref name="tray"/>, caps seat on the prefab anchors + the authored per-style offsets
+    /// (see the class note); without one, on the legacy flat-board constants.
+    /// <paramref name="slot0CardLocal"/>/<paramref name="slot1CardLocal"/> are the board-local
+    /// positions the two round CARDS render at — the slot overlays (wanted pulse / snap glow /
+    /// half divider) centre on them so glow and card agree on every board style.
+    /// </summary>
+    public RemoteBoardFurniture(Transform boardRoot, Cards.ControlBoard style, RemoteTrayVisual? tray,
+        Vector3 slot0CardLocal, Vector3 slot1CardLocal)
     {
         _root = new GameObject("Furniture").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
 
-        // ---- right-hand control column: CONFIRM / [USE] / UNDO on their native dock mounts -----
-        // The local board parks the mod CONFIRM keycap on "ContinueMount" and the mod UNDO keycap
-        // on "UndoDockMount" — the very anchors the REAL Continue/Undo game widgets dock onto when
-        // the WorldUI TrayControlDockSurface takes over. Whichever of the two is showing on the
-        // peer's client, it occupies THIS spot, so one inert cap per mount is the faithful picture.
-        _confirm = new InertCap(_root, "Confirm", ConfirmMount, new Vector2(BoardCapW, BoardCapH),
-            ConfirmColor);
-        _undo = new InertCap(_root, "Undo", UndoMount, new Vector2(BoardCapW, BoardCapH), UndoColor);
+        // ---- right-hand control column: CONFIRM / [USE] / UNDO -------------------------------
+        // Real tray: on the prefab's own ConfirmButton/UndoButton anchors + the authored per-style
+        // offset + the authored generic spacing (± spacing/2 — GenericClusterY's 2-member layout),
+        // exactly the seat PlayTray.BuildButtons gives the live keycaps. Fallback: the Oak mounts.
+        Vector3 cuOff = ConfirmUndoOffsetFor(style);
+        float cuSpacing = GenericSpacingFor(style);
+        Transform confirmParent = tray?.ConfirmAnchor ?? _root;
+        Transform undoParent = tray?.UndoAnchor ?? _root;
+        Vector3 confirmPos = tray?.ConfirmAnchor != null
+            ? cuOff + new Vector3(0f, cuSpacing * 0.5f, 0f)
+            : ConfirmMount;
+        Vector3 undoPos = tray?.UndoAnchor != null
+            ? cuOff + new Vector3(0f, -cuSpacing * 0.5f, 0f)
+            : UndoMount;
+        _confirm = InertCap.Square(confirmParent, "Confirm", confirmPos,
+            new Vector2(BoardCapW, BoardCapH), BoardCapD, ConfirmColor);
+        _undo = InertCap.Square(undoParent, "Undo", undoPos,
+            new Vector2(BoardCapW, BoardCapH), BoardCapD, UndoColor);
 
         // The item "USE" confirm is a DYNAMIC member of that same generic cluster (PlayTray
         // requirement 9a): while a usable item card is clipped into the use recess it joins as
-        // member 1, i.e. the slot between CONFIRM (top) and UNDO (bottom). Its exact Y depends on
-        // the LOCAL player's tuned [Cards] GenericButtonSpacing, which is theirs and not the
-        // peer's — so it is drawn at the geometric midpoint of the two mounts, which is where a
-        // sanely tuned three-stack puts it.
-        _use = new InertCap(_root, "ItemUse", (ConfirmMount + UndoMount) * 0.5f,
-            new Vector2(BoardCapW, BoardCapH), ConfirmColor);
+        // member 1, i.e. the slot between CONFIRM (top) and UNDO (bottom). Drawn at the geometric
+        // midpoint of the two caps (computed through world space so it is right on the real
+        // anchors too), which is where a sanely tuned three-stack puts it.
+        Vector3 useMidLocal = confirmParent.InverseTransformPoint(
+            (_confirm.WorldPosition + _undo.WorldPosition) * 0.5f);
+        _use = InertCap.Square(confirmParent, "ItemUse", useMidLocal,
+            new Vector2(BoardCapW, BoardCapH), BoardCapD, ConfirmColor);
         // Starts hidden and in step with the _shownArmed seed below: the local cluster only holds
         // this member while an item decision is pending, and Refresh() early-outs while nothing
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
         _use.SetShown(false);
 
-        _pin = new InertCap(_root, "FollowToggle", PinMount, new Vector2(PinCapW, DashCapH), PinColor);
+        // ---- rest discs (real-tray board only — they seat in the prefab's rest notches) --------
+        // The local board's short/long rest BoardButtons: round discs at the ShortRestToken /
+        // LongRestToken anchors + the authored per-style offset ± spacing/2 (RestControls
+        // EnsureBuilt/SetOffset). NEUTRAL LOOK: drawn at their authored accent colours; whether
+        // the peer has actually selected a rest is a separate readout
+        // (RemoteStatusReadouts.RestText), not a cap state.
+        if (tray?.ShortRestAnchor != null && tray.LongRestAnchor != null)
+        {
+            Vector3 restOff = RestOffsetFor(style);
+            float restSpacing = RestSpacingFor(style);
+            float restD = RestDiameterFor(style);
+            _shortRest = InertCap.Round(tray.ShortRestAnchor, "ShortRest",
+                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, RestCapD, ShortRestColor);
+            _longRest = InertCap.Round(tray.LongRestAnchor, "LongRest",
+                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, RestCapD, LongRestColor);
+        }
+
+        _pin = InertCap.Square(_root, "FollowToggle", PinMount + PinOffsetFor(style),
+            new Vector2(PinCapW, DashCapH), DashCapD, PinColor);
 
         // ---- grab-handle bar -------------------------------------------------------------------
         // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
-        // WorldUI.PanelGrabHandle that carries/rotates/resizes the board. Only the BAR is
-        // reproduced: no collider, no grab zone, no handle component. A peer's board can never be
-        // picked up — it follows the pose THEY broadcast and nothing else.
+        // WorldUI.PanelGrabHandle that carries/rotates/resizes the board. The remote copy is the
+        // 3D BAR (the same cube the local board renders): no collider, no grab zone, no handle
+        // component. A peer's board can never be picked up — it follows the pose THEY broadcast
+        // and nothing else.
         var handle = new GameObject("HandleBar").transform;
         handle.SetParent(_root, worldPositionStays: false);
         handle.localPosition = HandleMount;
-        BoardVisual.Quad(handle, "Bar", new Vector2(BoardW * 0.55f, 0.024f),
-            BoardVisual.Unlit(HandleColor));
-        // A darker strip along the lower edge stands in for the bar's shaded underside, so the flat
-        // quad still reads as the round brass bar it copies.
-        BoardVisual.Quad(handle, "BarShade", new Vector2(BoardW * 0.55f, 0.007f),
-            BoardVisual.Unlit(new Color(HandleColor.r * 0.45f, HandleColor.g * 0.45f, HandleColor.b * 0.45f, 1f)))
-            .transform.localPosition = new Vector3(0f, -0.0105f, -0.0005f);
+        LitCube(handle, "Bar", new Vector3(BoardW * 0.55f, 0.024f, 0.024f), HandleColor);
 
         // ---- turn-flow ButtonCluster ----------------------------------------------------------
         // FIDELITY NOTE (this is why only ONE cap is drawn, not three): on a DOCKED board the
         // cluster's Ready and Undo twins are forced permanently OFF — ButtonCluster.Tick calls
         // MirrorReady(null, …) / MirrorUndo(null, …) precisely so the board never shows a duplicate
-        // "Fortfahren"/Undo next to the right-hand pads. ONLY Skip is mirrored there. Drawing an
-        // Undo|Ready|Skip trio here would therefore NOT match what the peer sees on their own
-        // board; a single Skip cap at the column anchor does. The cluster auto-fits its cap size
-        // from the live visible count, and at count 1 that is exactly the configured cap size.
-        _skip = new InertCap(_root, "TurnFlowSkip", ClusterMount,
-            new Vector2(TransientCapR * 2f, TransientCapR * 2f), SkipColor, plate: TransientCapR * 2.4f);
+        // "Fortfahren"/Undo next to the right-hand pads. ONLY Skip is mirrored there. A single
+        // round Skip disc at the column anchor is the faithful picture.
+        _skip = InertCap.Round(_root, "TurnFlowSkip", ClusterMount + ClusterOffsetFor(style),
+            TransientCapR * 2f, TransientCapD, SkipColor);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
-        _itemUse = BuildItemUseRecess(out _itemUseGlowMat);
+        _itemUse = BuildItemUseRecess(ItemUseMount + ItemUseOffsetFor(style), out _itemUseGlowMat);
 
         // ---- shared decision drawer -----------------------------------------------------------
-        _decision = BuildDecisionDrawer();
-
-        // ---- modal pick drop field ------------------------------------------------------------
-        _pickField = BuildPickField();
+        _decision = BuildDecisionDrawer(DecisionMount + DecisionOffsetFor(style));
 
         // ---- slot overlays: wanted pulse, snap glow, half-poke divider ------------------------
+        // Centred on the CARD positions handed in by the board (the real recess anchors when the
+        // 3D asset is up), so the glow ring frames the rendered card on every board style.
         for (int i = 0; i < 2; i++)
         {
-            Vector3 slot = RemoteControlBoard.SlotLocal(i);
-            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", slot, 1.30f, -0.003f,
+            Vector3 card = i == 0 ? slot0CardLocal : slot1CardLocal;
+            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, 1.30f, -0.003f,
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
-            _snap[i] = BuildSlotGlow($"SnapGlow{i}", slot, 1.18f, -0.005f,
+            _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, 1.18f, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
-            _halves[i] = BuildHalfDivider($"HalfDivider{i}", slot);
+            _halves[i] = BuildHalfDivider($"HalfDivider{i}", card);
         }
 
         ApplyLabels();
@@ -262,7 +381,8 @@ internal sealed class RemoteBoardFurniture
 
     /// <summary>
     /// Re-read everything knowable and repaint what changed. Called on the shared 4 Hz content
-    /// cadence from <see cref="RemoteControlBoard"/>.
+    /// cadence from <see cref="RemoteControlBoard"/> — only while the peer HAS an actor (the caps
+    /// themselves are static; everything below derives from actor-fed state).
     ///
     /// <paramref name="showFronts"/> is the shared <see cref="RevealGate"/> answer for this actor;
     /// <paramref name="slot0"/>/<paramref name="slot1"/> say whether that peer's two round-card
@@ -355,16 +475,8 @@ internal sealed class RemoteBoardFurniture
         }
         SetHalves(halfMask);
 
-        // ---- modal pick drop field ------------------------------------------------------------
-        // LOCAL-ONLY STATE: a pick flow (recover / lose / choose a card) is a prompt the game raises
-        // on ONE client; there is no replicated model field that says a peer is inside one. Drawn in
-        // its neutral look and shown only when both round slots are empty — the same invariant the
-        // local board relies on ("the slots are guaranteed empty in pick modes"), which also
-        // guarantees the field can never occlude a card the board is showing.
-        SetPickField(!slot0 && !slot1 && !selecting);
-
         StateLine = $"use={(armed ? "armed" : "idle")}, wanted={wantedMask}, snap={snapMask}, " +
-                    $"halves={halfMask}, pick={_shownPickField}";
+                    $"halves={halfMask}";
         _ = actor; // reserved: no per-actor furniture state is knowable beyond the slots (see notes)
     }
 
@@ -377,16 +489,14 @@ internal sealed class RemoteBoardFurniture
     ///
     /// NEUTRAL LOOKS declared here, once, because none of these states cross the wire and none is
     /// worth a wire field:
-    ///   • CONFIRM / UNDO / SKIP enabled-vs-disabled — the local caps mirror the peer's OWN uGUI
-    ///     <c>readyButton.interactable</c> / <c>m_UndoButton.interactable</c> /
-    ///     <c>skipButton.interactable</c>, which are recomputed per frame on THEIR client only.
+    ///   • CONFIRM / UNDO / SKIP / REST enabled-vs-disabled — the local caps mirror the peer's OWN
+    ///     uGUI widget interactability, which is recomputed per frame on THEIR client only.
     ///     Drawn ENABLED (the authored base colour), never dimmed.
     ///   • CONFIRM's live label — the local cap re-reads the game widget's own text every tick
     ///     (16 <c>ReadyButton.EButtonState</c> values: "Continue", "Perform long rest", …). Drawn
     ///     with the neutral GUI_CONFIRM wording.
     ///   • The FOLLOW/PIN toggle — the peer's <c>[Cards] TrayFollow</c> is a private VR preference
     ///     of theirs. Drawn in the DEFAULT (FOLLOW, un-accented) look.
-    ///   • The gear — stateless on the local board too, so it is faithful by construction.
     /// </summary>
     private void ApplyLabels()
     {
@@ -397,6 +507,9 @@ internal sealed class RemoteBoardFurniture
         // GUI_SKIP_MOVEMENT is the key SkipButton.Start() seeds its own label from; the live button
         // swaps in GUI_SKIP_ABILITY / GUI_SKIP_ATTACK per situation, which is peer-local state.
         _skip.SetLabel(Loc.Game("GUI_SKIP_MOVEMENT", "Skip"));
+        // Same strings the local RestControls caps wear (no game key exists for the short rest).
+        _shortRest?.SetLabel(Loc.Mod("short_rest"));
+        _longRest?.SetLabel(Loc.Game("GUI_LONG_REST", "Long rest"));
     }
 
     // ---------------------------------------------------------------- sub-builders --
@@ -407,25 +520,25 @@ internal sealed class RemoteBoardFurniture
     /// multipliers, and the caption's one-half-card drop) of <c>PlayTray.BuildItemUseSlot</c>, minus
     /// the pulse driver and minus anything droppable.
     /// </summary>
-    private Transform BuildItemUseRecess(out Material glowMat)
+    private Transform BuildItemUseRecess(Vector3 mount, out Material glowMat)
     {
         var root = new GameObject("ItemUseRecess").transform;
         root.SetParent(_root, worldPositionStays: false);
-        root.localPosition = ItemUseMount;
+        root.localPosition = mount;
 
         glowMat = BoardVisual.Unlit(new Color(0.30f, 0.25f, 0.12f, 0.35f));
-        BoardVisual.Quad(root, "Glow", new Vector2(CardW * 1.28f, CardH * 1.28f), glowMat)
+        BoardVisual.Quad(root, "Glow", new Vector2(ItemCardW * 1.28f, ItemCardH * 1.28f), glowMat)
             .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
-        BoardVisual.Quad(root, "Frame", new Vector2(CardW * 1.12f, CardH * 1.12f),
+        BoardVisual.Quad(root, "Frame", new Vector2(ItemCardW * 1.12f, ItemCardH * 1.12f),
             BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.001f);
-        BoardVisual.Quad(root, "FrameInner", new Vector2(CardW * 1.04f, CardH * 1.04f),
+        BoardVisual.Quad(root, "FrameInner", new Vector2(ItemCardW * 1.04f, ItemCardH * 1.04f),
             BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
 
         RemoteBoardContent.Label(root, "Label",
-            new Vector3(0f, -(CardH * 0.5f + 0.026f), -0.001f),
-            new Vector2(CardW * 1.1f, 0.030f), 0.05f,
+            new Vector3(0f, -(ItemCardH * 0.5f + 0.026f), -0.001f),
+            new Vector2(ItemCardW * 1.1f, 0.030f), 0.05f,
             new Color(1f, 0.92f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold)
             .text = Loc.Game("GUI_USE", "USE").ToUpperInvariant();
         return root;
@@ -442,11 +555,11 @@ internal sealed class RemoteBoardFurniture
     /// its IDLE look: the slim empty drawer with its caption, at the mount's own offset, rather
     /// than a fake button row.
     /// </summary>
-    private Transform BuildDecisionDrawer()
+    private Transform BuildDecisionDrawer(Vector3 mount)
     {
         var root = new GameObject("DecisionDrawer").transform;
         root.SetParent(_root, worldPositionStays: false);
-        root.localPosition = DecisionMount;
+        root.localPosition = mount;
 
         BoardVisual.Quad(root, "Plate", new Vector2(0.42f, 0.055f),
             BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 0.80f)))
@@ -463,45 +576,16 @@ internal sealed class RemoteBoardFurniture
         return root;
     }
 
-    /// <summary>
-    /// The modal pick DROP FIELD (<c>PlayTray.BuildPickField</c>): warm accent frame + dark inner +
-    /// the localized "SELECT" caption, at the slot-zone centre. Same composition, no drop mechanics,
-    /// no capture radius, no highlight driver — see <see cref="Refresh"/> for when it is shown.
-    /// </summary>
-    private Transform BuildPickField()
-    {
-        var root = new GameObject("PickField").transform;
-        root.SetParent(_root, worldPositionStays: false);
-        root.localPosition = PickFieldMount;
-        // The local field inherits the slots' 1.3× SlotScale; the remote board's own round-card
-        // slots are drawn at 0.15 m wide, so match THOSE rather than the local card metrics.
-        const float w = 0.15f;
-        const float h = w * (88f / 63.5f);
-
-        BoardVisual.Quad(root, "Frame", new Vector2(w * 1.12f, h * 1.12f),
-            BoardVisual.Unlit(new Color(0.62f, 0.42f, 0.18f, 0.85f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.001f);
-        BoardVisual.Quad(root, "FrameInner", new Vector2(w * 1.04f, h * 1.04f),
-            BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 0.85f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
-        RemoteBoardContent.Label(root, "Caption", new Vector3(0f, -h * 0.62f, -0.001f),
-            new Vector2(0.14f, 0.024f), 0.05f,
-            new Color(1f, 0.85f, 0.55f), TextAlignmentOptions.Center, FontStyles.Bold)
-            .text = Loc.Game("GUI_SELECT", "SELECT").ToUpperInvariant();
-
-        root.gameObject.SetActive(false);
-        return root;
-    }
-
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the
     /// gold snap flash share this shape, exactly as on the local board — different hue, different
-    /// rim size, the teal a hair less proud so the gold always draws in front of it).</summary>
-    private GameObject BuildSlotGlow(string name, Vector3 slotLocal, float scale, float proud,
+    /// rim size, the teal a hair less proud so the gold always draws in front of it). Sized to the
+    /// remote card metric so the rim frames the rendered card.</summary>
+    private GameObject BuildSlotGlow(string name, Vector3 cardLocal, float scale, float proud,
         Color color, bool pulse)
     {
         var mat = BoardVisual.Unlit(color);
-        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(0.15f * scale, 0.15f * (88f / 63.5f) * scale), mat);
-        mr.transform.localPosition = new Vector3(slotLocal.x, slotLocal.y, slotLocal.z + proud);
+        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(CardW * scale, CardH * scale), mat);
+        mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + proud);
         if (pulse)
             mr.gameObject.AddComponent<RemoteGlowPulse>().Init(mat, color);
         mr.gameObject.SetActive(false);
@@ -511,13 +595,30 @@ internal sealed class RemoteBoardFurniture
     /// <summary>The hairline that marks the top/bottom action-half split on a face-up round card —
     /// the only way to depict the deliberately invisible <c>HalfSelection</c> poke zones at all
     /// (see <see cref="Refresh"/>). A single inert quad; nothing to poke.</summary>
-    private GameObject BuildHalfDivider(string name, Vector3 slotLocal)
+    private GameObject BuildHalfDivider(string name, Vector3 cardLocal)
     {
-        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(0.15f * 0.90f, 0.0012f),
+        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(CardW * 0.90f, 0.0012f),
             BoardVisual.Unlit(new Color(0.20f, 0.16f, 0.12f, 0.75f)));
-        mr.transform.localPosition = new Vector3(slotLocal.x, slotLocal.y, slotLocal.z - 0.002f);
+        mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z - 0.002f);
         mr.gameObject.SetActive(false);
         return mr.gameObject;
+    }
+
+    /// <summary>A collider-free LIT cube (BoardLit → Standard fallback) — the 3D handle bar and
+    /// any future solid furniture piece, shaded like the local board's own primitives instead of
+    /// the flat unlit quads of the 2D era.</summary>
+    private static void LitCube(Transform parent, string name, Vector3 size, Color color)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        go.name = name;
+        Object.Destroy(go.GetComponent<Collider>());
+        go.transform.SetParent(parent, worldPositionStays: false);
+        go.transform.localScale = size;
+        Shader? shader = Cards.PlayTray.BoardLitShader()
+                         ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse")
+                         ?? Shader.Find("Sprites/Default");
+        if (shader != null)
+            go.GetComponent<MeshRenderer>().sharedMaterial = new Material(shader) { color = color };
     }
 
     // ---------------------------------------------------------------- change-gated setters --
@@ -561,62 +662,172 @@ internal sealed class RemoteBoardFurniture
         }
     }
 
-    private void SetPickField(bool show)
-    {
-        if (show == _shownPickField)
-            return;
-        _shownPickField = show;
-        if (_pickField != null && _pickField.gameObject.activeSelf != show)
-            _pickField.gameObject.SetActive(show);
-    }
-
     // ---------------------------------------------------------------- inert cap --
 
     /// <summary>
-    /// One INERT keycap: a lit bevel plate, the state-coloured cap face on top of it and an
-    /// engraved label — the flat, unlit reading of the local board's beveled 3D keycaps
-    /// (<c>BoardButton</c> / <c>ButtonCluster.PhysicalButton</c>), drawn with the same palette so
-    /// the two boards match at a glance.
+    /// One INERT keycap in REAL 3D: the same base plate + beveled/round cap MESH the local board's
+    /// <c>PlayTray.BoardButton</c> renders — dark-wood base, cap body through
+    /// <c>PlayTray.NewKeycapMaterial</c> (BoardLit + carved-grain <c>_MainTex</c>, so the walls
+    /// shade even in the unlit scenes), engraved parchment label — with everything button-like
+    /// omitted: NO collider, NO press travel, NO <c>IPokeable</c>, registered NOWHERE. It is a
+    /// solid picture of a button.
     ///
-    /// It has NO collider, NO <c>IPokeable</c>, NO click action and is registered NOWHERE. That is
-    /// the entire point of the class: it is a picture of a button.
+    /// Geometry constants below are copies of <c>PlayTray.BoardButton</c>'s authored privates
+    /// (promoting them would widen PlayTray's internal surface — the same trade the layout consts
+    /// at the top of this file already make); the three float lerps are linted against drift by
+    /// <c>scripts/check-mirrors.sh</c>.
     /// </summary>
     private sealed class InertCap
     {
+        /// <summary>Mirror of PlayTray.BoardButton.CapRestZ — the cap's seat toward the viewer.</summary>
+        private const float CapRestZ = -0.004f;
+
+        /// <summary>Mirror of PlayTray.SquareCapBevel — the lit 45° chamfer width.</summary>
+        private const float CapBevel = 0.007f;
+
+        // Mirrors of PlayTray.BoardButton's wall/bevel tint recipe (checked by check-mirrors.sh).
+        private const float WallTintFactor = 0.50f;
+        private const float WallWarmLerp = 0.42f;
+        private const float BevelLerp = 0.48f;
+        private static readonly Color WallWarm = new(0.17f, 0.11f, 0.06f);
+        private static readonly Color BevelHighlight = new(0.66f, 0.53f, 0.32f);
+
         private readonly GameObject _go;
         private readonly TextMeshPro _label;
         private string _shown = string.Empty;
 
-        public InertCap(Transform parent, string name, Vector3 localPos, Vector2 size, Color color,
-            float plate = 0f)
-        {
-            _go = new GameObject(name);
-            _go.transform.SetParent(parent, worldPositionStays: false);
-            _go.transform.localPosition = localPos;
+        /// <summary>World position of the cap centre (build-time layout math — the USE cap centres
+        /// between Confirm and Undo across two different parent anchors).</summary>
+        public Vector3 WorldPosition => _go.transform.position;
 
-            // Optional dark base plate (the round turn-flow caps sit on one; the square board caps
-            // do not) — drawn first so everything else layers proud of it.
-            if (plate > 0f)
+        private InertCap(GameObject go, TextMeshPro label)
+        {
+            _go = go;
+            _label = label;
+        }
+
+        /// <summary>The square beveled keycap (Confirm/Undo/Use/Pin): dark base plate + the
+        /// 3-submesh chamfered cap mesh (state top / bright bevel / dark warm walls).</summary>
+        public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
+            float depth, Color color)
+        {
+            GameObject go = NewRoot(parent, name, localPos);
+
+            // Base plate: the recessed well the cap sits in (BoardButton's non-round branch).
+            var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            basePlate.name = "Base";
+            Object.Destroy(basePlate.GetComponent<Collider>());
+            basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+            basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
+            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            TintLit(basePlate, new Color(0.15f, 0.12f, 0.08f));
+
+            float capThick = Mathf.Max(0.012f, depth);
+            var capMesh = new GameObject("CapMesh");
+            capMesh.transform.SetParent(go.transform, worldPositionStays: false);
+            capMesh.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
+            capMesh.AddComponent<MeshFilter>().sharedMesh =
+                Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, CapBevel);
+            var mr = capMesh.AddComponent<MeshRenderer>();
+            Shader? shader = CapShader();
+            if (shader != null)
             {
-                BoardVisual.Quad(_go.transform, "Base", new Vector2(plate, plate),
-                    BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 1f)))
-                    .transform.localPosition = new Vector3(0f, 0f, 0.0015f);
+                mr.sharedMaterials = new[]
+                {
+                    Cards.PlayTray.NewKeycapMaterial(shader, color),              // [0] top plateau
+                    Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(color)),   // [1] bright bevel
+                    Cards.PlayTray.NewKeycapMaterial(shader, WallTint(color)),    // [2] dark warm wall
+                };
             }
 
-            // Bevel ring: the bright 45° chamfer that makes the local cap read as raised.
-            BoardVisual.Quad(_go.transform, "Bevel", size + new Vector2(0.008f, 0.008f),
-                BoardVisual.Unlit(new Color(
-                    Mathf.Clamp01(color.r * 1.45f), Mathf.Clamp01(color.g * 1.45f),
-                    Mathf.Clamp01(color.b * 1.45f), 1f)))
-                .transform.localPosition = new Vector3(0f, 0f, 0.001f);
+            TextMeshPro label = BuildLabel(go.transform, size,
+                new Vector3(0f, 0f, CapRestZ - capThick - 0.001f));
+            return new InertCap(go, label);
+        }
 
-            BoardVisual.Quad(_go.transform, "Cap", size, BoardVisual.Unlit(color))
-                .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
+        /// <summary>The round disc cap (rest discs, turn-flow Skip): recessed well ring + smooth
+        /// generated disc, in the same carved-grain keycap material family.</summary>
+        public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
+            float thickness, Color color)
+        {
+            GameObject go = NewRoot(parent, name, localPos);
 
-            _label = RemoteBoardContent.Label(_go.transform, "Label", new Vector3(0f, 0f, -0.001f),
-                new Vector2(size.x * 0.90f, size.y * 0.55f), 0.05f,
-                new Color(0.96f, 0.93f, 0.84f), TextAlignmentOptions.Center, FontStyles.Bold,
-                wrap: true);
+            var basePlate = new GameObject("Base");
+            basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            basePlate.AddComponent<MeshFilter>().sharedMesh =
+                Cards.CardMesh.GetRoundCap(diameter + 0.006f, 0.006f);
+            var baseMr = basePlate.AddComponent<MeshRenderer>();
+
+            float capThick = Mathf.Max(0.002f, thickness);
+            var capDisc = new GameObject("CapMesh");
+            capDisc.transform.SetParent(go.transform, worldPositionStays: false);
+            capDisc.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
+            capDisc.AddComponent<MeshFilter>().sharedMesh =
+                Cards.CardMesh.GetRoundCap(diameter, capThick);
+            var capMr = capDisc.AddComponent<MeshRenderer>();
+
+            Shader? shader = CapShader();
+            if (shader != null)
+            {
+                baseMr.sharedMaterial = new Material(shader) { color = new Color(0.15f, 0.12f, 0.08f) };
+                capMr.sharedMaterial = Cards.PlayTray.NewKeycapMaterial(shader, color);
+            }
+
+            TextMeshPro label = BuildLabel(go.transform, new Vector2(diameter, diameter),
+                new Vector3(0f, 0f, CapRestZ - capThick * 0.5f - 0.001f));
+            return new InertCap(go, label);
+        }
+
+        private static GameObject NewRoot(Transform parent, string name, Vector3 localPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, worldPositionStays: false);
+            go.transform.localPosition = localPos;
+            return go;
+        }
+
+        /// <summary>The engraved parchment label the local caps wear
+        /// (<c>NativeButtonSkin.StyleEngravedLabel</c> + TmpFit inside the cap face).</summary>
+        private static TextMeshPro BuildLabel(Transform parent, Vector2 size, Vector3 localPos)
+        {
+            var labelGo = new GameObject("Label");
+            labelGo.transform.SetParent(parent, worldPositionStays: false);
+            labelGo.transform.localPosition = localPos;
+            var tmp = labelGo.AddComponent<TextMeshPro>();
+            tmp.alignment = TextAlignmentOptions.Center;
+            WorldUI.NativeButtonSkin.StyleEngravedLabel(tmp);
+            TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
+            return tmp;
+        }
+
+        /// <summary>BoardLit (shades walls even in the unlit scenes) with the same fallback ladder
+        /// as <c>PlayTray.BoxCapShader</c>.</summary>
+        private static Shader? CapShader() =>
+            Cards.PlayTray.BoardLitShader()
+            ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse")
+            ?? Shader.Find("Sprites/Default");
+
+        private static void TintLit(GameObject go, Color color)
+        {
+            Shader? shader = CapShader();
+            if (shader != null)
+                go.GetComponent<MeshRenderer>().sharedMaterial = new Material(shader) { color = color };
+        }
+
+        private static Color WallTint(Color top)
+        {
+            var dark = new Color(top.r * WallTintFactor, top.g * WallTintFactor, top.b * WallTintFactor, top.a);
+            Color w = Color.Lerp(dark, WallWarm, WallWarmLerp);
+            w.a = top.a;
+            return w;
+        }
+
+        private static Color BevelTint(Color top)
+        {
+            Color b = Color.Lerp(top, BevelHighlight, BevelLerp);
+            b.a = top.a;
+            return b;
         }
 
         /// <summary>Change-gated label write (a per-tick TMP assignment re-triggers auto-size).</summary>
@@ -640,10 +851,11 @@ internal sealed class RemoteBoardFurniture
     /// <summary>
     /// BELT AND BRACES for the "nothing on a peer's board may be interactable" rule: walk the
     /// finished hierarchy and destroy any <c>Collider</c> that made it in. Today none can — every
-    /// builder above goes through <see cref="BoardVisual.Quad"/>, which already strips the
-    /// primitive's collider — but a future edit that adds a plain <c>CreatePrimitive</c> would
-    /// silently make a peer's board pokeable, and that is exactly the regression this catches. The
-    /// warning it logs is deliberately loud (grep: "remote board furniture carried").
+    /// builder above strips primitive colliders at creation (and <see cref="RemoteTrayVisual"/>
+    /// silently strips the prefab's expected ones before this guard ever runs) — but a future edit
+    /// that adds a plain <c>CreatePrimitive</c> would silently make a peer's board pokeable, and
+    /// that is exactly the regression this catches. The warning it logs is deliberately loud
+    /// (grep: "remote board furniture carried").
     /// </summary>
     internal static void StripColliders(GameObject root, string who)
     {
