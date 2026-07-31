@@ -82,7 +82,7 @@ internal static class WorldUIConfig
     /// <see cref="WorldTooltips"/>, so ONE dial scales every mouseover info panel and the
     /// factory value reproduces today's sizes EXACTLY (0.6 / 0.6 = 1x on the tooltip path).
     /// </summary>
-    internal const float DefaultHoverInfoScale = 0.6f;
+    internal const float DefaultHoverInfoScale = Defaults.HoverInfoScale;
 
     /// <summary>Last hover-info factor we logged (change-dedup for the hardware log).</summary>
     private static float _loggedHoverInfoScale = float.NaN;
@@ -251,32 +251,32 @@ internal static class WorldUIConfig
 
         _file = ModuleConfig.Create("worldui");
 
-        Master = _file.Bind("WorldUI", "Master", true,
+        Master = _file.Bind("WorldUI", "Master", Defaults.Master,
             "Master switch for the whole physicalized interface (all surfaces below AND the " +
             "floating 2D screen). Off = the game's own 2D screen-space UI stays untouched.");
-        ButtonCluster = _file.Bind("WorldUI", "ButtonCluster", true,
+        ButtonCluster = _file.Bind("WorldUI", "ButtonCluster", Defaults.ButtonCluster,
             "Physical Ready/Undo/Skip buttons at the table edge.");
-        InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", true,
+        InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", Defaults.InitiativeTrack,
             "Initiative track as a world-space panel above the table.");
-        ElementBoard = _file.Bind("WorldUI", "ElementBoard", true,
+        ElementBoard = _file.Bind("WorldUI", "ElementBoard", Defaults.ElementBoard,
             "Element infusion board docked on the control board's left column, below the " +
             "objectives panel (floating world panel only as the no-tray fallback).");
-        CombatLog = _file.Bind("WorldUI", "CombatLog", true,
+        CombatLog = _file.Bind("WorldUI", "CombatLog", Defaults.CombatLog,
             "Combat log as a world-space panel at the table's far side.");
-        Objectives = _file.Bind("WorldUI", "Objectives", true,
+        Objectives = _file.Bind("WorldUI", "Objectives", Defaults.Objectives,
             "Scenario objectives as a world-space panel at the table's far side.");
-        Dialogs = _file.Bind("WorldUI", "Dialogs", true,
+        Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no).");
-        StatPanels = _file.Bind("WorldUI", "StatPanels", true,
+        StatPanels = _file.Bind("WorldUI", "StatPanels", Defaults.StatPanels,
             "Actor/monster stat panels as world panels near the table (opened by the game / Phase-3a poke).");
-        PropInfoCards = _file.Bind("WorldUI", "PropInfoCards", true,
+        PropInfoCards = _file.Bind("WorldUI", "PropInfoCards", Defaults.PropInfoCards,
             "Hover prop-info cards (closed doors/chests, traps, terrain, quest items — the " +
             "game's TextInfoPanel/PropInfoPanel popups) as a small passive world panel low in view.");
-        EnemyReveal = _file.Bind("WorldUI", "EnemyReveal", true,
+        EnemyReveal = _file.Bind("WorldUI", "EnemyReveal", Defaults.EnemyReveal,
             "Enemy round reveal (the monster ability cards shown after everyone confirmed " +
             "their card selection) as a display-only world panel floating above the board " +
             "while the game shows it, instead of hidden on the control board.");
-        DecisionDock = _file.Bind("WorldUI", "DecisionDock", true,
+        DecisionDock = _file.Bind("WorldUI", "DecisionDock", Defaults.DecisionDock,
             "In-scenario decision/confirmation prompts (take-damage burn choice, the burn-" +
             "confirm 'burn this / choose another card' dialog, and any other prompt in the " +
             "DecisionDock registry) render their REAL game widgets — the actual buttons/" +
@@ -285,7 +285,7 @@ internal static class WorldUIConfig
             "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
             "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
             "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
-        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", true,
+        TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", Defaults.TrayNativeControls,
             "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
             "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +
             "sprite, localized label and enable/disable states, reusing the DecisionDock docking " +
@@ -298,20 +298,20 @@ internal static class WorldUIConfig
             "board buttons now wear the sampled native game skin themselves (NativeButtonSkin, test " +
             "#26), so leaving this OFF gives every board button ONE permanent, uniform game-styled " +
             "look with no swap. On = re-enable the real-widget docking (accepts the flicker).");
-        ActorBars = _file.Bind("WorldUI", "ActorBars", true,
+        ActorBars = _file.Bind("WorldUI", "ActorBars", Defaults.ActorBars,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
-        BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", true,
+        BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", Defaults.BarFixedSize,
             "Actor HP/effect bars keep a FIXED board-space size — they scale only with the " +
             "diorama, like the miniatures themselves (test #14: the old distance compensation " +
             "grew bars up to 2.5x when stepping away, which read as the bars 'growing'). " +
             "Off = legacy behavior: bars gently grow with head distance to stay readable.");
-        WristHud = _file.Bind("WorldUI", "WristHud", true,
+        WristHud = _file.Bind("WorldUI", "WristHud", Defaults.WristHud,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
-        FlatScreen = _file.Bind("WorldUI", "FlatScreen", true,
+        FlatScreen = _file.Bind("WorldUI", "FlatScreen", Defaults.FlatScreen,
             "Floating 2D screen mirroring the UICamera for menus/merchant/level-up + ray pointer.");
-        Tooltips = _file.Bind("WorldUI", "Tooltips", true,
+        Tooltips = _file.Bind("WorldUI", "Tooltips", Defaults.Tooltips,
             "Re-anchor the game's tooltip canvas in world space near the poking fingertip.");
-        ActionElementHints = _file.Bind("WorldUI", "ActionElementHints", true,
+        ActionElementHints = _file.Bind("WorldUI", "ActionElementHints", Defaults.ActionElementHints,
             "Show the game's action-phase element/ability explanation hint (the card-action " +
             "tooltip) as a world-space panel pinned to the control board's TOP-LEFT corner " +
             "while a scenario runs. A short hover grace keeps it from flickering away on tiny " +
@@ -319,18 +319,18 @@ internal static class WorldUIConfig
             "and never shown in VR (the vanilla 2D menu tooltip is unaffected). Wired to the " +
             "in-VR settings panel and read live, so toggling takes effect without a restart.");
 
-        ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", true,
+        ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", Defaults.ForceMouseMode,
             "Keep InputManager in mouse mode while VR runs so the 'Game' (not 'Game_gamepad') " +
             "scene variants load and buttons commit without gamepad long-press flows.");
-        CanvasScaleMm = _file.Bind("WorldUI", "CanvasScaleMm", 1.0f,
+        CanvasScaleMm = _file.Bind("WorldUI", "CanvasScaleMm", Defaults.CanvasScaleMm,
             "World-canvas scale: millimeters per uGUI pixel at diorama scale 1 (default 1 px = 1 mm).");
-        InitiativeDepthMaxSpreadPx = _file.Bind("WorldUI", "InitiativeDepthMaxSpreadPx", 15f,
+        InitiativeDepthMaxSpreadPx = _file.Bind("WorldUI", "InitiativeDepthMaxSpreadPx", Defaults.InitiativeDepthMaxSpreadPx,
             "Initiative track 3D depth effect: the MAXIMUM total front-to-back z spread (uGUI " +
             "pixels) between the shallowest and deepest initiative portrait. The authored row " +
             "depth is compressed proportionally to land at this cap (never amplified). Higher = " +
             "stronger recession; 0 = flat. Live-tunable in the debug menu (Panels -> Initiative). " +
             "Range 0..40.");
-        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", 24f, new ConfigDescription(
+        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", Defaults.DecisionRowGapPx, new ConfigDescription(
             "Vertical gap (uGUI pixels, in the docked row's own scale) between the control " +
             "board's lower edge — where the game draws the decision prompt line, e.g. " +
             "'Schadensphase: Erleide entweder Schaden …' — and the TOP of the docked " +
@@ -342,7 +342,7 @@ internal static class WorldUIConfig
             "bar is never overlapped (the block always sits at least its clearance below it). " +
             "Range 0-120.",
             new AcceptableValueRange<float>(0f, 120f)));
-        HoverInfoScale = _file.Bind("WorldUI", "HoverInfoScale", DefaultHoverInfoScale,
+        HoverInfoScale = _file.Bind("WorldUI", "HoverInfoScale", Defaults.HoverInfoScale,
             new ConfigDescription(
                 "SIZE factor of the hover INFO panels — the little cards the game raises while the " +
                 "pointer/fingertip hovers a board field ('2 Gold', 'Geschlossene Tür', chest, " +
@@ -357,7 +357,7 @@ internal static class WorldUIConfig
                 "the value is read on every placement tick, so an open panel resizes immediately and " +
                 "the next hover comes up at the new size — no restart. Range 0.2-2.",
                 new AcceptableValueRange<float>(0.2f, 2f)));
-        EnemyRevealBoardClearance = _file.Bind("WorldUI", "EnemyRevealBoardClearance", 0.10f,
+        EnemyRevealBoardClearance = _file.Bind("WorldUI", "EnemyRevealBoardClearance", Defaults.EnemyRevealBoardClearance,
             new ConfigDescription(
                 "How far the ENEMY ROUND REVEAL (the monster ability cards shown after everyone " +
                 "confirmed their selection) must clear the CONTROL BOARD's top edge, in real " +
@@ -371,23 +371,23 @@ internal static class WorldUIConfig
                 "the board. Live-tunable in the debug menu (Panels -> Initiative); applies to the " +
                 "next reveal spawn / lazy-follow step. Range 0-0.5.",
                 new AcceptableValueRange<float>(0f, 0.5f)));
-        FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", true,
+        FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", Defaults.FlatScreenAutoShow,
             "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
             "and hide it in scenario modes.");
-        DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", true,
+        DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
             "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
             "uncontrolled default XR mirror otherwise).");
-        WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", -102f,
+        WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", Defaults.WristHudPitch,
             "Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base.");
-        WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", -180f, "Wrist overview HUD yaw (degrees).");
-        WristHudRoll = _file.Bind("WorldUI", "WristHudRoll", 0f, "Wrist overview HUD roll (degrees).");
-        WristHudOffsetX = _file.Bind("WorldUI", "WristHudOffsetX", 0.02f,
+        WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", Defaults.WristHudYaw, "Wrist overview HUD yaw (degrees).");
+        WristHudRoll = _file.Bind("WorldUI", "WristHudRoll", Defaults.WristHudRoll, "Wrist overview HUD roll (degrees).");
+        WristHudOffsetX = _file.Bind("WorldUI", "WristHudOffsetX", Defaults.WristHudOffsetX,
             "Wrist overview HUD offset along wrist X, real meters.");
-        WristHudOffsetY = _file.Bind("WorldUI", "WristHudOffsetY", -0.143f,
+        WristHudOffsetY = _file.Bind("WorldUI", "WristHudOffsetY", Defaults.WristHudOffsetY,
             "Wrist overview HUD offset out the back of the hand (wrist +Y), real meters.");
-        WristHudOffsetZ = _file.Bind("WorldUI", "WristHudOffsetZ", 0.05f,
+        WristHudOffsetZ = _file.Bind("WorldUI", "WristHudOffsetZ", Defaults.WristHudOffsetZ,
             "Wrist overview HUD offset toward the fingers (wrist +Z), real meters.");
         // NB: the WristHud CLASS is shadowed here by the WristHud config field (bool toggle),
         // so qualify the type to reach its static pose-config refs (item 10 wiring).
@@ -397,42 +397,42 @@ internal static class WorldUIConfig
         global::GloomhavenVR.WorldUI.WristHud.OffsetXEntry = WristHudOffsetX;
         global::GloomhavenVR.WorldUI.WristHud.OffsetYEntry = WristHudOffsetY;
         global::GloomhavenVR.WorldUI.WristHud.OffsetZEntry = WristHudOffsetZ;
-        ShowIntro = _file.Bind("WorldUI", "ShowIntro", true,
+        ShowIntro = _file.Bind("WorldUI", "ShowIntro", Defaults.ShowIntro,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +
             "too. Off = old behavior: intro plays on the desktop only and the HMD shows a " +
             "'starting...' indicator in the void.");
-        ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", 2.2f,
+        ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", Defaults.ScreenWidth,
             "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
             "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m).");
-        ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", 1.6f,
+        ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", Defaults.ScreenDistance,
             "Distance from the head to the floating 2D screen in real-world meters.");
-        ClickLatch = _file.Bind("WorldUI", "ClickLatch", true,
+        ClickLatch = _file.Bind("WorldUI", "ClickLatch", Defaults.ClickLatch,
             "Freeze the virtual-mouse position from trigger-press (or fingertip contact) until " +
             "release, so press and release land on the SAME pixel and uGUI registers a click — " +
             "sub-degree hand tremor otherwise moves the projected pixel dozens of px and turns " +
             "every click into a no-op drag. Deliberate movement past DragUnlockDegrees for " +
             "DragUnlockSeconds opens the latch into a real drag (scroll lists keep working).");
-        SuppressPhysicalMouse = _file.Bind("WorldUI", "SuppressPhysicalMouse", true,
+        SuppressPhysicalMouse = _file.Bind("WorldUI", "SuppressPhysicalMouse", Defaults.SuppressPhysicalMouse,
             "While VR is running, disable the physical desktop mouse in the InputSystem so its " +
             "(stale) desktop position can no longer hover or select map/menu elements behind your " +
             "back — only the VR laser drives the pointer. The mouse is re-enabled when VR stops.");
-        MapWindOpacity = _file.Bind("WorldUI", "MapWindOpacity", 0.3f,
+        MapWindOpacity = _file.Bind("WorldUI", "MapWindOpacity", Defaults.MapWindOpacity,
             "Opacity of the campaign map's drifting Wind/Clouds ambiance particles (0..1). The game's " +
             "flat map camera post-processes/masks these so they read as subtle; the VR forward capture " +
             "does not, so at full strength they render as thick translucent streaks that smear across " +
             "the location icons. 0.3 keeps a subtle drift; 1 = original strength; 0 = fully hidden.");
-        DragUnlockDegrees = _file.Bind("WorldUI", "DragUnlockDegrees", 2.0f,
+        DragUnlockDegrees = _file.Bind("WorldUI", "DragUnlockDegrees", Defaults.DragUnlockDegrees,
             "How far (degrees) the ray must move off its press direction to open the click " +
             "latch into a drag.");
-        DragUnlockSeconds = _file.Bind("WorldUI", "DragUnlockSeconds", 0.15f,
+        DragUnlockSeconds = _file.Bind("WorldUI", "DragUnlockSeconds", Defaults.DragUnlockSeconds,
             "How long (seconds) the ray must stay beyond DragUnlockDegrees before the latch " +
             "opens (filters single-frame tremor spikes).");
-        PokeClick = _file.Bind("WorldUI", "PokeClick", true,
+        PokeClick = _file.Bind("WorldUI", "PokeClick", Defaults.PokeClick,
             "Poking the floating 2D screen with the index fingertip clicks at the poked " +
             "position (press on plane contact, release on withdraw; latch rules as above). " +
             "The screen may be out of arm's reach at the default distance — lean/step in, " +
             "or reduce [WorldUI] ScreenDistance.");
-        PokePressDepthMm = _file.Bind("WorldUI", "PokePressDepthMm", 12f, new ConfigDescription(
+        PokePressDepthMm = _file.Bind("WorldUI", "PokePressDepthMm", Defaults.PokePressDepthMm, new ConfigDescription(
             "Push-in depth in MILLIMETERS a fingertip must travel THROUGH a flat (converted " +
             "uGUI) button's canvas plane before the click fires. Touching the plane only ARMS " +
             "the press: the button shows its pressed visual (pointerDown) with a light haptic " +
@@ -442,7 +442,7 @@ internal static class WorldUIConfig
             "without making deliberate presses tedious. 0 = legacy instant click on plane " +
             "contact. Laser clicks are unaffected. Range 0-30.",
             new AcceptableValueRange<float>(0f, 30f)));
-        DecisionPokeDeliberate = _file.Bind("WorldUI", "DecisionPokeDeliberate", true,
+        DecisionPokeDeliberate = _file.Bind("WorldUI", "DecisionPokeDeliberate", Defaults.DecisionPokeDeliberate,
             "DECISION buttons (the docked take-damage burn choice, the burn-confirm dialog, " +
             "the short-rest Ja/Nein) demand a DELIBERATE physical press: touching the button " +
             "only ARMS it (pressed visual + light haptic tick); the click fires when the " +
@@ -452,7 +452,7 @@ internal static class WorldUIConfig
             "accidental instant triggers. Applies ONLY to the physical poke on decision-dock " +
             "buttons; every other converted surface keeps the PokePressDepthMm push-in press, " +
             "and laser clicks are unaffected. Off = decision buttons press like everything else.");
-        ClickMode = _file.Bind("WorldUI", "ClickMode", "execute",
+        ClickMode = _file.Bind("WorldUI", "ClickMode", Defaults.ClickMode,
             "How a latched click on the floating screen is delivered. 'execute' (default): " +
             "directly via uGUI ExecuteEvents on the raycast target — the same mechanism the " +
             "game's own BaseButtons.clickButton uses; immune to input-module edge-visibility " +
@@ -461,7 +461,7 @@ internal static class WorldUIConfig
             "'both': both paths (may double-fire — diagnostic use only). Deliberate drags " +
             "always go through the virtual mouse regardless of mode.");
 
-        CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollowSeat", false,
+        CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollowSeat", Defaults.CombatLogFollowSeat,
             "Combat log panel anchor mode (the panel's own FOLLOW/PINNED pin button flips " +
             "this). False (PINNED, default): the panel is STATIC IN THE WORLD — placed once " +
             "from the persisted offsets on scenario entry, then frozen until grabbed. " +
@@ -470,36 +470,36 @@ internal static class WorldUIConfig
             "orientation still only re-derives on recenter, never per frame). Replaces " +
             "the test-#19 'CombatLogFollow' key: its follow default plus the per-tick " +
             "yaw billboard read as the panel tracking the head (test #20).");
-        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", -0.234156f,
+        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", Defaults.CombatLogForward,
             "Combat log panel offset from the table anchor along the seat forward, real " +
             "meters (default = the old arc slot: azimuth 56° at 1.10 m). Persisted " +
             "automatically when the panel's grab bar is released.");
-        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", 0.941762f,
+        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", Defaults.CombatLogRight,
             "Combat log panel offset to the seat right, real meters (grab-persisted).");
-        CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", 0.458258f,
+        CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", Defaults.CombatLogUp,
             "Combat log panel height above the table plane, real meters (grab-persisted).");
-        CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", 0.67339f,
+        CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", Defaults.CombatLogScale,
             "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).");
-        CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", true,
+        CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", Defaults.CombatLogUserClosed,
             "The user hid the combat log via its top-right X button (or the in-VR settings " +
             "'Kampflog anzeigen' toggle). While true the panel releases back to its 2D home and " +
             "does NOT auto-reappear in a scenario; the settings toggle clears it and re-shows the " +
             "panel. Kept separate from [WorldUI] CombatLog (the feature master) so re-showing " +
             "never disturbs the feature toggle or the persisted layout.");
-        PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", false,
+        PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", Defaults.PanelsFollowView,
             "LEGACY (pre-test-#8) behavior: the world panels (initiative track, element " +
             "board, combat log, objectives, button cluster) re-derive their placement from " +
             "the live rig yaw every frame, so they swing around the table with every snap " +
             "turn / world grab — perceived as a floating HUD. Default false: panels are " +
             "FIXED IN THE WORLD at the table and re-anchor only on rig rebuild or recenter.");
-        HexHintFollowView = _file.Bind("WorldUI", "HexHintFollowView", true,
+        HexHintFollowView = _file.Bind("WorldUI", "HexHintFollowView", Defaults.HexHintFollowView,
             "While a board-field hover hint (the TextInfoPanel/PropInfoPanel popups, e.g. " +
             "'Geschlossene Tür') is shown, drift it to a comfortable reading spot near the " +
             "CENTER of the player's field of view with LAZY (critically-damped) motion that " +
             "follows the head and settles, instead of leaving it at PropInfoSurface's fixed " +
             "table dock. Either way it stays upright and billboards toward the head. Off = " +
             "keep the dock position and only re-face it to the head.");
-        ModalStyle = _file.Bind("WorldUI", "ModalStyle", "window",
+        ModalStyle = _file.Bind("WorldUI", "ModalStyle", Defaults.ModalStyle,
             "How in-scenario 2D fallback windows (story boxes, events, tutorials, ESC " +
             "menu, rewards, choice dialogs, ...) are made operable in VR (P8, test #12). " +
             "'window' (default): only THAT window is converted to a world-space panel " +
@@ -508,23 +508,23 @@ internal static class WorldUIConfig
             "specific window fails to convert (reason logged). 'screen': pre-P8 " +
             "behavior — the full 2D desktop composite appears for every fallback " +
             "window. The manual A/X chord always summons the full screen regardless.");
-        ManualScreenChord = _file.Bind("WorldUI", "ManualScreenChord", true,
+        ManualScreenChord = _file.Bind("WorldUI", "ManualScreenChord", Defaults.ManualScreenChord,
             "Self-rescue chord: HOLD the NON-dominant lower face button (A or X) for " +
             "ManualScreenChordSeconds during a scenario to toggle the floating 2D screen " +
             "(full desktop UI + pointer) — always available when a 2D window is open that " +
             "VR does not show. Short holds still toggle the settings panel; that chord " +
             "fires on RELEASE (before the screen threshold) so the two never collide.");
-        ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", 2f,
+        ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", Defaults.ManualScreenChordSeconds,
             "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
             "toggle.");
-        DemoteOverlaySolidClears = _file.Bind("WorldUI", "DemoteOverlaySolidClears", true,
+        DemoteOverlaySolidClears = _file.Bind("WorldUI", "DemoteOverlaySolidClears", Defaults.DemoteOverlaySolidClears,
             "While the floating 2D screen captures the game's cameras into its RenderTexture, " +
             "demote FULLSCREEN SolidColor clears of NON-base captured cameras (e.g. the campaign " +
             "map's depth-5 'Video Camera', whose clear is only the black backdrop behind fullscreen " +
             "videos — GH VideoCamera.PlayFullscreenVideo) to Depth-only, so they can never wipe the " +
             "composited map/UI to black. Viewport-limited (sub-rect) cameras keep their clear. " +
             "Disable for vanilla-exact clears (black letterbox backdrop during videos).");
-        ScreenLayerSplit = _file.Bind("WorldUI", "ScreenLayerSplit", true,
+        ScreenLayerSplit = _file.Bind("WorldUI", "ScreenLayerSplit", Defaults.ScreenLayerSplit,
             "Render the floating 2D screen as TWO layers (hardware test #18): the game's UI " +
             "cameras — whose Screen-Space-Camera canvases only ever render through their " +
             "assigned camera, so stereo mirror cameras can never reproduce them and the menu " +
@@ -533,21 +533,21 @@ internal static class WorldUIConfig
             "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
             "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
 
-        KeyboardEnabled = _file.Bind("Keyboard", "Enabled", true,
+        KeyboardEnabled = _file.Bind("Keyboard", "Enabled", Defaults.Keyboard_Enabled,
             "Show the game's own on-screen keyboard whenever a text field takes focus, so a party " +
             "can be named without reaching for a physical keyboard. The keyboard is the game's " +
             "(UIKeyboard) rather than a mod-drawn one, so it carries the game's art and its " +
             "per-language layouts; the game only ever shows it in gamepad mode, which VR never " +
             "uses. Off = text fields need a real keyboard.");
-        KeyboardAutoCase = _file.Bind("Keyboard", "AutoCapitalise", true,
+        KeyboardAutoCase = _file.Bind("Keyboard", "AutoCapitalise", Defaults.AutoCapitalise,
             "Capitalise the first letter of each word typed on the on-screen keyboard and lower " +
             "the rest. The game's keyboard emits key CODES and maps letters to their upper-case " +
             "name, so typing straight through produces 'MY BRAVE PARTY'; this gives 'My Brave " +
             "Party'. Off = every letter arrives exactly as the game's keyboard produces it.");
 
-        DevShowAllPanels = _file.Bind("WorldUI", "DevShowAllPanels", false,
+        DevShowAllPanels = _file.Bind("WorldUI", "DevShowAllPanels", Defaults.DevShowAllPanels,
             "DEV: spawn the world-panel layout with dummy content on the desktop (no HMD needed).");
-        DevForceConvert = _file.Bind("WorldUI", "DevForceConvert", false,
+        DevForceConvert = _file.Bind("WorldUI", "DevForceConvert", Defaults.DevForceConvert,
             "DEV: apply the real canvas conversions in dev mode without an HMD (this moves the " +
             "game's 2D panels into world space — the desktop view changes accordingly).");
     }

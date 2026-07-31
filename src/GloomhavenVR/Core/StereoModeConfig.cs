@@ -75,7 +75,7 @@ internal static class StereoModeConfig
         if (_file != null)
             return;
         _file = ModuleConfig.Create("stereo");
-        RenderMode = _file.Bind("Stereo", "RenderMode", nameof(Mode.MultiPass), new ConfigDescription(
+        RenderMode = _file.Bind("Stereo", "RenderMode", Defaults.RenderMode, new ConfigDescription(
             "OpenXR stereo render mode, applied when the XR session is created (needs a game restart). "
             + "MultiPass renders the scene once per eye and is the ONLY mode that renders correctly in "
             + "this game. SinglePassInstanced would roughly halve the scene traversal cost, but this "

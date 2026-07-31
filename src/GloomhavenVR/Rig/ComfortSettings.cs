@@ -239,57 +239,57 @@ internal static class ComfortSettings
         // Frozen shared entry from Plugin.cs, wrapped so the panel has ONE binding surface.
         WorldScaleBase = new ComfortSetting<float>(Plugin.WorldScale);
 
-        WorldGrabEnabled = Bind("WorldGrabEnabled", true,
+        WorldGrabEnabled = Bind("WorldGrabEnabled", Defaults.WorldGrabEnabled,
             "Grip-based table manipulation: one grip (away from grabbable objects) drags the " +
             "table, two grips rotate and pinch-scale it. Moves only the VR rig, never the game world.");
-        FreeMovement = Bind("FreeMovement", true,
+        FreeMovement = Bind("FreeMovement", Defaults.FreeMovement,
             "Fully free diorama movement: the one-grip drag moves the table in ANY direction " +
             "(including straight up/down, no head-above-table clamp, no positional limits at " +
             "all) and the pinch-scale range is at least 0.1x-12x of the base scale. Disable to " +
             "restore the old comfort clamps (horizontal drag unless VerticalDrag, head kept " +
             "above the table, configured ScaleMin/ScaleMax). Recenter (B+Y hold) always " +
             "returns to the table edge from anywhere.");
-        VerticalDrag = Bind("VerticalDrag", false,
+        VerticalDrag = Bind("VerticalDrag", Defaults.VerticalDrag,
             "Allow the one-grip drag to also move the table vertically. Off = horizontal plane " +
             "only. Ignored (always on) while FreeMovement is enabled.");
-        RotateEnabled = Bind("RotateEnabled", true,
+        RotateEnabled = Bind("RotateEnabled", Defaults.RotateEnabled,
             "Two-grip gesture rotates the table around the point between your hands (yaw only).");
-        ScaleEnabled = Bind("ScaleEnabled", true,
+        ScaleEnabled = Bind("ScaleEnabled", Defaults.ScaleEnabled,
             "Two-grip pinch scales the table (spread hands = board grows).");
-        ScaleMin = Bind("ScaleMin", 0.5f,
+        ScaleMin = Bind("ScaleMin", Defaults.ScaleMin,
             "Lower pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
             "is on, the effective floor is at most 0.1x regardless of this value.",
             new AcceptableValueRange<float>(0.02f, 1f));
-        ScaleMax = Bind("ScaleMax", 4f,
+        ScaleMax = Bind("ScaleMax", Defaults.ScaleMax,
             "Upper pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
             "is on, the effective ceiling is at least 12x regardless of this value.",
             new AcceptableValueRange<float>(1f, 20f));
-        Turn = Bind("TurnMode", TurnMode.Snap,
+        Turn = Bind("TurnMode", Defaults.Comfort_TurnMode,
             "Thumbstick turning: Snap = discrete steps, Smooth = continuous, Off = disabled. " +
             "Never active in board-targeting mode (the stick rotates AoE patterns there).");
-        SnapTurnDegrees = Bind("SnapTurnDegrees", 45f,
+        SnapTurnDegrees = Bind("SnapTurnDegrees", Defaults.SnapTurnDegrees,
             "Yaw degrees per snap-turn step (30 or 45 typical).",
             new AcceptableValueRange<float>(15f, 90f));
-        SmoothTurnSpeed = Bind("SmoothTurnSpeed", 90f,
+        SmoothTurnSpeed = Bind("SmoothTurnSpeed", Defaults.SmoothTurnSpeed,
             "Smooth-turn speed in degrees per second.",
             new AcceptableValueRange<float>(30f, 270f));
-        TurnHand = Bind("TurnHand", TurnHandChoice.Right,
+        TurnHand = Bind("TurnHand", Defaults.TurnHand,
             "Which thumbstick turns. Dominant follows [Hands] PrimaryHand.");
-        TableHeightOffset = Bind("TableHeightOffset", -0.4f,
+        TableHeightOffset = Bind("TableHeightOffset", Defaults.TableHeightOffset,
             "Extra eye height above the table on recenter, in real meters (positive = table " +
             "sits lower). Changing this re-runs recenter immediately.",
             new AcceptableValueRange<float>(-0.4f, 0.6f));
-        RecenterHoldSeconds = Bind("RecenterHoldSeconds", 1.0f,
+        RecenterHoldSeconds = Bind("RecenterHoldSeconds", Defaults.RecenterHoldSeconds,
             "Hold the upper face button (B + Y) on BOTH controllers this many seconds to " +
             "recenter at the table. 0 disables the chord.",
             new AcceptableValueRange<float>(0f, 5f));
-        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 2.268242f,
+        SavedScaleMultiplier = Bind("SavedScaleMultiplier", Defaults.SavedScaleMultiplier,
             "Last pinch-scale multiplier relative to the base WorldScale (the 'table scale' " +
             "shown in the in-VR settings panel). Written automatically after each two-grip " +
             "scale gesture and re-applied when the rig is rebuilt. Default 2.5 — the auto base " +
             "scale reads as a huge diorama; 2.5x shrinks it to a comfortable table size at " +
             "first spawn (user request: default table scale ~2.5).");
-        DebugGizmos = Bind("DebugGizmos", false,
+        DebugGizmos = Bind("DebugGizmos", Defaults.DebugGizmos,
             "Show the comfort debug overlay (world-grab state, scale multiplier, clamp status).");
 
         // ONE-TIME defaults migration (user request: default table scale 2.5): BepInEx keeps
@@ -300,7 +300,7 @@ internal static class ComfortSettings
         // was deliberately stepped back to the old default, which the marker below respects
         // from now on). The marker makes this migration run at most once per config file.
         ConfigEntry<bool> tableScaleMigrated = _file.Bind(SectionName, "TableScaleDefault25Applied",
-            false,
+            Defaults.TableScaleDefault25Applied,
             "Internal one-time migration marker: the 2.5x default table scale has been " +
             "offered to this config file. Do not edit.");
         if (!tableScaleMigrated.Value)

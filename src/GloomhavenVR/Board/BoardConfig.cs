@@ -38,27 +38,27 @@ internal static class BoardConfig
         ConfigFile config = _file = ModuleConfig.Create("board");
 
         ForceFarMode = config.Bind(
-            "Board", "ForceFarMode", true,
+            "Board", "ForceFarMode", Defaults.ForceFarMode,
             "Disable fingertip near-touch picking and always use the far ray. " +
             "Useful for desktop/dev testing ([Dev] SimulateHands) where the fake hands " +
             "never reach the board.");
         TouchRange = config.Bind(
-            "Board", "TouchRange", 0.10f,
+            "Board", "TouchRange", Defaults.TouchRange,
             "How close (real meters, scaled by the diorama) the index fingertip must be " +
             "above the board before near-touch picking takes over from the far ray.");
         SnapToHexCenter = config.Bind(
-            "Board", "SnapToHexCenter", false,
+            "Board", "SnapToHexCenter", Defaults.SnapToHexCenter,
             "Snap the projected pick point (the virtual game cursor) to the hovered hex's " +
             "center — steadies hover/tooltip anchoring on small hexes.");
         HoverHaptics = config.Bind(
-            "Board", "HoverHaptics", true,
+            "Board", "HoverHaptics", Defaults.HoverHaptics,
             "Haptic tick on the picking hand when the pick moves onto a new valid board target.");
         AoeFlickThreshold = config.Bind(
-            "Board", "AoeFlickThreshold", 0.6f,
+            "Board", "AoeFlickThreshold", Defaults.AoeFlickThreshold,
             "Thumbstick horizontal deflection (0.2-0.95) that rotates an active AoE pattern " +
             "one 60 degree step (left = counter-clockwise, right = clockwise).");
         AoeRepeatInterval = config.Bind(
-            "Board", "AoeRepeatInterval", 0.35f,
+            "Board", "AoeRepeatInterval", Defaults.AoeRepeatInterval,
             "Seconds between AoE rotation steps while the stick stays deflected. Values below " +
             "0.3 fight the game's own direction latch in RotateAOEClockwise (it ignores " +
             "direction changes within 0.3 s).");

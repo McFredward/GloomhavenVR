@@ -47,14 +47,14 @@ internal static class HandsConfig
     /// <summary>Raw grip/trigger value that already counts as a FULL curl (input remap).</summary>
     public static ConfigEntry<float> CurlInputFullAt = null!;
 
-    private const float DefaultCurlInputFullAt = 0.85f;
+    private const float DefaultCurlInputFullAt = Defaults.CurlInputFullAt;
 
     // Current full-curl defaults (2026-07 fist fix: 65/80/50 read visibly open even at
     // curl 1.0 on hardware — see FingerCurler.DefaultFingerMaxAngles). The OLD trio is
     // kept for the one-time saved-config migration in Bind.
-    private const float DefaultCurlProximal = 75f;
-    private const float DefaultCurlMiddle = 95f;
-    private const float DefaultCurlTip = 65f;
+    private const float DefaultCurlProximal = Defaults.CurlProximal;
+    private const float DefaultCurlMiddle = Defaults.CurlMiddle;
+    private const float DefaultCurlTip = Defaults.CurlTip;
     private const float OldCurlProximal = 65f;
     private const float OldCurlMiddle = 80f;
     private const float OldCurlTip = 50f;
@@ -209,16 +209,16 @@ internal static class HandsConfig
     // see or edit. The values below are the ones actually dialled in on hardware, one hand style
     // at a time, and they are now the shipped defaults outright. Existing configs are untouched:
     // BepInEx returns a saved value over a changed default.
-    private static readonly float[] DefaultSeatPitch = { -39f, -26f, -26f };
-    private static readonly float[] DefaultSeatLateral = { -0.01f, 0f, 0f };
-    private static readonly float[] DefaultSeatVertical = { 0.061f, -0.009f, -0.009f };
-    private static readonly float[] DefaultSeatForward = { -0.054f, -0.009f, -0.009f };
+    private static readonly float[] DefaultSeatPitch = { Defaults.GloveGripPitchDegrees, Defaults.PlateGripPitchDegrees, Defaults.ArcaneGripPitchDegrees };
+    private static readonly float[] DefaultSeatLateral = { Defaults.GloveLateralOffset, Defaults.PlateLateralOffset, Defaults.ArcaneLateralOffset };
+    private static readonly float[] DefaultSeatVertical = { Defaults.GloveVerticalOffset, Defaults.PlateVerticalOffset, Defaults.ArcaneVerticalOffset };
+    private static readonly float[] DefaultSeatForward = { Defaults.GloveForwardOffset, Defaults.PlateForwardOffset, Defaults.ArcaneForwardOffset };
 
     // Roll/yaw/spread are part of the same dialled-in seat: they were 0 across the board while
     // the three axes did not exist yet, and carry the measured hardware pass now that they do.
-    private static readonly float[] DefaultSeatRoll = { -109f, -109f, -109f };
-    private static readonly float[] DefaultSeatYaw = { -35f, -35f, -35f };
-    private static readonly float[] DefaultSeatSpread = { 0.07f, 0.05f, 0.05f };
+    private static readonly float[] DefaultSeatRoll = { Defaults.GloveGripRollDegrees, Defaults.PlateGripRollDegrees, Defaults.ArcaneGripRollDegrees };
+    private static readonly float[] DefaultSeatYaw = { Defaults.GloveGripYawDegrees, Defaults.PlateGripYawDegrees, Defaults.ArcaneGripYawDegrees };
+    private static readonly float[] DefaultSeatSpread = { Defaults.GloveSpreadOffset, Defaults.PlateSpreadOffset, Defaults.ArcaneSpreadOffset };
 
     private static float Seat(float[] table, int style) => table[(int)HandStyles.Clamp(style)];
 
@@ -301,12 +301,12 @@ internal static class HandsConfig
     // dial-ins and are now the shipped defaults outright. Existing configs are untouched
     // (BepInEx returns a saved value over a changed default), and the legacy [WorldUI] WristHud*
     // entries stay bound where they are.
-    private static readonly float[] DefaultWristPitch = { -88f, -102f, -102f };
-    private static readonly float[] DefaultWristYaw = { -180f, -180f, -180f };
-    private static readonly float[] DefaultWristRoll = { -3f, 0f, 0f };
-    private static readonly float[] DefaultWristOffsetX = { -0.003f, 0.0185f, 0.0185f };
-    private static readonly float[] DefaultWristOffsetY = { -0.053f, -0.147f, -0.147f };
-    private static readonly float[] DefaultWristOffsetZ = { -0.005f, 0.052f, 0.052f };
+    private static readonly float[] DefaultWristPitch = { Defaults.GlovePitch, Defaults.PlatePitch, Defaults.ArcanePitch };
+    private static readonly float[] DefaultWristYaw = { Defaults.GloveYaw, Defaults.PlateYaw, Defaults.ArcaneYaw };
+    private static readonly float[] DefaultWristRoll = { Defaults.GloveRoll, Defaults.PlateRoll, Defaults.ArcaneRoll };
+    private static readonly float[] DefaultWristOffsetX = { Defaults.GloveOffsetX, Defaults.PlateOffsetX, Defaults.ArcaneOffsetX };
+    private static readonly float[] DefaultWristOffsetY = { Defaults.GloveOffsetY, Defaults.PlateOffsetY, Defaults.ArcaneOffsetY };
+    private static readonly float[] DefaultWristOffsetZ = { Defaults.GloveOffsetZ, Defaults.PlateOffsetZ, Defaults.ArcaneOffsetZ };
 
     /// <summary>
     /// Index of the ACTIVE hand style ([Hands] HandStyle, clamped; Glove before Plugin
@@ -350,7 +350,7 @@ internal static class HandsConfig
         ConfigFile config = _file = ModuleConfig.Create("hands");
 
         GlovePinkyCounterAbduction = config.Bind(
-            "Hands", "GlovePinkyCounterAbduction", FingerCurler.DefaultGlovePinkyCounterAbductionDeg,
+            "Hands", "GlovePinkyCounterAbduction", Defaults.GlovePinkyCounterAbduction,
             "GLOVE style only: degrees of counter-abduction (rotation about the pinky root's " +
             "local Z = palm normal) applied at full curl, scaled by the curl value. The glove " +
             "pinky MESH tube leans ~18° outward while its bone chain is straight, so a pure " +
@@ -361,7 +361,7 @@ internal static class HandsConfig
         // Ghost hand (see the field docs above). Bound BEFORE the seat block so a fresh cfg
         // file groups the two feature keys next to the other [Hands] visual toggles.
         GhostHandOnFan = config.Bind(
-            "Hands", "GhostHandOnFan", true,
+            "Hands", "GhostHandOnFan", Defaults.GhostHandOnFan,
             "Make the hand that currently holds the OPEN card fan semi-transparent (\"ghost " +
             "hand\") so the hand mesh stops covering card details. The hand stays visible — " +
             "only its opacity drops (strength: GhostHandStrength). OFF by default; nothing " +
@@ -369,14 +369,14 @@ internal static class HandsConfig
             "fade runs on private per-renderer material copies, never on the shared hand " +
             "materials), and carried to the avatar mirror and to other players' view of you.");
         GhostHandOnHeldCard = config.Bind(
-            "Hands", "GhostHandOnHeldCard", true,
+            "Hands", "GhostHandOnHeldCard", Defaults.GhostHandOnHeldCard,
             "ALSO make a hand semi-transparent while it HOLDS a card — the fingers wrap exactly " +
             "the art you lifted the card to read. Independent of GhostHandOnFan: either can be " +
             "on without the other, and both hands can ghost at once (a card in each). Shares " +
             "GhostHandStrength, is live-tunable, fully reversible, and synchronized — other " +
             "players see your hands exactly as you do.");
         GhostHandStrength = config.Bind(
-            "Hands", "GhostHandStrength", HandGhosts.DefaultStrength,
+            "Hands", "GhostHandStrength", Defaults.GhostHandStrength,
             new ConfigDescription(
                 "Ghost-hand transparency STRENGTH while the card fan is open: 0 = fully solid, " +
                 "1 = fully invisible (material alpha = 1 - strength). Clamped so the hand never " +
@@ -386,24 +386,24 @@ internal static class HandsConfig
                 new AcceptableValueRange<float>(HandGhosts.MinStrength, HandGhosts.MaxStrength)));
 
         TestFist = config.Bind(
-            "Hands", "TestFist", false,
+            "Hands", "TestFist", Defaults.TestFist,
             "DEBUG: force a FULL fist (curl 1.0 on all five fingers of both hands) regardless " +
             "of controller input. Toggle this on to see the maximum fist the current rig can " +
             "produce — if this fist looks right but squeezing the controller does not close the " +
             "hand, the loss is in the INPUT (grip value never reaching full range); if even " +
             "this fist stays open, the loss is in the rig/angles (raise CurlProximal/CurlMiddle/CurlTip).");
         CurlProximal = config.Bind(
-            "Hands", "CurlProximal", DefaultCurlProximal,
+            "Hands", "CurlProximal", Defaults.CurlProximal,
             "Full-curl rotation (degrees, local X) of each finger's PROXIMAL (root/knuckle) " +
             "joint at curl 1.0. The thumb's proximal angle scales proportionally " +
             "(default thumb 25 at finger 75). Live-tunable.");
         CurlMiddle = config.Bind(
-            "Hands", "CurlMiddle", DefaultCurlMiddle,
+            "Hands", "CurlMiddle", Defaults.CurlMiddle,
             "Full-curl rotation (degrees, local X) of each finger's MIDDLE joint at curl 1.0. " +
             "The thumb's middle angle scales proportionally (default thumb 45 at finger 95). " +
             "Live-tunable.");
         CurlTip = config.Bind(
-            "Hands", "CurlTip", DefaultCurlTip,
+            "Hands", "CurlTip", Defaults.CurlTip,
             "Full-curl rotation (degrees, local X) of each finger's TIP (distal) joint at " +
             "curl 1.0. The thumb's tip angle scales proportionally (default thumb 60 at " +
             "finger 65). Live-tunable.");
@@ -425,7 +425,7 @@ internal static class HandsConfig
                                 "(2026-07 fist fix — a hand-tuned config would have been left alone).");
         }
         CurlInputFullAt = config.Bind(
-            "Hands", "CurlInputFullAt", DefaultCurlInputFullAt,
+            "Hands", "CurlInputFullAt", Defaults.CurlInputFullAt,
             "Raw analog grip/trigger value (0.3-1.0) that already counts as a FULL curl: " +
             "curl = raw / this, clamped to 1. Quest 3 controllers via Virtual Desktop often " +
             "plateau the analog grip below 1.0 at a comfortable full squeeze — lower this if " +

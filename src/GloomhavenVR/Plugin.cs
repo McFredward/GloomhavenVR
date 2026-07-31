@@ -222,10 +222,10 @@ public class Plugin : BaseUnityPlugin
         Core.ModuleConfig.Register(Core.ModuleConfig.MainModule, Config);
 
         Enabled = Config.Bind(
-            "General", "Enabled", true,
+            "General", "Enabled", Defaults.General_Enabled,
             "Master switch. Set to false to run the game completely vanilla (the mod does nothing).");
         LogLevel = Config.Bind(
-            "General", "LogLevel", VRLogLevel.Trace,
+            "General", "LogLevel", Defaults.LogLevel,
             "How much the mod writes to LogOutput.log. Off = silent. Errors = only what failed. " +
             "Warnings = also what degraded silently (a missing asset, a fallback engaging) — the " +
             "floor at which a bug report is still worth reading. Normal = also the few lines that " +
@@ -244,24 +244,24 @@ public class Plugin : BaseUnityPlugin
             VRLog.Note("Core", $"log level is now {LogLevel.Value}.");
         };
         RuntimeOverride = Config.Bind(
-            "General", "RuntimeOverride", "",
+            "General", "RuntimeOverride", Defaults.RuntimeOverride,
             "Optional path to an OpenXR runtime JSON file (e.g. SteamVR's steamxr_win64.json). " +
             "Sets XR_RUNTIME_JSON before XR init and is tried first. Leave empty to auto-detect " +
             "(active runtime from the registry, then all available runtimes, then well-known paths).");
         RuntimePriority = Config.Bind(
-            "Core", "RuntimePriority", "auto",
+            "Core", "RuntimePriority", Defaults.RuntimePriority,
             "Order in which OpenXR runtimes are attempted. 'auto' = system default runtime first " +
             "(what the OS/registry points at), then VDXR when the Virtual Desktop Streamer is " +
             "running, then remaining installed runtimes with SteamVR last (attempting SteamVR " +
             "boots its compositor). Or a comma-separated list of: default, vdxr, steamvr, oculus, " +
             "or full paths to runtime JSON files — tried in exactly that order.");
         SkipRuntimeCandidates = Config.Bind(
-            "Core", "SkipRuntimeCandidates", false,
+            "Core", "SkipRuntimeCandidates", Defaults.SkipRuntimeCandidates,
             "Escape hatch: make a single init attempt on the system default OpenXR runtime and " +
             "never set XR_RUNTIME_JSON (no candidate failover). Use when the failover itself " +
             "causes trouble (e.g. it keeps booting runtimes you don't use).");
         EnableGraphicsJobs = Config.Bind(
-            "Core", "EnableGraphicsJobs", true,
+            "Core", "EnableGraphicsJobs", Defaults.EnableGraphicsJobs,
             "Let the mod switch Unity's THREADED RENDER SUBMISSION on for you, by writing "
             + "gfx-enable-gfx-jobs and gfx-enable-native-gfx-jobs into GH_Data/boot.config. "
             + "This is the single largest performance finding of the whole project. Unity normally "
@@ -279,7 +279,7 @@ public class Plugin : BaseUnityPlugin
             + "start, restore that backup by hand — the mod cannot help you there, because it never "
             + "runs.");
         AutoRestartForGraphicsJobs = Config.Bind(
-            "Core", "AutoRestartForGraphicsJobs", true,
+            "Core", "AutoRestartForGraphicsJobs", Defaults.AutoRestartForGraphicsJobs,
             "On the ONE boot where the setting above is newly written, close the game and start it "
             + "again automatically, so you get the performance immediately instead of being told to "
             + "restart yourself. This happens once after installing or updating the mod, takes a few "
@@ -292,27 +292,27 @@ public class Plugin : BaseUnityPlugin
             + "yourself, or once boot.config already has the setting — which is every start after "
             + "the first.");
         InitDelayFrames = Config.Bind(
-            "Core", "InitDelayFrames", 0,
+            "Core", "InitDelayFrames", Defaults.InitDelayFrames,
             "Escape hatch: delay mod initialization (including OpenXR init) by this many rendered " +
             "frames. Some runtime/GPU combos need the graphics device fully up before " +
             "xrCreateSession works. 0 (default) = initialize immediately in plugin Awake.");
         WorldScale = Config.Bind(
-            "Rig", "WorldScale", 0f,
+            "Rig", "WorldScale", Defaults.WorldScale,
             "Diorama scale: game world units per real-world meter (the rig is scaled by this, " +
             "making the board read as a table). 0 = auto from the hex tile size (~10-20 typical).");
         MenuRig = Config.Bind(
-            "Rig", "MenuRig", true,
+            "Rig", "MenuRig", Defaults.MenuRig,
             "Head-track the game's menu camera while no scenario runs (main menu, guildmaster " +
             "map) so the floating 2D screen and the hands work outside scenarios. Off = the " +
             "menu renders from a static viewpoint.");
         SpawnInCircle = Config.Bind(
-            "Rig", "SpawnInCircle", true,
+            "Rig", "SpawnInCircle", Defaults.SpawnInCircle,
             "Multiplayer: seat each VR player at a distinct azimuth evenly spaced around the " +
             "board (360 / player-count apart), each facing the board center, so avatars no longer " +
             "spawn stacked inside each other. No effect in single-player / offline (the solo seat " +
             "is unchanged). Off = every player keeps the same shared seat as before.");
         Experimental3DMap = Config.Bind(
-            "Rig", "Experimental3DMap", false,
+            "Rig", "Experimental3DMap", Defaults.Experimental3DMap,
             "RESERVED — CURRENTLY UNIMPLEMENTED placeholder for a future feature: explore the " +
             "campaign/world map as a head-tracked 3D diorama instead of the flat 2D screen. " +
             "Today this switch has NO effect: everything before an actual combat scenario " +
@@ -321,7 +321,7 @@ public class Plugin : BaseUnityPlugin
             "camera (test #8: giant map below the player, black flat window). The wish is " +
             "saved here so it survives into a later phase.");
         WorldTiltDegrees = Config.Bind(
-            "Rig", "WorldTiltDegrees", 0f,
+            "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             "Demeo-style world tilt in degrees (0-60, 0 = off/default). The ENTIRE play area " +
             "(board, figures, everything) appears tilted toward you — great when playing " +
             "reclined or lying down. Implemented rig-side: the VR tracking space is " +
@@ -333,36 +333,36 @@ public class Plugin : BaseUnityPlugin
             "Increase in small steps (the settings panel steps 5 degrees) and prefer " +
             "moderate angles. Live: changes apply immediately and persist.");
         MaskedReaimHeadRate = Config.Bind(
-            "Rig", "MaskedReaimHeadRate", 30f,
+            "Rig", "MaskedReaimHeadRate", Defaults.MaskedReaimHeadRate,
             "World tilt only. When you physically turn your body/head, the direction the " +
             "tilt tips toward is silently re-aimed to your view — but ONLY while your head " +
             "is rotating faster than this threshold (degrees per second), so the correction " +
             "is perceptually masked by your own motion (redirected-rotation technique). " +
             "Below the threshold the world stays bit-frozen. Default 30.");
         MaskedReaimGain = Config.Bind(
-            "Rig", "MaskedReaimGain", 0.15f,
+            "Rig", "MaskedReaimGain", Defaults.MaskedReaimGain,
             "World tilt only. Speed of the masked tilt re-aim as a fraction of your head's " +
             "yaw speed (0-0.5). 0.15 = the axis re-aims at 15% of however fast your head is " +
             "turning — far below the ~20% rotation-gain detection threshold, so the world " +
             "never visibly moves. Higher converges faster but risks being noticeable.");
         MaskedReaimDeadband = Config.Bind(
-            "Rig", "MaskedReaimDeadband", 5f,
+            "Rig", "MaskedReaimDeadband", Defaults.MaskedReaimDeadband,
             "World tilt only. View-vs-tilt direction errors smaller than this (degrees) are " +
             "ignored — ordinary looking-around never triggers any correction, and a residual " +
             "misalignment this small is visually indistinguishable from a perfect aim.");
         DisablePostProcessing = Config.Bind(
-            "Compat", "DisablePostProcessing", true,
+            "Compat", "DisablePostProcessing", Defaults.DisablePostProcessing,
             "Disable PostProcessing v2 (PostProcessLayer/PostProcessVolume) while VR is active. " +
             "Phase 1 default: true (PPv2 is unverified under stereo rendering).");
         DisableVolumetricFog = Config.Bind(
-            "Compat", "DisableVolumetricFog", true,
+            "Compat", "DisableVolumetricFog", Defaults.DisableVolumetricFog,
             "Disable the VolumetricFogAndMist.VolumetricFog image effect while VR is active.");
         DisableComponents = Config.Bind(
-            "Compat", "DisableComponents", "",
+            "Compat", "DisableComponents", Defaults.DisableComponents,
             "Extra comma-separated component type full names (optionally 'FullName, Assembly') " +
             "to disable while VR is active, e.g. 'BeautifyEffect.Beautify'.");
         WallFade = Config.Bind(
-            "Compat", "WallFade", true,
+            "Compat", "WallFade", Defaults.WallFade,
             "See-through walls in VR. When ON, a wall that stands between your head and the " +
             "part of the play area you are looking at fades out AS A WHOLE (soft dissolve, " +
             "~0.35s) down to its foundation course, and fades back in once it no longer " +
@@ -372,11 +372,11 @@ public class Plugin : BaseUnityPlugin
             "property blocks): multiplayer peers are unaffected. Live-togglable from the VR " +
             "settings panel.");
         PrimaryHand = Config.Bind(
-            "Hands", "PrimaryHand", "Right",
+            "Hands", "PrimaryHand", Defaults.PrimaryHand,
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
             "for board targeting.");
         HandStyle = Config.Bind(
-            "Hands", "HandStyle", Hands.HandStyle.Glove,
+            "Hands", "HandStyle", Defaults.Hands_HandStyle,
             "Which hand model to wear: Glove (leather glove, default), Plate (plate-armor " +
             "gauntlet) or Arcane (arcane-runes mage glove). Applies live (the hands rebuild " +
             "on change) and is synchronized in multiplayer so other VR players see your " +
@@ -384,7 +384,7 @@ public class Plugin : BaseUnityPlugin
             "missing from an older asset bundle, and to the procedural hand without any " +
             "bundle.");
         GripPitchOffsetDegrees = Config.Bind(
-            "Hands", "GripPitchOffsetDegrees", -30f,
+            "Hands", "GripPitchOffsetDegrees", Defaults.GripPitchOffsetDegrees,
             "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneGripPitchDegrees in " +
             "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
             "seed for those per-style keys the first time they are created, and never again. " +
@@ -400,7 +400,7 @@ public class Plugin : BaseUnityPlugin
             "device — hardware test #27). Hot-reloadable: edit while the game runs and the " +
             "hands re-pose on the next frame. Tuning guide: docs/TESTING-P2.md.");
         HandLateralOffset = Config.Bind(
-            "Hands", "HandLateralOffset", 0f,
+            "Hands", "HandLateralOffset", Defaults.HandLateralOffset,
             "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneLateralOffset in " +
             "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
             "seed for those per-style keys the first time they are created, and never again. " +
@@ -415,7 +415,7 @@ public class Plugin : BaseUnityPlugin
             "controller handle. Hot-reloadable: edit while the game runs and the hands " +
             "re-seat on the next frame.");
         HandVerticalOffset = Config.Bind(
-            "Hands", "HandVerticalOffset", 0f,
+            "Hands", "HandVerticalOffset", Defaults.HandVerticalOffset,
             "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneVerticalOffset in " +
             "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
             "seed for those per-style keys the first time they are created, and never again. " +
@@ -431,7 +431,7 @@ public class Plugin : BaseUnityPlugin
             "controller (hardware tests #24/#27). Hot-reloadable: edit while the game runs " +
             "and the hands re-seat on the next frame.");
         HandForwardOffset = Config.Bind(
-            "Hands", "HandForwardOffset", -0.06f,
+            "Hands", "HandForwardOffset", Defaults.HandForwardOffset,
             "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneForwardOffset in " +
             "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
             "seed for those per-style keys the first time they are created, and never again. " +
@@ -447,36 +447,36 @@ public class Plugin : BaseUnityPlugin
             "the game runs and the hands re-seat on the next frame.");
         BindHandStyleEntries();
         LaserFingerOrigin = Config.Bind(
-            "Hands", "LaserFingerOrigin", false,
+            "Hands", "LaserFingerOrigin", Defaults.LaserFingerOrigin,
             "Start the VISIBLE laser beam at the hand rig's index fingertip (converging on " +
             "the aim-pose ray's end point) so it reads as leaving the pointing finger. The " +
             "pick ray itself always uses the OpenXR aim pose. Off = beam starts at the aim " +
             "pose origin (controller).");
         ScrollWithStickOnly = Config.Bind(
-            "Hands", "ScrollWithStickOnly", true,
+            "Hands", "ScrollWithStickOnly", Defaults.ScrollWithStickOnly,
             "Scroll lists with the STICK only. A laser never holds perfectly still, so with " +
             "the drag threshold disabled every press also pans the list it is over, which is " +
             "what makes options hard to hit. With this on, a press whose only drag target is " +
             "the scroll view itself stays a clean click. Sliders, scrollbars and dropdowns are " +
             "unaffected — they resolve to themselves, not to the scroll view.");
         LaserFingerOffsetMeters = Config.Bind(
-            "Hands", "LaserFingerOffsetMeters", 0.02f,
+            "Hands", "LaserFingerOffsetMeters", Defaults.LaserFingerOffsetMeters,
             "Fine-tune for LaserFingerOrigin: how far (meters, along the beam) in front of " +
             "the index fingertip the visible beam starts.");
         HandColor = Config.Bind(
-            "Hands", "HandColor", "D9C9B5",
+            "Hands", "HandColor", Defaults.HandColor,
             "Base color of the procedural hands as RRGGBB hex (no '#'). Must stay light " +
             "enough to read against the black void — the hand shader is unlit (the void " +
             "has no lights; lit shaders render black there). The left hand gets a slight " +
             "cool tint automatically so the sides stay distinguishable.");
         VoidColor = Config.Bind(
-            "Rig", "VoidColor", UnityEngine.Color.black,
+            "Rig", "VoidColor", Defaults.VoidColor,
             "Clear color of the mod's head camera — the void around the floating menu screen " +
             "and outside the diorama. Default pure black. For DEBUGGING set a dark grey " +
             "(e.g. 1F2126FF): grey distinguishes 'camera renders but content missing' from " +
             "'camera dead / not rendering' (pitch black), which is invaluable in HMD reports.");
         ForwardRendering = Config.Bind(
-            "Rig", "ForwardRendering", true,
+            "Rig", "ForwardRendering", Defaults.ForwardRendering,
             "Render the mod's head camera in FORWARD instead of the game's DeferredShading. " +
             "This is the fix for transparent effects (fire/torch glow, hex selection ring, health " +
             "bars) rendering THROUGH walls in VR: the sky depth-reset renderer (queue 1999, ZTest " +
@@ -487,27 +487,27 @@ public class Plugin : BaseUnityPlugin
             "occlude correctly. Disable ONLY if forward lighting looks wrong (deferred handles many " +
             "dynamic lights per pixel; forward has a per-object light limit).");
         RayAlwaysOn = Config.Bind(
-            "Hands", "RayAlwaysOn", false,
+            "Hands", "RayAlwaysOn", Defaults.RayAlwaysOn,
             "Keep the laser/ray interactor enabled in every VR mode instead of only in " +
             "far-interaction contexts.");
         ModalRayConeDegrees = Config.Bind(
-            "Hands", "ModalRayConeDegrees", 25f,
+            "Hands", "ModalRayConeDegrees", Defaults.ModalRayConeDegrees,
             "While a modal dialog is up (ModalUI mode) the ray stays usable but its laser " +
             "only shows when pointing within this many degrees of a UI surface (world dialog, " +
             "flat screen). 0 = always show the laser in ModalUI.");
         DevMode = Config.Bind(
-            "Dev", "Enabled", false,
+            "Dev", "Enabled", Defaults.Dev_Enabled,
             "Developer mode: wires the VR event bus and hand simulation even without an HMD " +
             "and installs the dev console (F8 sim hands, F9 poke Ready, F10 overlay).");
         DevOverlay = Config.Bind(
-            "Dev", "Overlay", true,
+            "Dev", "Overlay", Defaults.Overlay,
             "Show the dev overlay on startup when dev mode is enabled (F10 toggles at runtime).");
         SimulateHands = Config.Bind(
-            "Dev", "SimulateHands", false,
+            "Dev", "SimulateHands", Defaults.SimulateHands,
             "Animate fake hand transforms on the desktop (no HMD needed). Hold T = trigger, " +
             "G = grip. Toggle at runtime with F8. Ignored while real VR is running.");
         InputDeviceDumpInterval = Config.Bind(
-            "Dev", "InputDeviceDumpInterval", 0f,
+            "Dev", "InputDeviceDumpInterval", Defaults.InputDeviceDumpInterval,
             "Log all UnityEngine.XR.InputDevices every N seconds (0 = off).");
 
         if (!Enabled.Value)
@@ -562,7 +562,7 @@ public class Plugin : BaseUnityPlugin
     private void BindHandStyleEntries()
     {
         string[] styles = { "Glove", "Plate", "Arcane" }; // index == (int)Hands.HandStyle
-        float[] scaleDefaults = { 1.02f, 0.62f, 0.62f };
+        float[] scaleDefaults = { Defaults.GloveScale, Defaults.PlateScale, Defaults.ArcaneScale };
         int n = styles.Length;
         HandStyleScale = new ConfigEntry<float>[n];
         HandStylePitchTrim = new ConfigEntry<float>[n];
@@ -581,7 +581,7 @@ public class Plugin : BaseUnityPlugin
                 "(no rebuild); grabbed objects, the card fan and the wrist HUD keep " +
                 "their own size (the rig sockets they attach to are scale-compensated).");
             HandStylePitchTrim[i] = Config.Bind(
-                "Hands", $"{s}PitchTrimDegrees", 0f,
+                "Hands", $"{s}PitchTrimDegrees", Defaults.PitchTrimDegrees_ByStyle[i],
                 $"LEGACY — no effect, superseded by [Hands] {s}GripPitchDegrees in " +
                 "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
                 "a trim. This entry is read once, as part of the seed for that key the first " +
@@ -589,7 +589,7 @@ public class Plugin : BaseUnityPlugin
                 $"loading. Historical meaning: extra pitch (degrees) ADDED to " +
                 $"GripPitchOffsetDegrees while the {s} style is worn.");
             HandStyleLateralTrim[i] = Config.Bind(
-                "Hands", $"{s}LateralTrim", 0f,
+                "Hands", $"{s}LateralTrim", Defaults.LateralTrim_ByStyle[i],
                 $"LEGACY — no effect, superseded by [Hands] {s}LateralOffset in " +
                 "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
                 "a trim. This entry is read once, as part of the seed for that key the first " +
@@ -597,7 +597,7 @@ public class Plugin : BaseUnityPlugin
                 $"loading. Historical meaning: extra lateral (X) offset (meters) ADDED to " +
                 $"HandLateralOffset while the {s} style is worn.");
             HandStyleVerticalTrim[i] = Config.Bind(
-                "Hands", $"{s}VerticalTrim", 0f,
+                "Hands", $"{s}VerticalTrim", Defaults.VerticalTrim_ByStyle[i],
                 $"LEGACY — no effect, superseded by [Hands] {s}VerticalOffset in " +
                 "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
                 "a trim. This entry is read once, as part of the seed for that key the first " +
@@ -605,7 +605,7 @@ public class Plugin : BaseUnityPlugin
                 $"loading. Historical meaning: extra vertical (Y) offset (meters) ADDED to " +
                 $"HandVerticalOffset while the {s} style is worn.");
             HandStyleForwardTrim[i] = Config.Bind(
-                "Hands", $"{s}ForwardTrim", 0f,
+                "Hands", $"{s}ForwardTrim", Defaults.ForwardTrim_ByStyle[i],
                 $"LEGACY — no effect, superseded by [Hands] {s}ForwardOffset in " +
                 "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
                 "a trim. This entry is read once, as part of the seed for that key the first " +

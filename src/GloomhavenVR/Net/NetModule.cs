@@ -99,27 +99,27 @@ internal sealed class NetModule : IVRModule
         if (_config != null)
             return;
         _config = ModuleConfig.Create("net");
-        Enabled = _config.Bind("Net", "Enabled", true,
+        Enabled = _config.Bind("Net", "Enabled", Defaults.Net_Enabled,
             "Multiplayer VR embodiment sync: broadcast your head + hands over the game's own " +
             "netcode so other VR players see you (Demeo style), and render remote VR players. " +
             "Cosmetic only, never affects game state; a no-op in single-player and safe with " +
             "flat/non-modded players. Turn OFF to fully remove the networking hook.");
-        MaskId = _config.Bind("Net", "MaskId", 2,
+        MaskId = _config.Bind("Net", "MaskId", Defaults.MaskId,
             new ConfigDescription(
                 "Which head mask the local player wears (0..2). Picked in the in-VR settings panel; " +
                 "synchronized so other VR players see the right mask on you.",
                 new AcceptableValueRange<int>(0, HeadMaskLibrary.MaskCount - 1)));
-        MaskSize = _config.Bind("Net", "MaskSize", 1f,
+        MaskSize = _config.Bind("Net", "MaskSize", Defaults.MaskSize,
             new ConfigDescription(
                 "Uniform size of your head mask (1 = authored size). Tuned live in the in-VR " +
                 "settings panel (Avatar > Maskengroesse); synchronized, so other VR players see " +
                 "your mask at exactly the size you picked. Purely cosmetic.",
                 new AcceptableValueRange<float>(NetProtocol.MaskSizeMin, NetProtocol.MaskSizeMax)));
-        MirrorEnabled = _config.Bind("Net", "MirrorEnabled", false,
+        MirrorEnabled = _config.Bind("Net", "MirrorEnabled", Defaults.MirrorEnabled,
             "Show yourself in a mirror floating in front of your head so you can see your chosen " +
             "mask + hands. Local cosmetic preview only — independent of networking, works in " +
             "single-player. Toggle in the in-VR settings panel.");
-        RemoteBoards = _config.Bind("Net", "RemoteBoards", RemoteBoardVisibility.Always,
+        RemoteBoards = _config.Bind("Net", "RemoteBoards", Defaults.RemoteBoards,
             "Wie viel von den Kontrolltafeln der Mitspieler du siehst: Off (nie), ActionPhaseOnly " +
             "(nur in der Aktionsphase — waehrend der geheimen Kartenauswahl ausgeblendet), Always " +
             "(immer). Rein lokale Darstellung; aendert nie den Spielzustand. Der Anti-Cheat-Schutz " +

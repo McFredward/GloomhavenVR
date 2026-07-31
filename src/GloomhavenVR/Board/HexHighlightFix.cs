@@ -92,13 +92,13 @@ internal static class HexHighlightFix
         ConfigFile config = _file = ModuleConfig.Create("hexhighlight");
 
         SwapStableShader = config.Bind(
-            "HexHighlight", "SwapStableShader", true,
+            "HexHighlight", "SwapStableShader", Defaults.SwapStableShader,
             "Replace the hex highlight's OmniDecal_Shd with the mod's stereo-stable " +
             "GloomhavenVR/HexDecalStable (same look, no screen-space depth reconstruction " +
             "— removes the per-eye 'reflection' that swims with head movement). When the " +
             "shader is missing from an older bundle, the Kill* knobs below apply instead.");
         StableZTest = config.Bind(
-            "HexHighlight", "StableZTest", 4,
+            "HexHighlight", "StableZTest", Defaults.StableZTest,
             "ZTest (UnityEngine.Rendering.CompareFunction) applied to the stable hex decal. " +
             "4 = LEqual (default): the shader exports the true floor-point depth per pixel " +
             "(SV_Depth), so figures standing on the hex and walls in front occlude the " +
@@ -106,33 +106,33 @@ internal static class HexHighlightFix
             "draws through everything (on-device fallback if the depth export misbehaves). " +
             "Re-applied on every highlight state change, so edits take effect live.");
         StableDepthBias = config.Bind(
-            "HexHighlight", "StableDepthBias", 0.0002f,
+            "HexHighlight", "StableDepthBias", Defaults.StableDepthBias,
             "Camera-ward depth-buffer-space bias added to the stable hex decal's exported " +
             "depth. Prevents z-fighting speckle against the tile floor the highlight lies " +
             "on. Raise slightly if the highlight speckles/dropouts; lower toward 0 if it " +
             "visibly bleeds over the very bottom of figure bases.");
         KillBorderFlame = config.Bind(
-            "HexHighlight", "KillBorderFlame", true,
+            "HexHighlight", "KillBorderFlame", Defaults.KillBorderFlame,
             "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
             "_BorderFlameIntensity on hex highlight materials (OmniDecal_Shd). Kills the " +
             "animated border-flame layer — the screen-space depth-projected layer that " +
             "swims with head movement in VR. The white fill and border line stay.");
         KillCrosshair = config.Bind(
-            "HexHighlight", "KillCrosshair", true,
+            "HexHighlight", "KillCrosshair", Defaults.KillCrosshair,
             "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
             "_CrossHair. Kills the pulsing target-frame/crosshair graphic projected " +
             "INSIDE the hex during target selection — same swimming projection.");
         KillBorderLine = config.Bind(
-            "HexHighlight", "KillBorderLine", false,
+            "HexHighlight", "KillBorderLine", Defaults.KillBorderLine,
             "FALLBACK bisect knob: additionally zero _BorderLineIntensity (the crisp " +
             "border ring). Enable if the swimming artifact persists with the " +
             "flame/crosshair killed. Changes the look (hex loses its sharp outline).");
         KillFill = config.Bind(
-            "HexHighlight", "KillFill", false,
+            "HexHighlight", "KillFill", Defaults.KillFill,
             "FALLBACK bisect knob: additionally zero _HexIntensity (the soft white fill). " +
             "Only for diagnosis — this removes most of the highlight.");
         LogMaterialDump = config.Bind(
-            "HexHighlight", "LogMaterialDump", true,
+            "HexHighlight", "LogMaterialDump", Defaults.LogMaterialDump,
             "Log the hex highlight material's shader name and full property dump for the " +
             "first few materials seen (evidence for tuning the fix).");
     }

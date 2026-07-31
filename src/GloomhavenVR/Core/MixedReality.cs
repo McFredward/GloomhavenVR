@@ -195,17 +195,17 @@ internal static class MixedReality
         if (_file != null)
             return;
         _file = ModuleConfig.Create("mixedreality");
-        Enabled = _file.Bind("MixedReality", "Enabled", false,
+        Enabled = _file.Bind("MixedReality", "Enabled", Defaults.MixedReality_Enabled,
             "Mixed-reality (chroma-key passthrough) mode. When ON the sky/background of the " +
             "whole game turns the flat solid KeyColor and every skybox is disabled, so Virtual " +
             "Desktop (or any compositor) can chroma-key that color and show the diorama/table " +
             "floating over your real room. The 3D geometry keeps rendering — only the sky becomes " +
             "the flat key color. Restored fully when turned off.");
-        KeyColor = _file.Bind("MixedReality", "KeyColor", new Color(0f, 1f, 0f, 1f),
+        KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
             "green / magenta / blue; any RGBA is accepted here.");
-        HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", true,
+        HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
             + "offered in the VR menu, because half of MR is not a thing to switch off: keying the "

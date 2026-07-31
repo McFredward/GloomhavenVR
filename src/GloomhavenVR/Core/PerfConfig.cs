@@ -270,56 +270,56 @@ internal static class PerfConfig
         _file = ModuleConfig.Create("perf");
 
         // ---- [Perf] -------------------------------------------------------------------------
-        Enabled = _file.Bind("Perf", "Enabled", true,
+        Enabled = _file.Bind("Perf", "Enabled", Defaults.Perf_Enabled,
             "Master switch for the performance instrumentation. ON logs a periodic [Perf] FRAME / "
             + "STEPS summary plus a [Perf] SPIKE line for every frame that blows the display's frame "
             + "budget — the numbers that turn 'it judders when I turn my head fast' into an "
             + "attributable subsystem. OFF makes the whole layer a no-op (one bool test per frame, "
             + "no stopwatch reads, no dictionary lookups, no log lines).");
-        SummaryIntervalSeconds = _file.Bind("Perf", "SummaryIntervalSeconds", 30f, new ConfigDescription(
+        SummaryIntervalSeconds = _file.Bind("Perf", "SummaryIntervalSeconds", Defaults.SummaryIntervalSeconds, new ConfigDescription(
             "Seconds between the periodic [Perf] FRAME and [Perf] STEPS summary lines. Lower = a "
             + "finer time resolution in the log at the cost of more lines; the per-frame sampling "
             + "cost does not change with this value.",
             new AcceptableValueRange<float>(5f, 600f)));
-        Attribution = _file.Bind("Perf", "Attribution", true,
+        Attribution = _file.Bind("Perf", "Attribution", Defaults.Attribution,
             "Measure each NAMED mod step (every TickGuard.Run step plus the explicitly scoped driver "
             + "bodies) with a stopwatch, so the [Perf] STEPS line can rank the mod's own subsystems by "
             + "cost and a SPIKE line can name who owned the spike. This is the single most valuable "
             + "piece of the instrumentation: it answers 'is the hitch OURS?'. Costs two "
             + "QueryPerformanceCounter reads and one dictionary lookup per step per frame (a few "
             + "microseconds in total). OFF still measures frame pacing, just without attribution.");
-        TopSteps = _file.Bind("Perf", "TopSteps", 6, new ConfigDescription(
+        TopSteps = _file.Bind("Perf", "TopSteps", Defaults.TopSteps, new ConfigDescription(
             "How many mod steps the periodic [Perf] STEPS line ranks (by total time spent in the "
             + "window). Ignored while Attribution is off.",
             new AcceptableValueRange<int>(1, 20)));
-        SpikeLines = _file.Bind("Perf", "SpikeLines", true,
+        SpikeLines = _file.Bind("Perf", "SpikeLines", Defaults.SpikeLines,
             "Emit a [Perf] SPIKE line whenever a single frame takes longer than SpikeBudgetFactor x "
             + "the display's frame budget, naming the worst mod steps IN THAT FRAME. This is the line "
             + "that catches the reported 'world judders on a fast head turn' — a judder is a handful "
             + "of late frames, which an average can never show.");
-        SpikeBudgetFactor = _file.Bind("Perf", "SpikeBudgetFactor", 2f, new ConfigDescription(
+        SpikeBudgetFactor = _file.Bind("Perf", "SpikeBudgetFactor", Defaults.SpikeBudgetFactor, new ConfigDescription(
             "A frame counts as a SPIKE when it takes longer than this multiple of the display's frame "
             + "budget (budget = 1 / actual refresh rate, read from the XR display — not a hardcoded "
             + "72/90 Hz). 2.0 = 'at least one whole displayed frame was missed'. Lower catches more, "
             + "at the price of more SPIKE lines.",
             new AcceptableValueRange<float>(1.2f, 10f)));
-        SpikeMaxPerSecond = _file.Bind("Perf", "SpikeMaxPerSecond", 2f, new ConfigDescription(
+        SpikeMaxPerSecond = _file.Bind("Perf", "SpikeMaxPerSecond", Defaults.SpikeMaxPerSecond, new ConfigDescription(
             "Hard ceiling on SPIKE lines per second. A genuinely bad stretch would otherwise emit one "
             + "line per frame and the logging itself would become the performance problem; suppressed "
             + "spikes are still COUNTED and reported in the next FRAME summary, so nothing is lost. "
             + "There is deliberately no 'unlimited' setting.",
             new AcceptableValueRange<float>(0.1f, 20f)));
-        Allocations = _file.Bind("Perf", "Allocations", true,
+        Allocations = _file.Bind("Perf", "Allocations", Defaults.Allocations,
             "Sample GC collection counts and managed-heap growth once per frame and report them per "
             + "window. A gen0 collection landing inside a head turn is exactly the reported symptom, "
             + "so allocation pressure is first-class evidence here. Cost: one cheap heap-size read "
             + "per frame.");
-        XrStats = _file.Bind("Perf", "XrStats", true,
+        XrStats = _file.Bind("Perf", "XrStats", Defaults.XrStats,
             "Ask the XR display subsystem for its OWN truth — dropped frames, presented frames, GPU "
             + "time, motion-to-photon latency — which is the only way to see reprojection (the "
             + "compositor covering for us) rather than just our CPU timings. Counters the runtime "
             + "does not expose are reported as 'n/a' in the log, never as a fake zero.");
-        FrameSplit = _file.Bind("Perf", "FrameSplit", true,
+        FrameSplit = _file.Bind("Perf", "FrameSplit", Defaults.FrameSplit,
             "Decompose every frame into MAIN-THREAD LOGIC (Update->LateUpdate), RENDER LOOP "
             + "(culling + draw-call submission, also broken down per camera and per pass) and "
             + "BLOCKED (waiting on the GPU / the XR compositor) — the [Perf] SPLIT line. This is the "
@@ -330,7 +330,7 @@ internal static class PerfConfig
             + "are built from the mod's own clock reads at known points in Unity's frame, so they "
             + "bind on every platform with no player-setting prerequisite. Cost: two timer reads per "
             + "frame plus two per camera render, and no allocation.");
-        SceneCensus = _file.Bind("Perf", "SceneCensus", true,
+        SceneCensus = _file.Bind("Perf", "SceneCensus", Defaults.SceneCensus,
             "Append a renderer census (total / enabled / visible to at least one camera) to the "
             + "[Perf] SPLIT line. UnityStats' batch and draw-call counters are editor-only, so this "
             + "is the closest runtime proxy for 'how much is there to submit', and together with the "
@@ -343,7 +343,7 @@ internal static class PerfConfig
         // lands in the intro — before the pane that owns this switch exists. The defect is fixed
         // and the walk additionally refuses to run in the pre-menu scenes, but a heavyweight
         // object walk is not something that should be on by default in a build a player runs.
-        SceneProfile = _file.Bind("Perf", "SceneProfile", false,
+        SceneProfile = _file.Bind("Perf", "SceneProfile", Defaults.SceneProfile,
             "OFF by default. Append two more lines to each summary: [Perf] SCENE — the renderer population broken "
             + "down by scene-root/child group, layer (with names), renderer type, shadow-casting "
             + "mode, MaterialPropertyBlock count and DISTINCT MATERIAL COUNT — and [Perf] GFX — the "
@@ -358,7 +358,7 @@ internal static class PerfConfig
             + "(Bootstrap/Intro): there are five renderers there, and a fault in a walk that runs "
             + "before the settings pane exists cannot be switched off from inside the headset.");
 
-        CullSubmitSplit = _file.Bind("Perf", "CullSubmitSplit", false,
+        CullSubmitSplit = _file.Bind("Perf", "CullSubmitSplit", Defaults.CullSubmitSplit,
             "OFF by default. Split each camera's figure on the [Perf] SPLIT line into CULL "
             + "(onPreCull→onPreRender: Unity's visibility determination, which scales with how "
             + "many renderers exist and pass the culling mask) and SUBMIT (onPreRender→"
@@ -370,12 +370,12 @@ internal static class PerfConfig
             + "inside it, and the SPLIT line then prints the combined per-camera figure as before.");
 
         // ---- [Optimize] ----------------------------------------------------------------------
-        CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", true,
+        CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", Defaults.CacheTickDelegates,
             "Cache the Action delegates handed to TickGuard.Run instead of re-creating them from an "
             + "instance method group every frame. Pure work removal — identical behaviour, just "
             + "without ~7 delegate allocations per frame feeding the gen0 collector that causes "
             + "head-turn hitches. OFF restores the old per-frame allocation (A/B only).");
-        MapIconCache = _file.Bind("Optimize", "MapIconCache", true,
+        MapIconCache = _file.Bind("Optimize", "MapIconCache", Defaults.MapIconCache,
             "Cache the campaign-map icon scan. The map-icon draw runs from Camera.onPreCull — once "
             + "PER RENDERING CAMERA PER FRAME, and the stereo flat screen has two or three — and it "
             + "used to redo a full-scene FindObjectOfType, two allocating component walks, a "
@@ -383,24 +383,24 @@ internal static class PerfConfig
             + "string per decal every single time. The decal SET only changes with the map state, so "
             + "it is scanned on an interval while every icon's pose is still read live each frame — "
             + "panning and zooming are pixel-identical. OFF restores the per-frame scan (A/B).");
-        FigureScanCache = _file.Bind("Optimize", "FigureScanCache", true,
+        FigureScanCache = _file.Bind("Optimize", "FigureScanCache", Defaults.FigureScanCache,
             "Skip per-frame component walks the figure-grab driver does not need: an already-adopted "
             + "figure is no longer re-resolved through GetComponentInChildren every frame, and the "
             + "ring suppressor takes its 'nothing is held' early-out BEFORE it allocates the "
             + "enumerators it would have iterated. Behaviour-identical work removal; OFF restores "
             + "the unconditional walks.");
-        LeanLogStrings = _file.Bind("Optimize", "LeanLogStrings", true,
+        LeanLogStrings = _file.Bind("Optimize", "LeanLogStrings", Defaults.LeanLogStrings,
             "Do not BUILD diagnostic strings that the log then throws away. Several diagnostics are "
             + "throttled or change-gated inside the callee, so the interpolated message (plus the "
             + "UnityEngine.Object.name access, which allocates a fresh string every read) was paid "
             + "for on every frame while only one line in hundreds was printed. The gates now sit in "
             + "front of the string work instead of behind it. Identical log output either way.");
-        TooltipScanGate = _file.Bind("Optimize", "TooltipScanGate", true,
+        TooltipScanGate = _file.Bind("Optimize", "TooltipScanGate", Defaults.TooltipScanGate,
             "Gate the world-tooltip subsystem's per-frame work on whether a tooltip is actually "
             + "shown: the full canvas subtree walk used to run before that check, and the fallback "
             + "search for the game's CanvasManager retried a full-scene FindObjectOfType every frame "
             + "for as long as it stayed unresolved. Identical tooltips, far fewer scans.");
-        FanRelayoutMinInterval = _file.Bind("Optimize", "FanRelayoutMinInterval", 0f, new ConfigDescription(
+        FanRelayoutMinInterval = _file.Bind("Optimize", "FanRelayoutMinInterval", Defaults.FanRelayoutMinInterval, new ConfigDescription(
             "Minimum seconds between two GAZE-driven re-layouts of the open card fan. 0 = re-lay out "
             + "on every frame the gaze gate trips, which is today's behaviour and what a fast head "
             + "turn does every single frame. A small value (0.02 = 50 Hz) removes the redundant "
@@ -408,27 +408,27 @@ internal static class PerfConfig
             + "own home-lerp smooths whatever the gate lets through. Only affects the GAZE gate — "
             + "card set changes, hovers, plucks and the fan-out reveal always re-lay out immediately.",
             new AcceptableValueRange<float>(0f, 0.2f)));
-        WallFadeEvalInterval = _file.Bind("Optimize", "WallFadeEvalInterval", 0f, new ConfigDescription(
+        WallFadeEvalInterval = _file.Bind("Optimize", "WallFadeEvalInterval", Defaults.WallFadeEvalInterval, new ConfigDescription(
             "Minimum seconds between two wall see-through VISIBILITY evaluations (the per-segment "
             + "sample sweep). 0 = every frame, today's behaviour. The evaluation already feeds a "
             + "Schmitt trigger with second-scale dwell hysteresis, so sampling it at e.g. 0.05 "
             + "(20 Hz) cannot change which walls fade — it only stops re-deciding a decision that is "
             + "deliberately slow. Inert unless [Compat] WallFade is on.",
             new AcceptableValueRange<float>(0f, 0.25f)));
-        QuietDiagnostics = _file.Bind("Optimize", "QuietDiagnostics", false,
+        QuietDiagnostics = _file.Bind("Optimize", "QuietDiagnostics", Defaults.QuietDiagnostics,
             "Suppress the high-cadence per-subsystem DIAGNOSTIC log lines (the wall-fade 'diag:' "
             + "sweep, the card-fan 'Fan depth-curve:' sweep recorder, the per-click uGUI trace). "
             + "Default OFF because those lines are the evidence base for several open investigations "
             + "and they measured well under one line per second on hardware — switch it ON for a "
             + "clean performance capture where only the [Perf] lines matter.");
-        RemoteContentInterval = _file.Bind("Optimize", "RemoteContentInterval", 0f, new ConfigDescription(
+        RemoteContentInterval = _file.Bind("Optimize", "RemoteContentInterval", Defaults.RemoteContentInterval, new ConfigDescription(
             "Override the refresh interval (seconds) of the REMOTE player board content scan — the "
             + "4 Hz walk that rebuilds other players' board contents in multiplayer. 0 = leave the "
             + "subsystem's own 0.25 s cadence. Raising it (e.g. 0.5) halves that walk's cost; it only "
             + "delays how fast a peer's board contents catch up, and it does nothing at all in single "
             + "player.",
             new AcceptableValueRange<float>(0f, 2f)));
-        HeadDepthPrepass = _file.Bind("Optimize", "HeadDepthPrepass", false,
+        HeadDepthPrepass = _file.Bind("Optimize", "HeadDepthPrepass", Defaults.HeadDepthPrepass,
             "Keep the head camera's DepthTextureMode.Depth. ON is today's behaviour and it is NOT "
             + "free: on the built-in FORWARD path (which the mod's head camera uses) Unity builds "
             + "_CameraDepthTexture by rendering the whole opaque scene a SECOND time through each "
@@ -442,7 +442,7 @@ internal static class PerfConfig
             + "trade, not free work removal, and it defaults to today's behaviour. Flip it from "
             + "the Debug settings pane so the [Perf] measurement window closes on the boundary and "
             + "the two SPLIT lines are comparable.");
-        HeadCullingMaskDrop = _file.Bind("Optimize", "HeadCullingMaskDrop", "",
+        HeadCullingMaskDrop = _file.Bind("Optimize", "HeadCullingMaskDrop", Defaults.HeadCullingMaskDrop,
             "Layers the head camera must NOT render, as a comma-separated list of layer NAMES or "
             + "indices (e.g. 'Water, 14'). Empty = drop nothing, which is today's behaviour and the "
             + "normal mask policy (anchor camera's mask | the mod layer). Every layer removed here "
@@ -454,7 +454,7 @@ internal static class PerfConfig
             + "compare the render-loop split. Unknown names are reported and ignored, never "
             + "silently applied, so a typo cannot blank the view. Re-asserted every frame, so "
             + "clearing the entry restores the normal mask immediately.");
-        HeadMaskFromScenarioCamera = _file.Bind("Optimize", "HeadMaskFromScenarioCamera", false,
+        HeadMaskFromScenarioCamera = _file.Bind("Optimize", "HeadMaskFromScenarioCamera", Defaults.HeadMaskFromScenarioCamera,
             "In a SCENARIO, seed the head camera's culling mask from the game's own ScenarioCamera "
             + "instead of from the anchor camera. Why this exists: the scenario anchor resolves to "
             + "'Main Camera', whose mask is 0xFFFFFFFF — ALL 32 layers — while the camera the flat "
