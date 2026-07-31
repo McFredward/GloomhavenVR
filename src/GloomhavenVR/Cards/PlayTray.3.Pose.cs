@@ -296,17 +296,16 @@ internal sealed partial class PlayTray
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
             return;
-        // Item 11: re-orient in the perceived-level frame, like PlaceAtHead (identity at tilt 0).
-        Quaternion frame = VRRigDriver.WorldTiltRotation;
-        Vector3 flatForward = Quaternion.Inverse(frame) * head.transform.forward;
+        // Plain world frame, like PlaceAtHead (user decision 2026-08 — the board is deliberately
+        // decoupled from the world tilt; identical to the old level-frame math at tilt 0).
+        Vector3 flatForward = head.transform.forward;
         flatForward.y = 0f;
         if (flatForward.sqrMagnitude < 1e-4f)
             flatForward = Vector3.forward;
         flatForward.Normalize();
         ControlBoard board = CardsConfig.CurrentBoard;
-        _root.rotation = frame * ComputeBoardRotation(flatForward, board); // KEEP position (pinned)
+        _root.rotation = ComputeBoardRotation(flatForward, board); // KEEP position (pinned)
         _root.localScale = Vector3.one * ComputeBoardScale(board);
-        _tiltCompApplied = frame; // item 11: pose re-authored under the current tilt frame
     }
 
     /// <summary>
@@ -412,7 +411,6 @@ internal sealed partial class PlayTray
         _root.position = position;
         _root.rotation = rotation;
         _root.localScale = localScale;
-        _tiltCompApplied = VRRigDriver.WorldTiltRotation; // item 11: the restored pose is current-frame
         _placed = true;
         _placementDeferLogged = false;
         if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
@@ -437,13 +435,11 @@ internal sealed partial class PlayTray
             return;
 
         Transform headT = head.transform;
-        // ITEM 11: this is the exact inverse of PlaceAtHead, so like it, everything runs in the
-        // player's PERCEIVED-LEVEL frame (identity at tilt 0 — bit-identical to the old math).
-        // Persisting in world axes under an active tilt used to bake the tilt into the offsets
-        // and TrayYaw, so the next placement re-created the board world-level = tilted-looking.
-        Quaternion frame = VRRigDriver.WorldTiltRotation;
-        Quaternion invFrame = Quaternion.Inverse(frame);
-        Vector3 flatForward = invFrame * headT.forward;
+        // Exact inverse of PlaceAtHead, so like it, everything runs in the PLAIN WORLD frame
+        // (user decision 2026-08, supersedes item 11: the board is deliberately decoupled from
+        // the world tilt, so persisting world axes is now the CORRECT round-trip — what the
+        // grab left in world space is what the next placement re-creates).
+        Vector3 flatForward = headT.forward;
         flatForward.y = 0f;
         if (flatForward.sqrMagnitude < 1e-4f)
             flatForward = Vector3.forward;
@@ -453,19 +449,19 @@ internal sealed partial class PlayTray
         float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
         if (scale < 1e-5f)
             return;
-        Vector3 delta = invFrame * (_root.position - headT.position); // level-frame offset
+        Vector3 delta = _root.position - headT.position; // world-frame offset
         CardsConfig.TrayForward.Value = Vector3.Dot(delta, flatForward) / scale;
         CardsConfig.TrayRight.Value = Vector3.Dot(delta, right) / scale;
         CardsConfig.TrayDown.Value = -delta.y / scale;
 
-        // Yaw + pitch: decompose the tray's LEVEL-FRAME rotation into heading and x-pitch
+        // Yaw + pitch: decompose the tray's WORLD rotation into heading and x-pitch
         // (WorldUI.LevelPose — the same decomposition the grab carry rebuilds from, so what the
         // grab wrote is exactly what is read back; any roll a Free-mode carry left is dropped
         // here, which for the Limited modes is the sanitizer, and for Free is the documented
         // best-effort persistence). PART B: BoardYaw rides on top of TrayYaw, so subtract it to
         // recover the grab-written raw yaw (seeded so Oak is unchanged).
         ControlBoard board = CardsConfig.CurrentBoard;
-        WorldUI.LevelPose.Decompose(invFrame * _root.rotation, out float trayHeading, out float trayPitchX);
+        WorldUI.LevelPose.Decompose(_root.rotation, out float trayHeading, out float trayPitchX);
         float headHeading = Mathf.Atan2(flatForward.x, flatForward.z) * Mathf.Rad2Deg;
         CardsConfig.TrayYaw.Value = Mathf.DeltaAngle(headHeading, trayHeading) - CardsConfig.BoardYaw(board).Value;
 
@@ -487,7 +483,6 @@ internal sealed partial class PlayTray
         // Divide out the per-board multiplier so TrayScale keeps its raw 0.5–2 grab semantics.
         float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
         CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x / boardScale, 0.5f, 2f);
-        _tiltCompApplied = frame; // item 11: the released pose is authored under the current frame
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, pitch {CardsConfig.TrayPitch.Value:F0}° " +

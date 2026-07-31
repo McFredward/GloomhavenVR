@@ -240,8 +240,10 @@ internal sealed partial class VRRigDriver
             ? Quaternion.AngleAxis(_tiltApplied, axis) * yawOnly
             : yawOnly;
 
-        // Publish the perceived-level frame (control-board item 11): the tilt factor of the pose
-        // this frame asserts. Consumers compose "level for the player" as WorldTiltRotation * pose.
+        // Publish the perceived-level frame: the tilt factor of the pose this frame asserts.
+        // Consumers compose "level for the player" as WorldTiltRotation * pose. (No consumer
+        // right now — the control board was decoupled from the tilt, user decision 2026-08;
+        // see the property doc for why it stays published.)
         WorldTiltRotation = _tiltApplied > 0f
             ? Quaternion.AngleAxis(_tiltApplied, axis)
             : Quaternion.identity;

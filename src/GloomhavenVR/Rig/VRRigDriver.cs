@@ -273,8 +273,11 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// axis)</c> factor of the rig pose, identity while the tilt is off or no scenario rig
     /// exists. This IS the player's perceived-level frame: physical-up maps to
     /// <c>this * Vector3.up</c>, so anything that must READ AS LEVEL to the local player
-    /// (control-board item 11 — PlayTray pose authoring, PanelGrabHandle's level carry)
-    /// composes its world pose as <c>WorldTiltRotation * levelPose</c>. Written once per
+    /// composes its world pose as <c>WorldTiltRotation * levelPose</c>. CURRENTLY UNCONSUMED:
+    /// the control board (item 11) was its only reader until the user decoupled the board from
+    /// the tilt entirely (decision 2026-08 — the board stays world-static and is laid out
+    /// manually); the frame stays published because the rig is its single honest source and a
+    /// future consumer must not have to re-derive it. Written once per
     /// <see cref="TickWorldTilt"/>; declared HERE with the rest of the tilt state so
     /// <c>TearDownRig</c> stays the single reset point (it must never outlive the rig it
     /// described). LOCAL-ONLY, like the tilt itself — never sent over the wire.
