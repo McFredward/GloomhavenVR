@@ -8,10 +8,35 @@ namespace GloomhavenVR.Board;
 
 /// <summary>
 /// Feature #3: point the LASER at a hex and press the dominant-hand "A" button to
-/// fire the game's OWN ping on that hex — a 3D highlight + a floating tooltip
-/// (<c>PingManager.Ping3DElementSinglePlayer</c>). In multiplayer the game/PingManager
-/// path already carries a shown ping to teammates, so we deliberately use the SINGLE-
-/// player entry (no <c>NetworkPlayer</c> / bolt typing in this mod).
+/// fire the game's OWN ping on that hex — a 3D highlight + a floating tooltip.
+///
+/// MP BUG #7 FIX (2026-08): the first version called
+/// <c>PingManager.Ping3DElementSinglePlayer</c>, which is PURELY LOCAL — it never touches
+/// the network, so VR pings were invisible to every peer (both directions) and carried no
+/// player name. We now drive the exact code path the FLAT game uses for a ping,
+/// <c>UIScenarioMultiplayerController.PingTile(CClientTile)</c> (decompiled
+/// UIScenarioMultiplayerController.cs:341-353), which
+///  - online: shows the ping locally with the OWN player name
+///    (<c>Ping3DElementMultiPlayer(tile, PlayerRegistry.MyPlayer)</c>) AND replicates it as the
+///    vanilla <c>GameActionType.PingHex</c> side action
+///    (<c>Synchronizer.SendSideAction(PingHex, new TileToken(...))</c>). Every peer — modded VR
+///    or vanilla flat — renders it through its own <c>PingManager.ProxyPingHex</c> with the
+///    sender's username (GameAction.cs:479-482, PingManager.cs:120). Host and client use the
+///    SAME path (the flat game's client ping is this very call), so an unassigned joining
+///    peer can ping too — vanilla never gates PingHex on turn control or character assignment.
+///  - offline: falls through to <c>Ping3DElementSinglePlayer</c> inside PingTile itself.
+/// If the controller singleton is not alive (or the method is gone after a game update) we
+/// degrade to the old local-only <c>Ping3DElementSinglePlayer</c> so solo pinging keeps working.
+///
+/// The VR-visible NAME LABEL at the ping marker (the game's own tooltip lives on a
+/// screen-space canvas that VR cannot read) is added by <see cref="Patches.PingNameTag_Patch"/>
+/// on <c>PingManager.Ping3DElement</c> — it fires for our own pings AND for every ping
+/// received from any peer, flat or VR.
+///
+/// SILENT-GATE FIX (same MP test): every rejection between the A-press and the actual ping
+/// call used to be a silent return, which made "the joining peer cannot ping at all"
+/// undiagnosable from logs. A press is an explicit user action now: each rejected press logs
+/// its reason exactly once (edge-triggered input, so this cannot spam).
 ///
 /// Wiring (mirrors <c>FigureGrabDriver</c>): a MonoBehaviour added to the Board module's
 /// hidden driver GameObject, so it is constructed by <see cref="BoardModule.Init"/> and
@@ -28,11 +53,10 @@ namespace GloomhavenVR.Board;
 ///
 /// Hex resolution: reuses <see cref="BoardPick"/> (the single shared VR pick). We ping
 /// only when <c>BoardPick.HasHit</c> AND the hit collider resolves to a
-/// <c>TileBehaviour.m_ClientTile.m_GameObject</c> — the exact 3D element the game itself
-/// pings and the same element <c>BoardPick</c> snaps its cursor to.
+/// <c>TileBehaviour.m_ClientTile</c> — the exact tile object the game itself pings.
 ///
-/// The <c>PingManager</c> call is reflection-guarded: if the method can't be resolved at
-/// runtime (game update / stripped build) it degrades to a no-op after one warning rather
+/// All game calls are reflection-guarded: if a method can't be resolved at runtime
+/// (game update / stripped build) that path degrades gracefully after one warning rather
 /// than throwing every press.
 /// </summary>
 internal sealed class BoardPing : MonoBehaviour
@@ -41,7 +65,8 @@ internal sealed class BoardPing : MonoBehaviour
     private const float Cooldown = 0.2f;
 
     private static bool _resolved;
-    private static MethodInfo? _pingSinglePlayer;
+    private static MethodInfo? _pingTile;           // UIScenarioMultiplayerController.PingTile(CClientTile)
+    private static MethodInfo? _pingSinglePlayer;   // PingManager.Ping3DElementSinglePlayer(GameObject)
     private static bool _warnedUnresolved;
 
     private float _lastPingTime = float.NegativeInfinity;
@@ -71,67 +96,114 @@ internal sealed class BoardPing : MonoBehaviour
         if (!hand.PrimaryDown)
             return;
 
-        // Only ping a real hex actually under the laser/near pick.
-        if (!BoardPick.HasHit)
-            return;
-
-        GameObject? hex = ResolveHex();
-        if (hex == null)
-            return;
-
+        // From here on the press is an explicit ping ATTEMPT — every rejection is logged
+        // (once per press, the edge above makes spam impossible), because the MP test #7
+        // failure mode "peer cannot ping at all" was exactly a silent gate in this chain.
         if (Time.unscaledTime - _lastPingTime < Cooldown)
+            return; // pure anti-spam, the only intentionally quiet gate
+
+        if (!BoardPick.HasHit)
+        {
+            VRLog.Info("Board", "[Ping] press rejected — the laser/near pick hits nothing " +
+                $"(source={BoardPick.Source}, inScenario={BoardPick.InScenario}).");
             return;
+        }
+
+        CClientTile? clientTile = ResolveClientTile();
+        if (clientTile == null || clientTile.m_GameObject == null)
+        {
+            VRLog.Info("Board", "[Ping] press rejected — hit collider " +
+                $"'{BoardPick.HitCollider?.name}' resolves to no hex tile (no TileBehaviour/m_ClientTile).");
+            return;
+        }
 
         if (!EnsureResolved())
-            return;
+            return; // warned once in EnsureResolved
 
         try
         {
-            PingManager? manager = PingManager.Instance;
-            if (manager == null)
-                return; // no scenario ping manager live yet — silent no-op.
+            // Preferred: the game's own flat-game ping entry. Handles online (local display
+            // with own name + PingHex replication to all peers) and offline (single-player
+            // display) itself — host and client identically, no assignment required.
+            UIScenarioMultiplayerController? mpc = UIScenarioMultiplayerController.Instance;
+            if (mpc != null && _pingTile != null)
+            {
+                _pingTile.Invoke(mpc, new object[] { clientTile });
+                _lastPingTime = Time.unscaledTime;
+                VRLog.Info("Board", $"[Ping] pinged hex '{clientTile.m_GameObject.name}' via game " +
+                    "PingTile (replicated to peers when online).");
+                return;
+            }
 
-            _pingSinglePlayer!.Invoke(manager, new object[] { hex });
+            // Fallback: local-only display (no scenario MP controller alive / game update
+            // removed PingTile). Solo behaviour is identical to the original implementation.
+            PingManager? manager = PingManager.Instance;
+            if (manager == null || _pingSinglePlayer == null)
+            {
+                VRLog.Warn("Board", "[Ping] press rejected — neither UIScenarioMultiplayerController " +
+                    $"nor PingManager is available (mpc={(mpc == null ? "null" : "ok")}, " +
+                    $"manager={(manager == null ? "null" : "ok")}).");
+                return;
+            }
+
+            _pingSinglePlayer.Invoke(manager, new object[] { clientTile.m_GameObject });
             _lastPingTime = Time.unscaledTime;
-            VRLog.Info("Board", $"[Ping] pinged hex '{hex.name}'.");
+            VRLog.Info("Board", $"[Ping] pinged hex '{clientTile.m_GameObject.name}' (LOCAL-ONLY " +
+                "fallback — no UIScenarioMultiplayerController; peers will not see this ping).");
         }
         catch (Exception ex)
         {
-            VRLog.Warn("Board", $"[Ping] PingManager.Ping3DElementSinglePlayer threw: {ex}");
+            VRLog.Warn("Board", $"[Ping] game ping call threw: {ex}");
         }
     }
 
     /// <summary>
-    /// The 3D hex GameObject under the current VR pick, or null. Mirrors
+    /// The <c>CClientTile</c> under the current VR pick, or null. Mirrors
     /// <c>BoardPick.ResolveCursorWorld</c>: hit collider → parent <c>TileBehaviour</c> →
-    /// <c>m_ClientTile.m_GameObject</c> (verified vs GH.Runtime: TileBehaviour.cs:14
+    /// <c>m_ClientTile</c> (verified vs GH.Runtime: TileBehaviour.cs:14
     /// <c>public CClientTile m_ClientTile;</c>, CClientTile.cs:7 <c>public GameObject m_GameObject;</c>).
     /// </summary>
-    private static GameObject? ResolveHex()
+    private static CClientTile? ResolveClientTile()
     {
         Collider? collider = BoardPick.HitCollider;
         if (collider == null)
             return null;
 
         TileBehaviour? tile = collider.GetComponentInParent<TileBehaviour>();
-        if (tile == null || tile.m_ClientTile == null)
+        if (tile == null)
             return null;
 
-        return tile.m_ClientTile.m_GameObject;
+        return tile.m_ClientTile;
     }
 
     /// <summary>
-    /// Resolve (once) the publicized Singleton's
-    /// <c>Ping3DElementSinglePlayer(GameObject)</c>. On failure, warn once and stay a
-    /// no-op. Uses reflection so a renamed/removed method degrades gracefully instead of
-    /// throwing a MissingMethodException every press.
+    /// Resolve (once) the publicized game entry points:
+    /// <c>UIScenarioMultiplayerController.PingTile(CClientTile)</c> (preferred, networked) and
+    /// <c>PingManager.Ping3DElementSinglePlayer(GameObject)</c> (local fallback). Only when BOTH
+    /// are missing does the feature disable itself (warn once). Reflection so a renamed/removed
+    /// method degrades gracefully instead of throwing a MissingMethodException every press.
     /// </summary>
     private static bool EnsureResolved()
     {
         if (_resolved)
-            return _pingSinglePlayer != null;
+            return _pingTile != null || _pingSinglePlayer != null;
 
         _resolved = true;
+        try
+        {
+            _pingTile = typeof(UIScenarioMultiplayerController).GetMethod(
+                "PingTile",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(CClientTile) },
+                modifiers: null);
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("Board", $"[Ping] resolving UIScenarioMultiplayerController.PingTile threw: {ex}");
+            _pingTile = null;
+        }
+
         try
         {
             _pingSinglePlayer = typeof(PingManager).GetMethod(
@@ -147,12 +219,17 @@ internal sealed class BoardPing : MonoBehaviour
             _pingSinglePlayer = null;
         }
 
-        if (_pingSinglePlayer == null && !_warnedUnresolved)
+        if (_pingTile == null)
+            VRLog.Warn("Board", "[Ping] UIScenarioMultiplayerController.PingTile(CClientTile) not found — " +
+                "VR pings stay LOCAL-ONLY (no MP replication).");
+
+        if (_pingTile == null && _pingSinglePlayer == null && !_warnedUnresolved)
         {
             _warnedUnresolved = true;
-            VRLog.Warn("Board", "[Ping] PingManager.Ping3DElementSinglePlayer(GameObject) not found — hex ping disabled.");
+            VRLog.Warn("Board", "[Ping] no ping entry point found (PingTile AND " +
+                "Ping3DElementSinglePlayer missing) — hex ping disabled.");
         }
 
-        return _pingSinglePlayer != null;
+        return _pingTile != null || _pingSinglePlayer != null;
     }
 }

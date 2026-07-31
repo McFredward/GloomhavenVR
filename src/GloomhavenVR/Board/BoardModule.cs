@@ -104,6 +104,9 @@ internal sealed class BoardModule : IVRModule
         // avatar re-docked the wrong actor's cards and deadlocked the action board. Reject that
         // human click with the game's own invalid-click SFX, keeping the current actor selected.
         VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeTrackPlayerAvatar_OnClick_Guard));
+        // MP bug #7: world-space name tag over every hex ping (own + received, flat or VR) —
+        // the game's own screen-space ping tooltip is unreadable from a VR head pose.
+        VRSession.Harmony?.PatchAll(typeof(Patches.PingNameTag_Patch));
         // TEMPORARY test-#14 item-5 evidence (hero placement) — remove once confirmed.
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Hover_Diagnostics));
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_UpdateGate_Diagnostics));
@@ -141,6 +144,7 @@ internal sealed class BoardModule : IVRModule
             AoeControl.Reset();
             TargetingUx.Reset();
             HexHighlightFix.Reset();
+            Patches.PingNameTag.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }

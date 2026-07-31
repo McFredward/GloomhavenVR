@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**35 patch classes, 57 patched methods.**
+**36 patch classes, 58 patched methods.**
 
 ## Board
 
@@ -47,9 +47,10 @@ runtime, which is why a runtime audit could never do this job (see
 | `MF_FindInteractableAtMousePosition_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:42</sub> | `MF.FindInteractableAtMousePosition()` | prefix | `BoardModule`:86 |
 | `InputManager_CursorPosition_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:75</sub> | `InputManager.get_CursorPosition()` | prefix | `BoardModule`:87 |
 | `UIManager_IsPointerOverUI_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:129</sub> | `UIManager.get_IsPointerOverUI()` | prefix | `BoardModule`:88 |
-| `Placement_Hover_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:47</sub> | `WorldspaceStarHexDisplay.HighlightSelectedPlacementHex()` | postfix | `BoardModule`:108 |
-| `Placement_UpdateGate_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:98</sub> | `WorldspaceStarHexDisplay.Update()` | prefix | `BoardModule`:109 |
-| `Placement_Click_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:155</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:110 |
+| `PingNameTag_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Board/Patches/PingNameTag.cs:43</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `BoardModule`:109 |
+| `Placement_Hover_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:47</sub> | `WorldspaceStarHexDisplay.HighlightSelectedPlacementHex()` | postfix | `BoardModule`:111 |
+| `Placement_UpdateGate_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:98</sub> | `WorldspaceStarHexDisplay.Update()` | prefix | `BoardModule`:112 |
+| `Placement_Click_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:155</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:113 |
 | `InitiativeTrackPlayerAvatar_OnClick_Guard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:53</sub> | `InitiativeTrackPlayerAvatar.OnClick()` | prefix | `BoardModule`:106 |
 
 ## Cards
@@ -125,7 +126,7 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Module file | Patch classes registered |
 |---|---|
-| `src/GloomhavenVR/Board/BoardModule.cs` | `ActorBehaviour_HeldTransform_Patch`, `Controller_CommonLoop_Patch`, `HexHoverClear`, `HexSelect_ProjectorMaterialAdjustment_Patch`, `InitiativeTrackPlayerAvatar_OnClick_Guard`, `InputManager_CursorPosition_Patch`, `MF_FindInteractableAtMousePosition_Patch`, `Placement_Click_Diagnostics`, `Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `UIManager_IsPointerOverUI_Patch` |
+| `src/GloomhavenVR/Board/BoardModule.cs` | `ActorBehaviour_HeldTransform_Patch`, `Controller_CommonLoop_Patch`, `HexHoverClear`, `HexSelect_ProjectorMaterialAdjustment_Patch`, `InitiativeTrackPlayerAvatar_OnClick_Guard`, `InputManager_CursorPosition_Patch`, `MF_FindInteractableAtMousePosition_Patch`, `PingNameTag_Patch`, `Placement_Click_Diagnostics`, `Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `UIManager_IsPointerOverUI_Patch` |
 | `src/GloomhavenVR/Cards/CardsModule.cs` | `CardsHandManager_ShowAll_Patch`, `CardsHandManager_ShowHands_Patch`, `CardsHandManager_ShowList_Patch`, `CardsHandUI_DestroyCardUI_Patch`, `CardsHandUI_OnDestroy_Patch`, `CardsHandUI_OnLoseCardClick_Gate`, `DialogPopup_Show_HoverStrip`, `TakeDamagePanel_BurnHover_Skip` |
 | `src/GloomhavenVR/Compat/CompatModule.cs` | `InitialInputSkip`, `WallFadeDisable` |
 | `src/GloomhavenVR/Core/Events/VREventsModule.cs` | `Choreographer_ProcessMessage_Patch`, `Choreographer_SetChoreographerState_Patch`, `UIManager_ToggleLockUI_Patch`, `UIWindow_Transition_Patch` |
