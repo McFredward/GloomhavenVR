@@ -1696,11 +1696,20 @@ internal static partial class Loc
                 + "BLEIBEN STEHEN — BoardPosOffset verschiebt das ganze Brett samt Elementen, diese "
                 + "Option schiebt nur das Asset darunter weg. PRO BRETT. Ausgeliefert mit 0.",
             ["Cards/AssetRotation_*"] =
-                "Drehung NUR des Brett-Meshes, in Grad (X = Neigung, Y = Gierung, Z = Rollen) um die "
-                + "Brettwurzel. Anker und angedockte Elemente bleiben stehen — BoardTilt neigt das "
-                + "GANZE Brett samt Knöpfen und Karten, diese Option neigt nur das Asset. Der "
-                + "Mesh-Collider wandert mit, der Laser trifft also weiterhin, was du siehst. PRO "
-                + "BRETT. Ausgeliefert mit 0.",
+                "VERALTET — ohne Wirkung, ersetzt durch AssetPitch/Yaw/RollDegrees_<Brett>. Ein "
+                + "Vector3, dessen Schlüssel kein Einheitenwort trug — das Menü stellte ihn in "
+                + "Hundertstel Grad.",
+            ["Cards/AssetPitchDegrees_*"] =
+                "NEIGUNG nur des Brett-Meshes, in Grad — kippt das Asset zur Spielerin hin oder weg, "
+                + "um die Brettwurzel. Anker und angedockte Elemente bleiben stehen (BoardTilt neigt "
+                + "das GANZE Brett; das hier nur das Asset). PRO BRETT. Ausgeliefert mit 0.",
+            ["Cards/AssetYawDegrees_*"] =
+                "GIERUNG nur des Brett-Meshes, in Grad — dreht das Asset flach um die Brettwurzel. "
+                + "Anker und angedockte Elemente bleiben stehen. PRO BRETT. Ausgeliefert mit 0.",
+            ["Cards/AssetRollDegrees_*"] =
+                "ROLLEN nur des Brett-Meshes, in Grad — rollt das Asset um die Brettwurzel. Anker und "
+                + "angedockte Elemente bleiben stehen. Der Mesh-Collider wandert mit, der Laser trifft "
+                + "also weiterhin, was du siehst. PRO BRETT. Ausgeliefert mit 0.",
             ["Hands/GhostHandOnHeldCard"] =
                 "Macht eine Hand AUCH dann halbtransparent, wenn sie eine KARTE hält — die Finger "
                 + "umschließen genau die Kartenkunst, für die man die Karte hochgenommen hat. "

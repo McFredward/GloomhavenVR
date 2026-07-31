@@ -279,7 +279,9 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged += OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
                 CardsConfig.AssetOffset(b).SettingChanged += OnAssetPoseChanged;
-                CardsConfig.AssetRotation(b).SettingChanged += OnAssetPoseChanged;
+                CardsConfig.AssetPitch(b).SettingChanged += OnAssetPoseChanged;
+                CardsConfig.AssetYaw(b).SettingChanged += OnAssetPoseChanged;
+                CardsConfig.AssetRoll(b).SettingChanged += OnAssetPoseChanged;
                 CardsConfig.BoardTilt(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged += OnOrientationChanged;
@@ -317,7 +319,9 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged -= OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged -= OnInitiativeOffsetChanged;
                 CardsConfig.AssetOffset(b).SettingChanged -= OnAssetPoseChanged;
-                CardsConfig.AssetRotation(b).SettingChanged -= OnAssetPoseChanged;
+                CardsConfig.AssetPitch(b).SettingChanged -= OnAssetPoseChanged;
+                CardsConfig.AssetYaw(b).SettingChanged -= OnAssetPoseChanged;
+                CardsConfig.AssetRoll(b).SettingChanged -= OnAssetPoseChanged;
                 CardsConfig.BoardTilt(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged -= OnOrientationChanged;
@@ -424,10 +428,13 @@ internal sealed partial class CardsDriver : MonoBehaviour
         if (_applyAssetPose)
         {
             _applyAssetPose = false;
-            _tray.SetAssetPose(CardsConfig.AssetOffset(b).Value, CardsConfig.AssetRotation(b).Value);
+            var assetEuler = new Vector3(CardsConfig.AssetPitch(b).Value,
+                                         CardsConfig.AssetYaw(b).Value,
+                                         CardsConfig.AssetRoll(b).Value);
+            _tray.SetAssetPose(CardsConfig.AssetOffset(b).Value, assetEuler);
             VRLog.Info("Cards", $"Debug live-apply [{b}]: asset-only pose — offset " +
-                                $"{CardsConfig.AssetOffset(b).Value}, rotation {CardsConfig.AssetRotation(b).Value} " +
-                                "(anchors pinned; the mesh moved underneath them).");
+                                $"{CardsConfig.AssetOffset(b).Value}, pitch/yaw/roll {assetEuler} °" +
+                                " (anchors pinned; the mesh moved underneath them).");
         }
         if (_applyOrientation)
         {

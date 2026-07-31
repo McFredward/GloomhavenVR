@@ -168,6 +168,9 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _assetOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _assetRotation = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<float>[] _assetPitch = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _assetYaw = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _assetRoll = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardYaw = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _boardPosOffset = new ConfigEntry<Vector3>[3];
@@ -649,12 +652,23 @@ internal static class CardsConfig
                 "anchors (card slots, rest tokens, Confirm/Undo) and everything docked to them " +
                 "STAY PUT — BoardPosOffset moves the whole board WITH its elements, this slides " +
                 "only the asset underneath them. Seeded 0 (today's look).");
+            // One session old and NOT seeded from: its only recorded values are the 0.01-degree
+            // stepper accidents that exposed the step bug. The three named entries below replace it.
             _assetRotation[i] = _file.Bind("Cards", $"AssetRotation_{board}", Vector3.zero,
-                $"[{board}] rotation of the BOARD MESH ALONE, degrees (X = pitch, Y = yaw, Z = " +
-                "roll) about the board root. Anchors and docked elements stay put — BoardTilt " +
-                "tilts the WHOLE board including buttons and cards, this tilts only the asset. " +
-                "The mesh collider moves with the mesh, so the laser still lands on what you " +
-                "see. Seeded 0 (today's look).");
+                $"LEGACY — no effect, superseded by [{board}] AssetPitch/Yaw/RollDegrees_{board}. " +
+                "A Vector3 whose key carried no unit word, so the menu stepped it in hundredths " +
+                "of a degree.");
+            _assetPitch[i] = _file.Bind("Cards", $"AssetPitchDegrees_{board}", 0f,
+                $"[{board}] PITCH of the BOARD MESH ALONE, degrees — tips the asset toward/away " +
+                "from the player about the board root. Anchors and docked elements stay put " +
+                "(BoardTilt tilts the WHOLE board; this tilts only the asset). Seeded 0.");
+            _assetYaw[i] = _file.Bind("Cards", $"AssetYawDegrees_{board}", 0f,
+                $"[{board}] YAW of the BOARD MESH ALONE, degrees — turns the asset flat about the " +
+                "board root. Anchors and docked elements stay put. Seeded 0.");
+            _assetRoll[i] = _file.Bind("Cards", $"AssetRollDegrees_{board}", 0f,
+                $"[{board}] ROLL of the BOARD MESH ALONE, degrees — rolls the asset about the " +
+                "board root. Anchors and docked elements stay put. The mesh collider rides the " +
+                "mesh, so the laser lands on what you see. Seeded 0.");
             _boardPosOffset[i] = _file.Bind("Cards", $"BoardPosOffset_{board}", Vector3.zero,
                 $"[{board}] board position offset ADDED on top of the tray head-relative offset, real " +
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
@@ -1028,7 +1042,9 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
     internal static ConfigEntry<float> BoardTilt(ControlBoard b) => _boardTilt[(int)b];
     internal static ConfigEntry<Vector3> AssetOffset(ControlBoard b) => _assetOffset[(int)b];
-    internal static ConfigEntry<Vector3> AssetRotation(ControlBoard b) => _assetRotation[(int)b];
+    internal static ConfigEntry<float> AssetPitch(ControlBoard b) => _assetPitch[(int)b];
+    internal static ConfigEntry<float> AssetYaw(ControlBoard b) => _assetYaw[(int)b];
+    internal static ConfigEntry<float> AssetRoll(ControlBoard b) => _assetRoll[(int)b];
     internal static ConfigEntry<float> BoardYaw(ControlBoard b) => _boardYaw[(int)b];
     internal static ConfigEntry<float> BoardScale(ControlBoard b) => _boardScale[(int)b];
     internal static ConfigEntry<Vector3> BoardPosOffset(ControlBoard b) => _boardPosOffset[(int)b];

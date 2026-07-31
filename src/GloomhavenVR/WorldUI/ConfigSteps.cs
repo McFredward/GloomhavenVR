@@ -101,8 +101,19 @@ internal static class ConfigSteps
         Explicit.TryGetValue(section + "/" + key, out step);
 
     /// <summary>A step implied by the unit in the key's name, or false.</summary>
+    /// <remarks>
+    /// A per-variant key carries its variant as a TRAILING tag — <c>AssetPitchDegrees_Oak</c>,
+    /// <c>RestButtonDiameter_Steel</c> — so a plain suffix test never saw the unit word on any of
+    /// them and every one fell through to the 0.01 fallback. That is how the asset rotation
+    /// shipped stepping in HUNDREDTHS of a degree (the user pressed his way to -0.04° and
+    /// correctly reported "no effect"). The tag is stripped before the test; underscores appear
+    /// nowhere else in this project's key names.
+    /// </remarks>
     internal static bool TryUnit(string key, out double step)
     {
+        int tag = key.LastIndexOf('_');
+        if (tag > 0)
+            key = key.Substring(0, tag);
         for (int i = 0; i < Units.Length; i++)
         {
             if (key.EndsWith(Units[i].Suffix, StringComparison.Ordinal))

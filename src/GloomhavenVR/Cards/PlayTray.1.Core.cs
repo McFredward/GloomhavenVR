@@ -476,7 +476,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
                     _assetPinnedAnchors.Add((a, _root.InverseTransformPoint(a.position),
                                              Quaternion.Inverse(_root.rotation) * a.rotation));
             SetAssetPose(CardsConfig.AssetOffset(CardsConfig.CurrentBoard).Value,
-                         CardsConfig.AssetRotation(CardsConfig.CurrentBoard).Value);
+                         new Vector3(CardsConfig.AssetPitch(CardsConfig.CurrentBoard).Value,
+                                     CardsConfig.AssetYaw(CardsConfig.CurrentBoard).Value,
+                                     CardsConfig.AssetRoll(CardsConfig.CurrentBoard).Value));
 
             // DEFECT 2: the bundled board now ships a MeshCollider (BuildBoard). Register
             // it as a laser target so the index-finger beam STOPS on the REAL board
