@@ -326,6 +326,7 @@ internal sealed partial class FlatScreenStereo
         _albedoProbePending = false;
         _mapBaseCapture = false;
         _blackConsecutive = 0;
+        _nonBlackMapConsecutive = 0;
         if (_root != null)
         {
             Object.Destroy(_root);

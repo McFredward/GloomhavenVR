@@ -75,13 +75,56 @@ internal sealed partial class FlatScreenStereo
         if (maxChannel <= BlackChannelThreshold)
         {
             _blackConsecutive++;
+            _nonBlackMapConsecutive = 0;
             if (_blackConsecutive >= BlackConsecutiveToEngage)
                 EngageMapAlbedo(maxChannel);
         }
         else
         {
             _blackConsecutive = 0;
+            TickNonBlackMapDetect(maxChannel);
         }
+    }
+
+    /// <summary>Consecutive NON-black probes while a campaign map is provably showing (second engage path).</summary>
+    private int _nonBlackMapConsecutive;
+
+    /// <summary>
+    /// Machine-independent map engage (remote log 2026-08-01). On the reporting user's machine the
+    /// CampaignMap scene's base RT does NOT read black: the raw game MapCamera writes visible content
+    /// into it (brown parchment murk — how the deferred render resolves into an off-screen RT is
+    /// quality-preset/GPU dependent; on the original test machine it resolves to pure black). The
+    /// all-black detection above therefore never fires on his machine and the map render never engages
+    /// — his log shows the CampaignMap scene with ZERO further MAP lines, and he sees the raw un-posed
+    /// map camera (brown, inside the parchment). The map being SHOWN is decidable POSITIVELY instead:
+    /// a MapChoreographer whose worldMap or cityMap is active in the hierarchy. When that holds while
+    /// the probes keep reading non-black, engage after the same consecutive count. On a machine where
+    /// the map RT reads all-black (the original behavior) the black path engages first and this
+    /// counter never reaches the threshold — that path is unchanged.
+    /// </summary>
+    private void TickNonBlackMapDetect(int maxChannel)
+    {
+        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
+        GameObject? world = choreo != null ? choreo.worldMap : null;
+        GameObject? city = choreo != null ? choreo.cityMap : null;
+        GameObject? shown = world != null && world.activeInHierarchy ? world
+                          : city != null && city.activeInHierarchy ? city : null;
+        if (shown == null)
+        {
+            _nonBlackMapConsecutive = 0;
+            return;
+        }
+        _nonBlackMapConsecutive++;
+        if (_nonBlackMapConsecutive < BlackConsecutiveToEngage)
+            return;
+        EngageMapCore();
+        VRLog.Info("WorldUI", $"MAP RENDER detection (NON-black): the campaign map is showing " +
+                              $"(MapChoreographer map '{shown.name}' active) but the base RenderTexture reads " +
+                              $"NON-black (max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) — " +
+                              "on this machine the raw map camera resolves visible content into the RT " +
+                              "(quality/GPU dependent), which the all-black detection can never catch. " +
+                              "Engaging the mod forward render of the REAL MapChoreographer map mesh (MapUnlit) " +
+                              "all the same. Re-arms on the next scene change.");
     }
 
     /// <summary>
@@ -94,6 +137,22 @@ internal sealed partial class FlatScreenStereo
     {
         if (_mapBaseCapture)
             return;
+        EngageMapCore();
+        VRLog.Info("WorldUI", $"MAP RENDER detection: the screen's base RenderTexture reads BLACK " +
+                              $"(max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a 3D " +
+                              "background camera renders — the campaign map's deferred parchment shader will not " +
+                              "light into any RenderTexture we own. Engaging the mod forward render of the REAL " +
+                              "MapChoreographer.worldMap mesh (MapUnlit) into the base RT. Re-arms on the next scene change.");
+    }
+
+    /// <summary>
+    /// Shared engage state for BOTH detection paths (all-black base RT on the original machine,
+    /// NON-black-with-live-MapChoreographer on machines whose map camera resolves visible content —
+    /// see <see cref="TickNonBlackMapDetect"/>). Guarded by the callers' <c>_mapBaseCapture</c> check
+    /// (the non-black path only runs while it is false, see <see cref="TickBlackProbe"/>).
+    /// </summary>
+    private void EngageMapCore()
+    {
         _mapBaseCapture = true;
         _mapEngageFrame = Time.frameCount; // start the fast per-frame base-RT probe window
         _mapMirrorLogged = false;
@@ -101,16 +160,15 @@ internal sealed partial class FlatScreenStereo
         _capMapValid = false;
         _albedoMaterialsLogged = false;
         _albedoWarned = false;
+        _nonBlackMapConsecutive = 0;
+        // Fresh acquisition-failure dump budget per engagement (see LogMapAcquisitionCandidates).
+        _albedoFailTicks = 0;
+        _albedoFailDumpLogged = false;
         // Fresh diagnostic budget per map ENTRY: the savegame session that shipped no icons at
         // all had spent all five MAP ICONS lines within seconds of the FIRST map load — every
         // later minute on the map was diagnostically blind.
         _mapIconsLogCount = 0;
         _iconFallbackLogged = false;
-        VRLog.Info("WorldUI", $"MAP RENDER detection: the screen's base RenderTexture reads BLACK " +
-                              $"(max channel {maxChannel}/255 over {BlackProbeSize}x{BlackProbeSize}) while a 3D " +
-                              "background camera renders — the campaign map's deferred parchment shader will not " +
-                              "light into any RenderTexture we own. Engaging the mod forward render of the REAL " +
-                              "MapChoreographer.worldMap mesh (MapUnlit) into the base RT. Re-arms on the next scene change.");
     }
 
     // ---- map render: forward camera over the REAL parchment mesh (class doc MAP RENDER) --------
@@ -753,6 +811,14 @@ internal sealed partial class FlatScreenStereo
                                       "GH_CampaignMap material found in the scene — the base RT is left as-is " +
                                       "(the map stays black). Retrying each tick while the map is showing.");
             }
+            else if (!_albedoFailDumpLogged && ++_albedoFailTicks >= AlbedoFailTicksForDump)
+            {
+                // The retry loop above is real (this method runs every tick via ReconcileAlbedoCamera)
+                // but it retried SILENTLY forever: a log that ends on the one-shot warning cannot say
+                // WHY nothing was ever found. Name the discrepancy once per engagement.
+                _albedoFailDumpLogged = true;
+                LogMapAcquisitionCandidates();
+            }
             return false;
         }
 
@@ -849,6 +915,63 @@ internal sealed partial class FlatScreenStereo
         _worldMapRenderer = found;
         return true;
     }
+
+    /// <summary>Failed acquisition ticks since engage (drives the one-shot what-IS-there dump).</summary>
+    private int _albedoFailTicks;
+    /// <summary>One-shot guard (per engagement) for <see cref="LogMapAcquisitionCandidates"/>.</summary>
+    private bool _albedoFailDumpLogged;
+    /// <summary>Engaged-but-failing ticks before the acquisition-candidates dump (~3–4 s at 72–90 Hz).</summary>
+    private const int AlbedoFailTicksForDump = 240;
+
+    /// <summary>
+    /// Decisive acquisition-failure diagnostic: the per-tick retry has been failing for
+    /// <see cref="AlbedoFailTicksForDump"/> ticks after engage — log ONCE what map-like renderers and
+    /// material names DO exist (≤10), so a failing log names the actual discrepancy (renamed
+    /// quality-variant materials, a missing MapChoreographer, an inactive map GO) instead of only
+    /// repeating "not found".
+    /// </summary>
+    private void LogMapAcquisitionCandidates()
+    {
+        var sb = new StringBuilder();
+        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
+        if (choreo == null)
+            sb.Append("MapChoreographer=NONE in the loaded scene(s)");
+        else
+            sb.Append($"MapChoreographer='{choreo.name}' worldMap={DescribeMapGo(choreo.worldMap)} " +
+                      $"cityMap={DescribeMapGo(choreo.cityMap)}");
+        int listed = 0, scanned = 0;
+        foreach (MeshRenderer r in Object.FindObjectsOfType<MeshRenderer>(includeInactive: true))
+        {
+            scanned++;
+            if (listed >= 10)
+                continue; // keep counting scanned
+            Material[] mats = r.sharedMaterials;
+            bool mapLike = NameIsMapLike(r.name);
+            for (int i = 0; i < mats.Length && !mapLike; i++)
+                mapLike = mats[i] != null && NameIsMapLike(mats[i].name);
+            if (!mapLike)
+                continue;
+            listed++;
+            sb.Append($"\n  '{r.name}' active={r.gameObject.activeInHierarchy} mats=[");
+            for (int i = 0; i < mats.Length; i++)
+                sb.Append(i > 0 ? ", " : "").Append(mats[i] != null ? mats[i].name : "<null>");
+            sb.Append(']');
+        }
+        VRLog.Warn("WorldUI", $"MAP RENDER acquisition still failing after {AlbedoFailTicksForDump} engaged " +
+                              $"ticks — what IS there: {sb}\n  ({listed} map-like MeshRenderer(s) listed, " +
+                              $"{scanned} scanned; 'map-like' = GO or material name contains " +
+                              "map/campaign/city/parchment).");
+    }
+
+    private static string DescribeMapGo(GameObject? go) =>
+        go == null ? "null" : $"'{go.name}' active={go.activeInHierarchy}";
+
+    private static bool NameIsMapLike(string n) =>
+        !string.IsNullOrEmpty(n)
+        && (n.IndexOf("map", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("campaign", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("city", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("parchment", System.StringComparison.OrdinalIgnoreCase) >= 0);
 
     /// <summary>Parse the quadrant index (0..3) from a material/texture name's "0N" suffix (N=1..4), or -1.</summary>
     private static int QuadrantIndexFromName(string n)
