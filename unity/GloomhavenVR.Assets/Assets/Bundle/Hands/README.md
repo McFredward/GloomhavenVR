@@ -69,7 +69,26 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
    Tip bone actually owns the distal phalanx (it used to start AT the fingertip —
    the runtime's 65° tip rotation moved ~2 mm of mesh). Verified via
    RIG_HAND_DIAG=1 weight stats + rigid-follow test + the rendered pose matrix.
-3. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
+3. PLATE ONLY, 2026-07 palm fix — the gauntlet's palm shipped with a hard diagonal
+   fold and a radial star of flat wedges. Two different defects, in two different
+   places, and both were mis-diagnosed as vertex positions for five attempts:
+   - `palm_smooth.py <L|R_rig.fbx>` — the FOLD is in the CUSTOM SPLIT NORMALS the FBX
+     carries (a fossil of the pre-decimation mesh: 16.3° from auto-smooth on average,
+     up to 176°). It rewrites them over the palm and moves NO vertex, so the rig, the
+     silhouette and the skin weights cannot change.
+   - `palm_repaint.py <L_rig.fbx> <R_rig.fbx> <albedo.png> <out.png>` — the STAR is
+     pigment, baked into the albedo off the coarse original. It repaints the palm in
+     SURFACE space (3-D blur + 3-D value-noise grain, so the palm's 370 UV islands
+     have no seam) and fills the atlas's black inter-island gutters, which is what
+     used to bleed into every seam as a dark hairline at mip 1 and beyond. It asserts
+     that no texel any other part of the hand samples changed.
+   - `palm_region.py` is the shared definition of "this is the palm" both use.
+   Verification helpers, all read-only: `hand_audit.py` (mesh/UV/topology stats),
+   `render_hand.py` (clay / emission-on-magenta / lit renders), `count_holes.py`
+   (see-through pixels inside the silhouette), `leak_scan.py` (the same over a sphere
+   of 42 directions), `palm_crease_metric.py` (gradient energy across the palm plate),
+   `compare_fbx.py` (re-import two FBXs and diff them — never trust a script's log).
+4. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
    `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
 
 Missing styled prefabs (old bundle) degrade to the Glove pair at runtime; no bundle
