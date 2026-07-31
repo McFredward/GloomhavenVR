@@ -376,7 +376,7 @@ public class Plugin : BaseUnityPlugin
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +
             "for board targeting.");
         HandStyle = Config.Bind(
-            "Hands", "HandStyle", Hands.HandStyle.Plate,
+            "Hands", "HandStyle", Hands.HandStyle.Glove,
             "Which hand model to wear: Glove (leather glove, default), Plate (plate-armor " +
             "gauntlet) or Arcane (arcane-runes mage glove). Applies live (the hands rebuild " +
             "on change) and is synchronized in multiplayer so other VR players see your " +
@@ -447,7 +447,7 @@ public class Plugin : BaseUnityPlugin
             "the game runs and the hands re-seat on the next frame.");
         BindHandStyleEntries();
         LaserFingerOrigin = Config.Bind(
-            "Hands", "LaserFingerOrigin", true,
+            "Hands", "LaserFingerOrigin", false,
             "Start the VISIBLE laser beam at the hand rig's index fingertip (converging on " +
             "the aim-pose ray's end point) so it reads as leaving the pointing finger. The " +
             "pick ray itself always uses the OpenXR aim pose. Off = beam starts at the aim " +
@@ -562,7 +562,7 @@ public class Plugin : BaseUnityPlugin
     private void BindHandStyleEntries()
     {
         string[] styles = { "Glove", "Plate", "Arcane" }; // index == (int)Hands.HandStyle
-        float[] scaleDefaults = { 1.00f, 0.62f, 0.62f };
+        float[] scaleDefaults = { 1.02f, 0.62f, 0.62f };
         int n = styles.Length;
         HandStyleScale = new ConfigEntry<float>[n];
         HandStylePitchTrim = new ConfigEntry<float>[n];

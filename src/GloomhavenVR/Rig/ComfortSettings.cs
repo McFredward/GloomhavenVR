@@ -283,7 +283,7 @@ internal static class ComfortSettings
             "Hold the upper face button (B + Y) on BOTH controllers this many seconds to " +
             "recenter at the table. 0 disables the chord.",
             new AcceptableValueRange<float>(0f, 5f));
-        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 2.33017f,
+        SavedScaleMultiplier = Bind("SavedScaleMultiplier", 2.268242f,
             "Last pinch-scale multiplier relative to the base WorldScale (the 'table scale' " +
             "shown in the in-VR settings panel). Written automatically after each two-grip " +
             "scale gesture and re-applied when the rig is rebuilt. Default 2.5 — the auto base " +

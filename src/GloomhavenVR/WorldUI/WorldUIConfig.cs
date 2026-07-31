@@ -470,17 +470,17 @@ internal static class WorldUIConfig
             "orientation still only re-derives on recenter, never per frame). Replaces " +
             "the test-#19 'CombatLogFollow' key: its follow default plus the per-tick " +
             "yaw billboard read as the panel tracking the head (test #20).");
-        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", -0.565869f,
+        CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", -0.234156f,
             "Combat log panel offset from the table anchor along the seat forward, real " +
             "meters (default = the old arc slot: azimuth 56° at 1.10 m). Persisted " +
             "automatically when the panel's grab bar is released.");
-        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", 1.00533f,
+        CombatLogRight = _file.Bind("WorldUI", "CombatLogRight", 0.941762f,
             "Combat log panel offset to the seat right, real meters (grab-persisted).");
         CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", 0.458258f,
             "Combat log panel height above the table plane, real meters (grab-persisted).");
         CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", 0.67339f,
             "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).");
-        CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", false,
+        CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", true,
             "The user hid the combat log via its top-right X button (or the in-VR settings " +
             "'Kampflog anzeigen' toggle). While true the panel releases back to its 2D home and " +
             "does NOT auto-reappear in a scenario; the settings toggle clears it and re-shows the " +
