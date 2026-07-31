@@ -166,6 +166,8 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _slotOverlaySpacing = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<Vector3>[] _assetOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _assetRotation = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _boardYaw = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _boardPosOffset = new ConfigEntry<Vector3>[3];
@@ -642,6 +644,17 @@ internal static class CardsConfig
                 "the table — the ~0.4 table-ratio default felt a touch small on first spawn, so the " +
                 "board opens slightly larger (0.5). Resize any time with the two-handed grab gesture " +
                 "(writes TrayScale); this is the per-board seed on top of that.");
+            _assetOffset[i] = _file.Bind("Cards", $"AssetOffset_{board}", Vector3.zero,
+                $"[{board}] position offset of the BOARD MESH ALONE, board-local meters. The six " +
+                "anchors (card slots, rest tokens, Confirm/Undo) and everything docked to them " +
+                "STAY PUT — BoardPosOffset moves the whole board WITH its elements, this slides " +
+                "only the asset underneath them. Seeded 0 (today's look).");
+            _assetRotation[i] = _file.Bind("Cards", $"AssetRotation_{board}", Vector3.zero,
+                $"[{board}] rotation of the BOARD MESH ALONE, degrees (X = pitch, Y = yaw, Z = " +
+                "roll) about the board root. Anchors and docked elements stay put — BoardTilt " +
+                "tilts the WHOLE board including buttons and cards, this tilts only the asset. " +
+                "The mesh collider moves with the mesh, so the laser still lands on what you " +
+                "see. Seeded 0 (today's look).");
             _boardPosOffset[i] = _file.Bind("Cards", $"BoardPosOffset_{board}", Vector3.zero,
                 $"[{board}] board position offset ADDED on top of the tray head-relative offset, real " +
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
@@ -1014,6 +1027,8 @@ internal static class CardsConfig
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
     internal static ConfigEntry<float> BoardTilt(ControlBoard b) => _boardTilt[(int)b];
+    internal static ConfigEntry<Vector3> AssetOffset(ControlBoard b) => _assetOffset[(int)b];
+    internal static ConfigEntry<Vector3> AssetRotation(ControlBoard b) => _assetRotation[(int)b];
     internal static ConfigEntry<float> BoardYaw(ControlBoard b) => _boardYaw[(int)b];
     internal static ConfigEntry<float> BoardScale(ControlBoard b) => _boardScale[(int)b];
     internal static ConfigEntry<Vector3> BoardPosOffset(ControlBoard b) => _boardPosOffset[(int)b];

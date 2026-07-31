@@ -42,6 +42,31 @@ internal sealed partial class PlayTray
         }
     }
 
+    /// <summary>
+    /// PART F live-apply, but for the BOARD MESH ITSELF: pose the visual asset (per-board offset
+    /// in board-local meters + pitch/yaw/roll degrees about the board root) WITHOUT moving
+    /// anything that docks to it. BoardTilt tilts the WHOLE board — this is the complementary
+    /// control the user asked for. Mechanism: the six bundle anchors are descendants of the
+    /// visual, so after posing the mesh their captured root-local poses are written back,
+    /// pinning slots, rest tokens and Confirm/Undo (and every element attached to them) exactly
+    /// where they were. The mesh collider rides the mesh, so the laser lands on what you see.
+    /// </summary>
+    internal void SetAssetPose(Vector3 offset, Vector3 euler)
+    {
+        if (_visual == null || _root == null)
+            return;
+        _visual.localPosition = _visualBasePos + offset;
+        _visual.localRotation = Quaternion.Euler(euler) * _visualBaseRot;
+        for (int i = 0; i < _assetPinnedAnchors.Count; i++)
+        {
+            (Transform t, Vector3 lp, Quaternion lr) = _assetPinnedAnchors[i];
+            if (t == null)
+                continue;
+            t.position = _root.TransformPoint(lp);
+            t.rotation = _root.rotation * lr;
+        }
+    }
+
     /// <summary>PART F live-apply: move the initiative-track mount to a new per-board local position.</summary>
     internal void SetInitiativeOffset(Vector3 offset)
     {

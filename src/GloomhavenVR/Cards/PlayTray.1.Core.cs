@@ -130,6 +130,13 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     private Transform? _activeMount;
     private Transform?[] _slots = new Transform?[2];
     private Transform? _shortRestAnchor;
+
+    // Asset-only pose (SetAssetPose): the tray mesh + its capture at build.
+    private Transform? _visual;
+    private Vector3 _visualBasePos;
+    private Quaternion _visualBaseRot;
+    private readonly System.Collections.Generic.List<(Transform t, Vector3 lp, Quaternion lr)>
+        _assetPinnedAnchors = new(6);
     private Transform? _longRestAnchor;
     private readonly VRCard?[] _occupants = new VRCard?[2];
 
@@ -454,6 +461,22 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
                     if (a != null)
                         a.rotation = faceWorld;
             }
+
+            // Asset-only pose (user request): the visual mesh can be offset/tilted PER BOARD
+            // without moving anything that docks to it. The six anchors are DESCENDANTS of the
+            // visual, so posing the mesh would drag every element along — capture their
+            // root-local poses NOW, while the visual is untouched, so SetAssetPose can move the
+            // mesh underneath them and pin them back exactly where they were.
+            _visual = visual.transform;
+            _visualBasePos = _visual.localPosition;
+            _visualBaseRot = _visual.localRotation;
+            _assetPinnedAnchors.Clear();
+            foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
+                if (a != null)
+                    _assetPinnedAnchors.Add((a, _root.InverseTransformPoint(a.position),
+                                             Quaternion.Inverse(_root.rotation) * a.rotation));
+            SetAssetPose(CardsConfig.AssetOffset(CardsConfig.CurrentBoard).Value,
+                         CardsConfig.AssetRotation(CardsConfig.CurrentBoard).Value);
 
             // DEFECT 2: the bundled board now ships a MeshCollider (BuildBoard). Register
             // it as a laser target so the index-finger beam STOPS on the REAL board

@@ -1690,6 +1690,17 @@ internal static partial class Loc
                 + "gerade ist — eine reine Faust um lokal X lässt den gekrümmten Kleinfinger sichtbar "
                 + "abgespreizt stehen; dies zieht ihn beim Krümmen zum Ringfinger zurück (das Vorzeichen kippt "
                 + "für die rechte Hand automatisch). 0 schaltet ab. Live änderbar.",
+            ["Cards/AssetOffset_*"] =
+                "Positionsversatz NUR des Brett-Meshes, in brettlokalen Metern. Die sechs Anker "
+                + "(Kartenslots, Rast-Marken, Bestätigen/Rückgängig) und alles, was an ihnen hängt, "
+                + "BLEIBEN STEHEN — BoardPosOffset verschiebt das ganze Brett samt Elementen, diese "
+                + "Option schiebt nur das Asset darunter weg. PRO BRETT. Ausgeliefert mit 0.",
+            ["Cards/AssetRotation_*"] =
+                "Drehung NUR des Brett-Meshes, in Grad (X = Neigung, Y = Gierung, Z = Rollen) um die "
+                + "Brettwurzel. Anker und angedockte Elemente bleiben stehen — BoardTilt neigt das "
+                + "GANZE Brett samt Knöpfen und Karten, diese Option neigt nur das Asset. Der "
+                + "Mesh-Collider wandert mit, der Laser trifft also weiterhin, was du siehst. PRO "
+                + "BRETT. Ausgeliefert mit 0.",
             ["Hands/GhostHandOnHeldCard"] =
                 "Macht eine Hand AUCH dann halbtransparent, wenn sie eine KARTE hält — die Finger "
                 + "umschließen genau die Kartenkunst, für die man die Karte hochgenommen hat. "

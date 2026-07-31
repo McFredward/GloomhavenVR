@@ -246,7 +246,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private bool _applyControlRebuild;   // rest diameter / confirm-undo size / button SHAPE (rebuild the buttons)
     private int _restTuningVersion;      // last-seen ButtonTuning.Version — rest [RestButtons] W/H/D/Travel live-rebuild
     private bool _applyOverlayOffset;    // slot/wanted glow offset
-    private bool _applyInitiativeOffset; // initiative-track mount position
+    private bool _applyInitiativeOffset;
+    private bool _applyAssetPose; // initiative-track mount position
     private bool _applyOrientation;      // board tilt / yaw / scale / pos-offset
     private bool _applyActive;           // active-cards mount offset / card scale / grid spacing
     private bool _applyPiles;            // discard/burn pile mount offset / scale / inter-pile spacing
@@ -277,6 +278,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged += OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
+                CardsConfig.AssetOffset(b).SettingChanged += OnAssetPoseChanged;
+                CardsConfig.AssetRotation(b).SettingChanged += OnAssetPoseChanged;
                 CardsConfig.BoardTilt(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged += OnOrientationChanged;
@@ -313,6 +316,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged -= OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged -= OnInitiativeOffsetChanged;
+                CardsConfig.AssetOffset(b).SettingChanged -= OnAssetPoseChanged;
+                CardsConfig.AssetRotation(b).SettingChanged -= OnAssetPoseChanged;
                 CardsConfig.BoardTilt(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged -= OnOrientationChanged;
@@ -341,6 +346,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private void OnControlSizeChanged(object sender, System.EventArgs e) => _applyControlRebuild = true;
     private void OnOverlayOffsetChanged(object sender, System.EventArgs e) => _applyOverlayOffset = true;
     private void OnInitiativeOffsetChanged(object sender, System.EventArgs e) => _applyInitiativeOffset = true;
+    private void OnAssetPoseChanged(object sender, System.EventArgs e) => _applyAssetPose = true;
     private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
     private void OnActiveTuningChanged(object sender, System.EventArgs e) => _applyActive = true;
     private void OnPilesTuningChanged(object sender, System.EventArgs e) => _applyPiles = true;
@@ -414,6 +420,14 @@ internal sealed partial class CardsDriver : MonoBehaviour
             _applyInitiativeOffset = false;
             _tray.SetInitiativeOffset(CardsConfig.InitiativeOffset(b).Value);
             VRLog.Info("Cards", $"Debug live-apply [{b}]: initiative offset {CardsConfig.InitiativeOffset(b).Value}.");
+        }
+        if (_applyAssetPose)
+        {
+            _applyAssetPose = false;
+            _tray.SetAssetPose(CardsConfig.AssetOffset(b).Value, CardsConfig.AssetRotation(b).Value);
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: asset-only pose — offset " +
+                                $"{CardsConfig.AssetOffset(b).Value}, rotation {CardsConfig.AssetRotation(b).Value} " +
+                                "(anchors pinned; the mesh moved underneath them).");
         }
         if (_applyOrientation)
         {
