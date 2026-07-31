@@ -540,48 +540,73 @@ internal sealed class StatPanelSurface
             group.blocksRaycasts = false;
         }
 
-        int detached = DetachSharedImagery(copy);
+        int detached = DetachSharedImagery(real, copy);
+        string diff = StructuralDiff(real.gameObject, copy);
 
         _copyHolder = holder;
         _copyRect = copy.transform as RectTransform;
         _copyActor = actor;
 
         VRLog.Info("WorldUI", $"second held-figure info panel snapshot created ({stripped} logic " +
-                              $"component(s) stripped, {detached} texture(s) detached; game " +
-                              "singleton untouched) — both hands' figures now show a panel each.");
+                              $"component(s) stripped, {detached} portrait(s) detached; game " +
+                              $"singleton untouched) — both hands' figures now show a panel each. {diff}");
     }
 
     /// <summary>
-    /// Give the snapshot its OWN copy of every texture it displays.
+    /// Give the snapshot its own copy of the TWO images the game pulls out from under it — and
+    /// nothing else.
     ///
-    /// <para>WHY: the portrait is not a plain sprite on a prefab. ActorStatPanel loads it through an
-    /// addressable sprite loader — <c>_imageSpriteLoader.LoadAsync(this, enemyPortrait, ...)</c> —
-    /// and later calls <c>_imageSpriteLoader.Unload(enemyPortrait)</c> (both verified in the real
-    /// GH.Runtime.dll). That Unload releases the handle and Unity destroys the underlying texture.
-    /// Our snapshot is a plain Instantiate, so its Image still points at that texture and goes
-    /// BLANK the moment the real panel moves on to the other actor or closes — which is exactly the
-    /// reported symptom, and why it hit the SECOND figure's panel and hit it often rather than
-    /// always: it depends on whether the game unloaded that particular portrait yet.</para>
+    /// <para>WHY IT IS NEEDED: the portrait is not a plain sprite on a prefab. ActorStatPanel
+    /// loads it through an addressable sprite loader — <c>_imageSpriteLoader.LoadAsync(this,
+    /// enemyPortrait, ...)</c> — and later calls <c>_imageSpriteLoader.Unload(enemyPortrait)</c>
+    /// (both verified in the real GH.Runtime.dll). That Unload destroys the texture, and a plain
+    /// Instantiate snapshot still pointing at it goes BLANK the moment the real panel moves to the
+    /// other actor or closes.</para>
     ///
-    /// <para>So every distinct texture is copied ONCE (GPU-side <see cref="Graphics.CopyTexture"/>,
-    /// no readback and no requirement that the source be CPU-readable) and the sprites are rebuilt
-    /// on the copies with the same rect, pivot, border and pixels-per-unit — an atlased sprite keeps
-    /// working because the rect is relative to a texture of identical size. The copies are ours and
-    /// die with the snapshot in <see cref="DestroyCopy"/>.</para>
+    /// <para>WHY IT IS NOW TWO IMAGES AND NOT ALL OF THEM. The first version of this copied every
+    /// texture in the panel and rebuilt every sprite on the copies. It fixed the portrait and broke
+    /// the panel: a rebuilt Sprite is a NEW sprite, and a NINE-SLICED frame rebuilt that way stops
+    /// slicing correctly — which is exactly the "the second box is square and missing pieces" that
+    /// came back. The frames, icons and dividers were never in danger; only what the loader
+    /// unloads is. So the two portrait Images are located by REFLECTION on the real panel
+    /// (<c>characterPortrait</c> and <c>enemyPortrait</c>, both private <c>Image</c> fields),
+    /// translated to their transform paths, and only those two are detached in the copy.</para>
     ///
-    /// <para>Failures are per-image and swallowed: a texture Unity refuses to copy leaves that one
-    /// Image on the shared original, which is no worse than before this existed.</para>
+    /// <para>Failures are per-image and swallowed: an image that cannot be copied keeps the shared
+    /// original, which is no worse than before this existed.</para>
     /// </summary>
-    private static int DetachSharedImagery(GameObject copy)
+    private static int DetachSharedImagery(ActorStatPanel real, GameObject copy)
     {
-        var clones = new Dictionary<Texture, Texture2D>();
-
-        Texture2D? CloneOf(Texture? src)
+        var paths = new List<string>(2);
+        System.Reflection.FieldInfo[] fields = typeof(ActorStatPanel).GetFields(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Public);
+        for (int i = 0; i < fields.Length; i++)
         {
-            if (src is not Texture2D tex)
-                return null;
-            if (clones.TryGetValue(tex, out Texture2D existing))
-                return existing;
+            if (fields[i].FieldType != typeof(Image) ||
+                fields[i].Name.IndexOf("ortrait", System.StringComparison.Ordinal) < 0)
+                continue;
+            if (fields[i].GetValue(real) is not Image img || img == null)
+                continue;
+            string? path = PathUnder(real.transform, img.transform);
+            if (path != null)
+                paths.Add(path);
+        }
+        if (paths.Count == 0)
+        {
+            VRLog.Warn("WorldUI", "stat-panel snapshot: no portrait Image found on ActorStatPanel " +
+                                  "— the copy will blank when the game unloads the portrait.");
+            return 0;
+        }
+
+        int detached = 0;
+        for (int i = 0; i < paths.Count; i++)
+        {
+            Transform? t = copy.transform.Find(paths[i]);
+            Image? img = t != null ? t.GetComponent<Image>() : null;
+            Sprite? sprite = img != null ? img.sprite : null;
+            if (sprite == null || sprite.texture is not Texture2D tex)
+                continue;
             try
             {
                 var dst = new Texture2D(tex.width, tex.height, tex.format, tex.mipmapCount > 1)
@@ -592,47 +617,73 @@ internal sealed class StatPanelSurface
                     anisoLevel = tex.anisoLevel,
                 };
                 Graphics.CopyTexture(tex, dst);
-                clones[tex] = dst;
+                var rebuilt = Sprite.Create(dst, sprite.rect, NormalizedPivot(sprite),
+                                            sprite.pixelsPerUnit, 0, SpriteMeshType.FullRect,
+                                            sprite.border);
+                rebuilt.name = sprite.name + " (VR copy)";
                 _copyOwnedTextures.Add(dst);
-                return dst;
+                _copyOwnedSprites.Add(rebuilt);
+                img!.sprite = rebuilt;
+                detached++;
             }
             catch (System.Exception e)
             {
-                VRLog.Warn("WorldUI", $"stat-panel snapshot: could not copy texture '{tex.name}' " +
-                                      $"({e.GetType().Name}) — that image keeps the shared one and " +
-                                      "may blank when the game unloads it.");
-                clones[tex] = null!;
-                return null;
+                VRLog.Warn("WorldUI", $"stat-panel snapshot: could not copy portrait texture " +
+                                      $"'{tex.name}' ({e.GetType().Name}) — it keeps the shared one " +
+                                      "and may blank when the game unloads it.");
             }
         }
+        return detached;
+    }
 
-        Image[] images = copy.GetComponentsInChildren<UnityEngine.UI.Image>(true);
-        for (int i = 0; i < images.Length; i++)
+    /// <summary>
+    /// How the snapshot differs STRUCTURALLY from the panel it was taken from, in one line.
+    ///
+    /// <para>Instantiate copies the whole hierarchy including every child's active state, so the
+    /// two should be identical and this should read "identical". When it does not, the difference
+    /// names itself — a section that is off in the copy is a section the game switched on AFTER
+    /// the snapshot, which is a timing problem and needs a longer delay, not a different copy.
+    /// Written because "the second box looks different" cannot be acted on and "3 object(s) differ:
+    /// ConditionsContainer, ..." can.</para>
+    /// </summary>
+    private static string StructuralDiff(GameObject real, GameObject copy)
+    {
+        Transform[] a = real.GetComponentsInChildren<Transform>(true);
+        Transform[] b = copy.GetComponentsInChildren<Transform>(true);
+        if (a.Length != b.Length)
+            return $"STRUCTURE DIFFERS: {a.Length} object(s) in the panel vs {b.Length} in the copy.";
+
+        var names = new List<string>(4);
+        int differing = 0;
+        for (int i = 0; i < a.Length; i++)
         {
-            Sprite? sprite = images[i] != null ? images[i].sprite : null;
-            if (sprite == null)
+            if (a[i].gameObject.activeSelf == b[i].gameObject.activeSelf)
                 continue;
-            Texture2D? tex = CloneOf(sprite.texture);
-            if (tex == null)
-                continue;
-            var rebuilt = Sprite.Create(tex, sprite.rect, NormalizedPivot(sprite),
-                                        sprite.pixelsPerUnit, 0, SpriteMeshType.FullRect, sprite.border);
-            rebuilt.name = sprite.name + " (VR copy)";
-            _copyOwnedSprites.Add(rebuilt);
-            images[i].sprite = rebuilt;
+            differing++;
+            if (names.Count < 4)
+                names.Add($"{a[i].name}({(a[i].gameObject.activeSelf ? "on->off" : "off->on")})");
         }
+        return differing == 0
+            ? "structure identical to the live panel."
+            : $"STRUCTURE DIFFERS: {differing} object(s) toggled — {string.Join(", ", names)}.";
+    }
 
-        RawImage[] raws = copy.GetComponentsInChildren<UnityEngine.UI.RawImage>(true);
-        for (int i = 0; i < raws.Length; i++)
+    /// <summary>Slash-separated path of <paramref name="child"/> under <paramref name="root"/>, or
+    /// null when it is not a descendant. Used to carry a reference from the real panel to the
+    /// identically-shaped copy.</summary>
+    private static string? PathUnder(Transform root, Transform child)
+    {
+        var parts = new List<string>(8);
+        for (Transform? t = child; t != null; t = t.parent)
         {
-            if (raws[i] == null)
-                continue;
-            Texture2D? tex = CloneOf(raws[i].texture);
-            if (tex != null)
-                raws[i].texture = tex;
+            if (t == root)
+            {
+                parts.Reverse();
+                return string.Join("/", parts);
+            }
+            parts.Add(t.name);
         }
-
-        return _copyOwnedTextures.Count;
+        return null;
     }
 
     /// <summary>Sprite.Create wants the pivot as a 0..1 fraction of the RECT, not in pixels.</summary>

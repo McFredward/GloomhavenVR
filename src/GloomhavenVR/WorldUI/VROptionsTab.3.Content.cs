@@ -220,7 +220,7 @@ internal static partial class VROptionsTab
             {
                 CopyVariant(family, from, snapshot);
                 TickGuard.Run("VROptionsTab.VariantCopy", Rebuild, "WorldUI");
-            });
+            }, asAction: true);
         }
     }
 

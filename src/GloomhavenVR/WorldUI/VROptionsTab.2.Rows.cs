@@ -445,10 +445,18 @@ internal static partial class VROptionsTab
     /// hand-made link was not even clickable (a Button needs a Graphic under the pointer, and the
     /// settings row has none of its own).</para>
     /// </summary>
-    private static void BuildLinkRow(Transform parent, string caption, Action onClick)
+    /// <param name="asAction">
+    /// True for a row that DOES something once (copy these settings) rather than navigating
+    /// somewhere. The category template is a tab, and a tab carries a Toggle — which is right for
+    /// "you are here" navigation and wrong for a one-shot action, where it reads as a checkbox you
+    /// are supposed to tick. Those rows take the settings-row path instead, which has no toggle at
+    /// all: the whole row is the button.
+    /// </param>
+    private static void BuildLinkRow(Transform parent, string caption, Action onClick,
+                                     bool asAction = false)
     {
         GameObject row;
-        if (_categoryTemplate != null)
+        if (_categoryTemplate != null && !asAction)
         {
             row = UnityEngine.Object.Instantiate(_categoryTemplate, parent);
             row.SetActive(true);

@@ -69,57 +69,6 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
    Tip bone actually owns the distal phalanx (it used to start AT the fingertip —
    the runtime's 65° tip rotation moved ~2 mm of mesh). Verified via
    RIG_HAND_DIAG=1 weight stats + rigid-follow test + the rendered pose matrix.
-2b. `refine_shell.py` (2026-07, PLATE applied) — post-process on the exported
-   `*_rig.fbx`, rerunnable: `blender -b -P unity/hand-prep/refine_shell.py -- <fbx>`.
-   The collapse decimator in step 1 is curvature-driven and strips the flattest regions
-   hardest, so the armoured gauntlet shipped its PALM PLATE and CUFF BAND as a handful of
-   giant smooth-shaded triangles (measured on `VRHandPlate_R_rig.fbx`: single facets with
-   70.6 / 63.6 / 54.0 mm edges on a 190 mm hand, mean edge 5.8 mm) — visible triangle
-   creases in-headset, plus a texture that reads as stretched because the affine UV map
-   spreads those facets' texels 4-15x thinner than the neighbouring shell
-   (uvArea/faceArea 0.16-0.66 vs a region median of 2.41). The script adaptively
-   subdivides only the coarse patches (linear split of every non-boundary edge over 8 mm)
-   and rounds them with a coarseness-weighted Taubin low-pass, leaving fine detail,
-   the open wrist rim, the silhouette and the 19-bone contract untouched.
-   Plate: 9 660 -> 26 659 tris, longest edge 89.7 -> 24.1 mm, all vertices keep a
-   normalised weight set. **Run `scripts/build-bundles.sh` afterwards** — the mod loads
-   the hands from `gloomhavenvr.bundle`, so an edited FBX alone changes nothing.
-2c. `palm_reunwrap.py` + `palm_paint.py` (2026-07, PLATE only) — the palm's "star" of flat
-   wedges was **paint, not polygons**: 2b fixed the geometry (a clay render of the palm has
-   no star at all) but the albedo had been baked from the ORIGINAL coarse mesh, so each of
-   the giant palm triangles had one near-flat colour burned into it. An emission-only
-   render — no lights, every pixel literally a texel — showed the star at full strength.
-   Measured on `VRHandPlate_R_rig.fbx`: hand median 3.24 texels/mm, the palm patch
-   1.07 texels/mm — 13 % of the surface living on 0.58 % of the atlas, shredded into
-   3355 UV islands, ~10 texels per face. Nothing can be filtered out of ten texels, and
-   two wedges that touch on the hand can sit anywhere in the atlas, so no image-space
-   repair (blur, gain, luma match, per-face flatten) can even see them together.
-   The fix gives the palm real texel density:
-   ```
-   blender -b -P unity/hand-prep/palm_reunwrap.py -- \
-       Assets/Bundle/Hands/VRHandPlate_R_rig.fbx out_R.fbx R.npz --origin 0.52 0.02
-   blender -b -P unity/hand-prep/palm_reunwrap.py -- \
-       Assets/Bundle/Hands/VRHandPlate_L_rig.fbx out_L.fbx L.npz --origin 0.02 0.52
-   python3 unity/hand-prep/palm_paint.py \
-       Assets/Bundle/Hands/VRHandPlate_albedo.png out_4096.png R.npz L.npz --gain 1.1
-   ```
-   - The palm PLATE is selected geometrically, not by a density threshold (a threshold
-     picks only the worst faces and leaks onto the back of the hand — that regression
-     shipped once): flood-fill from a starved seed across faces that face the palm, sit
-     above the cuff rim and are not skinned to a finger bone. The rig's own weights draw
-     the boundary, so it lands on the MCP creases and the cuff rim. 2 675 faces, 28 983 mm².
-   - The atlas grows 2048 -> 4096 and every OLD uv is multiplied by 0.5, so the old image
-     sits 1:1 in the bottom-left quadrant and every untouched island samples the same
-     texels at the same mip (0.5·du · 4096 == du · 2048). Nothing outside the palm is
-     resampled; both scripts assert it (uv exactly halved, quadrant bit-identical).
-   - The palm is unwrapped as ONE island at 4.0 texels/mm (median 3.91, p5 2.08) and
-     filled with the old palm colour blurred σ≈30 mm **in island space** — the step no
-     earlier attempt could take — plus two octaves of luminance high-pass grain quilted
-     from the atlas's own fully-covered plate areas. `png.meta maxTextureSize` must be
-     4096 (bundle cost: 2.7 -> 10.7 MB for this texture).
-   **Rebuild the bundle afterwards with the game-exact editor** (`/home/claw/unity-2021.3.5`,
-   NOT 2021.3.45 — that writes UnityFS format 8, which the game cannot read) and re-run
-   `scripts/check-bundle-format.sh`.
 3. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
    `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
 
