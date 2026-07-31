@@ -260,6 +260,14 @@ internal sealed class RemoteAvatar
         _rightHolder.SetParent(_root.transform, worldPositionStays: false);
         _rightHolder.gameObject.SetActive(false);
 
+        // The ghosts MUST exist before the first BuildHands call: BuildHands releases them
+        // before tearing the old hand objects down. Constructing them after BuildHands NRE'd
+        // the whole ctor on every remote player — the second-multiplayer-test bug in which the
+        // joiner's driver died in ApplyPending each frame (starving its own TickSend, so the
+        // HOST saw nothing either) and no avatar was ever built.
+        _ghostLeft = new HandGhost($"remote[{playerId}] L");
+        _ghostRight = new HandGhost($"remote[{playerId}] R");
+
         // Default Glove until the first packet reports the sender's real style —
         // mirrors the mask-0 default above.
         BuildHands(0);
@@ -273,8 +281,6 @@ internal sealed class RemoteAvatar
         // Tick and torn down from Destroy.
         _handFan = new RemoteHandFan(this);
         _controlBoard = new RemoteControlBoard(this);
-        _ghostLeft = new HandGhost($"remote[{playerId}] L");
-        _ghostRight = new HandGhost($"remote[{playerId}] R");
         _itemFan = new RemoteItemFan(this);
         _cardFx = new RemoteCardFx(this);
         _browserFan = new RemoteBrowserFan(this);
@@ -653,9 +659,11 @@ internal sealed class RemoteAvatar
 
         // Restore + free any ghost material clones BEFORE the old hand objects are destroyed
         // (Unity does not free materials with the GameObject that referenced them). Tick
-        // re-applies the ghost to the freshly built rig on the very next frame.
-        _ghostLeft.Release();
-        _ghostRight.Release();
+        // re-applies the ghost to the freshly built rig on the very next frame. Null-conditional
+        // as a hard floor: the ctor calls this, and a field that has not been assigned yet must
+        // degrade to "nothing to release", never to an NRE that kills the driver's Update.
+        _ghostLeft?.Release();
+        _ghostRight?.Release();
 
         for (int i = _leftHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_leftHolder.GetChild(i).gameObject);

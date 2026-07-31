@@ -78,6 +78,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentMaskSizeCode = -1;
     private int _lastSentHandScaleCode = -1;
 
+    /// <summary>One-shot send-gate diagnostics: -1 silent/offline, 0 = "online, waiting for our
+    /// player id" logged, 1 = "broadcast live" logged. See TickSend.</summary>
+    private int _sendGateState = -1;
+
     // CONTROL-BOARD STYLE: same contract as the mask size one row up. Switching the board is a
     // deliberate, human-paced act the user performs while looking at their board, so the edge
     // pre-empts the 5 Hz gate (a peer must see the new material immediately, not up to 200 ms
@@ -151,6 +155,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         Unsubscribe();
         _pending.Clear();
         _pendingExtras.Clear();
+        _createRetryAt.Clear();
+        _sendGateState = -1; // next session logs its join window from scratch
         NetCardFx.Reset(); // never carry a queued card animation into the next session
         _hasFx = false;
         DestroyAllAvatars();
@@ -169,18 +175,55 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         using (Core.PerfMonitor.Scope("Net.Avatar"))
         {
+            // EVERY phase runs behind its own catch, because the phases are INDEPENDENT and an
+            // exception must only cost the phase it happened in. The second multiplayer test
+            // proved the opposite contract fatal: one deterministic NRE inside ApplyPending
+            // (RemoteAvatar ctor) unwound this whole Update on the joiner every frame, so
+            // TickSend below it never ran — a RECEIVE bug silenced the SEND path, and the host
+            // saw nothing of a player whose own screen gave no hint anything was wrong. The
+            // NREs also carried no stack in Player.log; the catch logs the full exception
+            // through VRLog (throttled) so the next such bug names its line.
             using (Core.PerfMonitor.Scope("Net.ApplyPending"))
-                ApplyPending();
+            {
+                try { ApplyPending(); }
+                catch (Exception e) { LogPhaseError("ApplyPending", e); }
+            }
             using (Core.PerfMonitor.Scope("Net.TickAvatars"))
-                TickAvatars(dt);
+            {
+                try { TickAvatars(dt); }
+                catch (Exception e) { LogPhaseError("TickAvatars", e); }
+            }
             using (Core.PerfMonitor.Scope("Net.Send"))
             {
-                TickSend(dt);
-                TickExtrasSend(dt);
+                try { TickSend(dt); }
+                catch (Exception e) { LogPhaseError("TickSend", e); }
+                try { TickExtrasSend(dt); }
+                catch (Exception e) { LogPhaseError("TickExtrasSend", e); }
             }
             using (Core.PerfMonitor.Scope("Net.Figures"))
-                NetFigures.Tick();
+            {
+                try { NetFigures.Tick(); }
+                catch (Exception e) { LogPhaseError("NetFigures.Tick", e); }
+            }
         }
+    }
+
+    /// <summary>Seconds of silence between phase-failure error lines. A deterministic bug throws
+    /// every frame; one line per window keeps the log readable while the STREAK stays visible.</summary>
+    private const float PhaseErrorLogInterval = 5f;
+    private float _nextPhaseErrorLog;
+    private int _phaseErrorsSuppressed;
+
+    private void LogPhaseError(string phase, Exception e)
+    {
+        _phaseErrorsSuppressed++;
+        if (Time.unscaledTime < _nextPhaseErrorLog)
+            return;
+        _nextPhaseErrorLog = Time.unscaledTime + PhaseErrorLogInterval;
+        VRLog.Error("Net", $"{phase} threw ({_phaseErrorsSuppressed} failure(s) in the last "
+                           + $"{PhaseErrorLogInterval:0}s window) — phase skipped this frame, all "
+                           + $"OTHER net phases keep running: {e}");
+        _phaseErrorsSuppressed = 0;
     }
 
     // ---- send ---------------------------------------------------------------------------
@@ -190,11 +233,34 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // Only VR players broadcast; flat/modded peers stay silent (and thus invisible to
         // others), exactly as intended. LocalPlayerId > 0 also gates out the join window
         // where the session is "online" but our NetworkPlayer (and thus MyPlayer, which
-        // SendSideAction dereferences) does not exist yet.
+        // SendSideAction dereferences) does not exist yet. NOTE this is the ONLY thing the
+        // broadcast waits for — character assignment is deliberately NOT required, so two
+        // players see each other from the lobby on (user requirement, second MP test).
         if (!VRSession.IsRunning || !_transport.IsOnline || _transport.LocalPlayerId <= 0)
         {
+            // Join-window forensics: the second MP test could not say WHY a client never sent.
+            // One line when the id is the only thing missing, one when the gate opens (below).
+            if (VRSession.IsRunning && _transport.IsOnline && _sendGateState != 0)
+            {
+                _sendGateState = 0;
+                VRLog.Info("Net", "Broadcast WAITING: session online but our NetworkPlayer has "
+                                  + "no id yet (join handshake) — sending starts the moment it "
+                                  + "exists; character assignment is NOT required.");
+            }
+            else if (!_transport.IsOnline)
+            {
+                _sendGateState = -1; // offline: silent, and re-log the next join from scratch
+            }
             _sendAccumulator = 0f;
             return;
+        }
+
+        if (_sendGateState != 1)
+        {
+            _sendGateState = 1;
+            VRLog.Info("Net", $"Broadcast LIVE as player {_transport.LocalPlayerId} — head+hands "
+                              + $"at {NetProtocol.SendRateHz:0} Hz, extras at "
+                              + $"{NetProtocol.ExtrasSendRateHz:0} Hz to all peers.");
         }
 
         _sendAccumulator += dt;
@@ -495,19 +561,29 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     private void ApplyPending()
     {
+        // Per-SENDER catches, and the queues are cleared no matter what: one peer whose state
+        // cannot be applied (avatar construction failed, malformed-but-parseable state) must
+        // neither block the OTHER peers' packets nor pile its own up for an identical retry
+        // next frame — the next 15 Hz packet is a fresh chance anyway.
         if (_pending.Count > 0)
         {
             foreach (KeyValuePair<int, AvatarState> kv in _pending)
             {
-                RemoteAvatar avatar = GetOrCreate(kv.Key);
-                AvatarState s = kv.Value;
-                avatar.SetTarget(in s);
+                try
+                {
+                    RemoteAvatar? avatar = GetOrCreate(kv.Key);
+                    if (avatar == null)
+                        continue; // construction failed recently — packet dropped, retry later
+                    AvatarState s = kv.Value;
+                    avatar.SetTarget(in s);
 
-                // Cosmetic figure sync: mirror the sender's held figure (no-op stub in foundation).
-                if (s.HasHeldFigure)
-                    NetFigures.ApplyRemoteHeld(kv.Key, s.HeldFigureActorId, s.HeldFigurePose.Position, s.HeldFigurePose.Rotation);
-                else
-                    NetFigures.ReleaseRemote(kv.Key);
+                    // Cosmetic figure sync: mirror the sender's held figure (no-op stub in foundation).
+                    if (s.HasHeldFigure)
+                        NetFigures.ApplyRemoteHeld(kv.Key, s.HeldFigureActorId, s.HeldFigurePose.Position, s.HeldFigurePose.Rotation);
+                    else
+                        NetFigures.ReleaseRemote(kv.Key);
+                }
+                catch (Exception e) { LogPhaseError($"Apply rig packet from player {kv.Key}", e); }
             }
             _pending.Clear();
         }
@@ -516,21 +592,46 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             foreach (KeyValuePair<int, PresenceState> kv in _pendingExtras)
             {
-                RemoteAvatar avatar = GetOrCreate(kv.Key);
-                PresenceState p = kv.Value;
-                avatar.SetExtras(in p);
+                try
+                {
+                    RemoteAvatar? avatar = GetOrCreate(kv.Key);
+                    if (avatar == null)
+                        continue; // construction failed recently — packet dropped, retry later
+                    PresenceState p = kv.Value;
+                    avatar.SetExtras(in p);
+                }
+                catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
             _pendingExtras.Clear();
         }
     }
 
-    private RemoteAvatar GetOrCreate(int playerId)
+    /// <summary>Seconds before re-attempting a FAILED avatar construction for the same player.
+    /// A failing ctor leaves a partial root GameObject behind (nothing holds a reference to
+    /// destroy), so retrying at packet rate would leak one per packet; at this pace a whole
+    /// evening leaks a few hundred empties while still self-healing if the cause was transient.</summary>
+    private const float CreateRetryInterval = 5f;
+    private readonly Dictionary<int, float> _createRetryAt = new();
+
+    private RemoteAvatar? GetOrCreate(int playerId)
     {
         if (_avatars.TryGetValue(playerId, out RemoteAvatar existing))
             return existing;
-        var avatar = new RemoteAvatar(playerId);
-        _avatars[playerId] = avatar;
-        return avatar;
+        if (_createRetryAt.TryGetValue(playerId, out float retryAt) && Time.unscaledTime < retryAt)
+            return null; // recent construction failure — let the backoff window pass
+        try
+        {
+            var avatar = new RemoteAvatar(playerId);
+            _avatars[playerId] = avatar;
+            _createRetryAt.Remove(playerId);
+            return avatar;
+        }
+        catch (Exception e)
+        {
+            _createRetryAt[playerId] = Time.unscaledTime + CreateRetryInterval;
+            LogPhaseError($"RemoteAvatar construction for player {playerId}", e);
+            return null;
+        }
     }
 
     // ---- avatar lifetime ----------------------------------------------------------------
@@ -544,7 +645,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         foreach (KeyValuePair<int, RemoteAvatar> kv in _avatars)
         {
             RemoteAvatar avatar = kv.Value;
-            avatar.Tick(dt);
+            // Per-avatar catch: one broken avatar must not stop the OTHERS from ticking, nor
+            // block the staleness sweep below it (same isolation contract as ApplyPending).
+            try { avatar.Tick(dt); }
+            catch (Exception e) { LogPhaseError($"RemoteAvatar.Tick for player {kv.Key}", e); }
             // Teardown on staleness (covers Bolt player-left, a peer switching to flat, or a
             // long network stall — more robust than a single player-left callback).
             if (avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds)
