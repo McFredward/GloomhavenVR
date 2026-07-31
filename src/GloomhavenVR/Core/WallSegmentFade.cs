@@ -252,6 +252,14 @@ internal static class WallSegmentFade
     /// </summary>
     internal static bool IsWallFadeShaderName(string shaderName) => shaderName.Contains("WallFade");
 
+    /// <summary>
+    /// Foliage family (Amp_Basic_Foliage, Amp_Basic_Foliage_Prop_Shader, …): the grasses, vines
+    /// and bushes DRESSING a wall. They carry no WallFade path, so when the wall dissolves they
+    /// used to stay behind as a view-blocking "Gestrüpp-Wand" (user report + gebüsch.png). They
+    /// are collected as ATTACHMENTS of their wall's segment and hidden with it.
+    /// </summary>
+    internal static bool IsFoliageShaderName(string shaderName) => shaderName.Contains("Foliage");
+
     /// <summary>Per-wall-segment fade state.</summary>
     private sealed class Segment
     {
@@ -268,6 +276,13 @@ internal static class WallSegmentFade
         /// that left a still-faded segment gets its property block cleared instead of keeping a
         /// stale fade forever.</summary>
         public readonly List<MeshRenderer> PrevRenderers = new();
+        /// <summary>Foliage ATTACHMENTS (grass/vines/bushes dressing this wall — Foliage-family
+        /// shaders, no fade path of their own): dissolved via an alpha-cutoff ramp while the wall
+        /// fades and fully hidden in the held state, restored exactly when the wall returns.</summary>
+        public readonly List<MeshRenderer> Foliage = new();
+        public readonly List<MeshRenderer> PrevFoliage = new();
+        /// <summary>0 = restored/untouched, 1 = dissolving (cutoff MPB set), 2 = hidden.</summary>
+        public int FoliageState;
         public Bounds Bounds;
         public bool HasBounds;
 
@@ -351,6 +366,19 @@ internal static class WallSegmentFade
         /// <summary>Per-shader "is wall-fade-capable" verdict cache (the rescan sweep tests every
         /// scene renderer; a scene has ~26 distinct materials over a handful of shaders).</summary>
         private readonly Dictionary<Shader, bool> _shaderVerdict = new();
+        /// <summary>Same cache for the foliage-family verdict.</summary>
+        private readonly Dictionary<Shader, bool> _shaderFoliageVerdict = new();
+        /// <summary>Shared MPB for the foliage cutoff ramp (rewritten per renderer per frame
+        /// while a segment is mid-dissolve; segments in a held state use none).</summary>
+        private MaterialPropertyBlock? _foliageMpb;
+        /// <summary>Cutoff the dissolve ramps TOWARD: safely above every texel's alpha, so a
+        /// fully-faded cutout leaf discards completely. The ramp START approximates the common
+        /// authored "Mask Clip Value" (~0.35) — close enough for a 0.35s transition.</summary>
+        private const float FoliageCutoffStart = 0.35f;
+        private const float FoliageCutoffEnd = 1.2f;
+        /// <summary>Above this fade the foliage renderer is DISABLED outright — the cutoff ramp
+        /// only removes cutout texels, and any opaque twig material would otherwise survive.</summary>
+        private const float FoliageHideFade = 0.99f;
         // Rescan census (heartbeat diagnostics): how many fade-capable renderers exist, how many
         // the wall cache claimed, how many the shader sweep adopted — and the shader names seen on
         // cache walls that carry NO fade-capable renderer at all (the tripwire for a tileset whose
@@ -623,13 +651,14 @@ internal static class WallSegmentFade
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _segments.Count;
                 LogFloorColumnCensus();
-                int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0;
+                int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
                     if (s.VariantLow) lowSegs++;
                     if (!s.FromWallCache) adoptedSegs++;
                     if (s.Engulfing) engulfSegs++;
+                    foliage += s.Foliage.Count;
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -641,7 +670,8 @@ internal static class WallSegmentFade
                     + $"wall cache + {adoptedSegs} ADOPTED by shader, grouped by tile/parent; "
                     + $"fade-capable renderers {_censusFadeRenderers} = {_censusClaimed} claimed "
                     + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
-                    + $"split per renderer, {engulfSegs} unsplittable held solid{unfadeable}) "
+                    + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
+                    + $"attachment(s) ride their wall's fade{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
                     + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
                     + $"bounds / {_allSamples.Count} floor samples ({_roomsAnchored}/"
@@ -868,7 +898,7 @@ internal static class WallSegmentFade
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
-                    $"({seg.Renderers.Count} renderer(s): {rl}) — held state: " +
+                    $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage) — held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
                         ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
@@ -959,8 +989,77 @@ internal static class WallSegmentFade
         /// Reapplied every frame while faded because Apparance may regenerate wall renderers
         /// mid-fade; a null renderer triggers a prompt rescan.
         /// </summary>
+        /// <summary>Return one foliage renderer to its vanilla state (visible, no MPB).</summary>
+        private static void RestoreFoliageRenderer(MeshRenderer r)
+        {
+            if (r == null)
+                return;
+            if (!r.enabled)
+                r.enabled = true;
+            r.SetPropertyBlock(null);
+        }
+
+        /// <summary>Restore ALL of a segment's foliage — called whenever the segment leaves the
+        /// table or goes solid, so no bush can stay hidden without an owner.</summary>
+        private static void RestoreSegmentFoliage(Segment seg)
+        {
+            if (seg.FoliageState == 0)
+                return;
+            seg.FoliageState = 0;
+            foreach (MeshRenderer f in seg.Foliage)
+            {
+                if (f != null)
+                    RestoreFoliageRenderer(f);
+            }
+        }
+
+        /// <summary>
+        /// Drive the segment's foliage attachments alongside its fade: mid-dissolve the cutout
+        /// leaves ride an alpha-cutoff ramp (visually the same dissolve as the wall), and in the
+        /// held state the renderer is disabled outright so opaque twig materials vanish too.
+        /// All of it reverses exactly on unfade.
+        /// </summary>
+        private void ApplyFoliage(Segment seg)
+        {
+            if (seg.Foliage.Count == 0)
+                return;
+            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            if (want == 0)
+            {
+                RestoreSegmentFoliage(seg);
+                return;
+            }
+            if (want == 2 && seg.FoliageState == 2)
+                return; // already hidden — nothing per-frame to do
+            if (want == 1)
+            {
+                _foliageMpb ??= new MaterialPropertyBlock();
+                _foliageMpb.Clear();
+                _foliageMpb.SetFloat(CutoffId,
+                    Mathf.Lerp(FoliageCutoffStart, FoliageCutoffEnd, seg.Fade));
+            }
+            foreach (MeshRenderer f in seg.Foliage)
+            {
+                if (f == null)
+                    continue;
+                if (want == 2)
+                {
+                    if (f.enabled)
+                        f.enabled = false;
+                }
+                else
+                {
+                    if (!f.enabled)
+                        f.enabled = true;
+                    f.SetPropertyBlock(_foliageMpb);
+                }
+            }
+            seg.FoliageState = want;
+        }
+
         private void Apply(Segment seg)
         {
+            ApplyFoliage(seg);
             if (seg.Fade <= 0f)
             {
                 if (seg.HasBlock)
@@ -1190,10 +1289,22 @@ internal static class WallSegmentFade
                     seg.Renderers.RemoveAt(i);
                     changed = true;
                 }
+                // Ground-level foliage (grass tufts ON the floor) stays visible always — only
+                // wall-dressing foliage rides the fade. Restore anything already touched.
+                for (int i = seg.Foliage.Count - 1; i >= 0; i--)
+                {
+                    MeshRenderer f = seg.Foliage[i];
+                    if (f == null || f.bounds.max.y > ceiling)
+                        continue;
+                    if (seg.FoliageState != 0)
+                        RestoreFoliageRenderer(f);
+                    seg.Foliage.RemoveAt(i);
+                }
                 if (!changed)
                     continue;
                 if (seg.Renderers.Count == 0)
                 {
+                    RestoreSegmentFoliage(seg); // segment leaves the table — free its bushes
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
@@ -1270,6 +1381,7 @@ internal static class WallSegmentFade
                 Segment group = engulfing.Value;
                 _splitAnchors.Add(engulfing.Key);
                 _segments.Remove(engulfing.Key);
+                RestoreSegmentFoliage(group); // pieces re-adopt the bushes on the next rescan
                 if (group.HasBlock)
                 {
                     foreach (MeshRenderer r in group.Renderers)
@@ -1417,8 +1529,11 @@ internal static class WallSegmentFade
         /// keyed by the renderer, and is claimed so the adoption sweep leaves it alone. Dead
         /// renderers fall out via the dead-key sweep (their key is the renderer itself).
         /// </summary>
+        private readonly List<Segment> _splitPieceScratch = new();
+
         private void RefreshSplitWall(ProceduralWall wall)
         {
+            _splitPieceScratch.Clear();
             MeshRenderer[] all = wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
             foreach (MeshRenderer r in all)
             {
@@ -1436,9 +1551,39 @@ internal static class WallSegmentFade
                     sub.Bounds = r.bounds;
                     sub.HasBounds = true;
                 }
-                FinishRefresh(sub);
                 _claimedRenderers.Add(r);
+                _splitPieceScratch.Add(sub);
             }
+
+            // The wall's foliage dressing rides the NEAREST piece's fade (XZ distance between
+            // AABB centers): a bush hangs on the piece it grows from, and that is the piece
+            // whose fade makes it a view-blocking leftover.
+            foreach (MeshRenderer r in all)
+            {
+                if (r == null || !RendererUsesFoliage(r))
+                    continue;
+                Segment? best = null;
+                float bestSq = float.PositiveInfinity;
+                Vector3 c = r.bounds.center;
+                foreach (Segment piece in _splitPieceScratch)
+                {
+                    if (!piece.HasBounds)
+                        continue;
+                    float dx = piece.Bounds.center.x - c.x;
+                    float dz = piece.Bounds.center.z - c.z;
+                    float sq = dx * dx + dz * dz;
+                    if (sq < bestSq)
+                    {
+                        bestSq = sq;
+                        best = piece;
+                    }
+                }
+                best?.Foliage.Add(r);
+            }
+
+            foreach (Segment sub in _splitPieceScratch)
+                FinishRefresh(sub);
+            _splitPieceScratch.Clear();
         }
 
         /// <summary>
@@ -1493,6 +1638,29 @@ internal static class WallSegmentFade
                     sb.Append(" (no renderer over the room center at all)");
                 VRLog.Info(Name, sb.ToString());
             }
+        }
+
+        /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
+        private bool RendererUsesFoliage(MeshRenderer r)
+        {
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            foreach (Material m in _matScratch)
+            {
+                if (m == null)
+                    continue;
+                Shader sh = m.shader;
+                if (sh == null)
+                    continue;
+                if (!_shaderFoliageVerdict.TryGetValue(sh, out bool foliage))
+                {
+                    foliage = IsFoliageShaderName(sh.name);
+                    _shaderFoliageVerdict[sh] = foliage;
+                }
+                if (foliage)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Any shared material on a wall-fade-capable shader? (Cached per Shader.)</summary>
@@ -1620,8 +1788,17 @@ internal static class WallSegmentFade
             MeshRenderer[] all = seg.Anchor.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !CollectWallFadeInfo(r, seg))
+                if (r == null)
                     continue;
+                if (!CollectWallFadeInfo(r, seg))
+                {
+                    // Not fade-capable — but a foliage dressing of this wall rides its fade
+                    // (the "Gestrüpp-Wand" report). Ground-level tufts are dropped later by
+                    // StripGroundRenderers, exactly like ground geometry.
+                    if (RendererUsesFoliage(r))
+                        seg.Foliage.Add(r);
+                    continue;
+                }
                 seg.Renderers.Add(r);
                 if (!seg.HasBounds)
                 {
@@ -1669,6 +1846,9 @@ internal static class WallSegmentFade
             seg.PrevRenderers.Clear();
             seg.PrevRenderers.AddRange(seg.Renderers);
             seg.Renderers.Clear();
+            seg.PrevFoliage.Clear();
+            seg.PrevFoliage.AddRange(seg.Foliage);
+            seg.Foliage.Clear();
             seg.HasBounds = false;
             seg.VariantHigh = false;
             seg.VariantLow = false;
@@ -1692,6 +1872,17 @@ internal static class WallSegmentFade
                 }
             }
             seg.PrevRenderers.Clear();
+            // Foliage that LEFT the segment is restored unconditionally — a hidden bush no
+            // list points at any more would otherwise stay invisible forever.
+            if (seg.FoliageState != 0)
+            {
+                foreach (MeshRenderer prev in seg.PrevFoliage)
+                {
+                    if (prev != null && !seg.Foliage.Contains(prev))
+                        RestoreFoliageRenderer(prev);
+                }
+            }
+            seg.PrevFoliage.Clear();
             if (seg.HasBounds)
             {
                 // Blocked-test epsilon ≈ half the wall run's thickness (the smaller
@@ -1814,6 +2005,7 @@ internal static class WallSegmentFade
                 seg.Fade = 0f;
                 seg.Smooth = 0f;
                 seg.SmoothInit = false;
+                RestoreSegmentFoliage(seg);
                 if (!seg.HasBlock)
                     continue;
                 seg.HasBlock = false;
