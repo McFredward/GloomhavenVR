@@ -268,7 +268,7 @@ internal static class MixedReality
                 RestoreAll();
             // MR OFF: the sky STAYS. It is made a pure NON-OCCLUDING backdrop by SkyBackdrop
             // (ZWrite-off, or — when the shader hard-codes ZWrite On — the sky is left drawing
-            // its own colour at Background and a real mod-layer depth-reset renderer at queue 1999
+            // its own colour at Background and a real mod-layer depth-reset renderer at queue 1001
             // overwrites depth to ~far after it, an ordinary tiled-GPU-safe draw with NO renderer
             // suppression and NO mid-pass depth clear) so floated menus, the moved board and the
             // laser in front of it are never clipped — the fix lives on the SPHERE side, not on

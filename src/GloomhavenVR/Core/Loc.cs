@@ -331,6 +331,7 @@ internal static partial class Loc
         // and keeps the tab count at five.
         ["sec_table_world"] = Pair("Table & world", "Tisch & Welt"),
         ["sec_movement"] = Pair("Movement & turning", "Bewegung & Drehen"),
+        ["sec_visibility"] = Pair("Visibility", "Sichtbarkeit"),
         ["sec_hands_aim"] = Pair("Hands & aiming", "Hände & Zielen"),
         ["sec_presentation"] = Pair("Presentation", "Darstellung"),
         ["sec_appearance"] = Pair("Appearance", "Aussehen"),

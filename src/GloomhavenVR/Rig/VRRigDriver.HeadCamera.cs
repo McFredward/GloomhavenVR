@@ -313,14 +313,14 @@ internal sealed partial class VRRigDriver
         _camera.stereoTargetEye = StereoTargetEyeMask.Both;
 
         // OCCLUSION ROOT CAUSE (transparent effects through walls — flames, hex ring, health bars):
-        // the SkyBackdrop DepthResetRenderer (Overlay shader, ZTest Always, queue 1999) resets depth
+        // the SkyBackdrop DepthResetRenderer (Overlay shader, ZTest Always, queue 1001) resets depth
         // to far so the near sky sphere doesn't occlude the floated board/menus. The Overlay shader
         // has NO deferred pass, so on a DEFERRED camera it renders in the forward-opaque FALLBACK —
         // AFTER the deferred G-buffer walls — and its ZTest-Always wipes the wall depth for the whole
         // transparent pass, so every transparent effect (queue 3000-4000, even ZTest LEqual like the
         // patched hex ring) draws over walls. Opaque figures are unaffected (occluded in the G-buffer
         // BEFORE the wipe) — which is exactly the observed split. FORWARD rendering restores strict
-        // per-queue order: the reset (1999) runs BEFORE the walls (2000), the walls overwrite it, the
+        // per-queue order: the reset (1001) runs BEFORE the walls (1900+), the walls overwrite it, the
         // depth buffer keeps the walls, and transparents occlude correctly (the reset's original
         // design assumption). Config-gated so forward's per-object light limit can be reverted if the
         // dungeon lighting regresses.

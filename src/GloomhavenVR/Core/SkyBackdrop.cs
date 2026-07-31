@@ -75,10 +75,11 @@ namespace GloomhavenVR.Core;
 ///          persistent GameObject on the MOD LAYER (so ONLY the head camera draws it — it can
 ///          never pollute a game camera's depth), whose material is the bundled
 ///          <c>GloomhavenVR/Overlay</c> shader forced to <c>ZTest Always, ZWrite On,
-///          Blend Zero One, Cull Off</c> with its <c>renderQueue pinned to 1999</c>
-///          (Geometry-1). Because Unity renders opaque materials in ASCENDING render-queue
-///          order, this draw lands DETERMINISTICALLY AFTER the sky (1000) and BEFORE all scene
-///          opaque geometry (2000+). <c>Blend Zero One</c> leaves the COLOUR buffer untouched
+///          Blend Zero One, Cull Off</c> with its <c>renderQueue pinned to 1001</c>
+///          (Background+1 — see <see cref="DepthResetQueue"/> for why NOT Geometry-1). Because
+///          Unity renders opaque materials in ASCENDING render-queue order, this draw lands
+///          DETERMINISTICALLY AFTER the sky (1000) and BEFORE all scene opaque geometry
+///          (authored floors start at 1900 in some tilesets). <c>Blend Zero One</c> leaves the COLOUR buffer untouched
 ///          (result = dst — the sky colour survives), while <c>ZWrite On</c> + <c>ZTest Always</c>
 ///          OVERWRITES the depth buffer to ~far. The scene's opaque geometry + all mod visuals
 ///          then render against a depth buffer that no longer holds any near sky-shell depth →
@@ -107,7 +108,7 @@ namespace GloomhavenVR.Core;
 ///    ORDERING IS BY RENDER QUEUE, NOT CAMERA EVENTS: a CameraEvent can only inject BEFORE all
 ///    opaque (BeforeForwardOpaque) or AFTER all opaque — there is no "between the sky and the
 ///    rest" event, which is exactly why the CB family had to suppress+reorder. Pinning the sky
-///    to 1000 and the reset to 1999 gives that "between" slot with NO suppression.
+///    to 1000 and the reset to 1001 gives that "between" slot with NO suppression.
 ///
 ///    This mechanism uses ONE camera (the rig head camera) — no second/stereo camera and no
 ///    culling-mask/stereo-policy changes. The reset renderer inherits the head camera's per-eye
@@ -153,12 +154,22 @@ internal static class SkyBackdrop
     private const float DepthResetCoverFactor = 8f;
 
     /// <summary>
-    /// Render queue for the depth-reset draw: Geometry-1 (1999). It MUST fall strictly AFTER
-    /// the sky (pinned to Background = 1000) and strictly BEFORE all scene opaque geometry
-    /// (Geometry = 2000), so Unity's ascending render-queue order slots it exactly "between the
-    /// sky and the rest" without any renderer suppression or camera-event trickery.
+    /// Render queue for the depth-reset draw: Background+1 (1001). It MUST fall strictly AFTER
+    /// the sky (pinned to Background = 1000) and strictly BEFORE all scene opaque geometry, so
+    /// Unity's ascending render-queue order slots it exactly "between the sky and the rest"
+    /// without any renderer suppression or camera-event trickery.
+    ///
+    /// WHY IMMEDIATELY AFTER THE SKY AND NOT Geometry-1 (1999, the original pick): "scene
+    /// geometry starts at Geometry (2000)" was an assumption, and the jungle tileset broke it —
+    /// its floor materials are AUTHORED at queue 1900 (FLOOR CENSUS: 'FR_Floor_Grass'
+    /// Amp_Basic_N_MRAO q1900, roots/foliage q1900) while its under-map walls sit at 2000. A
+    /// reset at 1999 wiped the already-written floor depth, so the q2000 under-walls passed
+    /// ZTest OVER the floor — "die inneren Mauern unterhalb des Bodens sind durch den Boden
+    /// sichtbar", VR-only (the reset quad lives on the mod layer; game cameras never draw it,
+    /// which is why the flat screen looked fine). At Background+1 only the sky shell itself
+    /// (1000) precedes the reset — precisely the one depth this quad exists to erase.
     /// </summary>
-    private static readonly int DepthResetQueue = (int)RenderQueue.Geometry - 1; // 1999
+    private static readonly int DepthResetQueue = (int)RenderQueue.Background + 1; // 1001
 
     private enum Mechanism { Undecided, ZWriteOff, DepthResetRenderer }
 
@@ -177,7 +188,7 @@ internal static class SkyBackdrop
     // camera only (mod layer). Assets (mesh + material) are built lazily and reused.
     private static GameObject? _resetGo;   // hosts the reset MeshRenderer (mod layer)
     private static MeshRenderer? _resetRenderer;
-    private static Material? _resetMat;    // Overlay shader forced ZWrite-On/ZTest-Always/Blend-Zero-One, queue 1999
+    private static Material? _resetMat;    // Overlay shader forced ZWrite-On/ZTest-Always/Blend-Zero-One, queue 1001
     private static Mesh? _resetMesh;       // a unit quad (built-in primitive mesh) — head-facing far plane
     private static bool _resetWarned;      // one-shot warning when the Overlay material is unavailable
 
@@ -386,7 +397,7 @@ internal static class SkyBackdrop
             if (mat.renderQueue != BackgroundQueue)
                 mat.renderQueue = BackgroundQueue;
 
-            // (2) A real, head-FACING depth-reset quad at queue 1999: overwrites depth to a
+            // (2) A real, head-FACING depth-reset quad at queue 1001: overwrites depth to a
             //     UNIFORM ~far AFTER the sky, BEFORE scene opaque — an ordinary draw, tiled-GPU safe.
             EnsureResetAssets();
             EnsureResetObject();
@@ -453,7 +464,7 @@ internal static class SkyBackdrop
 
     /// <summary>
     /// Build (once, reused) the depth-reset assets: a unit quad mesh and an Overlay-shader
-    /// material forced to write depth without touching colour, pinned to queue 1999. Both are
+    /// material forced to write depth without touching colour, pinned to queue 1001. Both are
     /// cheap and idempotent. A flat quad (not a sphere) so the written depth is UNIFORM across the
     /// screen — a head-centred sphere writes a screen-space radial depth gradient that a
     /// depth-fading hex highlight over the void reads back as a head-tracking see-through artifact.

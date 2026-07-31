@@ -127,6 +127,17 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // User request: the wall see-through is a comfort-relevant, user-facing
+                    // feature and must be findable HERE, not only under Grafik (where it also
+                    // stays — same ConfigEntry, both rows drive the one live value).
+                    LocKey = "sec_visibility",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Compat", "WallFade", "wall_see_through"),
+                    },
+                },
+                new()
+                {
                     LocKey = "sec_hands_aim",
                     Entries = new CuratedEntry[]
                     {
