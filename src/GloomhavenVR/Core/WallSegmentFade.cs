@@ -622,6 +622,7 @@ internal static class WallSegmentFade
             {
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _segments.Count;
+                LogFloorColumnCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0;
                 foreach (Segment s in _segments.Values)
                 {
@@ -1437,6 +1438,60 @@ internal static class WallSegmentFade
                 }
                 FinishRefresh(sub);
                 _claimedRenderers.Add(r);
+            }
+        }
+
+        /// <summary>
+        /// GROUND FORENSICS (green-scenario "see-through floor", round 3): one line per room at
+        /// heartbeat time naming every renderer whose AABB stands over the ROOM CENTER — the
+        /// floor candidates (AABB top near the floor plane), what lies BELOW (the "inner walls"
+        /// the user sees through the holes) and what hangs ABOVE. Each entry carries shader,
+        /// material render queue, static-batch flag and our-MPB flag, so the next log says
+        /// WHICH mesh the missing floor is, WHAT shader it runs and WHO touched it — instead of
+        /// a fourth guessed fix.
+        /// </summary>
+        private void LogFloorColumnCensus()
+        {
+            if (_roomBounds.Count == 0)
+                return;
+            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
+            var sb = new System.Text.StringBuilder();
+            int rooms = Mathf.Min(_roomBounds.Count, 8);
+            for (int r = 0; r < rooms; r++)
+            {
+                Vector3 center = _roomBounds[r].center;
+                float floorY = r < _roomFloorY.Count ? _roomFloorY[r] : 0f;
+                sb.Length = 0;
+                sb.Append("FLOOR CENSUS room ").Append(r)
+                  .Append(" center(").Append(center.x.ToString("F1")).Append(',')
+                  .Append(center.z.ToString("F1")).Append(") floorY ").Append(floorY.ToString("F2"))
+                  .Append(':');
+                int listed = 0;
+                foreach (MeshRenderer mr in all)
+                {
+                    if (mr == null || !mr.enabled || !mr.gameObject.activeInHierarchy)
+                        continue;
+                    Bounds b = mr.bounds;
+                    if (center.x < b.min.x || center.x > b.max.x
+                        || center.z < b.min.z || center.z > b.max.z)
+                        continue;
+                    if (listed++ >= 10) { sb.Append(" …"); break; }
+                    string zone = b.max.y < floorY - 0.5f ? "BELOW"
+                        : b.max.y <= floorY + 1.5f ? "FLOOR"
+                        : "ABOVE";
+                    Material? m = mr.sharedMaterial;
+                    sb.Append(" [").Append(zone).Append("] '").Append(mr.name)
+                      .Append("' y[").Append(b.min.y.ToString("F1")).Append("..")
+                      .Append(b.max.y.ToString("F1")).Append("] sh='")
+                      .Append(m != null && m.shader != null ? m.shader.name : "?")
+                      .Append("' q").Append(m != null ? m.renderQueue : -1)
+                      .Append(mr.isPartOfStaticBatch ? " BATCHED" : "")
+                      .Append(mr.HasPropertyBlock() ? " OUR-MPB" : "")
+                      .Append(';');
+                }
+                if (listed == 0)
+                    sb.Append(" (no renderer over the room center at all)");
+                VRLog.Info(Name, sb.ToString());
             }
         }
 
