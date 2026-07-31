@@ -366,6 +366,20 @@ internal sealed partial class CardsDriver
     private readonly List<VRCard> _fieldCards = new(4);
 
     /// <summary>
+    /// EVENT-DISCARD BATCHING (pre-scenario "Begegnungen" mali): when a pick demands MORE
+    /// than the two physical slot recesses (e.g. two stacked road events → "discard 3"),
+    /// the selection runs in BATCHES OF TWO: fill the recesses, press the tray CONFIRM
+    /// ("WEITER") to LOCK the batch, then the recesses free up for the next batch. The
+    /// first <see cref="_pickLockedCount"/> entries of <see cref="_fieldCards"/> are the
+    /// locked cards — they stay game-selected (the game only counts selections; the
+    /// batching is pure VR presentation) and stack BESIDE Slot2 on the overflow seats.
+    /// The game's own confirm DialogPopup still opens the moment the TOTAL count is
+    /// selected, and the tray CONFIRM then presses ITS commit option. Reset on leaving
+    /// the pick mode; decremented whenever a locked card is taken back / pruned.
+    /// </summary>
+    private int _pickLockedCount;
+
+    /// <summary>
     /// Short-rest sacrifice display (test #25, item 1d): the randomly lost card laid
     /// physically at the board centre while the docked burn/redraw DialogPopup decides
     /// its fate — the same sacrifice display as the avoid-damage burn. Its OWN path,
@@ -556,11 +570,32 @@ internal sealed partial class CardsDriver
         bool accept = highlight || nearSlot >= 0;
         string rule = highlight ? "highlight" : nearSlot >= 0 ? "radius" : "none";
         // Landing slot: a fresh candidate goes to the wanted (next empty) slot; a
-        // re-dropped pick card keeps its own index/recess.
-        int target = wasOnField ? _fieldCards.IndexOf(card) : PickTargetSlot();
+        // re-dropped pick card keeps its own seat (recess for the live batch, the
+        // beside-Slot2 stack for a locked one — see PickSeatOfIndex).
+        int target = wasOnField ? PickSeatOfIndex(_fieldCards.IndexOf(card)) : PickTargetSlot();
+
+        // EVENT-DISCARD BATCHING: a FRESH candidate dropped while the current batch is
+        // already full (both recesses placed, total requirement not yet reached, no
+        // confirm popup to swap under) is REFUSED back to the fan — the player must
+        // press the tray CONFIRM ("WEITER") to lock the batch first. Without this the
+        // third card silently piled beside Slot2 and the "batches of two" structure
+        // (and its step display) meant nothing. The dialog-open case stays a SWAP
+        // (BeginPickSwapReopen below), and a reopen in flight is left alone. Checked
+        // BEFORE the drop log so the one line per drop tells the true outcome.
+        if (accept && !wasOnField && target < 0
+            && !_pickReopenBusy && !CardsGameApi.IsPickConfirmDialogOpen(gameHand))
+        {
+            VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
+                                $"rule={rule} → REFUSED: current batch of " +
+                                $"{Mathf.Min(2, CardsGameApi.PickCardsWanted() - _pickLockedCount)} is full — " +
+                                "press the board CONFIRM to lock it in before choosing more. Card returns to the fan.");
+            _tray.NoteSlotActivity(); // the gesture still happened right next to CONFIRM
+            _fan.Add(card);
+            return;
+        }
 
         // THE one log line per real pick drop (the test #14 contract).
-        string where = target >= 0 ? "slot " + (target + 1) : "the overflow spot beside slot 2";
+        string where = target >= 0 && target < 2 ? "slot " + (target + 1) : "the locked stack beside slot 2";
         VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, rule={rule} → " +
                             (accept
                                 ? (wasOnField ? "stay in " + where + "." : "select into " + where + ".")
@@ -609,6 +644,11 @@ internal sealed partial class CardsDriver
             // click keeps audible feedback for that case.
             if (_pickReopenBusy)
                 PlayCardSound(CardsConfig.CardTakeBackSound.Value, card.transform);
+            // EVENT-DISCARD BATCHING: taking back a LOCKED card unlocks it (the batch
+            // shrinks; the step display recomputes from the new locked count).
+            int takeBackIndex = _fieldCards.IndexOf(card);
+            if (takeBackIndex >= 0 && takeBackIndex < _pickLockedCount)
+                _pickLockedCount--;
             _fieldCards.Remove(card);
             RelayoutField();
             _fan.Add(card);
@@ -688,13 +728,30 @@ internal sealed partial class CardsDriver
     private int _loggedFieldOverflow = -1;
 
     /// <summary>
-    /// Home the pick candidates into the SLOT RECESSES (test #28): the first into the
-    /// LEFT slot (Slot1), the second into the RIGHT slot (Slot2 — the burn-two-discard
-    /// flows), any rare extra laid BESIDE Slot2 (logged once, never silently capped).
-    /// Held cards are never re-homed (the phantom-ACCEPT lesson, see PlayTray.PlaceCard).
+    /// EVENT-DISCARD BATCHING: the physical seat a field-list index maps to. Cards of
+    /// the LIVE batch (index ≥ locked count) take the recesses 0/1; LOCKED cards
+    /// (index &lt; locked count) stack on the beside-Slot2 overflow seats (2, 3, …) —
+    /// visibly "already chosen", out of the way of the active batch. -1 = not on field.
+    /// </summary>
+    private int PickSeatOfIndex(int index)
+    {
+        if (index < 0)
+            return -1;
+        int locked = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
+        return index < locked ? 2 + index : index - locked;
+    }
+
+    /// <summary>
+    /// Home the pick candidates into the SLOT RECESSES (test #28): the live batch into
+    /// the LEFT slot (Slot1) then the RIGHT slot (Slot2), every LOCKED batch card onto
+    /// the beside-Slot2 stack (see <see cref="PickSeatOfIndex"/> — the same overflow
+    /// seats the pre-batching flow used for a rare 3rd card; logged once, never
+    /// silently capped). Held cards are never re-homed (the phantom-ACCEPT lesson,
+    /// see PlayTray.PlaceCard).
     /// </summary>
     private void RelayoutField()
     {
+        _pickLockedCount = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
         int n = _fieldCards.Count;
         if (n <= 2)
             _loggedFieldOverflow = -1; // back within the two slots — re-arm the overflow log
@@ -703,25 +760,66 @@ internal sealed partial class CardsDriver
             VRCard card = _fieldCards[i];
             if (card == null || card.IsHeld)
                 continue;
-            if (_tray.PlacePickCard(card, i) < 0 && i >= 2 && i != _loggedFieldOverflow)
+            int seat = PickSeatOfIndex(i);
+            if (_tray.PlacePickCard(card, seat) < 0 && seat >= 2
+                && i >= _pickLockedCount && seat != _loggedFieldOverflow)
             {
-                _loggedFieldOverflow = i;
-                VRLog.Info("Cards", $"Pick: {n} cards laid — extra card #{i + 1} placed BESIDE Slot2 " +
+                // Only an UNLOCKED card on an overflow seat is unexpected (the locked
+                // stack lives there by design) — keep the diagnostic for that case.
+                _loggedFieldOverflow = seat;
+                VRLog.Info("Cards", $"Pick: {n} cards laid — extra card #{seat + 1} placed BESIDE Slot2 " +
                                     "(both recesses full; graceful fallback, no cap).");
             }
         }
     }
 
     /// <summary>
-    /// The slot the next pick candidate should land in (test #28): Slot1 while none is
-    /// laid, Slot2 once the first is (the two-card burn flows). -1 once the game's
-    /// authoritative wanted count (<see cref="CardsGameApi.PickCardsWanted"/>) is met —
-    /// so a ONE-card burn stops pulsing/telegraphing the right slot the moment the left
-    /// one is filled, while a two-card burn still wants both. Extras fall back beside
-    /// Slot2 and get no dedicated slot glow.
+    /// The recess the next FRESH pick candidate should land in (test #28): Slot1 while
+    /// the live batch is empty, Slot2 once one is laid. -1 once the CURRENT BATCH is
+    /// full — batch size is min(2, total wanted − locked), so a ONE-card burn stops
+    /// telegraphing after the left slot fills, a two-card burn wants both, and an
+    /// event-discard of N &gt; 2 wants exactly the live batch (the tray CONFIRM locks
+    /// it and the count restarts for the next batch).
     /// </summary>
-    private int PickTargetSlot() =>
-        _fieldCards.Count < CardsGameApi.PickCardsWanted() ? _fieldCards.Count : -1;
+    private int PickTargetSlot()
+    {
+        int locked = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
+        int batchWant = Mathf.Min(2, CardsGameApi.PickCardsWanted() - locked);
+        int placed = _fieldCards.Count - locked;
+        return placed < batchWant ? placed : -1;
+    }
+
+    /// <summary>
+    /// EVENT-DISCARD BATCHING: lock the current full batch of picks so the recesses
+    /// free up for the next batch (tray CONFIRM = "WEITER" while more cards remain).
+    /// Pure VR bookkeeping — every locked card STAYS selected in the game (the game
+    /// only counts selections toward <c>maxCardsSelected</c>; its own confirm popup
+    /// opens when the TOTAL is reached, and commits everything at once). Fires only
+    /// when MORE than a full batch is still outstanding — the final batch commits
+    /// through the game's own DialogPopup instead. Returns true when a batch locked.
+    /// </summary>
+    private bool TryLockPickBatch(CardsHandUI hand)
+    {
+        if (CardsGameApi.IsPickConfirmDialogOpen(hand) || _pickReopenBusy)
+            return false;
+        int total = CardsGameApi.PickCardsWanted();
+        int locked = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
+        if (total - locked <= 2)
+            return false; // final batch — the game's own confirm dialog owns the commit
+        int placed = _fieldCards.Count - locked;
+        if (placed < 2)
+            return false; // batch not full yet — nothing to lock
+        _pickLockedCount = _fieldCards.Count;
+        RelayoutField();
+        _tray.NoteSlotActivity(); // the locked cards just moved next to CONFIRM — arm the accident guard
+        int totalSteps = (total + 1) / 2;
+        int step = Mathf.Clamp(_pickLockedCount / 2 + ((_pickLockedCount % 2) != 0 ? 1 : 0) + 1, 1, totalSteps);
+        VRLog.Info("Cards", $"Pick batch LOCKED: {_pickLockedCount}/{total} card(s) chosen — recesses cleared for " +
+                            $"step {step}/{totalSteps}. Locked cards stay game-selected (VR-only batching; the game's " +
+                            "confirm dialog opens when the full count is selected).");
+        _dirty = true;
+        return true;
+    }
 
     // -------------------------------------------------------------- short rest --
 

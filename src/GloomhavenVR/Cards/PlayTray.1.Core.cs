@@ -143,6 +143,16 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     private TextMeshPro? _roundLabel;
     private BoardButton? _confirm;
     private BoardButton? _undo;
+
+    // Event-discard pick flow (pre-scenario "Begegnungen" mali + every modal card pick):
+    // the hovering progress banner ("<Charakter>: Wähle 2 von 3 Karten zum Abwerfen —
+    // Schritt 1/2") and the CONFIRM/UNDO keycap label overrides the driver pushes via
+    // SetPickStatus. Null override = the keycap follows its normal game-state logic.
+    private GameObject? _pickBannerRoot;
+    private TextMeshPro? _pickBannerLabel;
+    private string? _pickBannerText;
+    private string? _pickConfirmLabel;
+    private string? _pickUndoLabel;
     private Transform? _confirmAnchor;
     private Transform? _undoAnchor;
 
@@ -939,6 +949,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _confirmedLabel = null;
         _confirm = null;
         _undo = null;
+        _pickBannerRoot = null;  // child of _root, destroyed with it
+        _pickBannerLabel = null;
+        _pickBannerText = null;
+        _pickConfirmLabel = null;
+        _pickUndoLabel = null;
         _confirmAnchor = null; // child of _root, destroyed with it
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it

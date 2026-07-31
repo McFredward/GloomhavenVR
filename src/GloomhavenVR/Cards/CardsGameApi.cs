@@ -230,6 +230,75 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// EVENT-DISCARD DEADLOCK FIX (pre-scenario "Begegnungen" mali, MP log 2026-07 remote
+    /// Player.log:11706ff): press the pick confirm dialog's COMMIT option — the non-cancel
+    /// option of the "Karten abwerfen"/"Karten verbrennen" DialogPopup. The popup is shown
+    /// by <c>CardsHandUI.OnCardSelected</c> with <c>options[0] = commit, cancelOption: 1</c>
+    /// (CardsHandUI.cs:2069-2116); <c>DialogPopup.Show</c> wires each option's
+    /// <c>ExtendedButton.onClick</c> to <c>Hide()</c> + the option callback
+    /// (DialogPopup.cs:179-186), so invoking that onClick IS the 2D click: UINavigation
+    /// restore, selectability restore, then <c>OnLoseCardClick</c> →
+    /// <c>Synchronizer.SendGameAction(GameActionType.AbilityDiscardCard/AbilityLoseCard,
+    /// …)</c> one per selected card (CardsHandUI.cs:2295-2418) — the GAME's own netcode
+    /// carries the outcome; nothing rides the mod's wire. MUST be queued
+    /// (<see cref="CardActionQueue"/>): the commit callback runs engine moves.
+    /// Fields publicized: <c>optionButtons</c> (DialogPopup.cs:82), <c>cancelOption</c>.
+    /// </summary>
+    internal static bool ConfirmPickDialog()
+    {
+        UIManager? ui = UIManager.Instance;
+        DialogPopup? popup = ui != null ? ui.dialogPopup : null;
+        if (popup == null || !popup.IsOpen())
+            return false;
+        List<Script.GUI.Popups.InputButton> buttons = popup.optionButtons;
+        for (int i = 0; i < buttons.Count; i++)
+        {
+            if (i == popup.cancelOption)
+                continue; // the cancel option is CancelPickConfirmDialog's job
+            Script.GUI.Popups.InputButton button = buttons[i];
+            if (button == null || !button.gameObject.activeSelf)
+                continue;
+            ExtendedButton ext = button.ExtendedButton;
+            if (ext == null)
+                continue;
+            ext.onClick.Invoke();
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Live, game-localized label of the pick confirm dialog's commit option
+    /// (<paramref name="cancel"/> false — e.g. "Karten abwerfen") or its cancel option
+    /// (<paramref name="cancel"/> true — "Wähle eine andere Karte"), read straight off
+    /// the option button the 2D player would click (<c>InputButton.ExtendedButton
+    /// .buttonText</c>, InputButton.cs / ExtendedButton.cs:16). Null while the dialog
+    /// is closed or the option is missing — callers fall back to their own Loc string.
+    /// Used for the tray CONFIRM/UNDO keycap labels so the VR affordance carries the
+    /// exact wording the game chose for this pick.
+    /// </summary>
+    internal static string? PickDialogOptionLabel(bool cancel)
+    {
+        UIManager? ui = UIManager.Instance;
+        DialogPopup? popup = ui != null ? ui.dialogPopup : null;
+        if (popup == null || !popup.IsOpen())
+            return null;
+        List<Script.GUI.Popups.InputButton> buttons = popup.optionButtons;
+        for (int i = 0; i < buttons.Count; i++)
+        {
+            if ((i == popup.cancelOption) != cancel)
+                continue;
+            Script.GUI.Popups.InputButton button = buttons[i];
+            if (button == null || !button.gameObject.activeSelf)
+                continue;
+            TMPro.TextMeshProUGUI? text = button.ExtendedButton != null ? button.ExtendedButton.buttonText : null;
+            if (text != null && !string.IsNullOrEmpty(text.text))
+                return text.text;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// The pile(s) the current modal pick draws its candidates from — the game's own
     /// <c>selectableCardTypes</c> (private, publicized; stored by
     /// <c>CardsHandUI.UpdateView</c>, CardsHandUI.cs:580, from the
