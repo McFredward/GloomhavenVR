@@ -289,6 +289,34 @@ internal static class GoldenVectors
         t.True(fwd.HasHandScale, "and the record we DO know is read past the one we do not");
         t.Equal((byte)62, fwd.HandScaleCode, "with its value intact");
 
+        // -- 7c. Ghost sides ----------------------------------------------------------------
+        // The ghost flag never carried a SIDE — receivers inferred "the non-dominant hand",
+        // which the fan made true. A held card can ghost either hand or both, so the exact
+        // sides ride the tail as a bitmask, next to the legacy flag + strength they refine.
+        t.Case("7c. extras, ghost sides mask (held card in the dominant hand)");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            GhostHand = true, GhostStrength = 140,
+            HasGhostSides = true, GhostSidesMask = NetProtocol.GhostSideRightBit,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            84               // flags: FlagPileBrowse | FlagExtrasGhostHand
+            00               // handCardCount
+            8C               // ghost strength 140 (legacy block, unchanged position)
+            80               // byte A: PileBrowseExtensionBit only
+            00               // byte B: count 0 -> no fan
+            01               // tail: 1 record
+            02 01 02         // record: id 2 (ghost sides), len 1, mask = right
+            "), ext, m, "the sides record rides the tail; every legacy byte stays put");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState gs), "and it parses");
+        t.True(gs.GhostHand, "the legacy flag still says 'a ghost is active'");
+        t.Equal((byte)140, gs.GhostStrength, "with the strength where it always was");
+        t.True(gs.HasGhostSides, "the sides record is delivered");
+        t.Equal(NetProtocol.GhostSideRightBit, gs.GhostSidesMask,
+                "and it can say what the old flag could not: the DOMINANT hand");
+
         // A TRUNCATED tail must not destroy what was parsed before it.
         byte[] cut = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 01");
         t.True(PresenceSerializer.TryRead(cut, cut.Length, out PresenceState trunc),

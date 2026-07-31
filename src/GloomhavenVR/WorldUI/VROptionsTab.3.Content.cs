@@ -148,7 +148,10 @@ internal static partial class VROptionsTab
             string? note = VariantNote(_sectionItems);
             if (note != null)
                 BuildNote(ContentRoot, note);
-            BuildVariantCopyRows(_sectionItems);
+            // No copy-from-variant rows here, deliberately: bulk-copying a whole tuning block is
+            // a power move that belongs next to the tuning itself (the Debug topics, where the
+            // rows still appear). In a curated tab it sat between two everyday choices and
+            // overwrote a dozen settings on one press.
 
             for (int i = 0; i < _sectionItems.Count; i++)
                 rows += BuildItem(_sectionItems[i], _sectionEntries[i].Caption, _sectionEntries[i].HintKey);

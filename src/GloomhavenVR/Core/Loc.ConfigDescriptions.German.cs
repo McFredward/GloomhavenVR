@@ -1690,6 +1690,13 @@ internal static partial class Loc
                 + "gerade ist — eine reine Faust um lokal X lässt den gekrümmten Kleinfinger sichtbar "
                 + "abgespreizt stehen; dies zieht ihn beim Krümmen zum Ringfinger zurück (das Vorzeichen kippt "
                 + "für die rechte Hand automatisch). 0 schaltet ab. Live änderbar.",
+            ["Hands/GhostHandOnHeldCard"] =
+                "Macht eine Hand AUCH dann halbtransparent, wenn sie eine KARTE hält — die Finger "
+                + "umschließen genau die Kartenkunst, für die man die Karte hochgenommen hat. "
+                + "Unabhängig von GhostHandOnFan: jede der beiden Optionen kann allein an sein, und "
+                + "beide Hände können gleichzeitig geistern (je eine Karte pro Hand). Nutzt dieselbe "
+                + "Stärke (GhostHandStrength), ist live einstellbar, vollständig umkehrbar und "
+                + "synchronisiert — Mitspieler sehen deine Hände exakt wie du.",
             ["Hands/GhostHandOnFan"] =
                 "Macht die Hand, die gerade den GEÖFFNETEN Kartenfächer hält, halbtransparent "
                 + "(\"Geisterhand\"), damit das Hand-Mesh keine Kartendetails mehr verdeckt. Die Hand bleibt "

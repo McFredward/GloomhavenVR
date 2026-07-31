@@ -63,7 +63,8 @@ internal sealed class RemoteAvatar
     // everyone else's view of them disagree. ONE ghost is enough: the fan is always on the
     // sender's non-dominant hand, and HandGhost restores the old rig by itself when that side
     // flips (dominant-hand switch) or when BuildHands hands it a new rig instance.
-    private readonly HandGhost _ghost;
+    private readonly HandGhost _ghostLeft;
+    private readonly HandGhost _ghostRight;
 
     private AvatarState _target;
     private bool _hasTarget;
@@ -210,6 +211,13 @@ internal sealed class RemoteAvatar
     /// that predate the field — their hands simply stay solid.</summary>
     public bool GhostHand { get; private set; }
 
+    /// <summary>True when the sender named WHICH hands are ghosted (extension record); without it
+    /// the legacy inference below applies.</summary>
+    public bool HasGhostSides { get; private set; }
+
+    /// <summary>Bitmask of the sender's ghosted hands (meaningful when <see cref="HasGhostSides"/>).</summary>
+    public byte GhostSidesMask { get; private set; }
+
     /// <summary>Material alpha the sender's ghost hand should be drawn at (1 = opaque), decoded
     /// from the transmitted strength byte. Meaningful only when <see cref="GhostHand"/>.</summary>
     public float GhostAlpha { get; private set; } = 1f;
@@ -265,7 +273,8 @@ internal sealed class RemoteAvatar
         // Tick and torn down from Destroy.
         _handFan = new RemoteHandFan(this);
         _controlBoard = new RemoteControlBoard(this);
-        _ghost = new HandGhost($"remote[{playerId}]");
+        _ghostLeft = new HandGhost($"remote[{playerId}] L");
+        _ghostRight = new HandGhost($"remote[{playerId}] R");
         _itemFan = new RemoteItemFan(this);
         _cardFx = new RemoteCardFx(this);
         _browserFan = new RemoteBrowserFan(this);
@@ -366,6 +375,8 @@ internal sealed class RemoteAvatar
         // Ghost hand: the sender's own strength rides the wire, so their faded hand reads the
         // same on every client. Decoded through the same AlphaFor curve the local hands use.
         GhostHand = p.GhostHand;
+        HasGhostSides = p.HasGhostSides;
+        GhostSidesMask = p.GhostSidesMask;
         GhostAlpha = p.GhostHand
             ? Hands.HandGhosts.AlphaFor(p.GhostStrength / 255f)
             : 1f;
@@ -452,12 +463,26 @@ internal sealed class RemoteAvatar
             UpdateHeldCard(k);
         }
 
-        // Ghost hand: fade the sender's fan-carrying (= non-dominant) hand by the strength they
-        // broadcast. The rig objects are ours (built by BuildHands), so the fade runs on private
-        // material copies of THIS avatar only — no other player's hands and no bundle asset is
-        // ever touched. Released automatically when the flag clears or the avatar is destroyed.
-        HandRig? ghostRig = GhostHand ? (DominantRight ? _leftRig : _rightRig) : null;
-        _ghost.Apply(ghostRig, GhostAlpha);
+        // Ghost hands: fade exactly the hands the sender says are faded. The extension mask is
+        // authoritative when present (a held card can ghost EITHER hand, or both); a sender too
+        // old to write it falls back to the legacy inference "ghost = the non-dominant hand",
+        // which is what the single flag always meant. The rig objects are ours (built by
+        // BuildHands), so the fade runs on private material copies of THIS avatar only — no other
+        // player's hands and no bundle asset is ever touched. Released automatically when the
+        // flags clear or the avatar is destroyed.
+        bool ghostL, ghostR;
+        if (HasGhostSides)
+        {
+            ghostL = (GhostSidesMask & NetProtocol.GhostSideLeftBit) != 0;
+            ghostR = (GhostSidesMask & NetProtocol.GhostSideRightBit) != 0;
+        }
+        else
+        {
+            ghostL = GhostHand && DominantRight;
+            ghostR = GhostHand && !DominantRight;
+        }
+        _ghostLeft.Apply(ghostL ? _leftRig : null, GhostAlpha);
+        _ghostRight.Apply(ghostR ? _rightRig : null, GhostAlpha);
 
         // Cosmetic add-ons (own their own guards; stubs today).
         _handFan.Tick(dt);
@@ -591,7 +616,8 @@ internal sealed class RemoteAvatar
     public void Destroy()
     {
         // Cloned ghost materials are ASSETS — free them before the hand objects go away.
-        _ghost.Release();
+        _ghostLeft.Release();
+        _ghostRight.Release();
         _handFan.Destroy();
         _controlBoard.Destroy();
         _itemFan.Destroy();
@@ -628,7 +654,8 @@ internal sealed class RemoteAvatar
         // Restore + free any ghost material clones BEFORE the old hand objects are destroyed
         // (Unity does not free materials with the GameObject that referenced them). Tick
         // re-applies the ghost to the freshly built rig on the very next frame.
-        _ghost.Release();
+        _ghostLeft.Release();
+        _ghostRight.Release();
 
         for (int i = _leftHolder.childCount - 1; i >= 0; i--)
             Object.Destroy(_leftHolder.GetChild(i).gameObject);

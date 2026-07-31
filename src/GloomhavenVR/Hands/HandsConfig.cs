@@ -138,6 +138,9 @@ internal static class HandsConfig
     /// <summary>Fade the hand that carries the OPEN card fan ("ghost hand"). Default OFF.</summary>
     public static ConfigEntry<bool> GhostHandOnFan = null!;
 
+    /// <summary>Also ghost a hand while it HOLDS a card (independent of the fan toggle).</summary>
+    public static ConfigEntry<bool> GhostHandOnHeldCard = null!;
+
     /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
     public static ConfigEntry<float> GhostHandStrength = null!;
 
@@ -371,6 +374,13 @@ internal static class HandsConfig
             "about the hands changes until you enable it. Live-tunable, fully reversible (the " +
             "fade runs on private per-renderer material copies, never on the shared hand " +
             "materials), and carried to the avatar mirror and to other players' view of you.");
+        GhostHandOnHeldCard = config.Bind(
+            "Hands", "GhostHandOnHeldCard", false,
+            "ALSO make a hand semi-transparent while it HOLDS a card — the fingers wrap exactly " +
+            "the art you lifted the card to read. Independent of GhostHandOnFan: either can be " +
+            "on without the other, and both hands can ghost at once (a card in each). Shares " +
+            "GhostHandStrength, is live-tunable, fully reversible, and synchronized — other " +
+            "players see your hands exactly as you do.");
         GhostHandStrength = config.Bind(
             "Hands", "GhostHandStrength", HandGhosts.DefaultStrength,
             new ConfigDescription(

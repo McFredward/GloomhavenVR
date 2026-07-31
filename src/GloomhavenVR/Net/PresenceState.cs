@@ -129,6 +129,15 @@ internal struct PresenceState
     /// size to everyone, exactly like their chosen hand style.</summary>
     public byte HandScaleCode;
 
+    /// <summary>True when the packet says WHICH hands are ghosted (extension record
+    /// <see cref="NetProtocol.ExtIdGhostSides"/>). Without it receivers fall back to the legacy
+    /// inference (ghost = the non-dominant hand).</summary>
+    public bool HasGhostSides;
+
+    /// <summary>Bitmask of ghosted hands (<see cref="NetProtocol.GhostSideLeftBit"/> /
+    /// <see cref="NetProtocol.GhostSideRightBit"/>); meaningful when <see cref="HasGhostSides"/>.</summary>
+    public byte GhostSidesMask;
+
     /// <summary>
     /// The sender's chosen CONTROL-BOARD STYLE (<c>Cards.ControlBoard</c> id: 0 Oak / 1 Steel /
     /// 2 Bronze), carried in trailing-block byte A bits 5..6 — see
@@ -226,7 +235,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.HasHandScale;
+        bool extensions = state.HasHandScale || state.HasGhostSides;
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -296,6 +305,13 @@ internal static class PresenceSerializer
                     buffer[i++] = NetProtocol.ExtIdHandScale;
                     buffer[i++] = 1;
                     buffer[i++] = state.HandScaleCode;
+                    records++;
+                }
+                if (state.HasGhostSides)
+                {
+                    buffer[i++] = NetProtocol.ExtIdGhostSides;
+                    buffer[i++] = 1;
+                    buffer[i++] = state.GhostSidesMask;
                     records++;
                 }
                 buffer[countAt] = records;
@@ -416,6 +432,11 @@ internal static class PresenceSerializer
                     {
                         state.HasHandScale = true;
                         state.HandScaleCode = buffer[i];
+                    }
+                    else if (id == NetProtocol.ExtIdGhostSides && len >= 1)
+                    {
+                        state.HasGhostSides = true;
+                        state.GhostSidesMask = buffer[i];
                     }
                     i += len; // known or not, the record's own length is how we move past it
                 }

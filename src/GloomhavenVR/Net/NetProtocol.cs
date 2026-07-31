@@ -354,6 +354,17 @@ internal static class NetProtocol
     /// Their hands must read the same size to everyone, exactly like their hand style.</summary>
     public const byte ExtIdHandScale = 1;
 
+    /// <summary>
+    /// Extension record: WHICH hands are ghosted (bit0 left, bit1 right). Needed the moment a
+    /// HELD CARD may ghost a hand: the legacy flag carries no side, and receivers inferred "the
+    /// non-dominant hand" — always right for the fan, wrong half the time for a held card, and
+    /// unable to say "both". Pre-extension peers skip the record by length and keep the old
+    /// inference; that is a cosmetic cross-version mismatch, not a desync.
+    /// </summary>
+    public const byte ExtIdGhostSides = 2;
+    public const byte GhostSideLeftBit = 0x01;
+    public const byte GhostSideRightBit = 0x02;
+
     /// <summary>Hand-scale code standing for "1.00x" — the value assumed when the record is absent.</summary>
     public const byte HandScaleDefaultCode = 100;
 

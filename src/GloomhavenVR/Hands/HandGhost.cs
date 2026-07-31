@@ -458,9 +458,35 @@ internal static class HandGhosts
     private static readonly HandGhost LeftGhost = new("local Left");
     private static readonly HandGhost RightGhost = new("local Right");
 
-    /// <summary>Which hand is ghosted right now (null = none). Read by the mirror and the net
-    /// sender so all three renderings of this player agree.</summary>
+    /// <summary>Which hand is ghosted right now (null = none). LEGACY single-side view — kept for
+    /// the wire's original ghost flag and the mirror; when both hands are ghosted it names the fan
+    /// side. The full truth is <see cref="LocalSidesMask"/>.</summary>
     internal static HandSide? LocalSide { get; private set; }
+
+    internal static bool LocalLeft { get; private set; }
+    internal static bool LocalRight { get; private set; }
+
+    /// <summary>Bitmask of ghosted hands (NetProtocol.GhostSideLeftBit/RightBit) for the wire's
+    /// extension record — the representation that can say "the dominant one" or "both".</summary>
+    internal static byte LocalSidesMask =>
+        (byte)((LocalLeft ? Net.NetProtocol.GhostSideLeftBit : 0)
+               | (LocalRight ? Net.NetProtocol.GhostSideRightBit : 0));
+
+    /// <summary>The held-card ghost toggle ([Hands] GhostHandOnHeldCard); false before Bind.</summary>
+    internal static bool HeldCardEnabled
+    {
+        get
+        {
+            try
+            {
+                return HandsConfig.GhostHandOnHeldCard != null && HandsConfig.GhostHandOnHeldCard.Value;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
     /// <summary>The ghost-hand feature toggle ([Hands] GhostHandOnFan); false before Bind.</summary>
     internal static bool Enabled
@@ -523,12 +549,29 @@ internal static class HandGhosts
                 fanHand = fan.Hand;
         }
 
-        HandSide? side = fanHand != null ? fanHand.Side : null;
-        LocalSide = side;
+        // A HELD card ghosts its hand too, when [Hands] GhostHandOnHeldCard says so. Checked per
+        // hand rather than as one side, because a held card can be in EITHER hand — or both —
+        // while the fan is only ever on one. The card itself never fades: it hangs off a hand
+        // socket, and Engage's IsAttachment filter excludes socketed objects by design.
+        VRHand? left = VRHands.Left;
+        VRHand? right = VRHands.Right;
+        bool heldCards = HeldCardEnabled;
+        bool ghostLeft = (fanHand != null && fanHand.Side == HandSide.Left)
+                         || (heldCards && left != null && left.Grabber.Held is VRCard);
+        bool ghostRight = (fanHand != null && fanHand.Side == HandSide.Right)
+                          || (heldCards && right != null && right.Grabber.Held is VRCard);
+
+        LocalLeft = ghostLeft;
+        LocalRight = ghostRight;
+        // The legacy single-side view prefers the fan side — that is what it always meant.
+        LocalSide = fanHand != null ? fanHand.Side
+            : ghostLeft ? HandSide.Left
+            : ghostRight ? HandSide.Right
+            : (HandSide?)null;
 
         float alpha = Alpha;
-        LeftGhost.Apply(side == HandSide.Left ? fanHand!.Rig : null, alpha);
-        RightGhost.Apply(side == HandSide.Right ? fanHand!.Rig : null, alpha);
+        LeftGhost.Apply(ghostLeft && left != null ? left.Rig : null, alpha);
+        RightGhost.Apply(ghostRight && right != null ? right.Rig : null, alpha);
     }
 
     /// <summary>Module shutdown / hot reload: restore both hands unconditionally.</summary>

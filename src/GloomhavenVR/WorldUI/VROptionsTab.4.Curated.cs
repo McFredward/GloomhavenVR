@@ -243,12 +243,13 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Hands", "HandStyle", "hands"),
-                        // All three are listed and exactly ONE survives: the per-variant filter
-                        // keeps the style being worn, and the section heading names it. Listing
-                        // them is what makes the row appear at all for every style.
-                        new("Hands", "GloveScale", "vr_o_handscale"),
-                        new("Hands", "PlateScale", "vr_o_handscale"),
-                        new("Hands", "ArcaneScale", "vr_o_handscale"),
+                        // The hand SIZE rows lived here once; they are calibration, not a choice,
+                        // so they moved to Debug with the rest of the per-style tuning. What a
+                        // player picks about their avatar is the style, the mask and its size —
+                        // the mask pair was missing here entirely while being synced to every
+                        // peer like the hand style, which made it the odd one out.
+                        new("Net", "MaskId", "head_mask"),
+                        new("Net", "MaskSize", "mask_size"),
                     },
                 },
                 new()

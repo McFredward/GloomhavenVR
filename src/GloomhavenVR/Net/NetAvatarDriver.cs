@@ -297,15 +297,19 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
         extras.DominantRight = LocalRigSampler.LocalDominantRight();
 
-        // Ghost hand (cosmetic, additive FlagExtrasGhostHand field): whether OUR fan-carrying
-        // hand is currently faded, plus the strength WE chose — a peer must see our ghost hand
-        // exactly as we do, the same contract as the transmitted hand style / head mask. The
-        // SIDE needs no wire field: the fan always sits on the non-dominant hand, which the
-        // receiver already resolves from the dominant-hand flag above.
+        // Ghost hand (cosmetic): whether ANY of our hands is faded, plus the strength WE chose —
+        // a peer must see our ghost hands exactly as we do, the same contract as the transmitted
+        // hand style / head mask. The legacy flag carries no side (receivers used to infer "the
+        // non-dominant hand", which the fan made true); since a HELD CARD can ghost either hand
+        // or both, the exact sides ride the extension tail as a bitmask. Pre-extension peers skip
+        // it and keep the old inference.
         extras.GhostHand = Hands.HandGhosts.LocalSide != null;
         if (extras.GhostHand)
             extras.GhostStrength = (byte)Mathf.Clamp(
                 Mathf.RoundToInt(Hands.HandGhosts.Strength * 255f), 0, 255);
+        byte ghostSides = Hands.HandGhosts.LocalSidesMask;
+        extras.HasGhostSides = ghostSides != 0;
+        extras.GhostSidesMask = ghostSides;
 
         // ITEM fan (report 5): the equipped-item fan is a completely separate object from the
         // ability fan (Cards.ItemsPile, not Cards.CardFan) and used to be broadcast NOWHERE, so a
