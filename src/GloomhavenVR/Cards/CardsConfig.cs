@@ -85,10 +85,12 @@ internal static class CardsConfig
     /// LimitedPitch (clamped) and Free modes.</summary>
     internal static ConfigEntry<float> TrayPitch = null!;
 
-    /// <summary>Item 12: lower edge of the grab-pitch window, degrees relative to the configured BoardTilt.</summary>
+    /// <summary>LEGACY — no effect, superseded by the per-board <c>BoardPitchMin_{board}</c> (seeded to −45,
+    /// this entry's default). Bound for cfg back-compat only; nothing reads it.</summary>
     internal static ConfigEntry<float> BoardPitchMinDegrees = null!;
 
-    /// <summary>Item 12: upper edge of the grab-pitch window, degrees relative to the configured BoardTilt.</summary>
+    /// <summary>LEGACY — no effect, superseded by the per-board <c>BoardPitchMax_{board}</c> (seeded to 45,
+    /// this entry's default). Bound for cfg back-compat only; nothing reads it.</summary>
     internal static ConfigEntry<float> BoardPitchMaxDegrees = null!;
 
     /// <summary>LEGACY — no effect, superseded by the per-board <c>BoardTilt_{board}</c> (seeded to 30,
@@ -180,6 +182,8 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _slotOverlaySpacing = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _boardPitchMin = new ConfigEntry<float>[3];
+    private static readonly ConfigEntry<float>[] _boardPitchMax = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _assetOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _assetRotation = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _assetPitch = new ConfigEntry<float>[3];
@@ -523,7 +527,7 @@ internal static class CardsConfig
             "today's behavior: position + yaw only, the board is kept level for you (under the " +
             "world tilt 'level' means level in YOUR view, not the world's). LimitedPitch = like " +
             "Limited, plus the grab may PITCH the board toward/away from you, clamped to the " +
-            "BoardPitchMinDegrees..BoardPitchMaxDegrees window. Free = the board follows the " +
+            "per-board BoardPitchMin_<board>..BoardPitchMax_<board> window. Free = the board follows the " +
             "grabbing hand in ALL axes 1:1 — no leveling, no clamps (it CAN end up upside down; " +
             "switching back to a Limited mode re-levels it). Selectable in the VR settings " +
             "(Tafeln → Karten & Brett) with localized labels; local cosmetics only — peers just " +
@@ -533,22 +537,20 @@ internal static class CardsConfig
             "(positive = more upright toward you). Written automatically when you release the handle " +
             "bar in the LimitedPitch or Free movement mode, so the pitch survives re-placements and " +
             "sessions; ignored in the Limited mode (which always uses BoardTilt alone). Edit only to " +
-            "reset. Clamped to the BoardPitchMinDegrees..BoardPitchMaxDegrees window when applied in " +
-            "LimitedPitch.");
+            "reset. Clamped to the per-board BoardPitchMin_<board>..BoardPitchMax_<board> window when " +
+            "applied in LimitedPitch.");
         BoardPitchMinDegrees = _file.Bind("Cards", "BoardPitchMinDegrees", Defaults.BoardPitchMinDegrees,
-            new ConfigDescription(
-                "Item 12, BoardMoveMode=LimitedPitch only: how far the grab may pitch the board " +
-                "DOWN/away from its configured BoardTilt_<board>, degrees (the lower edge of the " +
-                "pitch window; 0 = no downward pitch at all). Live-tunable from the debug menu; " +
-                "always kept ≤ BoardPitchMaxDegrees at read time.",
-                new AcceptableValueRange<float>(-85f, 85f)));
+            "LEGACY — no effect, superseded by the per-board BoardPitchMin_<board>. Nothing reads " +
+            "this value. It was the GLOBAL lower edge of the LimitedPitch grab-pitch window, " +
+            "degrees relative to BoardTilt; BoardPitchMin_<board> replaced it in the clamp math " +
+            "and was seeded to −45 so behavior is unchanged. Tune BoardPitchMin_<board> instead. " +
+            "Kept bound so existing cfg files load unchanged.");
         BoardPitchMaxDegrees = _file.Bind("Cards", "BoardPitchMaxDegrees", Defaults.BoardPitchMaxDegrees,
-            new ConfigDescription(
-                "Item 12, BoardMoveMode=LimitedPitch only: how far the grab may pitch the board " +
-                "UP/toward you from its configured BoardTilt_<board>, degrees (the upper edge of " +
-                "the pitch window; 0 = no upward pitch at all). Live-tunable from the debug menu; " +
-                "always kept ≥ BoardPitchMinDegrees at read time.",
-                new AcceptableValueRange<float>(-85f, 85f)));
+            "LEGACY — no effect, superseded by the per-board BoardPitchMax_<board>. Nothing reads " +
+            "this value. It was the GLOBAL upper edge of the LimitedPitch grab-pitch window, " +
+            "degrees relative to BoardTilt; BoardPitchMax_<board> replaced it in the clamp math " +
+            "and was seeded to 45 so behavior is unchanged. Tune BoardPitchMax_<board> instead. " +
+            "Kept bound so existing cfg files load unchanged.");
         CardLerpSpeed = _file.Bind("Cards", "CardLerpSpeed", Defaults.CardLerpSpeed,
             "Card fly animation speed (exponential smoothing constant, 1/s).");
         SlotCardInset = _file.Bind("Cards", "SlotCardInset", Defaults.SlotCardInset,
@@ -686,6 +688,22 @@ internal static class CardsConfig
             _boardTilt[i] = _file.Bind("Cards", $"BoardTilt_{board}", Defaults.BoardTilt_ByBoard[i],
                 $"[{board}] board tilt from horizontal toward the player, degrees (0 = flat desk, " +
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
+            _boardPitchMin[i] = _file.Bind("Cards", $"BoardPitchMin_{board}", Defaults.BoardPitchMin_ByBoard[i],
+                new ConfigDescription(
+                    $"[{board}] item 12, BoardMoveMode=LimitedPitch only: how far the grab may pitch " +
+                    $"this board DOWN/away from its configured BoardTilt_{board}, degrees (the lower " +
+                    "edge of the pitch window; 0 = no downward pitch at all). Live-tunable from the " +
+                    $"debug menu; always kept ≤ BoardPitchMax_{board} at read time. Replaces the " +
+                    "global BoardPitchMinDegrees, seeded from its default (−45).",
+                    new AcceptableValueRange<float>(-85f, 85f)));
+            _boardPitchMax[i] = _file.Bind("Cards", $"BoardPitchMax_{board}", Defaults.BoardPitchMax_ByBoard[i],
+                new ConfigDescription(
+                    $"[{board}] item 12, BoardMoveMode=LimitedPitch only: how far the grab may pitch " +
+                    $"this board UP/toward you from its configured BoardTilt_{board}, degrees (the " +
+                    "upper edge of the pitch window; 0 = no upward pitch at all). Live-tunable from " +
+                    $"the debug menu; always kept ≥ BoardPitchMin_{board} at read time. Replaces the " +
+                    "global BoardPitchMaxDegrees, seeded from its default (45).",
+                    new AcceptableValueRange<float>(-85f, 85f)));
             _boardYaw[i] = _file.Bind("Cards", $"BoardYaw_{board}", Defaults.BoardYaw_ByBoard[i],
                 $"[{board}] extra board yaw ADDED on top of the grab-written TrayYaw, degrees. Seeded 0 (Oak).");
             _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", Defaults.BoardScale_ByBoard[i],
@@ -1063,16 +1081,18 @@ internal static class CardsConfig
     internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
 
     /// <summary>
-    /// Item 12: the normalized grab-pitch window (min ≤ max guaranteed, whatever the two debug
-    /// entries say — a crossed pair collapses onto its midpoint rather than throwing or flipping).
+    /// Item 12: the CURRENT board's normalized grab-pitch window (min ≤ max guaranteed, whatever
+    /// the two per-board debug entries say — a crossed pair collapses onto its midpoint rather
+    /// than throwing or flipping).
     /// Degrees relative to the per-board BoardTilt; positive = more upright toward the player.
     /// </summary>
     internal static (float Min, float Max) BoardPitchWindow
     {
         get
         {
-            float min = BoardPitchMinDegrees.Value;
-            float max = BoardPitchMaxDegrees.Value;
+            ControlBoard board = CurrentBoard;
+            float min = BoardPitchMin(board).Value;
+            float max = BoardPitchMax(board).Value;
             if (min > max)
                 min = max = (min + max) * 0.5f;
             return (min, max);
@@ -1127,6 +1147,8 @@ internal static class CardsConfig
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
     internal static ConfigEntry<float> BoardTilt(ControlBoard b) => _boardTilt[(int)b];
+    internal static ConfigEntry<float> BoardPitchMin(ControlBoard b) => _boardPitchMin[(int)b];
+    internal static ConfigEntry<float> BoardPitchMax(ControlBoard b) => _boardPitchMax[(int)b];
     internal static ConfigEntry<Vector3> AssetOffset(ControlBoard b) => _assetOffset[(int)b];
     internal static ConfigEntry<float> AssetPitch(ControlBoard b) => _assetPitch[(int)b];
     internal static ConfigEntry<float> AssetYaw(ControlBoard b) => _assetYaw[(int)b];

@@ -56,8 +56,8 @@ internal static partial class Defaults
     internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Limited;                         // => [Cards] BoardMoveMode
     internal const float TrayPitch = 0f;                                                              // => [Cards] TrayPitch
-    internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees
-    internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees
+    internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)
+    internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
     internal const float SlotCardInset = 0.004f;                                                      // => [Cards] SlotCardInset
     internal const float SlotCardFill = 1.45f;                                                        // => [Cards] SlotCardFill
@@ -79,6 +79,12 @@ internal static partial class Defaults
     internal const float BoardTilt_Oak = 30f;                                                         // => [Cards] BoardTilt_Oak
     internal const float BoardTilt_Steel = 30f;                                                       // => [Cards] BoardTilt_Steel
     internal const float BoardTilt_Bronze = 30f;                                                      // => [Cards] BoardTilt_Bronze
+    internal const float BoardPitchMin_Oak = -45f;                                                    // => [Cards] BoardPitchMin_Oak
+    internal const float BoardPitchMin_Steel = -45f;                                                  // => [Cards] BoardPitchMin_Steel
+    internal const float BoardPitchMin_Bronze = -45f;                                                 // => [Cards] BoardPitchMin_Bronze
+    internal const float BoardPitchMax_Oak = 45f;                                                     // => [Cards] BoardPitchMax_Oak
+    internal const float BoardPitchMax_Steel = 45f;                                                   // => [Cards] BoardPitchMax_Steel
+    internal const float BoardPitchMax_Bronze = 45f;                                                  // => [Cards] BoardPitchMax_Bronze
     internal const float BoardYaw_Oak = 0f;                                                           // => [Cards] BoardYaw_Oak
     internal const float BoardYaw_Steel = 0f;                                                         // => [Cards] BoardYaw_Steel
     internal const float BoardYaw_Bronze = 0f;                                                        // => [Cards] BoardYaw_Bronze
@@ -159,6 +165,8 @@ internal static partial class Defaults
     internal static readonly Vector3[] ItemUseSlotOffset_ByBoard = { ItemUseSlotOffset_Oak, ItemUseSlotOffset_Steel, ItemUseSlotOffset_Bronze };
     internal static readonly Vector3[] ItemCardOffset_ByBoard = { ItemCardOffset_Oak, ItemCardOffset_Steel, ItemCardOffset_Bronze };
     internal static readonly float[] BoardTilt_ByBoard = { BoardTilt_Oak, BoardTilt_Steel, BoardTilt_Bronze };
+    internal static readonly float[] BoardPitchMin_ByBoard = { BoardPitchMin_Oak, BoardPitchMin_Steel, BoardPitchMin_Bronze };
+    internal static readonly float[] BoardPitchMax_ByBoard = { BoardPitchMax_Oak, BoardPitchMax_Steel, BoardPitchMax_Bronze };
     internal static readonly float[] BoardYaw_ByBoard = { BoardYaw_Oak, BoardYaw_Steel, BoardYaw_Bronze };
     internal static readonly float[] BoardScale_ByBoard = { BoardScale_Oak, BoardScale_Steel, BoardScale_Bronze };
     internal static readonly Vector3[] AssetRotation_ByBoard = { AssetRotation_Oak, AssetRotation_Steel, AssetRotation_Bronze };

@@ -97,7 +97,8 @@ internal enum BoardMoveMode
     Limited = 1,
 
     /// <summary>Like <see cref="Limited"/>, plus the grab may PITCH the board inside the
-    /// [Cards] BoardPitchMinDegrees..BoardPitchMaxDegrees window (debug-menu tunable).</summary>
+    /// per-board [Cards] BoardPitchMin_&lt;board&gt;..BoardPitchMax_&lt;board&gt; window
+    /// (debug-menu tunable).</summary>
     LimitedPitch = 2,
 }
 
