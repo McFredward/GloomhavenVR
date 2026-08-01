@@ -51,16 +51,22 @@ internal sealed partial class VRRigDriver
     /// writes: no per-frame flatten/re-tilt fight, no feedback through the grab's exponential
     /// smoothing (the old fling).
     ///
-    /// AIM is read LIVE from the head, not from <c>_tiltAimYawDeg</c>: the grab-active branch
-    /// of TickWorldTilt (a masked event) re-seeds <c>_tiltAimYawDeg = headYaw</c> every frame,
-    /// so the stored field is one frame stale during a grab; the head pose itself is stable
-    /// between Update (grab) and LateUpdate (tick) within a frame, so sampling it here yields
-    /// the exact axis the tick will use. Only callable mid-grab by design — outside a grab the
-    /// live-head aim would NOT match the (frozen) stored aim. The single residual error source
-    /// is <c>_tiltApplied</c> during the 0.2 s config tween (the tick advances it in LateUpdate,
-    /// after us): a one-frame lag of at most tweenSlope·dt (≈0.35° at 72 Hz for a 5° step),
-    /// healed the same frame ATTRIBUTED "world-grab" (grabActive) — never "rig-pose-heal" —
-    /// and non-accumulating because the heal reconstructs from the exact twist, not a delta.
+    /// AIM is read from <c>_tiltAimYawDeg</c> — the SAME field TickWorldTilt's reconstruction
+    /// reads that frame — so the grab's write and the heal's desired pose stay provably in
+    /// LOCKSTEP. (Round 7: the old grab-active branch re-seeded the aim to the live head yaw
+    /// every frame, which forced this method to sample the head too; that instant-consume was
+    /// the press/release scene jump and is gone — the grab's re-aim is motion-proportional
+    /// now, see <see cref="NotifyWorldGrabMotion"/>, which WorldGrab calls BEFORE composing
+    /// this swing, so any grab-motion-masked aim step this frame is already in the field by
+    /// the time the grab writes with it.) Residual same-frame divergence, each bounded,
+    /// non-accumulating (the heal reconstructs from the exact twist, not a delta) and
+    /// attributed "world-grab" (grabActive) — never "rig-pose-heal":
+    ///  - a masked-rotation step in the tick (head-rate channel, ≤ gain·headRate·dt): an
+    ///    axis-only change at unchanged magnitude, healed about the HEAD pivot — pure
+    ///    view-direction drift, zero player translation;
+    ///  - <c>_tiltApplied</c> during the 0.2 s config tween (the tick advances it in
+    ///    LateUpdate, after us): a one-frame lag of at most tweenSlope·dt (≈0.35° at 72 Hz
+    ///    for a 5° step).
     /// At tilt 0 this returns identity → the grab write reduces bit-identically to the
     /// pre-tilt yaw-only behavior.
     /// </summary>
@@ -69,22 +75,101 @@ internal sealed partial class VRRigDriver
         VRRigDriver? drv = Instance;
         if (drv == null || drv._kind != RigKind.Scenario || drv._tiltApplied <= 0f)
             return Quaternion.identity;
-        float aim = drv._camera != null
-            ? YawOnly(drv._camera.transform.localRotation).eulerAngles.y
-            : drv._tiltAimYawDeg;
-        Vector3 axis = yawOnly * Quaternion.AngleAxis(aim, Vector3.up) * Vector3.right;
+        Vector3 axis = yawOnly * Quaternion.AngleAxis(drv._tiltAimYawDeg, Vector3.up) * Vector3.right;
         return Quaternion.AngleAxis(drv._tiltApplied, axis);
+    }
+
+    // ---- grab-motion-masked aim consumption (round 7) --------------------------------------
+    //
+    // Round-7 hardware log: the old grab-active instant-consume branch ate the WHOLE
+    // accumulated view error the instant the stick was PRESSED (and NotifyTiltAxisSnap did
+    // the same at RELEASE) — but at those instants the grab has not moved the world at all
+    // (deadzones haven't even latched), so nothing masked the snap: with room-scale movement
+    // having banked a ~25° view error, every press/release visibly jumped the scene. Genuine
+    // masking only exists while the grab is actually MOVING the world, in proportion to that
+    // motion. These constants map the grab's APPLIED world motion each frame to the aim
+    // degrees it may consume; each ratio is chosen conservatively so the re-aim-induced world
+    // motion (a rotation of sin(tilt)·step ≤ 0.87·step about the HEAD — see the pivot
+    // selection in TickWorldTilt) stays well below the masking motion itself:
+    //  - DegPerMeter 20: 1 cm of real-meter drag masks 0.2° of re-aim → at a typical 1–2 m
+    //    board distance the induced displacement stays under ~half the drag displacement;
+    //  - DegPerWorldYawDeg 0.5: induced rotation ≤ 0.87·0.5 ≈ 0.44× the world yaw actually
+    //    sweeping the scene;
+    //  - DegPerScaleOctave 15: a full doubling/halving of the world sweeps everything
+    //    radially past the player — masks 15° of re-aim;
+    //  - MaxDegPerFrame 1.5 caps single-frame consumption (~108°/s at 72 Hz) so a motion
+    //    spike can never turn back into a snap.
+    // When the grab holds still the budget is ~0 and the error stays frozen, exactly like
+    // head-only motion outside a grab.
+    private const float GrabReaimDegPerMeter = 20f;
+    private const float GrabReaimDegPerWorldYawDeg = 0.5f;
+    private const float GrabReaimDegPerScaleOctave = 15f;
+    private const float GrabReaimMaxDegPerFrame = 1.5f;
+
+    /// <summary>
+    /// Grab-motion-masked aim consumption: called by <see cref="WorldGrab"/> once per frame
+    /// it applies world motion, BEFORE it composes <see cref="CurrentTiltSwing"/> into its
+    /// rotation write — so the aim step is already in <c>_tiltAimYawDeg</c> when both the
+    /// grab write and this frame's TickWorldTilt reconstruction read it (lockstep, see
+    /// CurrentTiltSwing). Arguments are the APPLIED world motion this frame: real meters the
+    /// world slid under the hands, degrees of world yaw, octaves (log2) of scale change.
+    /// Consumes view error toward the current head yaw up to the motion-proportional budget
+    /// (tuning constants above) and feeds the same one-line-per-burst diagnostic as the
+    /// masked-rotation channel. Touches NO state while the tilt is flat/off (seedAimFromHead
+    /// owns the tween-up-from-flat case) — the tilt-0 bit-identical no-op invariant holds.
+    /// </summary>
+    internal static void NotifyWorldGrabMotion(float dragMeters, float worldYawDeg, float scaleOctaves)
+    {
+        VRRigDriver? drv = Instance;
+        if (drv == null || drv._kind != RigKind.Scenario || drv._tiltApplied <= 0f
+            || drv._camera == null)
+            return;
+        float budget = Mathf.Abs(dragMeters) * GrabReaimDegPerMeter
+                       + Mathf.Abs(worldYawDeg) * GrabReaimDegPerWorldYawDeg
+                       + Mathf.Abs(scaleOctaves) * GrabReaimDegPerScaleOctave;
+        budget = Mathf.Min(budget, GrabReaimMaxDegPerFrame);
+        if (budget <= 1e-4f)
+            return; // grab holding still → error stays frozen, zero writes
+        float headYawDeg = YawOnly(drv._camera.transform.localRotation).eulerAngles.y;
+        float aimError = Mathf.DeltaAngle(drv._tiltAimYawDeg, headYawDeg);
+        if (Mathf.Abs(aimError) <= 1e-3f)
+            return;
+        float step = Mathf.Sign(aimError) * Mathf.Min(Mathf.Abs(aimError), budget);
+        drv._tiltAimYawDeg = Mathf.DeltaAngle(0f, drv._tiltAimYawDeg + step);
+        drv.RecordMaskedAimStep(step, 0f, grabMasked: true);
+    }
+
+    /// <summary>Burst accounting shared by the masked-rotation (head-rate) and grab-motion
+    /// channels — one summary log line per burst, emitted by TickWorldTilt at burst end
+    /// (never per-frame; the logging contract).</summary>
+    private void RecordMaskedAimStep(float stepDeg, float headRateDps, bool grabMasked)
+    {
+        if (!_burstActive)
+        {
+            _burstActive = true;
+            _burstStartTime = Time.unscaledTime;
+            _burstDegrees = 0f;
+            _burstGrabDegrees = 0f;
+            _burstPeakHeadRate = 0f;
+        }
+        _burstDegrees += Mathf.Abs(stepDeg);
+        if (grabMasked)
+            _burstGrabDegrees += Mathf.Abs(stepDeg);
+        _burstPeakHeadRate = Mathf.Max(_burstPeakHeadRate, Mathf.Abs(headRateDps));
+        _burstLastStepTime = Time.unscaledTime;
     }
 
     /// <summary>
     /// Assert the world tilt on the scenario rig (LOCAL-ONLY, rig-side — Demeo model):
     /// reconstruct the desired pose as <c>tilt(target°, about the RIG-YAW-RELATIVE horizontal
-    /// axis) ∘ yawOnly(current)</c> and rotate the rig into it around the BOARD CENTER
-    /// (<c>CameraController.FocusPoint</c> — the same orbit focus the rig was built at).
-    /// Because the rotation happens about the pivot, the player's virtual head orbits up and
-    /// over the board while the board itself appears to tilt toward them; world coordinates
-    /// of every game object are untouched, so nothing changes for multiplayer peers except
-    /// our own (honestly moved) avatar pose.
+    /// axis) ∘ yawOnly(current)</c> and rotate the rig into it around a cause-selected pivot:
+    /// tilt MAGNITUDE changes orbit the BOARD CENTER (<c>CameraController.FocusPoint</c> —
+    /// the same orbit focus the rig was built at), while AXIS-ONLY re-aims at unchanged
+    /// magnitude pivot about the HEAD (round 7 — see the pivot selection below). Under the
+    /// FocusPoint orbit the player's virtual head orbits up and over the board while the
+    /// board itself appears to tilt toward them; world coordinates of every game object are
+    /// untouched, so nothing changes for multiplayer peers except our own (honestly moved)
+    /// avatar pose.
     ///
     /// TILT AXIS (rounds 5+6 — the DEMEO MODEL plus view aim; provenance + algebra on
     /// the axis-field comment block). The axis is the rig's yaw-frame right composed
@@ -92,10 +177,13 @@ internal sealed partial class VRRigDriver
     /// the rig-yaw factor is Demeo's yaw-parent/tilt-child chain (co-rotates exactly
     /// with stick turns/world-grab, zero writes), and the aim factor keeps the tilt
     /// tipping toward the VIEW direction. The aim is updated ONLY under perceptual
-    /// masking: instantly at masked events (recenter/stick turn/world grab — Demeo's
-    /// InputTracking.Recenter analog) and gradually at a subthreshold gain while the
-    /// head itself rotates fast (redirected rotation). Under head-only motion below
-    /// the masking threshold every input to the desired pose is constant, so
+    /// masking: instantly at masked events (recenter/stick turn — Demeo's
+    /// InputTracking.Recenter analog), gradually at a subthreshold gain while the
+    /// head itself rotates fast (redirected rotation), and — round 7 — in proportion
+    /// to the world motion an active grab actually applies each frame
+    /// (<see cref="NotifyWorldGrabMotion"/>; a grab that merely PRESSES or RELEASES
+    /// the stick moves nothing and therefore re-aims nothing). Under head-only motion
+    /// below the masking threshold every input to the desired pose is constant, so
     /// desired == current and no transform write happens — the world is bit-frozen.
     ///
     /// Per-frame reconstruction (not an incremental delta) is what makes every composition
@@ -158,7 +246,12 @@ internal sealed partial class VRRigDriver
             _nextTiltLogTime = 0f; // edge-trigger the periodic diagnostic line below
         }
         float tweenT = Mathf.Clamp01((Time.unscaledTime - _tiltTweenStartTime) / TiltTweenSeconds);
+        float appliedBefore = _tiltApplied;
         _tiltApplied = Mathf.Lerp(_tiltTweenFrom, target, tweenT);
+        // A tween CONTINUATION frame (edge already consumed changeTrigger) is still a
+        // magnitude write of the user's config click: attribute it "config-change", never
+        // the 'rig-pose-heal' unattributed-writer alarm, and keep the FocusPoint orbit.
+        bool magnitudeStep = !Mathf.Approximately(_tiltApplied, appliedBefore);
 
         // VIEW-AIM MAINTENANCE (round 6; mechanism + provenance on the axis comment
         // block). The head-local yaw is the PURE DEVICE pose (TrackedPoseDriver writes
@@ -180,13 +273,20 @@ internal sealed partial class VRRigDriver
             _prevHeadYawValid = true;
 
             aimError = Mathf.DeltaAngle(_tiltAimYawDeg, headYawDeg);
-            if (_axisSnapReason != null || grabActive || seedAimFromHead)
+            if (_axisSnapReason != null || seedAimFromHead)
             {
-                // MASKED EVENT: the world is already jumping (recenter, stick turn,
-                // grab release) or being dragged (active grab — continuous re-aim) or
+                // MASKED EVENT: the world is already jumping (recenter, stick turn) or
                 // the tilt is still flat — consume the whole error at once, invisibly.
                 // This is exactly Demeo's recenter mechanism (InputTracking.Recenter
-                // absorbs the head yaw into the root behind a fade).
+                // absorbs the head yaw into the root behind a fade). World-grab
+                // press/release is deliberately NOT in this set (round 7): at those
+                // instants the grab has not moved the world yet (deadzones haven't even
+                // latched), so nothing masks an instant re-aim — with room-scale
+                // movement having banked a large view error, the one-frame consume
+                // orbited the rig around FocusPoint and visibly jumped the scene. A
+                // grab re-aims only in proportion to the motion it actually applies
+                // (NotifyWorldGrabMotion, Update phase); the head-rate channel below
+                // stays live during a grab.
                 _tiltAimYawDeg = headYawDeg;
                 aimError = 0f;
             }
@@ -204,23 +304,18 @@ internal sealed partial class VRRigDriver
                 _tiltAimYawDeg = Mathf.DeltaAngle(0f, _tiltAimYawDeg + step);
                 aimError -= step;
                 maskedStep = true;
-                if (!_burstActive)
-                {
-                    _burstActive = true;
-                    _burstStartTime = Time.unscaledTime;
-                    _burstDegrees = 0f;
-                    _burstPeakHeadRate = 0f;
-                }
-                _burstDegrees += Mathf.Abs(step);
-                _burstPeakHeadRate = Mathf.Max(_burstPeakHeadRate, Mathf.Abs(headRate));
-                _burstLastStepTime = Time.unscaledTime;
+                RecordMaskedAimStep(step, headRate, grabMasked: false);
             }
         }
         // ONE summary line per masked-correction burst, at its END — never per-frame.
+        // Covers BOTH masked channels: head-rate steps (here) and grab-motion-masked steps
+        // (NotifyWorldGrabMotion, Update phase) share the burst accounting; the grab share
+        // is broken out so the hardware log proves grab re-aim tracked actual motion.
         if (_burstActive && !maskedStep && Time.unscaledTime - _burstLastStepTime > BurstEndGraceSeconds)
         {
             _burstActive = false;
-            VRLog.Info("Rig", $"WorldTilt masked re-aim burst: consumed {_burstDegrees:F1}° over " +
+            VRLog.Info("Rig", $"WorldTilt masked re-aim burst: consumed {_burstDegrees:F1}° " +
+                              $"({_burstGrabDegrees:F1}° grab-motion-masked) over " +
                               $"{Mathf.Max(0f, _burstLastStepTime - _burstStartTime):F2}s " +
                               $"(peak head rate {_burstPeakHeadRate:F0}°/s, residual view error {aimError:F1}°).");
         }
@@ -250,8 +345,10 @@ internal sealed partial class VRRigDriver
 
         // Periodic diagnostic while active (hardware-log contract): rigYaw/aim/axis must
         // read IDENTICAL across consecutive lines unless a 'WorldTilt change [trigger]'
-        // or a 'masked re-aim burst' line sits between them — every change is either a
-        // locomotion/config event or a masked-rotation burst, never bare head movement.
+        // or a 'masked re-aim burst' line sits between them (or a burst is still in
+        // progress — its summary lands at burst end) — every change is either a
+        // locomotion/config event or a masked burst (head-rate or grab-motion channel),
+        // never bare head movement.
         // viewErr is the head-vs-aim yaw error currently waiting (frozen) for masking.
         if (target > 0f && Time.unscaledTime >= _nextTiltLogTime)
         {
@@ -265,19 +362,39 @@ internal sealed partial class VRRigDriver
         float error = Quaternion.Angle(current, desired);
         if (error > 0.01f)
         {
+            // PIVOT SELECTION (round 7). A heal whose ONLY cause is an AXIS/aim change at
+            // UNCHANGED tilt magnitude must rotate about the HEAD: orbiting FocusPoint
+            // translates the head whenever it stands away from the pivot (the press/release
+            // scene jump this round fixed), while the same rotation about the head keeps
+            // the player perfectly still as the tilt direction drifts — imperceptible.
+            // Tilt MAGNITUDE changes (config click/tween, rig-build, recenter's re-tilt of
+            // a flattened pose) keep the FocusPoint orbit — the board tilting toward you
+            // around its own center is the intended Demeo feel. The axis-only test is
+            // exact, not a heuristic: desired is reconstructed FROM the current yaw twist,
+            // so it can differ from current only in swing magnitude and swing axis —
+            // equal swing angles ⇒ pure axis change.
+            float currentSwingDeg = Quaternion.Angle(current, yawOnly);
+            bool axisOnlyHeal = Mathf.Abs(currentSwingDeg - _tiltApplied) <= 0.05f;
+            Vector3 healPivot = axisOnlyHeal && _camera != null
+                ? _camera.transform.position
+                : pivot;
+
             // CHANGE-ATTRIBUTED write (hardware-log contract): every world motion the
             // tilt system causes is logged with its trigger — a locomotion event
             // (NotifyTiltAxisSnap reason, e.g. recenter's yaw-flatten + instant re-aim
-            // healed here), an active world grab (tilt-consistent since Bug A — only its
-            // continuous re-aim and the one-frame tween lag land here), a masked-rotation
-            // step, or the user's
-            // tilt config click. 'rig-pose-heal' would mean an unattributed external
-            // writer flattened the rig — investigate if it ever appears. 'masked-reaim'
-            // frames stay QUIET here — their one-line-per-burst summary above is the
-            // log (never per-frame).
+            // healed here), the user's tilt config click INCLUDING its tween continuation
+            // frames (magnitudeStep — the edge frame consumes changeTrigger, the ramp
+            // frames must not fall through to the alarm), an active world grab
+            // (tilt-consistent since Bug A — only its head-rate re-aim steps and the
+            // one-frame tween lag land here), or a masked-rotation step. 'rig-pose-heal'
+            // would mean an unattributed external writer flattened the rig — investigate
+            // if it ever appears; it is unreachable from grabs and from tweens.
+            // 'masked-reaim' frames stay QUIET here — their one-line-per-burst summary
+            // above is the log (never per-frame).
             string trigger = _axisSnapReason
                              ?? changeTrigger
-                             ?? (grabActive ? "world-grab"
+                             ?? (magnitudeStep ? "config-change"
+                                 : grabActive ? "world-grab"
                                  : maskedStep ? "masked-reaim"
                                  : "rig-pose-heal");
             bool repeatTrigger = trigger == _lastChangeTrigger;
@@ -286,13 +403,15 @@ internal sealed partial class VRRigDriver
             {
                 _nextChangeLogTime = Time.unscaledTime + ChangeLogThrottleSeconds;
                 VRLog.Info("Rig", $"WorldTilt change [{trigger}]: tilt {_tiltApplied:F1}°/{target:0}°, " +
-                                  $"rigYaw {yawOnly.eulerAngles.y:F1}°, healed {error:F2}°.");
+                                  $"rigYaw {yawOnly.eulerAngles.y:F1}°, healed {error:F2}° " +
+                                  $"(pivot {(axisOnlyHeal ? "head" : "focus")}).");
             }
 
-            // Rotate the rig into the desired pose AROUND the board center so the pose
-            // change reads as the viewpoint orbiting the board, not the world snapping.
+            // Rotate the rig into the desired pose around the selected pivot: FocusPoint
+            // so magnitude changes read as the viewpoint orbiting the board, the head so
+            // axis-only re-aims never translate the player.
             Quaternion delta = desired * Quaternion.Inverse(current);
-            rig.position = pivot + delta * (rig.position - pivot);
+            rig.position = healPivot + delta * (rig.position - healPivot);
             rig.rotation = desired;
         }
         _axisSnapReason = null; // attribution is per-frame; a no-write frame consumes it too

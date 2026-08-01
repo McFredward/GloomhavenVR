@@ -237,11 +237,15 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     // (:684-694) does it explicitly: root.localRotation *= Inverse(headYaw). So in
     // Demeo the tilt "always faces you" because every (masked) recenter silently
     // re-anchors the root yaw to the head yaw. We replicate that and close the
-    // remaining gap (physical turning between events) with two channels, both writing
+    // remaining gap (physical turning between events) with three channels, all writing
     // ONLY the head-local aim yaw _tiltAimYawDeg that the axis is composed with:
-    //   1. MASKED EVENTS (the Demeo-faithful part): recenter, stick turn, world grab
-    //      (continuously while held, and on release) instantly set aim = head yaw —
-    //      the world is already jumping/dragging, so the re-aim is invisible;
+    //   1. MASKED EVENTS (the Demeo-faithful part): recenter and stick turn instantly
+    //      set aim = head yaw — the world is already jumping, so the re-aim is
+    //      invisible. World-grab press/release is NOT such an event (round 7): at
+    //      those instants the grab has not moved the world yet, so the old instant
+    //      consume was an unmasked scene jump whenever room-scale movement had
+    //      banked a large view error (hardware log: 24° residual healed in one
+    //      frame at stick press);
     //   2. MASKED ROTATION (redirected-rotation technique, subthreshold gain): while
     //      the head yaws faster than [Rig] MaskedReaimHeadRate (default 30°/s), the
     //      aim rotates toward the view at MaskedReaimGain (default 15%) of the head's
@@ -252,7 +256,15 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     //      glide); leftover error waits, bit-frozen, for the next fast rotation or
     //      masked event. Errors below MaskedReaimDeadband (default 5°) are ignored
     //      outright, so ordinary looking-around triggers nothing and the world stays
-    //      bit-identical under head-only motion exactly as in round 5.
+    //      bit-identical under head-only motion exactly as in round 5. Stays live
+    //      DURING a grab too (round 7);
+    //   3. GRAB-MOTION MASKING (round 7): while a world grab actually MOVES the
+    //      world, the aim consumes view error in proportion to the APPLIED motion
+    //      that frame — degrees per real meter dragged / per degree world-yawed /
+    //      per scale octave, capped per frame (NotifyWorldGrabMotion, tuning
+    //      constants + rationale in VRRigDriver.WorldTilt.cs). A grab that holds
+    //      still consumes nothing: the error stays frozen exactly like head-only
+    //      motion, and press/release alone therefore re-aims ZERO degrees.
     //
     // TILT MAGNITUDE (Demeo AvatarController.Tilt): Demeo changes tilt ONLY on a
     // discrete thumbstick flick, in 15° steps (tiltValue 0..12), animated by a 0.2 s
@@ -296,7 +308,8 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// <summary>A masked-correction burst ends after this long without a step (one summary log line).</summary>
     private const float BurstEndGraceSeconds = 0.3f;
     private bool _burstActive;
-    private float _burstDegrees;       // total aim degrees consumed this burst
+    private float _burstDegrees;       // total aim degrees consumed this burst (all channels)
+    private float _burstGrabDegrees;   // share of _burstDegrees consumed under grab-motion masking (round 7)
     private float _burstStartTime;
     private float _burstLastStepTime;
     private float _burstPeakHeadRate;  // deg/s
@@ -323,10 +336,14 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// turns / world-grab automatically (round-5 Demeo parenting model — nothing to snap),
     /// but since round 6 these events additionally serve as MASKED RE-AIM opportunities:
     /// the next TickWorldTilt instantly re-aims the tilt at the current view yaw (aim =
-    /// head-local yaw), which is invisible because the event is already jumping/dragging
-    /// the world — the exact Demeo recenter mechanism (InputTracking.Recenter absorbs the
+    /// head-local yaw), which is invisible because the event is already jumping the
+    /// world — the exact Demeo recenter mechanism (InputTracking.Recenter absorbs the
     /// head yaw behind a fade; provenance on the axis comment block). The reason string
     /// also ATTRIBUTES the resulting pose write in the WorldTilt change log.
+    /// Callers: recenter and SnapTurn ONLY. World-grab engage/release deliberately does
+    /// NOT call this since round 7 — no masking motion exists at the press/release
+    /// instant; a grab's re-aim is proportional to its applied motion instead
+    /// (<see cref="NotifyWorldGrabMotion"/>).
     /// </summary>
     internal static void NotifyTiltAxisSnap(string reason)
     {
@@ -694,6 +711,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _tiltAimYawDeg = 0f;   // fresh rig re-seeds the aim from the head (seedAimFromHead)
         _prevHeadYawValid = false;
         _burstActive = false;
+        _burstGrabDegrees = 0f; // grab-masked share dies with its burst (also zeroed at burst start)
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
