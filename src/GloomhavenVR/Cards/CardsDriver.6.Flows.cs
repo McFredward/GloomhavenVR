@@ -737,6 +737,85 @@ internal sealed partial class CardsDriver
             });
     }
 
+    // ------------------------------------------------- selection-follow hand switch --
+
+    // HAND-SWITCH WATCHDOG (regression ruling, user 2026-08: "Optionsmenü darf das
+    // Spielgeschehen nie beeinflussen" — the presence of the options menu must have ZERO
+    // influence on gameplay). Reported (intermittent, one hardware session): with the
+    // options menu open, an initiative-track portrait click switched the SELECTED character
+    // but the to-be-placed cards (hand fan + board slots) kept showing the previous
+    // character. Audit result: the mod's own state-following carries NO menu gate anywhere —
+    // the CardsHandManager.ShowHands postfix (HandShown → _dirty) and PollModeChange's actor
+    // signature both fire on every SwitchHand, and the only menu-keyed Cards gates
+    // (BlockingWindowModalActive / ModalUI) are input-hit-testing only and exclude the
+    // pause/options family (NonBlockingMenus) by construction. The one way presentation and
+    // selection can stay diverged is the game's own EDGE-triggered coupling being swallowed:
+    // InitiativeTrackPlayerAvatar.Select runs InitiativeTrack.Select (selection moves) but
+    // skips CardsHandManager.SwitchHand behind its LastMessage/IsShown gates
+    // (InitiativeTrackPlayerAvatar.cs:21-28) — a lost edge with no vanilla retry. This pump
+    // is the LEVEL-triggered safety net: whenever selection and the presented hand stay
+    // diverged during the card-selection phase — menu open or not — it drives the game's OWN
+    // SwitchHand seam so the cards re-converge. All vanilla gates are replicated in
+    // CardsGameApi.SelectionHandDrift, so the pump can never perform a switch the game
+    // itself would have refused; it is deliberately NOT gated on any menu/window state (the
+    // ruling above). Genuine blockers (story/results — never the options family) defer it.
+    private float _selSwitchNextTry;   // throttle for the queued game call (reads stay per-tick)
+    private bool _selSwitchQueued;     // at most one queued switch in flight
+    private int _selSwitchDriftFrame = -1; // first frame the drift was seen (-1 = none)
+
+    private void PumpSelectionHandSwitch()
+    {
+        CPlayerActor? drift = CardsGameApi.SelectionHandDrift();
+        if (drift == null)
+        {
+            _selSwitchDriftFrame = -1; // converged (or a vanilla gate holds) — re-arm
+            return;
+        }
+        if (WorldUI.ModalFallback.BlockingWindowModalActive)
+            return; // genuine blockers only (story/results/…) — the pause/options family is
+                    // NonBlockingMenus and can never raise this gate (the ruling above).
+        int frame = Time.frameCount;
+        if (_selSwitchDriftFrame < 0)
+        {
+            _selSwitchDriftFrame = frame;
+            return; // same-frame divergence is normal (Select runs before SwitchHand) —
+                    // only drift that PERSISTS across frames is a swallowed edge
+        }
+        if (frame - _selSwitchDriftFrame < 2)
+            return;
+        float now = Time.unscaledTime;
+        if (_selSwitchQueued || now < _selSwitchNextTry)
+            return;
+        _selSwitchNextTry = now + 0.5f;
+        _selSwitchQueued = true;
+        bool switched = false;
+        string who = CardsGameApi.ActorLabel(drift);
+        CardActionQueue.Enqueue(
+            () =>
+            {
+                // Re-resolve INSIDE the queued action (it runs a frame later, behind any
+                // pending card selects): the drift may have healed or a gate risen meanwhile.
+                CPlayerActor? fresh = CardsGameApi.SelectionHandDrift();
+                if (fresh != null)
+                    switched = CardsGameApi.SwitchHandTo(fresh);
+            },
+            () =>
+            {
+                _selSwitchQueued = false;
+                if (switched)
+                {
+                    VRLog.Warn("Cards", "Hand-switch watchdog: presented hand had DIVERGED from the " +
+                                        $"selected character '{who}' during card selection (the game's " +
+                                        "portrait-click SwitchHand edge was swallowed) — drove the game's " +
+                                        "own SwitchHand to re-converge the fan/board cards. Ruling: the " +
+                                        "options menu must never influence gameplay ('Optionsmenü darf das " +
+                                        "Spielgeschehen nie beeinflussen', user 2026-08), so this net runs " +
+                                        "regardless of any open menu.");
+                    _dirty = true; // the ShowHands postfix also set it — belt and braces
+                }
+            });
+    }
+
     private (bool selected, bool losing, bool done)? _longRestState;
 
     /// <summary>

@@ -84,6 +84,83 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// Hand-switch watchdog seam (regression ruling, user 2026-08: "Optionsmenü darf das
+    /// Spielgeschehen nie beeinflussen" — the options/pause menu must have ZERO influence on
+    /// gameplay). Returns the locally-controlled player the initiative track currently has
+    /// SELECTED during the card-selection phase whose hand SHOULD therefore be the presented
+    /// one but is NOT (<c>CardsHandManager.CurrentHand</c> still points at another character)
+    /// — i.e. the game's own edge-triggered portrait-click coupling
+    /// (<c>InitiativeTrackPlayerAvatar.Select</c> → <c>SwitchHand</c>,
+    /// InitiativeTrackPlayerAvatar.cs:21-28) was swallowed and presentation diverged from
+    /// selection. Every gate of that vanilla seam is replicated here so a caller acting on
+    /// this can never perform a switch the game itself would have refused:
+    /// <list type="bullet">
+    /// <item>phase fence: only <c>SelectAbilityCardsOrLongRest</c> — switching between your
+    /// characters is legitimate there; the action-phase select guard owns the other phases
+    /// (<see cref="IsActionPhaseNonCurrentPlayerSelect"/>);</item>
+    /// <item><c>Choreographer.LastMessage</c> gate (StartTurn / ActionSelectionPhaseStart /
+    /// CheckForInitiativeAdjustments): on these messages the game deliberately re-selects an
+    /// actor WITHOUT switching the hand (e.g. the initiative-adjustment select on every
+    /// client, Choreographer.cs:11681) — a switch here would fight the game;</item>
+    /// <item>control-ability gate (<c>AbilityEffectManager.IsControlAbilityAffectingActor</c>,
+    /// same as the avatar seam);</item>
+    /// <item>MP fence: the selected character must be under local control and alive, and its
+    /// hand must exist (<c>GetHand</c>).</item>
+    /// </list>
+    /// Null in the steady state (presentation follows selection) or while any gate holds.
+    /// Verified: <c>public CMessageData LastMessage { get; set; }</c> (Choreographer.cs:602),
+    /// <c>CMessageData.MessageType</c> members StartTurn/ActionSelectionPhaseStart/
+    /// CheckForInitiativeAdjustments (CMessageData.cs:13/188/176),
+    /// <c>public bool IsControlAbilityAffectingActor(CActor)</c> (AbilityEffectManager.cs:56),
+    /// <c>public void SwitchHand(CPlayerActor)</c> (CardsHandManager.cs:613).
+    /// </summary>
+    internal static CPlayerActor? SelectionHandDrift()
+    {
+        if (PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return null;
+        if (!(SelectedActor() is CPlayerActor selected) || selected.IsDead)
+            return null;
+        if (FFSNetwork.IsOnline && !selected.IsUnderMyControl)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null)
+            return null;
+        CardsHandUI current = manager.CurrentHand;
+        if (current != null && ReferenceEquals(current.PlayerActor, selected))
+            return null; // presentation already follows the selection — the steady state
+        if (manager.GetHand(selected) == null)
+            return null;
+        Choreographer c = Choreographer.s_Choreographer;
+        CMessageData? last = c != null ? c.LastMessage : null;
+        if (last != null && (last.m_Type == CMessageData.MessageType.StartTurn
+                             || last.m_Type == CMessageData.MessageType.ActionSelectionPhaseStart
+                             || last.m_Type == CMessageData.MessageType.CheckForInitiativeAdjustments))
+            return null; // vanilla suppresses the hand switch on these messages — so do we
+        if (Singleton<AbilityEffectManager>.IsInitialized
+            && Singleton<AbilityEffectManager>.Instance.IsControlAbilityAffectingActor(selected))
+            return null;
+        return selected;
+    }
+
+    /// <summary>
+    /// Drive the game's own hand switch to <paramref name="player"/> — verbatim the call the
+    /// 2D portrait-click seam makes (<c>CardsHandManager.SwitchHand</c>, CardsHandManager.cs:613:
+    /// re-points <c>currentHand</c>, shows that hand, <c>Choreographer.OnSwitchHand</c>
+    /// bookkeeping, then <c>ShowHands()</c> — whose postfix raises <c>HandShown</c> so the VR
+    /// driver rebuilds). Local presentation only: no rules state, no network payload — the same
+    /// local seam every 2D portrait click uses. Returns true when the switch stuck.
+    /// </summary>
+    internal static bool SwitchHandTo(CPlayerActor player)
+    {
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null || player == null)
+            return false;
+        manager.SwitchHand(player);
+        CardsHandUI now = manager.CurrentHand;
+        return now != null && ReferenceEquals(now.PlayerActor, player);
+    }
+
+    /// <summary>
     /// Task #5: is it genuinely THIS hand's player's OWN action turn right now — the only
     /// state in which the two played (round) ability cards should be docked on the control
     /// board? During the <c>ActionSelection</c> phase every actor takes its turn in
