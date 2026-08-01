@@ -103,7 +103,12 @@ internal static class ConfigCatalog
         internal string Section = string.Empty;
         internal string Key = string.Empty;
 
-        /// <summary>Key with camel humps spaced out — what the row shows ("CullSubmitSplit" → "Cull Submit Split").</summary>
+        /// <summary>
+        /// What the row is called: the localized display name from the name table
+        /// (<see cref="Loc.ConfigDisplayName"/> — "Fächer: Radius (m)", never a bare "Enabled"),
+        /// falling back to the key with its camel humps spaced out ("CullSubmitSplit" →
+        /// "Cull Submit Split") for an entry nobody named yet.
+        /// </summary>
         internal string Display = string.Empty;
 
         internal ConfigTopic Topic;
@@ -228,6 +233,12 @@ internal static class ConfigCatalog
             return;
         _bound = true; // set FIRST: a throwing binder must never make this retry every refresh
 
+        // Group labels AND the items' display names are resolved at build time, so a language
+        // change must drop the cache (the doc on Invalidate). Subscribed once, here, because
+        // this is the catalog's own once-per-process gate; Loc.Dispose clears the handler on
+        // hot reload.
+        Loc.OnChanged += Invalidate;
+
         Bind("comfort", Rig.ComfortSettings.Bind);
         Bind("perf", PerfConfig.Bind);
         Bind("batching", StaticBatchConfig.Bind);
@@ -332,8 +343,12 @@ internal static class ConfigCatalog
     /// descriptions ("[General] Enabled … the mod does nothing", "[Optimize] RemoteContentInterval
     /// … does nothing at all in single player"), and a substring test would have hidden three
     /// working settings. The prefix is the deliberate marker; the phrase is ordinary prose.</para>
+    ///
+    /// <para>"DEPRECATED —" joined the list in the 2026-08 naming sweep: the ~20 retired
+    /// map-capture knobs ([WorldUI] Map*) carry that prefix instead of "LEGACY — no effect"
+    /// and were sitting in Menüs &amp; Tafeln as twenty dead rows.</para>
     /// </summary>
-    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —" };
+    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —", "DEPRECATED —" };
 
     /// <summary>Entries left out of the catalog because they are marked retired.</summary>
     internal static int RetiredEntries { get; private set; }
@@ -358,6 +373,18 @@ internal static class ConfigCatalog
         // backdrop leaves the backdrop drawn over the key colour, so offering it as a separate
         // switch offers a way to make MR not work. Bound as an escape hatch, not as a choice.
         ["MixedReality/HideSkyMeshes"] = "part of Mixed Reality itself — MR turns it on",
+        // One-time migration SOURCES (ButtonTuning.MigrateLegacy): their values were copied into
+        // the live [RoundButtons]/[BoardButtons]/… entries once and are never read again, but
+        // their bound description is the literal "legacy", which the prefix markers above do not
+        // catch — so they showed as eight dead rows whose hover said one unexplained word.
+        ["TransientButtons/OffsetX"] = "one-time migration source, consumed at first start",
+        ["TransientButtons/OffsetY"] = "one-time migration source, consumed at first start",
+        ["TransientButtons/Shape"] = "one-time migration source, consumed at first start",
+        ["TransientButtons/CapSize"] = "one-time migration source, consumed at first start",
+        ["SquareCaps/Width"] = "one-time migration source, consumed at first start",
+        ["SquareCaps/Height"] = "one-time migration source, consumed at first start",
+        ["SquareCaps/Depth"] = "one-time migration source, consumed at first start",
+        ["SquareCaps/Travel"] = "one-time migration source, consumed at first start",
     };
 
     /// <summary>
@@ -384,11 +411,14 @@ internal static class ConfigCatalog
             return null;
 
         // A SETTING THAT DOES NOTHING IS WORSE THAN A MISSING ONE: the player turns the dial,
-        // nothing happens, and they are left doubting the mod rather than the row. Thirty entries
-        // are in this state — the four shared hand-seat keys and their twelve per-style trims
-        // (superseded by absolute per-style keys), six FigureGrab and seven Cards constants, and
-        // one reserved placeholder — and five of them were sitting in the everyday Avatar tab.
-        // They stay BOUND so existing config files keep loading; they simply stop being offered.
+        // nothing happens, and they are left doubting the mod rather than the row. Roughly
+        // eighty entries are in this state — the four shared hand-seat keys and their twelve
+        // per-style trims (superseded by absolute per-style keys), six FigureGrab and seven
+        // Cards constants, one reserved placeholder, the ~20 DEPRECATED map-capture knobs, the
+        // per-board AssetRotation trio, and the 2026-08 additions: [Rig] WorldScale (setting
+        // removed by user ruling) and the parked world tilt ([Rig] WorldTiltDegrees + the three
+        // MaskedReaim* companions). They stay BOUND so existing config files keep loading; they
+        // simply stop being offered.
         if (IsRetired(entry))
         {
             RetiredEntries++;
@@ -410,7 +440,10 @@ internal static class ConfigCatalog
                 Section = def.Section ?? string.Empty,
                 Key = def.Key ?? string.Empty,
             };
-            item.Display = Spaced(item.Key);
+            // Localized, self-explanatory name first (user round 2026-08); the spaced-out key
+            // only for entries nobody named. The catalog rebuilds on a language change
+            // (Loc.OnChanged → Invalidate, hooked in EnsureBound), so this follows the game.
+            item.Display = Loc.ConfigDisplayName(item.Section, item.Key) ?? Spaced(item.Key);
             item.Topic = TopicOf(item.Module, item.Section, item.Key);
             item.NeedsRestart = IsStartupOnly(item.Module, item.Section, item.Key);
             item.Pin = Pinned(item.Section, item.Key);

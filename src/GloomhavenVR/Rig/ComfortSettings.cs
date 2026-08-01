@@ -91,9 +91,10 @@ internal sealed class ComfortSetting<T>
 /// <summary>
 /// Phase-4 comfort configuration (docs/INTERFACES-P4.md). All entries live in a
 /// dedicated config file (<c>BepInEx/config/dev.gloomhavenvr.comfort.cfg</c>, section
-/// <c>[Comfort]</c>) owned by the Rig module — the main plugin config
-/// (<c>Plugin.cs</c>) is frozen shared surface and is only *wrapped* here
-/// (<see cref="WorldScaleBase"/>). Bound in <see cref="RigModule.Init"/>, released in
+/// <c>[Comfort]</c>) owned by the Rig module. (The old <c>WorldScaleBase</c> wrapper over
+/// the main config's frozen <c>[Rig] WorldScale</c> is gone with that setting — user ruling
+/// 2026-08, "Tischgröße" removed; the entry itself stays bound in <c>Plugin.cs</c> as a
+/// documented legacy no-op.) Bound in <see cref="RigModule.Init"/>, released in
 /// <see cref="RigModule.Shutdown"/> — hot-reload clean.
 ///
 /// The in-VR settings panel (<see cref="WorldUI.SettingsPanel"/>) binds to the
@@ -119,9 +120,6 @@ internal static class ComfortSettings
     public static event Action<string>? AnyChanged;
 
     // ---- typed accessors (the settings-panel binding surface) ---------------------------
-
-    /// <summary>Base diorama scale (wraps the frozen <c>[Rig] WorldScale</c> entry, 0 = auto). Rig rebuild required.</summary>
-    public static ComfortSetting<float> WorldScaleBase { get; private set; } = null!;
 
     /// <summary>Master switch for grip-based world grab (drag/rotate/scale).</summary>
     public static ComfortSetting<bool> WorldGrabEnabled { get; private set; } = null!;
@@ -236,9 +234,6 @@ internal static class ComfortSettings
         // config browser (Debug ▸ Alle Einstellungen) like every other module's.
         _file = Core.ModuleConfig.Create("comfort");
 
-        // Frozen shared entry from Plugin.cs, wrapped so the panel has ONE binding surface.
-        WorldScaleBase = new ComfortSetting<float>(Plugin.WorldScale);
-
         WorldGrabEnabled = Bind("WorldGrabEnabled", Defaults.WorldGrabEnabled,
             "Grip-based table manipulation: one grip (away from grabbable objects) drags the " +
             "table, two grips rotate and pinch-scale it. Moves only the VR rig, never the game world.");
@@ -316,7 +311,6 @@ internal static class ComfortSettings
         }
 
         _file.SettingChanged += OnFileSettingChanged;
-        WorldScaleBase.Changed += OnWorldScaleBaseChanged;
 
         IsBound = true;
         Core.VRLog.Debug("Comfort", "Comfort settings bound (dev.gloomhavenvr.comfort.cfg).");
@@ -330,9 +324,7 @@ internal static class ComfortSettings
 
         if (_file != null)
             _file.SettingChanged -= OnFileSettingChanged;
-        WorldScaleBase.Changed -= OnWorldScaleBaseChanged;
 
-        WorldScaleBase.Detach();
         WorldGrabEnabled.Detach();
         FreeMovement.Detach();
         VerticalDrag.Detach();
@@ -373,17 +365,4 @@ internal static class ComfortSettings
         }
     }
 
-    // WorldScaleBase lives in the main plugin config file, so the file-level event above
-    // doesn't cover it — bridge it into AnyChanged here.
-    private static void OnWorldScaleBaseChanged(float _)
-    {
-        try
-        {
-            AnyChanged?.Invoke(WorldScaleBase.Key);
-        }
-        catch (Exception ex)
-        {
-            Core.VRLog.Error("Comfort", $"AnyChanged subscriber threw: {ex}");
-        }
-    }
 }

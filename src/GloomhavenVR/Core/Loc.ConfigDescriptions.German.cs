@@ -571,8 +571,12 @@ internal static partial class Loc
                 + "Awake des Plugins.",
             // ---- [Rig] ----
             ["Rig/WorldScale"] =
-                "Dioramen-Maßstab: Spielwelt-Einheiten pro realem Meter (das Rig wird damit skaliert, sodass "
-                + "das Spielbrett wie ein Tisch wirkt). 0 = automatisch aus der Hexfeld-Größe (typisch ~10-20).",
+                "ALT — ohne Wirkung (Einstellung 2026-08 auf Nutzerwunsch entfernt: sie doppelte die "
+                + "eigentliche Tischgrößen-Steuerung und verwirrte sie nur). Der Basismaßstab des Dioramas "
+                + "wird jetzt immer automatisch aus der Hexfeld-Größe abgeleitet; die Tischgröße stellst du "
+                + "mit der Zwei-Hand-Zoom-Geste ein (gespeichert als [Comfort] SavedScaleMultiplier). Bleibt "
+                + "gebunden, damit bestehende Konfigurationsdateien unverändert laden; nichts liest diesen "
+                + "Wert mehr.",
             ["Rig/MenuRig"] =
                 "Koppelt die Menükamera des Spiels an die Kopfbewegung, solange kein Szenario läuft "
                 + "(Hauptmenü, Guildmaster-Karte), damit die schwebende 2D-Leinwand und die Hände auch "
@@ -593,30 +597,30 @@ internal static partial class Loc
                 + "#8: riesige Karte unter dem Spieler, schwarzes flaches Fenster). Der Wunsch ist hier "
                 + "festgehalten, damit er in eine spätere Phase überlebt.",
             ["Rig/WorldTiltDegrees"] =
-                "Weltneigung im Demeo-Stil in Grad (0-60, 0 = aus/Standard). Der GESAMTE Spielbereich (Brett, "
-                + "Figuren, alles) erscheint zu dir hin geneigt — ideal beim Spielen in zurückgelehnter oder "
-                + "liegender Haltung. Rig-seitig umgesetzt: der VR-Trackingraum wird um die Brettmitte "
-                + "gegengedreht, sodass dein Blickpunkt hinauf und über das Brett kreist, während die "
-                + "Weltkoordinaten unangetastet bleiben (mehrspielersicher: Bretter und Figuren bewegen sich "
-                + "für niemanden; andere Spieler sehen lediglich deinen Avatar kreisen, was das physikalisch "
-                + "ehrliche Bild ist). KOMFORT-WARNUNG: das Neigen richtet die Schwerkraft relativ zu deinem "
-                + "Kopf neu aus — der Horizont passt nicht mehr zu deinem Gleichgewichtssinn. Erhöhe in kleinen "
-                + "Schritten (die Einstellungstafel schaltet in 5-Grad-Schritten) und bleibe bei maßvollen "
-                + "Winkeln. Live: Änderungen wirken sofort und bleiben erhalten.",
+                "ALT — ohne Wirkung (Funktion 2026-08 auf Nutzerwunsch GEPARKT: die Weltneigung machte zu "
+                + "viele Probleme und ist vorerst abgeschaltet; sie kommt eventuell später wieder). Das war "
+                + "die Weltneigung im Demeo-Stil in Grad (0-60): der gesamte Spielbereich erschien zu dir "
+                + "hin geneigt, rig-seitig umgesetzt und mehrspielersicher. Der Wert bleibt erhalten, damit "
+                + "ein eingestellter Winkel in dieser Datei überlebt, aber die Laufzeit erzwingt Neigung 0 "
+                + "(VRRigDriver.WorldTilt.cs, TargetTiltDegrees). Wiederbelebung = diese eine Klammer "
+                + "entfernen und die Menüzeile wiederherstellen.",
             ["Rig/MaskedReaimHeadRate"] =
-                "Nur bei Weltneigung. Wenn du dich körperlich mit Körper/Kopf drehst, wird die Richtung, in "
+                "ALT — ohne Wirkung, solange die Weltneigung geparkt ist (siehe [Rig] WorldTiltDegrees). "
+                + "Nur bei Weltneigung. Wenn du dich körperlich mit Körper/Kopf drehst, wird die Richtung, in "
                 + "die die Neigung kippt, unbemerkt auf deinen Blick nachgeführt — aber NUR, solange sich dein "
                 + "Kopf schneller als diese Schwelle dreht (Grad pro Sekunde), sodass die Korrektur von deiner "
                 + "eigenen Bewegung wahrnehmungsmäßig verdeckt wird (Redirected-Rotation-Technik). Unterhalb "
                 + "der Schwelle bleibt die Welt exakt eingefroren. Standard 30.",
             ["Rig/MaskedReaimGain"] =
-                "Nur bei Weltneigung. Geschwindigkeit der verdeckten Neigungs-Nachführung als Bruchteil der "
+                "ALT — ohne Wirkung, solange die Weltneigung geparkt ist (siehe [Rig] WorldTiltDegrees). "
+                + "Nur bei Weltneigung. Geschwindigkeit der verdeckten Neigungs-Nachführung als Bruchteil der "
                 + "Drehgeschwindigkeit deines Kopfes (0-0.5). 0.15 = die Achse führt mit 15% der jeweiligen "
                 + "Kopfdrehgeschwindigkeit nach — weit unter der Wahrnehmungsschwelle für Rotationsverstärkung "
                 + "von ~20%, sodass sich die Welt nie sichtbar bewegt. Höher konvergiert schneller, fällt aber "
                 + "eher auf.",
             ["Rig/MaskedReaimDeadband"] =
-                "Nur bei Weltneigung. Richtungsabweichungen zwischen Blick und Neigung, die kleiner sind als "
+                "ALT — ohne Wirkung, solange die Weltneigung geparkt ist (siehe [Rig] WorldTiltDegrees). "
+                + "Nur bei Weltneigung. Richtungsabweichungen zwischen Blick und Neigung, die kleiner sind als "
                 + "dieser Wert (Grad), werden vollständig ignoriert — normales Umsehen löst nie eine Korrektur "
                 + "aus, und eine derart kleine Restabweichung ist visuell nicht von einer perfekten Ausrichtung "
                 + "zu unterscheiden.",
