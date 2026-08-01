@@ -29,9 +29,10 @@ namespace GloomhavenVR.Cards;
 /// legacy colored slab + name is kept only as a fallback when the pool is unavailable.</item>
 /// <item>NORMAL-CARD interaction (was: pinch-only). Chips now support the SAME set as
 /// ability cards: fingertip hand-sweep POP (readability, single-winner like
-/// <see cref="PileBrowser"/>), dominant-hand LASER hover+pluck (registered as a
-/// <see cref="PlayTray"/> laser target → the board laser pops on hover / plucks on
-/// trigger), pinch-GRAB, and read-in-hand (snap upright + enlarged).</item>
+/// <see cref="PileBrowser"/>), dominant-hand LASER hover+pluck (a dedicated geometric
+/// fan pick, <see cref="TryLaserRaycast"/>, driven by <c>CardsDriver.UpdateItemFanLaser</c>
+/// exactly like the pile-browse fan — pops on hover / plucks on trigger), pinch-GRAB,
+/// and read-in-hand (snap upright + enlarged).</item>
 /// <item>USE = a CLIP-IN slot (was: a floating drop pad computed once). The slot is board
 /// furniture built by <see cref="PlayTray"/> UNDER the board next to Confirm/Undo
 /// (per-board <c>ItemUseSlotOffset</c>, debug-menu tunable). Its visibility is
@@ -658,6 +659,92 @@ internal sealed class ItemsPile
         _handWinner = null;
     }
 
+    // ------------------------------------------------------------------ laser pick --
+
+    /// <summary>
+    /// Geometric ray hit-test over the item fan — the item counterpart of
+    /// <see cref="PileBrowser.TryRaycast"/>, the same algorithm verbatim (per-chip plane + rect off
+    /// the LIVE transform, nearest hit along the ray, sticky-hover hysteresis so overlap never
+    /// flips the highlight), with the rect sized to each chip's ACTUAL near-square face
+    /// (<see cref="ItemChip.FaceWidth"/>/<see cref="ItemChip.FaceHeight"/> — item cards are not
+    /// the tall ability rect). Driven by <c>CardsDriver.UpdateItemFanLaser</c>. No allocations.
+    ///
+    /// ROOT CAUSE this replaces (user: sweeping the laser RIGHT→LEFT popped only every SECOND
+    /// card, while left→right stepped through every card): the chips used to be the ONLY fan
+    /// cards whose laser hover came from the generic board-element PHYSICS scan
+    /// (PlayTray.LaserTargets → nearest <c>Collider.Raycast</c> over the LIVE BoxColliders,
+    /// re-elected from scratch every frame, no hysteresis). But the hover POP is part of that
+    /// collider: the popped chip lifts 2 cm toward the viewer and grows ×1.18, so the pick
+    /// geometry moved the instant the beam landed — the exact feedback class
+    /// <see cref="VRCard.TryGetRestingLaserRect"/> documents for the ability fan ("the raise
+    /// moved the plane INTO the beam"). At this fan's spacing (63.5 mm near-square faces at
+    /// ×1.25 chip scale on a 10°-step arc ≈ 47.5 mm centers, 86.8 mm collider spans) the
+    /// un-popped corridor between a popped chip's ENLARGED collider edge (±51.2 mm) and the
+    /// next-but-one chip's collider (51.6 mm out) is under a MILLIMETRE — so any hand-off that
+    /// had to clear the popped collider landed two chips over, and the immediate neighbour's
+    /// hover lived a frame at best. Why only ONE direction: a lifted collider shadows the beam
+    /// only on the side facing AWAY from the beam origin — with the laser in the (dominant,
+    /// right) hand the 2 cm lift parallax-extends the popped chip's pick footprint over its
+    /// LEFT neighbour's corridor, while hand-offs to the RIGHT happen on the beam-origin side
+    /// where there is no shadow; the z-stagger tiebreak (chip i+1 sits 4 mm nearer the viewer
+    /// than chip i) then hands the shared exit region to the far chip. Hence: right→left skips
+    /// every second card, left→right does not. A per-frame geometric pick with the sticky rule
+    /// has none of these behaviours in either direction: the pop can only ever EXTEND the
+    /// incumbent's own hover (harmless — the beam is on that card anyway), never occlude a
+    /// neighbour, because each rect is tested independently and the hand-off is decided by the
+    /// nearest rect actually under the ray.
+    /// </summary>
+    internal bool TryLaserRaycast(Vector3 origin, Vector3 direction, ItemChip? sticky,
+        out ItemChip? chip, out Vector3 point, out float distance)
+    {
+        chip = null;
+        point = default;
+        distance = float.PositiveInfinity;
+
+        if (!IsOpen || _root == null)
+            return false;
+
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            // Held chips ride the hand (never laser targets). A clipped (PendingUse) chip stays
+            // pickable on purpose: the old collider path let the laser pull it back out of the
+            // use slot, and that must keep working (its live transform sits at the slot pose).
+            if (c == null || c.Holder != null || !c.gameObject.activeInHierarchy)
+                continue;
+
+            Transform t = c.transform;
+            float denom = Vector3.Dot(direction, t.forward); // chips face the viewer with −Z
+            if (denom < 1e-5f)
+                continue;
+            float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
+            if (dist <= 0f)
+                continue;
+
+            Vector3 hit = origin + direction * dist;
+            Vector3 local = t.InverseTransformPoint(hit); // scale-aware (ChipScale + pop grow)
+            if (Mathf.Abs(local.x) > c.FaceWidth * 0.5f || Mathf.Abs(local.y) > c.FaceHeight * 0.5f)
+                continue;
+
+            if (ReferenceEquals(c, sticky))
+            {
+                // Current hover still under the ray — it wins outright (overlap hysteresis).
+                chip = c;
+                point = hit;
+                distance = dist;
+                return true;
+            }
+
+            if (dist >= distance)
+                continue;
+            chip = c;
+            point = hit;
+            distance = dist;
+        }
+
+        return chip != null;
+    }
+
     // ------------------------------------------------------------------ use slot --
 
     /// <summary>
@@ -1177,7 +1264,8 @@ internal sealed class ItemsPile
     /// name; async background via <c>ImageAddressableLoader</c>) hosted on a world-space canvas,
     /// with a legacy colored slab + name as the fallback. Supports the full ability-card
     /// interaction set: fingertip hand-sweep POP (<see cref="SetFingertipPop"/>), dominant-hand
-    /// LASER hover+pluck (via <see cref="IPokeable"/> + a <see cref="PlayTray"/> laser target),
+    /// LASER hover+pluck (the <see cref="IPokeable"/> seam, driven by the driver's geometric
+    /// item-fan pick — see <see cref="ItemsPile.TryLaserRaycast"/>),
     /// pinch-GRAB, and read-in-hand (<see cref="GetHeldPose"/>). Spent/consumed chips show the
     /// hosted card's own state FX (UpdateState); consumed chips carry NO separate burn plume.
     /// </summary>
@@ -1405,10 +1493,13 @@ internal sealed class ItemsPile
             // That prefab is authored for the full-size screen card and, spawned onto the item chip, was
             // the second fog source.
 
-            // Laser: register the chip's collider as a board laser target so the dominant hand's
-            // beam pops it on hover (OnPokeEnter) and plucks it on trigger (OnPoke) — the same
-            // laser-pull ability normal cards have. Unregistered in OnDisable.
-            PlayTray.Current?.RegisterLaserTarget(box, chip);
+            // Laser: NOT registered as a generic PlayTray laser target any more. The chips' laser
+            // hover/pluck is the driver's geometric fan pick (CardsDriver.UpdateItemFanLaser →
+            // ItemsPile.TryLaserRaycast, same OnPokeEnter/OnPoke seam) — the physics-collider scan
+            // elected nearest LIVE colliders with no hysteresis, and since the hover pop moves and
+            // enlarges this very collider, that made right→left laser sweeps skip every second
+            // chip (full mechanism on TryLaserRaycast). The collider itself stays: it is the
+            // pinch-grab volume and the fingertip-sweep distance source.
 
             if (!s_loggedRealCard)
             {
@@ -2429,8 +2520,8 @@ internal sealed class ItemsPile
         protected override void OnDisable()
         {
             base.OnDisable();
-            if (_box != null)
-                PlayTray.Current?.UnregisterLaserTarget(_box);
+            // (No laser-target unregister: chips are picked geometrically by the driver's item-fan
+            // laser path now, never through PlayTray.LaserTargets — see Create's laser note.)
             // Undo the emitter clamp BEFORE anything else touches the hosted card, so the widget the
             // pool gets back is byte-for-byte the one it handed out even if the recycle below fails.
             RestoreCardEffectSmoke();

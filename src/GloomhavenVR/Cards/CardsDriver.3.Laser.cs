@@ -805,13 +805,11 @@ internal sealed partial class CardsDriver
                 return;
             }
 
-            // Requirement 4 click-away: a TRIGGER that lands off every board target (empty space or the
-            // game's own UI) while the item fan is open dismisses it — the item counterpart of the
-            // discard/burnt browser's click-away in UpdateBrowseLaser. Item-chip hovers take the
-            // finite-nearest branches above, so plucking/poking an item chip never closes the fan; and
-            // a hand already holding a chip skips this whole method (Grabber.Held guard at the top).
-            if (dom.TriggerDown && _piles.ItemsBrowseOpen)
-                ForeignInteraction("click-away (trigger off the item fan)");
+            // Requirement 4 click-away for the ITEM fan lives in UpdateItemFanLaser now — the item
+            // chips left this method's collider scan when their laser pick was unified with the
+            // pile-browse fan (geometric + sticky; see ItemsPile.TryLaserRaycast for why the scan
+            // skipped every second chip on right→left sweeps). A trigger that misses everything
+            // here falls through to that path, which owns the item fan's hover, pluck AND dismiss.
             return;
         }
 
@@ -982,6 +980,84 @@ internal sealed partial class CardsDriver
         _browseHover = null;
     }
 
+    // ------------------------------------------------------------------ item-fan laser --
+
+    /// <summary>The item-fan chip the dominant hand's laser is currently over (null = none) and
+    /// the hand that hovered it (for the OnPokeExit on clear).</summary>
+    private ItemsPile.ItemChip? _itemChipHover;
+    private VRHand? _itemChipHoverHand;
+
+    /// <summary>
+    /// Laser path for the OPEN item fan — the item twin of <see cref="UpdateBrowseLaser"/>: same
+    /// priority slot (yields to the fan/board/tray/browse hovers above it), same geometric pick
+    /// with sticky hysteresis, same click-away dismiss. The chips used to sit in
+    /// <see cref="UpdateBoardLaser"/>'s generic collider scan instead — nearest LIVE
+    /// Collider.Raycast, re-elected every frame with no hysteresis — and because the hover pop
+    /// moves and enlarges that very collider, right→left laser sweeps skipped every second chip
+    /// (the full mechanism, with the geometry numbers, lives on
+    /// <see cref="ItemsPile.TryLaserRaycast"/>). Hover and pluck still route through the chip's
+    /// own IPokeable seam (OnPokeEnter = pop + hover haptic, OnPoke = ForceGrab released on
+    /// trigger-up), so the affordances are byte-identical to the old path — only the PICK moved
+    /// to the mechanism every other fan already uses. No allocations.
+    /// </summary>
+    private void UpdateItemFanLaser()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (!_piles.ItemsBrowseOpen || dom == null || dom == _gateHand || !dom.HasPose
+            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || _laserHover != null || _trayCardHover != null || _boardHover != null
+            || _browseHover != null)
+        {
+            ClearItemFanHover();
+            return;
+        }
+
+        PickPose pick = dom.Ray.Current;
+        if (!_piles.TryRaycastItemChips(pick.Origin, pick.Direction, _itemChipHover,
+                out ItemsPile.ItemChip? chip, out Vector3 point, out float dist)
+            || chip == null
+            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        {
+            ClearItemFanHover();
+            // Requirement 4 click-away dismiss (moved here from UpdateBoardLaser's empty-hit
+            // branch when the chips left its scan): a trigger that misses every chip — and, by
+            // the yield guard above, every fan/board/tray/browse target — closes the item fan
+            // through the same ForeignInteraction seam as the discard/burnt browser's click-away.
+            if (dom.TriggerDown)
+                ForeignInteraction("click-away (trigger off the item fan)");
+            return;
+        }
+
+        if (!ReferenceEquals(chip, _itemChipHover))
+        {
+            ClearItemFanHover();
+            _itemChipHover = chip;
+            _itemChipHoverHand = dom;
+            chip.OnPokeEnter(dom); // pop + hover haptic (debounced: only on chip change)
+        }
+
+        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        if (dom.TriggerDown)
+        {
+            ItemsPile.ItemChip pluck = chip;
+            ClearItemFanHover();
+            pluck.OnPoke(dom); // pluck into the hand (ForceGrab, released on trigger-up)
+        }
+    }
+
+    /// <summary>Drop the item-fan laser hover (un-pop via OnPokeExit). Same shape as
+    /// <see cref="ClearBrowseHover"/>; a chip destroyed under us (fan rebuild) compares
+    /// Unity-null and is simply forgotten on the next hover change.</summary>
+    private void ClearItemFanHover()
+    {
+        if (_itemChipHover == null)
+            return;
+        if (_itemChipHoverHand != null)
+            _itemChipHover.OnPokeExit(_itemChipHoverHand);
+        _itemChipHover = null;
+        _itemChipHoverHand = null;
+    }
+
     // ------------------------------------------------------------------ active laser --
 
     private VRCard? _activeHover;
@@ -1001,7 +1077,8 @@ internal sealed partial class CardsDriver
         VRHand? dom = VRHands.Primary;
         if (!_active.IsShown || dom == null || dom == _gateHand || !dom.HasPose
             || !dom.Ray.Enabled || dom.Grabber.Held != null
-            || _laserHover != null || _trayCardHover != null || _boardHover != null || _browseHover != null)
+            || _laserHover != null || _trayCardHover != null || _boardHover != null || _browseHover != null
+            || _itemChipHover != null)
         {
             ClearActiveHover();
             return;
