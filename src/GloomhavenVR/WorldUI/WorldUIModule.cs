@@ -200,6 +200,11 @@ internal sealed class WorldUIModule : IVRModule
                 ("InputModeGuard", InputModeGuard.Tick),
                 ("CameraInventory", CameraInventory.Tick),
                 ("NonDominantHold", NonDominantHold.Tick),  // before its consumers (settings panel, flat screen, options toggle)
+                // Compat feature ticked here like AvatarMirror (this driver is the mod's only
+                // per-frame seam): heals a scripted level message stuck invisible by the game's
+                // IsShown hide→show clobber (tutorial deadlock #2). BEFORE ModalFallback so the
+                // level-message poll reads the healed state in the same tick.
+                ("Compat.LevelMessageHeal", Compat.LevelMessageHeal.Tick),
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
                 ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached

@@ -39,7 +39,10 @@ namespace GloomhavenVR.WorldUI;
 ///    game via AddUpdateBlocker/LockProcessingAction, StoryController.cs:216-217 — the
 ///    hardware-test-#10 scenario-start lock), <c>LevelMessageUILayoutGroup.IsShown</c>
 ///    (static; tutorial/level messages incl. 'UILevelMessageBoxFixed' — decompiled
-///    LevelMessageUILayoutGroup.cs:33) and <c>UIManager.dialogPopup.IsOpen()</c>
+///    LevelMessageUILayoutGroup.cs:33; NOT trusted alone: the flag's end-of-frame reset
+///    clobbers a same-frame re-show, so the poll ORs in the group windows' own
+///    IsOpen/IsVisible and debounces the close — tutorial deadlock #2, see the poll in
+///    part 4 and the helpers in part 7) and <c>UIManager.dialogPopup.IsOpen()</c>
 ///    (scenario choice dialogs — decompiled DialogPopup.cs:426, UIManager.cs:94).
 ///    Polls are level-triggered per frame, so they also cover windows that opened
 ///    during loading, before the mode machine settled. Every poll source resolves to

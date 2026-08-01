@@ -65,6 +65,15 @@ internal static partial class ModalFallback
     private static bool _dialogPopupOpen;
     private static bool _lastWant;
 
+    /// <summary>Tutorial deadlock #2 (TB_2_1→TB_2_2 handover, hardware log 2026-08-02):
+    /// consecutive closed ticks the level-message poll must see before a close is trusted —
+    /// a 1-frame flicker during the game's dismiss→show handover must never release the
+    /// float (mirrors the catch-all grace pattern, <see cref="CatchAllGraceTicks"/>).</summary>
+    private const int LevelMsgCloseGraceTicks = 3;
+
+    /// <summary>Consecutive ticks the level-message poll has read closed (see above).</summary>
+    private static int _levelMsgClosedTicks;
+
     // Modal escape chord state (test #17) — per-press latches, reset on release.
     private static bool _escapeChordFired;
     private static bool _escapeArmingLogged;
@@ -131,6 +140,7 @@ internal static partial class ModalFallback
         OpenWindows.Clear();
         Failed.Clear();
         _storyOpen = _levelMsgOpen = _dialogPopupOpen = false;
+        _levelMsgClosedTicks = 0;
         _lastWant = false;
         _escapeChordFired = false;
         _escapeArmingLogged = false;
@@ -241,9 +251,39 @@ internal static partial class ModalFallback
         {
             story = Singleton<StoryController>.IsInitialized
                     && Singleton<StoryController>.Instance.IsVisible;
-            levelMsg = LevelMessageUILayoutGroup.IsShown;
+            // Tutorial deadlock #2 (hardware log 2026-08-02, TB_2_1→TB_2_2 handover): the game's
+            // static IsShown flag is CLOBBERABLE. HideWindow() arms an end-of-frame coroutine
+            // that sets IsShown=false UNCONDITIONALLY (LevelMessageUILayoutGroup.cs:93-99), and
+            // a dismiss-button press shows the NEXT scripted message SYNCHRONOUSLY in the same
+            // frame (HideCurrentlyShownBoxMessage → ShowNextBoxMessage → StartCoroutine runs
+            // DisplayMessageInWindowAfterDelay straight to window.Show() when DisplayDelay=0,
+            // LevelMessagesUIHandler.cs:153-203) — so the fresh Show's IsShown=true is
+            // overwritten at frame end and the flag reads false FOREVER while the window is
+            // genuinely OPEN (release log: open=True). Trusting the flag alone released the
+            // float and parked the still-open box on the invisible 2D stack — the tutorial's
+            // dismiss-chained hint chain deadlocked on an unreachable dismiss button. GROUND
+            // TRUTH: OR in the group windows' OWN IsOpen/IsVisible, so the poll only ever
+            // reports closed when the game's actual window state agrees. (The flag is also
+            // shared static across BOTH group instances — box + helptext — which the
+            // per-window check sidesteps too.)
+            levelMsg = LevelMessageUILayoutGroup.IsShown || AnyLevelMessageWindowOpen();
             manager = UIManager.Instance;
             dialog = manager != null && manager.dialogPopup != null && manager.dialogPopup.IsOpen();
+        }
+        // Debounce (belt to the ground-truth suspenders above): a hide→re-show handover can
+        // still flicker BOTH signals false across a frame boundary (the window's Hide runs a
+        // frame before a delayed re-Show). A momentary false must never trigger the release —
+        // require LevelMsgCloseGraceTicks CONSECUTIVE closed ticks before a previously-open
+        // level message is reported closed (the catch-all grace pattern, applied to a close).
+        if (levelMsg)
+        {
+            _levelMsgClosedTicks = 0;
+        }
+        else if (_levelMsgClosedTicks < LevelMsgCloseGraceTicks)
+        {
+            _levelMsgClosedTicks++;
+            if (_levelMsgOpen && _levelMsgClosedTicks < LevelMsgCloseGraceTicks)
+                levelMsg = true; // hold the last open state until the close is trusted
         }
         LogPollTransition(ref _storyOpen, story, "story box (StoryController.IsVisible)");
         LogPollTransition(ref _levelMsgOpen, levelMsg, "level message (LevelMessageUILayoutGroup.IsShown)");
@@ -349,8 +389,15 @@ internal static partial class ModalFallback
             // Item 6: a sticky reachable menu the user has NOT closed stays floated even when the
             // game hid it (not in OpenWindows) — parallel windows. Every other window releases as
             // soon as it leaves the open set (or convert is no longer wanted, or the user closed it).
+            // Tutorial deadlock #2 do-no-harm: a level-message group whose scripted message the
+            // game still considers DISPLAYED (LevelMessagesUIHandler current-message state) is
+            // NEVER released, whatever the poll flags momentarily read — releasing it mid-message
+            // restores the box to the invisible 2D stack and the dismiss-chained tutorial dies
+            // there. The float releases normally the moment the message is genuinely dismissed
+            // (current message nulled / next message's DisplayDelay in effect).
             bool stillOpen = alive && !wp.UserClosing
-                             && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky);
+                             && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky
+                                 || ScriptedLevelMessageActive(wp.Window));
             if (stillOpen)
                 continue;
             // FIX B gap-close: the user closed this float (UserClosing) but the window reports
