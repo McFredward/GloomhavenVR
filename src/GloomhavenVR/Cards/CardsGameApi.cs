@@ -450,6 +450,204 @@ internal static class CardsGameApi
     internal static string? ItemPickHintMessage(ItemCardPicker picker) =>
         !string.IsNullOrEmpty(picker.hintMessage) ? picker.hintMessage : null;
 
+    // ------------------------------------------------- items-bar activation split (req C) --
+
+    /// <summary>
+    /// Requirement C — THE choice predicate, slot form: does ACTIVATING this items-bar slot
+    /// open a further sub-choice UI (element picker) at the slot? Decompiled basis, the exact
+    /// conditions the game's own click evaluates in <c>UIUseConsumeInfuseSlot.Select()</c>
+    /// (UIUseConsumeInfuseSlot.cs:193-220):
+    /// <list type="bullet">
+    /// <item>CONSUME picker — <c>MultiElementPickController.Pick()</c> opens the picker iff any
+    /// consume holder has <c>RequiredElement == EElement.Any</c> (unpicked); FIXED-element
+    /// consumes auto-resolve without UI (MultiElementPickController.cs:106-134). The slot's
+    /// <c>consumes</c> list is built by <c>UIUseItemScenario.SetItem</c> from
+    /// <c>YMLData.Consumes</c> minus the ability-side <c>CAbilityConsumeElement</c> elements
+    /// (UIUseItemScenario.cs:35-49).</item>
+    /// <item>INFUSE picker — <c>InfuseElementPickController.Pick()</c> opens iff any infuse
+    /// holder reports <c>Any</c> (<c>InfuseElementController.RequiredElement</c> == Any exactly
+    /// when <c>IInfuseElement.IsAnyElement</c>, UIUseConsumeInfuseSlot.cs:17-27); the bar feeds
+    /// the slot only UNSELECTED infusions (<c>PickUnselectedInfusionsForItem</c>,
+    /// UIUseItemsBar.cs:85).</item>
+    /// <item>OPTION pickers exist ONLY on <c>UIUseConsumeInfuseOptionsSlot</c> subclasses
+    /// (UIUseActiveBonus / UIUseAbility — bonus/abilities bars, untouched by the split);
+    /// <c>UIUseItemScenario</c> extends the options-LESS base, so an item slot structurally has
+    /// no in-slot option pick. A "Choose"-ability item resolves its option AFTER use through
+    /// <c>UIUseAbilitiesBar.ShowChooseAbility</c> (Choreographer.cs:11629-11645) and the
+    /// initiative boots' ± lives on <c>UIActiveBonusBar</c> during
+    /// <c>CheckForInitiativeAdjustments</c> (Choreographer.cs:11678) — both bars keep docking
+    /// as before, so those choices keep their symbols regardless of this predicate.</item>
+    /// </list>
+    /// Allocation-free (plain for-loops over the slot's own holder lists — publicized
+    /// <c>consumes</c>/<c>infusions</c>, the very lists <c>Select()</c> hands the pickers).
+    /// </summary>
+    internal static bool SlotNeedsSubChoice(UIUseItemScenario slot)
+    {
+        if (slot == null)
+            return false;
+        List<IElementHolder> consumes = slot.consumes;
+        if (consumes != null)
+        {
+            for (int i = 0; i < consumes.Count; i++)
+                if (consumes[i] != null
+                    && consumes[i].RequiredElement == ElementInfusionBoardManager.EElement.Any)
+                    return true;
+        }
+        List<IElementHolder> infusions = slot.infusions;
+        if (infusions != null)
+        {
+            for (int i = 0; i < infusions.Count; i++)
+                if (infusions[i] != null
+                    && infusions[i].RequiredElement == ElementInfusionBoardManager.EElement.Any)
+                    return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Requirement C — the choice predicate, ITEM-DATA form, for when no live bar slot exists
+    /// (the item fan's use-slot gate). Mirrors <see cref="SlotNeedsSubChoice"/> from the data
+    /// the game builds the slot from:
+    /// <list type="bullet">
+    /// <item>consume-Any: an <c>Any</c> survives the <c>SetItem</c>/<c>CanConsume</c>
+    /// subtraction (ItemCardYML.cs:323-336 FOLDS ability-consumed elements into
+    /// <c>YMLData.Consumes</c>, which is why the subtraction is mandatory) — computed here as
+    /// count(Consumes, Any) &gt; count(ability ElementsToConsume, Any), allocation-free;</item>
+    /// <item>infuse-Any: any unselected infusion with <c>IsAnyElement</c>
+    /// (<c>CardsHandUI.PickUnselectedInfusionsForItem</c>, CardsHandUI.cs:2634 — the exact
+    /// source the bar wires into the slot, UIUseItemsBar.cs:85). Allocates one small list;
+    /// callers only evaluate this while a chip is actually held/dropped.</item>
+    /// </list>
+    /// </summary>
+    internal static bool ItemNeedsSubChoice(CItem item, CardsHandUI? hand)
+    {
+        if (item == null || item.YMLData == null)
+            return false;
+
+        // consume-Any after the ability-consume subtraction (see doc).
+        List<ElementInfusionBoardManager.EElement>? consumes = item.YMLData.Consumes;
+        if (consumes != null && consumes.Count > 0)
+        {
+            int anyInData = 0;
+            for (int i = 0; i < consumes.Count; i++)
+                if (consumes[i] == ElementInfusionBoardManager.EElement.Any)
+                    anyInData++;
+            if (anyInData > 0)
+            {
+                int anyFromAbilities = 0;
+                List<CAbility>? abilities = item.YMLData.Data != null ? item.YMLData.Data.Abilities : null;
+                if (abilities != null)
+                {
+                    for (int i = 0; i < abilities.Count; i++)
+                    {
+                        if (abilities[i] is not CAbilityConsumeElement consume
+                            || consume.ElementsToConsume == null)
+                            continue;
+                        for (int j = 0; j < consume.ElementsToConsume.Count; j++)
+                            if (consume.ElementsToConsume[j] == ElementInfusionBoardManager.EElement.Any)
+                                anyFromAbilities++;
+                    }
+                }
+                if (anyInData > anyFromAbilities)
+                    return true;
+            }
+        }
+
+        // infuse-Any (the "create any element" potions).
+        if (hand != null)
+        {
+            List<InfuseElement>? infusions = hand.PickUnselectedInfusionsForItem(item);
+            if (infusions != null)
+            {
+                for (int i = 0; i < infusions.Count; i++)
+                    if (infusions[i] != null && infusions[i].IsAnyElement)
+                        return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The item's LIVE slot on the game's <c>UIUseItemsBar</c> (null when the bar is hidden or
+    /// the item has no visible slot). The bar is a HUD singleton that keeps running on VR's
+    /// hidden 2D stack, so its slots exist whether or not the mod docks the bar: during the
+    /// actor's own turn <c>ShowUsableItems</c> populates it with the usable items, during
+    /// take-damage <c>TakeDamagePanel.Show</c> repopulates it with the OnAttacked candidates
+    /// (TakeDamagePanel.cs:249-264). Verified: <c>public Dictionary&lt;CItem, UIUseItemScenario&gt;
+    /// ItemSlots</c> (UIUseItemsBar.cs:57), <c>public bool IsShown</c> (:53).
+    /// </summary>
+    internal static UIUseItemScenario? LiveItemsBarSlot(CItem item)
+    {
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        if (bar == null || !bar.IsShown || item == null)
+            return null;
+        if (!bar.ItemSlots.TryGetValue(item, out UIUseItemScenario slot) || slot == null
+            || !slot.gameObject.activeSelf)
+            return null;
+        return slot;
+    }
+
+    /// <summary>
+    /// Activate an items-bar slot through the game's OWN click seam — byte-identical to the 2D
+    /// click and to what the game's own MP replay drives (<c>ProxyUseItemBonus</c> ends in
+    /// <c>tObj.Value.OnPointerDown()</c>, UIUseItemsBar.cs:618): <c>UIUseItemScenario.
+    /// OnPointerDown</c> (guards interactable + Locked/Spent/Consumed, UIUseItemScenario.cs:225)
+    /// → <c>UIUseSlot.Toggle</c> → <c>Select/Unselect</c> → the bar-installed callback — during
+    /// the action turn <c>new UseItemService(actor).UseItem(item, networkActionIfOnline,
+    /// GetSelectedInfusions())</c> (ShowUsableItems, UIUseItemsBar.cs:427; the service owns the
+    /// online GameAction), during take-damage <c>TakeDamagePanel.ToggleShieldItem</c>
+    /// (local-only by design — the shield selection ships once, inside the panel's confirm
+    /// <c>GameActionType.TakeDamage</c> ItemsToken, TakeDamagePanel.cs:770-775). Fixed-element
+    /// consumes auto-resolve inside the click (MultiElementPickController.Pick), which the
+    /// direct <c>UseItemService</c> shortcut never did. Returns false when the slot rejects the
+    /// click (state gate) — callers return the card to the fan then.
+    /// </summary>
+    internal static bool ClickItemsBarSlot(UIUseItemScenario slot)
+    {
+        if (slot == null || slot.element == null)
+            return false;
+        CItem.EItemSlotState state = slot.element.SlotState;
+        if (state == CItem.EItemSlotState.Locked || state == CItem.EItemSlotState.Spent
+            || state == CItem.EItemSlotState.Consumed)
+            return false;
+        slot.OnPointerDown();
+        return true;
+    }
+
+    /// <summary>Is this items-bar slot currently SELECTED (toggled on)? <c>UIUseSlot.IsSelected()</c>, public.</summary>
+    internal static bool ItemsBarSlotSelected(UIUseItemScenario slot) =>
+        slot != null && slot.IsSelected();
+
+    /// <summary>
+    /// Requirement C (take-damage place context): is the game's items bar currently presenting
+    /// the OnAttacked shield/retaliate candidates of an open, LOCALLY-decided take-damage
+    /// decision for THIS hand's actor? True exactly while <c>TakeDamagePanel.Show</c> has
+    /// repopulated <c>UIUseItemsBar</c> with the attacked actor's OnAttacked items
+    /// (TakeDamagePanel.cs:249-264; <c>bar.actor</c> publicized) and the decision is ours
+    /// (<see cref="TakeDamageIsLocalDecision"/> — the game's own control test). The hand match
+    /// runs against the ATTACKED actor resolved the same way <see cref="TakeDamageSubject"/>
+    /// resolves it (summon → Summoner), so the presented fan (which follows
+    /// <see cref="TakeDamageHand"/>) and the candidate slots agree.
+    /// </summary>
+    internal static bool TakeDamagePlaceContext(CardsHandUI? hand)
+    {
+        if (hand == null || hand.PlayerActor == null || !TakeDamageIsLocalDecision())
+            return false;
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        if (bar == null || !bar.IsShown)
+            return false;
+        TakeDamagePanel panel = Singleton<TakeDamagePanel>.Instance;
+        if (panel == null || !panel.IsOpen)
+            return false;
+        // The items bar must be the PANEL's population (attacked actor), not a stale turn bar.
+        if (!ReferenceEquals(bar.actor, panel.actorBeingAttacked))
+            return false;
+        CPlayerActor? subject = TakeDamageSubject();
+        return subject != null && ReferenceEquals(subject, hand.PlayerActor);
+    }
+
     // ------------------------------------------------- goal-chest "lose 1 item reward" (flow 1) --
 
     /// <summary>
@@ -1674,6 +1872,78 @@ internal static class CardsGameApi
         if (FFSNetwork.IsOnline && !subject.IsUnderMyControl)
             return null;
         return TakeDamageIsLocalDecision() ? subject : null;
+    }
+
+    /// <summary>
+    /// Requirement A (deciding-actor hand): the hand the mod must PRESENT while an OPEN
+    /// take-damage decision is under this client's control — the ItemPickHand pattern applied
+    /// to <c>TakeDamagePanel</c>. The panel carries TWO actors (<c>actorBeingAttacked</c> and
+    /// <c>actorToShowCardsFor</c>, TakeDamagePanel.cs:97/99, both publicized): the game's own
+    /// control test keys on <c>actorToShowCardsFor ?? actorBeingAttacked</c>
+    /// (<c>ThisPlayerHasTakeDamageControl</c>, :133-141), and the burn-card pick the panel can
+    /// raise (<c>CardsHandManager.Show(actorToShowCardsFor, LoseCard, …)</c>) targets
+    /// <c>actorToShowCardsFor</c>'s hand — so THAT actor's hand is presented when the two
+    /// differ (the burn pick must never be broken), the attacked player's (summon → Summoner)
+    /// otherwise. During an ENEMY turn the presented <c>CardsHandManager.CurrentHand</c> can be
+    /// any character — the reported bug: the fan showed a DIFFERENT character's items while the
+    /// attacked one had the shield decision. Non-null only while the panel window is genuinely
+    /// open (remote clients get <c>ShowOtherPlayer</c> → window hidden), the decision is locally
+    /// controlled (<see cref="TakeDamageIsLocalDecision"/>) and the resolved actor is ours.
+    /// </summary>
+    internal static CardsHandUI? TakeDamageHand()
+    {
+        if (!TakeDamageIsLocalDecision())
+            return null;
+        TakeDamagePanel panel = Singleton<TakeDamagePanel>.Instance;
+        CPlayerActor? actor = panel != null ? panel.actorToShowCardsFor : null;
+        if (actor == null)
+            actor = TakeDamageSubject();
+        if (actor == null)
+            return null;
+        if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI hand = manager != null ? manager.GetHand(actor) : null!;
+        return hand != null ? hand : null;
+    }
+
+    // ------------------------------------------------- initiative-adjust decision (boots) --
+
+    /// <summary>
+    /// Requirement A (deciding-actor hand): the hand of the actor whose INITIATIVE-ADJUST
+    /// decision (the "boots" ± choice) is currently live. The flow is its own dedicated phase
+    /// AFTER card selection: <c>GameState</c> walks <c>PreInitiativeAdjustedPlayerActors</c>
+    /// one actor at a time (GameState.cs:1976-1999 — strictly sequential, each step blocking in
+    /// <c>CPhaseCheckForInitiativeAdjustments.OnNextStep</c> until the Continue ReadyButton
+    /// fires <c>StepComplete</c>), and per step the Choreographer sets
+    /// <c>m_CurrentActor = message.m_ActorSpawningMessage</c> and raises
+    /// <c>UIActiveBonusBar.ShowActiveBonus(actor, AdjustInitiative)</c>
+    /// (Choreographer.cs:11670-11692). CRUCIALLY the game does NOT SwitchHand for this flow —
+    /// <c>InitiativeTrackPlayerAvatar.Select()</c> explicitly exempts
+    /// <c>CheckForInitiativeAdjustments</c> from portrait-driven hand switching
+    /// (InitiativeTrackPlayerAvatar.cs:24) — so <c>CardsHandManager.CurrentHand</c> is
+    /// stale/wrong for the whole phase: the reported bug (the presented items fan belonged to a
+    /// DIFFERENT character during the boots decision). Exactly the
+    /// <see cref="ActionSelectionHand"/>/<see cref="ItemPickHand"/> pattern: resolve the hand
+    /// from the authoritative <c>Choreographer.CurrentActor</c>, gated on the phase (the flow
+    /// discriminator) and on local control (the bar shows on EVERY client — only the
+    /// ReadyButton interactability is MP-gated, Choreographer.cs:11684 — so the mod adds the
+    /// IsUnderMyControl gate itself, like ItemPickHand does). Because the game sequences the
+    /// phase one actor at a time, this switches per arriving decider automatically; outside the
+    /// phase it is null and normal presentation (incl. manual portrait switching) is untouched.
+    /// </summary>
+    internal static CardsHandUI? InitiativeAdjustHand()
+    {
+        if (PhaseManager.PhaseType != CPhase.PhaseType.CheckForInitiativeAdjustments)
+            return null;
+        Choreographer c = Choreographer.s_Choreographer;
+        if (c == null || !(c.CurrentActor is CPlayerActor actor))
+            return null;
+        if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI hand = manager != null ? manager.GetHand(actor) : null!;
+        return hand != null ? hand : null;
     }
 
     /// <summary>
