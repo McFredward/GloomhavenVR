@@ -102,6 +102,7 @@ internal static partial class CanvasConversion
         rect.GetWorldCorners(CornerScratch);
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
+        float maxZ = float.MinValue;
         for (int c = 0; c < 4; c++)
         {
             Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
@@ -109,7 +110,13 @@ internal static partial class CanvasConversion
             if (local.y < min.y) min.y = local.y;
             if (local.x > max.x) max.x = local.x;
             if (local.y > max.y) max.y = local.y;
+            if (local.z > maxZ) maxZ = local.z;
         }
+        // Host-local +Z of the deepest corner (px; +Z = away from the viewer). Consumed by
+        // CollectVisibleMaskRects → LastMaskMaxZ so the per-host depth mask can seat itself
+        // BEHIND genuinely z-displaced content (the initiative row's authored recession) —
+        // a mask in front of any content pixel would make that content fail its own ZTest.
+        s_lastVisibleRectMaxZ = maxZ;
 
         // Task #4: clamp to the enclosing clipper (scroll viewport) — content the mask clips
         // away at render time must not count as visible.
@@ -291,6 +298,7 @@ internal static partial class CanvasConversion
         rects.Clear();
         sources?.Clear();
         LastMaskExclusions.Clear();
+        LastMaskMaxZ = 0f;
         if (panel == null || panel.Target == null || panel.HostRect == null)
             return 0;
 
@@ -316,6 +324,8 @@ internal static partial class CanvasConversion
                 }
                 continue;
             }
+            if (s_lastVisibleRectMaxZ > LastMaskMaxZ)
+                LastMaskMaxZ = s_lastVisibleRectMaxZ; // deepest EMITTED graphic (see the field doc)
             if (rects.Count < maxCount)
             {
                 rects.Add(new Vector4(gMin.x, gMin.y, gMax.x, gMax.y));
@@ -339,6 +349,21 @@ internal static partial class CanvasConversion
 
     /// <summary>Task #6b diag: cap on excluded-emitter entries kept per collection pass (log hygiene).</summary>
     private const int MaskExclusionLogCap = 8;
+
+    /// <summary>Scratch: host-local max +Z (px) of the corners measured by the LAST
+    /// <see cref="TryGetVisibleHostRect"/> call (set on success only).</summary>
+    private static float s_lastVisibleRectMaxZ;
+
+    /// <summary>
+    /// Host-local +Z (px, ≥0) of the DEEPEST graphic emitted by the last
+    /// <see cref="CollectVisibleMaskRects"/> pass. The per-host depth-compose mask
+    /// (<see cref="TickHostDepthMask"/>) seats itself this far behind the host plane plus a
+    /// fixed pad, so content the game (or the initiative depth normalization) genuinely
+    /// z-displaces — portraits recede up to <c>[WorldUI] InitiativeDepthMaxSpreadPx</c> px —
+    /// can never end up BEHIND its own panel's mask and fail its own ZTest. Flat panels
+    /// measure ~0 and get the tight minimum offset.
+    /// </summary>
+    internal static float LastMaskMaxZ;
 
     /// <summary>
     /// Task #6b diag: graphics EXCLUDED from depth-mask emission by

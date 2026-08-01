@@ -18,6 +18,8 @@ internal static partial class CanvasConversion
         if (panel.HostCanvas != null)
             UguiPokeSurfaces.Unregister(panel.HostCanvas); // drops nested registrations too
 
+        DestroyHostDepthMask(panel); // frees the mask MESH asset (the GO cascades with HostGo below)
+
         // Restore the game's own nested canvases (tests #19/#20): overrideSorting and
         // worldCamera back to their captured values; raycasters WE added are removed
         // (ones the game serialized stay).
@@ -201,6 +203,7 @@ internal static partial class CanvasConversion
                 Active.RemoveAt(i);
                 if (panel.HostCanvas != null)
                     UguiPokeSurfaces.Unregister(panel.HostCanvas);
+                DestroyHostDepthMask(panel); // mesh asset — never leaked on a scene unload either
                 if (panel.HostGo != null)
                     Object.Destroy(panel.HostGo);
                 continue;
@@ -273,6 +276,13 @@ internal static partial class CanvasConversion
                 ReassertAdoptedSorting(panel);
 
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
+
+            // Per-host depth compose (part 5): keep the color-invisible depth stamp matching
+            // this host's visible content so converted panels occlude EACH OTHER per pixel —
+            // runs after the fit so a just-resized host stamps its settled content, and every
+            // frame (not throttled) because a stale stamp during the initiative reorder slide
+            // would punch visible holes into a menu behind the moving portraits.
+            TickHostDepthMask(panel);
 
             if (panel.Diagnostic)
                 DiagnoseModal(panel, force: false); // change-gated per-frame flicker snapshot
