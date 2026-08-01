@@ -456,6 +456,13 @@ internal static partial class ModalFallback
     // the game intended. Poll reads the publicized backing FIELD _errorMessage — never
     // the GlobalErrorMessage getter, which lazily Addressables-INSTANTIATES the prefab
     // (SceneController.cs:620-631) and must not be triggered from a per-frame poll.
+    //
+    // MENU EXTENSION (2026-08-01, "Spielstand ist für eine Mehrspielerpartie" deadlock):
+    // the same box also opens in MENU context (save-load MP/DLC prompts, load failures,
+    // boot errors) where it is equally invisible — it lives on the persistent GlobalCanvas
+    // that no captured camera carries, so the Menu2D flat screen cannot show it either.
+    // TickErrorMessage therefore floats it in Menu2D too (kill-switch [WorldUI]
+    // MenuPopupFloat; the ModalUI lock and the screen fallback stay scenario-only).
     // =====================================================================================
 
     /// <summary>True while the error box shows in a scenario → ModalUI (a genuine blocker).</summary>
@@ -492,11 +499,32 @@ internal static partial class ModalFallback
             VRLog.Info("WorldUI", "Modal fallback poll: GlobalErrorMessage closed.");
         _errorOpenLogged = showing;
 
-        // The error blocks the game wherever it appears, but outside a scenario the
-        // Menu2D flat screen already shows the 2D stack — scenario-only, like the polls.
+        // The error blocks the game wherever it appears. The LOCK (ModalUI) stays scenario-only
+        // like the polls — in Menu2D the mode composition ignores aux-modal anyway.
         ErrorModalOpen = showing && inScenario;
 
-        bool wantFloat = ErrorModalOpen && WorldUIConfig.ModalWindowStyle
+        // MENU-context float (user deadlock: loading a multiplayer save from the MAIN MENU —
+        // SaveData.cs:232/244 `ShowGenericMessage("Consoles/CREATE_NEW_LOCAL_SAVE" /
+        // "Consoles/OVERWRITE_EXISTING_LOCAL_SAVE")`, German "Dieser Spielstand ist für eine
+        // Mehrspielerpartie…"; same box: DLC_REQUIRED, load-failure ERROR_SCENE_*): the old
+        // scenario gate here rested on "the Menu2D flat screen already shows the 2D stack" —
+        // which is FALSE for exactly this box. It is SetActive-shown on the persistent
+        // boot-scene GlobalCanvas (SceneController.cs:92/620-631), a canvas no captured CAMERA
+        // carries, so the flat screen never composited it: invisible in VR while the game
+        // raycast-blocked the whole menu behind it (ErrorMessage's full-screen panel +
+        // MainMenuUIManager.RequestDisableInteraction) — nothing clickable, waiting forever.
+        // Every OTHER menu popup (confirmation-box family, EULA, sign-out, lobby prompts —
+        // menu-popup inventory 2026-08-01) lives in the menu canvas hierarchy, IS captured and
+        // stays operable via laser→virtual mouse, so the scenario gate for the WINDOW float
+        // machinery stands untouched; only this capture-invisible error family floats in menu.
+        // Deliberately independent of [WorldUI] ModalStyle: that setting picks between two ways
+        // of SHOWING a scenario fallback window, and neither screen path can show this canvas —
+        // floating is the only visibility there is. Kill-switch: [WorldUI] MenuPopupFloat.
+        bool menuFloat = showing && !inScenario
+                         && WorldUIConfig.MenuPopupFloat.Value
+                         && VRModeStateMachine.CurrentMode == VRMode.Menu2D;
+
+        bool wantFloat = ((ErrorModalOpen && WorldUIConfig.ModalWindowStyle) || menuFloat)
                          && !FlatScreen.ManualScreenActive && WorldUIConfig.ConversionActive;
 
         if (!wantFloat || _errorPanel is { IsAlive: false })

@@ -1605,6 +1605,18 @@ internal static partial class Loc
                 + "Warnung mit seinem Namen, damit es später ausdrücklich eingetragen werden kann. Aus = nur "
                 + "ausdrücklich eingetragene Fenster werden behandelt (Verhalten vor dem Catch-All); die "
                 + "manuelle A/X-Kombination bleibt die universelle Rettung.",
+            ["WorldUI/MenuPopupFloat"] =
+                "MENÜ-Deadlock-Versicherung: schwebt die globale Fehler-/Hinweisbox des Spiels "
+                + "(GlobalErrorMessage — z. B. der Hinweis \"Dieser Spielstand ist für eine "
+                + "Mehrspielerpartie\" beim Laden eines Spielstands, fehlende-DLC-Hinweise, "
+                + "Ladefehler) AUCH außerhalb eines Szenarios vor dem HMD (Hauptmenü, Laden/"
+                + "Speichern, Kampagnenkarte). Diese Box ist kein normales Spielfenster: sie liegt "
+                + "auf einer separaten, dauerhaften Leinwand, die die Kamera-Aufnahme der "
+                + "schwebenden 2D-Leinwand nie zeigen kann — ohne das Schweben blockiert sie das "
+                + "ganze Menü unsichtbar: nichts ist anklickbar und das Spiel wartet endlos. Die "
+                + "2D-Leinwand bleibt hinter der geschwebten Box stehen; nur deren eigene Knöpfe "
+                + "(Antippen + Laser) beantworten sie. Aus = Verhalten vor der Korrektur (die Box "
+                + "bleibt in VR unsichtbar; am Desktop-Monitor beantworten).",
             ["WorldUI/ManualScreenChord"] =
                 "Selbstrettungs-Tastenkombination: HALTE im Szenario die untere Fronttaste der "
                 + "NICHT-dominanten Hand (A oder X) für ManualScreenChordSeconds, um die schwebende 2D-Leinwand "

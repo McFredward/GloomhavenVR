@@ -242,6 +242,21 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<bool> CatchAllModals = null!;
 
+    /// <summary>
+    /// MENU-context deadlock insurance (the "Spielstand ist für eine Mehrspielerpartie" lock):
+    /// float the game's GlobalErrorMessage box in front of the HMD ALSO outside a scenario
+    /// (Menu2D — main menu / save-load / campaign map). The box is NOT a UIWindow: it is
+    /// SetActive-shown on the persistent boot-scene GlobalCanvas (decompiled SceneController
+    /// .cs:620-631), a canvas the Menu2D flat screen's CAMERA capture never carries — so it
+    /// was invisible in VR while it raycast-blocked the whole menu (ErrorMessage full-screen
+    /// panel + MainMenuUIManager.RequestDisableInteraction): a menu-context hard deadlock.
+    /// Every OTHER menu popup (confirmation boxes, EULA, sign-out, lobby prompts) lives in
+    /// the menu canvas hierarchy, IS captured by the flat screen and stays clickable via the
+    /// laser→virtual-mouse path — deliberately NOT floated (the flat screen already owns
+    /// them; floating menu windows is the scenario gate's whole reason to exist).
+    /// </summary>
+    internal static ConfigEntry<bool> MenuPopupFloat = null!;
+
     /// <summary>True when fallback windows float individually ([WorldUI] ModalStyle != "screen").</summary>
     internal static bool ModalWindowStyle =>
         !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
@@ -369,6 +384,17 @@ internal static class WorldUIConfig
             "Each floated unknown window logs one warning naming it, so it can be enrolled " +
             "explicitly later. Off = only explicitly enrolled windows are handled (pre-catch-" +
             "all behavior); the manual A/X screen chord remains the universal rescue.");
+        MenuPopupFloat = _file.Bind("WorldUI", "MenuPopupFloat", Defaults.MenuPopupFloat,
+            "MENU deadlock insurance: float the game's global error/notice box (GlobalError" +
+            "Message — e.g. the 'this save belongs to a multiplayer session' prompt when " +
+            "loading a save, missing-DLC notices, load failures) in front of the HMD ALSO " +
+            "outside a scenario (main menu, save/load, campaign map). This box is not a " +
+            "normal game window: it lives on a separate always-on canvas the floating 2D " +
+            "screen's camera capture can never show, so without the float it blocks the " +
+            "whole menu invisibly — nothing is clickable and the game waits forever. The " +
+            "flat screen stays up behind the floated box; its own buttons (poke + laser) " +
+            "are the only way to answer it. Off = pre-fix behavior (the box stays " +
+            "invisible in VR; answer it on the desktop monitor).");
         ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", Defaults.ForceMouseMode,
             "Keep InputManager in mouse mode while VR runs so the 'Game' (not 'Game_gamepad') " +
             "scene variants load and buttons commit without gamepad long-press flows.");
