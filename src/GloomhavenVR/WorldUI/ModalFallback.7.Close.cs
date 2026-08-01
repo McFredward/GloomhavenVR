@@ -333,6 +333,82 @@ internal static partial class ModalFallback
         return false;
     }
 
+    /// <summary>Change-gated log key of <see cref="ActionDismissedLevelMessage"/> — the
+    /// classification is polled per frame (Cards driver + RayInteractor read
+    /// <see cref="BlockingWindowModalActive"/>), so the ruling logs once per message.</summary>
+    private static string? _lastActionDismissLogKey;
+
+    /// <summary>
+    /// Tutorial deadlock #3 (HT_4 'Wähle Trampeln', hardware log 2026-08-02): is this window a
+    /// level-message group whose CURRENT scripted message is dismissed by a game ACTION instead
+    /// of the dismiss button? Such a message is an instruction OVERLAY, not a dialog — the game
+    /// waits for the very interaction (card select, tile click, confirm…) that our blocking
+    /// treatment (ModalUI + ray pick gate + card input block) forbids, so classifying it
+    /// blocking is a guaranteed total deadlock: the hint said "select Trample" while the mod
+    /// had just gated off every card. These messages float VISIBLE but must impose ZERO input
+    /// restrictions, exactly like the <see cref="NonBlockingMenus"/> family.
+    ///
+    /// The ruling is DATA-DRIVEN from the message's own dismiss trigger
+    /// (<c>CLevelMessage.DismissTrigger.IsTriggeredByDismiss</c> — the exact flag
+    /// <c>LevelEventsController.ProcessEvent</c> branches on, and the same one
+    /// <see cref="Compat.LevelMessageHeal"/> keys its dismiss-button-only heal on), NOT from
+    /// the layout name: the tutorial flow dump proves BOX-layout messages can be
+    /// action-dismissed too (TB_19 dismiss=ShortRestChoseToBurn, TB_22/HT_18_2 confirm/rest
+    /// chains) — a layout rule would deadlock those identically. The layout is only the
+    /// FALLBACK signal when the trigger is unreadable (HelpText strips are instruction
+    /// overlays by design, LevelMessageUILayoutGroup.cs:59 even disables their ESC action).
+    ///
+    /// Interplay: <see cref="ScriptedLevelMessageActive"/> (do-no-harm release gate) is
+    /// untouched — the float stays alive and visible for the whole message; the close
+    /// debounce only affects open/closed, not blocking-ness; the heal ignores these
+    /// messages by its own dismiss-button predicate. Dismiss-button messages keep the full
+    /// blocking treatment (they need a click on the box and nothing else).
+    /// </summary>
+    private static bool ActionDismissedLevelMessage(UIWindow? window)
+    {
+        if (window == null)
+            return false;
+        LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
+        if (handler == null)
+            return false;
+        ScenarioRuleLibrary.CustomLevels.CLevelMessage? msg = null;
+        if (handler.LevelMessageBoxLayoutGroup != null
+            && ReferenceEquals(handler.LevelMessageBoxLayoutGroup.window, window))
+            msg = handler.CurrentlyDisplayedBoxMessage;
+        else if (handler.LevelMessageHelpTextLayoutGroup != null
+                 && ReferenceEquals(handler.LevelMessageHelpTextLayoutGroup.window, window))
+            msg = handler.CurrentlyDisplayedHelpTextMessage;
+        if (msg == null)
+            return false; // not a level-message window / no current message → normal rules
+        ScenarioRuleLibrary.CustomLevels.CLevelTrigger? trigger = msg.DismissTrigger;
+        bool actionDismissed = trigger != null
+            ? !trigger.IsTriggeredByDismiss // data-driven ruling (see doc comment)
+            : msg.LayoutType == ScenarioRuleLibrary.CustomLevels
+                .CLevelMessage.ELevelMessageLayoutType.HelpText; // layout fallback signal
+        if (actionDismissed)
+        {
+            string key = msg.MessageName ?? "<unnamed>";
+            if (!string.Equals(_lastActionDismissLogKey, key, StringComparison.Ordinal))
+            {
+                _lastActionDismissLogKey = key;
+                VRLog.Info("WorldUI", $"Level message '{key}' is ACTION-dismissed " +
+                                      $"({(trigger != null ? "dismiss trigger read from game data" : "layout fallback: HelpText strip")}) " +
+                                      "→ floats NON-BLOCKING: no ModalUI, no ray pick gate, no card input block — " +
+                                      "board/cards stay live so the instructed action can actually be performed.");
+            }
+        }
+        return actionDismissed;
+    }
+
+    /// <summary>
+    /// THE blocking rule, shared by <see cref="BlockingWindowModalActive"/> and the Tick()
+    /// ModalUI lock so the ray pick gate and the mode machine can never disagree: a window
+    /// blocks unless it is a player-reachable menu (<see cref="NonBlockingMenus"/>) or an
+    /// action-dismissed scripted level message (<see cref="ActionDismissedLevelMessage"/>).
+    /// </summary>
+    private static bool IsBlockingWindow(UIWindow window) =>
+        !NonBlockingMenus.Contains(window.ID) && !ActionDismissedLevelMessage(window);
+
     private static bool ContainsWindow(List<UIWindow> list, UIWindow window)
     {
         for (int i = 0; i < list.Count; i++)
