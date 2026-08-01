@@ -68,6 +68,14 @@ internal sealed class PileViewer
     /// discard/burnt ability browser (board button, card grab, rest, action play, click-away).</summary>
     internal bool ItemsBrowseOpen => _itemsBrowse.IsOpen;
 
+    /// <summary>Laser pick over the OPEN item fan (geometric, sticky — the item twin of
+    /// <see cref="PileBrowser.TryRaycast"/>; the full every-second-card root cause lives on
+    /// <see cref="ItemsPile.TryLaserRaycast"/>). Forwarded so CardsDriver's laser chain never
+    /// reaches into the privately-owned fan instance. False while the fan is closed.</summary>
+    internal bool TryRaycastItemChips(Vector3 origin, Vector3 direction, ItemsPile.ItemChip? sticky,
+        out ItemsPile.ItemChip? chip, out Vector3 point, out float distance) =>
+        _itemsBrowse.TryLaserRaycast(origin, direction, sticky, out chip, out point, out distance);
+
     /// <summary>Requirement 4: dismiss the item fan on a foreign interaction (the item counterpart of
     /// <c>CardsDriver.CloseBrowser</c>). The item→ability mutual-exclusion is separate (<see cref="ItemsOpening"/>);
     /// this is the general click-away close for the item fan itself.</summary>

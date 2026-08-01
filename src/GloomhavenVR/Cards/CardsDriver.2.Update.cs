@@ -241,6 +241,7 @@ internal sealed partial class CardsDriver
         ClearLaserHover();
         ClearBoardHover();
         ClearBrowseHover();
+        ClearItemFanHover();
         ClearActiveHover();
         ClearInitiativeTodo(); // item 6: clear any lingering initiative to-do glow on teardown
         _liveGrabs.Clear();
@@ -458,6 +459,7 @@ internal sealed partial class CardsDriver
             ClearLaserHover();
             ClearBoardHover();
             ClearBrowseHover();
+            ClearItemFanHover();
             ClearActiveHover();
             ClearInitiativeTodo(); // item 6: drop the initiative to-do glow while hands are down
             // "THE BOARD IS GONE" DIAGNOSTIC. The control board root is a CHILD of the hands root
@@ -633,6 +635,7 @@ internal sealed partial class CardsDriver
             ClearLaserHover();
             ClearBoardHover();
             ClearBrowseHover();
+            ClearItemFanHover();
             ClearActiveHover();
         }
         else
@@ -640,6 +643,7 @@ internal sealed partial class CardsDriver
             UpdateFanLaser();
             UpdateBoardLaser();
             UpdateBrowseLaser();
+            UpdateItemFanLaser(); // item fan: same geometric+sticky pick as the browse fan above
             UpdateActiveLaser();
         }
         // Issue A/B: elect the ONE fan/dock card the free hand is in contact with (closest,
