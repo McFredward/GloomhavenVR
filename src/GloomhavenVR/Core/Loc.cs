@@ -242,6 +242,81 @@ internal static partial class Loc
             "• Stick kurz nach links/rechts = Schnelldrehung.\n\n" +
             "Bewege den Tisch einmal, dann geht das Tutorial weiter."),
 
+        // ---- tutorial VR step instructions (TutorialHints exact-key table) --------------------
+        // One id per ACTION the tutorial demands — each pinned HelpText strip instructs, in VR
+        // terms, exactly the action its dismiss trigger waits for (structural classification —
+        // see the TutorialHints header; the flat wording is not readable headless). Strips are
+        // ONE-LINERS: keep ≤ ~110 chars incl. the German. Card names are NOT baked in (the box
+        // right before each strip names the card in the game's language); controls are the
+        // mod's real bindings (WorldGrab stick-click, ProximityGrabber trigger grab, board
+        // keycaps, laser/fingertip picks — cross-checked against the input code).
+        ["tut_vr_pick_card"] = Pair(
+            "Palm up: fan out your cards, grab the requested card (trigger) and place it in a board card slot.",
+            "Handfläche nach oben: Fächer öffnen, die verlangte Karte greifen (Trigger) und in einen Brett-Slot legen."),
+        ["tut_vr_pick_card2"] = Pair(
+            "Pick the second card the same way: grab it from the fan and drop it into the free board slot.",
+            "Wähle die zweite Karte genauso: aus dem Fächer greifen und in den freien Brett-Slot legen."),
+        ["tut_vr_confirm_cards"] = Pair(
+            "Lock in your cards with the board's CONFIRM keycap.",
+            "Bestätige deine Kartenwahl mit der BESTÄTIGEN-Taste am Brett."),
+        ["tut_vr_half_bottom"] = Pair(
+            "Your played cards sit in the board slots — poke the BOTTOM half of the requested card (or laser + trigger).",
+            "Deine Karten liegen in den Brett-Slots — tippe die UNTERE Hälfte der verlangten Karte an (oder Laser + Trigger)."),
+        ["tut_vr_half_top"] = Pair(
+            "Poke the TOP half of the requested card in its board slot (or laser + trigger).",
+            "Tippe die OBERE Hälfte der verlangten Karte im Brett-Slot an (oder Laser + Trigger)."),
+        ["tut_vr_hex"] = Pair(
+            "Choose a highlighted hex: touch it with a fingertip, or point the laser and pull the trigger.",
+            "Wähle ein markiertes Feld: mit der Fingerspitze berühren oder mit dem Laser zielen und den Trigger drücken."),
+        ["tut_vr_hex_target"] = Pair(
+            "Choose the target: touch the highlighted enemy hex, or point the laser and pull the trigger.",
+            "Wähle das Ziel: das markierte Gegnerfeld berühren oder mit dem Laser zielen und den Trigger drücken."),
+        ["tut_vr_execute"] = Pair(
+            "Execute: tap the chosen hex again — or press the board's CONFIRM keycap.",
+            "Ausführen: das gewählte Feld erneut antippen — oder BESTÄTIGEN am Brett drücken."),
+        ["tut_vr_confirm"] = Pair(
+            "Continue with the board's CONFIRM keycap.",
+            "Weiter mit der BESTÄTIGEN-Taste am Brett."),
+        ["tut_vr_initiative"] = Pair(
+            "Point the laser at the enemy's portrait on the initiative track to preview its turn.",
+            "Zeige mit dem Laser auf das Gegner-Porträt in der Initiativleiste, um seinen Zug zu sehen."),
+        ["tut_vr_choice_panel"] = Pair(
+            "Decide on the floating panel: poke a button, or point the laser and pull the trigger.",
+            "Entscheide im schwebenden Fenster: Knopf antippen oder mit dem Laser zielen und den Trigger drücken."),
+        ["tut_vr_short_rest"] = Pair(
+            "Press the round SHORT REST keycap on the left side of the control board.",
+            "Drücke die runde Taste KURZE RAST links am Kontrollbrett."),
+        ["tut_vr_default_move"] = Pair(
+            "Basic move: poke the small default-move button on a played card in its board slot.",
+            "Standard-Bewegung: tippe den kleinen Bewegungs-Knopf auf einer gespielten Karte im Brett-Slot an."),
+        ["tut_vr_skip"] = Pair(
+            "Press the SKIP keycap on the board to pass this action.",
+            "Drücke die ÜBERSPRINGEN-Taste am Brett, um die Aktion auszulassen."),
+
+        // ---- tutorial VR generic controls (TutorialHints tier-3 marker safety net) ------------
+        // Shown when an UNPINNED hint (tutorials without a flow dump yet) resolves to text
+        // containing a hardware-input token (WASD/Mausrad/right-click/…): a self-contained VR
+        // controls summary that is correct no matter which flat control the original taught.
+        // Body is FixedLowerRight-box sized (~existing tut_vr_move_body length); the line
+        // variant fits the one-line HelpText strip.
+        ["tut_vr_controls_title"] = Pair("VR controls", "VR-Steuerung"),
+        ["tut_vr_controls_body"] = Pair(
+            "This hint describes the desktop controls — in VR:\n\n" +
+            "• Hold a thumbstick CLICKED and drag to move the table; hold BOTH stick-clicks " +
+            "to rotate and zoom.\n" +
+            "• Grab cards from your palm fan with the trigger and place them on the board slots.\n" +
+            "• Confirm / undo / skip with the board keycaps.\n" +
+            "• Point the laser at anything to inspect or select it.",
+            "Dieser Hinweis beschreibt die Desktop-Steuerung — in VR:\n\n" +
+            "• Daumenstick GEDRÜCKT halten und ziehen bewegt den Tisch; BEIDE Stick-Klicks: " +
+            "drehen und zoomen.\n" +
+            "• Karten mit dem Trigger aus dem Handfächer greifen und in die Brett-Slots legen.\n" +
+            "• Bestätigen / Zurück / Überspringen über die Brett-Tasten.\n" +
+            "• Mit dem Laser zeigen, um etwas anzusehen oder auszuwählen."),
+        ["tut_vr_controls_line"] = Pair(
+            "Desktop-control hint — in VR: stick-click + drag moves the table; laser + trigger selects; board keycaps confirm.",
+            "Desktop-Hinweis — in VR: Stick-Klick + Ziehen bewegt den Tisch; Laser + Trigger wählt; Brett-Tasten bestätigen."),
+
         // ---- SettingsPanel: sections / labels / buttons ----
         // ["table_scale"] is GONE with its row (user ruling 2026-08: the "Tischgröße" setting
         // was removed — [Rig] WorldScale is a documented legacy no-op now).
