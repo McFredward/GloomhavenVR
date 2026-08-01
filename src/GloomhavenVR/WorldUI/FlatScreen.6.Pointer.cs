@@ -58,6 +58,21 @@ internal sealed partial class FlatScreen
             return;
         }
 
+        // MENU-POPUP FLOAT arbitration ([WorldUI] MenuPopupFloat): while the dominant laser is
+        // on a WORLD-SPACE uGUI panel NEARER than the screen plane (the floated
+        // GlobalErrorMessage box spawns 1.2 m ahead, straight in front of the ~1.6 m screen;
+        // the in-VR settings panel likewise), that panel owns hover AND trigger via
+        // RayUguiDriver. Without this yield the SAME trigger also warped+pressed the virtual
+        // mouse at the screen pixel BEHIND the panel — answering the floated box would blindly
+        // click whatever the menu shows behind it. HasHit may be one frame stale (driver tick
+        // order), which only flickers the reticle at the panel edge; an already-latched screen
+        // press is never abandoned mid-press (its release must still reach uGUI).
+        if (!_pressing && hand.RayUgui.HasHit && hand.RayUgui.HitDistance < dist - 0.005f)
+        {
+            HideReticle();
+            return;
+        }
+
         Vector3 hit = pose.Origin + pose.Direction * dist;
         Vector3 local = t.InverseTransformPoint(hit); // quad local: x/y in [-0.5, 0.5]
         bool onQuad = Mathf.Abs(local.x) <= 0.5f && Mathf.Abs(local.y) <= 0.5f;

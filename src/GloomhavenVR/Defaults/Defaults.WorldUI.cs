@@ -176,6 +176,7 @@ internal static partial class Defaults
     internal const bool HexHintFollowView = true;            // => [WorldUI] HexHintFollowView
     internal const string ModalStyle = "window";             // => [WorldUI] ModalStyle
     internal const bool CatchAllModals = true;               // => [WorldUI] CatchAllModals
+    internal const bool MenuPopupFloat = true;               // => [WorldUI] MenuPopupFloat
     internal const bool ManualScreenChord = true;            // => [WorldUI] ManualScreenChord
     internal const float ManualScreenChordSeconds = 2f;      // => [WorldUI] ManualScreenChordSeconds
     internal const bool DemoteOverlaySolidClears = true;     // => [WorldUI] DemoteOverlaySolidClears
