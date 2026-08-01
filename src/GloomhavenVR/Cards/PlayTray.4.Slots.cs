@@ -321,6 +321,8 @@ internal sealed partial class PlayTray
         // Fit into the strip BELOW the card, not into the card's own height — a box as tall as the
         // card would let TMP grow the glyphs back up across the recess and undo the separation.
         Core.TmpFit.Fit(label, w * 1.1f, ItemUseLabelHeight, maxFontSize: 0.16f, wrap: false);
+        // Parked OUTSIDE the recess (above) means nothing is behind it any more — back it in MR.
+        WorldUI.MrBacking.Label(label);
 
         // Requirement 9a: the item "Use" confirm is no longer a bespoke keycap beside the slot — it is a
         // GENERIC cluster board button in the right-hand Confirm/Undo column (built in BuildButtons,

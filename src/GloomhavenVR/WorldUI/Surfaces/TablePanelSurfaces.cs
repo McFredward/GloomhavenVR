@@ -1403,6 +1403,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         // Label-local units: scale = panel width, so 0.96 ≈ full panel width; auto-size
         // shrinks/wraps long localized strings inside the block (TmpFit policy).
         TmpFit.Fit(_questTmp, 0.96f, QuestRectHeightFrac, maxFontSize: 0.65f);
+        MrBacking.Label(_questTmp); // hangs below the objectives panel, nothing behind it in MR
         VRLayers.Apply(_questGo);
         return true;
     }

@@ -623,9 +623,10 @@ internal sealed class RemoteBoardFurniture
         root.SetParent(_root, worldPositionStays: false);
         root.localPosition = mount;
 
-        BoardVisual.Quad(root, "Plate", new Vector2(0.42f, 0.055f),
-            BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 0.80f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.001f);
+        MeshRenderer drawerPlate = BoardVisual.Quad(root, "Plate", new Vector2(0.42f, 0.055f),
+            BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 0.80f)));
+        drawerPlate.transform.localPosition = new Vector3(0f, 0f, 0.001f);
+        WorldUI.MrBacking.Opacify(drawerPlate.sharedMaterial); // 0.80 → 1 while MR is on
         // A thin lip along the top edge so the empty drawer reads as a drawer and not as a shadow.
         BoardVisual.Quad(root, "Lip", new Vector2(0.42f, 0.004f),
             BoardVisual.Unlit(new Color(0.36f, 0.31f, 0.20f, 1f)))

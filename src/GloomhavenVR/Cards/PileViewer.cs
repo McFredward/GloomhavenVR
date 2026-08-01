@@ -479,6 +479,7 @@ internal sealed class PileViewer
             captionTmp.color = new Color(0.85f, 0.8f, 0.7f);
             WorldUI.NativeButtonSkin.ApplyFont(captionTmp); // native HUD font (test #25 item 3)
             Core.TmpFit.Fit(captionTmp, 0.095f, 0.024f, maxFontSize: 0.22f, wrap: false);
+            WorldUI.MrBacking.Label(captionTmp); // below the slabs, off-board → sky/room behind it in MR
 
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(w + 0.012f, h + 0.012f, 0.022f);

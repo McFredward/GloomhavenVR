@@ -56,6 +56,7 @@ internal sealed class RemoteActiveCards
             new Vector2(0.09f, 0.024f), 0.045f,
             new Color(1f, 0.9f, 0.6f), TextAlignmentOptions.Center, FontStyles.Bold);
         RemoteBoardContent.SetText(_title, ActivePileViewer.Caption().ToUpperInvariant());
+        WorldUI.MrBacking.Label(_title); // off-board title → sky/room behind it in MR
 
         for (int i = 0; i < MaxCards; i++)
             _cards.Add(new RemoteBoardCard(_root, Vector3.zero, CardW, CardH));

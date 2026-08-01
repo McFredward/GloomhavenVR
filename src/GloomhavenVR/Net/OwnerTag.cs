@@ -115,6 +115,7 @@ internal sealed class OwnerTag
         _nameLabel.color = new Color(1f, 0.95f, 0.85f);
         _nameLabel.fontStyle = FontStyles.Bold;
         TmpFit.Fit(_nameLabel, NameWidth, Height, maxFontSize: 0.05f, wrap: false);
+        WorldUI.MrBacking.Label(_nameLabel); // free-floating over the room in MR
 
         VRLayers.Apply(_root);
     }

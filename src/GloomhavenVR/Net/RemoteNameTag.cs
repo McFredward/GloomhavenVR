@@ -355,6 +355,7 @@ internal sealed class RemoteNameTag
         label.color = new Color(1f, 0.95f, 0.85f); // OwnerTag's warm off-white
         label.fontStyle = FontStyles.Bold;
         TmpFit.Fit(label, NameWidth, Height, maxFontSize: 0.065f, wrap: false);
+        WorldUI.MrBacking.Label(label); // free-floating over the room in MR
 
         VRLayers.Apply(_root); // mod layer, so the owned head camera renders it
     }

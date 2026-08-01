@@ -166,6 +166,7 @@ internal sealed class PileBrowser
             _title.color = new Color(1f, 0.9f, 0.6f);
             // Single line: localized pile names + count shrink into the box (TmpFit, test #12).
             Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
+            WorldUI.MrBacking.Label(_title); // browser title floats over the room in MR
         }
         _followHand = followHand;
         // Poke-toggle: anchor under the board root so the fan inherits the board's live
