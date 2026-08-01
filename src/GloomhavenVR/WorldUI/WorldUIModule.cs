@@ -146,6 +146,11 @@ internal sealed class WorldUIModule : IVRModule
         private readonly PropInfoSurface _propInfo = new();
         private readonly EnemyRevealSurface _enemyReveal = new();
         private readonly DecisionDockSurface _decisionDock = new();
+        // Flows 2-4: the doom UIAbilityCardPicker + the distribute-points popups are plain
+        // GameObject windows (no UIWindow) — invisible to ModalFallback/DecisionDock, so each
+        // gets its own polling surface (a silent rule-engine deadlock otherwise).
+        private readonly DoomPickerSurface _doomPicker = new();
+        private readonly DistributePointsSurface _distributePoints = new();
         private readonly DamageTooltipSurface _damageTooltip = new();
         private readonly DamagePreviewSurface _damagePreview = new();
         private readonly TrayControlDockSurface _trayControls = new();
@@ -210,6 +215,8 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("PropInfoSurface", _propInfo.Tick));
             update.Add(("EnemyRevealSurface", _enemyReveal.Tick));
             update.Add(("DecisionDockSurface", _decisionDock.Tick)); // after ModalFallback.Tick
+            update.Add(("DoomPickerSurface", _doomPicker.Tick));           // flow 2: doom slot/transfer picker
+            update.Add(("DistributePointsSurface", _distributePoints.Tick)); // flows 3+4: select/assign popups
             update.Add(("DamageTooltipSurface", _damageTooltip.Tick)); // after the dock
             update.Add(("DamagePreviewSurface", _damagePreview.Tick)); // after the dock: mirrors flat HP-cost preview onto the adopted bar (bug #3)
             update.Add(("TrayControlDockSurface", _trayControls.Tick));
@@ -269,6 +276,8 @@ internal sealed class WorldUIModule : IVRModule
             _propInfo.Shutdown();
             _enemyReveal.Shutdown();
             _decisionDock.Shutdown();
+            _doomPicker.Shutdown();
+            _distributePoints.Shutdown();
             _damageTooltip.Shutdown();
             _damagePreview.Shutdown();
             _trayControls.Shutdown();

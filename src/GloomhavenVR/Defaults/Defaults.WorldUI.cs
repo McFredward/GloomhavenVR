@@ -130,6 +130,8 @@ internal static partial class Defaults
     internal const bool PropInfoCards = true;                // => [WorldUI] PropInfoCards
     internal const bool EnemyReveal = true;                  // => [WorldUI] EnemyReveal
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
+    internal const bool DoomPicker = true;                   // => [WorldUI] DoomPicker
+    internal const bool DistributePanel = true;              // => [WorldUI] DistributePanel
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool ActorBars = true;                    // => [WorldUI] ActorBars
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize

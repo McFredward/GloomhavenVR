@@ -839,8 +839,13 @@ internal sealed partial class CardsDriver
         // open for a locally-controlled actor, present THAT actor's hand — at scenario start no
         // CardsHandManager.Show has run, so ActiveHand may be null and no surface (tray/piles/
         // item fan) would exist for the demanded selection (the item twin of the discard fix).
+        // Goal-chest forfeit (flow 1): the same rule for ItemRewardLosePicker — the pick has NO
+        // owning actor (a shared party reward), so ANY local hand anchors the surfaces; without
+        // this, a forfeit arriving during a REMOTE actor's turn would leave the deciding host
+        // with no presented hand and the deadlock would survive.
         CardsHandUI? hand = CardsGameApi.ActionSelectionHand()
                             ?? CardsGameApi.ItemPickHand()
+                            ?? CardsGameApi.LoseRewardPickHand()
                             ?? CardsGameApi.ActiveHand();
         return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
     }

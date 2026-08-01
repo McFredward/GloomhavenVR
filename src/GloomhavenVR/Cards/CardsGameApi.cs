@@ -322,6 +322,14 @@ internal static class CardsGameApi
     {
         actor = null;
         refreshing = false;
+        // Goal-chest forfeit disambiguation (flow 1): ItemRewardLosePicker.Show drives the SAME
+        // scene-serialized ItemCardPicker window (ItemRewardLosePicker.cs:15/54), so "window
+        // open" alone cannot say whose flow is live — while the Choreographer waits in
+        // WaitingForLoseGoalChestRewardSelection the window belongs to the forfeit flow and
+        // this accessor must stand down (ItemCardRefreshPicker.actor would be a STALE actor
+        // from an earlier refresh, misfiring the surrender pump/banner on the wrong content).
+        if (LoseRewardFlowActive())
+            return null;
         ItemCardRefreshPicker rp = Singleton<ItemCardRefreshPicker>.Instance;
         ItemCardPicker? picker = rp != null ? rp.picker : null;
         UnityEngine.UI.UIWindow? win = picker != null ? picker.window : null;
@@ -434,6 +442,178 @@ internal static class CardsGameApi
     /// absent — callers fall back to a Loc.Mod string. Publicized <c>hintTitle</c>.</summary>
     internal static string? ItemPickHintTitle(ItemCardPicker picker) =>
         !string.IsNullOrEmpty(picker.hintTitle) ? picker.hintTitle : null;
+
+    /// <summary>The picker's own game-localized hint MESSAGE — the body text the flat HelpBox
+    /// shows while the selection is incomplete (e.g. GUI_CHOOSE_ITEM_TO_LOSE, or the MP
+    /// wait-for-host tip on a non-deciding client). Publicized <c>hintMessage</c>
+    /// (ItemCardPicker.cs:49, stored by Show).</summary>
+    internal static string? ItemPickHintMessage(ItemCardPicker picker) =>
+        !string.IsNullOrEmpty(picker.hintMessage) ? picker.hintMessage : null;
+
+    // ------------------------------------------------- goal-chest "lose 1 item reward" (flow 1) --
+
+    /// <summary>
+    /// Is the Choreographer parked in the goal-chest reward-forfeit wait
+    /// (<c>WaitingForLoseGoalChestRewardSelection</c>, set at Choreographer.cs:5924 right after
+    /// <c>Singleton&lt;ItemRewardLosePicker&gt;.Instance.Show()</c>)? THE discriminator between the
+    /// two owners of the ONE scene-serialized ItemCardPicker window: ItemCardRefreshPicker
+    /// (refresh/consume demand, <see cref="OpenItemPicker"/>) and ItemRewardLosePicker (this
+    /// flow) both Show the SAME UIWindow, so "window open" alone cannot attribute the pick.
+    /// </summary>
+    private static bool LoseRewardFlowActive()
+    {
+        Choreographer c = Choreographer.s_Choreographer;
+        return c != null && c.m_WaitState != null
+               && c.m_WaitState.m_State
+                  == Choreographer.ChoreographerStateType.WaitingForLoseGoalChestRewardSelection;
+    }
+
+    /// <summary>
+    /// GOAL-CHEST "lose 1 item reward" pick (flow 1 — the KNOWN silent deadlock):
+    /// <c>CLoseGoalChestRewardChoice_MessageData</c> → Choreographer.cs:5911-5935 →
+    /// <c>ItemRewardLosePicker.Show</c> → the same invisible ItemCardPicker window the
+    /// refresh flow uses, with the Choreographer waiting forever in
+    /// <c>WaitingForLoseGoalChestRewardSelection</c> and every 2D commit hidden in VR.
+    /// Returns the OPEN picker while exactly that flow is live (see
+    /// <see cref="LoseRewardFlowActive"/>); <paramref name="canSelect"/> mirrors the game's
+    /// own decision gate (<c>ItemRewardLosePicker.CanSelect</c>, public: HOST-only online —
+    /// guests watch, <c>ProxyItemRewardLose</c> replays the host's commit on them).
+    /// </summary>
+    internal static ItemCardPicker? OpenLoseRewardPicker(out bool canSelect)
+    {
+        canSelect = false;
+        if (!LoseRewardFlowActive())
+            return null;
+        ItemRewardLosePicker rp = Singleton<ItemRewardLosePicker>.Instance;
+        ItemCardPicker? picker = rp != null ? rp.picker : null;
+        UnityEngine.UI.UIWindow? win = picker != null ? picker.window : null;
+        if (picker == null || win == null || !win.IsOpen)
+            return null;
+        canSelect = rp!.CanSelect;
+        return picker;
+    }
+
+    /// <summary>
+    /// The REWARD items the forfeit pick chooses from — goal-chest reward <c>CItem</c>s
+    /// (<c>itemsToChooseFrom</c>, publicized, ItemRewardLosePicker.cs:23; built by Show from
+    /// <c>ScenarioManager.CurrentScenarioState.GoalChestRewards</c>), NOT anyone's inventory.
+    /// The item fan presents THESE while the flow is live (the fan's inventory source is
+    /// wrong here — the actor never owned the forfeited item). Null outside the flow;
+    /// read-only, in the picker's own index order (the commit maps selection back by index).
+    /// </summary>
+    internal static List<CItem>? LoseRewardItems()
+    {
+        if (!LoseRewardFlowActive())
+            return null;
+        ItemRewardLosePicker rp = Singleton<ItemRewardLosePicker>.Instance;
+        return rp != null ? rp.itemsToChooseFrom : null;
+    }
+
+    /// <summary>
+    /// A locally-controlled hand to ANCHOR the forfeit pick's surfaces (tray, item fan) —
+    /// the flow has NO owning actor (the party forfeits a shared goal-chest reward), so any
+    /// local hand serves: the presented ActiveHand when it is local, else the first local
+    /// hand. Non-null only while the deciding client (host/offline) has the picker open —
+    /// mirrors <see cref="ItemPickHand"/>'s role in CardsDriver.CurrentHand: without this
+    /// the demand could arrive during a REMOTE actor's turn and no local surface would
+    /// exist to present the pick on (the deadlock would survive the whole feature).
+    /// </summary>
+    internal static CardsHandUI? LoseRewardPickHand()
+    {
+        ItemCardPicker? picker = OpenLoseRewardPicker(out bool canSelect);
+        if (picker == null || !canSelect)
+            return null;
+        CardsHandUI? active = ActiveHand();
+        if (active != null && IsLocalHand(active))
+            return active;
+        CardsHandManager manager = CardsHandManager.Instance;
+        List<CardsHandUI>? hands = manager != null ? manager.CardHandsUI : null;
+        if (hands == null)
+            return null;
+        for (int i = 0; i < hands.Count; i++)
+        {
+            CardsHandUI hand = hands[i];
+            if (hand != null && IsLocalHand(hand))
+                return hand;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// COMMIT the forfeit — the exact tail of the flat confirm option:
+    /// <c>ItemRewardLosePicker.ConfirmSelectedRewardItems</c> (private, publicized;
+    /// ItemRewardLosePicker.cs:66-86) removes each chosen <c>Reward</c> from every goal-chest
+    /// <c>RewardGroup</c>, sends the game's own <c>Synchronizer.SendGameAction(
+    /// GameActionType.LoseItemReward, …, IndexToken(indices))</c> online (guests replay via
+    /// <c>ProxyItemRewardLose</c>), hides the picker and releases the Choreographer
+    /// (<c>SetChoreographerState(Play)</c> + <c>ScenarioRuleClient.StepComplete</c>, :88-95).
+    /// Guarded like the flat confirm availability: picker open, FULL selection, and this
+    /// client may decide (<c>CanSelect</c>) — zero wire changes, the game networks everything.
+    /// </summary>
+    internal static bool ConfirmLoseRewardPick()
+    {
+        ItemCardPicker? picker = OpenLoseRewardPicker(out bool canSelect);
+        if (picker == null || !canSelect || !picker.AreAllItemsSelected)
+            return false;
+        Singleton<ItemRewardLosePicker>.Instance.ConfirmSelectedRewardItems();
+        return true;
+    }
+
+    // ------------------------------------------------- floating-panel decisions (flows 2-4) --
+
+    /// <summary>
+    /// DOOM picker state (flows 2a/2b): is the game's <c>UIAbilityCardPicker</c> panel shown
+    /// (doom-slot replace, Choreographer.cs:10932; transfer dooms, :11017 — a plain serialized
+    /// <c>window</c> GameObject, NOT a UIWindow, so neither ModalFallback nor the DecisionDock
+    /// registry ever sees it: in VR it sat invisible while
+    /// <c>GameState.WaitingForMercenarySpecialMechanicSlotChoice</c> early-returned EVERY
+    /// ability Perform — the hard SRL gate). The WorldUI DoomPickerSurface floats it pokeable;
+    /// this accessor feeds the board banner. <paramref name="selected"/>/<paramref name="wanted"/>
+    /// mirror the picker's own <c>selectedOptions.Count</c>/<c>optionsToSelect</c> (publicized).
+    /// </summary>
+    internal static bool DoomPickerState(out int selected, out int wanted)
+    {
+        selected = 0;
+        wanted = 0;
+        UIAbilityCardPicker p = Singleton<UIAbilityCardPicker>.Instance;
+        if (p == null || p.window == null || !p.window.activeSelf)
+            return false;
+        selected = p.selectedOptions != null ? p.selectedOptions.Count : 0;
+        wanted = p.optionsToSelect;
+        return true;
+    }
+
+    /// <summary>
+    /// DISTRIBUTE-POINTS panel state (flows 3/4): which <c>UIScenarioDistributePointsManager</c>
+    /// popup is shown — the SELECT popup ("which hero burns a card to prevent this damage",
+    /// Choreographer.cs:12078, HOST-decided; the game's SRL worker thread SPIN-WAITS in
+    /// GameState.cs:1191 until <c>SelectedPlayerToAvoidDamage</c> runs) or the ASSIGN popup
+    /// (redistribute damage/health, :11761, caster-controlled). Both popups are plain
+    /// <c>window</c> GameObjects invisible in VR; the WorldUI DistributePointsSurface floats
+    /// the shown one pokeable. <paramref name="title"/> is the popup's own game-localized
+    /// title text (the ask); <paramref name="assign"/> distinguishes the two popups.
+    /// All widget gating (host-only select, IsUnderMyControl assign) lives in the game's own
+    /// services (<c>CanAddPointsTo</c>/<c>CanRemovePointsFrom</c>) — the mod adds none.
+    /// </summary>
+    internal static bool DistributePanelState(out string? title, out bool assign)
+    {
+        title = null;
+        assign = false;
+        UIScenarioDistributePointsManager m = Singleton<UIScenarioDistributePointsManager>.Instance;
+        if (m == null)
+            return false;
+        UIDistributePointsPopup? popup =
+            m.distributePointsAssignPopup != null && m.distributePointsAssignPopup.IsShown
+                ? m.distributePointsAssignPopup
+            : m.distributePointsSelectPopup != null && m.distributePointsSelectPopup.IsShown
+                ? m.distributePointsSelectPopup
+            : null;
+        if (popup == null)
+            return false;
+        assign = ReferenceEquals(popup, m.distributePointsAssignPopup);
+        title = popup.titleText != null ? popup.titleText.text : null;
+        return true;
+    }
 
     /// <summary>
     /// The pile(s) the current modal pick draws its candidates from — the game's own
