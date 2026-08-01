@@ -42,8 +42,37 @@ internal static class ModalCloseButton
     private const float ButtonSizePx = 34f;
 
     /// <summary>How far (host px ≈ mm) the X floats toward the viewer, so its equal-tier canvas
-    /// deterministically draws over the window's coplanar content. Imperceptible in the headset.</summary>
+    /// deterministically draws over the window's coplanar content. Imperceptible in the headset.
+    /// NOTE (MP round 2, "immer noch kein X"): the nudge alone does NOT decide the equal-tier
+    /// draw — see <see cref="DepthStampBehindPx"/> for why, and for the stamp that does.</summary>
     private const float ViewerNudgePx = 4f;
+
+    /// <summary>
+    /// MP round 2 root cause ("Kontrolle übergeben" STILL had no X): the blacklist flip DID
+    /// attach the X to the transfer-control player picker ('UI Multiplayer Select Player
+    /// Submenu_unified', ID MutiplayerPlayerPicker) — no attach failure in the log — but the X
+    /// never became VISIBLE. The equal-order tie (X visuals at ModalHostSortingOrder == the
+    /// adopted window content's 1000) is broken by Unity's transparent-sort DISTANCE, and that
+    /// distance is measured camera → CANVAS (bounds/transform), not per-pixel: the X canvas sits
+    /// at the host's top-right CORNER, ~half a panel diagonal off-axis, so its euclidean camera
+    /// distance measures FARTHER than the window canvas' center even though the plate is nudged
+    /// 4 px toward the viewer — the X draws FIRST and the window content paints over it. Every
+    /// other X-carrying float ships with its full-window backing stripped (the ESC/Options/
+    /// submenu family, WantsTransparentBackground — nothing of theirs draws at the corner, so
+    /// the mis-sort was invisible and their X "worked"); the player picker is the one window
+    /// that floats with its opaque backing INTACT, which is exactly where the overdraw shows.
+    ///
+    /// FIX (general, not per-window): a color-invisible DEPTH-WRITING quad — the established
+    /// GrabbableModal.BuildDepthMask material state (ZWrite on, ZTest LEqual, Blend Zero One →
+    /// framebuffer color untouched), renderQueue 2999 so it stamps BEFORE all ~3000 UI — sits a
+    /// hair behind the plate, between the X and the window plane. Whatever window pixels would
+    /// paint over the plate now FAIL ZTest against the stamp (they lie ≥ the 4 px nudge behind
+    /// it) regardless of how the canvas tie resolves, while the X's own plate/glyph pass
+    /// (nearer) and a genuinely NEARER info panel still wins (its depth passes LEqual) — the
+    /// issue-#8 "X must not pierce nearer panels" ruling is preserved. Order-independent, so it
+    /// is safe for every window geometry, opaque backing or not.
+    /// </summary>
+    private const float DepthStampBehindPx = 1.5f;
     private const float InsetPx = 7f;
     // The "X" occupies the middle ~44 % of the plate — a compact glyph with clear margins.
     private const float BarLengthFraction = 0.44f;
@@ -95,6 +124,11 @@ internal static class ModalCloseButton
                                       "— closing exactly this window (Escape/Hide), other open windows untouched.");
                 ModalFallback.CloseFloatedWindow(target);
             });
+            // Attach evidence (MP round 2 lesson): the X built silently, so "no X visible" could
+            // not be told apart from "no X attached" in the hardware log. One line per attach.
+            VRLog.Info("WorldUI", $"MODAL CLOSE (X button): attached to '{window.name}' (ID {window.ID}) " +
+                                  "— top-right plate + depth stamp (draws over the window's own backing, " +
+                                  "still occluded by nearer panels/hands).");
         }
         catch (Exception ex)
         {
@@ -160,6 +194,15 @@ internal static class ModalCloseButton
         rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y,
                                          toViewer * ViewerNudgePx);
 
+        // MP round 2 fix (see DepthStampBehindPx): guarantee the X draws over the window's own
+        // coplanar content INDEPENDENT of the equal-tier canvas sort — the corner-mounted X
+        // canvas measures FARTHER than the window canvas center, so on windows that keep their
+        // opaque full-window backing (the transfer-control player picker) the backing painted
+        // over the plate and the X was invisible. The stamp depth-occludes exactly the plate
+        // footprint against everything at/behind the window plane; nearer panels/hands still
+        // draw over the X (their depth passes), so nothing pierces.
+        BuildDepthStamp(rect, layer, toViewer);
+
         // The RAYCAST keeps the elevated order (issue #8), on an INVISIBLE plate: Beats()
         // compares sortingLayer then sortingOrder and never distance, so this is what lets the X
         // win the cross-raycaster tie against the adopted game content behind it — WITHOUT also
@@ -191,6 +234,58 @@ internal static class ModalCloseButton
         // draw on the X's own canvas, on top of the menu, with the plate.
         CrossBar(rect, layer, 45f);
         CrossBar(rect, layer, -45f);
+    }
+
+    /// <summary>
+    /// The plate-sized depth stamp behind the X (see <see cref="DepthStampBehindPx"/>): a quad
+    /// in the exact GrabbableModal.BuildDepthMask material state — the bundled Overlay shader
+    /// forced to ZWrite 1 (stamp depth) / ZTest 4 = LEqual (nearer hands/board/panels still
+    /// win) / Cull Off / Blend Zero One (color = dst, framebuffer untouched), renderQueue 2999
+    /// so it lands after every opaque draw and BEFORE the ~3000 transparent UI. MeshRenderer
+    /// keeps the default sortingOrder 0, below the canvases' 1000 — on either transparent-sort
+    /// axis it composites before the UI, which is the whole point: by the time ANY canvas
+    /// paints the plate area, the stamp depth is already there and content behind the plate
+    /// fails ZTest. Parented to the plate rect (host px units), so it tracks the fit/scale like
+    /// the plate itself and dies with the host on Release — no teardown wiring.
+    /// </summary>
+    private static void BuildDepthStamp(RectTransform plate, int layer, float toViewer)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        go.name = "DepthStamp";
+        go.layer = layer;
+        UnityEngine.Object.Destroy(go.GetComponent<Collider>()); // never a poke/laser/physics target
+        Transform t = go.transform;
+        t.SetParent(plate, worldPositionStays: false);
+        t.localRotation = Quaternion.identity;
+        t.localScale = new Vector3(ButtonSizePx, ButtonSizePx, 1f); // unit quad → plate footprint (px)
+        // Between the plate face and the window plane: the plate sits ViewerNudgePx toward the
+        // viewer, so a small setback the OPPOSITE way keeps the stamp in front of the window
+        // content (≥ the nudge behind) but safely off the plate's own pixels (no z-fight).
+        // Plate pivot is its top-right corner (1,1) — recenter the quad on the plate rect.
+        t.localPosition = new Vector3(-ButtonSizePx * 0.5f, -ButtonSizePx * 0.5f,
+                                      -toViewer * DepthStampBehindPx);
+
+        var mr = go.GetComponent<MeshRenderer>();
+        Material mat = WorldUIAssets.CreateFlatMaterial(Color.clear, overlay: true);
+        bool depthCapable = mat.HasProperty("_ZWrite") && mat.HasProperty("_ZTest");
+        if (mat.HasProperty("_ZWrite")) mat.SetInt("_ZWrite", 1);     // WRITE depth (stamp the plate plane)
+        if (mat.HasProperty("_ZTest")) mat.SetInt("_ZTest", 4);       // LEqual — closer things still occlude the X
+        if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", 0);         // two-sided (host may be viewed from behind)
+        if (mat.HasProperty("_SrcBlend")) mat.SetInt("_SrcBlend", 0); // Zero ┐ color = 0*src + 1*dst
+        if (mat.HasProperty("_DstBlend")) mat.SetInt("_DstBlend", 1); // One  ┘   = dst (UNCHANGED)
+        mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 1; // 2999: pre-UI
+        mr.sharedMaterial = mat;
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+        mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        if (!depthCapable)
+            // Same degradation note as the modal depth mask: without the bundle shader the X
+            // falls back to the (usually sufficient) canvas nudge — visible everywhere except
+            // over an opaque full-window backing.
+            VRLog.Warn("WorldUI", "MODAL CLOSE (X button): Overlay shader unavailable — the X depth " +
+                                  "stamp cannot write depth; on windows with an opaque backing the X " +
+                                  "may stay hidden behind the window content.");
     }
 
     private static void CrossBar(RectTransform parent, int layer, float angleDeg)
