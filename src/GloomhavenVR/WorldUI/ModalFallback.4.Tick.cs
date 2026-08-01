@@ -135,6 +135,7 @@ internal static partial class ModalFallback
         _escapeChordFired = false;
         _escapeArmingLogged = false;
         _forcedTabs.Clear();
+        CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
     }
@@ -149,6 +150,10 @@ internal static partial class ModalFallback
 
         if (e.Window == null)
             return;
+        // Part 10 (catch-all): remember every shown window whose ID the explicit path does
+        // NOT track — an unknown scenario window must never block invisibly (deadlock
+        // insurance). Pure bookkeeping here; all judgement is level-triggered in Tick.
+        CatchAllObserve(e.Window, e.Shown);
         if (!e.Shown)
         {
             if (Open.Remove(e.Window))
@@ -276,6 +281,19 @@ internal static partial class ModalFallback
             && !DecisionDock.ClaimsWindow(manager.dialogPopup.Window))
             AddPollWindow(manager.dialogPopup.Window);
 
+        // Part 10: the reward-showcase poll (enrollment #2 — the chest showcase window's ID
+        // is scene-serialized and unprovable, see the part-10 verification comment) and the
+        // CATCH-ALL — unknown scenario windows join OpenWindows after a short grace so an
+        // un-enrolled window can never again wait invisibly on the hidden 2D stack. Runs
+        // AFTER the explicit polls so their dedupe/claim handling always wins.
+        TickCatchAll(inScenario);
+
+        // Part 10: GlobalErrorMessage (enrollment #1) — NOT a UIWindow (SetActive-shown), so
+        // neither the transition patch nor the catch-all above can see it; dedicated poll +
+        // direct float. Feeds the lock below via ErrorModalOpen (a genuine blocker: the whole
+        // game halts on ShowingMessage) and the screen policy via ErrorScreenWanted.
+        TickErrorMessage(inScenario);
+
         // Item 6 (parallel windows): a STICKY reachable menu stays floated even when the game hid it
         // (its single-window toggle), so it is NOT in OpenWindows. Keep the float wanted while any
         // sticky menu the user has not closed is still alive, or it would be released the moment the
@@ -312,7 +330,9 @@ internal static partial class ModalFallback
                 break;
             }
         }
-        bool wantLock = want && anyBlocking;
+        // Part 10: the error box is a genuine blocker too (Choreographer.Update early-outs
+        // on ShowingMessage) — it holds the lock even though it is not a UIWindow.
+        bool wantLock = (want && anyBlocking) || ErrorModalOpen;
 
         // ---- window-style conversions (P8) ------------------------------------------
         // The manual chord's full screen needs the windows back in the 2D composite;
@@ -485,7 +505,8 @@ internal static partial class ModalFallback
         // Screen policy: full composite for style=screen; for style=window only the
         // windows that FAILED to convert raise it (per-window automatic fallback).
         // The manual chord path forces the screen inside FlatScreen regardless.
-        ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0);
+        ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0
+                                    || ErrorScreenWanted); // part 10: unfloatable error box
         VRModeStateMachine.SetAuxModal(wantLock); // ModalUI only for genuine blockers (item 3b)
     }
 }
