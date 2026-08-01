@@ -688,7 +688,12 @@ internal sealed partial class CardsDriver
 
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
         if (!_fakeActive)
+        {
             PumpLongRestTurn(); // long-rest turn: drive the game's own PERFORM LONG REST flow (re-armed every tick)
+            PumpSelectionHandSwitch(); // hand-switch watchdog: presented hand re-converges on the selected
+                                       // character if the game's portrait-click SwitchHand edge was swallowed
+                                       // ("Optionsmenü darf das Spielgeschehen nie beeinflussen", user 2026-08)
+        }
         LogLongRestState(_fakeActive ? null : hand); // test #28: prove the long-rest state transitions
         LogFanState(hand);
         LogActionSelectionState(_fakeActive ? null : hand); // second-character action deadlock diagnostic
