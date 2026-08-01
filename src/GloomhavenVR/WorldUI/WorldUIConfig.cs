@@ -218,6 +218,10 @@ internal static class WorldUIConfig
     /// <summary>Split the flat screen into a UI glass layer over a stereo background layer (test #18).</summary>
     internal static ConfigEntry<bool> ScreenLayerSplit = null!;
 
+    /// <summary>VR loading indicator: the game's rotating spinner in front of the HMD during loads,
+    /// flat screen suppressed, background loading priority lowered (smaller hitches).</summary>
+    internal static ConfigEntry<bool> LoadingIndicator = null!;
+
     /// <summary>True when clicks go through ExecuteEvents (ClickMode execute/both).</summary>
     internal static bool ExecuteClicks =>
         !string.Equals(ClickMode.Value, "virtualmouse", System.StringComparison.OrdinalIgnoreCase);
@@ -532,6 +536,15 @@ internal static class WorldUIConfig
             "eyes at the screen plane, while 3D scene cameras and videos render a background " +
             "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
             "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
+        LoadingIndicator = _file.Bind("WorldUI", "LoadingIndicator", Defaults.LoadingIndicator,
+            "While the flat game shows its loading screen (scene transitions, scenario " +
+            "start), float the game's own ROTATING LOADING SPINNER — the icon only, not the " +
+            "hints/progress screen — in front of the HMD on the black void, hide the " +
+            "floating 2D screen for the duration, and lower Unity's background loading " +
+            "priority so head/hand rendering hitches less (the load itself takes slightly " +
+            "longer). A few residual single-frame freezes remain (the game's per-transition " +
+            "GC pause and synchronous asset-assembly frames cannot be split). Off = vanilla " +
+            "behavior: the HMD shows a motionless void during loads.");
 
         KeyboardEnabled = _file.Bind("Keyboard", "Enabled", Defaults.Keyboard_Enabled,
             "Show the game's own on-screen keyboard whenever a text field takes focus, so a party " +

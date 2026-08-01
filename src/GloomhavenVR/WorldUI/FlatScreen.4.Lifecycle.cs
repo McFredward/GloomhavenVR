@@ -85,6 +85,14 @@ internal sealed partial class FlatScreen
         if (!WorldUIConfig.FlatScreen.Value || !WorldUIConfig.ConversionActive)
             return false;
 
+        // LOADING GATE ("only the spinner on black"): while the VR loading indicator is
+        // active the HMD deliberately shows just spinner + hands on the void — the 2D
+        // composite would show the flat loading screen's hints/progress (or a half-torn-
+        // down menu with no captured UI camera). The gate is a per-tick read of live
+        // state, so the screen returns through this very policy the frame loading ends.
+        if (LoadingIndicator.FlatScreenSuppressed)
+            return false;
+
         VRMode mode = VRModeStateMachine.CurrentMode;
         if (mode == VRMode.Menu2D)
             return WorldUIConfig.FlatScreenAutoShow.Value;

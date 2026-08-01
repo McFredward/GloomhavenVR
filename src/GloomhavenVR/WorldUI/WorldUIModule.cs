@@ -150,6 +150,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly DamagePreviewSurface _damagePreview = new();
         private readonly TrayControlDockSurface _trayControls = new();
         private readonly WristHud _wristHud = new();
+        private readonly LoadingIndicator _loadingIndicator = new();
         private readonly FlatScreen _flatScreen = new();
         // Local self-preview mirror (Net feature, but ticked here so it works even with the
         // networking hook off — it is a purely local cosmetic, independent of the net send).
@@ -213,6 +214,7 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("DamagePreviewSurface", _damagePreview.Tick)); // after the dock: mirrors flat HP-cost preview onto the adopted bar (bug #3)
             update.Add(("TrayControlDockSurface", _trayControls.Tick));
             update.Add(("WristHud", _wristHud.Tick));
+            update.Add(("LoadingIndicator", _loadingIndicator.Tick)); // before FlatScreen: it reads the fresh suppress gate
             update.Add(("FlatScreen", _flatScreen.Tick));
             update.Add(("AvatarMirror", _avatarMirror.Tick));
             update.Add(("DevPanels", _devPanels.Tick));
@@ -271,6 +273,7 @@ internal sealed class WorldUIModule : IVRModule
             _damagePreview.Shutdown();
             _trayControls.Shutdown();
             _wristHud.Shutdown();
+            _loadingIndicator.Shutdown(); // restores backgroundLoadingPriority defensively
             _flatScreen.Shutdown();
             VROptionsTab.Shutdown();
             VRKeyboard.Shutdown();
