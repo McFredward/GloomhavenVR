@@ -67,6 +67,14 @@ internal sealed class NetModule : IVRModule
     internal static ConfigEntry<float> MaskSize = null!;
 
     /// <summary>
+    /// Floating name tag above each remote player's head mask: username + Steam avatar picture,
+    /// read from the game's own player registry (<see cref="NetPlayerActors"/> — ZERO wire bytes
+    /// of ours). Purely LOCAL rendering; applies live (<see cref="RemoteNameTag"/> re-reads the
+    /// gate every tick, so toggling hides/shows without a restart). Default ON.
+    /// </summary>
+    internal static ConfigEntry<bool> NameTags = null!;
+
+    /// <summary>
     /// Show the local player their own avatar in a mirror floating in front of the head (a local
     /// cosmetic preview — independent of the net send, works in single-player). Default off.
     /// </summary>
@@ -115,6 +123,12 @@ internal sealed class NetModule : IVRModule
                 "settings panel (Avatar > Maskengroesse); synchronized, so other VR players see " +
                 "your mask at exactly the size you picked. Purely cosmetic.",
                 new AcceptableValueRange<float>(NetProtocol.MaskSizeMin, NetProtocol.MaskSizeMax)));
+        NameTags = _config.Bind("Net", "NameTags", Defaults.NameTags,
+            "Floating name tag above each remote VR player's head mask: their username plus " +
+            "their Steam avatar picture, read from the game's own player registry (nothing " +
+            "extra is sent over the network). Scales with that player's world zoom so it stays " +
+            "attached to their avatar. Purely local rendering; applies live — turn OFF to hide " +
+            "all tags without a restart.");
         MirrorEnabled = _config.Bind("Net", "MirrorEnabled", Defaults.MirrorEnabled,
             "Show yourself in a mirror floating in front of your head so you can see your chosen " +
             "mask + hands. Local cosmetic preview only — independent of networking, works in " +

@@ -305,6 +305,7 @@ internal static partial class Loc
         ["vr_style_plate"] = Pair("Gauntlet", "Panzerhandschuh"),
         ["vr_style_arcane"] = Pair("Mage glove", "Magierhandschuh"),
         ["vr_o_netenabled"] = Pair("Multiplayer sync", "Mehrspieler-Abgleich"),
+        ["vr_o_nametags"] = Pair("Name tags", "Namensschilder"),
         // Boolean rows say what they ARE, the way the game's own settings do.
         ["vr_on"] = Pair("On", "Ein"),
         ["vr_off"] = Pair("Off", "Aus"),
@@ -362,6 +363,7 @@ internal static partial class Loc
         ["h_vr_o_keyboard"] = Pair("Appears by itself when a text field is active, so you can type without a real keyboard.", "Erscheint von selbst, wenn ein Textfeld aktiv ist — Tippen ohne echte Tastatur."),
         ["h_vr_o_keyboardcase"] = Pair("Turns MY PARTY into My Party. The game's keyboard only produces capitals.", "Macht aus MEINE GRUPPE Meine Gruppe. Die Spiel-Tastatur liefert nur Großbuchstaben."),
         ["h_remote_boards"] = Pair("Show the other players' control boards as well as your own.", "Zeigt auch die Kontrollbretter der anderen Spieler."),
+        ["h_vr_o_nametags"] = Pair("Show each player's name and Steam picture above their mask.", "Zeigt Name und Steam-Bild der Mitspieler über ihrer Maske."),
         ["vr_needs_restart"] = Pair("Takes effect at the next game start.", "Wirkt erst beim nächsten Spielstart."),
 
 
