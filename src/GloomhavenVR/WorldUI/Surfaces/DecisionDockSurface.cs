@@ -113,6 +113,22 @@ internal sealed class DecisionDockSurface : WorldSurface
     internal static bool RowDocked => Instance != null && Instance.Panel != null;
 
     /// <summary>
+    /// Live world-metre offset (along <c>DecisionMount.up</c>, relative to the mount
+    /// position) of the docked decision row's visible BOTTOM edge — the lowest visible
+    /// widget graphic of the active prompt, glyph/plate-true, produced by the SAME
+    /// measurement walk the placement's top-edge anchor uses (so top and bottom can never
+    /// disagree about what "the row" is). Null while no row is mount-docked or nothing has
+    /// been measured yet. <see cref="UseBarsSurface"/> hangs its bar stack a small clearance
+    /// below THIS instead of the mount's worst-case ±MaxHeight/2 extent — the paranoia
+    /// spacing floated the armor-bonus bar FAR below the take-damage row (screenshot
+    /// abstand.png), visually disconnecting one decision area into two. One-directional by
+    /// construction, so no feedback loop: the bars only READ this value, while the row's own
+    /// measurement walks exclusively its own converted subtree / the prompt's serialized
+    /// widgets — separate host canvases the bar stack can never appear in.
+    /// </summary>
+    internal static float? RowBottomUpMeters { get; private set; }
+
+    /// <summary>
     /// True while THIS surface has the <c>TakeDamagePanel</c>'s widget row docked on the
     /// board (task A). The take-damage widgets carry the game's mouse-hover preview
     /// handlers (<c>OnMouseEnter*/OnMouseExit*</c> → <c>Preview*/ResetPreviewing</c>),
@@ -284,6 +300,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                 UnregisterDeliberateCanvas();
                 RestoreRowAdjustments();
                 RestoreSuppression();
+                RowBottomUpMeters = null; // stale row gone; the next prompt's Place re-publishes
                 if (Panel != null && ReleaseCurrentPanel())
                     VRLog.Info("WorldUI", "DECISION DOCK: active prompt changed — previous row " +
                                           "released so the next prompt's row can dock in its place.");
@@ -339,6 +356,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         else
         {
             _hmdFloatPlaced = false;
+            RowBottomUpMeters = null; // no docked row → the bar stack falls back to the zone top
             if (hadPanel)
             {
                 UnregisterDeliberateCanvas();
@@ -404,6 +422,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                 Panel.HostGo.SetActive(true);
             if (!_hmdFloatPlaced)
                 _hmdFloatPlaced = TryPlaceAtHmd();
+            RowBottomUpMeters = null; // HMD-floated, not on the mount — the bar stack must not hang off it
             return;
         }
         _hmdFloatPlaced = false;
@@ -448,9 +467,10 @@ internal sealed class DecisionDockSurface : WorldSurface
             refNote = "no-bar board-edge estimate";
         }
 
-        // Topmost VISIBLE widget graphic, world m above the host pivot (falls back to the
-        // fitted row top when a prompt has no resolvable widgets).
-        float blockTopAbovePivot = WidgetBlockTopAbovePivot(host, up, rect.yMax * scale);
+        // Top/bottom-most VISIBLE widget graphics, world m above the host pivot (fall back
+        // to the fitted row edges when a prompt has no resolvable widgets).
+        WidgetBlockEdgesAbovePivot(host, up, rect.yMax * scale, rect.yMin * scale,
+            out float blockTopAbovePivot, out float blockBottomAbovePivot);
 
         // Gap px → world m in the row's own scale; place the block top this far below the
         // prompt reference. gap ≥ 0 keeps the block clear of the grab bar by construction.
@@ -461,6 +481,11 @@ internal sealed class DecisionDockSurface : WorldSurface
         Vector3 pos = mount.position + up * d;
 
         host.position = pos;
+
+        // Publish the row's MEASURED bottom edge (mount-relative, along up) for the
+        // UseBarsSurface stack — the bars hang a small clearance below the row the player
+        // actually SEES instead of the mount's worst-case extent (see RowBottomUpMeters doc).
+        RowBottomUpMeters = d + blockBottomAbovePivot;
 
         if (!_placementLogged || float.IsNaN(_lastLoggedGapPx) || Mathf.Abs(gapPx - _lastLoggedGapPx) >= 0.5f)
         {
@@ -672,20 +697,25 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
-    /// USER #14 placement measurement: the topmost VISIBLE widget graphic of the active
-    /// prompt, expressed in world metres ABOVE the host pivot along <paramref name="up"/>
-    /// (translation-invariant — measured relative to the host's current position, valid for
-    /// the position <see cref="Place"/> is about to solve). Glyph-true for TMP labels, rect
-    /// corners for plates/images. Falls back to <paramref name="rowTopAbovePivot"/> (the
-    /// fitted row top) when the prompt exposes no resolvable widget graphics. This anchors
-    /// the BUTTONS themselves — not the authored option-column rects — so the gap the user
-    /// tunes is the real distance from the board edge to the pressable widgets.
+    /// USER #14 placement measurement, extended for the bar-stack gap fix: the top- and
+    /// bottom-most VISIBLE widget graphics of the active prompt, expressed in world metres
+    /// ABOVE the host pivot along <paramref name="up"/> (translation-invariant — measured
+    /// relative to the host's current position, valid for the position <see cref="Place"/>
+    /// is about to solve). Glyph-true for TMP labels, rect corners for plates/images. Falls
+    /// back to <paramref name="rowTopAbovePivot"/>/<paramref name="rowBottomAbovePivot"/>
+    /// (the fitted row edges) when the prompt exposes no resolvable widget graphics. The TOP
+    /// anchors the BUTTONS themselves — not the authored option-column rects — so the gap the
+    /// user tunes is the real distance from the board edge to the pressable widgets; the
+    /// BOTTOM (one walk, same visibility rules — top and bottom can never disagree) feeds
+    /// <see cref="RowBottomUpMeters"/> so the use-bars stack hangs directly under the row.
     /// </summary>
-    private float WidgetBlockTopAbovePivot(Transform host, Vector3 up, float rowTopAbovePivot)
+    private void WidgetBlockEdgesAbovePivot(Transform host, Vector3 up,
+        float rowTopAbovePivot, float rowBottomAbovePivot, out float top, out float bottom)
     {
         ResolvePromptWidgets(WidgetRectScratch);
         Vector3 origin = host.position;
-        float top = float.MinValue;
+        top = float.MinValue;
+        bottom = float.MaxValue;
         for (int i = 0; i < WidgetRectScratch.Count; i++)
         {
             RectTransform w = WidgetRectScratch[i];
@@ -698,39 +728,49 @@ internal sealed class DecisionDockSurface : WorldSurface
                 Graphic gr = GraphicScratch[g];
                 if (gr == null)
                     continue;
-                float edge;
                 if (gr is TMP_Text label)
                 {
                     label.ForceMeshUpdate();
                     Bounds b = label.textBounds;
                     if (string.IsNullOrEmpty(label.text) || b.size.y <= 0.001f)
                     {
-                        edge = WorldUpTop(label.rectTransform, origin, up);
+                        top = Mathf.Max(top, WorldUpEdge(label.rectTransform, origin, up, topEdge: true));
+                        bottom = Mathf.Min(bottom, WorldUpEdge(label.rectTransform, origin, up, topEdge: false));
                     }
                     else
                     {
-                        Vector3 world = label.transform.TransformPoint(new Vector3(b.center.x, b.max.y, 0f));
-                        edge = Vector3.Dot(world - origin, up);
+                        Vector3 hi = label.transform.TransformPoint(new Vector3(b.center.x, b.max.y, 0f));
+                        Vector3 lo = label.transform.TransformPoint(new Vector3(b.center.x, b.min.y, 0f));
+                        top = Mathf.Max(top, Vector3.Dot(hi - origin, up));
+                        bottom = Mathf.Min(bottom, Vector3.Dot(lo - origin, up));
                     }
                 }
                 else
                 {
-                    edge = WorldUpTop((RectTransform)gr.transform, origin, up);
+                    var rt = (RectTransform)gr.transform;
+                    top = Mathf.Max(top, WorldUpEdge(rt, origin, up, topEdge: true));
+                    bottom = Mathf.Min(bottom, WorldUpEdge(rt, origin, up, topEdge: false));
                 }
-                top = Mathf.Max(top, edge);
             }
         }
-        return top > float.MinValue ? top : rowTopAbovePivot;
+        if (top <= float.MinValue)
+        {
+            top = rowTopAbovePivot;
+            bottom = rowBottomAbovePivot;
+        }
     }
 
-    /// <summary>Highest of a rect's four world corners projected onto <paramref name="up"/>, relative to <paramref name="origin"/>.</summary>
-    private static float WorldUpTop(RectTransform rt, Vector3 origin, Vector3 up)
+    /// <summary>Highest/lowest of a rect's four world corners projected onto <paramref name="up"/>, relative to <paramref name="origin"/>.</summary>
+    private static float WorldUpEdge(RectTransform rt, Vector3 origin, Vector3 up, bool topEdge)
     {
         rt.GetWorldCorners(CornerScratch);
-        float top = float.MinValue;
+        float edge = topEdge ? float.MinValue : float.MaxValue;
         for (int i = 0; i < 4; i++)
-            top = Mathf.Max(top, Vector3.Dot(CornerScratch[i] - origin, up));
-        return top;
+        {
+            float y = Vector3.Dot(CornerScratch[i] - origin, up);
+            edge = topEdge ? Mathf.Max(edge, y) : Mathf.Min(edge, y);
+        }
+        return edge;
     }
 
     /// <summary>
@@ -909,6 +949,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         _hmdFloatPlaced = false;
         _placementLogged = false;
         _lastLoggedGapPx = float.NaN;
+        RowBottomUpMeters = null;
         _takeDamageDumped = false; // re-emit the one-time ground-truth dump after a module re-init
         DockingTakeDamage = false;
         ModalFallback.DecisionDock.Reset(); // any grace hand-off drops with us

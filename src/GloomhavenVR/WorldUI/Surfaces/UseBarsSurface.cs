@@ -52,12 +52,36 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// seam contract says hosts pose-follow, never re-parent). While the decision dock
 /// actually holds a prompt row (<see cref="DecisionDockSurface.RowDocked"/> — both ARE
 /// live at once during take-damage: reduce-damage bonuses + OnAttacked items + the
-/// burn choice) the bar stack shifts BELOW the decision row's worst-case extent, so the
-/// two can never collide; otherwise the bars occupy the drawer zone itself. Shared tray
-/// density (× <see cref="DensityScale"/>), width-only dock fit (heights grow downward —
-/// an opening picker must grow the panel, not shrink its glyphs). No tray/mount →
-/// HMD-anchored fallback float (the ModalFallback pattern: a decision must never be
-/// invisible).
+/// burn choice) the bar stack hangs a small clearance below the decision row's MEASURED
+/// bottom edge (<see cref="DecisionDockSurface.RowBottomUpMeters"/>, deadband-latched
+/// here so the row's few-px hover breathing never wobbles the stack) — the two read as
+/// ONE connected decision area; the old worst-case ±MaxHeight/2 shift (abstand.png: the
+/// armor slot floating far below the burn choices) remains only as the fallback while
+/// no measurement exists yet. Otherwise the bars occupy the drawer zone itself. Shared
+/// tray density (× <see cref="DensityScale"/>), width-only dock fit (heights grow
+/// downward — an opening picker must grow the panel, not shrink its glyphs). No
+/// tray/mount → HMD-anchored fallback float (the ModalFallback pattern: a decision must
+/// never be invisible).
+///
+/// FIT STABILITY (the "docked symbol jumps on hover/press" fix): the game's slot widgets
+/// REACT to interaction — <c>ExtendedButton</c> scales its target rect by
+/// <c>highlightScaleFactor</c> on pointer enter, and select/press toggles
+/// <c>selectedMask</c>/<c>optionalHiglight</c>/<c>mandatoryHiglight</c>
+/// (<c>UIUseSlot.Refresh</c>). Under the unclamped degenerate fit those transients
+/// change the visible-graphics union (hardware log: 88x152 → 94x165 on hover → 94x217 px
+/// on select, oscillating), each applied re-fit resizes the host AND re-centers the
+/// target inside it, and the stack re-places from the measured rect — the symbol jumped.
+/// Time-based hysteresis cannot fix this (a hover lasts seconds and would "stabilize"
+/// into a re-fit), so the surface HOLDS the fit frozen (<c>ConvertedPanel.FitEnabled</c>
+/// off — a surface-side policy, zero shared-machinery changes) whenever the layout truth
+/// is unchanged, and re-arms it only for the states that legitimately change geometry:
+/// the post-dock settle window, an actual slot-set change (the bar container's active
+/// children — layout truth, hover scaling never touches it), and an OPEN element/option
+/// sub-picker (<c>UIElementPicker</c>/<c>UIOptionPicker.IsOpen</c> — the degenerate-fit
+/// growth that must keep working; the fit check is forced the same tick a picker opens,
+/// and stays live briefly after it closes so the damped shrink can hand the panel back).
+/// Poke presses never move the host physically (UguiPokeSurfaces writes no host
+/// transforms) — the press jump was purely this fit path.
 ///
 /// STATUS: while a docked bar carries a decision the game is WAITING on (an unselected
 /// abilities-bar slot — infusion/choose-ability; a pending MANDATORY active bonus), a
@@ -96,8 +120,18 @@ internal sealed class UseBarsSurface
     private const float MaxFitScale = 1f;
     private const float MinFitScale = 0.5f;
 
-    /// <summary>Clearance between the decision row's worst-case bottom edge and the bar stack top (tray-local m).</summary>
+    /// <summary>Clearance between the decision row's measured bottom edge and the bar stack top (tray-local m).</summary>
     private const float DecisionClearance = 0.015f;
+
+    /// <summary>
+    /// Deadband (uGUI px at row density) on the decision row's live bottom edge before the
+    /// bar stack follows it: the row's own widgets hover-scale a few px
+    /// (<c>ExtendedButton.highlightScaleFactor</c>), and without the latch that breathing
+    /// would wobble the whole bar stack. Real changes (prompt switch, live gap re-tune)
+    /// move the edge by tens of px and pass; the latch also resets whenever the row
+    /// undocks (RowBottomUpMeters goes null).
+    /// </summary>
+    private const float RowBottomDeadbandPx = 8f;
 
     /// <summary>Vertical gap between stacked bars (tray-local m).</summary>
     private const float StackGap = 0.012f;
@@ -118,16 +152,23 @@ internal sealed class UseBarsSurface
     private string? _lastHint;
     private bool _hintPushed;
 
+    // Decision-row bottom latch (see the FIT STABILITY / PLACEMENT class doc).
+    private float _rowBottomLatched;
+    private bool _rowBottomValid;
+
     internal UseBarsSurface()
     {
         // Fixed stack order, top to bottom: bonuses (turn-defining toggles first), the
         // ability/infusion pickers (the deadlock-critical answers), augments, items.
+        // The container accessor feeds the fit-stability hold: the bar's serialized slot
+        // container is the LAYOUT truth (slots are Instantiate(prefab, container)), so its
+        // active-children set changes exactly when the slot set does — never on hover.
         _docks = new[]
         {
-            new BarDock("UseBarActiveBonus", ActiveBonusRoot, ActiveBonusPopulated, this),
-            new BarDock("UseBarAbilities", AbilitiesRoot, AbilitiesPopulated, this),
-            new BarDock("UseBarAugments", AugmentsRoot, AugmentsPopulated, this),
-            new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, this),
+            new BarDock("UseBarActiveBonus", ActiveBonusRoot, ActiveBonusPopulated, ActiveBonusContainer, this),
+            new BarDock("UseBarAbilities", AbilitiesRoot, AbilitiesPopulated, AbilitiesContainer, this),
+            new BarDock("UseBarAugments", AugmentsRoot, AugmentsPopulated, AugmentsContainer, this),
+            new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, this),
         };
     }
 
@@ -149,6 +190,7 @@ internal sealed class UseBarsSurface
         ClearHint();
         _floatPlaced = false;
         _floatPlacedCount = -1;
+        _rowBottomValid = false;
     }
 
     // ---- bar detection (polled — the bars raise no window events) -------------------------
@@ -217,6 +259,24 @@ internal sealed class UseBarsSurface
         Singleton<UIUseItemsBar>.IsInitialized
             ? Singleton<UIUseItemsBar>.Instance.transform as RectTransform : null;
 
+    // ---- slot containers (layout truth for the fit-stability hold; publicized fields) ----
+
+    private static RectTransform? ActiveBonusContainer() =>
+        Singleton<UIActiveBonusBar>.IsInitialized
+            ? Singleton<UIActiveBonusBar>.Instance.container : null;
+
+    private static RectTransform? AbilitiesContainer() =>
+        Singleton<UIUseAbilitiesBar>.IsInitialized
+            ? Singleton<UIUseAbilitiesBar>.Instance.container : null;
+
+    private static RectTransform? AugmentsContainer() =>
+        Singleton<UIUseAugmentationsBar>.IsInitialized
+            ? Singleton<UIUseAugmentationsBar>.Instance.container : null;
+
+    private static RectTransform? ItemsContainer() =>
+        Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance.container : null;
+
     private static bool ItemsPopulated()
     {
         UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
@@ -280,6 +340,7 @@ internal sealed class UseBarsSurface
         {
             _floatPlaced = false;
             _floatPlacedCount = -1;
+            _rowBottomValid = false; // no stale latch across a later re-dock
             return;
         }
 
@@ -296,12 +357,39 @@ internal sealed class UseBarsSurface
         Vector3 up = mount.up;
         Vector3 toViewer = -mount.forward; // DecisionMount convention: -Z is proud of the board lip
 
-        // Stack top: below the decision row's worst-case bottom edge while a prompt row is
-        // docked (mount ±MaxHeight/2, see the PlayTray.BuildMounts collision math), else the
-        // drawer zone's own top edge.
-        float cursor = DecisionDockSurface.RowDocked
-            ? -(PlayTray.DecisionMountMaxHeight * 0.5f + DecisionClearance) * trayScale
-            : PlayTray.DecisionMountMaxHeight * 0.5f * trayScale;
+        // Stack top: while a prompt row is docked, hang the stack a small clearance below
+        // the row's MEASURED bottom edge (DecisionDockSurface.RowBottomUpMeters — the
+        // abstand.png fix: the worst-case ±MaxHeight/2 shift left a huge dead gap that
+        // visually severed the bonus slots from the burn choices); the worst-case shift
+        // remains only as the fallback until the row has measured. The live edge is
+        // deadband-latched: the row's widgets hover-scale a few px and the stack must not
+        // breathe with them (same jump family as the fit hold, see the class doc). No
+        // feedback loop: the row measures only its own subtree, never the bar hosts.
+        float cursor;
+        if (DecisionDockSurface.RowDocked)
+        {
+            float? rowBottom = DecisionDockSurface.RowBottomUpMeters;
+            if (rowBottom.HasValue)
+            {
+                float deadband = RowBottomDeadbandPx / (PlayTray.TrayPixelsPerMeter * DensityScale) * trayScale;
+                if (!_rowBottomValid || Mathf.Abs(rowBottom.Value - _rowBottomLatched) > deadband)
+                {
+                    _rowBottomLatched = rowBottom.Value;
+                    _rowBottomValid = true;
+                }
+                cursor = _rowBottomLatched - DecisionClearance * trayScale;
+            }
+            else
+            {
+                _rowBottomValid = false;
+                cursor = -(PlayTray.DecisionMountMaxHeight * 0.5f + DecisionClearance) * trayScale;
+            }
+        }
+        else
+        {
+            _rowBottomValid = false;
+            cursor = PlayTray.DecisionMountMaxHeight * 0.5f * trayScale;
+        }
 
         int index = 0;
         for (int i = 0; i < _docks.Length; i++)
@@ -461,22 +549,45 @@ internal sealed class UseBarsSurface
     /// </summary>
     private sealed class BarDock : WorldSurface
     {
+        /// <summary>Post-dock window the fit stays live (show animation + late slot pop-in settle).</summary>
+        private const float DockSettleSeconds = 1.5f;
+
+        /// <summary>Fit window after a slot-set change (new slot must be measured into the host/laser plane).</summary>
+        private const float SlotsSettleSeconds = 1.0f;
+
+        /// <summary>
+        /// Fit window after a picker CLOSES — must exceed the fit machinery's shrink damping
+        /// (FitStableSeconds 0.5 + FitRefitMinIntervalSeconds 1.5) so the panel actually
+        /// hands its picker growth back before the hold re-freezes it.
+        /// </summary>
+        private const float PickerSettleSeconds = 2.5f;
+
         private readonly System.Func<RectTransform?> _root;
         private readonly System.Func<bool> _populated;
+        private readonly System.Func<RectTransform?> _container;
         private readonly UseBarsSurface _owner;
         private bool _conflictWarned;
 
+        // Fit-stability hold state (see the FIT STABILITY class doc).
+        private float _fitLiveUntil;
+        private int _slotChildrenHash;
+        private bool _pickerWasOpen;
+
         // Docked-rect log dedup (the TrayMountedPanelSurface diagnostic, simplified).
         private static readonly Vector3[] CornerScratch = new Vector3[4];
+        private static readonly List<UIElementPicker> ElementPickerScratch = new(4);
+        private static readonly List<UIOptionPicker> OptionPickerScratch = new(4);
         private int _loggedMountId;
         private Vector2 _loggedWorldSize;
 
         internal BarDock(string name, System.Func<RectTransform?> root,
-            System.Func<bool> populated, UseBarsSurface owner)
+            System.Func<bool> populated, System.Func<RectTransform?> container,
+            UseBarsSurface owner)
         {
             Name = name;
             _root = root;
             _populated = populated;
+            _container = container;
             _owner = owner;
         }
 
@@ -493,6 +604,106 @@ internal sealed class UseBarsSurface
             base.WantConverted && !FlatScreen.ManualScreenActive && _populated();
 
         internal ConvertedPanel? Docked => Panel;
+
+        public override void Tick()
+        {
+            base.Tick(); // convert / release (level-triggered)
+            TickFitStability();
+        }
+
+        /// <summary>
+        /// FIT STABILITY (the hover/press jump fix, see the class doc): freeze the content
+        /// fit (<see cref="ConvertedPanel.FitEnabled"/> = false — a pure surface-side hold,
+        /// the shared machinery is untouched and Release restores everything as before)
+        /// whenever the docked bar's LAYOUT is unchanged, so hover scale-ups and
+        /// select-highlight toggles can no longer re-measure the union and move the panel.
+        /// The fit runs live only while geometry can legitimately change:
+        /// - until the first fit landed + a short post-dock settle (show animation),
+        /// - for a window after the slot-set changed (the container's active children —
+        ///   layout truth; a new slot must grow the host/laser plane or it would be
+        ///   laser-dead),
+        /// - while an element/option sub-picker is open (+ a close window long enough for
+        ///   the damped shrink to hand the growth back). The fit check is FORCED the tick a
+        ///   picker opens: this surface ticks before CanvasConversion.Tick, so the popup is
+        ///   covered the same frame it appears.
+        /// Held panels may keep a few px of transient size latched from the settle windows —
+        /// cosmetic only; the panel simply stops moving.
+        /// </summary>
+        private void TickFitStability()
+        {
+            ConvertedPanel? panel = Panel;
+            if (panel == null)
+                return;
+
+            float now = Time.unscaledTime;
+
+            // Layout truth: the active-children set of the bar's slot container. Hover
+            // scaling animates transforms INSIDE the slots and never flips container
+            // children, so this hash moves exactly when the slot set does.
+            RectTransform? container = _container();
+            int hash = 17;
+            if (container != null)
+            {
+                for (int i = 0; i < container.childCount; i++)
+                {
+                    Transform child = container.GetChild(i);
+                    if (child.gameObject.activeSelf)
+                        hash = hash * 31 + child.GetInstanceID();
+                }
+            }
+            if (hash != _slotChildrenHash)
+            {
+                _slotChildrenHash = hash;
+                _fitLiveUntil = Mathf.Max(_fitLiveUntil, now + SlotsSettleSeconds);
+            }
+
+            bool pickerOpen = AnyPickerOpen(panel.Target);
+            if (pickerOpen != _pickerWasOpen)
+            {
+                _pickerWasOpen = pickerOpen;
+                if (pickerOpen)
+                    panel.FitNextCheckFrame = 0; // skip the ~0.4 s periodic throttle: the popup
+                                                 // is measured/covered the same frame it opens
+                else
+                    _fitLiveUntil = Mathf.Max(_fitLiveUntil, now + PickerSettleSeconds);
+            }
+
+            bool wantFit = !panel.FitMeasuredOnce || pickerOpen || now < _fitLiveUntil;
+            if (panel.FitEnabled != wantFit)
+            {
+                panel.FitEnabled = wantFit;
+                if (wantFit)
+                    panel.FitNextCheckFrame = 0; // react THIS tick (CanvasConversion ticks after us)
+            }
+        }
+
+        /// <summary>Any embedded element/option sub-picker open in the docked subtree (their
+        /// popup content is the legitimate degenerate-fit growth case).</summary>
+        private static bool AnyPickerOpen(RectTransform? target)
+        {
+            if (target == null)
+                return false;
+            bool open = false;
+            ElementPickerScratch.Clear();
+            target.GetComponentsInChildren(includeInactive: false, ElementPickerScratch);
+            for (int i = 0; i < ElementPickerScratch.Count && !open; i++)
+            {
+                UIElementPicker p = ElementPickerScratch[i];
+                open = p != null && p.IsOpen;
+            }
+            ElementPickerScratch.Clear();
+            if (open)
+                return true;
+            OptionPickerScratch.Clear();
+            target.GetComponentsInChildren(includeInactive: false, OptionPickerScratch);
+            for (int i = 0; i < OptionPickerScratch.Count && !open; i++)
+            {
+                UIOptionPicker p = OptionPickerScratch[i];
+                open = p != null && p.IsOpen;
+            }
+            OptionPickerScratch.Clear();
+            return open;
+        }
 
         protected override RectTransform? FindTarget()
         {
@@ -528,6 +739,12 @@ internal sealed class UseBarsSurface
             // plane) grow to cover it — see the class doc. The bar root is typically a
             // fullscreen stretch rect anyway, so the union is the only honest frame.
             Panel.FitFrameDegenerate = true;
+            // Fresh dock: fit fully live through the settle window, then the stability
+            // hold freezes it (TickFitStability). Hash 0 forces one slot-set snapshot on
+            // the first tick (inside the settle window, so no extra fit churn).
+            _fitLiveUntil = Time.unscaledTime + DockSettleSeconds;
+            _slotChildrenHash = 0;
+            _pickerWasOpen = false;
             _loggedMountId = 0;
             VRLog.Info("WorldUI", $"USE BARS: '{Name}' docked on the board drawer — the game's real " +
                                   "use-slot widgets (incl. their embedded element/option sub-pickers) " +
