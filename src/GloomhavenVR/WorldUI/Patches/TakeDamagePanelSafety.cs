@@ -129,9 +129,11 @@ internal static class TakeDamagePanelSafety
     /// ones while the hit is non-lethal), recomputed after every toggle because a toggled
     /// shield can flip the lethality pruning and a prevent-damage bonus short-circuits via
     /// <c>preventAllDamage</c>. A bonus whose slot needs a manual option/element pick (its
-    /// <c>Select()</c> won't complete programmatically) is logged and left alone — the
-    /// original then refuses exactly like vanilla flat would, with the warning tooltip
-    /// surfaced by <see cref="DamageTooltipSurface"/>.
+    /// <c>Select()</c> won't complete programmatically) is logged and left alone — no longer
+    /// a residual deadlock: <see cref="Surfaces.UseBarsSurface"/> docks the populated
+    /// UIActiveBonusBar (incl. its embedded element/option sub-pickers) on the board's
+    /// drawer zone, so the player makes the pick on the REAL slot widget and confirms
+    /// again; the pick banner points them there (<c>bars_waiting_bonus</c>).
     /// </summary>
     private static void AutoUseMandatoryActiveBonuses(TakeDamagePanel p)
     {
@@ -171,7 +173,8 @@ internal static class TakeDamagePanelSafety
                         VRLog.Warn("WorldUI",
                             $"TAKE-DAMAGE SAFETY: mandatory active bonus '{name}' needs a manual " +
                             "option/element pick its slot cannot make programmatically — leaving it; " +
-                            "the game will refuse the confirm and show its mandatory-use warning.");
+                            "the game refuses the confirm until the pick is made on the bonus bar " +
+                            "docked below the board (UseBarsSurface; the pick banner points there).");
                         return;
                     }
                     VRLog.Info("WorldUI",

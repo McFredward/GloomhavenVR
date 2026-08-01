@@ -106,6 +106,13 @@ internal sealed class DecisionDockSurface : WorldSurface
     internal static DecisionDockSurface? Instance { get; private set; }
 
     /// <summary>
+    /// True while a decision prompt's widget row is ACTUALLY docked on the board.
+    /// <see cref="UseBarsSurface"/> reads this to shift its bar stack below the decision
+    /// row's zone — the two co-occur during take-damage and must never collide.
+    /// </summary>
+    internal static bool RowDocked => Instance != null && Instance.Panel != null;
+
+    /// <summary>
     /// True while THIS surface has the <c>TakeDamagePanel</c>'s widget row docked on the
     /// board (task A). The take-damage widgets carry the game's mouse-hover preview
     /// handlers (<c>OnMouseEnter*/OnMouseExit*</c> → <c>Preview*/ResetPreviewing</c>),
