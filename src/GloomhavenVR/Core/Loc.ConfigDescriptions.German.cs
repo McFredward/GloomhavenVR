@@ -2216,6 +2216,12 @@ internal static partial class Loc
                 "Zeigt dich selbst in einem Spiegel, der vor deinem Kopf schwebt, damit du deine gewählte "
                 + "Maske + Hände sehen kannst. Nur lokale kosmetische Vorschau — unabhängig vom Netzwerk, "
                 + "funktioniert auch im Einzelspieler. Umschaltbar in der VR-Einstellungstafel.",
+            ["Net/VersionGuard"] =
+                "Mod-Versionsabgleich im Mehrspieler: Spielt ein anderer MODIFIZIERTER Spieler einen anderen "
+                + "Mod-Build, erscheint ein Dialog mit der Wahl, als Flat-Spieler beizutreten (VR bleibt lokal "
+                + "an, Mod-Netzwerk für die Sitzung aus) oder die Sitzung zu verlassen. Flache Spieler ohne "
+                + "Mod lösen ihn nie aus. AUS überspringt den Dialog; unterschiedliche Builds sprechen dann "
+                + "ihr bestmöglich kompatibles Format.",
             ["Net/RemoteBoards"] =
                 "Wie viel von den Kontrollbrettern der Mitspieler du siehst: Off (nie), ActionPhaseOnly (nur "
                 + "in der Aktionsphase — während der geheimen Kartenauswahl ausgeblendet), Always (immer). Rein "

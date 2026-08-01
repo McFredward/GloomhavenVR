@@ -586,6 +586,25 @@ internal static partial class Loc
         ["current_turn"] = Pair("current turn", "am Zug"),
         ["selected"] = Pair("selected", "ausgewählt"),
 
+        // ---- multiplayer mod-version handshake (VersionGuard / VersionDialog) ----
+        // {0} = the mismatching peer's username, {1} = their version, {2} = ours (both already
+        // formatted "0.1.0 (Build N)" — or the ver_build_unknown text for pre-handshake builds).
+        ["ver_mismatch_title"] = Pair("Mod version mismatch", "Mod-Versionskonflikt"),
+        ["ver_mismatch_body"] = Pair(
+            "{0} is running GloomhavenVR {1} — you are running {2}.\n\n"
+            + "VR sync between different mod builds stays off. \"Join as flat player\" keeps you "
+            + "in the session and in VR, with the mod's networking disabled for this session "
+            + "(the normal multiplayer game is unaffected). \"Cancel\" leaves the session.",
+            "{0} spielt GloomhavenVR {1} — du spielst {2}.\n\n"
+            + "Der VR-Abgleich zwischen unterschiedlichen Mod-Builds bleibt aus. \"Als "
+            + "Flat-Spieler joinen\" lässt dich in der Sitzung und in VR, das Mod-Netzwerk ist "
+            + "für diese Sitzung deaktiviert (das normale Mehrspieler-Spiel läuft unverändert). "
+            + "\"Abbrechen\" verlässt die Sitzung."),
+        ["ver_join_flat"] = Pair("Join as flat player", "Als Flat-Spieler joinen"),
+        ["ver_cancel"] = Pair("Cancel", "Abbrechen"),
+        ["ver_build_unknown"] = Pair("an older build (before version negotiation)",
+                                     "einen älteren Build (vor dem Versionsabgleich)"),
+
         // ---- FlatScreen desktop splash ----
         ["starting_desktop"] = Pair("starting… (intro plays on the desktop)",
                                     "startet… (Intro läuft auf dem Desktop)"),

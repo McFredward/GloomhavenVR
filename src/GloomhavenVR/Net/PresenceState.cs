@@ -139,6 +139,24 @@ internal struct PresenceState
     public byte GhostSidesMask;
 
     /// <summary>
+    /// True when this packet carries the sender's MOD VERSION in the extension tail
+    /// (<see cref="NetProtocol.ExtIdModVersion"/>). Every peer on a build that HAS the
+    /// handshake sends it on every extras packet; false therefore means "this peer's build
+    /// predates the version handshake" and the receiver treats it as <c>ModBuild 0</c> —
+    /// which is a MISMATCH by definition (see <see cref="NetProtocol.ModBuild"/>).
+    /// </summary>
+    public bool HasModVersion;
+
+    /// <summary>The sender's <see cref="NetProtocol.ModBuild"/> — the monotonic comparison key
+    /// of the version handshake (meaningful only when <see cref="HasModVersion"/>).</summary>
+    public ushort ModBuild;
+
+    /// <summary>The sender's human-readable version tag (their <c>MyPluginInfo.PLUGIN_VERSION</c>;
+    /// display only, never compared). Null/empty when absent. Capped on both ends at
+    /// <see cref="NetProtocol.ModVersionTextMaxBytes"/> UTF8 bytes.</summary>
+    public string? ModVersionText;
+
+    /// <summary>
     /// The sender's chosen CONTROL-BOARD STYLE (<c>Cards.ControlBoard</c> id: 0 Oak / 1 Steel /
     /// 2 Bronze), carried in trailing-block byte A bits 5..6 — see
     /// <see cref="NetProtocol.PileBrowseBoardStyleShift"/>. NO extra byte and no presence flag: 0
@@ -176,6 +194,10 @@ internal struct PresenceState
 ///                             bit7 reserved (0)
 ///     if kindFlags bit4: byte maskSizeCode (size × 100 ⇒ 0.25×..2.55×)  → 1 byte  (ADDITIVE,
 ///                        INSIDE the block — this is the reserved-bit extension path)
+///     if kindFlags bit7: EXTENSION TAIL [count]([id][len][payload])* — current record ids:
+///                        1 hand scale (1 B), 2 ghost sides (1 B),
+///                        3 MOD VERSION ([u16 build LE][UTF8 display ≤ 20 B] — sent on EVERY
+///                        packet; its absence marks a pre-handshake peer, see NetProtocol.ModBuild)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -205,9 +227,11 @@ internal struct PresenceState
 internal static class PresenceSerializer
 {
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
-    /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39, rounded up
-    /// to 44 for headroom — plus the extension tail (1 count byte + 3 per record), so 64.</summary>
-    public const int MaxSize = 64;
+    /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
+    /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
+    /// (mod version, the largest record) = 70, rounded up to 96 for headroom. Local buffer
+    /// bound only — nothing on the wire depends on it.</summary>
+    public const int MaxSize = 96;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -235,7 +259,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.HasHandScale || state.HasGhostSides;
+        bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion;
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -314,10 +338,88 @@ internal static class PresenceSerializer
                     buffer[i++] = state.GhostSidesMask;
                     records++;
                 }
+                if (state.HasModVersion)
+                {
+                    // MOD VERSION: [u16 build LE][UTF8 display bytes]. Sent on EVERY packet (unlike
+                    // the "only when non-default" records above) because its absence IS the signal:
+                    // a modded peer whose extras never carry this record predates the handshake and
+                    // reads as ModBuild 0 = mismatch. The display bytes come pre-encoded + capped
+                    // (EncodeModVersionText) so this hot path stays allocation-free.
+                    byte[] text = state.ModVersionText == null
+                        ? System.Array.Empty<byte>()
+                        : EncodeModVersionText(state.ModVersionText);
+                    buffer[i++] = NetProtocol.ExtIdModVersion;
+                    buffer[i++] = (byte)(2 + text.Length);
+                    buffer[i++] = (byte)(state.ModBuild & 0xFF);
+                    buffer[i++] = (byte)(state.ModBuild >> 8);
+                    for (int b = 0; b < text.Length; b++)
+                        buffer[i++] = text[b];
+                    records++;
+                }
                 buffer[countAt] = records;
             }
         }
         return i;
+    }
+
+    // ---- mod-version text (en/de)coding caches ------------------------------------------
+    // The version string is CONSTANT for a given sender, but the record rides every 5 Hz
+    // extras packet — a naive Encoding.UTF8 call would allocate per packet on both ends of a
+    // serializer whose header promises "allocation-free". One-entry caches fix that: the
+    // sender always encodes the same string (one alloc per process), and a receiver decodes
+    // a given byte run once and then recognises it (peers on the SAME build — the only case
+    // without a mismatch dialog — share one entry; a transient mixed-version lobby costs a
+    // few small allocs while the dialog is already on its way up).
+
+    private static string? _encCachedText;
+    private static byte[] _encCachedBytes = System.Array.Empty<byte>();
+
+    /// <summary>UTF8-encode a version display string, capped at
+    /// <see cref="NetProtocol.ModVersionTextMaxBytes"/> bytes (cap applied on whole chars via
+    /// truncation-retry so no split surrogate ships). Cached on the last input.</summary>
+    internal static byte[] EncodeModVersionText(string text)
+    {
+        if (ReferenceEquals(text, _encCachedText) || text == _encCachedText)
+            return _encCachedBytes;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        while (bytes.Length > NetProtocol.ModVersionTextMaxBytes)
+        {
+            // Rare path (a runaway string): shorten by chars until the byte cap holds.
+            text = text.Substring(0, text.Length - 1);
+            bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        }
+        _encCachedText = text;
+        _encCachedBytes = bytes;
+        return bytes;
+    }
+
+    private static byte[] _decCachedBytes = System.Array.Empty<byte>();
+    private static string _decCachedText = string.Empty;
+
+    /// <summary>Decode a version display byte run (cached on the last input; see above).</summary>
+    private static string DecodeModVersionText(byte[] buffer, int offset, int count)
+    {
+        if (count <= 0)
+            return string.Empty;
+        if (count == _decCachedBytes.Length)
+        {
+            bool same = true;
+            for (int b = 0; b < count; b++)
+            {
+                if (buffer[offset + b] != _decCachedBytes[b])
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+                return _decCachedText;
+        }
+        var copy = new byte[count];
+        System.Buffer.BlockCopy(buffer, offset, copy, 0, count);
+        _decCachedBytes = copy;
+        _decCachedText = System.Text.Encoding.UTF8.GetString(copy);
+        return _decCachedText;
     }
 
     // ---- read ---------------------------------------------------------------------------
@@ -437,6 +539,16 @@ internal static class PresenceSerializer
                     {
                         state.HasGhostSides = true;
                         state.GhostSidesMask = buffer[i];
+                    }
+                    else if (id == NetProtocol.ExtIdModVersion && len >= 2)
+                    {
+                        // MOD VERSION: [u16 build LE][UTF8 display bytes]. The display length is
+                        // re-clamped on OUR side (never trust the wire) — a hostile/corrupt length
+                        // is already bounds-checked above, this only caps what we turn into text.
+                        state.HasModVersion = true;
+                        state.ModBuild = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+                        int textLen = System.Math.Min(len - 2, NetProtocol.ModVersionTextMaxBytes);
+                        state.ModVersionText = DecodeModVersionText(buffer, i + 2, textLen);
                     }
                     i += len; // known or not, the record's own length is how we move past it
                 }

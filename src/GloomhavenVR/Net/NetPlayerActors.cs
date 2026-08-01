@@ -131,6 +131,21 @@ internal static class NetPlayerActors
     }
 
     /// <summary>
+    /// The PlayerID of an already-obtained <c>NetworkPlayer</c> handled as <see cref="object"/>
+    /// (the Bolt-derived type is never referenced — class doc). 0 when null/disabled/unreadable.
+    /// Used by <see cref="PlayerBadges"/>, which walks game UI rows whose player fields it can
+    /// only read reflectively for the same reason.
+    /// </summary>
+    public static int PlayerIdOf(object? networkPlayer)
+    {
+        EnsureInit();
+        if (_disabled || networkPlayer == null)
+            return 0;
+        try { return _playerId!.GetValue(networkPlayer) is int id ? id : 0; }
+        catch { return 0; }
+    }
+
+    /// <summary>
     /// Index of the LOCAL player among the current participants, sorted ascending by PlayerID,
     /// with <paramref name="total"/> = participant count. Deterministic across clients so the
     /// spawn circle gives each player a distinct azimuth. Returns (0, total 1) when offline /
