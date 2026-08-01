@@ -987,6 +987,17 @@ internal sealed partial class CardsDriver
     private ItemsPile.ItemChip? _itemChipHover;
     private VRHand? _itemChipHoverHand;
 
+    /// <summary>Pull-jerk grace for the ITEM fan (user round 2 — the trigger pull that was meant
+    /// to take a chip landed behind the fan): the chip the beam last hovered plus the unscaled
+    /// deadline until which it still owns a trigger whose ray slipped off the chip strip. The
+    /// exact T2 mechanism the ability fan already carries (<see cref="_laserHoverGraceUntil"/>);
+    /// the item fan only had the per-frame sticky pick, so the pull-jerk frame plucked NOTHING
+    /// and fell through to the click-away dismiss (fan closed) while RayUguiDriver — before this
+    /// fix's occluder hold — pressed the panel behind. Survives <see cref="ClearItemFanHover"/>
+    /// on purpose: the hover is gone the moment the beam slips, the promise is not.</summary>
+    private ItemsPile.ItemChip? _itemChipGraceChip;
+    private float _itemChipGraceUntil;
+
     /// <summary>
     /// Laser path for the OPEN item fan — the item twin of <see cref="UpdateBrowseLaser"/>: same
     /// priority slot (yields to the fan/board/tray/browse hovers above it), same geometric pick
@@ -1019,6 +1030,32 @@ internal sealed partial class CardsDriver
             || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
         {
             ClearItemFanHover();
+            // T2 pull-jerk grace, item-fan edition (user round 2): the trigger pull jerks the
+            // aim ray off the narrow chip strip on the very press frame, so this miss branch is
+            // exactly where a "take the card" pull used to land — and it then CLOSED the fan
+            // via the click-away below instead of taking the promised chip. For a short window
+            // after a genuine hover, the last-hovered chip still owns the trigger: claim the
+            // frame (SuppressFarClick — no fabricated beam point, same reasoning as the ability
+            // fan's rescue) and pluck exactly that chip. Yields to a live game-UI hit like
+            // every rescue (with the occluder hold in RayInteractor, a panel BEHIND the fan can
+            // never be that hit — only genuinely nearer UI is).
+            if (!dom.RayUgui.HasHit && _itemChipGraceChip != null
+                && Time.unscaledTime <= _itemChipGraceUntil
+                && _itemChipGraceChip.Holder == null
+                && _itemChipGraceChip.gameObject.activeInHierarchy)
+            {
+                dom.Ray.SuppressFarClick();
+                if (dom.TriggerDown)
+                {
+                    ItemsPile.ItemChip rescue = _itemChipGraceChip;
+                    _itemChipGraceChip = null;
+                    VRLog.Info("Cards", "Item fan: pull-jerk grace pluck — the trigger came down with the " +
+                                        $"beam just off the hovered chip; taking '{rescue.name}' instead of " +
+                                        "dismissing the fan (what was lifted is what gets grabbed).");
+                    rescue.OnPoke(dom); // pluck into the hand (ForceGrab, released on trigger-up)
+                }
+                return;
+            }
             // Requirement 4 click-away dismiss (moved here from UpdateBoardLaser's empty-hit
             // branch when the chips left its scan): a trigger that misses every chip — and, by
             // the yield guard above, every fan/board/tray/browse target — closes the item fan
@@ -1035,12 +1072,18 @@ internal sealed partial class CardsDriver
             _itemChipHoverHand = dom;
             chip.OnPokeEnter(dom); // pop + hover haptic (debounced: only on chip change)
         }
+        // Refresh the pull-jerk grace on every hovered frame (see _itemChipGraceChip): if the
+        // trigger comes down within FanHoverGraceSeconds of the beam slipping off THIS chip,
+        // the miss branch above plucks it instead of click-away-closing the fan.
+        _itemChipGraceChip = chip;
+        _itemChipGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
 
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
         if (dom.TriggerDown)
         {
             ItemsPile.ItemChip pluck = chip;
             ClearItemFanHover();
+            _itemChipGraceChip = null; // the promise is honoured — no stale grace after the pluck
             pluck.OnPoke(dom); // pluck into the hand (ForceGrab, released on trigger-up)
         }
     }

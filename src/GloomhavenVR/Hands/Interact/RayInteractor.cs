@@ -112,8 +112,25 @@ internal sealed class RayInteractor : IPickProvider
     /// selected things visible THROUGH the fan — hex tiles, a floated window's grab bar).
     /// The fan's OWN card interactions are unaffected — they route through CardsDriver's
     /// independent fan raycast, never this physics pick.
+    ///
+    /// STICKY (pull-jerk hold, see Tick): for <see cref="FanOccluderGraceSeconds"/> after the
+    /// ray leaves the fan the value holds at its last live distance instead of snapping to
+    /// +inf, so the trigger-pull jerk cannot open a one-frame window in which the panel
+    /// behind the fan becomes hoverable/pressable. <see cref="FanOccluderHeld"/> tells the
+    /// suppression logs apart from a live geometric hit.
     /// </summary>
     public float FanOccluderDistance { get; private set; } = float.PositiveInfinity;
+
+    /// <summary>True while <see cref="FanOccluderDistance"/> is the post-fan pull-jerk HOLD
+    /// (grace window) rather than a live fan-card intersection this frame.</summary>
+    public bool FanOccluderHeld { get; private set; }
+
+    /// <summary>How long (s, unscaled) the fan occluder holds after the beam leaves the fan —
+    /// mirrors <c>CardsDriver.FanHoverGraceSeconds</c>: both bridge the same trigger-pull jerk.</summary>
+    private const float FanOccluderGraceSeconds = 0.15f;
+
+    private float _fanOccluderHeldDistance = float.PositiveInfinity;
+    private float _fanOccluderHoldUntil;
 
     // Constant ANGULAR size for the ray visuals (P6, hardware test #8): the reticle
     // used to scale with the rig's WorldScale — zooming the diorama out grew the dot
@@ -231,6 +248,11 @@ internal sealed class RayInteractor : IPickProvider
         {
             _current.HasHit = false;
             FanOccluderDistance = float.PositiveInfinity;
+            // State hygiene: the hold is meaningless across an inactive gap (grabbing the
+            // plucked card is exactly what turns the ray off) — never let a stale hold from
+            // before a grab suppress UI after the release.
+            _fanOccluderHoldUntil = 0f;
+            FanOccluderHeld = false;
             return;
         }
 
@@ -268,7 +290,39 @@ internal sealed class RayInteractor : IPickProvider
         // the two far drivers (RayUgui, RayGrab) reject any target that sits BEHIND it. +inf
         // when the fan is closed or the ray misses it, so pointing over/around the fan (or
         // with no fan raised) never blocks.
-        FanOccluderDistance = ComputeFanOccluder(origin, direction, maxDistance);
+        //
+        // PULL-JERK HOLD (user round 2: the item-fan TRIGGER still pressed the initiative
+        // portraits behind the fan). The per-frame geometric test above is exact but has zero
+        // memory, and the trigger PULL itself jerks the aim ray (the documented fan-grab T2
+        // mechanism, CardsDriver.FanHoverGraceSeconds): on the very TriggerDown frame the beam
+        // often slips off the narrow card strip — through a chip gap or past the fan edge —
+        // so the occluder read +inf for exactly that frame and RayUguiDriver (which ticks
+        // BEFORE the Cards fan paths, see VRHand.UpdateBody.interactors) delivered a fresh
+        // hover + pointer-down to the converted panel behind the fan in the same frame. The
+        // fix is at this single arbitration seam every consumer already honours: after the ray
+        // leaves the fan, the occluder HOLDS its last live distance for a short grace window,
+        // so a press born of the pull jerk is consumed by the fan side, never by uGUI/board
+        // behind it. Deliberately mirrors FanHoverGraceSeconds (long enough to bridge the
+        // jerk, short enough that deliberately pointing away frees the UI near-instantly);
+        // nearer panels still win — the hold is a distance, not a blanket veto.
+        float liveFan = ComputeFanOccluder(origin, direction, maxDistance);
+        if (!float.IsPositiveInfinity(liveFan))
+        {
+            _fanOccluderHeldDistance = liveFan;
+            _fanOccluderHoldUntil = Time.unscaledTime + FanOccluderGraceSeconds;
+            FanOccluderHeld = false;
+            FanOccluderDistance = liveFan;
+        }
+        else if (Time.unscaledTime <= _fanOccluderHoldUntil)
+        {
+            FanOccluderHeld = true;
+            FanOccluderDistance = _fanOccluderHeldDistance;
+        }
+        else
+        {
+            FanOccluderHeld = false;
+            FanOccluderDistance = float.PositiveInfinity;
+        }
 
         // Modal input-block (menu open): while a modal window floats
         // (ModalFallback.WindowModalActive) or we are in ModalUI, the ray PICK must not hit
@@ -592,6 +646,13 @@ internal sealed class RayInteractor : IPickProvider
     /// Taking the min over all three fans closes that gap at the single arbitration seam every
     /// consumer (board physics pick above, RayUguiDriver, RayGrabDriver) already honours:
     /// "the closer game UI wins", in BOTH directions, for every fan alike.
+    ///
+    /// ANCHORING COVERAGE (user round 2 verification): <c>ItemsPile.TryLaserRaycast</c> gates on
+    /// <c>IsOpen</c> + live chip transforms only — it covers the item fan in EVERY open state
+    /// alike (board-anchored poke-toggle wall, palm-held FLOATING fan, head-relative fallback,
+    /// and the demand/surrender re-raised fan), so "the floating fan is invisible to the
+    /// occluder" is ruled out; the round-2 leak was temporal (the pull-jerk hold above), not
+    /// spatial.
     /// </summary>
     private static float ComputeFanOccluder(Vector3 origin, Vector3 direction, float maxDistance)
     {
@@ -641,7 +702,8 @@ internal sealed class RayInteractor : IPickProvider
             return;
         s_nextFanOcclusionLogAt = Time.unscaledTime + 1f;
         Core.VRLog.Info("Hands", $"{_hand.Side} ray occluded by the raised card fan — blocked {blockedTarget} " +
-                                 $"(sits {targetDistance:F2} m out, behind a fan card at {FanOccluderDistance:F2} m).");
+                                 $"(sits {targetDistance:F2} m out, behind a fan card at {FanOccluderDistance:F2} m" +
+                                 $"{(FanOccluderHeld ? ", pull-jerk HOLD — beam just left the fan" : "")}).");
     }
 
     internal void DestroyVisuals()

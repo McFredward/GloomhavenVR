@@ -131,12 +131,17 @@ internal sealed class RayUguiDriver
 
         // Fan occlusion (user issue): the off-hand's raised card fan blocks a UI hit BEHIND
         // it — the laser must not click a floated window/panel visible THROUGH the hand of
-        // cards. Mirrors the physics rule using the ray's precomputed nearest fan-card distance.
+        // cards. Mirrors the physics rule using the ray's precomputed nearest fan-card
+        // distance — which HOLDS for a short grace after the beam leaves the fan (the
+        // trigger-pull jerk, see RayInteractor.FanOccluderDistance), so a press born mid-pull
+        // can never sneak a hover + pointer-down onto the panel for its one off-fan frame.
+        Canvas? fanOccluded = null;
         if (best != null && _hand.Ray.FanOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
             if (RayInteractor.WantFanOcclusionNote)
                 _hand.Ray.NoteFanOcclusion($"uGUI panel '{best.name}'", bestDist);
+            fanOccluded = best;
             best = null;
         }
 
@@ -150,6 +155,18 @@ internal sealed class RayUguiDriver
         {
             HasHit = false;
             HitDistance = float.PositiveInfinity;
+            // Press-ownership evidence (user round 2, item fan vs initiative portraits): a
+            // TRIGGER press this frame that would have gone to a panel BEHIND the fan is fully
+            // consumed here — no hover was raised above, and without a press no pointer-up/
+            // click can follow on release. Info (not Debug) on purpose: BepInEx's default disk
+            // config drops Debug, and this line is the attribution the next hardware log needs.
+            // Unthrottled but edge-only (one line per suppressed press, not per frame).
+            if (fanOccluded != null && _hand.TriggerDown)
+                Core.VRLog.Info("Interact", $"{_hand.Side} trigger PRESS on uGUI panel '{fanOccluded.name}' " +
+                                            "SUPPRESSED — the raised card fan owns this press " +
+                                            $"(fan at {_hand.Ray.FanOccluderDistance:F2} m" +
+                                            $"{(_hand.Ray.FanOccluderHeld ? ", pull-jerk hold" : "")}); " +
+                                            "no pointer-down/click reaches the panel behind the fan.");
             return;
         }
 
